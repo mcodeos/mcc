@@ -3361,10 +3361,21 @@ fn resolve_bind_role(
 /// resolve in its own scope (a library port row, a dangling declaration) and a
 /// reference whose class cannot be resolved — the role of those is supplied by
 /// an ancestor world / port contract (iron rule 1 §6).
-pub(crate) fn check_exposed_clamp_coverage(table: &InstTable, results: &mut Vec<NetCheckResult>) {
-    let idx = crate::instant::island::NetIslandIndex::build(table);
-    let (ref_names, clamp_refs) = clamp_declaration_plane(table);
-
+/// Every site that declares a transient boundary, in flat terms: `(host path,
+/// host entry id, declared levels)`.
+///
+/// The language has two hosts for one declaration (exposed-protection-design
+/// §2): a module port row (`io USB_DP @exposed(esd_contact)`) and a component
+/// pin row (`io 3 = D+ @exposed(esd_contact)`). Both spellings are the same
+/// word on the same kind of declaration, so PWR-6's two halves read **this one
+/// list** — a half that gathered its own hosts would be a second predicate,
+/// and the two would drift.
+///
+/// The port host is resolved by canonical path (never by splitting a path back
+/// into names); the pin host is the flat entry itself, whose `exposed` carry
+/// was decoded at flatten time from the row. Hosts are yielded in table order.
+pub(crate) fn exposed_hosts(table: &InstTable) -> Vec<(String, u32, Vec<String>)> {
+    let mut out = Vec::new();
     for (id, pi) in table.power_decls() {
         let Some(m) = table.get_entry(*id) else {
             continue;
@@ -3376,43 +3387,56 @@ pub(crate) fn check_exposed_clamp_coverage(table: &InstTable, results: &mut Vec<
             if p.exposed.is_empty() {
                 continue;
             }
-            // The port instance of this scope, by its canonical path — never by
-            // splitting a path string back into names.
-            let port_path = format!("{}.{}", m.path, p.name);
-            let Some(pid) = table.get_id_by_path(&port_path) else {
+            let host_path = format!("{}.{}", m.path, p.name);
+            let Some(pid) = table.get_id_by_path(&host_path) else {
                 continue;
             };
-            let segs: Vec<&NetEntry> = table
-                .nets_of(pid)
-                .iter()
-                .filter_map(|n| table.get_net(*n))
-                .collect();
-            if segs.is_empty() {
-                continue; // no resolvable segment — not adjudicated
-            }
-            if segs
-                .iter()
-                .any(|s| segment_is_clamped(table, &idx, s, &ref_names, &clamp_refs))
-            {
-                continue;
-            }
-            let (pos, uri) = table
-                .get_entry(pid)
-                .map(entry_pos)
-                .unwrap_or((0, String::new()));
-            results.push(NetCheckResult {
-                check: "exposed-net-no-clamp",
-                severity: "error",
-                message: crate::errcodes::format_msg(
-                    crate::errcodes::EXPOSED_NET_NO_CLAMP,
-                    &[&port_path, &p.exposed.join(","), &segs[0].name],
-                ),
-                net_name: segs[0].name.clone(),
-                code: crate::errcodes::EXPOSED_NET_NO_CLAMP,
-                pos,
-                uri,
-            });
+            out.push((host_path, pid, p.exposed.clone()));
         }
+    }
+    for (_, e) in table.iter() {
+        if matches!(e.kind, InstKind::Pin) && !e.exposed.is_empty() {
+            out.push((e.path.clone(), e.id, e.exposed.clone()));
+        }
+    }
+    out
+}
+
+pub(crate) fn check_exposed_clamp_coverage(table: &InstTable, results: &mut Vec<NetCheckResult>) {
+    let idx = crate::instant::island::NetIslandIndex::build(table);
+    let (ref_names, clamp_refs) = clamp_declaration_plane(table);
+
+    for (host_path, pid, levels) in exposed_hosts(table) {
+        let segs: Vec<&NetEntry> = table
+            .nets_of(pid)
+            .iter()
+            .filter_map(|n| table.get_net(*n))
+            .collect();
+        if segs.is_empty() {
+            continue; // no resolvable segment — not adjudicated
+        }
+        if segs
+            .iter()
+            .any(|s| segment_is_clamped(table, &idx, s, &ref_names, &clamp_refs))
+        {
+            continue;
+        }
+        let (pos, uri) = table
+            .get_entry(pid)
+            .map(entry_pos)
+            .unwrap_or((0, String::new()));
+        results.push(NetCheckResult {
+            check: "exposed-net-no-clamp",
+            severity: "error",
+            message: crate::errcodes::format_msg(
+                crate::errcodes::EXPOSED_NET_NO_CLAMP,
+                &[&host_path, &levels.join(","), &segs[0].name],
+            ),
+            net_name: segs[0].name.clone(),
+            code: crate::errcodes::EXPOSED_NET_NO_CLAMP,
+            pos,
+            uri,
+        });
     }
 }
 
@@ -3645,110 +3669,96 @@ pub(crate) fn check_exposed_clamp_downstream(table: &InstTable, results: &mut Ve
         .collect();
     let (ref_names, clamp_refs) = clamp_declaration_plane(table);
 
-    for (id, pi) in table.power_decls() {
-        let Some(m) = table.get_entry(*id) else {
+    for (host_path, pid, levels) in exposed_hosts(table) {
+        let segs: Vec<&NetEntry> = table
+            .nets_of(pid)
+            .iter()
+            .filter_map(|n| table.get_net(*n))
+            .collect();
+        if segs.is_empty() {
+            continue; // no resolvable segment — not adjudicated
+        }
+
+        // 6031's half owns the uncovered case. An exposed net carrying no
+        // clamp at all is that rule's verdict alone — one defect, one code
+        // (§3.1.4's "S unclamped means 6031 alone", the same one-cause-one-
+        // code law as rulings 8/11) — so the downstream half judges only
+        // ports whose own copper a clamp already covers. The read is 6031's
+        // own predicate, not a second one.
+        if !segs
+            .iter()
+            .any(|s| segment_is_clamped(table, &idx, s, &ref_names, &clamp_refs))
+        {
+            continue;
+        }
+        // The flood: a declared gate stops it, and nothing else does. An
+        // unmarked two-terminal pass is ordinary copper.
+        let transparent = |cid: u32| {
+            let Some(entry) = table.get_entry(cid) else {
+                return false;
+            };
+            if entry.protection == Some(crate::instant::insttab::ProtectionKind::Series) {
+                return false; // a declared current-limit chain — stop here
+            }
+            defs.get(&entry.class_name)
+                .is_some_and(|d| d.pins.pwr.is_empty())
+        };
+        // The host's own copper is the region's seed, not its object: a
+        // second segment of the same declaration row is never "downstream".
+        let own: HashSet<u32> = segs.iter().map(|s| s.id).collect();
+        let mut region: Vec<u32> = Vec::new();
+        let mut seen: HashSet<u32> = HashSet::new();
+        for s in &segs {
+            copper_region_into(table, &idx, &transparent, s.id, &mut seen, &mut region);
+        }
+        let mut hit: Option<(u32, String)> = None;
+        for &n in &region {
+            if own.contains(&n) {
+                continue;
+            }
+            let Some(net) = table.get_net(n) else {
+                continue;
+            };
+            let Some(attr) = idx.get(n) else {
+                continue;
+            };
+            let Some(layer) = attr.module else {
+                continue;
+            };
+            let Some(cls) = eff_class(table, &idx, attr, &mut Vec::new()) else {
+                continue;
+            };
+            let Some(world) = faces.quiet_world(table, layer, &cls.worlds) else {
+                continue; // not a quiet/sensitive face — no object
+            };
+            if segment_is_clamped(table, &idx, net, &ref_names, &clamp_refs) {
+                continue; // this net is protected on its own account
+            }
+            hit = Some((n, world));
+            break;
+        }
+        let Some((n, world)) = hit else {
             continue;
         };
-        if !matches!(m.kind, InstKind::Module) {
+        let Some(downstream) = table.get_net(n).map(|net| net.name.clone()) else {
             continue;
-        }
-        for p in pi.l1_ports() {
-            if p.exposed.is_empty() {
-                continue;
-            }
-            let port_path = format!("{}.{}", m.path, p.name);
-            let Some(pid) = table.get_id_by_path(&port_path) else {
-                continue;
-            };
-            let segs: Vec<&NetEntry> = table
-                .nets_of(pid)
-                .iter()
-                .filter_map(|n| table.get_net(*n))
-                .collect();
-            if segs.is_empty() {
-                continue; // no resolvable segment — not adjudicated
-            }
-            // 6031's half owns the uncovered case. An exposed net carrying no
-            // clamp at all is that rule's verdict alone — one defect, one code
-            // (§3.1.4's "S unclamped means 6031 alone", the same one-cause-one-
-            // code law as rulings 8/11) — so the downstream half judges only
-            // ports whose own copper a clamp already covers. The read is 6031's
-            // own predicate, not a second one.
-            if !segs
-                .iter()
-                .any(|s| segment_is_clamped(table, &idx, s, &ref_names, &clamp_refs))
-            {
-                continue;
-            }
-            // The flood: a declared gate stops it, and nothing else does. An
-            // unmarked two-terminal pass is ordinary copper.
-            let transparent = |cid: u32| {
-                let Some(entry) = table.get_entry(cid) else {
-                    return false;
-                };
-                if entry.protection == Some(crate::instant::insttab::ProtectionKind::Series) {
-                    return false; // a declared current-limit chain — stop here
-                }
-                defs.get(&entry.class_name)
-                    .is_some_and(|d| d.pins.pwr.is_empty())
-            };
-            // The port's own copper is the region's seed, not its object: a
-            // second segment of the same port row is never "downstream".
-            let own: HashSet<u32> = segs.iter().map(|s| s.id).collect();
-            let mut region: Vec<u32> = Vec::new();
-            let mut seen: HashSet<u32> = HashSet::new();
-            for s in &segs {
-                copper_region_into(table, &idx, &transparent, s.id, &mut seen, &mut region);
-            }
-            let mut hit: Option<(u32, String)> = None;
-            for &n in &region {
-                if own.contains(&n) {
-                    continue;
-                }
-                let Some(net) = table.get_net(n) else {
-                    continue;
-                };
-                let Some(attr) = idx.get(n) else {
-                    continue;
-                };
-                let Some(layer) = attr.module else {
-                    continue;
-                };
-                let Some(cls) = eff_class(table, &idx, attr, &mut Vec::new()) else {
-                    continue;
-                };
-                let Some(world) = faces.quiet_world(table, layer, &cls.worlds) else {
-                    continue; // not a quiet/sensitive face — no object
-                };
-                if segment_is_clamped(table, &idx, net, &ref_names, &clamp_refs) {
-                    continue; // this net is protected on its own account
-                }
-                hit = Some((n, world));
-                break;
-            }
-            let Some((n, world)) = hit else {
-                continue;
-            };
-            let Some(downstream) = table.get_net(n).map(|net| net.name.clone()) else {
-                continue;
-            };
-            let (pos, uri) = table
-                .get_entry(pid)
-                .map(entry_pos)
-                .unwrap_or((0, String::new()));
-            results.push(NetCheckResult {
-                check: "exposed-net-downstream-unprotected",
-                severity: "error",
-                message: crate::errcodes::format_msg(
-                    crate::errcodes::EXPOSED_NET_DOWNSTREAM_UNPROTECTED,
-                    &[&port_path, &p.exposed.join(","), &downstream, &world],
-                ),
-                net_name: downstream,
-                code: crate::errcodes::EXPOSED_NET_DOWNSTREAM_UNPROTECTED,
-                pos,
-                uri,
-            });
-        }
+        };
+        let (pos, uri) = table
+            .get_entry(pid)
+            .map(entry_pos)
+            .unwrap_or((0, String::new()));
+        results.push(NetCheckResult {
+            check: "exposed-net-downstream-unprotected",
+            severity: "error",
+            message: crate::errcodes::format_msg(
+                crate::errcodes::EXPOSED_NET_DOWNSTREAM_UNPROTECTED,
+                &[&host_path, &levels.join(","), &downstream, &world],
+            ),
+            net_name: downstream,
+            code: crate::errcodes::EXPOSED_NET_DOWNSTREAM_UNPROTECTED,
+            pos,
+            uri,
+        });
     }
 }
 
