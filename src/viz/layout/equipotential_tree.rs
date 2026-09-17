@@ -2768,12 +2768,7 @@ fn final_box_bottom(
 /// across their bodies with their far pins below it: the tap to the ground bus
 /// then ran back UP through the part (A7). Counting every band row puts the rail
 /// on those pins instead.
-fn south_rail_base(
-    n: usize,
-    net_band: &[Option<usize>],
-    band_y: &[f64],
-    box_bottom: f64,
-) -> f64 {
+fn south_rail_base(n: usize, net_band: &[Option<usize>], band_y: &[f64], box_bottom: f64) -> f64 {
     let lowest_row = (0..n)
         .filter_map(|i| net_band[i].map(|b| band_y[b]))
         .fold(box_bottom, f64::max);
@@ -5573,10 +5568,8 @@ pub(crate) fn realize(
             // edge with a runner just OUTSIDE the box, then hang the glyph off
             // THAT runner (hanging it off a pin would throw its stub back along
             // the box border — A18).
-            let mut ordered: Vec<(f64, f64)> = anchor_pins
-                .iter()
-                .map(|&(px, py, _)| (px, py))
-                .collect();
+            let mut ordered: Vec<(f64, f64)> =
+                anchor_pins.iter().map(|&(px, py, _)| (px, py)).collect();
             ordered.sort_by(|a, b| a.1.total_cmp(&b.1).then(a.0.total_cmp(&b.0)));
             let (abx, aby, abw, abh) = anchor_box_rect(graph, topo.anchor);
             // `runner` = the point on the connecting wire the glyph hangs from.

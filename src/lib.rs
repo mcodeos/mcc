@@ -949,19 +949,21 @@ pub fn dump_symbols_f12_text(uri: &McURI) -> Option<String> {
             )
         })
         .collect();
-    declares.sort_by(|(file, scope, name, loc, _), (file2, scope2, name2, loc2, _)| {
-        // Total order: many declares share one byte range (square-vec members,
-        // dot-scoped chain members all anchored at the same pin), and the
-        // backing map is a HashMap, so equal-range rows need deterministic
-        // scope/name tie-breakers or the dump shuffles across runs.
-        (file, loc.byte_start, loc.byte_end, *scope, *name).cmp(&(
-            file2,
-            loc2.byte_start,
-            loc2.byte_end,
-            *scope2,
-            *name2,
-        ))
-    });
+    declares.sort_by(
+        |(file, scope, name, loc, _), (file2, scope2, name2, loc2, _)| {
+            // Total order: many declares share one byte range (square-vec members,
+            // dot-scoped chain members all anchored at the same pin), and the
+            // backing map is a HashMap, so equal-range rows need deterministic
+            // scope/name tie-breakers or the dump shuffles across runs.
+            (file, loc.byte_start, loc.byte_end, *scope, *name).cmp(&(
+                file2,
+                loc2.byte_start,
+                loc2.byte_end,
+                *scope2,
+                *name2,
+            ))
+        },
+    );
     for (file_name, scope, name, loc, decl_id) in &declares {
         out.push_str(&format!(
             "F12_DIAG DECLARE: id={id:5} span=[{start:5},{end:5}] scope='{scope}' name='{name}' file={file}\n",

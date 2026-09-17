@@ -374,10 +374,7 @@ mod tests {
     #[test]
     fn box_with_source_span_stamps_its_coordinate() {
         let mut b = mk(Symbol::Resistor, BoxKind::TwoPin);
-        b.source_span = Some(crate::semantic::common::SourcePos::new(
-            "/p/power.mc",
-            1727,
-        ));
+        b.source_span = Some(crate::semantic::common::SourcePos::new("/p/power.mc", 1727));
         let svg = render_box(&b, false);
         assert!(svg.contains(r#"data-src-uri="/p/power.mc""#), "{svg}");
         assert!(svg.contains(r#"data-src-offset="1727""#), "{svg}");

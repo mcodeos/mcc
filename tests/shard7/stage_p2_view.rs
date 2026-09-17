@@ -228,7 +228,8 @@ fn two_runs_are_byte_identical_on_every_face() {
             "`-f {format}` printed only a header — the comparison below would be vacuous"
         );
         assert_eq!(
-            a, b,
+            a,
+            b,
             "`-f {format}`: two runs of the same source differ ({} vs {} bytes)",
             a.len(),
             b.len()
@@ -403,9 +404,8 @@ fn every_class_the_readout_reaches_is_exercised() {
     let stage = stage_of(&stdout);
     let items = stage["items"].as_array().expect("items is an array");
 
-    let of = |class: &str| -> Vec<&Value> {
-        items.iter().filter(|i| i["class"] == class).collect()
-    };
+    let of =
+        |class: &str| -> Vec<&Value> { items.iter().filter(|i| i["class"] == class).collect() };
 
     for class in ["instance", "point", "net", "label", "bus"] {
         let got = of(class);
@@ -443,7 +443,10 @@ fn every_class_the_readout_reaches_is_exercised() {
         match i["point"].as_str() {
             Some(p) => {
                 keyed += 1;
-                assert_eq!(i["point"], i["key"], "the run-local key *is* the point id: {i}");
+                assert_eq!(
+                    i["point"], i["key"],
+                    "the run-local key *is* the point id: {i}"
+                );
                 assert!(p.contains(':'), "a PointId is `N<node>:<member>`: {p}");
             }
             None => {
@@ -456,7 +459,10 @@ fn every_class_the_readout_reaches_is_exercised() {
             }
         }
     }
-    assert!(keyed >= 2, "hbl must actually exercise the keyed branch: {keyed}");
+    assert!(
+        keyed >= 2,
+        "hbl must actually exercise the keyed branch: {keyed}"
+    );
     assert!(
         keyless >= 2,
         "and the point-less branch (§2.4's three kinds): {keyless}"
@@ -486,7 +492,10 @@ fn every_class_the_readout_reaches_is_exercised() {
         assert_eq!(members, &sorted, "a net's member set is sorted: {i}");
         match i["key"].as_str() {
             Some(k) => {
-                assert!(k.starts_with("net:"), "a labelled net keys on its label: {i}");
+                assert!(
+                    k.starts_with("net:"),
+                    "a labelled net keys on its label: {i}"
+                );
                 labelled += 1;
             }
             None => anon += 1,
@@ -498,7 +507,10 @@ fn every_class_the_readout_reaches_is_exercised() {
     // The counts line is derived from these same items, so it cannot disagree
     // with them.
     let counts = &stage["counts"];
-    assert_eq!(counts["instances"].as_u64(), Some(of("instance").len() as u64));
+    assert_eq!(
+        counts["instances"].as_u64(),
+        Some(of("instance").len() as u64)
+    );
     assert_eq!(counts["points"].as_u64(), Some(of("point").len() as u64));
     assert_eq!(counts["nets"].as_u64(), Some(of("net").len() as u64));
 
@@ -672,7 +684,10 @@ fn a_labelled_net_keys_on_its_label_and_an_anonymous_one_carries_no_key() {
         let label = net["net"].as_str().expect("a net has a name");
         assert_eq!(net["key"], format!("net:{label}"));
         // ≥ 2 members, so the member-set comparison below is not degenerate.
-        assert!(net["members"].as_array().is_some_and(|m| m.len() >= 2), "{net}");
+        assert!(
+            net["members"].as_array().is_some_and(|m| m.len() >= 2),
+            "{net}"
+        );
     }
     for net in &anon {
         assert!(

@@ -180,12 +180,7 @@ pub fn render_p2_text(view: &StageView) -> String {
                 "point" => item["net"].as_str().unwrap_or("-").to_string(),
                 _ => item["class_name"].as_str().unwrap_or("-").to_string(),
             };
-            vec![
-                key,
-                second,
-                third,
-                loc_cell(&item["loc"]).to_string(),
-            ]
+            vec![key, second, third, loc_cell(&item["loc"]).to_string()]
         })
         .collect();
 
@@ -204,4 +199,3 @@ fn net_names(table: &InstTable) -> HashMap<u32, String> {
     }
     out
 }
-

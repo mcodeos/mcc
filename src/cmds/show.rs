@@ -1272,7 +1272,9 @@ fn show_stage(args: &ShowArgs) -> Result<()> {
             .unwrap_or_default();
     }
     let top = resolved_top
-        .or_else(|| crate::cmds::common::resolve_top_module(&entry_uri, mcc::cli::globals().top.clone()))
+        .or_else(|| {
+            crate::cmds::common::resolve_top_module(&entry_uri, mcc::cli::globals().top.clone())
+        })
         .unwrap_or_else(|| {
             error!(target: "mcc::show", "no modules found\nhint: load a file with -F or use --top");
             std::process::exit(1);
@@ -1298,7 +1300,9 @@ fn show_stage(args: &ShowArgs) -> Result<()> {
     // empty rather than reusing `show ast`'s output, which carries none of the
     // chain's keys (design §5.2 ①: the chain's identity starts at Pass2).
     let view = match seg {
-        mcc::stages::StageSeg::P1 => mcc::stages::StageView::new(seg, &top, Vec::new(), diags.len()),
+        mcc::stages::StageSeg::P1 => {
+            mcc::stages::StageView::new(seg, &top, Vec::new(), diags.len())
+        }
         mcc::stages::StageSeg::P2 => mcc::stages::p2::build_p2(&table, &top, diags.len()),
         mcc::stages::StageSeg::Vec => {
             // The vec block is the builder's own output; the graph is what the
@@ -1327,7 +1331,10 @@ fn show_stage(args: &ShowArgs) -> Result<()> {
         }
     };
 
-    if matches!(mcc::cli::globals().format, OutputFormat::Text | OutputFormat::Csv) {
+    if matches!(
+        mcc::cli::globals().format,
+        OutputFormat::Text | OutputFormat::Csv
+    ) {
         // CSV falls back to the text face on purpose: `emit_envelope` has no
         // CSV arm either, and a fixed-width readout is not CSV-safe (a path may
         // contain a comma), so a real CSV face would be a separate decision

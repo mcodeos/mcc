@@ -264,7 +264,10 @@ mod tests {
         );
         let out = linkify(&svg, &dir, &mut FileCache::new());
         assert!(out.contains(&format!(r##"data-src-offset="2""##)), "{out}");
-        assert!(out.contains(r##"data-src-vscode="vscode://file/"##), "{out}");
+        assert!(
+            out.contains(r##"data-src-vscode="vscode://file/"##),
+            "{out}"
+        );
         assert!(out.contains(":2:1"), "{out}");
     }
 
@@ -276,7 +279,10 @@ mod tests {
         let svg = r##"  <g data-src-uri="/no/such/file.mc" data-src-offset="1"><rect/></g>"##;
         let out = linkify(svg, &dir, &mut FileCache::new());
         assert!(!out.contains("data-src-vscode"), "{out}");
-        assert!(out.contains(r##"data-src-uri="/no/such/file.mc""##), "{out}");
+        assert!(
+            out.contains(r##"data-src-uri="/no/such/file.mc""##),
+            "{out}"
+        );
         assert!(out.contains(r##"data-src-offset="1""##), "{out}");
     }
 
@@ -291,8 +297,14 @@ mod tests {
         std::fs::write(dir.join("rel.mc"), "one\ntwo\n").unwrap();
         let svg = r##"  <g data-src-uri="rel.mc" data-src-offset="9999"><rect/></g>"##;
         let out = linkify(svg, &dir, &mut FileCache::new());
-        assert!(out.contains("data-src-vscode"), "relative uri should resolve: {out}");
-        assert!(out.contains("/rel.mc:3:1\""), "should clamp to end of file: {out}");
+        assert!(
+            out.contains("data-src-vscode"),
+            "relative uri should resolve: {out}"
+        );
+        assert!(
+            out.contains("/rel.mc:3:1\""),
+            "should clamp to end of file: {out}"
+        );
     }
 
     /// Text without the attribute pair is passed through byte for byte.

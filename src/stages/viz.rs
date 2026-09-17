@@ -209,7 +209,6 @@ fn edge_end(pins: &[i64], table: &InstTable) -> Value {
     )
 }
 
-
 /// A layer's canonical path: its `InstTable` row when it has one, else the
 /// enclosing path plus its own name. Same rule `stage.vec` applies to the same
 /// graph, so the two views spell a layer identically.
@@ -463,121 +462,167 @@ fn seg_length(seg: &Segment) -> f64 {
 /// difference readable instead of inferable.
 fn metrics_items(q: &SchematicQualityReport, layers: usize, audited: usize) -> Vec<Value> {
     let mut out: Vec<Value> = Vec::new();
-    push_fields(&mut out, "scope", &[
-        ("layers", json!(layers)),
-        ("audited_layers", json!(audited)),
-    ]);
+    push_fields(
+        &mut out,
+        "scope",
+        &[
+            ("layers", json!(layers)),
+            ("audited_layers", json!(audited)),
+        ],
+    );
 
     let f = &q.fidelity;
-    push_fields(&mut out, "fidelity", &[
-        ("nets_total", json!(f.nets_total)),
-        ("nets_rendered", json!(f.nets_rendered)),
-        ("nets_dropped", json!(f.nets_dropped)),
-        ("nets_partial", json!(f.nets_partial)),
-        ("pins_total", json!(f.pins_total)),
-        ("pins_rendered", json!(f.pins_rendered)),
-        ("bus_bits_total", json!(f.bus_bits_total)),
-        ("bus_bits_paired_ok", json!(f.bus_bits_paired_ok)),
-        ("authored_sides_total", json!(f.authored_sides_total)),
-        ("authored_sides_honored", json!(f.authored_sides_honored)),
-        ("box_box", json!(f.box_box)),
-        ("wire_box", json!(f.wire_box)),
-        ("islands_claimed", json!(f.islands_claimed)),
-        ("islands_total", json!(f.islands_total)),
-    ]);
+    push_fields(
+        &mut out,
+        "fidelity",
+        &[
+            ("nets_total", json!(f.nets_total)),
+            ("nets_rendered", json!(f.nets_rendered)),
+            ("nets_dropped", json!(f.nets_dropped)),
+            ("nets_partial", json!(f.nets_partial)),
+            ("pins_total", json!(f.pins_total)),
+            ("pins_rendered", json!(f.pins_rendered)),
+            ("bus_bits_total", json!(f.bus_bits_total)),
+            ("bus_bits_paired_ok", json!(f.bus_bits_paired_ok)),
+            ("authored_sides_total", json!(f.authored_sides_total)),
+            ("authored_sides_honored", json!(f.authored_sides_honored)),
+            ("box_box", json!(f.box_box)),
+            ("wire_box", json!(f.wire_box)),
+            ("islands_claimed", json!(f.islands_claimed)),
+            ("islands_total", json!(f.islands_total)),
+        ],
+    );
 
     let t = &q.truth;
-    push_fields(&mut out, "truth", &[
-        ("layers_total", json!(t.layers_total)),
-        ("nets_total", json!(t.nets_total)),
-        ("drawable_nets_total", json!(t.drawable_nets_total)),
-        ("routed_nets_total", json!(t.routed_nets_total)),
-        ("nets_missing_route", json!(t.nets_missing_route)),
-        ("nets_empty_route", json!(t.nets_empty_route)),
-        ("endpoints_total", json!(t.endpoints_total)),
-        ("drawable_endpoints_total", json!(t.drawable_endpoints_total)),
-        ("endpoints_box_missing", json!(t.endpoints_box_missing)),
-        ("endpoints_pin_missing", json!(t.endpoints_pin_missing)),
-        ("endpoints_entry_missing", json!(t.endpoints_entry_missing)),
-        ("endpoints_route_unreached", json!(t.endpoints_route_unreached)),
-        ("boxes_total", json!(t.boxes_total)),
-        ("physical_pins_total", json!(t.physical_pins_total)),
-        ("physical_pins_with_entry", json!(t.physical_pins_with_entry)),
-        ("physical_pins_missing_entry", json!(t.physical_pins_missing_entry)),
-    ]);
+    push_fields(
+        &mut out,
+        "truth",
+        &[
+            ("layers_total", json!(t.layers_total)),
+            ("nets_total", json!(t.nets_total)),
+            ("drawable_nets_total", json!(t.drawable_nets_total)),
+            ("routed_nets_total", json!(t.routed_nets_total)),
+            ("nets_missing_route", json!(t.nets_missing_route)),
+            ("nets_empty_route", json!(t.nets_empty_route)),
+            ("endpoints_total", json!(t.endpoints_total)),
+            (
+                "drawable_endpoints_total",
+                json!(t.drawable_endpoints_total),
+            ),
+            ("endpoints_box_missing", json!(t.endpoints_box_missing)),
+            ("endpoints_pin_missing", json!(t.endpoints_pin_missing)),
+            ("endpoints_entry_missing", json!(t.endpoints_entry_missing)),
+            (
+                "endpoints_route_unreached",
+                json!(t.endpoints_route_unreached),
+            ),
+            ("boxes_total", json!(t.boxes_total)),
+            ("physical_pins_total", json!(t.physical_pins_total)),
+            (
+                "physical_pins_with_entry",
+                json!(t.physical_pins_with_entry),
+            ),
+            (
+                "physical_pins_missing_entry",
+                json!(t.physical_pins_missing_entry),
+            ),
+        ],
+    );
 
     let v = &q.visual;
-    push_fields(&mut out, "visual", &[
-        ("canvas_width", json!(v.canvas_width)),
-        ("canvas_height", json!(v.canvas_height)),
-        ("boxes_total", json!(v.boxes_total)),
-        ("box_area_total", json!(v.box_area_total)),
-        ("box_density", json!(v.box_density)),
-        ("labels_total", json!(v.labels_total)),
-        ("label_label_overlaps", json!(v.label_label_overlaps)),
-        ("label_box_overlaps", json!(v.label_box_overlaps)),
-        ("label_wire_overlaps", json!(v.label_wire_overlaps)),
-        ("labels_off_canvas", json!(v.labels_off_canvas)),
-        ("routed_nets", json!(v.routed_nets)),
-        ("route_segments_total", json!(v.route_segments_total)),
-        ("route_bends_total", json!(v.route_bends_total)),
-        ("route_length_total", json!(v.route_length_total)),
-        ("symmetry_penalty", json!(v.symmetry_penalty)),
-        ("idiom_violations", json!(v.idiom_violations)),
-    ]);
+    push_fields(
+        &mut out,
+        "visual",
+        &[
+            ("canvas_width", json!(v.canvas_width)),
+            ("canvas_height", json!(v.canvas_height)),
+            ("boxes_total", json!(v.boxes_total)),
+            ("box_area_total", json!(v.box_area_total)),
+            ("box_density", json!(v.box_density)),
+            ("labels_total", json!(v.labels_total)),
+            ("label_label_overlaps", json!(v.label_label_overlaps)),
+            ("label_box_overlaps", json!(v.label_box_overlaps)),
+            ("label_wire_overlaps", json!(v.label_wire_overlaps)),
+            ("labels_off_canvas", json!(v.labels_off_canvas)),
+            ("routed_nets", json!(v.routed_nets)),
+            ("route_segments_total", json!(v.route_segments_total)),
+            ("route_bends_total", json!(v.route_bends_total)),
+            ("route_length_total", json!(v.route_length_total)),
+            ("symmetry_penalty", json!(v.symmetry_penalty)),
+            ("idiom_violations", json!(v.idiom_violations)),
+        ],
+    );
 
     let r = &q.readability;
-    push_fields(&mut out, "readability", &[
-        ("wire_wire", json!(r.wire_wire)),
-        ("total_wirelength", json!(r.total_wirelength)),
-        ("total_bends", json!(r.total_bends)),
-        ("off_grid_penalty", json!(r.off_grid_penalty)),
-        ("weighted", json!(r.weighted())),
-    ]);
+    push_fields(
+        &mut out,
+        "readability",
+        &[
+            ("wire_wire", json!(r.wire_wire)),
+            ("total_wirelength", json!(r.total_wirelength)),
+            ("total_bends", json!(r.total_bends)),
+            ("off_grid_penalty", json!(r.off_grid_penalty)),
+            ("weighted", json!(r.weighted())),
+        ],
+    );
 
     // M12 and M13 are per-run accumulations and may be absent (a render with no
     // layer reports neither); they still get a row each, so the row set does not
     // change shape between runs.
     match &q.determinism {
-        Some(d) => push_fields(&mut out, "determinism", &[
-            ("graph_input_hash", json!(d.graph_input_hash)),
-            ("box_order_hash", json!(d.box_order_hash)),
-            ("net_order_hash", json!(d.net_order_hash)),
-            ("pin_anchor_hash", json!(d.pin_anchor_hash)),
-            ("route_schedule_hash", json!(d.route_schedule_hash)),
-            ("route_geometry_hash", json!(d.route_geometry_hash)),
-            ("metrics_hash", json!(d.metrics_hash)),
-            ("placement_constraint_hash", json!(d.placement_constraint_hash)),
-            ("idiom_instance_hash", json!(d.idiom_instance_hash)),
-            ("unstable_decisions", json!(d.unstable_decisions)),
-        ]),
+        Some(d) => push_fields(
+            &mut out,
+            "determinism",
+            &[
+                ("graph_input_hash", json!(d.graph_input_hash)),
+                ("box_order_hash", json!(d.box_order_hash)),
+                ("net_order_hash", json!(d.net_order_hash)),
+                ("pin_anchor_hash", json!(d.pin_anchor_hash)),
+                ("route_schedule_hash", json!(d.route_schedule_hash)),
+                ("route_geometry_hash", json!(d.route_geometry_hash)),
+                ("metrics_hash", json!(d.metrics_hash)),
+                (
+                    "placement_constraint_hash",
+                    json!(d.placement_constraint_hash),
+                ),
+                ("idiom_instance_hash", json!(d.idiom_instance_hash)),
+                ("unstable_decisions", json!(d.unstable_decisions)),
+            ],
+        ),
         None => out.push(absent_family("determinism")),
     }
     match &q.rendered_connectivity {
-        Some(c) => push_fields(&mut out, "connectivity", &[
-            ("is_perfect", json!(c.is_perfect)),
-            ("pins_total", json!(c.pins_total)),
-            ("pins_reachable", json!(c.pins_reachable)),
-            ("pins_unreachable", json!(c.pins_unreachable)),
-            ("nets_total", json!(c.nets_total)),
-            ("nets_perfect", json!(c.nets_perfect)),
-            ("nets_with_render_mismatch", json!(c.nets_with_render_mismatch)),
-            ("false_connections", json!(c.false_connections)),
-            ("missing_connections", json!(c.missing_connections)),
-            ("false_junctions", json!(c.false_junctions)),
-            ("missing_junctions", json!(c.missing_junctions)),
-            ("different_net_crossings", json!(c.different_net_crossings)),
-            (
-                "different_net_crossings_with_hop",
-                json!(c.different_net_crossings_with_hop),
-            ),
-            (
-                "different_net_crossings_without_hop",
-                json!(c.different_net_crossings_without_hop),
-            ),
-            ("ambiguous_near_misses", json!(c.ambiguous_near_misses)),
-            ("connectivity_hash", json!(c.connectivity_hash)),
-        ]),
+        Some(c) => push_fields(
+            &mut out,
+            "connectivity",
+            &[
+                ("is_perfect", json!(c.is_perfect)),
+                ("pins_total", json!(c.pins_total)),
+                ("pins_reachable", json!(c.pins_reachable)),
+                ("pins_unreachable", json!(c.pins_unreachable)),
+                ("nets_total", json!(c.nets_total)),
+                ("nets_perfect", json!(c.nets_perfect)),
+                (
+                    "nets_with_render_mismatch",
+                    json!(c.nets_with_render_mismatch),
+                ),
+                ("false_connections", json!(c.false_connections)),
+                ("missing_connections", json!(c.missing_connections)),
+                ("false_junctions", json!(c.false_junctions)),
+                ("missing_junctions", json!(c.missing_junctions)),
+                ("different_net_crossings", json!(c.different_net_crossings)),
+                (
+                    "different_net_crossings_with_hop",
+                    json!(c.different_net_crossings_with_hop),
+                ),
+                (
+                    "different_net_crossings_without_hop",
+                    json!(c.different_net_crossings_without_hop),
+                ),
+                ("ambiguous_near_misses", json!(c.ambiguous_near_misses)),
+                ("connectivity_hash", json!(c.connectivity_hash)),
+            ],
+        ),
         None => out.push(absent_family("connectivity")),
     }
     out
@@ -711,8 +756,14 @@ pub fn render_viz_text(view: &StageView) -> String {
                 }
                 "pin" => format!(
                     "num={} name={} {} side={}@{} at=({},{})",
-                    item["num"].as_str().filter(|s| !s.is_empty()).unwrap_or("-"),
-                    item["name"].as_str().filter(|s| !s.is_empty()).unwrap_or("-"),
+                    item["num"]
+                        .as_str()
+                        .filter(|s| !s.is_empty())
+                        .unwrap_or("-"),
+                    item["name"]
+                        .as_str()
+                        .filter(|s| !s.is_empty())
+                        .unwrap_or("-"),
                     item["io"].as_str().unwrap_or("-"),
                     item["side"].as_str().unwrap_or("-"),
                     num(&item["offset"]),
