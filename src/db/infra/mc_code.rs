@@ -2325,15 +2325,14 @@ impl McCode {
         if !pin_names.contains(root) {
             return None;
         }
-        let file_id = crate::ast::sem::intern(&mut sem.file_table, uri.as_str());
-        let comp_id = crate::ast::sem::intern(&mut sem.container_table, comp_ident);
+        let file_id = crate::ast::sem::intern_uri(uri.as_str());
         // Prefer the exact dotted form (`VIN.Vin`), then the root (`VIN`).
         let mut target: &str = &full_name;
         loop {
-            if let Some((id, _)) =
-                sem.local_table
-                    .name_to_declare_id
-                    .get(&(file_id, comp_id, 0, target.to_string()))
+            if let Some((id, _)) = sem
+                .local_table
+                .name_to_declare_id
+                .get(&(file_id, comp_ident.to_string(), target.to_string()))
             {
                 let kind = if Self::extract_pin_iface_spans(comp)
                     .iter()
@@ -2501,15 +2500,7 @@ impl McCode {
             let _decl_id_to_scope: std::collections::HashMap<u32, String> = lt
                 .name_to_declare_id
                 .iter()
-                .map(|((_fid, cid, fnid, _n), (did, _))| {
-                    let scope = crate::ast::sem::scope_from_ids(
-                        &sem.container_table,
-                        &sem.func_table,
-                        *cid,
-                        *fnid,
-                    );
-                    (u32::from(*did), scope)
-                })
+                .map(|((_fid, scope, _n), (did, _))| (u32::from(*did), scope.clone()))
                 .collect();
 
             // ── Layer 1: ID chain ──
@@ -3083,18 +3074,18 @@ impl McCode {
         // mcb_parse_all_modules rebuilds the lapper but name_to_declare_id is
         // shared via Arc, so old DeclareIds would pollute FuncRef scope searches.
         if let Ok(mut sem) = self.symbols.lock() {
-            let file_id = crate::ast::sem::intern(&mut sem.file_table, self.uri.as_str());
+            let file_id = crate::ast::sem::intern_uri(self.uri.as_str());
             let _ = sem.local_table.name_to_declare_id.len();
             sem.local_table
                 .name_to_declare_id
-                .retain(|(fid, _, _, _), _| *fid != file_id);
+                .retain(|(fid, _, _), _| *fid != file_id);
             // ★ P0: prune the reverse name index in sync with the retain above.
             for scopes in sem.local_table.name_to_declare_ids.values_mut() {
-                scopes.retain(|(fid, _, _)| *fid != file_id);
+                scopes.retain(|(fid, _)| *fid != file_id);
             }
             sem.local_table
                 .scope_index
-                .retain(|_, (fid, _, _)| *fid != file_id);
+                .retain(|_, fid| *fid != file_id);
             // Drop def_map entries for this file too. They were registered
             // during the previous lapper build; the name_to_declare_id keys
             // that carried their ids are gone (retain above), so a rebuild
@@ -3132,12 +3123,12 @@ impl McCode {
                 Self::lapper_component_defs_register(&self.uri, &mut sem, &mut symbol_lapper);
 
                 let decl_count_file_id =
-                    crate::ast::sem::intern(&mut sem.file_table, self.uri.as_str());
+                    crate::ast::sem::intern_uri(self.uri.as_str());
                 let decl_count = sem
                     .local_table
                     .name_to_declare_id
                     .iter()
-                    .filter(|((fid, _, _, _), _)| *fid == decl_count_file_id)
+                    .filter(|((fid, _, _), _)| *fid == decl_count_file_id)
                     .count();
                 let local_ref_count = sem.local_table.inst_id_to_span.len();
                 tracing::info!(target: "mcc::lsp", "create_lapper: {} decls, {} local_refs, lapper len={}", decl_count, local_ref_count, symbol_lapper.inner.len());
@@ -3244,7 +3235,6 @@ impl McCode {
                 )
             });
         if let Ok(mut sem) = self.symbols.lock() {
-            let file_table = sem.file_table.clone(); // clone before mutable borrow
             if let Some(ref mut map) = sem.ref_def_map {
                 crate::refdef::matching::fill_refdef_layer2(
                     map,
@@ -3252,7 +3242,6 @@ impl McCode {
                     &def_names_snapshot,
                     &ref_entries_snapshot,
                     &self.uri,
-                    &file_table,
                     &container_table,
                     &func_table,
                 );
@@ -3496,7 +3485,7 @@ impl McCode {
                         // ★ Fix: register ClassDef in def_map so fill_refdef_layer2
                         // can resolve ClassRef → ClassDef lookups. Without this,
                         // ClassRef entries in ref_entries never find their def.
-                        let file_id = crate::ast::sem::intern(&mut sem.file_table, uri.as_str());
+                        let file_id = crate::ast::sem::intern_uri(uri.as_str());
                         sem.def_map.insert(
                             (SymbolKind::ClassDef, id),
                             crate::ast::sem::SourceLocation::new(
@@ -3686,7 +3675,7 @@ impl McCode {
                         // (`def_map.get(&(EnumDef, class_id))`) hits. Same-name
                         // enum + component heads (e.g. `enum CAP` + `component
                         // CAP` in one file) stay distinct in the dump.
-                        let file_id = crate::ast::sem::intern(&mut sem.file_table, uri.as_str());
+                        let file_id = crate::ast::sem::intern_uri(uri.as_str());
                         sem.def_map.insert(
                             (SymbolKind::EnumDef, id),
                             crate::ast::sem::SourceLocation::new(
@@ -3710,7 +3699,7 @@ impl McCode {
                         // only inserted into the lapper, so hover/find-refs on
                         // the value def site had no map entry (Layer 1e masked
                         // the miss by building its own table).
-                        let file_id = crate::ast::sem::intern(&mut sem.file_table, uri.as_str());
+                        let file_id = crate::ast::sem::intern_uri(uri.as_str());
                         symbol_lapper.insert(Interval {
                             start: span.start,
                             stop: span.end,
@@ -5156,14 +5145,13 @@ impl McCode {
                 // ★ scope_index may hold stale entries for "<comp>" scopes
                 // registered from another file id (cross-file/duplicate
                 // loads), so resolve directly against this file's pin defs:
-                // (file_id, container_id=comp, func_id=0, name).
-                let file_id = crate::ast::sem::intern(&mut sem.file_table, uri.as_str());
-                let comp_id = crate::ast::sem::intern(&mut sem.container_table, &comp_name);
+                // (uri_id, scope=comp, name).
+                let file_id = crate::ast::sem::intern_uri(uri.as_str());
                 let got = sem
                     .local_table
                     .name_to_declare_id
-                    .get(&(file_id, comp_id, 0, mname.to_string()))
-                    .map(|(id, loc)| (*id, loc.clone()));
+                    .get(&(file_id, comp_name.clone(), mname.to_string()))
+                    .map(|(id, loc)| (*id, *loc));
                 if let Some((d, _)) = got {
                     symbol_lapper.insert(Interval {
                         start: mspan.start,
@@ -6524,13 +6512,16 @@ module main
         let lt = &sem.local_table;
 
         // 1. Declarations present in name_to_declare_id.
-        let file_id = crate::ast::sem::intern(&mut sem.file_table.clone(), uri.as_str());
-        let scope_id = lt.scope_index.get("main").copied();
-        let (cid, fnid) = scope_id
-            .map(|(_, c, f)| (c, f))
-            .unwrap_or((u32::MAX, u32::MAX));
+        let file_id = crate::ast::sem::intern_uri(uri.as_str());
+        // The scope_index prefix reaches the canonical key `(uri_id, scope, name)`.
+        let scope_uri = lt.scope_index.get("main").copied();
+        assert_eq!(
+            scope_uri,
+            Some(file_id),
+            "scope 'main' must be indexed to this file's UriId"
+        );
         for name in ["res1", "res2", "C4", "C5"] {
-            let key = (file_id, cid, fnid, name.to_string());
+            let key = (file_id, "main".to_string(), name.to_string());
             assert!(
                 lt.name_to_declare_id.contains_key(&key),
                 "declareb instance '{name}' must have a declaration in name_to_declare_id"

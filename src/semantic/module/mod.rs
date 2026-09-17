@@ -1358,12 +1358,15 @@ impl McModule {
                             if let Some(mcode) = crate::db::cmie::tables::WORKSPACE.mcodes.get(uri)
                             {
                                 if let Ok(mut sem) = mcode.symbols.lock() {
-                                    sem.local_table.add_declare_with_name(
-                                        uri,
-                                        crate::ast::sem::SourceLocation::from_span(&span),
-                                        Some(key),
-                                        Some(scope),
-                                    );
+                                    // The location must name this file (global
+                                    // `UriId`, CIMP U81 ①): a zero file_id would
+                                    // alias the inline port with every other
+                                    // file's inline port of the same key.
+                                    let loc = crate::ast::sem::SourceLocation {
+                                        file_id: crate::refdef::types::intern_uri(uri.as_str()),
+                                        ..crate::ast::sem::SourceLocation::from_span(&span)
+                                    };
+                                    sem.local_table.add_declare_with_name(loc, &key, scope);
                                 }
                             }
                         } // end else (non-member-chain def registration)

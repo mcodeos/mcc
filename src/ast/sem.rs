@@ -8,12 +8,12 @@ use rust_lapper::Lapper;
 use std::ops::Range;
 use std::{
     collections::HashMap,
-    sync::atomic::AtomicU32,
-    sync::{Arc, Mutex},
+    sync::atomic::{AtomicU32, Ordering},
+    sync::{Arc, LazyLock, Mutex},
 };
 
 // ★ Re-exported from refdef module (single source of truth, §16)
-pub use crate::refdef::{intern, SourceLocation};
+pub use crate::refdef::{intern_uri, SourceLocation};
 
 #[derive(Clone, Debug)]
 pub struct McSemSymbols {
@@ -34,8 +34,9 @@ pub struct McSemSymbols {
     /// RefDefMap RPC payload so mcext hover can show the exact def name
     /// (e.g. `RES`) without text slicing of the def line.
     pub def_names: HashMap<(SymbolKind, u32), String>,
-    /// ★ SourceLocation tables: intern file/container/func names to u32 IDs.
-    pub file_table: Vec<String>,
+    /// ★ SourceLocation tables: intern container/func names to u32 IDs.
+    /// File identity is the process-global `UriId` (`refdef::types::intern_uri`),
+    /// not a per-file table (CIMP U81 ①).
     pub container_table: Vec<String>,
     pub func_table: Vec<String>,
     // (my_components field removed — dead code)
@@ -56,7 +57,6 @@ impl McSemSymbols {
             def_map: HashMap::new(),
             ref_entries: Vec::new(),
             def_names: HashMap::new(),
-            file_table: vec![String::new()],
             container_table: vec![String::new()],
             func_table: vec![String::new()],
             // (my_components removed)
@@ -96,47 +96,66 @@ oxc_index::define_index_type! {
 // Modification strategy: upon file modification, the entire table is cleared and re-added
 #[derive(Default, Clone, Debug)]
 pub struct LocalSymbolTable {
-    declare_inst_id_counter: DeclareId,
     inst_id_counter: ReferenceId,
 
-    /// ★ P3: (file_id, container_id, func_id, name) → (declare_id, source_location).
-    /// file_id/container_id/func_id from SourceLocation intern tables.
-    /// Replaces (McURI, scope_str, name) triple with ID-based key.
-    pub name_to_declare_id: HashMap<(u32, u32, u32, String), (DeclareId, SourceLocation)>,
+    /// ★ P3: (uri_id, scope, name) → (declare_id, source_location) — the
+    /// canonical key (CIMP U81 ②), same shape as `McSpaceName`.
+    /// `uri_id` is the process-global `UriId` of the owning file (0 = none,
+    /// e.g. an inline port registered with a fileless `SourceLocation`).
+    pub name_to_declare_id: HashMap<(u32, String, String), (DeclareId, SourceLocation)>,
 
-    /// ★ P0: reverse name index — name → scope keys in registration order.
+    /// ★ P0: reverse name index — name → (uri_id, scope) keys in registration order.
     /// Turns the linear `name_to_declare_id.iter().find(|..| name)` class-ref
     /// lookup in `Resolver::resolve_class_locked` into an O(1) index hit.
-    pub name_to_declare_ids: HashMap<String, Vec<(u32, u32, u32)>>,
+    pub name_to_declare_ids: HashMap<String, Vec<(u32, String)>>,
 
-    /// ★ Parallel index: scope string → (file_id, container_id, func_id).
-    /// For scope-based lookups (e.g. "mod.sub.i2c" → IDs) without parsing scope strings.
-    pub scope_index: HashMap<String, (u32, u32, u32)>,
+    /// ★ Parallel index: scope string → the `UriId` its first registration came
+    /// from. Turns a scope-string lookup into the canonical key without a scan.
+    pub scope_index: HashMap<String, u32>,
 
     pub inst_id_to_span: HashMap<ReferenceId, Span>,
     pub inst_id_to_declare_inst: HashMap<ReferenceId, DeclareId>,
     //.. pub class_id_reference_list : Vec<((McURI, String), Span)>,
 }
 
-/// Global sequential DeclareId counter — simple, collision-free u32.
-static GLOBAL_DECLARE_ID: AtomicU32 = AtomicU32::new(1);
+/// Canonical key `(uri_id, scope, name)` → `DeclareId` — the single allocator of
+/// the definition-entry id space (CIMP U81 ③, build-design §3.7 discipline 0
+/// ②a: the id is the key's encoding, so one key has one id and a repeat
+/// registration reuses it instead of consuming a number whose value depends on
+/// how much was parsed before it in the process). The key's shape is the same
+/// as `LocalSymbolTable::name_to_declare_id`, which stays a per-file index.
+static DECLARE_ID_BY_KEY: LazyLock<Mutex<HashMap<(u32, String, String), u32>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
-/// Reset the global declare-id counter to its boot value. A full state
-/// reset (`clear_state(ClearScope::Full)`) rebuilds every symbol table that
-/// references these ids, so the counter must follow: without the reset, a
-/// second clean load inside one process allocates shifted ids (a file's
-/// `dump_symbols_f12_text` id= values then depend on how much was parsed
-/// before it in the process — the historical run-to-run shuffle). With the
-/// reset, a full reset reproduces boot-state numbering exactly, so two
-/// independent runs of the same inputs dump byte-identically.
-pub(crate) fn reset_declare_id_counter() {
-    GLOBAL_DECLARE_ID.store(1, std::sync::atomic::Ordering::Relaxed);
+/// Orders first registrations only; ids are monotonic and never recycled.
+static NEXT_DECLARE_ID: AtomicU32 = AtomicU32::new(1);
+
+/// Intern the canonical key to its `DeclareId`. Shared by the declaration
+/// table and the global class table so one key has one id.
+pub(crate) fn intern_declare_id(uri_id: u32, scope: &str, name: &str) -> DeclareId {
+    let mut table = DECLARE_ID_BY_KEY.lock().unwrap();
+    let key = (uri_id, scope.to_string(), name.to_string());
+    if let Some(raw) = table.get(&key) {
+        return DeclareId { _raw: *raw };
+    }
+    let raw = NEXT_DECLARE_ID.fetch_add(1, Ordering::Relaxed);
+    table.insert(key, raw);
+    DeclareId { _raw: raw }
+}
+
+/// Drop every interned key and restart the sequence. A full state reset
+/// (`clear_state(ClearScope::Full)`) rebuilds every table that holds these ids,
+/// so the ledger goes with it: otherwise a second clean load inside one process
+/// keeps numbering where the first ended, and a file's `id=` values depend on
+/// how much was parsed before it.
+pub(crate) fn reset_declare_id_space() {
+    DECLARE_ID_BY_KEY.lock().unwrap().clear();
+    NEXT_DECLARE_ID.store(1, Ordering::Relaxed);
 }
 
 impl LocalSymbolTable {
     pub fn new() -> Self {
         LocalSymbolTable {
-            declare_inst_id_counter: DeclareId { _raw: 0 },
             inst_id_counter: ReferenceId { _raw: 0 },
             name_to_declare_id: HashMap::new(), // ★ LSP
             name_to_declare_ids: HashMap::new(),
@@ -145,81 +164,38 @@ impl LocalSymbolTable {
             inst_id_to_declare_inst: HashMap::new(),
         }
     }
-    pub fn assign_declare_id(&mut self) -> DeclareId {
-        let did = self.declare_inst_id_counter;
-        self.declare_inst_id_counter += 1;
-        did
-    }
-    /// Allocate next global sequential DeclareId. Stable within a run;
-    /// sequential allocation avoids hash collisions.
-    pub fn assign_declare_id_stable(_uri: &McURI, _scope: &str, _name: &str) -> DeclareId {
-        DeclareId {
-            _raw: GLOBAL_DECLARE_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
-        }
-    }
     pub fn assign_inst_id(&mut self) -> ReferenceId {
         let rid = self.inst_id_counter;
         self.inst_id_counter += 1;
         rid
     }
 
+    /// Register the declaration of `name` in `scope` for the file owning `loc`.
+    /// The `DeclareId` is derived from the canonical key, so two registrations
+    /// of one key — wherever they happen — yield one id (a `PortRef` looked up
+    /// before its `PortDef` is registered and the `PortDef` itself must agree).
     pub fn add_declare_with_name(
         &mut self,
-        uri: &McURI,
         loc: SourceLocation,
-        name: Option<String>,
-        scope: Option<&str>,
+        name: &str,
+        scope: &str,
     ) -> DeclareId {
-        let scope_key = scope.unwrap_or("");
-        let declare_id = if let Some(ref n) = name {
-            // Check for an existing declaration with the same (file_id,
-            // container_id, func_id, name). If one exists, reuse its
-            // DeclareId so that PortRef (looked up earlier via
-            // lookup_declare_id) and PortDef (registered later via
-            // register_def) share the same id — otherwise fill_refdef_layer2
-            // can't match them.
-            let existing = self.name_to_declare_id.get(&(
-                loc.file_id,
-                loc.container_id,
-                loc.func_id,
-                n.clone(),
-            ));
-            if let Some((existing_id, _)) = existing {
-                *existing_id
-            } else {
-                Self::assign_declare_id_stable(uri, scope_key, n)
-            }
-        } else {
-            self.assign_declare_id()
-        };
-        if let Some(n) = name {
-            let existed = self.name_to_declare_id.contains_key(&(
-                loc.file_id,
-                loc.container_id,
-                loc.func_id,
-                n.clone(),
-            ));
-            self.name_to_declare_id.insert(
-                (loc.file_id, loc.container_id, loc.func_id, n.clone()),
-                (declare_id, loc),
-            );
-            // ★ P0: keep the reverse name index in sync (only on first
-            // registration for this scope key; overwrites reuse the id).
-            if !existed {
-                self.name_to_declare_ids.entry(n).or_default().push((
-                    loc.file_id,
-                    loc.container_id,
-                    loc.func_id,
-                ));
-            }
+        let key = (loc.file_id, scope.to_string(), name.to_string());
+        let declare_id = intern_declare_id(loc.file_id, scope, name);
+        let existed = self.name_to_declare_id.contains_key(&key);
+        self.name_to_declare_id.insert(key, (declare_id, loc));
+        // ★ P0: keep the reverse name index in sync (first registration only).
+        if !existed {
+            self.name_to_declare_ids
+                .entry(name.to_string())
+                .or_default()
+                .push((loc.file_id, scope.to_string()));
         }
         // Populate scope_index for scope-based lookups
-        if !scope_key.is_empty() {
-            self.scope_index.entry(scope_key.to_string()).or_insert((
-                loc.file_id,
-                loc.container_id,
-                loc.func_id,
-            ));
+        if !scope.is_empty() {
+            self.scope_index
+                .entry(scope.to_string())
+                .or_insert(loc.file_id);
         }
         declare_id
     }
@@ -230,15 +206,16 @@ impl LocalSymbolTable {
         self.inst_id_to_declare_inst.insert(inst_id, declr_id);
     }
 
-    /// Look up a declare by scope string + name, using scope_index.
+    /// Look up a declare by scope string + name, using scope_index to reach the
+    /// owning file's canonical key.
     pub fn lookup_by_scope_name(
         &self,
         scope_str: &str,
         name: &str,
     ) -> Option<(DeclareId, SourceLocation)> {
-        let (fid, cid, fnid) = self.scope_index.get(scope_str)?;
+        let uri_id = *self.scope_index.get(scope_str)?;
         self.name_to_declare_id
-            .get(&(*fid, *cid, *fnid, name.to_string()))
+            .get(&(uri_id, scope_str.to_string(), name.to_string()))
             .copied()
     }
 }
@@ -429,15 +406,6 @@ impl GlobalSymbolTable {
     // (global_inst methods removed — dead code)
 }
 
-/// Helper: look up a file_id from the file_table (read-only, no interning).
-fn resolve_file_id(file_table: &[String], uri: &McURI) -> u32 {
-    file_table
-        .iter()
-        .position(|x| x == uri.as_str())
-        .map(|i| i as u32)
-        .unwrap_or(u32::MAX)
-}
-
 /// Helper: reconstruct a scope string from container_id and func_id.
 pub fn scope_from_ids(
     container_table: &[String],
@@ -471,13 +439,12 @@ pub fn symbol_table_to_json(symbols: &McSemSymbols, uri: &McURI) -> serde_json::
 
     // Get local table data
     let local = &symbols.local_table;
-    let file_id = resolve_file_id(&symbols.file_table, uri);
+    let file_id = intern_uri(uri.as_str());
     let local_declares: Vec<serde_json::Value> = local
         .name_to_declare_id
         .iter()
-        .filter(|((fid, _, _, _), _)| *fid == file_id)
-        .map(|((_fid, cid, fnid, name), (id, loc))| {
-            let scope = scope_from_ids(&symbols.container_table, &symbols.func_table, *cid, *fnid);
+        .filter(|((fid, _, _), _)| *fid == file_id)
+        .map(|((_fid, scope, name), (id, loc))| {
             json!({
                 "kind": "declare",
                 "id": id._raw,
@@ -516,9 +483,7 @@ pub fn symbol_table_to_json(symbols: &McSemSymbols, uri: &McURI) -> serde_json::
                 .find(|(_, (_, s))| {
                     s.byte_start as usize == interval.start && s.byte_end as usize == interval.stop
                 })
-                .map(|((_fid, cid, fnid, _name), _)| {
-                    scope_from_ids(&symbols.container_table, &symbols.func_table, *cid, *fnid)
-                })
+                .map(|((_fid, scope, _name), _)| scope.clone())
                 .unwrap_or_default();
             json!({
                 "kind": kind,

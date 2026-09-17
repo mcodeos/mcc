@@ -41,7 +41,6 @@ pub fn fill_refdef_layer2(
     def_names: &HashMap<(SymbolKind, u32), String>,
     ref_entries: &[(SymbolKind, u32, usize, usize)],
     file_uri: &McURI,
-    file_table: &[String],
     container_table: &[String],
     func_table: &[String],
 ) {
@@ -128,15 +127,11 @@ pub fn fill_refdef_layer2(
             if def_start == ref_start && def_stop == ref_stop {
                 continue; // self-ref skip
             }
-            // Use original file_id from SourceLocation for cross-file defs.
-            // Falls back to current file_uri if file_id is 0 (same-file).
+            // `loc.file_id` is already the process-global `UriId` of the def's
+            // owning file (CIMP U81 ①), so it resolves directly — no per-file
+            // table hop. Falls back to the current file when unset (same-file).
             let def_uri_str = if loc.file_id != 0 {
-                let idx = loc.file_id as usize;
-                if idx < file_table.len() {
-                    file_table[idx].clone()
-                } else {
-                    file_uri.clone()
-                }
+                crate::semantic::common::uri_of_file_id(loc.file_id).to_string()
             } else {
                 file_uri.clone()
             };
