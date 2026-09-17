@@ -1739,22 +1739,23 @@ pub const RAIL_NATURE_MISMATCH: u32 = 6034;
 /// (a DC-blocking coupling element is not a filter leg).
 pub const BRIDGE_LOAD_DECOUPLING_MISSING: u32 = 6037;
 
-/// PWR-4b (package-thermal-design.md §3, ruled 2026-09-16): the package's own
-/// dissipation ceiling against the power the element actually dissipates in
-/// place. Only the **shunt** form is judged: an element whose declared class is
-/// resistive (`spec.resistance`, the ledger's dissipating certificate), two
-/// terminals on two different nets, exactly one leg on a declared rail hot face
-/// and the other on that rail's return / a reference — the rail window across
-/// it is then a *declared* value, so `P = V^2/R` needs no solver. The worst
-/// corner (`max(|lo|, |hi|)`) is used, and the declared rating is compared
-/// as-is: the design's `derating_factor` stays 1.0 (rail-contract-design.md
-/// §8.6, the same ruling that keeps a derate multiplier out of the budget
-/// axis). A series pass element is **not** judged — the engine reads a
-/// two-terminal device with no DC row as current-transparent copper, so both
-/// its legs carry one window and neither `V` across it nor a per-element
-/// current exists (design §3.2 R2). Advisory Warning: the verdict compares two
-/// declarations rather than a topology violation, and the far corner of the
-/// window is deliberately the conservative one.
+/// PWR-4b (package-thermal-design.md §3 shunt / §7 series, ruled 2026-09-16 and
+/// 2026-09-17): the package's own dissipation ceiling against the power the
+/// element actually dissipates in place. Both faces take the same candidate — a
+/// declared class that is resistive (`spec.resistance`, the ledger's dissipating
+/// certificate), two terminals on two different nets, a positive resistance and
+/// a decodable `power_rated` — and differ only in how the current through the
+/// part is read. A **shunt** across a declared rail carries a *declared* voltage
+/// (the rail window's far corner `max(|lo|, |hi|)`), so `P = V^2/R` needs no
+/// solver. A **series** element carries the demand of the region that loses its
+/// feed once the part is cut out of the copper (the removal method), so
+/// `P = I^2R` over a sum the budget engine reports identically. The declared
+/// rating is compared as-is: the design's `derating_factor` stays 1.0
+/// (rail-contract-design.md §8.6, the same ruling that keeps a derate
+/// multiplier out of the budget axis). Advisory Warning: the verdict compares
+/// two declarations rather than a topology violation, and both readings are
+/// deliberately the conservative ones (the far corner of the window; the whole
+/// downstream region).
 pub const SHUNT_DISSIPATION_OVER_RATING: u32 = 6035;
 
 /// PI-3 (power-quality-design.md §2.3, ruled 2026-09-16): a decoupling
@@ -2383,7 +2384,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(PROTECT_SHUNT_NO_REFERENCE, "A class declaring protect = shunt has no leg on a protective/earth reference.", "component '{0}' declares protect = shunt in its definition body but no leg of it lands on a reference its scope declares @role(protective)/@role(earth) (its legs carry {1}) — a shunt protection device must be able to dump the transient it exists for, so route one of its legs to the protective island, or drop the declaration when the device is not a shunt protection element (exposed-protection-design.md §4, PWR-5)"),
     entry!(PROTECT_SERIES_NOT_IN_PATH, "A class declaring protect = series is not a two-terminal element on a supply path.", "component '{0}' declares protect = series in its definition body but {1} — a series protection element (fuse/PTC) must carry the supply through itself, so it has to be a two-terminal device whose ends sit on two different nets, both on a supply tree. Put it in series on the path it protects instead of bypassing it or leaving an end off the supply tree (exposed-protection-design.md §4, PWR-5)"),
     entry!(RAIL_NATURE_MISMATCH, "A domain's @nature word contradicts the axis of a rail contract declared inside it.", "domain '{0}' declares @nature({1}) but its rail row writes {2} — @nature and the rail contract name the same axis, so writing both makes them agree: fix the @nature word, or the rail's `::` contract if the domain's word is the true one (ac-axis-interface-design.md §3.1)"),
-    entry!(SHUNT_DISSIPATION_OVER_RATING, "A shunt element's dissipation at the rail window's worst corner exceeds its declared package rating.", "shunt '{0}' dissipates {1} W at the rail window's worst corner ({2} V across {3}), above its declared power_rated {4} W: raise the resistance, use a package rated for more, or narrow the rail window (series pass elements are not judged — package-thermal-design.md §3.2)"),
+    entry!(SHUNT_DISSIPATION_OVER_RATING, "An element's dissipation in place exceeds its declared package rating.", "'{0}' dissipates {1} W, above its declared power_rated {2} W — {3}: raise the resistance, use a package rated for more, or reduce the current or window it carries (package-thermal-design.md §3.1 shunt `V^2/R` / §7 series `I^2R`)"),
     entry!(DECOUPLING_RETURN_MISMATCH, "A decoupling capacitor's return leg does not land on the return member the rail it sits across declares.", "capacitor '{0}' sits across the declared rail {1} whose return member is {2}, but its other leg lands on {3} — a decoupling capacitor's two legs are one declared DC pair, so its return must close the loop the rail declares: move the return leg onto {2}, or declare the pair this capacitor actually bridges (power-quality-design.md §2.3, PI-3)"),
     entry!(BRIDGE_LOAD_DECOUPLING_MISSING, "A declared filter bridge's load side carries no decoupling capacitor.", "declared filter bridge {0} puts its load side on rail hot member '{1}' (domain {2}) but no capacitor sits on that net — the ferrite is the series half of a filter, so the LC only exists once the load side it protects carries a decoupling element: add the load-side capacitor (power-quality-design.md §2.2, PI-2)"),
     entry!(SINK_PIN_NO_DECOUPLING, "A sink power pin's declared DC pair carries no decoupling capacitor.", "sink pin '{0}' draws from the declared pair {1} / {2} but no capacitor sits on its hot net '{1}' — the pair is declared, so the load it feeds is expected to be decoupled across it: add a decoupling capacitor from '{1}' to '{2}' (where that capacitor's return leg lands is a separate finding, PI-3; power-quality-design.md §2.1, PI-1)"),

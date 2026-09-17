@@ -100,6 +100,10 @@ pub(super) struct BudgetLoadScan<'a> {
     by_input_net: HashMap<u32, Vec<usize>>,
     memo: HashMap<u32, f64>,
     stack: HashSet<u32>,
+    /// The component a cut-graph reading has removed from the copper
+    /// ([`super::NO_SKIP`] = the intact graph). Set only for the duration of
+    /// [`Self::region_demand_without`].
+    skip: u32,
 }
 
 impl<'a> BudgetLoadScan<'a> {
@@ -112,6 +116,7 @@ impl<'a> BudgetLoadScan<'a> {
             by_input_net: HashMap::new(),
             memo: HashMap::new(),
             stack: HashSet::new(),
+            skip: super::NO_SKIP,
         };
         scan.index_devices();
         scan
@@ -186,16 +191,18 @@ impl<'a> BudgetLoadScan<'a> {
     /// downstream-chain half); this is the budget's predicate over it: a
     /// component is a bridge when it carries **no DC rows** (`pins.pwr` empty —
     /// fuse/inductor/ferrite/decoupling cap at the flat layer), and the budget
-    /// axis declares no gates, so nothing else stops the flood.
+    /// axis declares no gates, so nothing but [`Self::skip`] stops the flood.
     fn fill_region(&self, net_id: u32, seen: &mut HashSet<u32>, out: &mut Vec<u32>) {
         super::copper_region_into(
             self.table,
             &self.idx,
             &|cid| {
-                self.budget
-                    .scan
-                    .def_of(cid)
-                    .is_some_and(|d| d.pins.pwr.is_empty())
+                cid != self.skip
+                    && self
+                        .budget
+                        .scan
+                        .def_of(cid)
+                        .is_some_and(|d| d.pins.pwr.is_empty())
             },
             net_id,
             seen,
@@ -244,8 +251,15 @@ impl<'a> BudgetLoadScan<'a> {
         if self.role_excluded(net_id) {
             return 0.0;
         }
-        if let Some(&d) = self.memo.get(&net_id) {
-            return d;
+        // The memo answers the *intact* graph, so a cut-graph reading neither
+        // reads nor writes it — the same reason `fed_without` carries no memo
+        // (`reach.rs`). `intact` is settled once, before the fill, because only
+        // `region_demand_without` ever moves `skip`.
+        let intact = self.skip == super::NO_SKIP;
+        if intact {
+            if let Some(&d) = self.memo.get(&net_id) {
+                return d;
+            }
         }
         let mut seen = HashSet::new();
         let mut region = Vec::new();
@@ -315,10 +329,29 @@ impl<'a> BudgetLoadScan<'a> {
         for &n in &region {
             self.stack.remove(&n);
         }
-        for &n in &region {
-            self.memo.insert(n, total);
+        if intact {
+            for &n in &region {
+                self.memo.insert(n, total);
+            }
         }
         total
+    }
+
+    /// The same region question asked of the graph with one component cut out —
+    /// PWR-4b's series half (package-thermal-design.md §7): the current a series
+    /// element carries is the demand of the region that **loses its feed** when
+    /// that element is removed. Only the walk changes: `fill_region` would
+    /// otherwise flood straight *through* the removed part (a two-terminal
+    /// device with no DC row is transparent copper — the very reading that
+    /// blocked this half, design §0.1) and fold the source side plus every
+    /// sibling branch into the sum. The sum keeps the [`Self::region_demand`]
+    /// reading, so 6035 and 6021 report the same number for the same copper.
+    pub(super) fn region_demand_without(&mut self, net_id: u32, skip: u32) -> f64 {
+        let saved = self.skip;
+        self.skip = skip;
+        let demand = self.region_demand(net_id);
+        self.skip = saved;
+        demand
     }
 
     /// Derived draw of one device: a regulator's push-up, or the merge output

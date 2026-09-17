@@ -156,7 +156,7 @@ pub(crate) use subface::check_filter_subface_overreach;
 // instance's resolved spec values), the rail pair the element sits across, and
 // that rail's declared window — no solver, no new syntax.
 mod thermal;
-pub(crate) use thermal::check_shunt_dissipation;
+pub(crate) use thermal::check_element_dissipation;
 
 /// Run all electrical net checks and return diagnostics.
 ///
@@ -3537,6 +3537,15 @@ fn clamp_declaration_plane(
     }
     (ref_names, clamp_refs)
 }
+
+/// The removal method's "nothing is cut out" sentinel (PWR-4b's series half,
+/// package-thermal-design.md §7; the same device PWR-5's series half asks in
+/// exposed-protection-design.md §8.3): no component id ever reaches `u32::MAX`,
+/// so a removal-aware walk handed it answers the **intact** graph. Pairing a
+/// reading taken with a real id against one taken with this makes "did this end
+/// lose its feed" a comparison of one predicate with itself, never of two
+/// different reach readings.
+pub(super) const NO_SKIP: u32 = u32::MAX;
 
 /// `Ret`/`Reference` copper never carries hot-side reach: a region neither
 /// starts on it nor floods through it (reach.rs §7 L4's distinction, which keeps

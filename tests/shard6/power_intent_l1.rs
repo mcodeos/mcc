@@ -3874,6 +3874,213 @@ fn shunt_inside_a_submodule_off_every_rail_pair_is_silent_6035() {
     );
 }
 
+// ── PWR-4b series face (package-thermal-design.md §7, ruled 2026-09-17) ──
+//
+// The removal method: cut the element out of the copper and ask each end
+// whether it still carries a feed. Exactly one end going dark makes the element
+// the cut between a source and that side, and the current through it the whole
+// demand of the region that went dark — 6021's own reading of that copper, asked
+// with the element removed from the flood. `P = I²R` against the declared rating.
+//
+// Every fixture below writes its rating explicitly (`r1(2Ω, 0.25W)`): the
+// corpus's `RES(rs, tol)` spelling never passes `prated`, so a fixture copied
+// from a board would carry no rating and quietly test nothing (§7.1).
+//
+// The silences are single-axis flips off the board that fires — each one is the
+// flipped axis talking, not a rule that never ran.
+
+/// A sink that declares no `amp` at all: the demand key is opt-in, so its draw
+/// is unknown rather than zero.
+const SNK5_NOAMP: &str =
+    "component SNK5_NOAMP {\n    pins = [\n        psnk [1,2] = [VDD, GND]::DC(5V)\n    ]\n}\n";
+
+/// A second two-pin part with no DC rows — a fuse/ferrite at the flat layer, and
+/// therefore transparent copper to the engine. Wired in parallel with the
+/// element under test it *is* the bypass path.
+const WIRE2: &str = "component WIRE2 {\n    pins = [\n        io [1,2] = [X, Y]\n    ]\n}\n";
+
+/// A silence cell must not be green because the board was never wired: a
+/// connection statement that fails to parse is **not** a build failure (an
+/// error still instantiates — see the project's E4112/E4116 ruling), so a
+/// dropped wire reads as "nothing to judge". Assert the board was understood
+/// before believing its silence. (A board spelled `x -> [a, B]` does exactly
+/// this: E4007 shape mismatch + E3132, and the element ends up unconnected.)
+fn assert_wiring_understood(codes: &[u32]) {
+    for code in [
+        mcc::errcodes::CONN_STMT_PARSE_FAILED,
+        mcc::errcodes::CONN_SERIES_SHAPE_MISMATCH,
+    ] {
+        assert!(
+            !codes.contains(&code),
+            "the board's connections must be understood before its silence means anything; got codes: {codes:?}"
+        );
+    }
+}
+
+/// The judged series shape: a 5V source feeds a 500mA sink only through a
+/// 2 Ω/0.25 W element, so `I = 0.5 A` and `P = I²R = 0.5 W` — above the rating
+/// → Warning 6035. The element's own end toward the sink is the one that loses
+/// its feed, which is what makes it the part the region's current passes
+/// through.
+#[test]
+fn series_element_over_its_package_rating_fires_6035() {
+    let src = format!(
+        "{SRC5_CAP1A}{SNK5_500}{SHUNT_R}\nmodule main {{\n    conduit GND @role(main)\n    \
+         SRC5_CAP_1000 s\n    SNK5_500 k\n    RSHUNT.PWR r1(2Ω, 0.25W)\n    \
+         s.OUT -> r1.A\n    r1.B -> k.VDD\n    s.GND -> GND\n    k.GND -> GND\n}}\n"
+    );
+    let msgs = msgs_of(mcc::errcodes::SHUNT_DISSIPATION_OVER_RATING, &src);
+    assert_eq!(
+        msgs.len(),
+        1,
+        "a 2Ω/0.25W element carrying the 500mA a 5V root feeds must fire 6035 once; got: {msgs:?}"
+    );
+    assert!(
+        msgs[0].contains("main.r1"),
+        "6035 must name the element by its flat path; got: {msgs:?}"
+    );
+    assert!(
+        msgs[0].contains("0.5 W") && msgs[0].contains("power_rated 0.25 W"),
+        "6035 must print the dissipated power and the declared rating; got: {msgs:?}"
+    );
+    assert!(
+        msgs[0].contains("0.5 A") && msgs[0].contains("2 Ω"),
+        "the series reading is the current through the part at its resistance — not volts across it; got: {msgs:?}"
+    );
+}
+
+/// The same board with a 0.2 Ω part: `P = I²R = 0.05 W`, comfortably inside the
+/// rating → silent. Only the resistance moved.
+#[test]
+fn series_element_inside_its_package_rating_is_silent_6035() {
+    let src = format!(
+        "{SRC5_CAP1A}{SNK5_500}{SHUNT_R}\nmodule main {{\n    conduit GND @role(main)\n    \
+         SRC5_CAP_1000 s\n    SNK5_500 k\n    RSHUNT.PWR r1(0.2Ω, 0.25W)\n    \
+         s.OUT -> r1.A\n    r1.B -> k.VDD\n    s.GND -> GND\n    k.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert_wiring_understood(&codes);
+    assert!(
+        !codes.contains(&mcc::errcodes::SHUNT_DISSIPATION_OVER_RATING),
+        "an element dissipating inside its rating is the healthy shape; got codes: {codes:?}"
+    );
+}
+
+/// `I` is the demand of the region that went **dark**, not everything the cut
+/// region can reach once the flood is let back across the element. A second
+/// 500mA sink hangs on the *source* side; without the removal the region flood
+/// would walk through the element and add it, reporting 1 A where the part
+/// carries 0.5 A. Both spellings fire, so the printed current is the
+/// discriminator.
+#[test]
+fn series_element_counts_only_its_own_downstream_region_6035() {
+    let src = format!(
+        "{SRC5_CAP1A}{SNK5_500}{SHUNT_R}\nmodule main {{\n    conduit GND @role(main)\n    \
+         io VIN\n    io VLOAD\n    SRC5_CAP_1000 s\n    SNK5_500 k1\n    SNK5_500 k2\n    \
+         RSHUNT.PWR r1(2Ω, 0.25W)\n    \
+         s.OUT -> VIN\n    k2.VDD -> VIN\n    r1.A -> VIN\n    r1.B -> VLOAD\n    k1.VDD -> VLOAD\n    \
+         s.GND -> GND\n    k1.GND -> GND\n    k2.GND -> GND\n}}\n"
+    );
+    let msgs = msgs_of(mcc::errcodes::SHUNT_DISSIPATION_OVER_RATING, &src);
+    assert_eq!(
+        msgs.len(),
+        1,
+        "the element's own downstream region is the one that went dark; got: {msgs:?}"
+    );
+    assert!(
+        msgs[0].contains("0.5 A") && !msgs[0].contains("1 A"),
+        "the current is the downstream region's demand alone — the source side's own sink is not carried by this part; got: {msgs:?}"
+    );
+}
+
+/// A declared fuse/ferrite in parallel with the element: the supply reaches both
+/// ends without it, so the element is **bypassed** rather than in line, and no
+/// current through it is a fact here (PWR-5's 6033 owns that shape, not this
+/// one). The board is the previous cell's — the element that fires there — with
+/// one part added, so the silence is the bypass talking.
+#[test]
+fn series_element_bypassed_by_parallel_copper_is_silent_6035() {
+    let src = format!(
+        "{SRC5_CAP1A}{SNK5_500}{SHUNT_R}{WIRE2}\nmodule main {{\n    conduit GND @role(main)\n    \
+         io VIN\n    io VLOAD\n    SRC5_CAP_1000 s\n    SNK5_500 k1\n    SNK5_500 k2\n    \
+         WIRE2 w1\n    RSHUNT.PWR r1(2Ω, 0.25W)\n    \
+         s.OUT -> VIN\n    k2.VDD -> VIN\n    r1.A -> VIN\n    w1.X -> VIN\n    \
+         r1.B -> VLOAD\n    w1.Y -> VLOAD\n    k1.VDD -> VLOAD\n    \
+         s.GND -> GND\n    k1.GND -> GND\n    k2.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert_wiring_understood(&codes);
+    assert!(
+        !codes.contains(&mcc::errcodes::SHUNT_DISSIPATION_OVER_RATING),
+        "the supply reaches both ends with the element removed — it is bypassed, so no current through it is judged; got codes: {codes:?}"
+    );
+}
+
+/// The downstream region draws, but nobody declared how much: `amp` is opt-in
+/// (`SNK5_NOAMP` writes only `::DC(5V)`), so the current is **unknown** rather
+/// than zero — and an unknown is never converted into a verdict.
+#[test]
+fn series_element_with_no_declared_demand_is_silent_6035() {
+    let src = format!(
+        "{SRC5_CAP1A}{SNK5_NOAMP}{SHUNT_R}\nmodule main {{\n    conduit GND @role(main)\n    \
+         SRC5_CAP_1000 s\n    SNK5_NOAMP k\n    RSHUNT.PWR r1(2Ω, 0.25W)\n    \
+         s.OUT -> r1.A\n    r1.B -> k.VDD\n    s.GND -> GND\n    k.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert_wiring_understood(&codes);
+    assert!(
+        !codes.contains(&mcc::errcodes::SHUNT_DISSIPATION_OVER_RATING),
+        "an undeclared demand is not a zero current — the region's draw is unknown, so it is never judged; got codes: {codes:?}"
+    );
+}
+
+/// Two elements in series each carry the *same* current (the region's whole
+/// demand), so each is judged on its own resistance — one row per element, both
+/// naming their own path. This is also the proof that the cut region floods
+/// *through* the other element (transparent copper) to reach the sink.
+#[test]
+fn series_elements_in_a_daisy_chain_each_fire_6035() {
+    let src = format!(
+        "{SRC5_CAP1A}{SNK5_500}{SHUNT_R}\nmodule main {{\n    conduit GND @role(main)\n    \
+         SRC5_CAP_1000 s\n    SNK5_500 k\n    RSHUNT.PWR r1(2Ω, 0.25W)\n    RSHUNT.PWR r2(2Ω, 0.25W)\n    \
+         s.OUT -> r1.A\n    r1.B -> r2.A\n    r2.B -> k.VDD\n    s.GND -> GND\n    k.GND -> GND\n}}\n"
+    );
+    let msgs = msgs_of(mcc::errcodes::SHUNT_DISSIPATION_OVER_RATING, &src);
+    assert_eq!(
+        msgs.len(),
+        2,
+        "the one current is carried by both elements, so each is judged once; got: {msgs:?}"
+    );
+    assert!(
+        msgs.iter().any(|m| m.contains("main.r1")) && msgs.iter().any(|m| m.contains("main.r2")),
+        "each row names the element it is about; got: {msgs:?}"
+    );
+}
+
+/// The two faces are mutually exclusive: a shunt's hot leg is a rail face and
+/// its return leg is `Ret`/`Reference` copper (never fed at all), so no end
+/// loses a feed and the series face never speaks. The board below is the shunt
+/// lock's own; it must still be exactly one row, reading volts rather than
+/// amperes.
+#[test]
+fn shunt_shape_is_not_judged_again_by_the_series_face_6035() {
+    let src = format!(
+        "{SHUNT_R}\nmodule main {{\n    conduit GND @role(main)\n    \
+         domain DVDD @class(digital) {{ rail [V5R, GND]::DC(5V, tol:±5%) }}\n    \
+         io V5R\n    RSHUNT.PWR r1(100Ω, 0.25W)\n    r1.A -> V5R\n    r1.B -> GND\n}}\n"
+    );
+    let msgs = msgs_of(mcc::errcodes::SHUNT_DISSIPATION_OVER_RATING, &src);
+    assert_eq!(
+        msgs.len(),
+        1,
+        "a shunt across a declared rail is judged once, by the window face; got: {msgs:?}"
+    );
+    assert!(
+        msgs[0].contains(" V across ") && !msgs[0].contains("passes through"),
+        "the shunt's reading is the rail window's far corner, never the removal method's current; got: {msgs:?}"
+    );
+}
+
 // ── PI-2 filter-leg load-side decoupling (power-quality-design.md §2.2, ruling 11) ──
 //
 // A `@bridge` whose two endpoints are both hot faces is a supply filter leg: the
