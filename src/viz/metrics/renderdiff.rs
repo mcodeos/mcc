@@ -22,7 +22,9 @@
 //! - Criteria are **structural similarity**, not pixel similarity; every explainable
 //!   difference vs the reference figure is reported per criterion
 //! - **Never edit golden to turn criteria green**. Large-scale red mid-way is the
-//!   correct shape
+//!   correct shape. The file is **generated** rather than written by hand
+//!   ([`RenderGolden::save`], `MC_RENDER_GOLDEN_SAVE=1`), and a generating run
+//!   never compares in the same run — so a regeneration cannot report green
 //! - Every criterion prints its evaluated object count; 0 shows `· SKIP`,
 //!   never `✓`
 
@@ -924,11 +926,190 @@ fn edge_key(e: &(String, String, String)) -> (String, String, String) {
     (a.clone(), b.clone(), e.2.clone())
 }
 
+/// Header of a generated baseline. TOML comments survive `load`, so this is where
+/// whoever reads (or regenerates) the file is told that it is generated, what to
+/// run to regenerate it, and how to read the lines written as 0.
+const GOLDEN_HEADER: &str = "\
+# render_golden.toml — the render layer's expectation, read by
+# src/viz/metrics/renderdiff.rs. Full explanation in that module's docs.
+#
+# GENERATED, not hand-written. Regenerate from the project root with
+#     MC_RENDER_GOLDEN_SAVE=1 mcc build --viz -L
+# The generating run judges nothing: writing and comparing are deliberately
+# exclusive, so a regeneration can never itself report green.
+#
+# Two kinds of line, and the difference is the whole design:
+#
+#   observed (boxes / box_names / power_edges / edge / port_names / net_names)
+#     frozen from the run that wrote the file. These criteria are a regression
+#     lock on the renderer's current output — not a claim that it is correct.
+#   invariant (synth_boxes / rail_flags / gnd_edges / top_passives)
+#     written as 0: the target, never the measurement. Freezing a measured
+#     non-zero would bless the very defect the criterion exists to catch, so
+#     these stay red until the renderer is fixed. A generating run prints any
+#     invariant it measured non-zero.
+#
+# Criteria with a hardcoded zero target (G12.*, G13.S7) read no golden field at
+# all, and keep their signal whatever this file says.
+
+";
+
+/// The on/off reading of [`RenderGolden::save_requested`]'s switch, split out so
+/// it can be tested without mutating the process environment (other tests in this
+/// binary render, and a momentarily-set switch would have them write a baseline).
+fn save_flag_set(value: Option<&str>) -> bool {
+    match value {
+        Some(v) => {
+            let t = v.trim();
+            !(t.is_empty() || t == "0" || t == "false" || t == "False" || t == "FALSE")
+        }
+        None => false,
+    }
+}
+
+impl LayerGolden {
+    /// One layer's golden, derived from one run's reading.
+    ///
+    /// The fields are written two different ways, on purpose:
+    ///
+    /// - **Observed** (`boxes`, `box_names`, `power_edges`, `edge`, `port_names`,
+    ///   `net_names`, `module`): frozen from the reading. That is what a baseline
+    ///   is — the figure a later run is compared against, so a changed count or
+    ///   roster shows up as red on the next run.
+    /// - **Invariant** (`synth_boxes`, `rail_flags`, `gnd_edges`, `top_passives`):
+    ///   written as the target **0**, never the measurement. Freezing a measured
+    ///   `3` here would bless the very defect the criterion exists to catch, and
+    ///   `G10.synth` / `G10.flags` / `G11.gnd_edges` / `G11.top_passives` would
+    ///   read green for ever. A reading that violates one is named by
+    ///   [`RenderGolden::invariant_violations`] instead, and the criterion stays
+    ///   red until the renderer is fixed.
+    ///
+    /// Rosters and edges are sorted, so two runs of the same build write the same
+    /// bytes. Every comparison is order-insensitive (`multiset_diff`,
+    /// `multiset_diff_str3`, `edge_key`'s unordered pair), so sorting cannot
+    /// change a verdict.
+    pub fn from_reading(r: &LayerReading) -> Self {
+        let mut box_names = r.box_names.clone();
+        box_names.sort_by_key(|s| s.to_lowercase());
+        let mut port_names = r.port_names.clone();
+        port_names.sort_by_key(|s| s.to_lowercase());
+        let mut net_names = r.net_names.clone();
+        net_names.sort_by_key(|s| s.to_lowercase());
+        let mut edge: Vec<GEdge> = r
+            .edges
+            .iter()
+            .map(|(from, to, label)| {
+                // Stored in the comparison's own canonical form (`edge_key`: the
+                // endpoint pair ordered). `diff_layer` applies `edge_key` to the
+                // reading's edges but not to the golden's, so a golden holding the
+                // raw direction would read red against the very reading it was
+                // written from whenever the renderer happened to emit the pair the
+                // other way round.
+                let (a, b, label) = edge_key(&(from.clone(), to.clone(), label.clone()));
+                GEdge {
+                    from: a,
+                    to: b,
+                    label,
+                }
+            })
+            .collect();
+        edge.sort_by(|a, b| (&a.from, &a.to, &a.label).cmp(&(&b.from, &b.to, &b.label)));
+
+        Self {
+            // The reading's own key: `LayerReading::layer` is the graph name, the
+            // same string `diff_layer` looks the layer up by.
+            module: r.layer.clone(),
+            boxes: r.total_boxes,
+            box_names,
+            synth_boxes: 0,
+            rail_flags: 0,
+            gnd_edges: 0,
+            power_edges: r.power_edges,
+            top_passives: 0,
+            edge,
+            port_names,
+            net_names,
+        }
+    }
+}
+
 impl RenderGolden {
     pub fn load(path: &std::path::Path) -> Result<Self, String> {
         let text = std::fs::read_to_string(path)
             .map_err(|e| format!("render_golden.toml read failed: {e}"))?;
         toml::from_str(&text).map_err(|e| format!("render_golden.toml parse failed: {e}"))
+    }
+
+    /// A whole baseline from one run's readings.
+    ///
+    /// Readings arrive in render order; keying them by layer name here (into a
+    /// `BTreeMap`) means the file does not depend on the order the layers
+    /// happened to be rendered in.
+    pub fn from_readings(readings: &[LayerReading]) -> Self {
+        let mut layer = BTreeMap::new();
+        for r in readings {
+            layer.insert(r.layer.clone(), LayerGolden::from_reading(r));
+        }
+        Self { layer }
+    }
+
+    /// Whether this run was asked to regenerate the baseline rather than compare
+    /// against it: `MC_RENDER_GOLDEN_SAVE`, the same idiom as `UPDATE_EXPECT=1` in
+    /// `scripts/regress.sh`. The path written is whichever
+    /// [`crate::viz::api::renderdiff_report`] would have read (`MC_RENDER_GOLDEN`,
+    /// else `baseline/render_golden.toml`), so generate and compare target the
+    /// same file by construction.
+    pub fn save_requested() -> bool {
+        save_flag_set(std::env::var("MC_RENDER_GOLDEN_SAVE").ok().as_deref())
+    }
+
+    /// Write the baseline to `path`.
+    ///
+    /// The parent directory is created: `baseline/` is gitignored, so on a fresh
+    /// clone it does not exist and the first save would otherwise have nowhere to
+    /// land.
+    pub fn save(&self, path: &std::path::Path) -> Result<(), String> {
+        let body = toml::to_string_pretty(self)
+            .map_err(|e| format!("render_golden.toml serialize failed: {e}"))?;
+        if let Some(parent) = path.parent() {
+            if !parent.as_os_str().is_empty() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| format!("render_golden.toml dir create failed: {e}"))?;
+            }
+        }
+        std::fs::write(path, format!("{GOLDEN_HEADER}{body}"))
+            .map_err(|e| format!("render_golden.toml write failed: {e}"))
+    }
+
+    /// The design invariants this run's readings violate — exactly the fields
+    /// [`LayerGolden::from_reading`] records as 0 rather than as measured. Printed
+    /// by a generating run, so whoever regenerates sees that the file is red by
+    /// construction and which criterion will say so.
+    pub fn invariant_violations(readings: &[LayerReading]) -> Vec<String> {
+        let mut out = Vec::new();
+        for r in readings {
+            for (id, what, measured) in [
+                ("G10.synth", "synth endpoint boxes", r.synth_endpoint_boxes),
+                ("G10.flags", "rail flag boxes", r.rail_flag_boxes),
+                ("G11.gnd_edges", "GND edges", r.gnd_edges),
+            ] {
+                if measured != 0 {
+                    out.push(format!(
+                        "layer '{}': {what} measured {measured}, golden records 0 — {id} reads red until the renderer is fixed",
+                        r.layer
+                    ));
+                }
+            }
+            // G11.top_passives is judged at the top level only, mirroring
+            // `diff_layer`'s condition (golden 0 + layer "main").
+            if r.layer == "main" && r.two_pin_passives != 0 {
+                out.push(format!(
+                    "layer '{}': top-level passives measured {}, golden records 0 — G11.top_passives reads red until the renderer is fixed",
+                    r.layer, r.two_pin_passives
+                ));
+            }
+        }
+        out
     }
 
     /// One layer reading vs one layer golden, outputs per-criterion conclusions.
@@ -1449,5 +1630,193 @@ boxes = 0
         let d = g2.diff_layer(&r);
         assert!(matches!(verdict_of(&d, "G14.ports"), Verdict::Skip(_)));
         assert!(matches!(verdict_of(&d, "G14.nets"), Verdict::Skip(_)));
+    }
+
+    // ── baseline generation (MC_RENDER_GOLDEN_SAVE / RenderGolden::save) ──
+
+    fn tmpdir(tag: &str) -> std::path::PathBuf {
+        let mut d = std::env::temp_dir();
+        d.push(format!(
+            "mcc-renderdiff-{}-{:?}-{tag}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    /// A reading with non-zero evaluated counts, so `num_check` actually judges
+    /// its numbers instead of taking the `eval=0` SKIP.
+    fn reading_of(layer: &str, boxes: &[&str]) -> LayerReading {
+        let mut r = reading_with_rosters(&[], &[]);
+        r.layer = layer.into();
+        r.total_boxes = boxes.len();
+        r.box_names = boxes.iter().map(|s| s.to_string()).collect();
+        r.evaluated = EvalCounts {
+            boxes: boxes.len(),
+            nets: 1,
+            sizes: 0,
+        };
+        r
+    }
+
+    /// The whole point of a generated baseline: what it froze is what the next run
+    /// is compared against, so a run judges its own reading green.
+    #[test]
+    fn save_then_load_round_trips_and_judges_the_frozen_fields() {
+        let dir = tmpdir("roundtrip");
+        let path = dir.join("render_golden.toml");
+        let mut r = reading_of("main", &["U2", "R1"]);
+        r.power_edges = 2;
+        r.port_names = vec!["vin".into(), "vout".into()];
+        r.net_names = vec!["V5V".into()];
+        r.edges = vec![("U2".into(), "R1".into(), "V5V".into())];
+
+        let g = RenderGolden::from_readings(&[r.clone()]);
+        g.save(&path).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            text.starts_with("# render_golden.toml"),
+            "generated file must carry its own explanation:\n{text}"
+        );
+
+        let d = RenderGolden::load(&path).unwrap().diff_layer(&r);
+        for id in [
+            "G10.boxes",
+            "G10.names",
+            "G11.power_edges",
+            "G11.edges",
+            "G14.ports",
+            "G14.nets",
+        ] {
+            let v = verdict_of(&d, id);
+            assert!(matches!(v, Verdict::Ok(_)), "{id} should match: {v:?}");
+        }
+    }
+
+    /// The invariant fields are the target, not the measurement. If a generation
+    /// froze a measured 3 here, the criterion that exists to catch that 3 would
+    /// read green for ever — so this is the test that keeps the lock honest.
+    #[test]
+    fn invariants_are_written_as_zero_and_keep_their_criterion_red() {
+        let dir = tmpdir("invariants");
+        let path = dir.join("render_golden.toml");
+        let mut r = reading_of("main", &["U1"]);
+        r.synth_endpoint_boxes = 3;
+        r.rail_flag_boxes = 2;
+        r.gnd_edges = 1;
+        r.two_pin_passives = 4;
+
+        let g = RenderGolden::from_readings(&[r.clone()]);
+        let l = &g.layer["main"];
+        assert_eq!(
+            (l.synth_boxes, l.rail_flags, l.gnd_edges, l.top_passives),
+            (0, 0, 0, 0),
+            "an invariant is recorded as its target, never as the measurement"
+        );
+
+        let violations = RenderGolden::invariant_violations(&[r.clone()]);
+        assert_eq!(violations.len(), 4, "{violations:?}");
+        for id in [
+            "G10.synth",
+            "G10.flags",
+            "G11.gnd_edges",
+            "G11.top_passives",
+        ] {
+            assert!(
+                violations.iter().any(|v| v.contains(id)),
+                "{id} not reported: {violations:?}"
+            );
+        }
+
+        g.save(&path).unwrap();
+        let d = RenderGolden::load(&path).unwrap().diff_layer(&r);
+        for id in [
+            "G10.synth",
+            "G10.flags",
+            "G11.gnd_edges",
+            "G11.top_passives",
+        ] {
+            let v = verdict_of(&d, id);
+            assert!(matches!(v, Verdict::Fail(_)), "{id} must stay red: {v:?}");
+        }
+    }
+
+    /// Two runs of the same build must write the same bytes, or every regeneration
+    /// shows up as a whole-file diff: layer order, roster order and edge direction
+    /// are all renderer accidents, so none of them may reach the file.
+    #[test]
+    fn save_is_byte_stable_under_layer_roster_and_edge_order() {
+        let dir = tmpdir("stable");
+        let (a_path, b_path) = (dir.join("a.toml"), dir.join("b.toml"));
+
+        let mut main_a = reading_of("main", &["U2", "R1", "C3"]);
+        main_a.net_names = vec!["GND".into(), "V5V".into()];
+        main_a.edges = vec![
+            ("U2".into(), "R1".into(), "V5V".into()),
+            ("C3".into(), "R1".into(), "GND".into()),
+        ];
+        let sub = reading_of("sub_u2", &["X1"]);
+
+        // Same figures, every list in a different order, one edge pair reversed.
+        let mut main_b = reading_of("main", &["C3", "R1", "U2"]);
+        main_b.net_names = vec!["V5V".into(), "GND".into()];
+        main_b.edges = vec![
+            ("R1".into(), "C3".into(), "GND".into()),
+            ("R1".into(), "U2".into(), "V5V".into()),
+        ];
+
+        RenderGolden::from_readings(&[main_a.clone(), sub.clone()])
+            .save(&a_path)
+            .unwrap();
+        RenderGolden::from_readings(&[sub, main_b.clone()])
+            .save(&b_path)
+            .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&a_path).unwrap(),
+            std::fs::read_to_string(&b_path).unwrap()
+        );
+
+        // The reversed pair is also the case that would read red if the golden
+        // stored the raw direction (`diff_layer` canonicalizes only the reading).
+        let g = RenderGolden::load(&a_path).unwrap();
+        let d = g.diff_layer(&main_b);
+        let v = verdict_of(&d, "G11.edges");
+        assert!(
+            matches!(v, Verdict::Ok(_)),
+            "reversed pair should match: {v:?}"
+        );
+    }
+
+    /// `baseline/` is gitignored, so a fresh clone has no directory for the first
+    /// save to land in.
+    #[test]
+    fn save_creates_a_missing_baseline_directory() {
+        let dir = tmpdir("mkdir");
+        let path = dir.join("baseline/render_golden.toml");
+        assert!(!path.parent().unwrap().exists());
+        RenderGolden::from_readings(&[reading_of("main", &["U1"])])
+            .save(&path)
+            .unwrap();
+        assert!(path.is_file());
+    }
+
+    /// `MC_RENDER_GOLDEN_SAVE` is the write switch, and it must not be tripped by
+    /// the values a shell conveniently leaves around: an unset variable, an empty
+    /// one and `0` / `false` are all "compare, do not write".
+    #[test]
+    fn save_flag_is_off_unless_it_says_otherwise() {
+        for (set, expect) in [
+            (None, false),
+            (Some(""), false),
+            (Some("0"), false),
+            (Some(" 0 "), false),
+            (Some("false"), false),
+            (Some("False"), false),
+            (Some("1"), true),
+            (Some("yes"), true),
+        ] {
+            assert_eq!(save_flag_set(set), expect, "{set:?}");
+        }
     }
 }
