@@ -387,7 +387,7 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
             layer.svg = combined_svg;
             doc.add_layer(layer);
 
-            let html = mcc::viz::template::wrap_document(&doc);
+            let html = mcc::viz::sourcelink::wrap_standalone(&mut doc, &project_root);
 
             let output_path = mcc::cli::globals()
                 .output
@@ -456,7 +456,7 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
             };
 
             let opts = build_viz_opts(args.layouter.as_deref());
-            let (doc, metrics) = mcc::viz::api::render_with_metrics(graph, opts);
+            let (mut doc, metrics) = mcc::viz::api::render_with_metrics(graph, opts);
             let quality = metrics.finish_quality(Some(&build_report));
             // Metrics summary: always shown (this is the acceptance yardstick).
             for line in quality.report_lines() {
@@ -481,7 +481,11 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
                 }
             }
 
-            let html = mcc::viz::template::wrap_document(&doc);
+            // Standalone artifact only, and after the golden check above on purpose:
+            // it stamps the layers' `svg`, and `doc.to_json()` is what the golden
+            // records. The golden's own render never comes through here
+            // (tests/golden via render_signature), so it stays link-free.
+            let html = mcc::viz::sourcelink::wrap_standalone(&mut doc, &project_root);
 
             let output_path = mcc::cli::globals()
                 .output
@@ -927,7 +931,7 @@ fn build_browse_dir(
         let mut layer = mcc::viz::layer::VizLayer::new(1000, root_name, None);
         layer.svg = combined_svg;
         doc.add_layer(layer);
-        let html = mcc::viz::template::wrap_document(&doc);
+        let html = mcc::viz::sourcelink::wrap_standalone(&mut doc, root);
         let output_path = mcc::cli::globals()
             .output
             .as_deref()

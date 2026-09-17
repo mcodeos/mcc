@@ -165,5 +165,116 @@ body {
   display: flex;
   gap: 16px;
   flex-shrink: 0;
+}
+/* Source-navigation hot zone
+   ------------------------------------------------------------------------
+   A stamped element's clickable area is its whole drawn extent, not only the
+   strokes it paints. An SVG group has no area of its own, so on the default
+   `visiblePainted` a click only lands on the ink: a lead is a 1.2px hairline
+   plus 8-10px glyphs, and a lead drawn without labels (a two-pin part's
+   marker-only pin) leaves nothing at all to hit. `bounding-box` makes the
+   group's own box the target instead.
+
+   Measured in Chromium over the hbl fixture, all 7 layers, 58 leads x 49
+   sample points each (scripts aside, the numbers are reproducible with
+   `document.elementsFromPoint`): points inside a lead's box that reached that
+   lead go 53.6% -> 96.6%, points reaching no stamped element at all (dead
+   zone) 535 -> 0. Spill onto a *different* element stays 0 on every layer
+   except SPK, whose 3.4% is a pre-existing pin collision — two leads drawn at
+   the same coordinate — not something a hit box can cause or cure.
+
+   This widening is deliberately free of the render golden: the rule lives in
+   the page's CSS, so no layer's `svg` string (what `VizDocument::to_json()`
+   and therefore tests/golden/hbl.golden.json record) changes.
+
+   Firefox has never implemented `bounding-box`; there the declaration is
+   dropped and the page keeps the painted-only behaviour it had before. */
+#canvas [data-src-uri] {
+  pointer-events: bounding-box;
+}
+/* Source-navigation affordance (design §4 D5)
+   ------------------------------------------------------------------------
+   Nothing on the page says a box or pin *can* be jumped from, so the gesture
+   is undiscoverable until someone happens to hold the modifier. Two cues, both
+   driven from here and the page JS, so neither touches the render golden:
+
+   1. a one-line hint in the status bar, present only when the current layer
+      actually holds something jumpable (see `updateHint` in the page JS);
+   2. this outline, shown while the modifier is held (`body.nav-armed`).
+
+   The outline traces the element's box, which is the region `bounding-box`
+   above makes clickable — the cue shows the target rather than leaving the
+   user to aim at a 1.2px lead. The offset is *negative* on purpose: the
+   outline is painted inside the box, so every pixel it lights up is a pixel
+   that a modifier-click would actually hit. A positive offset would draw a
+   frame just outside the hit zone.
+
+   Measured in Chromium (screenshot pixel diff, so "no visible effect" is a
+   measurement and not an assumption): `outline` on the stamped groups paints
+   (~31k px changed over the hbl root layer); so does `filter: drop-shadow`.
+   `background` and a bare `cursor` change nothing. drop-shadow lost out
+   because it glows around the *ink* — it would advertise the hairline as the
+   target, which is exactly the misreading the hot zone above exists to fix.
+
+   Firefox never implemented `bounding-box`, so there the drawn box is wider
+   than the hit zone (ink only). The outline still marks *which* elements can
+   be jumped, which is what the cue is for; it just cannot promise the whole
+   frame. */
+body.nav-armed #canvas [data-src-uri] {
+  outline: 2px solid var(--link);
+  outline-offset: -2px;
+  cursor: pointer;
+}
+/* Hint sits at the far end of the status row, opposite the layer stats. */
+#stats .hint {
+  margin-left: auto;
+  color: var(--link);
 }"##
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The lead hit zone. Two halves have to stay in step: the selector must key
+    /// off the same `data-src-uri` stamp the interaction JS reads (a different
+    /// selector silently leaves every lead on painted-only hit testing, which is
+    /// the 53.6% -> 96.6% regression above), and the value must stay
+    /// `bounding-box` (any other `pointer-events` value either does nothing or
+    /// makes the group unhittable entirely).
+    #[test]
+    fn stamped_elements_hit_their_whole_box() {
+        let css = css();
+        assert!(
+            css.contains("[data-src-uri]"),
+            "hot zone no longer keys off the source stamp"
+        );
+        assert!(
+            css.contains("pointer-events: bounding-box"),
+            "hot zone no longer widens past the painted strokes"
+        );
+    }
+
+    /// The D5 affordance. Three things have to stay in step: it must key off the
+    /// same stamp the hot zone and the page JS use (any other selector outlines
+    /// nothing while still reading as plausible), it must be scoped to
+    /// `body.nav-armed` (unscoped, every page would ship permanently outlined),
+    /// and the offset must stay negative so the frame is painted *inside* the
+    /// box the click would land in.
+    #[test]
+    fn armed_modifier_outlines_the_same_stamp() {
+        let css = css();
+        assert!(
+            css.contains("body.nav-armed #canvas [data-src-uri]"),
+            "affordance no longer keys off the source stamp while armed"
+        );
+        assert!(
+            css.contains("outline-offset: -2px"),
+            "the frame now paints outside the clickable box"
+        );
+        assert!(
+            css.contains("#stats .hint"),
+            "the hint no longer sits in the status row"
+        );
+    }
 }
