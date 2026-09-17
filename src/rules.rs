@@ -62,11 +62,11 @@ use crate::semantic::validation::nets::{
     check_clamp_ref_role, check_combine_output_tol, check_converter_gate_window,
     check_converter_output_rail_window, check_converter_spec_incomplete,
     check_decoupling_return_face, check_device_return_span, check_driver_conflict,
-    check_earth_dc_leak, check_exposed_clamp_coverage, check_filter_subface_overreach,
-    check_floating_inputs, check_floating_outputs, check_isolated_dc_bridge, check_nc_connected,
-    check_net_budget, check_pin_contract_decode, check_pin_contract_return_member,
-    check_pin_count_mismatch, check_port_bind_role, check_port_io_mismatch,
-    check_power_bridge_loop, check_power_nets, check_power_rail_contract,
+    check_earth_dc_leak, check_exposed_clamp_coverage, check_exposed_clamp_downstream,
+    check_filter_subface_overreach, check_floating_inputs, check_floating_outputs,
+    check_isolated_dc_bridge, check_nc_connected, check_net_budget, check_pin_contract_decode,
+    check_pin_contract_return_member, check_pin_count_mismatch, check_port_bind_role,
+    check_port_io_mismatch, check_power_bridge_loop, check_power_nets, check_power_rail_contract,
     check_power_rail_two_roots, check_power_source_contention, check_protect_series_path,
     check_protect_shunt_reference, check_protective_multi_bridge, check_pullup_degenerate,
     check_rail_nature_consistency, check_reference_island_root, check_return_leg_undeclared,
@@ -1252,6 +1252,20 @@ pub static FLAT_ERC_RULES: &[FlatErcRule] = &[
         overridable = false,
         owner = check_unwired_pins,
     },
+    // PWR-6 downstream chain (exposed-protection-design.md §3.1, six rulings
+    // 2026-09-17); table tail, tracking the FLAT_ERC_ORDER append (§5-5).
+    declare_flat_erc_rule! {
+        code = crate::errcodes::EXPOSED_NET_DOWNSTREAM_UNPROTECTED,
+        name = "exposed-net-downstream-unprotected",
+        title = "an @exposed port's clamp leaves an unprotected quiet/sensitive face downstream",
+        severity = Error,
+        domain = Power,
+        family = None,
+        doc = "PWR-6's second half (exposed-protection-design.md §3.1, ruled 2026-09-17). 6031 asks the *existence* question on the exposed net itself (is there a declared clamp at all); this one asks the *direction* question the canon's \"already past a clamp or current-limit chain before entering an intolerant domain\" names: from the exposed port's own copper, flood the current-transparent region — the walk the nominal engines share, stopping before Ret/Reference copper and stopping at every **declared** gate (`protect = series`: fuse / PTC / ferrite, the current-limit chain) — and report when some net of that region carries no clamp of its own *and* is a quiet/sensitive face (§1.4's read, the §1.3 silence when nothing declares one). Region existence, not path search, so a clamp anywhere in the region covers it. A gate is only ever a declaration — an unmarked two-terminal pass is ordinary copper and does not stop the flood. Never stacked with 6031: that rule's object is the exposed net, this one's is the region minus it, so an unclamped exposed net fires 6031 alone.",
+        lock = "tests/power_intent_l1.rs",
+        overridable = false,
+        owner = check_exposed_clamp_downstream,
+    },
 ];
 
 // Declaration scope (pins / declaration semantics)
@@ -1806,9 +1820,9 @@ mod tests {
     use crate::errcodes::{
         ABSTRACT_PART_UNSELECTED, ANALOG_RETURN_MISMATCH, BRIDGE_LOAD_DECOUPLING_MISSING,
         CLAMP_REF_NOT_PROTECTIVE, COMBINE_OUTPUT_TOL, DECOUPLING_RETURN_MISMATCH,
-        DEVICE_RETURN_SPAN_UNDECLARED, EARTH_DC_LEAK, EXPOSED_NET_NO_CLAMP,
-        FILTER_SUBFACE_OVERREACH, ISOLATED_DC_BRIDGE, NET_BACKFEED_RISK, NET_BIDIR_UNCONNECTED,
-        NET_BUDGET_EXCEEDED, NET_DANGLING_ENDPOINT, NET_INPUT_UNCONNECTED,
+        DEVICE_RETURN_SPAN_UNDECLARED, EARTH_DC_LEAK, EXPOSED_NET_DOWNSTREAM_UNPROTECTED,
+        EXPOSED_NET_NO_CLAMP, FILTER_SUBFACE_OVERREACH, ISOLATED_DC_BRIDGE, NET_BACKFEED_RISK,
+        NET_BIDIR_UNCONNECTED, NET_BUDGET_EXCEEDED, NET_DANGLING_ENDPOINT, NET_INPUT_UNCONNECTED,
         NET_INSTANCE_UNCONNECTED, NET_MODULE_PORT_UNCONNECTED, NET_MULTI_DRIVE, NET_NC_CONNECTED,
         NET_NO_DRIVER, NET_OUTPUTS_NO_INPUT, NET_OUTPUT_UNDRIVEN, NET_PARTIAL_CONNECTION,
         NET_PIN_UNWIRED, NET_POWER_NET_COUNT, NET_VOLTAGE_MISMATCH, PIN_CONFLICTING_OPTIONS,
@@ -1825,7 +1839,7 @@ mod tests {
     /// The execution order of the migrated `nets::run_net_checks` call table.
     /// This is the lock that keeps catalog declaration order byte-identical to
     /// the pre-registry runner sequence.
-    const FLAT_ERC_ORDER: [u32; 52] = [
+    const FLAT_ERC_ORDER: [u32; 53] = [
         NET_MULTI_DRIVE,                    // P1
         NET_NO_DRIVER,                      // P2
         NET_INPUT_UNCONNECTED,              // P5
@@ -1878,6 +1892,7 @@ mod tests {
         SHARED_RETURN_BRIDGE, // SN-2 noisy/quiet returns joined by a non-filtering ground bridge
         FILTER_SUBFACE_OVERREACH, // PI-4 sink pair vs the filter leg's load-side subface
         NET_PIN_UNWIRED,      // P10 every component pad on no net (tail append)
+        EXPOSED_NET_DOWNSTREAM_UNPROTECTED, // PWR-6 downstream chain (tail append)
     ];
 
     /// The report-row tags of the netcheck R-series. This is the lock that
@@ -2413,7 +2428,7 @@ mod tests {
         // The 63 PostParse codes that once shared the validation-module doc
         // placeholder now carry concrete tests/lock_pp_*.rs anchors, so the
         // doc partition is empty and every one of them counts as strong.
-        assert_eq!((strong, doc, note), (159, 0, 3));
+        assert_eq!((strong, doc, note), (160, 0, 3));
         assert_eq!(strong + doc + note, rule_count());
     }
 

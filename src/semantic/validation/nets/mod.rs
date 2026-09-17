@@ -3371,34 +3371,7 @@ fn resolve_bind_role(
 /// an ancestor world / port contract (iron rule 1 §6).
 pub(crate) fn check_exposed_clamp_coverage(table: &InstTable, results: &mut Vec<NetCheckResult>) {
     let idx = crate::instant::island::NetIslandIndex::build(table);
-
-    // Declaration plane per module instance: the references it declares, and
-    // the references its own `@clamp(ref)` legs name.
-    let mut ref_names: std::collections::HashMap<u32, HashSet<String>> =
-        std::collections::HashMap::new();
-    let mut clamp_refs: std::collections::HashMap<u32, HashSet<String>> =
-        std::collections::HashMap::new();
-    for (id, pi) in table.power_decls() {
-        if !table
-            .get_entry(*id)
-            .is_some_and(|e| matches!(e.kind, InstKind::Module))
-        {
-            continue;
-        }
-        let refs: HashSet<String> = pi.l1_refs().into_iter().map(|r| r.name).collect();
-        if !refs.is_empty() {
-            ref_names.insert(*id, refs);
-        }
-        let clamps: HashSet<String> = pi
-            .l1_edges()
-            .into_iter()
-            .filter(|e| e.kind == crate::semantic::module::pi::L1EdgeKind::Clamp)
-            .filter_map(|e| e.endpoints.first().cloned())
-            .collect();
-        if !clamps.is_empty() {
-            clamp_refs.insert(*id, clamps);
-        }
-    }
+    let (ref_names, clamp_refs) = clamp_declaration_plane(table);
 
     for (id, pi) in table.power_decls() {
         let Some(m) = table.get_entry(*id) else {
@@ -3508,6 +3481,283 @@ fn segment_is_clamped(
         }
     }
     false
+}
+
+/// The declaration plane both halves of PWR-6 read: per module instance, the
+/// references it declares, and the references its own `@clamp(ref)` legs name.
+/// One build, because 6031 (existence) and 6044 (downstream chain) ask the same
+/// question of the same tables — a second copy would let the two halves of one
+/// rule disagree about what a clamp is.
+fn clamp_declaration_plane(
+    table: &InstTable,
+) -> (
+    std::collections::HashMap<u32, HashSet<String>>,
+    std::collections::HashMap<u32, HashSet<String>>,
+) {
+    let mut ref_names: std::collections::HashMap<u32, HashSet<String>> =
+        std::collections::HashMap::new();
+    let mut clamp_refs: std::collections::HashMap<u32, HashSet<String>> =
+        std::collections::HashMap::new();
+    for (id, pi) in table.power_decls() {
+        if !table
+            .get_entry(*id)
+            .is_some_and(|e| matches!(e.kind, InstKind::Module))
+        {
+            continue;
+        }
+        let refs: HashSet<String> = pi.l1_refs().into_iter().map(|r| r.name).collect();
+        if !refs.is_empty() {
+            ref_names.insert(*id, refs);
+        }
+        let clamps: HashSet<String> = pi
+            .l1_edges()
+            .into_iter()
+            .filter(|e| e.kind == crate::semantic::module::pi::L1EdgeKind::Clamp)
+            .filter_map(|e| e.endpoints.first().cloned())
+            .collect();
+        if !clamps.is_empty() {
+            clamp_refs.insert(*id, clamps);
+        }
+    }
+    (ref_names, clamp_refs)
+}
+
+/// `Ret`/`Reference` copper never carries hot-side reach: a region neither
+/// starts on it nor floods through it (reach.rs §7 L4's distinction, which keeps
+/// a decoupling cap — structurally identical to a feed ferrite at the flat layer
+/// — from masquerading as a source).
+pub(super) fn role_excluded(idx: &crate::instant::island::NetIslandIndex, net_id: u32) -> bool {
+    idx.get(net_id).is_some_and(|a| {
+        matches!(
+            a.role,
+            crate::instant::island::NetRole::Ret | crate::instant::island::NetRole::Reference
+        )
+    })
+}
+
+/// The **current-transparent copper region** of `start`: every net reachable
+/// from it through transparent copper, and nothing else. Two arms, verbatim the
+/// walk `budget_derive.rs`'s `fill_region` carried — `reach.rs` / `budget.rs` /
+/// `window.rs` carry the same two arms in a per-leg shape (first-wins / first
+/// *fed* rather than a set), so they are not this helper's callers:
+///
+/// * **transparent-copper arm** — a component the caller calls `transparent` is
+///   a bridge: every one of its pins' nets joins the region. The caller owns
+///   that predicate because "no DC rows" is the shape test and a declared gate
+///   (`protect = series`) is an overlay it adds on top.
+/// * **module-boundary arm** — the *same* physical copper across a submodule
+///   port is a second `NetEntry` (both share the junction point id, `module`
+///   differs), so a co-segment owned by another scope joins the region.
+///
+/// `seen` / `out` are threaded so a caller can accumulate several seeds' regions
+/// into one walk (budget's per-region demand does exactly that).
+pub(super) fn copper_region_into(
+    table: &InstTable,
+    idx: &crate::instant::island::NetIslandIndex,
+    transparent: &dyn Fn(u32) -> bool,
+    net_id: u32,
+    seen: &mut HashSet<u32>,
+    out: &mut Vec<u32>,
+) {
+    if !seen.insert(net_id) {
+        return;
+    }
+    if role_excluded(idx, net_id) {
+        return;
+    }
+    let Some(net) = table.get_net(net_id) else {
+        return;
+    };
+    out.push(net_id);
+    // Transparent-copper arm: the component's other pins' nets forward.
+    for &pid in &net.points {
+        let Some(entry) = table.get_entry(pid) else {
+            continue;
+        };
+        if !matches!(entry.kind, InstKind::Pin) {
+            continue;
+        }
+        let Some(cid) = entry.parent_id else {
+            continue;
+        };
+        if !transparent(cid) {
+            continue;
+        }
+        for pin in table.get_pins_of(cid) {
+            let Some(pnet) = table.get_net_of(pin.id) else {
+                continue;
+            };
+            if pnet.id != net.id {
+                copper_region_into(table, idx, transparent, pnet.id, seen, out);
+            }
+        }
+    }
+    // Module-boundary arm: a co-segment in another scope is the same copper.
+    if let Some(m) = net.module {
+        for &pid in &net.points {
+            for &cid in table.nets_of(pid) {
+                if cid == net.id {
+                    continue;
+                }
+                let Some(co) = table.get_net(cid) else {
+                    continue;
+                };
+                if co.module.is_none() || co.module == Some(m) {
+                    continue;
+                }
+                copper_region_into(table, idx, transparent, cid, seen, out);
+            }
+        }
+    }
+}
+
+/// PWR-6 **downstream chain** (exposed-protection-design.md §3.1, six rulings
+/// 2026-09-17): 6031 asks the existence question on the exposed net itself; this
+/// half asks the *direction* question the canon's "already past a clamp or
+/// current-limit chain before entering an intolerant domain" names.
+///
+/// ```text
+/// region(P) = the nets reachable from P's segments by flooding transparent
+///             copper
+///             crosses: parts with no DC rows, module-boundary co-segments
+///             does not cross: Ret / Reference copper (reach.rs §7 L4)
+///             stops at a gate: InstEntry.protection == Some(Series)
+/// report(P) <=> some segment N of region(P) \ P:
+///                 N is a quiet/sensitive face (§1.4's read) and N carries no
+///                 declared clamp of its own
+/// ```
+///
+/// Region **existence**, not path search (§3.1.4): `region` holds no path, so a
+/// clamp anywhere in it covers the whole region. The gate is a declaration only
+/// — an unmarked two-terminal pass is ordinary copper and does not stop the
+/// flood ("a declaration is the contract", the same rule PWR-5's classification
+/// rests on).
+///
+/// Not judged, never guessed (§3.1.5): a port whose segments do not resolve in
+/// its own scope; a region net with no owning layer, no resolvable class or no
+/// declared face (§1.3's silence); a region net that is itself clamped; and a
+/// board declaring no faces at all. **Never stacked with 6031** — that rule's
+/// object is the exposed net and this one's is the region *minus* it (§3.1.6).
+pub(crate) fn check_exposed_clamp_downstream(table: &InstTable, results: &mut Vec<NetCheckResult>) {
+    let idx = crate::instant::island::NetIslandIndex::build(table);
+    let faces = faces::DomainFaces::read(table);
+    if faces.is_empty() {
+        return; // no declared face anywhere — nothing can be an untolerated domain
+    }
+    // Def by class name, the resolution 6027 uses: the flat carries the class,
+    // the definition space carries the pin contract.
+    let workspace = crate::definition_space().workspace_components();
+    let defs: std::collections::HashMap<String, &McComponent> = workspace
+        .iter()
+        .map(|(sn, c)| (sn.ident.to_string(), c.as_ref()))
+        .collect();
+    let (ref_names, clamp_refs) = clamp_declaration_plane(table);
+
+    for (id, pi) in table.power_decls() {
+        let Some(m) = table.get_entry(*id) else {
+            continue;
+        };
+        if !matches!(m.kind, InstKind::Module) {
+            continue;
+        }
+        for p in pi.l1_ports() {
+            if p.exposed.is_empty() {
+                continue;
+            }
+            let port_path = format!("{}.{}", m.path, p.name);
+            let Some(pid) = table.get_id_by_path(&port_path) else {
+                continue;
+            };
+            let segs: Vec<&NetEntry> = table
+                .nets_of(pid)
+                .iter()
+                .filter_map(|n| table.get_net(*n))
+                .collect();
+            if segs.is_empty() {
+                continue; // no resolvable segment — not adjudicated
+            }
+            // 6031's half owns the uncovered case. An exposed net carrying no
+            // clamp at all is that rule's verdict alone — one defect, one code
+            // (§3.1.4's "S unclamped means 6031 alone", the same one-cause-one-
+            // code law as rulings 8/11) — so the downstream half judges only
+            // ports whose own copper a clamp already covers. The read is 6031's
+            // own predicate, not a second one.
+            if !segs
+                .iter()
+                .any(|s| segment_is_clamped(table, &idx, s, &ref_names, &clamp_refs))
+            {
+                continue;
+            }
+            // The flood: a declared gate stops it, and nothing else does. An
+            // unmarked two-terminal pass is ordinary copper.
+            let transparent = |cid: u32| {
+                let Some(entry) = table.get_entry(cid) else {
+                    return false;
+                };
+                if entry.protection == Some(crate::instant::insttab::ProtectionKind::Series) {
+                    return false; // a declared current-limit chain — stop here
+                }
+                defs.get(&entry.class_name)
+                    .is_some_and(|d| d.pins.pwr.is_empty())
+            };
+            // The port's own copper is the region's seed, not its object: a
+            // second segment of the same port row is never "downstream".
+            let own: HashSet<u32> = segs.iter().map(|s| s.id).collect();
+            let mut region: Vec<u32> = Vec::new();
+            let mut seen: HashSet<u32> = HashSet::new();
+            for s in &segs {
+                copper_region_into(table, &idx, &transparent, s.id, &mut seen, &mut region);
+            }
+            let mut hit: Option<(u32, String)> = None;
+            for &n in &region {
+                if own.contains(&n) {
+                    continue;
+                }
+                let Some(net) = table.get_net(n) else {
+                    continue;
+                };
+                let Some(attr) = idx.get(n) else {
+                    continue;
+                };
+                let Some(layer) = attr.module else {
+                    continue;
+                };
+                let Some(cls) = eff_class(table, &idx, attr, &mut Vec::new()) else {
+                    continue;
+                };
+                let Some(world) = faces.quiet_world(table, layer, &cls.worlds) else {
+                    continue; // not a quiet/sensitive face — no object
+                };
+                if segment_is_clamped(table, &idx, net, &ref_names, &clamp_refs) {
+                    continue; // this net is protected on its own account
+                }
+                hit = Some((n, world));
+                break;
+            }
+            let Some((n, world)) = hit else {
+                continue;
+            };
+            let Some(downstream) = table.get_net(n).map(|net| net.name.clone()) else {
+                continue;
+            };
+            let (pos, uri) = table
+                .get_entry(pid)
+                .map(entry_pos)
+                .unwrap_or((0, String::new()));
+            results.push(NetCheckResult {
+                check: "exposed-net-downstream-unprotected",
+                severity: "error",
+                message: crate::errcodes::format_msg(
+                    crate::errcodes::EXPOSED_NET_DOWNSTREAM_UNPROTECTED,
+                    &[&port_path, &p.exposed.join(","), &downstream, &world],
+                ),
+                net_name: downstream,
+                code: crate::errcodes::EXPOSED_NET_DOWNSTREAM_UNPROTECTED,
+                pos,
+                uri,
+            });
+        }
+    }
 }
 
 /// Render an amps value for diagnostics: `< 1 A` as mA, else as A (`500mA`,

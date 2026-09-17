@@ -1920,12 +1920,13 @@ fn two_declared_parallel_legs_on_one_pair_stay_silent_6022() {
 
 /// The golden `FB_agnd` shape: the clause names the return member a **domain**
 /// declares, and the copper the leg lands on is the bare `@role(main)` conduit.
-/// The clause *is* this leg's declaration, so 6022 stays silent. Here the pad's
-/// net does carry the `DVDD:GND` identity, so this fixture locks the verdict,
-/// not the key choice: the golden board writes the same leg with its `GND` a
-/// **bus** entry whose member label hangs off the bus, the pad's identity set
-/// then holds only the net's own name, and it is the spelling key that keeps
-/// the leg silent there (identity-only reads 6022 twice on `pwrint`).
+/// The clause *is* this leg's declaration, so 6022 stays silent. The pad's net
+/// here carries the `DVDD:GND` identity through a module-scope label, so this
+/// fixture locks the verdict, not the identity read: the golden board spells the
+/// same conductor as a numbered **bus** (`GND` carrying pin 21), whose
+/// declaration sits on the bus while its member labels hang off the bus — there
+/// the scan has to take the bus entry itself (measured, `pwrint` `FB_agnd` /
+/// `FB_agnd2` read 6022 twice when it does not).
 #[test]
 fn a_declared_leg_on_a_bare_conduit_of_a_declared_member_stays_silent_6022() {
     let src = format!(
@@ -2961,6 +2962,177 @@ fn exposed_port_with_no_net_is_not_adjudicated_6031() {
         !codes.contains(&mcc::errcodes::EXPOSED_NET_NO_CLAMP),
         "a dangling exposed port has no segment; got codes: {codes:?}"
     );
+}
+
+// ── PWR-6 downstream chain (exposed-protection-design.md §3.1, six rulings 2026-09-17) ──
+//
+// 6031 asks the *existence* question on the exposed net itself. This half asks
+// the *direction* question the canon's "already past a clamp or current-limit
+// chain before entering an intolerant domain" names: from the exposed port's
+// own copper, flood the current-transparent
+// region (transparent copper + module-boundary co-segments, never across
+// Ret/Reference copper) **stopping at every declared gate** (`protect = series`
+// — the current-limit chain), and report when a net of that region — the port's
+// own copper excluded — is a quiet/sensitive face (§1.4) carrying no clamp of
+// its own. Region *existence*, not path search: a clamp anywhere covers.
+//
+// The precondition that keeps the two halves from stacking: the port's own
+// copper must already be covered (`6031` silent), else the uncovered case is
+// that rule's verdict alone.
+
+/// The board every case below flips one axis of: a protective island, a quiet
+/// face (`@class(analog)`, so the rail's hot net resolves a world the scope
+/// declares quiet), and its own reference.
+const DOWNSTREAM_QUIET_BOARD: &str = "conduit ESDGND @role(protective)\n    \
+                                      conduit GNDA @role(quiet)\n    \
+                                      domain AVDD @class(analog) { rail [VDDA, GNDA]::DC(3.3V) }\n    ";
+
+/// The noisy twin: same structure, `@noise(noisy)`, so the face read answers
+/// Noisy and the downstream net is not an untolerated domain.
+const DOWNSTREAM_NOISY_BOARD: &str = "conduit ESDGND @role(protective)\n    \
+                                      conduit GND @role(main)\n    \
+                                      domain DVDD @class(digital) @noise(noisy) { rail [VDD_3V3, GND]::DC(3.3V) }\n    ";
+
+/// The ruled defect: the exposed port *is* clamped (6031 silent), but an
+/// ordinary two-terminal pass carries the same copper on to an unclamped quiet
+/// face — a clamp covers its own side of every branch.
+#[test]
+fn exposed_branch_reaching_an_unclamped_quiet_face_fires_6044() {
+    let src = format!(
+        "{TV}{PROT_TWOPIN}module main {{\n    {DOWNSTREAM_QUIET_BOARD}\
+         io DP @exposed(esd_contact)\n    \
+         TV tv\n    tv.IO -> DP\n    tv.G -> ESDGND @clamp(ESDGND)\n    \
+         TWOPIN.PLAIN r\n    r.A -> DP\n    r.B -> VDDA\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let msgs = msgs_of(mcc::errcodes::EXPOSED_NET_DOWNSTREAM_UNPROTECTED, &src);
+    assert_eq!(
+        msgs.len(),
+        1,
+        "the branch reaching the unclamped quiet face must fire 6044 exactly once; got codes: {codes:?}"
+    );
+    assert!(
+        msgs[0].contains("main.DP") && msgs[0].contains("VDDA"),
+        "6044 must name the exposed port and the uncovered downstream net: {msgs:?}"
+    );
+    assert!(
+        !codes.contains(&mcc::errcodes::EXPOSED_NET_NO_CLAMP),
+        "the clamp on DP covers it — 6031 stays silent; got codes: {codes:?}"
+    );
+}
+
+/// The control for "the face read is the §1.4 read, not the topology": the same
+/// shape into a `@noise(noisy)` face is a tolerated domain and stays silent.
+#[test]
+fn exposed_branch_reaching_a_noisy_face_is_silent_6044() {
+    let src = format!(
+        "{TV}{PROT_TWOPIN}module main {{\n    {DOWNSTREAM_NOISY_BOARD}\
+         io DP @exposed(esd_contact)\n    \
+         TV tv\n    tv.IO -> DP\n    tv.G -> ESDGND @clamp(ESDGND)\n    \
+         TWOPIN.PLAIN r\n    r.A -> DP\n    r.B -> VDD_3V3\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::EXPOSED_NET_DOWNSTREAM_UNPROTECTED),
+        "a noisy face is not an untolerated domain; got codes: {codes:?}"
+    );
+}
+
+/// A declared gate stops the flood: the same two-terminal shape, but the class
+/// declares `protect = series` (fuse / PTC / ferrite — the current-limit chain
+/// the canon names), so the transient never reaches the quiet face unclamped.
+/// The declaration is the only witness — the unmarked twin fires (above).
+#[test]
+fn a_declared_series_gate_stops_the_flood_6044() {
+    let src = format!(
+        "{TV}{PROT_FUSE}module main {{\n    {DOWNSTREAM_QUIET_BOARD}\
+         io DP @exposed(esd_contact)\n    \
+         TV tv\n    tv.IO -> DP\n    tv.G -> ESDGND @clamp(ESDGND)\n    \
+         FUSE.PROT f\n    f.A -> DP\n    f.B -> VDDA\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::EXPOSED_NET_DOWNSTREAM_UNPROTECTED),
+        "a declared series gate is the current-limit chain — nothing fires past it; got codes: {codes:?}"
+    );
+}
+
+/// A region net clamped on its own account is covered: the quiet rail carries
+/// its own clamp, so the branch that reaches it is protected at the far end.
+#[test]
+fn a_clamped_quiet_face_downstream_is_silent_6044() {
+    let src = format!(
+        "{TV}{PROT_TWOPIN}module main {{\n    {DOWNSTREAM_QUIET_BOARD}\
+         io DP @exposed(esd_contact)\n    \
+         TV tv\n    tv.IO -> DP\n    tv.G -> ESDGND @clamp(ESDGND)\n    \
+         TWOPIN.PLAIN r\n    r.A -> DP\n    r.B -> VDDA\n    \
+         TV tv2\n    tv2.IO -> VDDA\n    tv2.G -> ESDGND @clamp(ESDGND)\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::EXPOSED_NET_DOWNSTREAM_UNPROTECTED),
+        "the downstream net is clamped on its own account; got codes: {codes:?}"
+    );
+}
+
+/// The uncovered case belongs to 6031 alone: an exposed net carrying no clamp at
+/// all fires that rule and never the downstream half (one defect, one code),
+/// even though the same unclamped quiet face sits behind it.
+#[test]
+fn an_unclamped_exposed_net_reports_6031_only() {
+    let src = format!(
+        "{TV}{PROT_TWOPIN}module main {{\n    {DOWNSTREAM_QUIET_BOARD}\
+         io DP @exposed(esd_contact)\n    \
+         TV tv\n    tv.IO -> tv.G\n    \
+         TWOPIN.PLAIN r\n    r.A -> DP\n    r.B -> VDDA\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        codes.contains(&mcc::errcodes::EXPOSED_NET_NO_CLAMP),
+        "an exposed net with no clamp is 6031's verdict; got codes: {codes:?}"
+    );
+    assert!(
+        !codes.contains(&mcc::errcodes::EXPOSED_NET_DOWNSTREAM_UNPROTECTED),
+        "6031 owns the uncovered case — the downstream half must not stack; got codes: {codes:?}"
+    );
+}
+
+/// The flood does not cross return/reference copper (reach.rs §7 L4): a quiet
+/// *reference* (`@role(quiet)` conduit) reachable only through that copper is
+/// never in the region, so no verdict.
+#[test]
+fn the_flood_does_not_cross_reference_copper_6044() {
+    let src = format!(
+        "{TV}{PROT_TWOPIN}module main {{\n    {DOWNSTREAM_QUIET_BOARD}\
+         io DP @exposed(esd_contact)\n    \
+         TV tv\n    tv.IO -> DP\n    tv.G -> ESDGND @clamp(ESDGND)\n    \
+         TWOPIN.PLAIN r\n    r.A -> DP\n    r.B -> GNDA\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::EXPOSED_NET_DOWNSTREAM_UNPROTECTED),
+        "return/reference copper is never flooded through; got codes: {codes:?}"
+    );
+}
+
+/// Two exposed ports, each with its own over-reaching branch: the rule is
+/// per-port, so both fire (and the per-port read is not a board-wide one-shot).
+#[test]
+fn two_exposed_ports_with_overreaching_branches_fire_twice_6044() {
+    let src = format!(
+        "{TV}{PROT_TWOPIN}module main {{\n    {DOWNSTREAM_QUIET_BOARD}\
+         io DP, DM @exposed(esd_contact)\n    \
+         TV tv\n    tv.IO -> DP\n    tv.G -> ESDGND @clamp(ESDGND)\n    \
+         TWOPIN.PLAIN r1\n    r1.A -> DP\n    r1.B -> VDDA\n    \
+         TV tv2\n    tv2.IO -> DM\n    tv2.G -> ESDGND @clamp(ESDGND)\n    \
+         TWOPIN.PLAIN r2\n    r2.A -> DM\n    r2.B -> VDDA\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let n = codes
+        .iter()
+        .filter(|c| **c == mcc::errcodes::EXPOSED_NET_DOWNSTREAM_UNPROTECTED)
+        .count();
+    assert_eq!(n, 2, "one verdict per exposed port; got codes: {codes:?}");
 }
 
 // ── PWR-5 protection-device placement (exposed-protection-design.md §4, ruled 2026-09-16) ──
