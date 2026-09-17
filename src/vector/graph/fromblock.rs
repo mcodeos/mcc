@@ -2123,6 +2123,7 @@ mod tests {
             nc_marked: false,
             unselected: false,
             protection: None,
+            exposed: Vec::new(),
             element_class: None,
             resistance_ohm: None,
             power_rated_w: None,
