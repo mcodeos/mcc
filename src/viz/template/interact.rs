@@ -455,7 +455,10 @@ mod tests {
             js.contains("ev.metaKey || ev.ctrlKey"),
             "no modifier gate: a plain click must keep its existing meaning"
         );
-        assert!(js.contains("acquireVsCodeApi"), "no webview host acquisition");
+        assert!(
+            js.contains("acquireVsCodeApi"),
+            "no webview host acquisition"
+        );
         assert!(js.contains("'openSource'"), "no host message type");
     }
 
@@ -475,8 +478,14 @@ mod tests {
         let host = handler.find("mcodeHost.postMessage").expect("host rung");
         let link = handler.find("coord.link").expect("vscode:// rung");
         let copy = handler.find("copySourceCoord(coord)").expect("copy rung");
-        assert!(host < link && link < copy, "the fallback rungs are out of order");
-        assert!(js.contains("data-src-vscode"), "the link attribute is never read");
+        assert!(
+            host < link && link < copy,
+            "the fallback rungs are out of order"
+        );
+        assert!(
+            js.contains("data-src-vscode"),
+            "the link attribute is never read"
+        );
     }
 
     /// D5's two halves: the status line announces the gesture (and goes quiet
@@ -494,7 +503,10 @@ mod tests {
             js.matches("updateHint").count() >= 2,
             "the hint is defined but never filled in"
         );
-        assert!(js.contains("nav-armed"), "the modifier never arms the outline");
+        assert!(
+            js.contains("nav-armed"),
+            "the modifier never arms the outline"
+        );
         assert!(
             js.contains("e.key === 'Meta' || e.key === 'Control'"),
             "wrong modifier keys: the outline would arm on an unrelated key"

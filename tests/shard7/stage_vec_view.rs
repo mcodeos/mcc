@@ -193,7 +193,10 @@ fn text_rows(text: &str) -> Vec<Vec<String>> {
 }
 
 fn items_of(stage: &Value) -> Vec<Value> {
-    stage["items"].as_array().expect("items is an array").clone()
+    stage["items"]
+        .as_array()
+        .expect("items is an array")
+        .clone()
 }
 
 fn of_class<'a>(items: &'a [Value], class: &str) -> Vec<&'a Value> {
@@ -373,7 +376,10 @@ fn a_box_is_an_instance_and_the_root_is_the_layer() {
         .filter_map(|i| canon_path(i).map(str::to_string))
         .collect();
 
-    assert!(!boxes.is_empty() && !instances.is_empty(), "the fixture is thin");
+    assert!(
+        !boxes.is_empty() && !instances.is_empty(),
+        "the fixture is thin"
+    );
 
     let unknown: Vec<&String> = boxes.difference(&instances).collect();
     assert!(
@@ -429,9 +435,20 @@ fn a_keyed_net_names_a_source_net_that_pass2_knows() {
 
     let vec_items = items_of(&vec);
     let nets = of_class(&vec_items, "net");
-    let keyed: Vec<&Value> = nets.iter().copied().filter(|n| !n["key"].is_null()).collect();
-    let keyless: Vec<&Value> = nets.iter().copied().filter(|n| n["key"].is_null()).collect();
-    assert!(!keyed.is_empty() && !keyless.is_empty(), "both branches must fill");
+    let keyed: Vec<&Value> = nets
+        .iter()
+        .copied()
+        .filter(|n| !n["key"].is_null())
+        .collect();
+    let keyless: Vec<&Value> = nets
+        .iter()
+        .copied()
+        .filter(|n| n["key"].is_null())
+        .collect();
+    assert!(
+        !keyed.is_empty() && !keyless.is_empty(),
+        "both branches must fill"
+    );
 
     for n in &keyed {
         let name = n["name"].as_str().expect("a name");
@@ -461,9 +478,7 @@ fn a_keyed_net_names_a_source_net_that_pass2_knows() {
     // Both minted families are exercised on the fixture.
     for want in ["segment", "anonymous"] {
         assert!(
-            keyless
-                .iter()
-                .any(|n| n["origin"].as_str() == Some(want)),
+            keyless.iter().any(|n| n["origin"].as_str() == Some(want)),
             "no `{want}` net in hbl — that branch would pass unwatched"
         );
     }
@@ -663,7 +678,10 @@ fn the_text_face_obeys_the_four_prohibitions() {
     // the readout still exits 0.
     let (stdout, _, _) = run_stage(&dir, &["-f", "json"]);
     assert!(
-        stage_of(&stdout)["counts"]["diagnostics"].as_u64().unwrap_or(0) > 0,
+        stage_of(&stdout)["counts"]["diagnostics"]
+            .as_u64()
+            .unwrap_or(0)
+            > 0,
         "hbl is expected to report diagnostics; if it stops, this assertion no \
          longer proves the readout tolerates them"
     );
@@ -723,7 +741,10 @@ fn every_class_the_readout_reaches_is_exercised() {
             "every net must publish its member set: {n}"
         );
         if let Some(k) = n["key"].as_str() {
-            assert!(k.starts_with("net:"), "a labelled net keys on its label: {n}");
+            assert!(
+                k.starts_with("net:"),
+                "a labelled net keys on its label: {n}"
+            );
         }
     }
 
@@ -786,7 +807,11 @@ fn inserting_an_instance_does_not_reorder_the_canonical_sequence() {
     let (ka, kb) = (keys(&a), keys(&b));
     let moved: Vec<(&String, &String, &String)> = ka
         .iter()
-        .filter_map(|(path, k)| kb.get(path).filter(|other| *other != k).map(|o| (path, k, o)))
+        .filter_map(|(path, k)| {
+            kb.get(path)
+                .filter(|other| *other != k)
+                .map(|o| (path, k, o))
+        })
         .collect();
     assert!(
         !moved.is_empty(),

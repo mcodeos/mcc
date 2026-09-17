@@ -58,7 +58,8 @@ pub fn build_tree(
     top: Option<&str>,
     libs: &[String],
 ) -> Result<(McModuleInst, InstTable, NodeArena, InstanceStore), String> {
-    build_tree_diags(file, top, libs).map(|(tree, table, arena, store, _diags)| (tree, table, arena, store))
+    build_tree_diags(file, top, libs)
+        .map(|(tree, table, arena, store, _diags)| (tree, table, arena, store))
 }
 
 /// [`build_tree`], plus the net-check diagnostics the flatten returns.

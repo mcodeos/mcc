@@ -116,10 +116,10 @@ fn stage_keys(table: &mcc::InstTable) -> Vec<(String, String, String)> {
 /// The full stage key of one entry, split into its two halves so a test can
 /// say *which* half moved. See [`the_numbered_form_is_a_first_interning_ordinal`].
 fn key_of(table: &mcc::InstTable, path: &str) -> Option<(String, String)> {
-    table.iter().find(|(_, e)| e.path == path).and_then(|(_, e)| {
-        e.point
-            .map(|p| (p.node.to_string(), p.pin.0.to_string()))
-    })
+    table
+        .iter()
+        .find(|(_, e)| e.path == path)
+        .and_then(|(_, e)| e.point.map(|p| (p.node.to_string(), p.pin.0.to_string())))
 }
 
 #[test]

@@ -240,11 +240,7 @@ fn sort_key(item: &Value) -> String {
 /// the entry's byte offset; `span` stays `null` for the flat table, whose
 /// positions carry an offset and no extent — filling it with a made-up end
 /// would be inventing data.
-pub fn loc_value(
-    uri: Option<&str>,
-    offset: Option<u32>,
-    content: Option<&str>,
-) -> Value {
+pub fn loc_value(uri: Option<&str>, offset: Option<u32>, content: Option<&str>) -> Value {
     let Some(uri) = uri else {
         return Value::Null;
     };

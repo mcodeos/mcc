@@ -348,7 +348,9 @@ impl<'a> McVecBuilder<'a> {
             for child in &children {
                 crate::velog!(
                     "[visit]   child: id={}, path={}, kind={:?}",
-                    child.id, child.path, child.kind
+                    child.id,
+                    child.path,
+                    child.kind
                 );
                 // Add this child if it's a Component or Module
                 if matches!(child.kind, InstKind::Component | InstKind::Module)
@@ -356,7 +358,9 @@ impl<'a> McVecBuilder<'a> {
                 {
                     crate::velog!(
                         "[visit]   + backfilled '{}' (id={}, kind={}) from InstTable",
-                        child.path, child.id, child.kind
+                        child.path,
+                        child.id,
+                        child.kind
                     );
                     block.insts.push(child.id as i64);
                 }
@@ -368,7 +372,10 @@ impl<'a> McVecBuilder<'a> {
                     for gc in &grandchildren {
                         crate::velog!(
                             "[visit]     grandchild of {}: id={}, path={}, kind={:?}",
-                            child.id, gc.id, gc.path, gc.kind
+                            child.id,
+                            gc.id,
+                            gc.path,
+                            gc.kind
                         );
                         if matches!(gc.kind, InstKind::Component | InstKind::Module)
                             && !existing.contains(&(gc.id as i64))
@@ -386,14 +393,19 @@ impl<'a> McVecBuilder<'a> {
                         for ggc in &great_grandchildren {
                             crate::velog!(
                                 "[visit]       great-grandchild of {}: id={}, path={}, kind={:?}",
-                                gc.id, ggc.id, ggc.path, ggc.kind
+                                gc.id,
+                                ggc.id,
+                                ggc.path,
+                                ggc.kind
                             );
                             if matches!(ggc.kind, InstKind::Component | InstKind::Module)
                                 && !existing.contains(&(ggc.id as i64))
                             {
                                 crate::velog!(
                                     "[visit]   + backfilled great-grandchild '{}' (id={}, kind={})",
-                                    ggc.path, ggc.id, ggc.kind
+                                    ggc.path,
+                                    ggc.id,
+                                    ggc.kind
                                 );
                                 block.insts.push(ggc.id as i64);
                             }

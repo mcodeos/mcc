@@ -2329,11 +2329,11 @@ impl McCode {
         // Prefer the exact dotted form (`VIN.Vin`), then the root (`VIN`).
         let mut target: &str = &full_name;
         loop {
-            if let Some((id, _)) = sem
-                .local_table
-                .name_to_declare_id
-                .get(&(file_id, comp_ident.to_string(), target.to_string()))
-            {
+            if let Some((id, _)) = sem.local_table.name_to_declare_id.get(&(
+                file_id,
+                comp_ident.to_string(),
+                target.to_string(),
+            )) {
                 let kind = if Self::extract_pin_iface_spans(comp)
                     .iter()
                     .any(|(n, _)| n == root)
@@ -3083,9 +3083,7 @@ impl McCode {
             for scopes in sem.local_table.name_to_declare_ids.values_mut() {
                 scopes.retain(|(fid, _)| *fid != file_id);
             }
-            sem.local_table
-                .scope_index
-                .retain(|_, fid| *fid != file_id);
+            sem.local_table.scope_index.retain(|_, fid| *fid != file_id);
             // Drop def_map entries for this file too. They were registered
             // during the previous lapper build; the name_to_declare_id keys
             // that carried their ids are gone (retain above), so a rebuild
@@ -3122,8 +3120,7 @@ impl McCode {
                 // the container-level P2 fallback finding the component's own pins.
                 Self::lapper_component_defs_register(&self.uri, &mut sem, &mut symbol_lapper);
 
-                let decl_count_file_id =
-                    crate::ast::sem::intern_uri(self.uri.as_str());
+                let decl_count_file_id = crate::ast::sem::intern_uri(self.uri.as_str());
                 let decl_count = sem
                     .local_table
                     .name_to_declare_id

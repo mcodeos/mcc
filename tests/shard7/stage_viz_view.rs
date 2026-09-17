@@ -196,7 +196,10 @@ fn text_rows(text: &str) -> Vec<Vec<String>> {
 }
 
 fn items_of(stage: &Value) -> Vec<Value> {
-    stage["items"].as_array().expect("items is an array").clone()
+    stage["items"]
+        .as_array()
+        .expect("items is an array")
+        .clone()
 }
 
 fn of_class<'a>(items: &'a [Value], class: &str) -> Vec<&'a Value> {
@@ -387,7 +390,10 @@ fn the_scope_rows_bound_the_aggregate_reports() {
 
     // The aggregates are about the audited layers only. Summing the view's own
     // per-layer numbers gives the same figure.
-    let sum: u64 = audited.iter().map(|l| l["boxes"].as_u64().unwrap_or(0)).sum();
+    let sum: u64 = audited
+        .iter()
+        .map(|l| l["boxes"].as_u64().unwrap_or(0))
+        .sum();
     for path in ["truth.boxes_total", "visual.boxes_total"] {
         assert_eq!(
             metric(&items, path).as_u64(),
@@ -529,9 +535,9 @@ fn every_pin_resolves_to_a_pass2_row() {
         let path = canon_path(p).unwrap_or_else(|| {
             panic!("a drawn pin with an InstTable row must carry a canonical key: {p}")
         });
-        let classes = known.get(path).unwrap_or_else(|| {
-            panic!("pin {path} names no Pass2 row — the two segments disagree")
-        });
+        let classes = known
+            .get(path)
+            .unwrap_or_else(|| panic!("pin {path} names no Pass2 row — the two segments disagree"));
 
         if let Some(k) = p["key"].as_str() {
             keyed += 1;
@@ -547,7 +553,10 @@ fn every_pin_resolves_to_a_pass2_row() {
         }
     }
 
-    assert!(keyed > 0, "no pin carries a `PointId` — the keyed half is unexercised");
+    assert!(
+        keyed > 0,
+        "no pin carries a `PointId` — the keyed half is unexercised"
+    );
     assert!(
         keyless > 0,
         "every pin carries a `PointId` — the `None` family (§2.4) is unexercised, \
@@ -878,7 +887,10 @@ fn the_text_face_obeys_the_four_prohibitions() {
     // the readout still exits 0.
     let (stdout, _, _) = run_stage(&dir, &["-f", "json"]);
     assert!(
-        stage_of(&stdout)["counts"]["diagnostics"].as_u64().unwrap_or(0) > 0,
+        stage_of(&stdout)["counts"]["diagnostics"]
+            .as_u64()
+            .unwrap_or(0)
+            > 0,
         "hbl is expected to report diagnostics; if it stops, this assertion no \
          longer proves the readout tolerates them"
     );
@@ -1017,7 +1029,11 @@ fn inserting_an_instance_does_not_reorder_the_canonical_sequence() {
     let (ka, kb) = (keys(&a), keys(&b));
     let moved: Vec<(&String, &String, &String)> = ka
         .iter()
-        .filter_map(|(path, k)| kb.get(path).filter(|other| *other != k).map(|o| (path, k, o)))
+        .filter_map(|(path, k)| {
+            kb.get(path)
+                .filter(|other| *other != k)
+                .map(|o| (path, k, o))
+        })
         .collect();
     assert!(
         !moved.is_empty(),
