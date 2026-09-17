@@ -5464,7 +5464,7 @@ fn eval_port_elems(phrase: &McPhrase, right: bool, context: &mut dyn HasFindInst
         // first element's like the symbol-level get_left.
         McPhrase::Endpoint(McEndpoint::List(ref items)) => items
             .iter()
-            .flat_map(|e| eval_port_elems(&McPhrase::Endpoint(e.clone()), right, context))
+            .flat_map(|e| list_element_elems(&McPhrase::Endpoint(e.clone()), right, context))
             .collect(),
         // A shape-matched Group exposes the port of its first operand
         // (mirrors get_left/get_right, but recursing context-aware so a
@@ -5508,7 +5508,7 @@ fn eval_port_elems(phrase: &McPhrase, right: bool, context: &mut dyn HasFindInst
         // Multiple operands concatenate every element's port in order.
         McPhrase::Multiple(ref ops) => ops
             .iter()
-            .flat_map(|o| eval_port_elems(o, right, context))
+            .flat_map(|o| list_element_elems(o, right, context))
             .collect(),
         // A Closure's left port is its first body statement's left; the right
         // port is the declared output interface.
@@ -5638,6 +5638,50 @@ fn check_list_column_width_mixed(
     false
 }
 
+/// The one column a scalar-declared name occupies inside an R4 column stack.
+///
+/// A scalar-declared module port presents an empty (unknown-width) port view
+/// (`eval_port_elems`'s Label arm) so shape-by-use (vec-dianlu.md §8.9.6.3)
+/// survives Pass1 — its width is inferred from the connection context and
+/// Pass2 expands the lanes accordingly. That is the right answer for a *whole
+/// operand*, but not for a *list element*: R4 (vec-arch.md §4.1.1) stacks one
+/// row per written element, so an element's use is exactly one column whatever
+/// its declaration pinned down. `column_kind` already reads it that way for
+/// the width gate; this is the single predicate both views share, so the
+/// row-count view can never drift from the gate again.
+fn declared_scalar_element(e: &McPhrase, context: &mut dyn HasFindInst) -> Option<McBus> {
+    if let McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+        base: McInstance::Label(name),
+        ..
+    })) = e
+    {
+        // A dotted `base.member` names a component port, not a module port.
+        if !name.contains('.') && context.is_declared_port(name) {
+            return Some(McBus::new(name));
+        }
+    }
+    None
+}
+
+/// One element of an R4 column stack, for the two list arms of
+/// `eval_port_elems` (`Multiple` and `Endpoint(List)`).
+///
+/// The whole operand keeps the unknown width that shape-by-use needs, but a
+/// list element must still count as one row: dropping it would make the row
+/// count depend on how many elements happen to have a *visible* width, so
+/// `label V5V` alone would turn the legal `[V5V, GND] -> LDO{vin | vout}`
+/// into a 1-row-vs-2-row `SeriesRowsMismatch` (E4007 + E3132), while the same
+/// statement with an undeclared `V5V` passes.
+fn list_element_elems(e: &McPhrase, right: bool, context: &mut dyn HasFindInst) -> Vec<McBus> {
+    let elems = eval_port_elems(e, right, context);
+    if elems.is_empty() {
+        if let Some(bus) = declared_scalar_element(e, context) {
+            return vec![bus];
+        }
+    }
+    elems
+}
+
 /// Column width of one list element (R4 vec-arch.md §4.1.1): a point or a
 /// column vector is single-column (left == right); a two-pin row vector or a
 /// node is double-column. A declared scalar port presents an empty shape
@@ -5665,14 +5709,8 @@ fn column_kind(e: &McPhrase, context: &mut dyn HasFindInst) -> ColumnKind {
             }
         }
         OpdShape::Unknown => {
-            if let McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
-                base: McInstance::Label(name),
-                ..
-            })) = e
-            {
-                if context.is_declared_port(name) {
-                    return ColumnKind::Single(name.clone());
-                }
+            if let Some(bus) = declared_scalar_element(e, context) {
+                return ColumnKind::Single(bus.name);
             }
             ColumnKind::Unclassified
         }
