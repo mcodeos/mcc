@@ -46,6 +46,7 @@ use crate::ast::macros::*;
 use crate::ast::node::AstNode;
 use crate::ast::sem::Span;
 use crate::eval;
+use crate::semantic::basic::attr_keys;
 use crate::semantic::basic::mc_uval::McUnit;
 use crate::semantic::component::mc_attr::{McAttrVal, McAttribute, McAttributes};
 use crate::semantic::component::mc_pins::{McPwrPin, PwrDir, PwrParam};
@@ -164,8 +165,8 @@ impl McPowerDecls {
             .iter()
             .map(|r| L1Ref {
                 name: r.name.clone(),
-                role: attr_texts(&r.attrs, "role").into_iter().next(),
-                star: has_attr(&r.attrs, "star"),
+                role: attr_texts(&r.attrs, attr_keys::KEY_ROLE).into_iter().next(),
+                star: has_attr(&r.attrs, attr_keys::KEY_STAR),
                 span: r.span.clone(),
             })
             .collect()
@@ -241,7 +242,7 @@ impl McPowerDecls {
             .iter()
             .map(|d| L1DomainNature {
                 name: d.name.clone(),
-                nature: first_text(&d.attrs, "nature"),
+                nature: first_text(&d.attrs, attr_keys::KEY_NATURE),
                 rails: d
                     .rails
                     .iter()
@@ -264,9 +265,9 @@ impl McPowerDecls {
             .iter()
             .map(|d| L1DomainFace {
                 name: d.name.clone(),
-                class: first_text(&d.attrs, "class"),
-                noise: first_text(&d.attrs, "noise"),
-                nature: first_text(&d.attrs, "nature"),
+                class: first_text(&d.attrs, attr_keys::KEY_CLASS),
+                noise: first_text(&d.attrs, attr_keys::KEY_NOISE),
+                nature: first_text(&d.attrs, attr_keys::KEY_NATURE),
             })
             .collect()
     }
@@ -283,12 +284,12 @@ impl McPowerDecls {
                 out.push(L1Port {
                     kind: p.kind.clone(),
                     name: name.clone(),
-                    class: first_text(&p.attrs, "class"),
-                    nature: first_text(&p.attrs, "nature"),
-                    noise: first_text(&p.attrs, "noise"),
-                    ret: first_text(&p.attrs, "return"),
-                    exposed: attr_texts(&p.attrs, "exposed"),
-                    bind_role: first_text(&p.attrs, "bind_role"),
+                    class: first_text(&p.attrs, attr_keys::KEY_CLASS),
+                    nature: first_text(&p.attrs, attr_keys::KEY_NATURE),
+                    noise: first_text(&p.attrs, attr_keys::KEY_NOISE),
+                    ret: first_text(&p.attrs, attr_keys::KEY_RETURN),
+                    exposed: attr_texts(&p.attrs, attr_keys::KEY_EXPOSED),
+                    bind_role: first_text(&p.attrs, attr_keys::KEY_BIND_ROLE),
                     span: p.span.clone(),
                 });
             }
@@ -456,12 +457,13 @@ pub enum RailAxis {
 
 impl RailAxis {
     /// The axis a `@nature` value word names. §5.2 registers exactly `ac` and
-    /// `dc`; any other word is outside the closed vocabulary and names no axis,
-    /// so the rule has no verdict for it.
+    /// `dc`, which the registry's `nature` row holds; any other word is outside
+    /// the closed vocabulary and names no axis, so the rule has no verdict for
+    /// it — the declaration itself is reported where it is written (5360).
     pub fn of_nature_word(word: &str) -> Option<Self> {
         match word {
-            "ac" => Some(Self::Ac),
-            "dc" => Some(Self::Dc),
+            attr_keys::WORD_AC => Some(Self::Ac),
+            attr_keys::WORD_DC => Some(Self::Dc),
             _ => None,
         }
     }

@@ -10,6 +10,7 @@ pub mod common;
 
 mod attr_as_endpoint_e4025;
 mod attr_key_duplicate;
+mod attr_value_vocabulary;
 mod defspace_golden;
 mod dynamic_pin_expansion;
 mod export_spice_refdes;

@@ -36,6 +36,7 @@
 use super::NetCheckResult;
 use crate::instant::insttab::{InstEntry, InstKind, InstTable, ProtectionKind};
 use crate::instant::island::{NetIslandIndex, NetRole};
+use crate::semantic::basic::attr_keys;
 
 /// The references each module instance declares with an explicit `@role`, by
 /// instance id → class id (conduit bare name) → role. Built from the same
@@ -138,7 +139,7 @@ pub(crate) fn check_protect_shunt_reference(table: &InstTable, results: &mut Vec
                     classes.push(cls.id.clone());
                 }
                 if role_in_chain(table, &roles, layer, &cls.id)
-                    .is_some_and(|r| r == "protective" || r == "earth")
+                    .is_some_and(|r| r == attr_keys::WORD_PROTECTIVE || r == attr_keys::WORD_EARTH)
                 {
                     dumped = true;
                 }
