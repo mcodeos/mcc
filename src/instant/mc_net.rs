@@ -20,8 +20,8 @@ use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::sync::Mutex;
 
-/// Literal (unexpanded) vector reference details: quarantined (original path, src_pos)
-pub static LITERAL_POINT_DETAILS: std::sync::LazyLock<Mutex<Vec<(String, Option<i32>)>>> =
+/// Literal (unexpanded) vector reference details: quarantined (original path, source site)
+pub static LITERAL_POINT_DETAILS: std::sync::LazyLock<Mutex<Vec<(String, Option<SourcePos>)>>> =
     std::sync::LazyLock::new(|| Mutex::new(Vec::new()));
 
 /// Quarantine one unexpanded literal path, returning the isolation name it
@@ -33,12 +33,22 @@ pub static LITERAL_POINT_DETAILS: std::sync::LazyLock<Mutex<Vec<(String, Option<
 /// as three. The list holds each *distinct* path once, and a path's number is
 /// its index there: the name is a function of the paths this instantiation has
 /// seen, not of how often they were constructed.
-fn quarantine_literal(p: &str) -> String {
+///
+/// `site` is where that reference was written, and it feeds R01's source
+/// anchor. A repeat only fills a slot still empty, and statements are walked in
+/// source order, so among several sites the first one - the earliest - wins,
+/// the same fill-if-empty rule `NetTable::ensure_point` uses.
+fn quarantine_literal(p: &str, site: Option<SourcePos>) -> String {
     let mut details = LITERAL_POINT_DETAILS.lock().unwrap();
     let n = match details.iter().position(|(path, _)| path == p) {
-        Some(n) => n,
+        Some(n) => {
+            if details[n].1.is_none() {
+                details[n].1 = site;
+            }
+            n
+        }
         None => {
-            details.push((p.to_string(), None));
+            details.push((p.to_string(), site));
             details.len() - 1
         }
     };
@@ -180,11 +190,16 @@ impl NetPoint {
     /// Quarantined points never enter union-find merging (filtered by
     /// `NetTable::add_connection`), so they cannot spread from R01 into a
     /// giant R06 net.
-    pub fn new(path: &str, iotype: IOType) -> Self {
+    ///
+    /// `site` is where the reference was written. It is consumed by the
+    /// quarantine record alone - it does **not** fill `self.src_pos`, which
+    /// stays `None` here and is back-filled from the wiring connection by
+    /// `NetTable::ensure_point`. Callers with no statement in hand pass `None`.
+    pub fn new(path: &str, iotype: IOType, site: Option<SourcePos>) -> Self {
         let normalized = normalize_pin_path(path);
         let p = &normalized;
         let actual_path = if p.contains(['{', '[', ',']) {
-            let quarantine = quarantine_literal(p);
+            let quarantine = quarantine_literal(p, site);
             ledger::record(
                 LedgerEntry::new(LedgerKind::Phantom, p.to_string(), "net-point")
                     .with_action(LedgerAction::Silent),
@@ -203,12 +218,15 @@ impl NetPoint {
         }
     }
 
-    /// Create a net point belonging to a component instance (pin/submodule port)   
-    pub fn with_owner(path: &str, owner: &str, iotype: IOType) -> Self {
+    /// Create a net point belonging to a component instance (pin/submodule port)
+    ///
+    /// `site` behaves exactly as in [`NetPoint::new`]: quarantine record only,
+    /// never `self.src_pos`.
+    pub fn with_owner(path: &str, owner: &str, iotype: IOType, site: Option<SourcePos>) -> Self {
         let normalized = normalize_pin_path(path);
         let p = &normalized;
         let actual_path = if p.contains(['{', '[', ',']) {
-            let quarantine = quarantine_literal(p);
+            let quarantine = quarantine_literal(p, site);
             ledger::record(
                 LedgerEntry::new(LedgerKind::Phantom, p.to_string(), "net-point")
                     .with_action(LedgerAction::Silent),
@@ -542,7 +560,7 @@ pub struct PortInst {
 impl PortInst {
     /// Create port instance (scalar port, no members)
     pub fn new(name: &str, iotype: IOType) -> Self {
-        let net_point = NetPoint::new(name, iotype.clone());
+        let net_point = NetPoint::new(name, iotype.clone(), None);
         Self {
             name: name.to_string(),
             iotype,
@@ -559,7 +577,7 @@ impl PortInst {
     ///
     /// Equivalent to `new()` when `members` is empty.
     pub fn with_members(name: &str, iotype: IOType, members: Vec<String>) -> Self {
-        let net_point = NetPoint::new(name, iotype.clone());
+        let net_point = NetPoint::new(name, iotype.clone(), None);
         Self {
             name: name.to_string(),
             iotype,
@@ -1484,22 +1502,22 @@ mod tests {
         let conn0 = ConnectionInst::new(
             0,
             vec![
-                NetPoint::with_owner("@RES6.2", "@RES6", IOType::None),
-                NetPoint::with_owner("lp322dcdc.FB", "lp322dcdc", IOType::None),
+                NetPoint::with_owner("@RES6.2", "@RES6", IOType::None, None),
+                NetPoint::with_owner("lp322dcdc.FB", "lp322dcdc", IOType::None, None),
             ],
         );
         let conn1 = ConnectionInst::new(
             1,
             vec![
-                NetPoint::with_owner("lp322dcdc.FB", "lp322dcdc", IOType::None),
-                NetPoint::with_owner("@RES7.1", "@RES7", IOType::None),
+                NetPoint::with_owner("lp322dcdc.FB", "lp322dcdc", IOType::None, None),
+                NetPoint::with_owner("@RES7.1", "@RES7", IOType::None, None),
             ],
         );
         let conn2 = ConnectionInst::new(
             2,
             vec![
-                NetPoint::with_owner("@CAP8.1", "@CAP8", IOType::None),
-                NetPoint::with_owner("lp322dcdc.FB", "lp322dcdc", IOType::None),
+                NetPoint::with_owner("@CAP8.1", "@CAP8", IOType::None, None),
+                NetPoint::with_owner("lp322dcdc.FB", "lp322dcdc", IOType::None, None),
             ],
         );
 
@@ -1523,15 +1541,15 @@ mod tests {
         let conn0 = ConnectionInst::new(
             0,
             vec![
-                NetPoint::new("VCC_1V2", IOType::None),
-                NetPoint::with_owner("@RES6.1", "@RES6", IOType::None),
+                NetPoint::new("VCC_1V2", IOType::None, None),
+                NetPoint::with_owner("@RES6.1", "@RES6", IOType::None, None),
             ],
         );
         let conn1 = ConnectionInst::new(
             1,
             vec![
-                NetPoint::new("VCC_1V2.VCC_1V2", IOType::None),
-                NetPoint::with_owner("@CAP5.1", "@CAP5", IOType::None),
+                NetPoint::new("VCC_1V2.VCC_1V2", IOType::None, None),
+                NetPoint::with_owner("@CAP5.1", "@CAP5", IOType::None, None),
             ],
         );
 

@@ -135,7 +135,7 @@ mod tests {
 
     #[test]
     fn pin_label_carries_the_module_path_only_when_asked() {
-        let pin = NetPoint::with_owner("C1.1", "C1", IOType::InOut);
+        let pin = NetPoint::with_owner("C1.1", "C1", IOType::InOut, None);
         assert_eq!(pin_label(&pin, "main", PointNaming::Local), "C1.1");
         assert_eq!(
             pin_label(&pin, "main", PointNaming::Hierarchical),
@@ -149,7 +149,7 @@ mod tests {
 
     #[test]
     fn a_point_without_an_owner_keeps_its_own_path() {
-        let label = NetPoint::new("V5V", IOType::Label);
+        let label = NetPoint::new("V5V", IOType::Label, None);
         assert_eq!(pin_label(&label, "main", PointNaming::Local), "V5V");
         assert_eq!(pin_label(&label, "main", PointNaming::Hierarchical), "V5V");
     }

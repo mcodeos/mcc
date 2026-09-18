@@ -77,19 +77,7 @@ impl InstantiationBuilder {
         // Attribute the connection to the user's statement that triggered the
         // call (`current_stmt_span`) so per-statement grouping (ground split)
         // and diagnostics see the real source line.
-        let source_span: Option<crate::semantic::common::SourcePos> =
-            match (&self.current_func_span, &self.current_stmt_span) {
-                (Some(spos), Some(s)) if spos.uri != self.def_uri => Some(
-                    crate::semantic::common::SourcePos::new(self.def_uri.clone(), s.offset),
-                ),
-                // Func-body expansion context (func in this module's file)
-                (Some(spos), _) => Some(spos.clone()),
-                (None, Some(s)) => Some(crate::semantic::common::SourcePos::new(
-                    self.def_uri.clone(),
-                    s.offset,
-                )),
-                (None, None) => None,
-            };
+        let source_span: Option<crate::semantic::common::SourcePos> = self.construction_site();
         // ★ §8.9.6: structured group context. Prefer `current_trunk`
         // (set from source code context), fall back to `trunk_from_points`;
         // the coarse kind rides along inside `TrunkCtx`.
@@ -552,19 +540,7 @@ impl InstantiationBuilder {
         // construction site in this file). Library-function expansion
         // (`current_func_span` in a different file, e.g. the `Cap` body in
         // `cap.mc`) is attributed to the user's statement that triggered it.
-        let source_span: Option<crate::semantic::common::SourcePos> =
-            match (&self.current_func_span, &self.current_stmt_span) {
-                (Some(spos), Some(s)) if spos.uri != self.def_uri => Some(
-                    crate::semantic::common::SourcePos::new(self.def_uri.clone(), s.offset),
-                ),
-                // Func-body expansion context (func in this module's file)
-                (Some(spos), _) => Some(spos.clone()),
-                (None, Some(s)) => Some(crate::semantic::common::SourcePos::new(
-                    self.def_uri.clone(),
-                    s.offset,
-                )),
-                (None, None) => None,
-            };
+        let source_span: Option<crate::semantic::common::SourcePos> = self.construction_site();
         // ★ §8.9.6: structured group context. Prefer `current_trunk`
         // (set from source code context), fall back to `trunk_from_points`
         // (extracted from point paths); the coarse kind rides along.
@@ -649,6 +625,7 @@ impl InstantiationBuilder {
         if others.len() < 2 {
             return None;
         }
+        let site = self.construction_site();
         // Peer N lanes: must all share the **same prefix** `<prefix>.<member>`, with distinct
         // members.
         let mut members: Vec<String> = Vec::with_capacity(others.len());
@@ -734,6 +711,7 @@ impl InstantiationBuilder {
                                                     &format!("{sub}.{pid}"),
                                                     sub,
                                                     scalar.iotype.clone(),
+                                                    site.clone(),
                                                 )
                                             })
                                         })
@@ -748,6 +726,7 @@ impl InstantiationBuilder {
                                                 &format!("{sub}.{}", pids[i]),
                                                 sub,
                                                 scalar.iotype.clone(),
+                                                site.clone(),
                                             )
                                         })
                                         .collect()
@@ -768,6 +747,7 @@ impl InstantiationBuilder {
                                     &format!("{sub}.{port}.{m}"),
                                     sub,
                                     scalar.iotype.clone(),
+                                    site.clone(),
                                 )
                             })
                             .collect();
@@ -804,7 +784,12 @@ impl InstantiationBuilder {
             let lanes: Vec<NetPoint> = bus_members
                 .iter()
                 .map(|m| {
-                    NetPoint::with_owner(&format!("{formal}.{m}"), formal, scalar.iotype.clone())
+                    NetPoint::with_owner(
+                        &format!("{formal}.{m}"),
+                        formal,
+                        scalar.iotype.clone(),
+                        site.clone(),
+                    )
                 })
                 .collect();
             return Some(lanes);

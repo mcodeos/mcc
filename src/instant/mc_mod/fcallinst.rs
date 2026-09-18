@@ -461,6 +461,7 @@ impl InstantiationBuilder {
         left: &[McBus],
         right: &[McBus],
     ) -> Result<FuncCallInst, InstError> {
+        let site = self.construction_site();
         // 1. Auto-name (using the function name at the call site as the type name)
         // ── P0-2: replace '.' to prevent instance names containing dots from
         //    interfering with path resolution ──
@@ -562,11 +563,13 @@ impl InstantiationBuilder {
                             &format!("{}.{}", left[i].name(), left_members[j]),
                             left[i].name(),
                             IOType::None,
+                            site.clone(),
                         );
                         let input_point = NetPoint::with_owner(
                             &format!("{inst_name}.{port_base}.{}", port_members[j]),
                             &inst_name,
                             IOType::In,
+                            site.clone(),
                         );
                         let cid = self.next_conn_id();
                         new_connections.push(self.make_conn_with_provenance(
@@ -582,6 +585,7 @@ impl InstantiationBuilder {
                         &format!("{}.{}", inst_name, input_ports[i].name),
                         &inst_name,
                         IOType::In,
+                        site.clone(),
                     );
                     let cid = self.next_conn_id();
                     new_connections.push(self.make_conn_with_provenance(
@@ -613,6 +617,7 @@ impl InstantiationBuilder {
                     &format!("{}.{}", inst_name, output_ports[i].name),
                     &inst_name,
                     IOType::Out,
+                    site.clone(),
                 );
                 let cid = self.next_conn_id();
                 new_connections.push(self.make_conn_with_provenance(
@@ -1508,6 +1513,7 @@ impl InstantiationBuilder {
         // instance (linked via `sub_target`, see design §7.3). Boundary
         // connections (Phase B) belong to this parent record.
         let call_site = self.current_call_site();
+        let site = self.construction_site();
         let def_site = Self::func_def_site(func_def);
         let eidx = self.expansion.begin(
             ExpansionKind::InstanceMethod,
@@ -1799,7 +1805,7 @@ impl InstantiationBuilder {
                     pids.iter()
                         .map(|(member_name, pin_id)| {
                             let path = format!("{inst_name}.{pin_id}");
-                            NetPoint::with_owner(&path, inst_name, IOType::None)
+                            NetPoint::with_owner(&path, inst_name, IOType::None, site.clone())
                                 .with_member_name(member_name)
                         })
                         .collect()

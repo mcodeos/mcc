@@ -239,11 +239,11 @@ mod tests {
     use super::*;
 
     fn label(name: &str) -> NetPoint {
-        NetPoint::new(name, IOType::None)
+        NetPoint::new(name, IOType::None, None)
     }
 
     fn pin(path: &str, owner: &str, member: &str) -> NetPoint {
-        NetPoint::with_owner(path, owner, IOType::None).with_member_name(member)
+        NetPoint::with_owner(path, owner, IOType::None, None).with_member_name(member)
     }
 
     fn opd(left: Vec<NetPoint>, right: Vec<NetPoint>) -> ConcreteOpd {
@@ -267,7 +267,7 @@ mod tests {
                 member: "1".to_string()
             }
         );
-        let port = NetPoint::with_owner("sub1.clk", "sub1", IOType::In);
+        let port = NetPoint::with_owner("sub1.clk", "sub1", IOType::In, None);
         assert_eq!(
             Ep::classify(&port).kind,
             EpKind::Port("sub1.clk".to_string())
@@ -277,7 +277,7 @@ mod tests {
     #[test]
     fn classify__member_falls_back_to_the_path_tail() {
         // No `member_name` on the point: the pin member is read from the path.
-        let bare = NetPoint::with_owner("R101.2", "R101", IOType::None);
+        let bare = NetPoint::with_owner("R101.2", "R101", IOType::None, None);
         assert_eq!(
             Ep::classify(&bare).kind,
             EpKind::Pin {

@@ -178,13 +178,16 @@ impl InstantiationBuilder {
         &mut self,
         phrase: &McPhrase,
     ) -> Result<Vec<NetPoint>, InstError> {
+        // Hoisted once: every point this call builds carries the same source
+        // site, so there is no need to reach through `self` per point.
+        let site = self.construction_site();
         match phrase {
             McPhrase::Lead => {
                 let name = format!(
                     "{LEAD_PLACEHOLDER_PREFIX}{:x}",
                     phrase as *const McPhrase as usize
                 );
-                Ok(vec![NetPoint::new(&name, IOType::None)])
+                Ok(vec![NetPoint::new(&name, IOType::None, site.clone())])
             }
 
             McPhrase::Endpoint(McEndpoint::Single(iref))
@@ -246,11 +249,19 @@ impl InstantiationBuilder {
                             points.extend(lanes);
                         } else if is_owned {
                             points.push(
-                                NetPoint::with_owner(&path, &elements.name, IOType::None)
-                                    .with_member_name(m),
+                                NetPoint::with_owner(
+                                    &path,
+                                    &elements.name,
+                                    IOType::None,
+                                    site.clone(),
+                                )
+                                .with_member_name(m),
                             );
                         } else {
-                            points.push(NetPoint::new(&path, IOType::None).with_member_name(m));
+                            points.push(
+                                NetPoint::new(&path, IOType::None, site.clone())
+                                    .with_member_name(m),
+                            );
                         }
                     }
                     return Ok(points);
@@ -318,11 +329,19 @@ impl InstantiationBuilder {
                             let path = self.normalize_one_inst_pin_path(&path).unwrap_or(path);
                             if elem_owned {
                                 points.push(
-                                    NetPoint::with_owner(&path, &elem.name, IOType::None)
-                                        .with_member_name(m),
+                                    NetPoint::with_owner(
+                                        &path,
+                                        &elem.name,
+                                        IOType::None,
+                                        site.clone(),
+                                    )
+                                    .with_member_name(m),
                                 );
                             } else {
-                                points.push(NetPoint::new(&path, IOType::None).with_member_name(m));
+                                points.push(
+                                    NetPoint::new(&path, IOType::None, site.clone())
+                                        .with_member_name(m),
+                                );
                             }
                         }
                     }
@@ -483,7 +502,7 @@ impl InstantiationBuilder {
                         .map(|p| {
                             let name = p.get_primary_name().unwrap_or_default();
                             self.ensure_label(&name);
-                            NetPoint::new(&name, IOType::In)
+                            NetPoint::new(&name, IOType::In, site.clone())
                         })
                         .collect();
                     Ok(points)
@@ -583,11 +602,14 @@ impl InstantiationBuilder {
                             points.extend(lanes);
                         } else if is_owned {
                             points.push(
-                                NetPoint::with_owner(&path, &bus.name, IOType::None)
+                                NetPoint::with_owner(&path, &bus.name, IOType::None, site.clone())
                                     .with_member_name(m),
                             );
                         } else {
-                            points.push(NetPoint::new(&path, IOType::None).with_member_name(m));
+                            points.push(
+                                NetPoint::new(&path, IOType::None, site.clone())
+                                    .with_member_name(m),
+                            );
                         }
                     }
                     if !points.is_empty() {
@@ -678,7 +700,7 @@ impl InstantiationBuilder {
                         self.labels
                             .get(&path)
                             .cloned()
-                            .unwrap_or_else(|| NetPoint::new(&path, IOType::None))
+                            .unwrap_or_else(|| NetPoint::new(&path, IOType::None, site.clone()))
                     })
                     .collect();
                 Ok(points)
@@ -743,11 +765,19 @@ impl InstantiationBuilder {
                                 points.extend(lanes);
                             } else if is_owned {
                                 points.push(
-                                    NetPoint::with_owner(&path, &bus.name, IOType::None)
-                                        .with_member_name(m),
+                                    NetPoint::with_owner(
+                                        &path,
+                                        &bus.name,
+                                        IOType::None,
+                                        site.clone(),
+                                    )
+                                    .with_member_name(m),
                                 );
                             } else {
-                                points.push(NetPoint::new(&path, IOType::None).with_member_name(m));
+                                points.push(
+                                    NetPoint::new(&path, IOType::None, site.clone())
+                                        .with_member_name(m),
+                                );
                             }
                         }
                         continue;
@@ -832,6 +862,7 @@ impl InstantiationBuilder {
                                             &format!("{caller}.{pin_id}"),
                                             &caller,
                                             IOType::None,
+                                            site.clone(),
                                         )
                                         .with_member_name(member_name)
                                     })
@@ -850,6 +881,7 @@ impl InstantiationBuilder {
                                                     &format!("{caller}.{pin_id}"),
                                                     sub_name,
                                                     IOType::None,
+                                                    site.clone(),
                                                 )
                                                 .with_member_name(member_name)
                                             })
@@ -875,13 +907,16 @@ impl InstantiationBuilder {
         &mut self,
         member: &McPhrase,
     ) -> Result<Vec<NetPoint>, InstError> {
+        // Hoisted once: every point this call builds carries the same source
+        // site, so there is no need to reach through `self` per point.
+        let site = self.construction_site();
         match member {
             McPhrase::Lead => {
                 let name = format!(
                     "{LEAD_PLACEHOLDER_PREFIX}{:x}",
                     member as *const McPhrase as usize
                 );
-                Ok(vec![NetPoint::new(&name, IOType::None)])
+                Ok(vec![NetPoint::new(&name, IOType::None, site.clone())])
             }
 
             McPhrase::Endpoint(McEndpoint::Single(iref))
@@ -937,11 +972,19 @@ impl InstantiationBuilder {
                             points.extend(lanes);
                         } else if is_owned {
                             points.push(
-                                NetPoint::with_owner(&path, &elements.name, IOType::None)
-                                    .with_member_name(m),
+                                NetPoint::with_owner(
+                                    &path,
+                                    &elements.name,
+                                    IOType::None,
+                                    site.clone(),
+                                )
+                                .with_member_name(m),
                             );
                         } else {
-                            points.push(NetPoint::new(&path, IOType::None).with_member_name(m));
+                            points.push(
+                                NetPoint::new(&path, IOType::None, site.clone())
+                                    .with_member_name(m),
+                            );
                         }
                     }
                     return Ok(points);
@@ -1000,11 +1043,19 @@ impl InstantiationBuilder {
                             let path = self.normalize_one_inst_pin_path(&path).unwrap_or(path);
                             if elem_owned {
                                 points.push(
-                                    NetPoint::with_owner(&path, &elem.name, IOType::None)
-                                        .with_member_name(m),
+                                    NetPoint::with_owner(
+                                        &path,
+                                        &elem.name,
+                                        IOType::None,
+                                        site.clone(),
+                                    )
+                                    .with_member_name(m),
                                 );
                             } else {
-                                points.push(NetPoint::new(&path, IOType::None).with_member_name(m));
+                                points.push(
+                                    NetPoint::new(&path, IOType::None, site.clone())
+                                        .with_member_name(m),
+                                );
                             }
                         }
                     }
@@ -1188,11 +1239,14 @@ impl InstantiationBuilder {
                             points.extend(lanes);
                         } else if is_owned {
                             points.push(
-                                NetPoint::with_owner(&path, &bus.name, IOType::None)
+                                NetPoint::with_owner(&path, &bus.name, IOType::None, site.clone())
                                     .with_member_name(m),
                             );
                         } else {
-                            points.push(NetPoint::new(&path, IOType::None).with_member_name(m));
+                            points.push(
+                                NetPoint::new(&path, IOType::None, site.clone())
+                                    .with_member_name(m),
+                            );
                         }
                     }
                     if !points.is_empty() {
@@ -1283,7 +1337,7 @@ impl InstantiationBuilder {
                         self.labels
                             .get(&path)
                             .cloned()
-                            .unwrap_or_else(|| NetPoint::new(&path, IOType::None))
+                            .unwrap_or_else(|| NetPoint::new(&path, IOType::None, site.clone()))
                     })
                     .collect();
                 Ok(points)
@@ -1385,6 +1439,7 @@ impl InstantiationBuilder {
                                             &format!("{caller}.{pin_id}"),
                                             &caller,
                                             IOType::None,
+                                            site.clone(),
                                         )
                                         .with_member_name(member_name)
                                     })
@@ -1403,6 +1458,7 @@ impl InstantiationBuilder {
                                                     &format!("{caller}.{pin_id}"),
                                                     sub_name,
                                                     IOType::None,
+                                                    site.clone(),
                                                 )
                                                 .with_member_name(member_name)
                                             })
@@ -1541,10 +1597,12 @@ impl InstantiationBuilder {
     pub(super) fn node_to_netpoint(&mut self, element: &McBus) -> NetPoint {
         use crate::instant::mc_net::canonicalize_path;
 
+        let site = self.construction_site();
+
         // 1. check if it's a port
         if self.is_port(&element.name) {
             let path = canonicalize_path(&element.name);
-            return NetPoint::new(&path, IOType::None);
+            return NetPoint::new(&path, IOType::None, site.clone());
         }
 
         // 2. check if it's a path access (e.g., R1.1, sub1.clk, power.VCC)
@@ -1606,7 +1664,7 @@ impl InstantiationBuilder {
                         crate::db::diagnostic::diagnostic::DiagnosticLevel::Warning,
                         diag,
                     );
-                    return NetPoint::with_owner(&path, &isolated, IOType::None);
+                    return NetPoint::with_owner(&path, &isolated, IOType::None, site.clone());
                 }
                 // ── P7 + P2: inst.IFACE.member / bare alias → physical pid ──
                 // The identity comes from `declared_pin_id` — the same resolver the
@@ -1624,7 +1682,8 @@ impl InstantiationBuilder {
                 } else {
                     None
                 };
-                let mut np = NetPoint::with_owner(&resolved, owner_part, IOType::None);
+                let mut np =
+                    NetPoint::with_owner(&resolved, owner_part, IOType::None, site.clone());
                 if let Some(mn) = member_name {
                     np = np.with_member_name(&mn);
                 }
@@ -1633,7 +1692,7 @@ impl InstantiationBuilder {
             // 2.2 submodule port access
             if self.find_submodule(first_part).is_some() {
                 let path = canonicalize_path(&element.name);
-                return NetPoint::with_owner(&path, first_part, IOType::None);
+                return NetPoint::with_owner(&path, first_part, IOType::None, site.clone());
             }
             // 2.3 bus member access (e.g., power.VCC)
             if self.is_bus(first_part) {
@@ -1642,14 +1701,14 @@ impl InstantiationBuilder {
                 let member_name = rest.split('.').next().unwrap_or(rest);
                 self.check_bus_member_ref(first_part, member_name);
                 let path = canonicalize_path(&element.name);
-                return NetPoint::new(&path, IOType::None);
+                return NetPoint::new(&path, IOType::None, site.clone());
             }
         }
 
         // 3. check if it's known bus (whole reference)
         if self.is_bus(&element.name) {
             let path = canonicalize_path(&element.name);
-            return NetPoint::new(&path, IOType::None);
+            return NetPoint::new(&path, IOType::None, site.clone());
         }
 
         // A sentinel whose base is only a class name (no instance / port / bus
@@ -1686,7 +1745,7 @@ impl InstantiationBuilder {
                         crate::db::diagnostic::diagnostic::DiagnosticLevel::Warning,
                         diag,
                     );
-                    return NetPoint::with_owner(&path, &isolated, IOType::None);
+                    return NetPoint::with_owner(&path, &isolated, IOType::None, site.clone());
                 }
             }
         }
@@ -1710,26 +1769,26 @@ impl InstantiationBuilder {
                     .cloned()
                     .expect("single-pin component has no pins");
                 let path = format!("{}.{}", element.name, pin);
-                return NetPoint::with_owner(&path, &element.name, IOType::None);
+                return NetPoint::with_owner(&path, &element.name, IOType::None, site.clone());
             }
             // multi-pin component bare reference (rare, usually notation ambiguity): owner=None,
             // render as single token,
             // no longer owner==path duplication (avoid X6.X6).
             let path = canonicalize_path(&element.name);
-            return NetPoint::new(&path, IOType::None);
+            return NetPoint::new(&path, IOType::None, site.clone());
         }
 
         // 4b. curly member selection wm7121{VCC} → inst.VCC, owner=inst
         if let Some((base, member)) = parse_curly_select(&element.name) {
             if self.find_component(&base).is_some() || self.find_submodule(&base).is_some() {
                 let path = format!("{base}.{member}");
-                return NetPoint::with_owner(&path, &base, IOType::None);
+                return NetPoint::with_owner(&path, &base, IOType::None, site.clone());
             }
             // base not known instance: degrade to label (member selection meaningless), still
             // owner=None
             let path = canonicalize_path(&element.name);
             self.ensure_label(&path);
-            return NetPoint::new(&path, IOType::None);
+            return NetPoint::new(&path, IOType::None, site.clone());
         }
 
         // 4c. net label (GND / USB_VBUS / AVDD09_CAP ...) → owner = None
@@ -1737,7 +1796,7 @@ impl InstantiationBuilder {
         // render layer no longer gets owner → no more `GND.GND`.
         let path = canonicalize_path(&element.name);
         self.ensure_label(&path);
-        NetPoint::new(&path, IOType::None)
+        NetPoint::new(&path, IOType::None, site.clone())
     }
 
     // Iter-8: N×1 bus port endpoint expansion
@@ -1833,6 +1892,8 @@ impl InstantiationBuilder {
 
         // [P2-DIAG] entry
 
+        let site = self.construction_site();
+
         // P2: direction-agnostic expansion
         // historically banned In to prevent `in vin{POWER_SYS,GND}` from fanning a
         // role-mismatched power/ground pair into lanes and shorting power to ground.
@@ -1864,8 +1925,13 @@ impl InstantiationBuilder {
                                     .iter()
                                     .map(|m| {
                                         let path = format!("{owner}.{m}");
-                                        NetPoint::with_owner(&path, owner, IOType::None)
-                                            .with_member_name(m)
+                                        NetPoint::with_owner(
+                                            &path,
+                                            owner,
+                                            IOType::None,
+                                            site.clone(),
+                                        )
+                                        .with_member_name(m)
                                     })
                                     .collect(),
                             );
@@ -1903,8 +1969,13 @@ impl InstantiationBuilder {
                                 .iter()
                                 .map(|m| {
                                     let path = format!("{owner}.{port_base}.{m}");
-                                    NetPoint::with_owner(&path, owner, port.iotype.clone())
-                                        .with_member_name(m)
+                                    NetPoint::with_owner(
+                                        &path,
+                                        owner,
+                                        port.iotype.clone(),
+                                        site.clone(),
+                                    )
+                                    .with_member_name(m)
                                 })
                                 .collect(),
                         );
@@ -1970,7 +2041,7 @@ impl InstantiationBuilder {
                         .map(|m| {
                             let path = format!("{port_base}.{m}");
                             // current module's own port has no owner (it's net top-level label).
-                            NetPoint::new(&path, iotype.clone()).with_member_name(m)
+                            NetPoint::new(&path, iotype.clone(), site.clone()).with_member_name(m)
                         })
                         .collect(),
                 );
@@ -2044,6 +2115,7 @@ impl InstantiationBuilder {
                                             &format!("{owner}.{pin_id}"),
                                             owner,
                                             iotype.clone(),
+                                            site.clone(),
                                         )
                                         .with_member_name(port_base)
                                     })
@@ -2052,6 +2124,7 @@ impl InstantiationBuilder {
                                     &format!("{owner}.{port_base}"),
                                     owner,
                                     iotype,
+                                    site.clone(),
                                 )
                                 .with_member_name(port_base)
                                 .with_same_name_pads(pads)]);
@@ -2063,8 +2136,13 @@ impl InstantiationBuilder {
                                     .iter()
                                     .map(|(member_name, pin_id)| {
                                         let path = format!("{owner}.{pin_id}");
-                                        NetPoint::with_owner(&path, owner, iotype.clone())
-                                            .with_member_name(member_name)
+                                        NetPoint::with_owner(
+                                            &path,
+                                            owner,
+                                            iotype.clone(),
+                                            site.clone(),
+                                        )
+                                        .with_member_name(member_name)
                                     })
                                     .collect(),
                             );
@@ -2083,8 +2161,13 @@ impl InstantiationBuilder {
                                 let path = format!("{owner}.{pin_id}");
                                 let iotype =
                                     comp.def.pins.get_pin_io(pin_id).unwrap_or(IOType::None);
-                                return Some(vec![NetPoint::with_owner(&path, owner, iotype)
-                                    .with_member_name(member)]);
+                                return Some(vec![NetPoint::with_owner(
+                                    &path,
+                                    owner,
+                                    iotype,
+                                    site.clone(),
+                                )
+                                .with_member_name(member)]);
                             }
                         }
                     }
@@ -2151,6 +2234,7 @@ impl InstantiationBuilder {
         owner: &str,
         member: &str,
     ) -> Option<Vec<NetPoint>> {
+        let site = self.construction_site();
         let path = format!("{owner}.{member}");
         // A whole group / bus / interface child is a lane column on either kind.
         if let Some(lanes) = self.expand_port_lanes(&path) {
@@ -2158,7 +2242,8 @@ impl InstantiationBuilder {
         }
         if let Some(comp) = self.find_component(owner) {
             let id = declared_pin_id(&comp, member)?;
-            let mut np = NetPoint::with_owner(&format!("{owner}.{id}"), owner, IOType::None);
+            let mut np =
+                NetPoint::with_owner(&format!("{owner}.{id}"), owner, IOType::None, site.clone());
             if member.contains('.') {
                 if let Some(last) = member.rsplit('.').next() {
                     np = np.with_member_name(last);
@@ -2178,7 +2263,12 @@ impl InstantiationBuilder {
             })?;
             let pbase = super::phases::port_base_name(&declared.name);
             let canonical = format!("{owner}.{pbase}{rest}");
-            return Some(vec![NetPoint::with_owner(&canonical, owner, IOType::None)]);
+            return Some(vec![NetPoint::with_owner(
+                &canonical,
+                owner,
+                IOType::None,
+                site.clone(),
+            )]);
         }
         None
     }
@@ -2190,9 +2280,10 @@ impl InstantiationBuilder {
     }
 
     pub(super) fn ensure_label(&mut self, name: &str) {
+        let site = self.construction_site();
         if !self.labels.contains_key(name) {
             self.labels
-                .insert(name.to_string(), NetPoint::new(name, IOType::None));
+                .insert(name.to_string(), NetPoint::new(name, IOType::None, site));
         }
     }
 }

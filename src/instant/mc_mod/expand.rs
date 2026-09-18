@@ -431,7 +431,7 @@ mod expand_match_tests {
     use crate::semantic::common::IOType;
 
     fn pt(path: &str, member: Option<&str>) -> NetPoint {
-        let mut p = NetPoint::new(path, IOType::None);
+        let mut p = NetPoint::new(path, IOType::None, None);
         p.member_name = member.map(|s| s.to_string());
         p
     }
@@ -661,7 +661,7 @@ mod inst_scope_tests {
 
     /// A `NetPoint` with no owner and no IO type (sufficient for field-level tests).
     fn np(path: &str) -> NetPoint {
-        NetPoint::new(path, IOType::None)
+        NetPoint::new(path, IOType::None, None)
     }
 
     /// Minimal component instance backed by an empty stub definition.
@@ -713,7 +713,7 @@ mod inst_scope_tests {
         for (pid, io) in pins {
             inst.pins.insert(
                 (*pid).to_string(),
-                NetPoint::with_owner(&format!("{name}.{pid}"), name, io.clone()),
+                NetPoint::with_owner(&format!("{name}.{pid}"), name, io.clone(), None),
             );
         }
         inst

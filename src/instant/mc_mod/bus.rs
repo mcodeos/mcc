@@ -262,6 +262,7 @@ impl InstantiationBuilder {
         right: &[McBus],
         is_left: bool,
     ) -> Result<Vec<NetPoint>, InstError> {
+        let site = self.construction_site();
         let elements = if is_left { left } else { right };
 
         // P1-A3
@@ -295,6 +296,7 @@ impl InstantiationBuilder {
                                         &format!("{}.{}", elem.name, m),
                                         &elem.name,
                                         IOType::None,
+                                        site.clone(),
                                     )),
                                 }
                             }
@@ -325,6 +327,7 @@ impl InstantiationBuilder {
         base_name: &str,
         elements: &[McBus],
     ) -> Result<Vec<NetPoint>, InstError> {
+        let site = self.construction_site();
         // 1. Component pin access — definition-authoritative through the one
         //    child resolver: it expands a whole-group face to its declared lanes
         //    (`ldo{VIN | VOUT}` → `ldo.VIN.{Vin,GND}`) and otherwise returns the
@@ -351,7 +354,12 @@ impl InstantiationBuilder {
                     // (the materialized member), else validate_expanded_net_points
                     // looks `cap1.1` up in U1's pins → E3179. ──
                     let owner = self.deepest_component_owner(&path).to_string();
-                    vec![NetPoint::with_owner(&path, &owner, IOType::None)]
+                    vec![NetPoint::with_owner(
+                        &path,
+                        &owner,
+                        IOType::None,
+                        site.clone(),
+                    )]
                 })
                 .collect());
         }
@@ -370,7 +378,12 @@ impl InstantiationBuilder {
                 if let Some(lanes) = self.expand_port_lanes(&path) {
                     pts.extend(lanes);
                 } else {
-                    pts.push(NetPoint::with_owner(&path, base_name, IOType::None));
+                    pts.push(NetPoint::with_owner(
+                        &path,
+                        base_name,
+                        IOType::None,
+                        site.clone(),
+                    ));
                 }
             }
             return Ok(pts);
@@ -388,7 +401,7 @@ impl InstantiationBuilder {
                 } else {
                     format!("{}.{}", base_name, e.name)
                 };
-                NetPoint::new(&path, IOType::None)
+                NetPoint::new(&path, IOType::None, site.clone())
             })
             .collect())
     }

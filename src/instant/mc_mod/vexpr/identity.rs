@@ -224,11 +224,11 @@ mod tests {
     use crate::semantic::common::IOType;
 
     fn label(name: &str) -> NetPoint {
-        NetPoint::new(name, IOType::None)
+        NetPoint::new(name, IOType::None, None)
     }
 
     fn pin(path: &str, owner: &str, member: &str) -> NetPoint {
-        NetPoint::with_owner(path, owner, IOType::None).with_member_name(member)
+        NetPoint::with_owner(path, owner, IOType::None, None).with_member_name(member)
     }
 
     fn ep(point: &NetPoint) -> Ep {

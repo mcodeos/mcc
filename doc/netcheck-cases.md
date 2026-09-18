@@ -17,7 +17,7 @@ reason = "<judgment rationale>"
 
 [case] rule=R01 expect=hit
 module = "<top/unassigned>"
-reason = "4 distinct vectors such as dc{VDD_3V3, GND} have unexpanded brace references"
+reason = "4 distinct vectors such as dc{VDD_3V3, GND} have unexpanded brace references; the row carries the earliest source site among the reported paths (rendered as `at <uri>:<line>`), and one path with no site does not erase it (`None < Some(_)`, so the anchor is taken over the sites alone)"
 
 [case] rule=R01 expect=miss
 module = "main.moddcdc"

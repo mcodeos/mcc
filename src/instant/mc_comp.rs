@@ -245,13 +245,18 @@ impl McComponentInst {
     }
 
     /// Initialize pins of the component instance
+    ///
+    /// `McComponentInst` is not produced by the instantiation builder, so these
+    /// pin points carry no source site (`None`) and land in the literal-point
+    /// quarantine without a diagnostic anchor. See the P11 note in
+    /// `doc/pipeline/ast-vs-text-reparse-design.md`.
     fn init_pins(&mut self) {
         let pids = self.def.pins.get_all_pins();
 
         for pin_id in pids {
             let path = format!("{}.{}", self.name, pin_id);
             let iotype = self.def.pins.get_pin_io(&pin_id).unwrap_or(IOType::None);
-            let net_point = NetPoint::with_owner(&path, &self.name, iotype);
+            let net_point = NetPoint::with_owner(&path, &self.name, iotype, None);
             self.pins.insert(pin_id, net_point);
         }
 
@@ -327,7 +332,8 @@ impl McComponentInst {
                             if !self.pins.contains_key(&pin_id) {
                                 let path = format!("{}.{}", self.name, pin_id);
                                 let iotype = pins.get_pin_io(&pin_id).unwrap_or(IOType::None);
-                                let net_point = NetPoint::with_owner(&path, &self.name, iotype);
+                                let net_point =
+                                    NetPoint::with_owner(&path, &self.name, iotype, None);
                                 self.pins.insert(pin_id, net_point);
                             }
                         }
@@ -357,7 +363,7 @@ impl McComponentInst {
                         if !self.pins.contains_key(&pin_id) {
                             let path = format!("{}.{}", self.name, pin_id);
                             let iotype = else_pins.get_pin_io(&pin_id).unwrap_or(IOType::None);
-                            let net_point = NetPoint::with_owner(&path, &self.name, iotype);
+                            let net_point = NetPoint::with_owner(&path, &self.name, iotype, None);
                             self.pins.insert(pin_id, net_point);
                         }
                     }
@@ -682,7 +688,7 @@ impl McComponentInst {
 
         for (pin_id, pin_name, iotype) in dynamic_pins {
             let path = format!("{}.{}", self.name, pin_id);
-            let net_point = NetPoint::with_owner(&path, &self.name, iotype);
+            let net_point = NetPoint::with_owner(&path, &self.name, iotype, None);
             self.pins.insert(pin_id.to_string(), net_point);
 
             // Register resolved pin name so it can be looked up later
