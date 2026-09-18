@@ -251,12 +251,12 @@ fn copy_tree(src: &Path, dst: &Path) {
 /// properties that law has: the name follows the payload, and the two modes
 /// cannot collide.
 ///
-/// ⚠ `parse --viz … --top <m>` is a **second** writer (`run_viz`), and it has a
-/// write/no-write rule of its own: for `--viz-json` without `-o` it writes
-/// nothing at all, while the all-modules writer always writes. That disagreement
-/// is **not** locked here — it is CIMP §1 U98, and locking it either way would
-/// settle a question that is not this test's to settle. Only its `--viz` arm is
-/// exercised below (step C), which is the arm the shared naming law covers.
+/// `parse --viz … --top <m>` is a **second** writer (`run_viz`), and both
+/// writers share one write rule: `-o` overrides *where* a payload goes, never
+/// *whether* one is written, and the payload's format only picks the name. That
+/// rule used to hold for the all-modules writer and not for `run_viz`, whose
+/// JSON arm wrote nothing at all — so `--viz-json --top <m>` computed the
+/// document and dropped it. Steps C and D exercise the second writer's two arms.
 #[test]
 fn parse_viz_default_outlet_follows_the_payload() {
     let cwd = scratch("parse-viz");
@@ -320,15 +320,40 @@ fn parse_viz_default_outlet_follows_the_payload() {
         beside_html.display()
     );
 
-    // C. The second writer, on the arm the shared law covers.
+    // C. The second writer, HTML arm: same outlet, no file left from step A.
     std::fs::remove_file(&beside_html).expect("remove html for step C");
     let (_, stderr, ok) = run_mcc(&cwd, &["parse", &entry_str, "--viz", "--top", "main"]);
     assert!(ok, "`mcc parse --viz --top main` failed: {stderr}");
+    let html_top = std::fs::read_to_string(&beside_html)
+        .expect("`mcc parse --viz --top main` wrote no file beside the source");
     assert!(
-        std::fs::read_to_string(&beside_html)
-            .expect("`mcc parse --viz --top main` wrote no file beside the source")
-            .starts_with("<!DOCTYPE html>"),
+        html_top.starts_with("<!DOCTYPE html>"),
         "`mcc parse --viz --top main` wrote something that is not an HTML document"
+    );
+
+    // D. The same writer's JSON arm: it writes, under its own name, and it does
+    //    not touch what step C wrote.
+    std::fs::remove_file(&beside_json).expect("remove json for step D");
+    let (_, stderr, ok) = run_mcc(&cwd, &["parse", &entry_str, "--viz-json", "--top", "main"]);
+    assert!(ok, "`mcc parse --viz-json --top main` failed: {stderr}");
+    let json_top = std::fs::read_to_string(&beside_json).unwrap_or_else(|e| {
+        panic!(
+            "`mcc parse --viz-json --top main` wrote no file beside the source — the \
+             payload was computed and dropped: {e}"
+        )
+    });
+    let parsed: serde_json::Value = serde_json::from_str(&json_top).unwrap_or_else(|e| {
+        panic!("`mcc parse --viz-json --top main` wrote a payload that is not JSON: {e}")
+    });
+    assert!(
+        parsed.get("root_bid").is_some(),
+        "`mcc parse --viz-json --top main` wrote JSON that is not a viz document"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&beside_html).expect("html still beside source"),
+        html_top,
+        "the JSON arm overwrote `{}` — the two payloads still collide",
+        beside_html.display()
     );
 }
 

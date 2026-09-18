@@ -52,7 +52,7 @@ fn run_local(args: &ShowArgs) -> Result<()> {
     match args.target {
         // overview / debug
         ShowTarget::All => show_all(args, loaded.as_deref()),
-        ShowTarget::Defs => show_defs(args),
+        ShowTarget::Defs => show_defs(args, loaded.as_deref()),
         ShowTarget::Lapper => show_lapper(args, loaded.as_deref()),
         ShowTarget::Ast => show_ast(args, loaded.as_deref()),
 
@@ -133,7 +133,7 @@ fn prepare(args: &ShowArgs) -> Option<String> {
             mcc::cli::globals().top.as_deref(),
             mcc::cli::globals().entry.as_deref(),
         ) {
-            Ok((entry_uri, _)) => Some(entry_uri),
+            Ok((entry_uri, _)) => Some(normalize_uri_path(&entry_uri)),
             Err(e) => die!("mcc::show", 1, "directory target: {:#}", e),
         }
     } else {
@@ -147,9 +147,31 @@ fn prepare(args: &ShowArgs) -> Option<String> {
                 .map(|c| c.join(&actual).to_string_lossy().to_string())
                 .unwrap_or(actual)
         };
+        let path = normalize_uri_path(&path);
         let uri = mcc::McURI::from(path.as_str());
         mcc::mcc_load_project(&uri);
         Some(path)
+    }
+}
+
+/// Lexically normalize a path used as a URI: drop `.` components, leaving `..`
+/// and every real component alone. Not `Path::canonicalize`, which resolves
+/// symlinks too and would return a URI the engine never registered.
+///
+/// The engine keys a loaded file on the normalized spelling, so a target
+/// written `./x.mc` does not match its own defs: the faces that anchor a layer
+/// or a dump on that URI print an empty reading, exit 0 and say nothing.
+fn normalize_uri_path(path: &str) -> String {
+    let mut out = PathBuf::new();
+    for c in Path::new(path).components() {
+        if c != std::path::Component::CurDir {
+            out.push(c.as_os_str());
+        }
+    }
+    if out.as_os_str().is_empty() {
+        ".".to_string()
+    } else {
+        out.to_string_lossy().to_string()
     }
 }
 
@@ -616,8 +638,13 @@ fn gather_rows<'a>(
 /// kind. Text prints aligned `D<id>` rows; structured output nests layers
 /// then kinds. The def-space twin of `show dianlu` — instance `D<id>` tags
 /// resolve to their rows here.
-fn show_defs(args: &ShowArgs) -> Result<()> {
-    let target = target_path(args).map(resolve_file);
+///
+/// The file layer is anchored on the target the command **loaded**, exactly as
+/// in [`show_all`]: a directory names no origin of its own, so a path derived
+/// from the raw argument puts every def of the entry file in the `use` layer
+/// and the layer never appears (CIMP §1 U99).
+fn show_defs(args: &ShowArgs, loaded: Option<&str>) -> Result<()> {
+    let target = target_path(args).and(loaded).map(str::to_string);
     let scopes = defs_scopes(args.scope);
     let rows = defs_rows();
     if rows.is_empty() {

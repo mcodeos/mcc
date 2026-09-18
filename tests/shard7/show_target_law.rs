@@ -32,22 +32,21 @@
 //! assertion pins any product's bytes, so a change to what `show lapper`
 //! prints does not have to touch this file.
 //!
-//! ⚠ `show defs` is deliberately **not** in the same-world list below. It lists
-//! the whole definition space layered by origin, so naming a file breaks that
-//! file's definitions out under `-- file --` while naming a directory does not
-//! — the same set of definitions, presented differently because the two runs
-//! name different origins. That is a `defs` presentation question, not this
-//! law's, and it is recorded as such rather than locked either way.
+//! `show defs` is in the same-world list too. It layers the whole definition
+//! space by origin, so the layer it prints depends on which origin the command
+//! named; a **directory** names none of its own, and a `defs` that re-derived a
+//! path from the raw argument therefore put the entry file's own defs in the
+//! `use` layer and never printed `-- file --` (CIMP §1 U99).
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// Faces whose positional is a **project target**: each resolves a directory
 /// through the target law and must read the world it names.
-const SAME_WORLD_FACES: &[&str] = &["all", "dianlu", "pwr", "pwrflow", "lapper", "ast"];
+const SAME_WORLD_FACES: &[&str] = &["all", "defs", "dianlu", "pwr", "pwrflow", "lapper", "ast"];
 
-/// Every face whose positional is a path at all — the same list plus `defs`,
-/// the one face that layers its output by the origin named.
+/// Every face whose positional is a path at all — the seven faces above, which
+/// are the whole of that list.
 const PATH_FACES: &[&str] = &["all", "defs", "dianlu", "pwr", "pwrflow", "lapper", "ast"];
 
 fn fixture(name: &str) -> PathBuf {
@@ -129,6 +128,39 @@ fn a_directory_target_reads_the_same_world_as_its_entry_file() {
             "`show {face}` reported different diagnostics for a directory than \
              for the entry file it resolves to"
         );
+    }
+}
+
+/// A `.` component in the target names the same file as the plain spelling.
+///
+/// The faces below anchor a layer — or a symbol dump — on the URI the command
+/// **loaded**, and the engine keys a loaded file on the normalized spelling. A
+/// target written `./hbl` therefore reached the engine as a different URI than
+/// `hbl`: `show all` printed its `file` header over an empty layer, `lapper`
+/// dumped 0 bytes and `defs` had no `file` layer at all. Each one a
+/// reading-shaped empty output, exit 0, nothing on stderr.
+#[test]
+fn a_dot_component_spelling_names_the_same_file() {
+    let cwd = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    assert!(cwd.is_dir(), "fixture layout moved");
+
+    for (plain, dotted) in [("hbl", "./hbl"), ("hbl/src/hbl.mc", "./hbl/src/hbl.mc")] {
+        for face in ["all", "defs", "lapper"] {
+            let (plain_out, plain_err, plain_ok) = run_show(&cwd, face, Path::new(plain));
+            let (dot_out, _, dot_ok) = run_show(&cwd, face, Path::new(dotted));
+            assert!(plain_ok, "`show {face} {plain}` failed: {plain_err}");
+            assert!(dot_ok, "`show {face} {dotted}` failed");
+            assert!(
+                !plain_out.is_empty(),
+                "`show {face} {plain}` printed nothing, so the comparison below \
+                 would be vacuous"
+            );
+            assert_eq!(
+                dot_out, plain_out,
+                "`show {face}` read a different world from `{dotted}` than from \
+                 `{plain}` — the `.` component survives into the URI the face reads"
+            );
+        }
     }
 }
 
