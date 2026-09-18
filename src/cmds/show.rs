@@ -140,15 +140,15 @@ fn drill_rpc(method: &'static str, args: &ShowArgs) -> Option<(&'static str, Val
 }
 
 fn run_local(args: &ShowArgs) -> Result<()> {
-    prepare(args);
+    let loaded = prepare(args);
 
     let name = args.name.as_deref();
     match args.target {
         // overview / debug
-        ShowTarget::All => show_all(args),
+        ShowTarget::All => show_all(args, loaded.as_deref()),
         ShowTarget::Defs => show_defs(args),
-        ShowTarget::Lapper => show_lapper(args),
-        ShowTarget::Ast => show_ast(args),
+        ShowTarget::Lapper => show_lapper(args, loaded.as_deref()),
+        ShowTarget::Ast => show_ast(args, loaded.as_deref()),
 
         // entity detail (name required; lists moved to `mcc list`)
         ShowTarget::Component => match name {
@@ -207,41 +207,55 @@ fn run_local(args: &ShowArgs) -> Result<()> {
 /// targets that take no entity name ([`target_path`]). When neither is given,
 /// the current directory is the target if it holds a project manifest — for
 /// entity queries (`show component MCU`) as much as for name-less ones.
-fn prepare(args: &ShowArgs) {
+///
+/// Returns the URI the target **resolved to** — for a directory target that is
+/// the entry file inside it, not the directory. A face that needs the target
+/// path must read this instead of deriving one from the raw argument: a
+/// directory re-derived from the raw argument is a URI nothing was parsed
+/// under, so the face prints an empty reading, exits 0 and says nothing
+/// (CIMP §1 U93).
+fn prepare(args: &ShowArgs) -> Option<String> {
     let file_opt = crate::cmds::manifest::effective_target(target_path(args));
     let file_opt = file_opt.as_deref();
     crate::cmds::manifest::init_local(file_opt, &mcc::cli::globals().lib);
 
-    if let Some(f) = file_opt {
-        if Path::new(f).is_dir() {
-            // Directory target: unified project/browse-mode loading.
-            if let Err(e) = crate::cmds::common::load_target(
-                Some(f),
-                mcc::cli::globals().top.as_deref(),
-                mcc::cli::globals().entry.as_deref(),
-            ) {
-                die!("mcc::show", 1, "directory target: {:#}", e);
-            }
-        } else {
-            let actual = resolve_file(f);
-            // Absolutize so the engine does not join a relative path onto the
-            // project root (which would double the directory components).
-            let path = if Path::new(&actual).is_absolute() {
-                actual
-            } else {
-                std::env::current_dir()
-                    .map(|c| c.join(&actual).to_string_lossy().to_string())
-                    .unwrap_or(actual)
-            };
-            let uri = mcc::McURI::from(path.as_str());
-            mcc::mcc_load_project(&uri);
+    let f = file_opt?;
+    if Path::new(f).is_dir() {
+        // Directory target: unified project/browse-mode loading.
+        match crate::cmds::common::load_target(
+            Some(f),
+            mcc::cli::globals().top.as_deref(),
+            mcc::cli::globals().entry.as_deref(),
+        ) {
+            Ok((entry_uri, _)) => Some(entry_uri),
+            Err(e) => die!("mcc::show", 1, "directory target: {:#}", e),
         }
+    } else {
+        let actual = resolve_file(f);
+        // Absolutize so the engine does not join a relative path onto the
+        // project root (which would double the directory components).
+        let path = if Path::new(&actual).is_absolute() {
+            actual
+        } else {
+            std::env::current_dir()
+                .map(|c| c.join(&actual).to_string_lossy().to_string())
+                .unwrap_or(actual)
+        };
+        let uri = mcc::McURI::from(path.as_str());
+        mcc::mcc_load_project(&uri);
+        Some(path)
     }
 }
 
 /// Effective target path for file-based targets: `-F` wins; otherwise the
 /// positional argument is the target for targets that take no entity name
-/// (`show all` / `show dianlu`), mirroring `show ast` / `show lapper`.
+/// (`show all` / `show dianlu` / `show ast` / `show lapper`).
+///
+/// This is the list of targets whose **positional** is a path, so it is also
+/// the list of targets `prepare` resolves a directory for. `ast` and `lapper`
+/// take a path exactly like `dianlu` does; leaving them out made the same
+/// input shape (a directory) behave one way on one face and another way on the
+/// next (CIMP §1 U93).
 fn target_path(args: &ShowArgs) -> Option<&str> {
     if args.file.is_some() {
         return args.file.as_deref();
@@ -251,7 +265,9 @@ fn target_path(args: &ShowArgs) -> Option<&str> {
         | ShowTarget::Defs
         | ShowTarget::Dianlu
         | ShowTarget::Pwr
-        | ShowTarget::Pwrflow => args.name.as_deref(),
+        | ShowTarget::Pwrflow
+        | ShowTarget::Ast
+        | ShowTarget::Lapper => args.name.as_deref(),
         _ => None,
     }
 }
@@ -444,8 +460,11 @@ fn not_applicable(what: &str, name: &str) -> ! {
 
 // Containers: overview / list / detail
 
-fn show_all(args: &ShowArgs) -> Result<()> {
-    let target = target_path(args).map(resolve_file);
+fn show_all(args: &ShowArgs, loaded: Option<&str>) -> Result<()> {
+    // The file layer is anchored on the target the command **loaded**. With no
+    // target named on the command line, the cwd project `prepare` may have
+    // picked up is not this face's file layer, so `target_path` gates it.
+    let target = target_path(args).and(loaded).map(str::to_string);
     let scopes = resolve_scopes(args.scope, target.is_some());
 
     let mut data = serde_json::Map::new();
@@ -790,40 +809,38 @@ fn def_row_json(r: &DefsRow) -> Value {
     v
 }
 
-fn show_ast(args: &ShowArgs) -> Result<()> {
-    let file_path = require_name(args);
-    let path = Path::new(file_path);
-    if !path.exists() {
-        anyhow::bail!("file not found: {}", file_path);
-    }
-    let uri_str = path
-        .canonicalize()
-        .unwrap_or_else(|_| path.to_path_buf())
-        .to_string_lossy()
-        .to_string();
+fn show_ast(args: &ShowArgs, loaded: Option<&str>) -> Result<()> {
+    // Same rule as `show lapper`: a name is required here even though
+    // `prepare` may have resolved one, and the URI is the one the command
+    // **loaded** rather than one derived again from the raw argument (U93).
+    let named = require_name(args);
+    let uri_str = loaded.unwrap_or(named).to_string();
     let mc_uri = McURI::from(uri_str.as_str());
     // Enable AST tree output (MCC_LOG_VISIT) from C engine
     if let Ok(mut trace) = mcc::get_runtime_trace().write() {
         trace.visit = Some(true);
     }
     mcc::set_trace_stdout_suppressed(false);
-    // Reset AST visit flag so tree is printed for this invocation
+    // The tree is printed *by the parse*, so this face has to own one. The
+    // flag alone is not enough: `prepare` already parsed the target, and a
+    // second `mcc_load_project` on a parsed file parses nothing and prints
+    // nothing. Dropping the entry and loading it again re-parses it here.
+    mcc::mcc_remove(&mc_uri);
     mcc::mcb_reset_ast_visit_flag();
     mcc::mcc_load_project(&mc_uri);
     Ok(())
 }
 
-fn show_lapper(args: &ShowArgs) -> Result<()> {
-    let file_path = require_name(args);
-    let path = Path::new(file_path);
-    if !path.exists() {
-        anyhow::bail!("file not found: {}", file_path);
-    }
-    let uri_str = path
-        .canonicalize()
-        .unwrap_or_else(|_| path.to_path_buf())
-        .to_string_lossy()
-        .to_string();
+fn show_lapper(args: &ShowArgs, loaded: Option<&str>) -> Result<()> {
+    // A name is required even though `prepare` may have resolved one: with no
+    // positional it can fall back to the cwd project, and this face dumps the
+    // symbols of one file, not of a project.
+    let named = require_name(args);
+    // The URI the command actually loaded, taken verbatim rather than derived
+    // again from the raw argument: the symbol dump is keyed on the loaded URI,
+    // so a second derivation that differs by as little as a symlink or a
+    // directory component finds nothing and dumps an empty table (U93).
+    let uri_str = loaded.unwrap_or(named).to_string();
     let mc_uri = McURI::from(uri_str.as_str());
 
     // Suppress AST tree printing during parsing
@@ -842,11 +859,12 @@ fn show_lapper(args: &ShowArgs) -> Result<()> {
         }
     }
 
-    // Not loaded yet — load project and try again.
-    // Unified with the shared init: the nearest project manifest
-    // (project.toml) drives the dependency set, and the project root is set
-    // so project-relative `use` paths resolve correctly.
-    let project_root = super::manifest::find_project_root(Some(file_path))
+    // Not loaded yet — load project and try again. `prepare` loads the target
+    // for this face too, so this is a safety net rather than the usual route;
+    // it re-runs the same init (nearest `project.toml` drives the dependency
+    // set, project root set so project-relative `use` paths resolve).
+    let path = Path::new(&uri_str);
+    let project_root = super::manifest::find_project_root(Some(&uri_str))
         .unwrap_or_else(|| path.parent().map(|p| p.to_path_buf()).unwrap_or_default());
     if !project_root.as_os_str().is_empty() {
         mcc::mcc_set_project_root(&project_root);
@@ -866,7 +884,7 @@ fn show_lapper(args: &ShowArgs) -> Result<()> {
 
     // Fallback: send to RPC server
     let content =
-        std::fs::read_to_string(path).with_context(|| format!("failed to read {}", file_path))?;
+        std::fs::read_to_string(path).with_context(|| format!("failed to read {}", uri_str))?;
     let c = RpcClient::probe().context("no mcc server running and file not in local workspace")?;
     let result = c.call("sem", json!({"uri": uri_str, "content": content}))?;
     let symbols = &result["symbols"];
