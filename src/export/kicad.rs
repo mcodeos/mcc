@@ -19,11 +19,7 @@ pub fn build_kicad_netlist(
 ) -> (String, Value, usize) {
     let mut out = String::new();
     out.push_str("(export (version D)\n");
-    out.push_str(&format!(
-        "  (design\n    (source \"{}\")\n    (date \"{}\"))\n",
-        top,
-        super::chrono_like_now()
-    ));
+    out.push_str(&format!("  (design\n    (source \"{}\"))\n", top));
 
     // Components
     out.push_str("  (components\n");

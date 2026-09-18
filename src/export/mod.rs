@@ -178,15 +178,6 @@ pub fn csv_escape(field: &str) -> String {
     }
 }
 
-pub(crate) fn chrono_like_now() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let secs = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    format!("epoch={}", secs)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -55,7 +55,6 @@ pub fn build_netlist(
     } else {
         let mut out = String::new();
         out.push_str(&format!("# Netlist: top={}\n", top));
-        out.push_str(&format!("# Generated: {}\n\n", super::chrono_like_now()));
         for (name, points) in &nets {
             out.push_str(&format!("{}: {}\n", name, points.join(" ")));
         }

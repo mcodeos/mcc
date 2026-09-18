@@ -67,13 +67,15 @@ fn run_mcc(cwd: &Path, args: &[&str]) -> (String, String, bool) {
     )
 }
 
-/// The two fields that are not derived from the input, normalised away.
+/// The one field that is not derived from the input, normalised away.
 ///
-/// Neither is part of what this file locks; both would otherwise make every
-/// comparison fail for a reason the test is not about.
+/// It is not part of what this file locks; it would otherwise make every
+/// comparison fail for a reason the test is not about. The export products used
+/// to need the same treatment for their generation-time line, which CIMP §1 U92
+/// ruled out — they are now compared whole, stamps included, because there are
+/// none.
 fn normalize(s: &str) -> String {
     s.lines()
-        .filter(|l| !(l.contains("Generated: epoch=") || l.contains("(date \"epoch=")))
         .map(|l| match l.find("\"elapsed_ms\"") {
             // `"elapsed_ms": 3` -> `"elapsed_ms": 0`: the envelope's wall clock.
             Some(_) => match (l.find(": "), l.trim_end().ends_with(',')) {

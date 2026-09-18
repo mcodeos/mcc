@@ -76,7 +76,6 @@ pub fn build_bom(
         _ => {
             let mut out = String::new();
             out.push_str(&format!("# BOM: top={}\n", top));
-            out.push_str(&format!("# Generated: {}\n", super::chrono_like_now()));
             let w_class = agg.keys().map(|(c, _)| c.len()).max().unwrap_or(5).max(5);
             out.push_str(&format!(
                 "{:<w_c$}  {:<2}  {:>5}  refdes\n",
