@@ -56,7 +56,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::{json, Value};
 
-use crate::stages::{net_origin, NetOrigin, StageView};
+use crate::stages::{net_origin, NetOrigin, StageSeg, StageView};
 use crate::viz::stability::report::StabilityReport;
 
 /// Separator between key components. `\u{1}` cannot appear in a canonical path
@@ -104,6 +104,17 @@ pub struct ClassSpec {
 pub struct Law {
     /// The `view` name a difference in this law publishes.
     pub view: &'static str,
+    /// The identity of this table, as a name a saved reading can carry.
+    ///
+    /// A difference is only well defined under **one** key table, and until
+    /// this existed nothing said which one a reading had been aligned under:
+    /// the table was chosen by `--view` out of the running binary, so two
+    /// readings compared by a third build were compared under a table neither
+    /// of them had named. The value is **declared**, not derived -- the same
+    /// kind of version as the drawing contract's ([`StageView::
+    /// carrying_drawing_contract`]) -- and whoever changes a class's key
+    /// function, or the class set, bumps the trailing number.
+    pub key_table: &'static str,
     /// The classes, one rule each.
     pub classes: &'static [ClassSpec],
     /// Nets read off the items that reference them, per side, split into the
@@ -311,10 +322,26 @@ impl Law {
 
 // The `stage.viz` law
 
+/// The law of a segment, or `None` where the segment has none.
+///
+/// The one place the segment → table mapping lives, so a caller that reads a
+/// segment off a name (`show stage`, `diff`) and one that needs the table
+/// cannot drift: a segment with no law is a segment whose items are not
+/// alignable, and that answer must not depend on who is asking.
+pub fn law_for(seg: StageSeg) -> Option<&'static Law> {
+    match seg {
+        StageSeg::P1 => None,
+        StageSeg::P2 => Some(&P2_LAW),
+        StageSeg::Vec => Some(&VEC_LAW),
+        StageSeg::Viz => Some(&VIZ_LAW),
+    }
+}
+
 /// The drawn circuit: boxes, pins, layers, the segments between them, the
 /// metrics each layer reports, and the nets its pins are on.
 pub const VIZ_LAW: Law = Law {
     view: DIFF_VIZ_VIEW,
+    key_table: "stage.viz.keys.1",
     classes: &[
         ClassSpec {
             class: "box",
@@ -516,6 +543,7 @@ fn viz_content(item: &Value) -> &'static [&'static str] {
 /// members whatever it is called.
 pub const P2_LAW: Law = Law {
     view: DIFF_P2_VIEW,
+    key_table: "stage.p2.keys.1",
     classes: &[
         ClassSpec {
             class: "instance",
@@ -683,6 +711,7 @@ fn net_member_paths(item: &Value) -> Option<Vec<String>> {
 /// stability summary to measure and the law makes no such claim.
 pub const VEC_LAW: Law = Law {
     view: DIFF_VEC_VIEW,
+    key_table: "stage.vec.keys.1",
     classes: &[
         ClassSpec {
             class: "box",

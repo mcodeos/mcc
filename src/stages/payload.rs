@@ -53,6 +53,17 @@ pub struct StageViewData {
     pub render_version: Option<String>,
     /// See `layout_version`.
     pub metric_schema_version: Option<String>,
+    /// The alignment key table these items are comparable under, or null where
+    /// the segment has no law (`stage.p1`; `join` / `trace` publish other
+    /// vocabularies entirely).
+    ///
+    /// A reading carries this so a **saved** one states what it can be compared
+    /// under: a difference is well defined only when both sides were aligned by
+    /// one table, and a table is not something a reader can recover from the
+    /// items. `mcc diff` refuses a pairing whose tables disagree rather than
+    /// reporting the changes the running binary's table would produce over
+    /// readings it does not describe (CIMP §1 U96).
+    pub key_table: Option<String>,
     /// `stage.p1` | `stage.p2` | `stage.vec` | `stage.viz`.
     pub view: String,
     /// The resolved top module this view is scoped to.
@@ -98,6 +109,7 @@ impl From<&StageView> for StageViewData {
             layout_version: view.layout_version.clone(),
             render_version: view.render_version.clone(),
             metric_schema_version: view.metric_schema_version.clone(),
+            key_table: view.key_table.clone(),
             view: view.view.to_string(),
             top: view.top.clone(),
             items: Value::Array(view.items.clone()),

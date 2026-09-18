@@ -12,6 +12,7 @@ mod bom_nc_classified;
 mod build_dir_net_checks;
 mod dedup_id_coverage;
 mod det_probe;
+mod diff_saved_readings;
 mod equi_e2e;
 mod erc_single_ruler;
 mod expr_dot_curly;

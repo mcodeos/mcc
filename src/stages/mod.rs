@@ -140,6 +140,18 @@ pub struct StageView {
     pub render_version: Option<String>,
     /// See [`layout_version`](Self::layout_version).
     pub metric_schema_version: Option<String>,
+    /// The alignment key table this view's items are comparable under, or
+    /// `None` where the segment has no law.
+    ///
+    /// A difference is well defined only under **one** key table, and a saved
+    /// reading has to state which one it was written under or it cannot be
+    /// compared with a reading another build produced (CIMP §1 U96: the archive
+    /// operand). The value is the law's, **declared** there; this field is the
+    /// reading saying so, the same way the drawing contract's three versions are
+    /// attached by [`StageView::carrying_drawing_contract`]. `stage.p1` and the
+    /// `join.*` / `trace` vocabularies state nothing, because no law covers
+    /// them — a version for a table that does not exist is worse than none.
+    pub key_table: Option<String>,
     /// `stage.p1` | `stage.p2` | `stage.vec` | `stage.viz`.
     pub view: &'static str,
     /// What this view is scoped to.
@@ -157,7 +169,12 @@ impl StageView {
     pub fn new(seg: StageSeg, top: &str, mut items: Vec<Value>, diagnostics: usize) -> Self {
         sort_items(&mut items);
         let counts = counts(seg, &items, diagnostics);
-        Self::assemble(seg.view_name(), top, items, counts)
+        let mut view = Self::assemble(seg.view_name(), top, items, counts);
+        // Attached here rather than in `assemble` because only a segment has a
+        // law: `join` and `trace` publish vocabularies of their own through
+        // `with_view`, and their items are not comparable across builds at all.
+        view.key_table = crate::stages::stage_diff::law_for(seg).map(|l| l.key_table.to_string());
+        view
     }
 
     /// Assemble a view whose vocabulary is its own.
@@ -183,6 +200,7 @@ impl StageView {
             layout_version: None,
             render_version: None,
             metric_schema_version: None,
+            key_table: None,
             view,
             top: top.to_string(),
             items,

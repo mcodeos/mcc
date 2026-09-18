@@ -53,7 +53,13 @@ dirs = "5.0"
 line-index = "0.1.2"
 clap = { version = "4.5", features = ["derive"] }
 serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+# `float_roundtrip`: a float must survive a save-and-read unchanged. Without it
+# serde_json parses a decimal to the nearest double by a fast path that is off by
+# one ULP for some inputs, which makes a metric read back from a saved reading
+# (`mcc diff <reading.json> <src>`) differ from the same metric built in-process
+# -- a difference of nothing, reported as a change. Saving a reading and reading
+# it again is the whole of an archive operand (CIMP §1 U96).
+serde_json = { version = "1.0", features = ["float_roundtrip"] }
 serde_yaml = "0.9"
 toml = "0.8"
 anyhow = "1.0"

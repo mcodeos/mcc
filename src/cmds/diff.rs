@@ -9,6 +9,23 @@
 //! §6.2 same-source), and `mcd/doc/viz/view-model-design.md` §5.1 for the
 //! alignment law this command reports in.
 //!
+//! # Two kinds of operand: a world, or a reading already taken
+//!
+//! Each operand is a source path (or project) read now, **or** a reading saved
+//! earlier by `mcc show stage <seg> -f json -o <file>` (CIMP §1 U96). The kind
+//! is decided by what is at the path, not by a flag.
+//!
+//! The second kind is what makes §6.2's same-source difference expressible at
+//! all. "Same source, two compilers" cannot be asked of one process — one
+//! process holds one binary — so each side has to be read by the build in
+//! question and saved, and this command then only subtracts. A saved reading is
+//! not a world and is never re-read: it is the same `items` the producer
+//! emitted, with the identity the producer wrote, and the only thing checked is
+//! that it says what it is (`view`) and what its items were aligned under
+//! (`key_table`) — those two are the whole of its self-description, and a
+//! difference over readings that do not agree on them would be this build's
+//! table answering for readings it does not describe.
+//!
 //! # Two worlds, not two readings of one
 //!
 //! The two operands are loaded in turn, and each load **resets the engine**
@@ -54,20 +71,21 @@ const ROW_WORDS: [&str; 4] = ["remove", "add", "modify", "unaligned"];
 
 /// Render `mcc diff <A> <B> --view <view>`.
 pub fn run(args: &DiffArgs) -> Result<()> {
-    let (seg, law): (mcc::stages::StageSeg, &mcc::stages::stage_diff::Law) = match args.view {
-        DiffView::StageViz => (
-            mcc::stages::StageSeg::Viz,
-            &mcc::stages::stage_diff::VIZ_LAW,
-        ),
-        DiffView::StageP2 => (mcc::stages::StageSeg::P2, &mcc::stages::stage_diff::P2_LAW),
-        DiffView::StageVec => (
-            mcc::stages::StageSeg::Vec,
-            &mcc::stages::stage_diff::VEC_LAW,
-        ),
+    let seg: mcc::stages::StageSeg = match args.view {
+        DiffView::StageViz => mcc::stages::StageSeg::Viz,
+        DiffView::StageP2 => mcc::stages::StageSeg::P2,
+        DiffView::StageVec => mcc::stages::StageSeg::Vec,
+    };
+    // The table is looked up, not spelled out: which table a segment aligns
+    // under is the segment's answer (`law_for`), and `show stage` publishes the
+    // same one on the reading it saves. Two spellings of that mapping would let
+    // a saved reading and a difference disagree about what a key is.
+    let Some(law) = mcc::stages::stage_diff::law_for(seg) else {
+        die!("mcc::diff", 2, "no alignment law for {}", seg.view_name());
     };
 
-    let a = read_one(seg, args.a.as_str())?;
-    let b = read_one(seg, args.b.as_str())?;
+    let a = read_one(seg, law, args.a.as_str())?;
+    let b = read_one(seg, law, args.b.as_str())?;
 
     let diff = law.diff(&a.items, &b.items);
 
@@ -87,11 +105,29 @@ pub fn run(args: &DiffArgs) -> Result<()> {
 
 /// Load one operand and read the requested segment off it.
 ///
+/// An operand is one of **two kinds**, told apart by what is at the path rather
+/// than by a flag: a world to read now (a source file or a project, the kind the
+/// command has always taken) or a **reading saved earlier** (`mcc show stage
+/// <seg> -f json -o <file>`, CIMP §1 U96). A saved reading needs no source and
+/// no world — it is the same `items` with the identity fields the producer
+/// wrote — so comparing two of them is a pure data operation, which is what
+/// makes "same source, two compilers" expressible: each side was read by its own
+/// binary and saved, and this one only subtracts.
+///
 /// `init_local` first, exactly as `join` does and for the same reason: the
 /// standard components are defs like any other, and without the libraries every
 /// statement that uses one builds a smaller world than `show stage` reports on.
-/// The reset it performs is also what makes the second call a second world.
-fn read_one(seg: mcc::stages::StageSeg, target: &str) -> Result<mcc::stages::StageView> {
+/// The reset it performs is also what makes the second call a second world. It
+/// runs on the world path only — an archive is not a world, and resetting the
+/// engine for one would claim it had read something.
+fn read_one(
+    seg: mcc::stages::StageSeg,
+    law: &mcc::stages::stage_diff::Law,
+    target: &str,
+) -> Result<mcc::stages::StageView> {
+    if let Some(saved) = saved_reading(target)? {
+        return view_of_saved(seg, law, target, &saved);
+    }
     crate::cmds::manifest::init_local(Some(target), &mcc::cli::globals().lib);
     match crate::cmds::show::build_stage_view(seg, Some(target)) {
         Ok(v) => Ok(v),
@@ -99,6 +135,129 @@ fn read_one(seg: mcc::stages::StageSeg, target: &str) -> Result<mcc::stages::Sta
             die!("mcc::diff", 1, "{e}");
         }
     }
+}
+
+/// The stage reading saved at `path`, or `None` where `path` is not one.
+///
+/// Recognised structurally and not by extension: a saved reading **is** a
+/// projection envelope carrying `result.stage`, and a path holding anything else
+/// is the source operand this command has always taken. A path that is not a
+/// file, or whose bytes are not JSON, is not a reading — the world path then gets
+/// it and fails its own way, with the message that operand deserves.
+///
+/// A JSON envelope that carries `result` but no `result.stage` dies here instead
+/// of falling through: it is recognisably **a** reading and not one of these, and
+/// handing it to the MCode parser would answer a question nobody asked.
+fn saved_reading(path: &str) -> Result<Option<serde_json::Value>> {
+    let Ok(bytes) = std::fs::read(path) else {
+        return Ok(None);
+    };
+    let Ok(text) = std::str::from_utf8(&bytes) else {
+        return Ok(None);
+    };
+    if !text.trim_start().starts_with('{') {
+        return Ok(None);
+    }
+    let Ok(env) = serde_json::from_str::<serde_json::Value>(text) else {
+        return Ok(None);
+    };
+    let Some(result) = env.get("result") else {
+        return Ok(None);
+    };
+    let Some(stage) = result.get("stage") else {
+        die!(
+            "mcc::diff",
+            1,
+            "operand '{path}' is a projection envelope, but not a stage reading \
+             (no `result.stage`)\na stage reading is what `mcc show stage \
+             <p1|p2|vec|viz> -f json -o <file>` writes"
+        );
+    };
+    Ok(Some(stage.clone()))
+}
+
+/// Turn a saved reading into the same [`StageView`] its producer emitted.
+///
+/// The two checks here are the reading's **self-description** (CIMP §1 U96) —
+/// what an archive has to state for a difference over it to be well defined:
+///
+/// - **which segment** (`view`): a `stage.vec` reading is not a reading of
+///   `stage.p2`, and comparing one against the other with either table would
+///   produce a page of `unaligned` that reads like "everything changed";
+/// - **which key table**: the table is not recoverable from the items, so a
+///   reading that does not name one — or names a different one — cannot be
+///   compared. Refusing is the only honest answer: the alternative is to report
+///   the changes *this* build's table happens to produce over readings it does
+///   not describe.
+///
+/// The version of the producer (`mcc_version`) is carried through rather than
+/// checked: two builds may differ in every way but the table and still be worth
+/// subtracting, which is the whole point of the operand.
+fn view_of_saved(
+    seg: mcc::stages::StageSeg,
+    law: &mcc::stages::stage_diff::Law,
+    path: &str,
+    saved: &serde_json::Value,
+) -> Result<mcc::stages::StageView> {
+    let written = saved.get("view").and_then(|v| v.as_str()).unwrap_or("-");
+    if written != seg.view_name() {
+        die!(
+            "mcc::diff",
+            1,
+            "operand '{path}' is a {written} reading; --view names {}\n\
+             a difference is between two readings of one segment",
+            seg.view_name()
+        );
+    }
+    let Some(table) = saved.get("key_table").and_then(|v| v.as_str()) else {
+        die!(
+            "mcc::diff",
+            1,
+            "operand '{path}' states no key table (written by mcc {})\n\
+             a saved reading must name the table it was aligned under, or there \
+             is no saying what comparing it means",
+            saved
+                .get("mcc_version")
+                .and_then(|v| v.as_str())
+                .unwrap_or("?")
+        );
+    };
+    if table != law.key_table {
+        die!(
+            "mcc::diff",
+            1,
+            "operand '{path}' was aligned under key table {table}; this build \
+             aligns {} under {}\n\
+             the two are not two readings of one thing: re-read it with the \
+             build that wrote it, or compare readings of one table",
+            seg.view_name(),
+            law.key_table
+        );
+    }
+
+    let str_of = |name: &str| saved.get(name).and_then(|v| v.as_str()).map(str::to_string);
+    let items = saved
+        .get("items")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let counts = saved
+        .get("counts")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    // `with_view` and not `new`: the saved items are already in the producer's
+    // order, and re-sorting them here would be this build re-answering a
+    // question the reading already answered.
+    let top = str_of("top").unwrap_or_default();
+    let mut view = mcc::stages::StageView::with_view(seg.view_name(), &top, items, counts);
+    // The identity fields are the reading's own. `with_view` derives them from
+    // the world loaded *now* — which, for a difference of two saved readings, is
+    // no world at all.
+    view.world_ver = str_of("world_ver");
+    view.top_ver = str_of("top_ver");
+    view.mcc_version = str_of("mcc_version").unwrap_or_default();
+    view.key_table = Some(table.to_string());
+    Ok(view)
 }
 
 /// Write the text face to `--output` or stdout.
@@ -135,12 +294,19 @@ fn emit_envelope(
     // sort, which is the one the alignment law defines.
     let mut view =
         mcc::stages::StageView::with_view(law.view, &a.top, diff.changes.clone(), counts_of(diff));
-    // `with_view` derives the tokens from the world that is loaded *now* — side
-    // B, by the time we get here. Overwrite them with A's: the envelope makes a
-    // claim about which reading its `items` are a statement about, and that is
-    // the left operand.
+    // `with_view` derives the identity fields from the world that is loaded
+    // *now* — side B, by the time we get here, and no world at all when both
+    // operands were saved readings. Overwrite them with A's: the envelope makes
+    // a claim about which reading its `items` are a statement about, and that is
+    // the left operand — including which build produced it, which is not this
+    // one's business to assert once an operand can be an archive.
     view.world_ver = a.world_ver.clone();
     view.top_ver = a.top_ver.clone();
+    view.mcc_version = a.mcc_version.clone();
+    // The table these changes were taken under. Both sides were checked against
+    // it (`view_of_saved`), so it is the law's — stating it makes the answer
+    // self-describing the same way a saved reading is.
+    view.key_table = Some(law.key_table.to_string());
 
     let mut builder = crate::output::builder::ResultBuilder::start("mcc diff");
     let data = crate::output::envelope::StageViewData::from(&view)
@@ -175,7 +341,15 @@ fn second_side(
     let mut block = serde_json::Map::new();
     block.insert(
         "other".to_string(),
-        serde_json::json!({ "world_ver": b.world_ver, "top_ver": b.top_ver }),
+        serde_json::json!({
+            "world_ver": b.world_ver,
+            "top_ver": b.top_ver,
+            // Which build read side B. Symmetric with the envelope's own
+            // `mcc_version`, which is side A's, and the only place the two
+            // producers can be seen side by side — the reading that says
+            // "same source, two compilers" was taken.
+            "mcc_version": b.mcc_version,
+        }),
     );
     block.insert("unaligned".to_string(), serde_json::json!(diff.unaligned));
     if let Some((an, bn)) = diff.nameless_net_pins {

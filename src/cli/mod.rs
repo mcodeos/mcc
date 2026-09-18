@@ -375,10 +375,13 @@ pub enum DiffView {
 
 #[derive(clap::Args, Debug, Clone)]
 pub struct DiffArgs {
-    /// Left operand: the reference the changes are reported against.
+    /// Left operand: the reference the changes are reported against. A source
+    /// path (or project) read now, or a reading saved earlier by `mcc show
+    /// stage <seg> -f json -o <file>`.
     pub a: String,
 
-    /// Right operand: the reading compared against the left one.
+    /// Right operand: the reading compared against the left one. Same two
+    /// kinds as the left one.
     pub b: String,
 
     /// Which view to compare.
