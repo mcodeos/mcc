@@ -51,6 +51,12 @@ pub struct DianLu {
     /// `flatten()` and returned to the caller for logging (Phase A: DianLu
     /// never writes to the workspace diagnostic manager itself).
     net_diags: Vec<Diagnostic>,
+    /// The same checks in their result form, kept so the build envelope can
+    /// carry the rows without a second `run_net_checks` pass over the table.
+    /// The diagnostics above are a lossy projection of these (`check` and
+    /// `net_name` are dropped), and the envelope's `pass2.net_checks` needs
+    /// them back.
+    net_results: Vec<crate::semantic::validation::nets::NetCheckResult>,
     /// Phase C1: per-build identity registry (canonical path ↔ `NodeId`),
     /// rebuilt from the frozen tree's companion node ids on construction.
     /// Consumers resolve `node_id` by path (or vice versa) through here.
@@ -198,6 +204,7 @@ impl DianLu {
             start_id,
             table: None,
             net_diags: Vec::new(),
+            net_results: Vec::new(),
             identity,
             arena,
             store,
@@ -317,6 +324,13 @@ impl DianLu {
         &self.net_diags
     }
 
+    /// The flat electrical net checks behind [`Self::net_diags`], in result
+    /// form — what the build envelope carries as `pass2.net_checks`. Empty
+    /// until `flatten` has run.
+    pub fn net_results(&self) -> &[crate::semantic::validation::nets::NetCheckResult] {
+        &self.net_results
+    }
+
     /// One-way projection (invariant B): derive the flat `InstTable` from the
     /// already-built tree — never re-instantiate. Cached; subsequent calls are
     /// no-ops. Runs the flat electrical net checks (§11.4) once and returns
@@ -350,6 +364,7 @@ impl DianLu {
             let results = crate::semantic::validation::nets::run_net_checks(&table);
             self.net_diags =
                 crate::semantic::validation::nets::net_results_to_diagnostics(&results);
+            self.net_results = results;
             self.table = Some(table);
         }
         self.net_diags.clone()

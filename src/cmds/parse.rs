@@ -731,6 +731,10 @@ pub fn public_collect_pass2(
         nets,
         connections,
         diagnostics,
+        // Net checks are not a projection of the tree: the caller reads them
+        // off the live circuit's flatten (`DianLu::net_results`). See
+        // `Pass2Report::net_checks`.
+        net_checks: vec![],
     }
 }
 

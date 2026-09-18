@@ -398,19 +398,21 @@ pub(crate) fn run_full_build_envelope(
     //    and held as a live circuit in a per-build CircuitWorld — the scope's
     //    core object. Every consumer below reads a projection off it; nothing
     //    is dismembered and nothing is re-derived. The single one-way flatten
-    //    runs the flat electrical net checks once, and the envelope owns the
-    //    Problems surface, so it logs them (they land in the pass2 diagnostics
-    //    snapshot below) — the render/export surfaces never do. A
-    //    component/interface top is wrapped in a synthetic module and the
-    //    projection marks it synthetic, so an unwired single-part view doesn't
-    //    flag E4112/E4116. ──
+    //    runs the flat electrical net checks once; the circuit keeps both the
+    //    results and their diagnostic projection, and the envelope carries the
+    //    results under `pass2.net_checks` — never in `pass2.diagnostics`, which
+    //    is what the local face does too (U90). A component/interface top is
+    //    wrapped in a synthetic module and the projection marks it synthetic,
+    //    so an unwired single-part view doesn't flag E4112/E4116. ──
     let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let (mut world, key, synthetic) = crate::mcc_virtual_build_world(&top_name, &mc_uri, 1000)?;
-        let diags = match synthetic {
+        // Run the flatten (it builds the table and the checks); the returned
+        // diagnostics are the fragmentary projection of the same rows the
+        // envelope now carries in full, so they are not read here.
+        let _diags = match synthetic {
             Some(prefix) => world.flatten_with_prefix(&key, &prefix)?,
             None => world.flatten(&key)?,
         };
-        crate::semantic::validation::nets::log_net_check_diagnostics(&diags);
         Ok::<_, Box<dyn std::error::Error>>((world, key))
     }));
     let (world, key) = match built {
@@ -437,6 +439,14 @@ pub(crate) fn run_full_build_envelope(
     let inst = dl.tree();
     let mut pass2 = collect_pass2(&top_name, inst, &view, &net_store);
     pass2["diagnostics"] = Value::Array(take_diags("pass2"));
+    // The flat electrical net checks of this circuit, in their own key — the
+    // local face puts the same rows there, and the CLI renders the console
+    // section from it on both faces. Omitted when empty, matching the
+    // `skip_serializing_if` on `Pass2Report::net_checks`.
+    let net_rows = crate::semantic::validation::nets::net_check_rows(dl.net_results());
+    if !net_rows.is_empty() {
+        pass2["net_checks"] = json!(net_rows);
+    }
 
     // ── Summary, mirroring ResultBuilder::finish() ──
     // Phase C S3-D: the tree tally resolves children through the view (the
@@ -499,16 +509,16 @@ fn run_full_build_dir_envelope(
     //    aggregated ──
     // Every built target is instantiated ONCE into a CircuitWorld and flattened
     // once, so the single one-way flatten runs that circuit's flat electrical
-    // net checks once. The dir envelope is an OWNING surface (an explicit Build
-    // over the whole folder), so its net diagnostics are logged into the
-    // workspace — the Problems store aggregates real ERC per source file,
-    // exactly like the single-file envelope. Components/interfaces are wrapped
-    // in a synthetic module and the projection marks it synthetic, so an
-    // unwired single-part view doesn't flag E4112/E4116. The first successful
-    // tree rides into the envelope (mirroring the single-file contract); the
-    // rest only need their diagnostics, so their owned parts are not cloned out
-    // of the circuit.
+    // net checks once. Components/interfaces are wrapped in a synthetic module
+    // and the projection marks it synthetic, so an unwired single-part view
+    // doesn't flag E4112/E4116. The first successful tree rides into the
+    // envelope (mirroring the single-file contract) together with its net
+    // checks; the rest need only their pass-1/pass-2 diagnostics, so neither
+    // their owned parts nor their net checks are carried. The checks are
+    // reported under `pass2.net_checks`, not folded into `diagnostics` — the
+    // local folder build reports them the same way (U90).
     let mut top_name = String::new();
+    let mut nets: Vec<crate::semantic::validation::nets::NetCheckRow> = Vec::new();
     let mut first_inst: Option<(
         crate::MccProjectTree,
         crate::NodeArena,
@@ -568,7 +578,7 @@ fn run_full_build_dir_envelope(
                     .any(|name| name == t);
             if declares {
                 search_done = true;
-                if let Some(pair) = build_dir_target(t, &e.entry, &mut failures, true) {
+                if let Some(pair) = build_dir_target(t, &e.entry, &mut failures, true, &mut nets) {
                     top_name = t.to_string();
                     first_inst = Some(pair);
                 }
@@ -584,9 +594,10 @@ fn run_full_build_dir_envelope(
                     continue;
                 };
                 // Keep the first successful tree; the remaining files still
-                // build + flatten so their ERC aggregates, but no owned parts
-                // are cloned.
-                let pair = build_dir_target(&tgt, file, &mut failures, first_inst.is_none());
+                // build + flatten, but neither their owned parts nor their net
+                // checks are carried — `pass2` describes the entry it holds.
+                let pair =
+                    build_dir_target(&tgt, file, &mut failures, first_inst.is_none(), &mut nets);
                 if first_inst.is_none() {
                     if let Some(pair) = pair {
                         top_name = tgt;
@@ -602,7 +613,7 @@ fn run_full_build_dir_envelope(
 
     let pass0 = json!({ "loaded_files": [], "diagnostics": merged.pass0 });
     let pass1 = merged.pass1_json();
-    let pass2 = match &first_inst {
+    let mut pass2 = match &first_inst {
         Some((inst, arena, store, net_store)) => {
             // Phase C S3-D: the tree tally resolves children through the view
             // (the tree's Vec fields are gone).
@@ -619,6 +630,12 @@ fn run_full_build_dir_envelope(
             "diagnostics": merged.pass2,
         }),
     };
+    // The carried entry's flat electrical net checks, in their own key (see the
+    // single-file path above). Omitted when empty, matching the local face's
+    // `skip_serializing_if`.
+    if !nets.is_empty() {
+        pass2["net_checks"] = json!(nets);
+    }
 
     // Phase C S3-D: the tree tally resolves children through the view (the
     // tree's Vec fields are gone).
@@ -658,6 +675,7 @@ fn build_dir_target(
     file: &Path,
     failures: &mut Vec<Value>,
     keep_tree: bool,
+    nets: &mut Vec<crate::semantic::validation::nets::NetCheckRow>,
 ) -> Option<(
     crate::MccProjectTree,
     crate::NodeArena,
@@ -668,17 +686,22 @@ fn build_dir_target(
     let mc_uri = McURI::from(uri.as_str());
     let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let (mut world, key, synthetic) = crate::mcc_virtual_build_world(target, &mc_uri, 1000)?;
-        let diags = match synthetic {
+        // Run the flatten (it builds the table and the checks); the returned
+        // diagnostics are the fragmentary projection of the same rows the
+        // envelope carries in full for the entry it describes, so they are not
+        // read here — and not logged either (U90: the checks are not pass-2
+        // diagnostics on either face).
+        let _diags = match synthetic {
             Some(prefix) => world.flatten_with_prefix(&key, &prefix)?,
             None => world.flatten(&key)?,
         };
-        // Owning surface: the flat net-check diagnostics aggregate into the
-        // Problems store, keyed at each diagnostic's own source file.
-        crate::semantic::validation::nets::log_net_check_diagnostics(&diags);
+        let dl = world
+            .circuit(&key)
+            .ok_or_else(|| format!("dir build produced no circuit for {target}"))?;
+        // `pass2` describes one circuit — the one the envelope carries — so the
+        // net-check rows are that circuit's, on the local face too.
         if keep_tree {
-            let dl = world
-                .circuit(&key)
-                .ok_or_else(|| format!("dir build produced no circuit for {target}"))?;
+            *nets = crate::semantic::validation::nets::net_check_rows(dl.net_results());
             Ok::<_, Box<dyn std::error::Error>>(Some((
                 dl.tree().clone(),
                 dl.arena().clone(),
@@ -1104,10 +1127,9 @@ pub(crate) fn collect_pass1(_uri: &str, include_system: bool) -> Value {
     // artifact of how the workspace was assembled; the local collector sorts by
     // (name, uri) and the two payloads are contracted to be identical, so sort
     // by the same key here.
-    let sort_refs =
-        |items: &mut Vec<(String, String, [usize; 2])>| {
-            items.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
-        };
+    let sort_refs = |items: &mut Vec<(String, String, [usize; 2])>| {
+        items.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+    };
     let (mut modules, mut components, mut interfaces, mut enums) =
         (modules, components, interfaces, enums);
     sort_refs(&mut modules);

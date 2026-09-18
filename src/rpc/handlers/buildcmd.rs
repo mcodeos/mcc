@@ -396,12 +396,11 @@ component RES
         std::fs::remove_dir_all(&root).ok();
     }
 
-    /// Regression (world-core Stage D): the directory-batch envelope is an
-    /// OWNING surface too — building a toml-less folder must aggregate the real
-    /// flat net-check ERC of every built file, not just pass-1 diagnostics. The
-    /// old dir path built each file tree-only (`mcc_virtual_build_with_nets`, no
-    /// flatten, no ERC), so Build Project on a folder under-reported exactly
-    /// like the old single-file build.full did.
+    /// Regression (world-core Stage D): building a toml-less folder must report
+    /// the real flat net-check ERC of the entry it carries, not just pass-1
+    /// diagnostics. The old dir path built each file tree-only
+    /// (`mcc_virtual_build_with_nets`, no flatten, no ERC), so Build Project on
+    /// a folder under-reported exactly like the old single-file build.full did.
     #[test]
     fn cli_buildcmd__build_full_directory_batch_reports_net_erc_truth() {
         let _guard = parse_lock();
@@ -432,34 +431,25 @@ component RES
         )
         .expect("build.full dir ok");
 
-        let codes = resp["pass2"]["diagnostics"]
-            .as_array()
-            .unwrap()
+        // `a.mc` is the first built entry, so it is the circuit the envelope
+        // carries — and `pass2.net_checks` describes that circuit (U90: the
+        // same rule as the local folder build, and never `pass2.diagnostics`).
+        let rows = resp["pass2"]["net_checks"].as_array().unwrap();
+        let erc4101 = rows
             .iter()
-            .filter_map(|d| d["code"].as_u64().map(|c| c as u32))
-            .collect::<Vec<_>>();
+            .find(|r| r["code"] == 4101)
+            .unwrap_or_else(|| panic!("dir build.full must carry the flat E4101: {rows:?}"));
         assert!(
-            codes.contains(&4101),
-            "dir build.full must carry the flat E4101 ...: {codes:?}"
+            erc4101["uri"].as_str().unwrap().ends_with("a.mc"),
+            "the row must be located at the source file that owns the shorted net"
         );
-        let erc4101 = resp["pass2"]["diagnostics"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|d| d["code"] == 4101)
-            .unwrap();
         assert!(
-            erc4101["location"]["file"]
-                .as_str()
+            !resp["pass2"]["diagnostics"]
+                .as_array()
                 .unwrap()
-                .ends_with("a.mc"),
-            "ERC must be located at the source file that owns the shorted net"
-        );
-        assert!(
-            resp["summary"]["warnings"].as_u64().unwrap_or(0)
-                + resp["summary"]["errors"].as_u64().unwrap_or(0)
-                >= 1,
-            "summary must weight the aggregated ERC"
+                .iter()
+                .any(|d| d["code"] == 4101),
+            "net checks must not be folded into pass2.diagnostics"
         );
 
         std::fs::remove_dir_all(&root).ok();
@@ -498,13 +488,13 @@ component RES
         std::fs::remove_dir_all(path.parent().unwrap()).ok();
     }
 
-    /// Regression (world-core Stage C): `build.full` is an OWNING surface — the
-    /// envelope must report the real flat electrical net checks, not a pass-1-only
-    /// warning count. The old tree-only build (`mcc_virtual_build_with_nets`)
-    /// never flattened, so `mcc build`/buildProject showed 3 warnings while the
-    /// open-file viz flood showed dozens. The envelope now instantiates the top
-    /// once into a CircuitWorld, flattens it once, logs the returned net
-    /// diagnostics into the pass2 bucket, and summarizes them.
+    /// Regression (world-core Stage C): the envelope must report the real flat
+    /// electrical net checks, not a pass-1-only warning count. The old tree-only
+    /// build (`mcc_virtual_build_with_nets`) never flattened, so `mcc
+    /// build`/buildProject showed 3 warnings while the open-file viz flood
+    /// showed dozens. The envelope now instantiates the top once into a
+    /// CircuitWorld, flattens it once, and carries the checks under
+    /// `pass2.net_checks`.
     #[test]
     fn cli_buildcmd__build_full_reports_net_erc_truth() {
         let _guard = parse_lock();
@@ -532,20 +522,32 @@ component RES
         )
         .expect("build.full ok");
         let p2 = &resp["pass2"];
-        let diags = p2["diagnostics"].as_array().unwrap();
-        let codes: Vec<u32> = diags
+        // The checks ride in `net_checks`, NOT in `diagnostics` — U90: the flat
+        // electrical net checks are a separate reading on both faces, and they
+        // never count into `summary`.
+        let rows = p2["net_checks"].as_array().unwrap();
+        let codes: Vec<u32> = rows
             .iter()
-            .filter_map(|d| d["code"].as_u64().map(|c| c as u32))
+            .filter_map(|r| r["code"].as_u64().map(|c| c as u32))
             .collect();
         assert!(
             codes.contains(&4101),
             "build.full must carry the flat E4101 driver-conflict ERC; got codes {codes:?}"
         );
         assert!(
-            resp["summary"]["warnings"].as_u64().unwrap_or(0)
-                + resp["summary"]["errors"].as_u64().unwrap_or(0)
-                >= codes.len() as u64,
-            "summary must weight the pass2 net diagnostics"
+            rows.iter()
+                .all(|r| r["check"].is_string() && r["severity"].is_string()),
+            "every net-check row carries its check name and severity"
+        );
+        let diag_codes: Vec<u32> = p2["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|d| d["code"].as_u64().map(|c| c as u32))
+            .collect();
+        assert!(
+            !diag_codes.contains(&4101),
+            "the net checks must not be folded into pass2.diagnostics: {diag_codes:?}"
         );
         std::fs::remove_dir_all(path.parent().unwrap()).ok();
     }

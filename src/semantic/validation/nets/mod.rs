@@ -230,6 +230,52 @@ pub struct NetCheckResult {
     pub uri: String,
 }
 
+/// One flat electrical net check as the build envelope carries it.
+///
+/// Distinct from [`NetCheckResult`] on purpose: that one borrows `&'static str`
+/// labels and cannot be deserialized, while an envelope has to survive the wire
+/// in both directions — the CLI reads a delegated `build.full` payload back into
+/// the same type a local build wrote.
+///
+/// These rows are **not** diagnostics. `mcc build` reports them as their own
+/// console section (`=== Electrical Net Checks ===`) and the envelope carries
+/// them under `pass2.net_checks`, so they never enter `pass2.diagnostics` and
+/// never count into `summary` (build-design §3.7 discipline 4's sibling: the
+/// same argv must answer with the same shape, here and in the daemon).
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct NetCheckRow {
+    pub check: String,
+    /// "error" | "warning" | "info"
+    pub severity: String,
+    pub message: String,
+    pub net_name: String,
+    pub code: u32,
+    /// Source byte offset of the relevant point (0 if not available).
+    pub pos: u32,
+    /// Source file URI (empty if not available).
+    pub uri: String,
+}
+
+impl From<&NetCheckResult> for NetCheckRow {
+    fn from(r: &NetCheckResult) -> Self {
+        NetCheckRow {
+            check: r.check.to_string(),
+            severity: r.severity.to_string(),
+            message: r.message.clone(),
+            net_name: r.net_name.clone(),
+            code: r.code,
+            pos: r.pos,
+            uri: r.uri.clone(),
+        }
+    }
+}
+
+/// Project net-check results onto the envelope's row shape. One producer for
+/// both build faces — see [`NetCheckRow`].
+pub fn net_check_rows(results: &[NetCheckResult]) -> Vec<NetCheckRow> {
+    results.iter().map(NetCheckRow::from).collect()
+}
+
 /// Convert net-check results into ready-to-log `Diagnostic`s (dianlu-tree
 /// Phase A). Each carrier is first projected onto the unified
 /// [`CheckFinding`] line (`finding.rs`), then flattened by the finding's

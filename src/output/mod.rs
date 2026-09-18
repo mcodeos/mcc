@@ -18,6 +18,7 @@ pub mod builder;
 pub mod compact;
 pub mod diagnostic;
 pub mod envelope;
+pub mod net_check;
 pub mod renderer;
 
 use anyhow::Result;
