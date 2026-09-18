@@ -1300,7 +1300,12 @@ mod tests {
     #[test]
     fn svc_dsl__json_record_eq_is_case_insensitive_exact() {
         let q = compile("name=res1").unwrap();
-        for (n, want) in [("res1", true), ("RES1", true), ("Res1", true), ("res12", false)] {
+        for (n, want) in [
+            ("res1", true),
+            ("RES1", true),
+            ("Res1", true),
+            ("res12", false),
+        ] {
             let item = serde_json::json!({ "name": n });
             assert_eq!(matches_json_record(&q, &item), want, "{n}");
         }
