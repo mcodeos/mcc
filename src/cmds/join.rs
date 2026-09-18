@@ -25,11 +25,7 @@ use mcc::cli::OutputFormat;
 pub fn run(args: &mcc::cli::JoinArgs) -> Result<()> {
     let (a, b) = (args.a.as_str(), args.b.as_str());
     match (a, b) {
-        ("src", "p2") => {}
-        // Named apart from the unknown pair on purpose: these two exist in the
-        // design, so a reader asking for one must not get the same "unknown"
-        // message a typo would get.
-        ("p2", "vec") | ("vec", "viz") => error_unimplemented(a, b),
+        ("src", "p2") | ("p2", "vec") | ("vec", "viz") => {}
         _ => error_pair(a, b),
     }
 
@@ -65,7 +61,7 @@ pub fn run(args: &mcc::cli::JoinArgs) -> Result<()> {
             std::process::exit(1);
         });
 
-    let (_, table, _, _, diags) = match mcc::export::build_tree_diags(
+    let (tree, table, arena, store, diags) = match mcc::export::build_tree_diags(
         &entry_uri,
         Some(top.as_str()),
         &mcc::cli::globals().lib,
@@ -77,16 +73,37 @@ pub fn run(args: &mcc::cli::JoinArgs) -> Result<()> {
         }
     };
 
-    let mut view = mcc::stages::join::build_join_src_p2(&table, &top, diags.len());
+    // Which hop, and therefore which two views. The two inner hops need the
+    // vector graph; the block it is built from is the same one `show stage vec`
+    // and `show stage viz` build, so a `join` reading and a `show` reading of one
+    // segment are two readings of one build (§5.3 ruling ③).
+    let mut view = match (a, b) {
+        ("src", "p2") => mcc::stages::join::build_join_src_p2(&table, &top, diags.len()),
+        ("p2", "vec") => {
+            let block = mcc::build_mc_vec_with_arena(&tree, &table, &arena, &store);
+            let (graph, log) = mcc::vector::graph::build_mc_vec_graph_with_log(&block, &table);
+            mcc::stages::join::build_join_p2_vec(&graph, &log, &table, &top, diags.len())
+        }
+        _ => {
+            let block = mcc::build_mc_vec_with_arena(&tree, &table, &arena, &store);
+            let (graph, log) = mcc::vector::graph::build_mc_vec_graph_with_log(&block, &table);
+            mcc::stages::join::build_join_vec_viz(graph, &log, &table, &top, diags.len())
+        }
+    };
 
     // `--only` filters the *same* items the unfiltered readout builds, and only
     // the rows: the counts keep describing the whole hop, so a filtered readout
     // cannot be mistaken for a world with nothing else in it.
     if let Some(only) = args.only.as_deref() {
-        if !mcc::stages::join::SIX_WORDS.contains(&only) {
+        if !mcc::stages::join::is_class_word(only) {
+            let words: Vec<&str> = mcc::stages::join::SIX_WORDS
+                .iter()
+                .chain(mcc::stages::join::DIAG_WORDS)
+                .copied()
+                .collect();
             error!(
                 "unknown class '{only}'\nexpected one of: {}",
-                mcc::stages::join::SIX_WORDS.join(" | ")
+                words.join(" | ")
             );
             std::process::exit(2);
         }
@@ -140,14 +157,6 @@ fn error_pair(a: &str, b: &str) -> ! {
         "cannot join '{a}' with '{b}'\n\
          only adjacent segments join, and only in chain order:\n  \
          join src p2 | join p2 vec | join vec viz"
-    );
-    std::process::exit(2);
-}
-
-fn error_unimplemented(a: &str, b: &str) -> ! {
-    error!(
-        "join {a} {b} is not implemented yet\n\
-         this batch landed `join src p2`; the remaining two hops are the next one"
     );
     std::process::exit(2);
 }
