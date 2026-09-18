@@ -2,7 +2,7 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! `mcc refs` — Find all references to a symbol (M6).
+//! `mcc refs` — Find all references to a symbol.
 //!
 //! Requires the engine to have collected reference data during Pass1/Pass2.
 

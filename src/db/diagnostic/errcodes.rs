@@ -2,7 +2,7 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! Error code catalog (M6) — SINGLE SOURCE OF TRUTH.
+//! Error code catalog — SINGLE SOURCE OF TRUTH.
 //!
 //! Every diagnostic code emitted by mcc must be declared here, with a symbolic
 //! constant, a name, a description, and a message template. The message

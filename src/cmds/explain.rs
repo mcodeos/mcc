@@ -2,7 +2,7 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! `mcc explain` — Look up error code descriptions (M6).
+//! `mcc explain` — Look up error code descriptions.
 //!
 //! ```bash
 //! mcc explain 1001    # single code

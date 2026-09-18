@@ -10,7 +10,7 @@ pub fn handle_check(params: Option<Value>) -> RpcResult {
     let p: CheckRpcParams = parse_or_default(params)?;
     load_libs_rpc(&p.libs);
 
-    // ── Mode A: inline content (AI dry-run) (M6) ──
+    // ── Mode A: inline content (AI dry-run) ──
     if let Some(content) = &p.content {
         // Phase 8.1: one shared overlay slot for every dry-run; the dispatch
         // lock in protocol.rs serializes handlers, so no per-request URI.

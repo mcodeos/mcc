@@ -212,22 +212,22 @@ pub enum Command {
     /// Configuration management (get / set / list / reset)
     Config(ConfigArgs),
 
-    /// Explain error codes (M6)
+    /// Explain error codes
     Explain(ExplainArgs),
 
     /// Check-rule registry catalog (list / detail / severity / allow / accept)
     Rules(RulesArgs),
 
-    /// Show compiler capabilities (M6) — self-describing API for AI
+    /// Show compiler capabilities — self-describing API for AI
     Caps,
 
-    /// Go-to-definition for a symbol (M6)
+    /// Go-to-definition for a symbol
     Def(DefArgs),
 
-    /// Electrical rule check (M6) — single-point nets, unconnected ports, etc.
+    /// Electrical rule check — single-point nets, unconnected ports, etc.
     Erc(ErcArgs),
 
-    /// Find all references to a symbol (M6)
+    /// Find all references to a symbol
     Refs(RefsArgs),
 
     /// Format `.mc` sources in place (whitespace only; token text is never touched)
@@ -1048,7 +1048,7 @@ pub enum ConfigAction {
     Reset,
 }
 
-// def (M6)
+// def
 
 #[derive(Parser, Debug)]
 pub struct DefArgs {
@@ -1060,7 +1060,7 @@ pub struct DefArgs {
     pub file: Option<String>,
 }
 
-// refs (M6)
+// refs
 
 #[derive(Parser, Debug)]
 pub struct RefsArgs {
@@ -1085,7 +1085,7 @@ pub struct FmtArgs {
     pub check: bool,
 }
 
-// erc (M6)
+// erc
 
 #[derive(Parser, Debug)]
 pub struct ErcArgs {
@@ -1093,7 +1093,7 @@ pub struct ErcArgs {
     pub target: Option<String>,
 }
 
-// explain (M6)
+// explain
 
 #[derive(Parser, Debug)]
 pub struct ExplainArgs {

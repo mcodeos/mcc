@@ -2,7 +2,7 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! `mcc def` — Go-to-definition for symbols (M6).
+//! `mcc def` — Go-to-definition for symbols.
 //!
 //! ```bash
 //! mcc def RES --lib mcode        # find component definition

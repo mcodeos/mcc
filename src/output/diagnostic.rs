@@ -17,7 +17,7 @@
 //! ```
 //!
 //! We convert it to a flat [`super::envelope::Diagnostic`], carrying the [`Phase`] tag and
-//! mapping `other` → `related` (M6). Suggestions are not yet populated by the builder; the
+//! mapping `other` → `related`. Suggestions are not yet populated by the builder; the
 //! field is reserved for future use.
 
 use super::envelope::{DiagLocation, Diagnostic, DiagnosticRelated, Phase, Severity};
