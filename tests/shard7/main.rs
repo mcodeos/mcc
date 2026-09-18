@@ -28,6 +28,7 @@ mod port_row_with_connection;
 mod pwrflow_l1;
 mod stage_join;
 mod stage_p2_view;
+mod stage_trace;
 mod stage_vec_view;
 mod stage_viz_view;
 mod tablea_dispatch_regression;

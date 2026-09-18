@@ -28,4 +28,5 @@ pub mod report;
 pub mod rules;
 pub mod server;
 pub mod show;
+pub mod trace;
 pub mod verify;

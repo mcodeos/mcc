@@ -517,6 +517,24 @@ fn pass1_records() -> BTreeSet<(String, usize)> {
 /// order, so the next sibling's start is the honest end — and it makes the
 /// clauses of a body tile it exactly, which is what lets a row be attributed to
 /// the statement it was written in rather than to nothing.
+/// Every in-scope source clause as `(uri, start, end, text)`, sorted by
+/// `(uri, start)`.
+///
+/// The chain's head is a statement, so a caller that starts from one — `trace`
+/// does, on a source-position key — needs the spans themselves, which the hop
+/// readout keeps only as an item's `loc`. Sorting is not cosmetic: the walk
+/// that builds these follows the workspace's own file map, so the sequence has
+/// to be imposed here for a derived ordinal (`phrase#<n>`) to be a function of
+/// the input rather than of iteration order (build-design §3.7 discipline 0).
+pub fn clause_spans() -> Vec<(String, usize, usize, String)> {
+    let (mut clauses, _, _) = in_scope_clauses();
+    clauses.sort_by(|a, b| (&a.uri, a.start).cmp(&(&b.uri, b.start)));
+    clauses
+        .into_iter()
+        .map(|c| (c.uri, c.start, c.end, c.text))
+        .collect()
+}
+
 fn in_scope_clauses() -> (
     Vec<Clause>,
     Vec<(String, usize, usize)>,
@@ -1019,12 +1037,31 @@ pub fn build_join_p2_vec(
     top: &str,
     diagnostics: usize,
 ) -> StageView {
+    build_join_p2_vec_with_sides(graph, log, table, top, diagnostics).join
+}
+
+/// The same hop, handing back the two sides it was built from.
+///
+/// `trace` follows one object rather than classifying a whole hop, so it needs
+/// the objects themselves and not only the matching — the canonical key a
+/// canonical-path lookup resolves against lives on the side's own item, which
+/// [`build_hop`] would otherwise drop. Returning them here rather than building
+/// each side a second time is what keeps `trace` and `join` readings of *one*
+/// build (§5.3 ruling ③).
+pub fn build_join_p2_vec_with_sides(
+    graph: &McVecGraph,
+    log: &ProjectionLog,
+    table: &InstTable,
+    top: &str,
+    diagnostics: usize,
+) -> HopSides {
     // Both sides are the segments' own builders, read back as items — never a
     // second derivation of the same objects. Otherwise `join` and `mcc show
     // stage p2` would drift apart one edit at a time (§5.3 ruling ③).
     let left = p2::build_p2(table, top, diagnostics);
     let right = vec::build_vec(graph, log, table, top, diagnostics);
-    build_hop(&P2_VEC, &left, &right)
+    let join = build_hop(&P2_VEC, &left, &right);
+    HopSides { join, left, right }
 }
 
 /// Build `join vec->viz`: the vector graph against the laid-out drawing.
@@ -1041,6 +1078,18 @@ pub fn build_join_vec_viz(
     top: &str,
     diagnostics: usize,
 ) -> StageView {
+    build_join_vec_viz_with_sides(graph, log, table, top, diagnostics).join
+}
+
+/// The same hop, handing back the two sides it was built from — see
+/// [`build_join_p2_vec_with_sides`].
+pub fn build_join_vec_viz_with_sides(
+    graph: McVecGraph,
+    log: &ProjectionLog,
+    table: &InstTable,
+    top: &str,
+    diagnostics: usize,
+) -> HopSides {
     let left = vec::build_vec(&graph, log, table, top, diagnostics);
     let mut layers: Vec<RenderedLayer> = Vec::new();
     let (_doc, metrics) = crate::viz::api::render_with_metrics_and_sink(
@@ -1050,7 +1099,23 @@ pub fn build_join_vec_viz(
     );
     let quality: SchematicQualityReport = metrics.finish_quality(None);
     let right = viz::build_viz(&layers, &quality, table, top, diagnostics);
-    build_hop(&VEC_VIZ, &left, &right)
+    let join = build_hop(&VEC_VIZ, &left, &right);
+    HopSides { join, left, right }
+}
+
+/// One hop: its readout, plus the two sides it was built from.
+///
+/// The sides are the segments' own views, so a caller that follows an object
+/// across hops (rather than classifying a hop) reads the *same* items `mcc show
+/// stage <seg>` publishes, and a key one of them holds is a key the other two
+/// commands agree on by construction.
+pub struct HopSides {
+    /// The hop readout: six words, both directions of every match.
+    pub join: StageView,
+    /// The upstream segment's view.
+    pub left: StageView,
+    /// The downstream segment's view.
+    pub right: StageView,
 }
 
 /// How the two sides of one kind are matched.

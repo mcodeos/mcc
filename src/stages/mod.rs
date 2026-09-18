@@ -34,6 +34,7 @@
 
 pub mod join;
 pub mod p2;
+pub mod trace;
 pub mod vec;
 pub mod viz;
 pub mod world_ver;

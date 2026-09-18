@@ -172,6 +172,10 @@ pub enum Command {
     /// every mismatch with its cardinality (stage-readout-design §5.3 ②)
     Join(JoinArgs),
 
+    /// Follow one key along the whole chain — source, AST, and the three circuit
+    /// segments — and print what it is at each (stage-readout-design §5.3 ③)
+    Trace(TraceArgs),
+
     /// Extract various targets (corresponding to design doc §9)
     Extract(ExtractArgs),
 
@@ -351,6 +355,19 @@ pub struct JoinArgs {
     /// Only print this class: carry | expand | merge | drop | synth | skip
     #[arg(long, value_name = "CLASS")]
     pub only: Option<String>,
+
+    /// Parse directly from file (doesn't depend on loaded library/project)
+    #[arg(long, short = 'F')]
+    pub file: Option<String>,
+}
+
+#[derive(clap::Args, Debug, Clone)]
+pub struct TraceArgs {
+    /// The key to follow. Its form is read off the key itself, and there are
+    /// four: an in-domain handle (`N12:3`), an instance's canonical path
+    /// (`top.u1.vin`), a def's canonical key (`lib/power.mc::LDO`), or a source
+    /// position (`mcu.mc:23`).
+    pub key: String,
 
     /// Parse directly from file (doesn't depend on loaded library/project)
     #[arg(long, short = 'F')]
