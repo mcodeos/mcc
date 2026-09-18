@@ -58,6 +58,62 @@ where
 
 // New API: emit_envelope - main entry of PR-2
 
+/// The failure face of a command that returned `Err`, for the structured formats.
+///
+/// `-f json` promises a parseable stdout, and the failure face is part of that
+/// promise. A consumer that pipes stdout into a parser has to be able to tell
+/// "the command failed" from "the command had nothing to say", and an empty
+/// stdout says neither — worse, it reads as the former to a human and as the
+/// latter to a script. So `main`'s catch-all failure arm calls this before it
+/// prints to stderr: same envelope shape, `error` arm filled in.
+///
+/// Three deliberate choices:
+///
+/// - The code is the JSON-RPC catch-all (`internal_error`, -32603), not a finer
+///   one, because by the time the error reaches `main` the taxonomy is gone —
+///   it is a string with a backtrace. The RPC face of the same failure can still
+///   carry `32112` ("component not found"); carrying that here means threading an
+///   `RpcError` out of every command, which is a separate change. The divergence
+///   is recorded, not papered over.
+/// - `-o` is honoured, exactly like the success face: the file *is* the output
+///   face, and writing the failure there beats leaving a previous run's file
+///   sitting there looking like a valid result.
+/// - Text is untouched — the caller keeps its own `eprintln!`, byte for byte, and
+///   the exit code is still the caller's.
+pub fn emit_failure_envelope(message: &str) -> Result<()> {
+    let format = mcc::cli::globals().format;
+    if !format.is_structured() {
+        return Ok(());
+    }
+    let target = mcc::cli::globals().output.as_deref().map(Path::new);
+    let env = envelope::Envelope::err(envelope::RpcError::internal_error(message));
+    emit_envelope(&env, format, target, false)
+}
+
+/// [`emit_failure_envelope`] for the commands that die where they stand.
+///
+/// A command that reports a failure with `error!` and then calls `exit` never
+/// reaches `main`'s failure arm, so its structured stdout stayed empty while the
+/// exit code said "failed" — the two faces disagreeing about the same run. This
+/// macro is that failure face: one `error!` line (same target, same text, so the
+/// log and the text-mode face are byte for byte what they were), one envelope
+/// when the format is structured, then the same exit code.
+///
+/// A macro rather than a function because each site keeps its own tracing
+/// `target` and its own format arguments; a function would take a pre-built
+/// `String` and lose the target.
+macro_rules! die {
+    ($target:literal, $code:expr, $($arg:tt)*) => {{
+        let msg = ::std::format!($($arg)*);
+        if let Err(e) = crate::output::emit_failure_envelope(&msg) {
+            ::std::eprintln!("warning: failed to emit the failure envelope: {e}");
+        }
+        ::tracing::error!(target: $target, "{}", msg);
+        ::std::process::exit($code);
+    }};
+}
+pub(crate) use die;
+
 /// Output [`Envelope`] to stdout or a file.
 ///
 /// The caller invokes this once after assembling the result. Behavior:

@@ -23,14 +23,13 @@
 //!
 //! Top-level name lists live in `mcc list` (see cmds/list.rs).
 
-use crate::output::{compact, emit_projection_sub, OutputFormatExt, ProjectionKey};
+use crate::output::{compact, die, emit_projection_sub, OutputFormatExt, ProjectionKey};
 use anyhow::{Context, Result};
 use mcc::cli::{rpcclient::RpcClient, OutputFormat, ShowArgs, ShowScope, ShowTarget};
 use mcc::{InstEntry, InstKind, InstTable, McIds, McURI, MemberRole, TreeView};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use tracing::error;
 
 pub fn run(args: &ShowArgs) -> Result<()> {
     // Server path: only legacy container targets have RPC methods today
@@ -222,8 +221,7 @@ fn prepare(args: &ShowArgs) {
                 mcc::cli::globals().top.as_deref(),
                 mcc::cli::globals().entry.as_deref(),
             ) {
-                error!(target: "mcc::show", "directory target: {:#}", e);
-                std::process::exit(1);
+                die!("mcc::show", 1, "directory target: {:#}", e);
             }
         } else {
             let actual = resolve_file(f);
@@ -263,8 +261,12 @@ fn require_name<'a>(args: &'a ShowArgs) -> &'a str {
     match args.name.as_deref() {
         Some(n) => n,
         None => {
-            error!(target: "mcc::show", "'show {:?}' requires an entity name", args.target);
-            std::process::exit(2);
+            die!(
+                "mcc::show",
+                2,
+                "'show {:?}' requires an entity name",
+                args.target
+            );
         }
     }
 }
@@ -272,12 +274,14 @@ fn require_name<'a>(args: &'a ShowArgs) -> &'a str {
 /// Name lists moved to `mcc list`; a bare `show <target>` without a name
 /// prints a hint instead of silently listing.
 fn need_list_hint(args: &ShowArgs, list_kind: &str) -> Result<()> {
-    error!(
-        target: "mcc::show",
+    die!(
+        "mcc::show",
+        2,
         "'show {:?}' requires an entity name\nto list {} names, use `mcc list {}`",
-        args.target, list_kind, list_kind
+        args.target,
+        list_kind,
+        list_kind
     );
-    std::process::exit(2);
 }
 
 /// Resolve a file path; if it doesn't exist, search by base name in the tree.
@@ -288,8 +292,7 @@ pub(crate) fn resolve_file(file: &str) -> String {
     let matches = find_files_with_name(file);
     match matches.len() {
         0 => {
-            error!(target: "mcc::show", "file not found: {}", file);
-            std::process::exit(1);
+            die!("mcc::show", 1, "file not found: {}", file);
         }
         1 => matches[0].clone(),
         _ => {
@@ -298,8 +301,13 @@ pub(crate) fn resolve_file(file: &str) -> String {
                 .enumerate()
                 .map(|(i, p)| format!("  {}: {}", i + 1, p))
                 .collect();
-            error!(target: "mcc::show", "multiple files named '{}':\n{}", file, list.join("\n"));
-            std::process::exit(1);
+            die!(
+                "mcc::show",
+                1,
+                "multiple files named '{}':\n{}",
+                file,
+                list.join("\n")
+            );
         }
     }
 }
@@ -416,8 +424,7 @@ fn def_or_exit(name: &str) -> mcc::McCMIE {
     match find_def(name) {
         Some(c) => c,
         None => {
-            error!(target: "mcc::show", "definition not found: {}\nhint: load a file with -F, a library with --lib, or start a server", name);
-            std::process::exit(1);
+            die!("mcc::show", 1, "definition not found: {}\nhint: load a file with -F, a library with --lib, or start a server", name);
         }
     }
 }
@@ -426,16 +433,14 @@ fn component_def_or_exit(name: &str) -> mcc::McCMIE {
     match find_component_def(name) {
         Some(c) => c,
         None => {
-            error!(target: "mcc::show", "definition not found: {}\nhint: load a file with -F, a library with --lib, or start a server", name);
-            std::process::exit(1);
+            die!("mcc::show", 1, "definition not found: {}\nhint: load a file with -F, a library with --lib, or start a server", name);
         }
     }
 }
 
 /// Report that `<what>` is not applicable to the kind of `<name>`, then exit.
 fn not_applicable(what: &str, name: &str) -> ! {
-    error!(target: "mcc::show", "'{}' is not available for '{}'", what, name);
-    std::process::exit(1);
+    die!("mcc::show", 1, "'{}' is not available for '{}'", what, name);
 }
 
 // Containers: overview / list / detail
@@ -884,8 +889,7 @@ fn show_lapper(args: &ShowArgs) -> Result<()> {
 fn show_component(name: &str, args: &ShowArgs) -> Result<()> {
     let cmie = component_def_or_exit(name);
     let mcc::McCMIE::Component(comp) = cmie else {
-        error!(target: "mcc::show", "'{}' is not a Component", name);
-        std::process::exit(1);
+        die!("mcc::show", 1, "'{}' is not a Component", name);
     };
     let mut data = pins_json(&comp.pins);
     data["name"] = json!(name);
@@ -896,8 +900,7 @@ fn show_component(name: &str, args: &ShowArgs) -> Result<()> {
 fn show_module(name: &str, args: &ShowArgs) -> Result<()> {
     let cmie = find_kind_def(name, 1).unwrap_or_else(|| def_or_exit(name));
     let mcc::McCMIE::Module(module) = cmie else {
-        error!(target: "mcc::show", "'{}' is not a Module", name);
-        std::process::exit(1);
+        die!("mcc::show", 1, "'{}' is not a Module", name);
     };
     let data = json!({
         "name": name,
@@ -910,8 +913,7 @@ fn show_module(name: &str, args: &ShowArgs) -> Result<()> {
 fn show_interface(name: &str, args: &ShowArgs) -> Result<()> {
     let cmie = find_kind_def(name, 2).unwrap_or_else(|| def_or_exit(name));
     let mcc::McCMIE::Interface(iface) = cmie else {
-        error!(target: "mcc::show", "'{}' is not an Interface", name);
-        std::process::exit(1);
+        die!("mcc::show", 1, "'{}' is not an Interface", name);
     };
     let roles: Vec<String> = iface.roles.iter().map(|r| r.name.to_string()).collect();
     let data = json!({
@@ -928,8 +930,7 @@ fn show_interface(name: &str, args: &ShowArgs) -> Result<()> {
 fn show_enum(name: &str, args: &ShowArgs) -> Result<()> {
     let cmie = find_kind_def(name, 3).unwrap_or_else(|| def_or_exit(name));
     let mcc::McCMIE::Enum(en) = cmie else {
-        error!(target: "mcc::show", "'{}' is not an Enum", name);
-        std::process::exit(1);
+        die!("mcc::show", 1, "'{}' is not an Enum", name);
     };
     let values: Vec<String> = en.values.iter().map(|v| v.name.to_string()).collect();
     let data = json!({
@@ -948,8 +949,11 @@ fn show_net(name: &str, args: &ShowArgs) -> Result<()> {
         .clone()
         .or_else(mcc::mcb_get_first_module_name)
         .unwrap_or_else(|| {
-            error!(target: "mcc::show", "no modules found\nhint: load a file with -F or use --top");
-            std::process::exit(1);
+            die!(
+                "mcc::show",
+                1,
+                "no modules found\nhint: load a file with -F or use --top"
+            );
         });
     let nets = nets_map(&top);
 
@@ -982,8 +986,7 @@ fn show_dianlu(args: &ShowArgs) -> Result<()> {
                 mcc::cli::globals().entry.as_deref(),
             )
             .unwrap_or_else(|e| {
-                error!(target: "mcc::show", "directory target: {:#}", e);
-                std::process::exit(1);
+                die!("mcc::show", 1, "directory target: {:#}", e);
             })
         } else {
             let path = if p.is_absolute() {
@@ -999,8 +1002,11 @@ fn show_dianlu(args: &ShowArgs) -> Result<()> {
         (String::new(), None)
     };
     let top = crate::cmds::common::resolve_top_module(&entry_uri, top).unwrap_or_else(|| {
-        error!(target: "mcc::show", "no modules found\nhint: load a file with -F or use --top");
-        std::process::exit(1);
+        die!(
+            "mcc::show",
+            1,
+            "no modules found\nhint: load a file with -F or use --top"
+        );
     });
     let uri = mcc::mcb_iter_modules()
         .iter()
@@ -1011,8 +1017,7 @@ fn show_dianlu(args: &ShowArgs) -> Result<()> {
     // Guardrail: a Pass2 panic must not abort the process.
     let (inst, arena, store, net_store) = crate::cmds::common::build_pass2_with_arena(&top, &uri)
         .unwrap_or_else(|e| {
-            error!(target: "mcc::show", "{e}");
-            std::process::exit(1);
+            die!("mcc::show", 1, "{e}");
         });
 
     // Global module-nesting overview first (shared with `mcc verify`): every
@@ -1081,8 +1086,7 @@ fn show_pwr(args: &ShowArgs) -> Result<()> {
                 mcc::cli::globals().entry.as_deref(),
             )
             .unwrap_or_else(|e| {
-                error!(target: "mcc::show", "directory target: {:#}", e);
-                std::process::exit(1);
+                die!("mcc::show", 1, "directory target: {:#}", e);
             })
         } else {
             let path = if p.is_absolute() {
@@ -1098,8 +1102,11 @@ fn show_pwr(args: &ShowArgs) -> Result<()> {
         (String::new(), None)
     };
     let top = crate::cmds::common::resolve_top_module(&entry_uri, top).unwrap_or_else(|| {
-        error!(target: "mcc::show", "no modules found\nhint: load a file with -F or use --top");
-        std::process::exit(1);
+        die!(
+            "mcc::show",
+            1,
+            "no modules found\nhint: load a file with -F or use --top"
+        );
     });
     let uri = mcc::mcb_iter_modules()
         .iter()
@@ -1113,8 +1120,7 @@ fn show_pwr(args: &ShowArgs) -> Result<()> {
     let (tree, table, arena, store) =
         mcc::mcc_build_flat_with_arena(&mcc::McIds::from(top.clone()), &uri, 1000).unwrap_or_else(
             |e| {
-                error!(target: "mcc::show", "{e}");
-                std::process::exit(1);
+                die!("mcc::show", 1, "{e}");
             },
         );
     let view = mcc::TreeView::new(&arena, &store);
@@ -1163,8 +1169,7 @@ fn show_pwrflow(args: &ShowArgs) -> Result<()> {
                 mcc::cli::globals().entry.as_deref(),
             )
             .unwrap_or_else(|e| {
-                error!(target: "mcc::show", "directory target: {:#}", e);
-                std::process::exit(1);
+                die!("mcc::show", 1, "directory target: {:#}", e);
             })
         } else {
             let path = if p.is_absolute() {
@@ -1180,8 +1185,11 @@ fn show_pwrflow(args: &ShowArgs) -> Result<()> {
         (String::new(), None)
     };
     let top = crate::cmds::common::resolve_top_module(&entry_uri, top).unwrap_or_else(|| {
-        error!(target: "mcc::show", "no modules found\nhint: load a file with -F or use --top");
-        std::process::exit(1);
+        die!(
+            "mcc::show",
+            1,
+            "no modules found\nhint: load a file with -F or use --top"
+        );
     });
     let uri = mcc::mcb_iter_modules()
         .iter()
@@ -1192,8 +1200,7 @@ fn show_pwrflow(args: &ShowArgs) -> Result<()> {
     let (tree, table, arena, store) =
         mcc::mcc_build_flat_with_arena(&mcc::McIds::from(top.clone()), &uri, 1000).unwrap_or_else(
             |e| {
-                error!(target: "mcc::show", "{e}");
-                std::process::exit(1);
+                die!("mcc::show", 1, "{e}");
             },
         );
     // Only the flat table feeds the derived view; the modeling tree/arena are
@@ -1201,8 +1208,7 @@ fn show_pwrflow(args: &ShowArgs) -> Result<()> {
     let _ = (&tree, &arena, &store);
 
     let flow = mcc::build_pwrflow(&table, &top).unwrap_or_else(|e| {
-        error!(target: "mcc::show", "pwrflow: {e}");
-        std::process::exit(1);
+        die!("mcc::show", 1, "pwrflow: {e}");
     });
 
     if matches!(mcc::cli::globals().format, OutputFormat::Text) {
@@ -1241,11 +1247,11 @@ fn show_stage(args: &ShowArgs) -> Result<()> {
     let seg_name = args.name.as_deref().unwrap_or("p2");
     let Some(seg) = mcc::stages::StageSeg::parse(seg_name) else {
         // A bad *argument* is not a judged readout: this one may fail loudly.
-        error!(
-            target: "mcc::show",
+        die!(
+            "mcc::show",
+            2,
             "unknown stage segment '{seg_name}'\nexpected one of: p1 | p2 | vec | viz"
         );
-        std::process::exit(2);
     };
 
     // The file: `-F` wins, else the cwd manifest that `prepare` already loaded
@@ -1270,8 +1276,11 @@ fn show_stage(args: &ShowArgs) -> Result<()> {
             crate::cmds::common::resolve_top_module(&entry_uri, mcc::cli::globals().top.clone())
         })
         .unwrap_or_else(|| {
-            error!(target: "mcc::show", "no modules found\nhint: load a file with -F or use --top");
-            std::process::exit(1);
+            die!(
+                "mcc::show",
+                1,
+                "no modules found\nhint: load a file with -F or use --top"
+            );
         });
 
     // `build_tree_diags` rather than `build_tree`: its diagnostics feed the
@@ -1284,8 +1293,7 @@ fn show_stage(args: &ShowArgs) -> Result<()> {
     ) {
         Ok(quint) => quint,
         Err(e) => {
-            error!(target: "mcc::show", "stage: {e}");
-            std::process::exit(1);
+            die!("mcc::show", 1, "stage: {e}");
         }
     };
 
@@ -3203,8 +3211,7 @@ fn attrval_json(v: &mcc::McAttrVal) -> Value {
 /// preserved for callers that cannot propagate an error.
 pub(crate) fn nets_map(top: &str) -> BTreeMap<String, Vec<String>> {
     crate::cmds::nets::top_nets(top, None).unwrap_or_else(|e| {
-        error!(target: "mcc::show", "{e}");
-        std::process::exit(1);
+        die!("mcc::show", 1, "{e}");
     })
 }
 
