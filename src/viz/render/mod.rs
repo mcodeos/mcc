@@ -30,6 +30,14 @@
 //! - [`sub_module`]  —— sub-module (with expand hint, extracted in P3)
 //! - [`power_label`] —— power / ground
 
+/// Version of the render contract: what [`shape::render_box`] and the
+/// [`SvgRenderer`] promise about the SVG they emit for a given graph.
+///
+/// **Declared, not derived** — see [`crate::viz::layout::LAYOUT_VERSION`] for
+/// why that distinction matters. Two SVGs carrying the same `render_version`
+/// claim to be comparable; bump this when that stops being true.
+pub const RENDER_VERSION: &str = "1";
+
 pub mod capacitor;
 pub mod diode;
 pub mod equipotential_tree_render;

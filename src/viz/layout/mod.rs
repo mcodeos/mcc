@@ -18,6 +18,16 @@
 //! ### Whole-graph Layouter (impl trait)
 //! - [`flow::FlowLayouter`] —— default layout engine
 
+/// Version of the layout contract: what a layouter promises about the
+/// coordinates it hands back.
+///
+/// **Declared, not derived.** A token such as [`crate::stages::world_ver`] must
+/// change whenever the world changes; this number changes only when someone
+/// decides the contract itself changed — a box placed differently on purpose,
+/// not because an input moved. Bumping it is a statement to consumers that
+/// coordinates from before and after are not comparable.
+pub const LAYOUT_VERSION: &str = "1";
+
 pub mod audit_registry;
 pub mod chain;
 pub mod coalesce;
