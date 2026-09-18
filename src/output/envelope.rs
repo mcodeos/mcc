@@ -491,6 +491,31 @@ pub struct StageViewData {
     pub counts: serde_json::Value,
 }
 
+/// The one place a [`mcc::stages::StageView`] becomes envelope data.
+///
+/// `show stage`, `join` and `trace` each emit one, and each used to spell the
+/// whole field list out: three copies of a mapping that has no per-caller
+/// variation. The mapping is the envelope's, not theirs — a fourth field added
+/// here would otherwise have to be added in three files, and a caller that
+/// forgot would serialize `null` for a field it had a value for.
+impl From<&mcc::stages::StageView> for StageViewData {
+    fn from(view: &mcc::stages::StageView) -> Self {
+        Self {
+            schema_version: view.schema_version.to_string(),
+            world_ver: view.world_ver.clone(),
+            top_ver: view.top_ver.clone(),
+            mcc_version: view.mcc_version.clone(),
+            layout_version: view.layout_version.clone(),
+            render_version: view.render_version.clone(),
+            metric_schema_version: view.metric_schema_version.clone(),
+            view: view.view.to_string(),
+            top: view.top.clone(),
+            items: serde_json::Value::Array(view.items.clone()),
+            counts: view.counts.clone(),
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct VizData {
     /// "json" | "html" | "svg"

@@ -16,7 +16,6 @@
 
 use crate::output::die;
 use anyhow::Result;
-use serde_json::Value;
 
 use mcc::cli::OutputFormat;
 
@@ -106,19 +105,7 @@ fn write_text(rendered: &str) -> Result<()> {
 /// the existing envelope, not a second envelope format (law B).
 fn emit_envelope(view: &mcc::stages::StageView) -> Result<()> {
     let mut builder = crate::output::builder::ResultBuilder::start("mcc trace");
-    builder.set_stage(crate::output::envelope::StageViewData {
-        schema_version: view.schema_version.to_string(),
-        world_ver: view.world_ver.clone(),
-        top_ver: view.top_ver.clone(),
-        mcc_version: view.mcc_version.clone(),
-        layout_version: view.layout_version.clone(),
-        render_version: view.render_version.clone(),
-        metric_schema_version: view.metric_schema_version.clone(),
-        view: view.view.to_string(),
-        top: view.top.clone(),
-        items: Value::Array(view.items.clone()),
-        counts: view.counts.clone(),
-    });
+    builder.set_stage(crate::output::envelope::StageViewData::from(view));
     let env = crate::output::envelope::Envelope::ok(builder.finish());
     crate::output::emit_envelope(&env, mcc::cli::globals().format, None, true)
 }
