@@ -154,11 +154,7 @@ fn tokens(stage: &Value) -> (String, String) {
 fn the_two_tokens_agree_when_the_top_reaches_the_whole_project() {
     let cwd = scratch("agree");
     let entry = hbl_entry();
-    let (stdout, stderr, ok) = run(
-        &cwd,
-        &["show", "stage", "p2", "-f", "json"],
-        &entry,
-    );
+    let (stdout, stderr, ok) = run(&cwd, &["show", "stage", "p2", "-f", "json"], &entry);
     assert!(ok, "`show stage p2` failed: {stderr}");
     let (world, top) = tokens(&stage_of(&stdout));
     assert_eq!(
@@ -241,7 +237,11 @@ fn the_drawing_contract_is_carried_by_the_view_that_draws() {
     );
     assert_eq!(
         viz["metric_schema_version"].as_str(),
-        Some(mcc::viz::metrics::METRIC_SCHEMA_VERSION.to_string().as_str()),
+        Some(
+            mcc::viz::metrics::METRIC_SCHEMA_VERSION
+                .to_string()
+                .as_str()
+        ),
         "the envelope must carry the metrics module's own constant — the same \
          number the metrics snapshot stamps, not a second one"
     );
@@ -376,7 +376,10 @@ fn a_file_the_top_does_not_reach_moves_only_the_world_token() {
     // a material that ignored the closure to be caught.
     b.edit("z1.mc", &variant("z1 edited"));
     let world1 = b.world();
-    assert_ne!(world1, world0, "editing a loaded source moves the world token");
+    assert_ne!(
+        world1, world0,
+        "editing a loaded source moves the world token"
+    );
     assert_eq!(
         b.top("A"),
         Some(top0.clone()),
@@ -385,7 +388,10 @@ fn a_file_the_top_does_not_reach_moves_only_the_world_token() {
 
     b.edit("z2.mc", &variant("z2 edited"));
     let world2 = b.world();
-    assert_ne!(world2, world1, "the second outsider moves the world token too");
+    assert_ne!(
+        world2, world1,
+        "the second outsider moves the world token too"
+    );
     assert_eq!(
         b.top("A"),
         Some(top0),

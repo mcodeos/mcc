@@ -197,8 +197,7 @@ impl StageView {
     pub fn carrying_drawing_contract(mut self) -> Self {
         self.layout_version = Some(crate::viz::layout::LAYOUT_VERSION.to_string());
         self.render_version = Some(crate::viz::render::RENDER_VERSION.to_string());
-        self.metric_schema_version =
-            Some(crate::viz::metrics::METRIC_SCHEMA_VERSION.to_string());
+        self.metric_schema_version = Some(crate::viz::metrics::METRIC_SCHEMA_VERSION.to_string());
         self
     }
 

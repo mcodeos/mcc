@@ -74,7 +74,11 @@ fn normalize(s: &str) -> String {
         .map(|l| match l.find("\"elapsed_ms\"") {
             // `"elapsed_ms": 3` -> `"elapsed_ms": 0`: the envelope's wall clock.
             Some(_) => match (l.find(": "), l.trim_end().ends_with(',')) {
-                (Some(i), _) => format!("{}: 0{}", &l[..i], if l.trim_end().ends_with(',') { "," } else { "" }),
+                (Some(i), _) => format!(
+                    "{}: 0{}",
+                    &l[..i],
+                    if l.trim_end().ends_with(',') { "," } else { "" }
+                ),
                 _ => l.to_string(),
             },
             None => l.to_string(),
@@ -91,7 +95,13 @@ fn normalize(s: &str) -> String {
 /// a bare path for `show lapper`); `face` is empty for the text face or the
 /// `-f`/`--json` pair for a structured one. The two faces must differ in nothing
 /// but *where the bytes go*.
-fn assert_output_flag_redirects(cwd: &Path, name: &str, args: &[&str], face: &[&str], tail: &[&str]) {
+fn assert_output_flag_redirects(
+    cwd: &Path,
+    name: &str,
+    args: &[&str],
+    face: &[&str],
+    tail: &[&str],
+) {
     let mut plain: Vec<&str> = args.to_vec();
     plain.extend_from_slice(face);
     plain.extend_from_slice(tail);
@@ -117,7 +127,11 @@ fn assert_output_flag_redirects(cwd: &Path, name: &str, args: &[&str], face: &[&
     let (stdout_o, stderr_o, ok_o) = run_mcc(cwd, &with_o);
     assert!(ok_o, "`mcc {}` failed: {stderr_o}", with_o.join(" "));
 
-    let face_name = if face.is_empty() { "text" } else { "structured" };
+    let face_name = if face.is_empty() {
+        "text"
+    } else {
+        "structured"
+    };
     assert!(
         stdout_o.is_empty(),
         "`mcc {}` still printed {} bytes to stdout with `-o` given ({face_name} face)",

@@ -79,9 +79,7 @@ fn run_mcc(cwd: &Path, args: &[&str]) -> (String, String, bool) {
 /// fail the test loudly, it would make the test pass for the wrong reason.
 fn without_clock(s: &str) -> String {
     s.lines()
-        .filter(|l| {
-            !(l.contains("Generated: epoch=") || l.contains("(date \"epoch="))
-        })
+        .filter(|l| !(l.contains("Generated: epoch=") || l.contains("(date \"epoch=")))
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -200,10 +198,7 @@ fn the_lapper_readout_is_the_same_file_twice() {
 
     let mut runs = Vec::new();
     for _ in 0..3 {
-        let (out, err, ok) = run_mcc(
-            &cwd,
-            &["show", "lapper", "-f", "json", t],
-        );
+        let (out, err, ok) = run_mcc(&cwd, &["show", "lapper", "-f", "json", t]);
         assert!(ok, "`show lapper` failed: {err}");
         runs.push(out);
     }
@@ -215,7 +210,8 @@ fn the_lapper_readout_is_the_same_file_twice() {
         );
     }
 
-    let payload: serde_json::Value = serde_json::from_str(&runs[0]).expect("lapper payload is JSON");
+    let payload: serde_json::Value =
+        serde_json::from_str(&runs[0]).expect("lapper payload is JSON");
     let declares = payload["result"]["show"]["local"]["declares"]
         .as_array()
         .expect("`local.declares` is an array");
