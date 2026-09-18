@@ -36,7 +36,6 @@ use crate::output::{
     renderer, OutputFormatExt,
 };
 use anyhow::{Context, Result};
-use mcc::cli::rpcclient::RpcClient;
 use mcc::cli::ParseArgs;
 use mcc::{IOType, McCMIE, McEndpoint, McIds, McInstance, McInstanceRef, McPhrase, McURI};
 use mcc::{McParamDeclare, McParamTypeKind};
@@ -55,25 +54,22 @@ pub fn run(args: &ParseArgs) -> Result<()> {
         manifest::effective_target(args.target.as_deref())
     };
 
-    // ── 0. RPC delegation (server mode) ──
-    // --local (global flag) is honored centrally by RpcClient::probe();
-    // --dlog only affects output rendering below and no longer implies
-    // local execution. Use `mcc parse <file> --dlog --local` when both are wanted.
-    // An implicit target is a directory and the server parses files only, so a
-    // run that names no target stays in-process.
-    if args.target.is_some() || args.code.is_some() {
-        if let Some(client) = RpcClient::probe() {
-            let params = json!({
-                "entry": args.target.clone(),
-                "top":   mcc::cli::globals().top.clone(),
-                "code":  args.code.clone(),
-                "libs":  mcc::cli::globals().lib.clone(),
-            });
-            let result = client.call("parse", params)?;
-            println!("{}", serde_json::to_string_pretty(&result)?);
-            return Ok(());
-        }
-    }
+    // ── 0. No RPC delegation ──
+    // Ruled 2026-09-18 (mcd/CIMP.md §1 U90): carry the context or don't
+    // delegate. `handle_parse` resolves `entry` against the *daemon's*
+    // `current_dir()` and reads the *daemon's* `workspace_info()`, neither of
+    // which the request carries; `top` is sent but marked "accepted but not yet
+    // consumed by the handler". So the same argv parsed two different files
+    // depending on whether a daemon happened to be running.
+    //
+    // It also answered a smaller question: the server arm returned
+    // `run_pass1(...)` only, where the path below runs pass0 + pass1 + pass2 —
+    // which is why its payload was shaped `{command, pass1, summary, workspace}`
+    // and self-labelled `"command": "parse"` rather than `mcc parse`. Not a
+    // second reading of the same question; a different one. Run in-process.
+    //
+    // `--local` remains accepted (it is a global flag) and is now a no-op here.
+    // `--dlog` still only affects output rendering below.
 
     // ── 0.5. Local mode initialization (shared helper) ──
     // Loads libraries from all config sources: global config + project config +

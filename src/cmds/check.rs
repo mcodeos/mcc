@@ -17,10 +17,9 @@ use crate::output::{
     OutputFormatExt,
 };
 use anyhow::Result;
-use mcc::cli::{rpcclient::RpcClient, CheckArgs};
+use mcc::cli::CheckArgs;
 use mcc::ledger;
 use mcc::McURI;
-use serde_json::json;
 use std::path::{Path, PathBuf};
 
 /// Controls the returned exit code: 0 = OK, 1 = has errors (or warnings under --strict)
@@ -119,28 +118,20 @@ pub fn run(args: &CheckArgs) -> Result<CheckOutcome> {
     // An omitted target defaults to the current directory when it holds a
     // project manifest.
     let target = manifest::effective_target(args.target.as_deref());
-    if let Some(client) = RpcClient::probe() {
-        let result = client.call(
-            "check",
-            json!({
-                "entry": target.clone(),
-                "libs":  mcc::cli::globals().lib.clone(),
-                "strict": mcc::cli::globals().strict,
-                "errors_only": args.errors_only,
-                "ledger": args.ledger.clone(),
-            }),
-        )?;
-        println!("{}", serde_json::to_string_pretty(&result)?);
-        let code = result
-            .get("summary")
-            .and_then(|s| s.get("errors"))
-            .and_then(|v| v.as_i64())
-            .map(|n| if n > 0 { 1 } else { 0 })
-            .unwrap_or(0);
-        return Ok(CheckOutcome {
-            exit_code: code as i32,
-        });
-    }
+
+    // No server arm — ruled 2026-09-18 (mcd/CIMP.md §1 U90): carry the context
+    // or don't delegate. The request carries `entry`/`libs`, but not the
+    // caller's cwd, and `handle_check` resolves the entry against the daemon's
+    // own `current_dir()` and reports on the daemon's own workspace — so the
+    // same argv answered about two different worlds depending on whether a
+    // daemon happened to be running.
+    //
+    // Worse, the project branch of `handle_check` forwards the request verbatim
+    // to `handle_build_full`, so the server ran *build* and returned build's
+    // payload: `strict` and `errors_only` were silently dropped, and the exit
+    // code below came from build's summary rather than check's. Measured
+    // `mcc check <fixture> -f json` on the hbl fixture: rc 2 in-process vs 1
+    // over RPC, envelope -32602 vs -32603. Run in-process.
 
     // Fresh ledger per invocation: a long-lived server must not accumulate
     // stale rows across requests, and repeated CLI runs must be reproducible.

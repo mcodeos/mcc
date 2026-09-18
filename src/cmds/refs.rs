@@ -8,19 +8,19 @@
 
 use crate::output::{emit_projection, OutputFormatExt, ProjectionKey};
 use anyhow::Result;
-use mcc::cli::{rpcclient::RpcClient, RefsArgs};
+use mcc::cli::RefsArgs;
 use serde_json::{json, Value};
 use std::path::Path;
 
 pub fn run(args: &RefsArgs) -> Result<()> {
-    if let Some(c) = RpcClient::probe() {
-        let params = json!({ "name": args.name });
-        match c.call("refs", params) {
-            Ok(result) => return emit_refs(result),
-            Err(e) => tracing::debug!(target: "mcc::refs", "RPC failed, using local: {}", e),
-        }
-    }
-
+    // No server arm — ruled 2026-09-18 (mcd/CIMP.md §1 U90): carry the context
+    // or don't delegate. This one delegated cleanly, envelope and all: measured
+    // `mcc refs <sym> -f json` was 284 B in-process vs 283 B over RPC, the sole
+    // differing byte being the summary's `interface_count` (57 vs 0). But that
+    // one byte is the whole point — the daemon has to answer from the workspace
+    // it was *started* on, and the request carries no cwd, so the reference set
+    // it reports on is not necessarily the one the caller is standing in.
+    // Run in-process.
     run_local(args)
 }
 
