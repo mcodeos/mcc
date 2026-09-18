@@ -172,6 +172,10 @@ pub enum Command {
     /// segments — and print what it is at each (stage-readout-design §5.3 ③)
     Trace(TraceArgs),
 
+    /// Compare two readings of one view and report what changed between them
+    /// (stage-readout-design §5.3 ④, §6.1/§6.2)
+    Diff(DiffArgs),
+
     /// Show detailed information for a definition (component/module/interface/enum) or its
     /// internals (pins/ports/nets/funcs/params/...)
     Show(ShowArgs),
@@ -338,6 +342,37 @@ pub struct JoinArgs {
     /// Parse directly from file (doesn't depend on loaded library/project)
     #[arg(long, short = 'F')]
     pub file: Option<String>,
+}
+
+// diff
+
+/// Which view two readings are compared in.
+///
+/// The value domain is deliberately one word today. The design names the face as
+/// `--view stage.*`, and the three other segments need a per-class key table of
+/// their own before they can be aligned across builds — a view cannot be
+/// compared by a key table written for another view's classes. So the enum is
+/// the *shape* of the closed set, and the segments land in it one at a time
+/// rather than as an open string that would silently accept a name no key table
+/// covers (see the module doc of `cmds::diff`).
+#[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
+pub enum DiffView {
+    /// `stage.viz`: the drawn circuit. Keyed per class by `stages::viz_diff`.
+    #[value(name = "stage.viz")]
+    StageViz,
+}
+
+#[derive(clap::Args, Debug, Clone)]
+pub struct DiffArgs {
+    /// Left operand: the reference the changes are reported against.
+    pub a: String,
+
+    /// Right operand: the reading compared against the left one.
+    pub b: String,
+
+    /// Which view to compare.
+    #[arg(long, value_enum, default_value = "stage.viz", value_name = "VIEW")]
+    pub view: DiffView,
 }
 
 #[derive(clap::Args, Debug, Clone)]

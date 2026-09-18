@@ -1226,36 +1226,33 @@ fn show_pwrflow(args: &ShowArgs) -> Result<()> {
 
 // `show stage` — one pipeline segment as data (stage-readout-design §5.3 ①)
 
-/// Render `mcc show stage <p1|p2|vec|viz>`: one segment of the compile
-/// pipeline, read out as a projection envelope.
+/// Load `target` and build one segment of its pipeline as a [`StageView`].
 ///
-/// The `<name>` positional is the **segment**, not an entity — which is why
-/// [`target_path`] deliberately does not list `Stage`: the file comes from
-/// `-F`, or from the current directory's project manifest, the same way it does
-/// for `show all` / `show dianlu`.
+/// This is the whole body of `show stage <seg>` minus the printing, and it is
+/// shared rather than duplicated because `mcc diff <A> <B> --view <seg>` has to
+/// produce **the same reading** of each operand that `show stage` would produce
+/// of it: a difference taken over worlds built one way against a `show` that
+/// builds them another is not a difference between two states of one thing. The
+/// load order, the top resolution and the per-segment construction therefore
+/// live here once (design §5.3 ruling ③, the same reason `join` builds its views
+/// out of the same blocks `show stage` does).
 ///
-/// Two faces from one `items` (design §5.3 ruling ③): `-f text` prints the
-/// fixed-width table, and every machine format prints the envelope. The text
-/// face obeys §5.3's four prohibitions — no ANSI, no box drawing, no
-/// tab-delimited columns, and a missing value printed as `-`; and it is a
-/// **readout**: the diagnostics count is a number in the header, never a gate,
-/// so the exit code stays 0 (law C).
-fn show_stage(args: &ShowArgs) -> Result<()> {
-    let seg_name = args.name.as_deref().unwrap_or("p2");
-    let Some(seg) = mcc::stages::StageSeg::parse(seg_name) else {
-        // A bad *argument* is not a judged readout: this one may fail loudly.
-        die!(
-            "mcc::show",
-            2,
-            "unknown stage segment '{seg_name}'\nexpected one of: p1 | p2 | vec | viz"
-        );
-    };
-
-    // The file: `-F` wins, else the cwd manifest that `prepare` already loaded
-    // through. A directory resolves to its manifest entry file.
-    let target = crate::cmds::manifest::effective_target(args.file.as_deref());
+/// `target` is the operand itself — the caller decides how it was spelled
+/// (`-F` / the cwd manifest for `show`, the positional for `diff`).
+///
+/// Failures come back as an `Err` instead of dying here: `die!`'s tracing
+/// target must be a literal, and only the caller knows which command ran. The
+/// message texts are the ones each caller prints verbatim.
+///
+/// Calling this **more than once in one process** is the point: `mcc::mcc_init_no_lib`
+/// through `init_local` resets the engine, so each call reads a world of its own
+/// rather than accumulating onto the previous one.
+pub(crate) fn build_stage_view(
+    seg: mcc::stages::StageSeg,
+    target: Option<&str>,
+) -> Result<mcc::stages::StageView> {
     let (mut entry_uri, resolved_top) = crate::cmds::common::load_target(
-        target.as_deref(),
+        target,
         mcc::cli::globals().top.as_deref(),
         mcc::cli::globals().entry.as_deref(),
     )?;
@@ -1272,33 +1269,26 @@ fn show_stage(args: &ShowArgs) -> Result<()> {
         .or_else(|| {
             crate::cmds::common::resolve_top_module(&entry_uri, mcc::cli::globals().top.clone())
         })
-        .unwrap_or_else(|| {
-            die!(
-                "mcc::show",
-                1,
-                "no modules found\nhint: load a file with -F or use --top"
-            );
-        });
+        .ok_or_else(|| {
+            // A `Result` rather than a `die!` here: the two callers are
+            // different commands, and `die!`'s tracing target has to be a
+            // literal, so the dying stays at the call sites that know which
+            // command this is.
+            anyhow::anyhow!("no modules found\nhint: load a file with -F or use --top")
+        })?;
 
     // `build_tree_diags` rather than `build_tree`: its diagnostics feed the
     // text face's second line as a *count*. Walking in through the shared
     // export entry gets the panic guard and the top-module resolution for free.
-    let (tree, table, arena, store, diags) = match mcc::export::build_tree_diags(
-        &entry_uri,
-        Some(top.as_str()),
-        &mcc::cli::globals().lib,
-    ) {
-        Ok(quint) => quint,
-        Err(e) => {
-            die!("mcc::show", 1, "stage: {e}");
-        }
-    };
+    let (tree, table, arena, store, diags) =
+        mcc::export::build_tree_diags(&entry_uri, Some(top.as_str()), &mcc::cli::globals().lib)
+            .map_err(|e| anyhow::anyhow!("stage: {e}"))?;
 
     // `stage.p1` is the reserved slot: the command family is fixed now so the
     // Pass1 view (design §8 O2/O3) can land without reshaping it. Its body stays
     // empty rather than reusing `show ast`'s output, which carries none of the
     // chain's keys (design §5.2 ①: the chain's identity starts at Pass2).
-    let view = match seg {
+    Ok(match seg {
         mcc::stages::StageSeg::P1 => {
             mcc::stages::StageView::new(seg, &top, Vec::new(), diags.len())
         }
@@ -1328,6 +1318,40 @@ fn show_stage(args: &ShowArgs) -> Result<()> {
             let quality = metrics.finish_quality(None);
             mcc::stages::viz::build_viz(&layers, &quality, &table, &top, diags.len())
         }
+    })
+}
+
+/// Render `mcc show stage <p1|p2|vec|viz>`: one segment of the compile
+/// pipeline, read out as a projection envelope.
+///
+/// The `<name>` positional is the **segment**, not an entity — which is why
+/// [`target_path`] deliberately does not list `Stage`: the file comes from
+/// `-F`, or from the current directory's project manifest, the same way it does
+/// for `show all` / `show dianlu`.
+///
+/// Two faces from one `items` (design §5.3 ruling ③): `-f text` prints the
+/// fixed-width table, and every machine format prints the envelope. The text
+/// face obeys §5.3's four prohibitions — no ANSI, no box drawing, no
+/// tab-delimited columns, and a missing value printed as `-`; and it is a
+/// **readout**: the diagnostics count is a number in the header, never a gate,
+/// so the exit code stays 0 (law C).
+fn show_stage(args: &ShowArgs) -> Result<()> {
+    let seg_name = args.name.as_deref().unwrap_or("p2");
+    let Some(seg) = mcc::stages::StageSeg::parse(seg_name) else {
+        // A bad *argument* is not a judged readout: this one may fail loudly.
+        die!(
+            "mcc::show",
+            2,
+            "unknown stage segment '{seg_name}'\nexpected one of: p1 | p2 | vec | viz"
+        );
+    };
+
+    // The file: `-F` wins, else the cwd manifest that `prepare` already loaded
+    // through. A directory resolves to its manifest entry file.
+    let target = crate::cmds::manifest::effective_target(args.file.as_deref());
+    let view = match build_stage_view(seg, target.as_deref()) {
+        Ok(v) => v,
+        Err(e) => die!("mcc::show", 1, "{e}"),
     };
 
     if matches!(
@@ -1379,7 +1403,10 @@ fn emit_stage_envelope(view: &mcc::stages::StageView) -> Result<()> {
     crate::output::emit_envelope(
         &env,
         mcc::cli::globals().format,
-        mcc::cli::globals().output.as_deref().map(std::path::Path::new),
+        mcc::cli::globals()
+            .output
+            .as_deref()
+            .map(std::path::Path::new),
         true,
     )
 }

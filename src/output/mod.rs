@@ -102,7 +102,8 @@ pub fn emit_failure_envelope(message: &str) -> Result<()> {
 ///
 /// A macro rather than a function because each site keeps its own tracing
 /// `target` and its own format arguments; a function would take a pre-built
-/// `String` and lose the target.
+/// `String` and lose the target. The target stays a literal for the same
+/// reason: `tracing` requires a constant one.
 macro_rules! die {
     ($target:literal, $code:expr, $($arg:tt)*) => {{
         let msg = ::std::format!($($arg)*);

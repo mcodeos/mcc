@@ -53,20 +53,32 @@
 //!
 //! # Scope
 //!
-//! This module produces data. The command face (`mcc diff <A> <B> --view
-//! stage.*`) and the two-token envelope belong to ledger item U84 (4); nothing
-//! here builds a `StageView`, because a difference belongs to two worlds and a
-//! `StageView` carries one `world_ver`.
+//! This module produces the data and its text face. The command that names the
+//! two worlds and carries the answer is `mcc diff` (`cmds::diff`); this module
+//! holds no opinion about how an operand is spelled or loaded.
+//!
+//! Nothing here builds a `StageView`: a difference belongs to two worlds, and a
+//! `StageView` carries one `world_ver`. Naming both is the envelope's job, and
+//! it does it by adding one key rather than a second envelope (`cmds::diff`
+//! carries side B and the non-row parts under `stage.diff`).
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::{json, Value};
 
+use crate::stages::StageView;
 use crate::viz::stability::report::StabilityReport;
 
 /// Separator between key components. `\u{1}` cannot appear in a canonical path
 /// or a def ident, so the encoding stays injective.
 const SEP: char = '\u{1}';
+
+/// The `view` name a difference of two `stage.viz` readings publishes.
+///
+/// Same shape as `join`'s names (`join.p2->vec`): the family first, then the
+/// two things being compared. It is not a `StageSeg`, which is why the command
+/// cannot call `StageView::new` — there is no segment whose counts these are.
+pub const DIFF_VIZ_VIEW: &str = "diff.stage.viz";
 
 /// Separator between the members of one end's path list.
 const LIST: char = '\u{2}';
@@ -531,4 +543,90 @@ fn net_refs(items: &[Value]) -> (BTreeSet<String>, usize) {
         }
     }
     (named, nameless)
+}
+
+// The text face
+
+/// Render a difference for a human: a header naming the two worlds, a counts
+/// line, then the rows.
+///
+/// It obeys the four prohibitions every readout in this family obeys (design
+/// §5.3): no ANSI, no box drawing, no tab-delimited columns, and a missing value
+/// printed as `-`. It is a **readout**, not a gate — a non-empty difference is
+/// the answer, not a failure, so nothing here can fail the run.
+///
+/// The header prints both `world_ver` tokens in full. They are tokens meant to
+/// be compared, and two worlds that differ only in one character must not be
+/// made to look alike (the same reason `StageView::header_line` prints them
+/// whole).
+pub fn render_viz_diff_text(a: &StageView, b: &StageView, d: &VizDiff) -> String {
+    let mut out = Vec::new();
+    out.push(format!("{} {}", DIFF_VIZ_VIEW, token_line(a, b)));
+    // `nameless` is not a change count and is printed apart from them for that
+    // reason: it is how many pins sit on nets with no cross-build key, one
+    // number per side. A self-difference prints `73/73` here and zeros above,
+    // and that pairing is the honest reading — there are pins this comparison
+    // cannot speak about, and nothing about them changed.
+    out.push(format!(
+        "# remove {}  add {}  modify {}  unaligned {}  changes {}  nameless {}/{}",
+        count_of(d, "remove"),
+        count_of(d, "add"),
+        count_of(d, "modify"),
+        d.unaligned.len(),
+        d.changes.len(),
+        d.nameless_net_pins.0,
+        d.nameless_net_pins.1,
+    ));
+    for c in &d.changes {
+        out.push(format!(
+            "{:<8}  {:<9}  {:<40}  {}",
+            c["type"].as_str().unwrap_or("-"),
+            c["kind"].as_str().unwrap_or("-"),
+            c["id"].as_str().unwrap_or("-"),
+            delta_cell(c),
+        ));
+    }
+    for u in &d.unaligned {
+        out.push(format!(
+            "{:<8}  {:<9}  {:<40}  {}",
+            "unaligned",
+            u["class"].as_str().unwrap_or("-"),
+            u["id"].as_str().unwrap_or("-"),
+            u["reason"].as_str().unwrap_or("-"),
+        ));
+    }
+    out.join("\n")
+}
+
+/// Which two worlds this is a difference of, and whether either was
+/// fingerprintable at all. A missing token prints as `-`, like every other
+/// missing value in a readout.
+fn token_line(a: &StageView, b: &StageView) -> String {
+    format!(
+        "top={}  a={}  b={}",
+        a.top,
+        a.world_ver.as_deref().unwrap_or("-"),
+        b.world_ver.as_deref().unwrap_or("-"),
+    )
+}
+
+fn count_of(d: &VizDiff, t: &str) -> usize {
+    d.changes.iter().filter(|c| c["type"] == t).count()
+}
+
+/// Which fields a `modify` changed, comma-joined.
+///
+/// The **names** and not the values: the values are already in the envelope, and
+/// a readout whose lines change width with the data is the thing the fixed-width
+/// rule exists to prevent. A change with no delta prints `-`.
+fn delta_cell(c: &Value) -> String {
+    let Some(m) = c.get("delta").and_then(Value::as_object) else {
+        return "-".to_string();
+    };
+    if m.is_empty() {
+        return "-".to_string();
+    }
+    let mut keys: Vec<&str> = m.keys().map(String::as_str).collect();
+    keys.sort_unstable();
+    keys.join(",")
 }

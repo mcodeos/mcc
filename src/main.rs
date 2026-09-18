@@ -219,7 +219,8 @@ fn dispatch(cli: Cli) -> Result<ExitCode> {
         | Some(Command::List(_))
         | Some(Command::Build(_))
         | Some(Command::Join(_))
-        | Some(Command::Trace(_)) => Some(mcc::cli::globals().format),
+        | Some(Command::Trace(_))
+        | Some(Command::Diff(_)) => Some(mcc::cli::globals().format),
         Some(Command::Query(a)) => Some(if a.json {
             OutputFormat::Json
         } else {
@@ -262,6 +263,13 @@ fn dispatch(cli: Cli) -> Result<ExitCode> {
         Some(Command::Trace(args)) => {
             // Same rule as `join`: a readout never vetoes an exit code (law C).
             cmds::trace::run(&args)?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Some(Command::Diff(args)) => {
+            // Same rule as `join` and `trace`: a difference is a readout, and a
+            // readout never vetoes an exit code (law C). A non-empty difference
+            // is the *answer*, not a failure.
+            cmds::diff::run(&args)?;
             Ok(ExitCode::SUCCESS)
         }
         Some(Command::Show(args)) => {
