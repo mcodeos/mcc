@@ -19,6 +19,7 @@ test/
 unitest/
 circuit.html
 *.html
+*.json
 mcide
 mcs
 

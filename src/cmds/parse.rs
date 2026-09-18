@@ -1106,21 +1106,29 @@ fn run_viz(
         std::fs::write(p, &output_text).with_context(|| format!("Failed to write file: {}", p))?;
         renderer.viz_written(p, output_text.len());
         Some(p.clone())
-    } else if !json_mode_viz {
+    } else {
         // Derive the outlet from the input file; `-o` is the only override.
+        // The payload's format never decides *whether* a file is written, only
+        // which name it takes: the JSON arm used to write nothing at all, so a
+        // payload the caller explicitly asked for was computed and dropped.
         let path = args
             .target
             .as_ref()
             .filter(|t| Path::new(t).exists() && Path::new(t).is_file())
-            .map(|t| viz_default_path(Path::new(t), false))
-            .unwrap_or_else(|| Path::new("circuit.html").to_path_buf());
+            .map(|t| viz_default_path(Path::new(t), json_mode_viz))
+            .unwrap_or_else(|| {
+                Path::new(if json_mode_viz {
+                    "circuit.json"
+                } else {
+                    "circuit.html"
+                })
+                .to_path_buf()
+            });
         let path_str = path.to_string_lossy().to_string();
         std::fs::write(&path, &output_text)
             .with_context(|| format!("Failed to write file: {}", path_str))?;
         renderer.viz_written(&path_str, output_text.len());
         Some(path_str)
-    } else {
-        None
     };
 
     Ok(VizData {
