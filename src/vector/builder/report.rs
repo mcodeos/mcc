@@ -61,6 +61,12 @@ pub enum ResolutionOutcome {
     /// example `path="VDD_3V3"` + `module_path="main.mcu"` hits
     /// `main.mcu.[VDD_3V3, GND]` (id=NNN), returns that Port's id.
     BracketPortMember { member: String, port_path: String },
+    /// ★ CIMP §1 U97
+    /// a bare member key under the point's owner matched a **declared** member
+    /// Port of that owner: owner `MCU513` + path `8` hits `main.MCU513.SPI.8`.
+    /// Strictly more precise than the owner fallback below, which attaches the
+    /// whole sub-module box and so loses which member the wire reaches.
+    DeclaredMemberPort { member: String, port_path: String },
     /// All failed
     Failed,
 }
@@ -74,6 +80,9 @@ impl fmt::Display for ResolutionOutcome {
             ResolutionOutcome::BracketExpanded { member } => write!(f, "bracket[{member}]"),
             ResolutionOutcome::BracketPortMember { member, port_path } => {
                 write!(f, "bracket_port_member[{member} ∈ {port_path}]")
+            }
+            ResolutionOutcome::DeclaredMemberPort { member, port_path } => {
+                write!(f, "declared_member_port[{member} ∈ {port_path}]")
             }
             ResolutionOutcome::Failed => write!(f, "failed"),
         }
