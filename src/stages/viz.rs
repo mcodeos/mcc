@@ -92,6 +92,15 @@
 //!   layer — and it names none. Recorded here rather than papered over; giving it
 //!   a layer would mean changing what the accumulator does.
 //! - `connectivity` merges over every layer, so its scope is the whole drawing.
+//!
+//! A count is not a reference, so each `layer` item also carries **`reports`** —
+//! the families whose published rows cover it (design §6.1's "item carries no
+//! report reference", the second of M2's two gaps). The two scopes above are why
+//! the reference is per layer and not one answer: `connectivity` is on every
+//! layer, the audited four are on the layers the pipeline audited, and
+//! `determinism` is on the single layer [`determinism_layer`] reads back off the
+//! report's own geometry hash. A family named there always has a row to land on,
+//! which is what makes the entry point a reference rather than a promise.
 
 use serde_json::{json, Value};
 
@@ -129,6 +138,9 @@ pub fn build_viz(
     // walk. The sink is in pre-order, so a parent is always already resolved.
     let mut paths: std::collections::HashMap<i64, String> = std::collections::HashMap::new();
     let mut audited = 0usize;
+    // Resolved once, before the walk: the report is one value, so the layer it
+    // belongs to cannot vary per layer.
+    let det_bid = determinism_layer(layers, quality);
     for r in layers {
         let parent_path = r
             .parent
@@ -147,6 +159,7 @@ pub fn build_viz(
             &parent_path,
             r.canvas,
             r.audited,
+            det_bid == Some(r.graph.bid),
         ));
         // Which net each pin is on, resolved once for the layer: a pin names its
         // net, so a consumer can group the ends of one net without a second
@@ -240,6 +253,7 @@ fn layer_item(
     parent_path: &str,
     canvas: (f64, f64),
     audited: bool,
+    determinism: bool,
 ) -> Value {
     let has_row = g.bid >= 0 && table.get_entry(g.bid as u32).is_some();
     let segments: usize = g
@@ -271,8 +285,60 @@ fn layer_item(
         // Whether the accumulated reports cover this layer. Printed per layer so
         // the scope row is checkable against the rows it summarises.
         "audited": audited,
+        // Which report families they *are*, so a reader goes from the drawing to
+        // the numbers by lookup instead of by inference. `audited` is the raw
+        // flag the pipeline handed over; this is the reference built from it.
+        "reports": reports_of(audited, determinism),
         "loc": Value::Null,
     })
+}
+
+/// The report families whose published rows cover one layer, in a fixed order.
+///
+/// `connectivity` is on every layer because the accumulator merges it over all
+/// of them; `determinism` is on one, because that accumulator **assigns**; the
+/// four audited families are on the layers the pipeline audited.
+fn reports_of(audited: bool, determinism: bool) -> Vec<&'static str> {
+    let mut out: Vec<&'static str> = Vec::new();
+    if audited {
+        out.extend(["fidelity", "truth", "visual", "readability"]);
+    }
+    if determinism {
+        out.push("determinism");
+    }
+    out.push("connectivity");
+    out
+}
+
+/// The layer the surviving determinism report was taken from, or `None` when
+/// that cannot be told.
+///
+/// `MetricsAccumulator::accumulate_determinism` assigns rather than merges, so
+/// the published report describes exactly one layer — and names none (module
+/// doc, and `view-model-design.md` §6.2). But it carries the box-geometry hash
+/// it was taken with, and that hash is computed over the same five fields of the
+/// same boxes this view walks, so the layer can be **read back** off the report
+/// rather than guessed from the order the pipeline happened to run in.
+///
+/// Built on the report's own hash function and on nothing else: if the pipeline
+/// stops stamping that field, or two layers carry identical geometry, the answer
+/// is `None` and no layer claims the family — which is the truth, and is
+/// checkable in the output.
+fn determinism_layer(layers: &[RenderedLayer], q: &SchematicQualityReport) -> Option<i64> {
+    let want = q.determinism.as_ref()?.graph_input_hash.as_str();
+    if want.is_empty() {
+        return None;
+    }
+    let mut hit: Option<i64> = None;
+    for r in layers {
+        if crate::viz::stability::hash::hash_box_geometry(&r.graph) == want {
+            if hit.is_some() {
+                return None;
+            }
+            hit = Some(r.graph.bid);
+        }
+    }
+    hit
 }
 
 /// One block-diagram edge: a wire the renderer will draw between two boxes.
@@ -806,7 +872,7 @@ pub fn render_viz_text(view: &StageView) -> String {
                 // spelled rather than tabulated because it is the scope of the
                 // report rows at the bottom of the same output.
                 "layer" => format!(
-                    "{} boxes={} nets={} edges={} segments={} canvas={}x{} audited={}",
+                    "{} boxes={} nets={} edges={} segments={} canvas={}x{} audited={} reports={}",
                     item["style"].as_str().unwrap_or("-"),
                     item["boxes"].as_u64().unwrap_or(0),
                     item["nets"].as_u64().unwrap_or(0),
@@ -815,6 +881,11 @@ pub fn render_viz_text(view: &StageView) -> String {
                     num(&item["canvas"][0]),
                     num(&item["canvas"][1]),
                     item["audited"].as_bool().unwrap_or(false),
+                    // The families this layer's row is the entry point to, on the
+                    // face a reader reads by default — a report row at the bottom
+                    // of the same output is then reachable from the layer it is
+                    // about. `-` when none, the same glyph as any missing value.
+                    family_list(&item["reports"]),
                 ),
                 "box" => {
                     let c = item["class_name"].as_str().filter(|s| !s.is_empty());
@@ -884,6 +955,21 @@ pub fn render_viz_text(view: &StageView) -> String {
     let mut out = vec![view.header_line(), view.counts_line(StageSeg::Viz)];
     render_table(&rows, &mut out);
     out.join("\n")
+}
+
+/// A list of report family names as the text face prints it, comma separated.
+/// An empty list prints `-`, the glyph §5.3 fixes for a value that is not there.
+fn family_list(v: &Value) -> String {
+    let Some(arr) = v.as_array() else {
+        return "-".to_string();
+    };
+    if arr.is_empty() {
+        return "-".to_string();
+    }
+    arr.iter()
+        .map(|e| e.as_str().unwrap_or("-").to_string())
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 /// One end of a block edge as the text face prints it: the canonical paths of

@@ -753,6 +753,136 @@ fn every_pin_names_the_net_it_is_on() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Every layer names the report families whose rows cover it — the entry point
+/// M2's second gap is about.
+///
+/// The reports are aggregate, so a reference from the drawing to them can only be
+/// per layer, and it is not one answer: `connectivity` merges over every layer,
+/// the four the pipeline audits a layer for sit on the layers it audited, and
+/// `determinism` **assigns** rather than merges, so it describes exactly one layer
+/// — one the published report does not name. That case is why this is a
+/// reference and not a flag: the view reads the layer back off the report's own
+/// box-geometry hash instead of guessing at the order the pipeline ran in.
+///
+/// Both `audited` branches are filled on this fixture (one layer audited, six
+/// device layers that are not), and `determinism` has exactly one member because
+/// the accumulator's assign semantics make it a singular — the count is asserted
+/// from the law, not from the fixture.
+#[test]
+fn every_layer_names_the_reports_that_cover_it() {
+    let dir = scratch("report-ref");
+    let (stdout, err, ok) = run_stage(&dir, &["-f", "json"]);
+    assert!(ok, "show stage viz failed: {err}");
+    let items = items_of(&stage_of(&stdout));
+
+    // The families that have rows to land on. `scope` is not a report — it is the
+    // answer to how much of the drawing the others cover.
+    let published: BTreeSet<String> = of_class(&items, "metrics")
+        .iter()
+        .filter_map(|m| m["family"].as_str())
+        .filter(|f| *f != "scope")
+        .map(str::to_string)
+        .collect();
+    assert!(
+        published.len() >= 2,
+        "too few report families to tell a reference from a coincidence: {published:?}"
+    );
+
+    let layers = of_class(&items, "layer");
+    assert!(layers.len() >= 2, "the fixture must have several layers");
+
+    let four = ["fidelity", "truth", "visual", "readability"];
+    let (mut audited, mut unaudited) = (0usize, 0usize);
+    let (mut with_det, mut with_conn) = (0usize, 0usize);
+    for l in &layers {
+        let reports: Vec<&str> = l["reports"]
+            .as_array()
+            .unwrap_or_else(|| panic!("every layer carries its report list: {l}"))
+            .iter()
+            .map(|r| r.as_str().expect("a family name is a string"))
+            .collect();
+        assert!(
+            !reports.is_empty(),
+            "no layer on this fixture is covered by nothing, and the text face \
+             would print `-` where a reference belongs: {l}"
+        );
+        for f in &reports {
+            assert!(
+                published.contains(*f),
+                "layer `{}` names report family `{f}` with no row to land on — \
+                 that is a promise, not a reference",
+                l["path"]
+            );
+        }
+        let named = four.iter().filter(|f| reports.contains(*f)).count();
+        if l["audited"] == true {
+            audited += 1;
+            assert_eq!(named, four.len(), "an audited layer names all four: {l}");
+        } else {
+            unaudited += 1;
+            assert_eq!(named, 0, "an unaudited layer names none of the four: {l}");
+        }
+        if reports.contains(&"connectivity") {
+            with_conn += 1;
+        }
+        if reports.contains(&"determinism") {
+            with_det += 1;
+        }
+    }
+    assert!(
+        audited >= 1 && unaudited >= 1,
+        "one branch is empty ({audited} audited, {unaudited} not), so the four \
+         families would be asserted over a single case"
+    );
+    assert_eq!(
+        with_conn,
+        layers.len(),
+        "connectivity merges over every layer, so every layer is covered by it"
+    );
+    assert!(
+        metric(&items, "determinism.graph_input_hash")
+            .as_str()
+            .is_some_and(|h| !h.is_empty()),
+        "the layer is read back off `determinism.graph_input_hash`; with that \
+         field empty the mechanism cannot name anyone"
+    );
+    assert_eq!(
+        with_det, 1,
+        "the determinism report is assigned, never merged, so exactly one layer \
+         is covered by it — {with_det} claim to be"
+    );
+
+    // The two faces are one source, so the printed list must be the same list.
+    let (text, etext, oktext) = run_stage(&dir, &[]);
+    assert!(oktext, "the text face failed: {etext}");
+    let rows = text_rows(&text);
+    for l in &layers {
+        let path = l["path"].as_str().expect("a layer has a path");
+        let want: Vec<&str> = l["reports"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| r.as_str().unwrap())
+            .collect();
+        let row = rows
+            .iter()
+            .find(|r| r.iter().any(|c| c.contains("reports=")) && r.iter().any(|c| c == path))
+            .unwrap_or_else(|| panic!("no text row for layer `{path}`: {rows:?}"));
+        let cell = row
+            .iter()
+            .find(|c| c.contains("reports="))
+            .expect("the row that carries one has a cell with it");
+        let got = cell.split("reports=").nth(1).expect("split finds it").trim();
+        assert_eq!(
+            got,
+            want.join(","),
+            "the text face and the json face must name the same families for `{path}`"
+        );
+    }
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// Every block edge's ends resolve to a Pass2 row — including the ends that name
 /// endpoints the block layer's own boxes do not carry.
 ///
