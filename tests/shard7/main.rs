@@ -31,6 +31,7 @@ mod product_order;
 mod pwrflow_l1;
 mod stage_diff_command;
 mod stage_join;
+mod stage_mcp_mirror;
 mod stage_p2_diff;
 mod stage_p2_view;
 mod stage_top_ver;

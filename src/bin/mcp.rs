@@ -213,6 +213,58 @@ pub struct AcceptRuleRequest {
     pub since: Option<String>,
 }
 
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct StageViewRequest {
+    /// Project entry .mc file path.
+    #[schemars(description = "Project entry .mc file path")]
+    pub entry: String,
+    /// Top module name; omitted auto-resolves the entry's first module.
+    pub top: Option<String>,
+    #[serde(default)]
+    pub libs: Vec<String>,
+    /// Chain segment: p1 | p2 | vec | viz. Default p2.
+    #[schemars(description = "Chain segment: p1 | p2 | vec | viz. Default p2.")]
+    pub segment: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct StageJoinRequest {
+    /// Project entry .mc file path.
+    #[schemars(description = "Project entry .mc file path")]
+    pub entry: String,
+    /// Top module name; omitted auto-resolves the entry's first module.
+    pub top: Option<String>,
+    #[serde(default)]
+    pub libs: Vec<String>,
+    /// The hop's first segment, in chain order.
+    #[schemars(description = "Hop's first segment, in chain order: src | p2 | vec")]
+    pub from: String,
+    /// The hop's second segment; must be adjacent to `from`.
+    #[schemars(description = "Hop's second segment, adjacent to `from`: p2 | vec | viz")]
+    pub to: String,
+    /// Keep only rows of this class word; omitted keeps every row.
+    #[schemars(
+        description = "Keep only rows of this class word: carry|expand|merge|drop|synth|skip|branch|ambiguous"
+    )]
+    pub only: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct StageTraceRequest {
+    /// Project entry .mc file path.
+    #[schemars(description = "Project entry .mc file path")]
+    pub entry: String,
+    /// Top module name; omitted auto-resolves the entry's first module.
+    pub top: Option<String>,
+    #[serde(default)]
+    pub libs: Vec<String>,
+    /// The object to follow: a canonical path, a def key, a pin, or a net name.
+    #[schemars(
+        description = "Object to follow along the chain: canonical path | def key | pin | net"
+    )]
+    pub key: String,
+}
+
 fn default_true() -> bool {
     true
 }
@@ -563,12 +615,81 @@ impl MccMcpServer {
             "accept",
         )
     }
+
+    /// Read one segment of the compile chain for one entry file.
+    #[tool(
+        description = "Read one segment of the compile chain (p1|p2|vec|viz) for an entry file; returns the stage envelope (same payload as `mcc show stage`)"
+    )]
+    fn mcc_stage_view(
+        &self,
+        Parameters(req): Parameters<StageViewRequest>,
+    ) -> Result<Json<Value>, McpError> {
+        stage_read(
+            "mcc show stage",
+            &req.entry,
+            req.top.as_deref(),
+            &req.libs,
+            |loaded| {
+                let name = req.segment.as_deref().unwrap_or("p2");
+                let seg = mcc::stages::StageSeg::parse(name).ok_or_else(|| {
+                    format!("unknown stage segment '{name}'\nexpected one of: p1 | p2 | vec | viz")
+                })?;
+                Ok(mcc::stages::read::build_segment(seg, loaded))
+            },
+        )
+    }
+
+    /// Read one hop of the chain — two adjacent segments, matched by key.
+    #[tool(
+        description = "Read one hop of the compile chain (adjacent segments only: src p2 | p2 vec | vec viz); returns the stage envelope (same payload as `mcc join`)"
+    )]
+    fn mcc_stage_join(
+        &self,
+        Parameters(req): Parameters<StageJoinRequest>,
+    ) -> Result<Json<Value>, McpError> {
+        stage_read(
+            "mcc join",
+            &req.entry,
+            req.top.as_deref(),
+            &req.libs,
+            |loaded| {
+                let mut view = mcc::stages::read::build_join_pair(&req.from, &req.to, loaded)
+                    .map_err(|_| {
+                        format!(
+                            "cannot join '{}' with '{}'\n\
+                             only adjacent segments join, and only in chain order:\n  \
+                             join src p2 | join p2 vec | join vec viz",
+                            req.from, req.to
+                        )
+                    })?;
+                mcc::stages::read::filter_join_items(&mut view, req.only.as_deref())?;
+                Ok(view)
+            },
+        )
+    }
+
+    /// Follow one object along all three hops of one build.
+    #[tool(
+        description = "Follow one object (canonical path | def key | pin | net) along all three chain hops; returns the stage envelope (same payload as `mcc trace`)"
+    )]
+    fn mcc_stage_trace(
+        &self,
+        Parameters(req): Parameters<StageTraceRequest>,
+    ) -> Result<Json<Value>, McpError> {
+        stage_read(
+            "mcc trace",
+            &req.entry,
+            req.top.as_deref(),
+            &req.libs,
+            |loaded| mcc::stages::read::build_trace_view(&req.key, loaded),
+        )
+    }
 }
 
 /// `#[tool_handler]` fills in `call_tool` / `list_tools` / `get_tool` from the
 /// generated `tool_router()`; `get_info` below is kept custom.
 #[tool_handler(
-    instructions = "MCode compiler tools for AI agents: validate, parse, check, build, search, export, and the check-rule registry catalog (list/detail/severity.set/allow/accept)."
+    instructions = "MCode compiler tools for AI agents: validate, parse, check, build, search, export, the check-rule registry catalog (list/detail/severity.set/allow/accept), and the compile-chain readouts (stage view / join / trace)."
 )]
 impl ServerHandler for MccMcpServer {
     fn get_info(&self) -> ServerInfo {
@@ -577,6 +698,41 @@ impl ServerHandler for MccMcpServer {
 }
 
 // Helpers
+
+/// One stage read: load the named entry, then build the view the caller asked
+/// for.
+///
+/// The three tools differ only in which reading of the load they want, so the
+/// load and the payload are here and the closure is theirs. The load is
+/// `stages::read`'s, not an RPC call: a stage view is read off the caller's
+/// source set, and the server reads it in its own process (see that module).
+///
+/// The payload is `stages::payload`'s too, so this server and the CLI publish
+/// one field list between them rather than two that drift.
+fn stage_read(
+    command: &str,
+    entry: &str,
+    top: Option<&str>,
+    libs: &[String],
+    build: impl FnOnce(&mcc::stages::read::Loaded) -> Result<mcc::stages::StageView, String>,
+) -> Result<Json<Value>, McpError> {
+    let started = std::time::Instant::now();
+    let loaded = mcc::stages::read::load(entry, top, libs).map_err(|e| {
+        McpError::new(
+            ErrorCode::INVALID_PARAMS,
+            format!("stage read failed: {e}"),
+            None,
+        )
+    })?;
+    let view = build(&loaded).map_err(|e| McpError::new(ErrorCode::INVALID_PARAMS, e, None))?;
+    // The clock is measured here rather than inside the payload, so the payload
+    // stays a pure function of the view.
+    Ok(Json(mcc::stages::payload::result(
+        command,
+        &view,
+        started.elapsed().as_millis(),
+    )))
+}
 
 /// Map a JSON-RPC handler result onto an MCP tool result.
 fn rpc_to_mcp(

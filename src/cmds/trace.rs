@@ -62,18 +62,11 @@ pub fn run(args: &mcc::cli::TraceArgs) -> Result<()> {
         Err(e) => die!("mcc::trace", 1, "trace: {e}"),
     };
 
-    // All three hops of one build: the source hop is generated from the table,
-    // and the two circuit hops from one vector graph — cloned rather than built
-    // twice, because the second hop's builder consumes the graph it renders.
-    let src_p2 = mcc::stages::join::build_join_src_p2(&table, &top, diags.len());
-    let block = mcc::build_mc_vec_with_arena(&tree, &table, &arena, &store);
-    let (graph, log) = mcc::vector::graph::build_mc_vec_graph_with_log(&block, &table);
-    let p2_vec =
-        mcc::stages::join::build_join_p2_vec_with_sides(&graph, &log, &table, &top, diags.len());
-    let vec_viz =
-        mcc::stages::join::build_join_vec_viz_with_sides(graph, &log, &table, &top, diags.len());
-
-    let view = match mcc::stages::trace::build_trace(&args.key, &src_p2, &p2_vec, &vec_viz, &top) {
+    // All three hops of one build, in the one place that knows how to read them
+    // (`mcc::stages::read`) — shared with the MCP server, because a `trace` and
+    // a `join` over one object have to agree on the class they print for it.
+    let loaded = mcc::stages::read::Loaded::new(tree, table, arena, store, &top, diags.len());
+    let view = match mcc::stages::read::build_trace_view(&args.key, &loaded) {
         Ok(view) => view,
         Err(e) => die!("mcc::trace", 2, "{e}"),
     };
