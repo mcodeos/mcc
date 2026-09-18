@@ -392,6 +392,146 @@ impl IdentityRegistry {
             .map(|(p, id)| (p.clone(), *id))
             .collect()
     }
+    /// The persisted form of this ledger (build-design §3.7 discipline 0 item
+    /// 4 / tree D6): the record a daemon or a later process reloads so `NodeId`
+    /// / `NetId` still line up with cached and external references across a
+    /// restart.
+    pub fn ledger(&self) -> IdentityLedger {
+        let mut paths: Vec<(String, u32)> = self
+            .path_to_id
+            .iter()
+            .map(|(p, id)| (p.clone(), id.0))
+            .collect();
+        paths.sort();
+        let mut node_tombstones: Vec<u32> = self.tombstones.iter().map(|id| id.0).collect();
+        node_tombstones.sort();
+        let mut labels: Vec<(String, u32)> = self
+            .net_by_label
+            .iter()
+            .map(|(l, id)| (l.clone(), id.0))
+            .collect();
+        labels.sort();
+        let mut net_tombstones: Vec<u32> = self.net_tombstones.iter().map(|id| id.0).collect();
+        net_tombstones.sort();
+        let mut anchors: Vec<(String, String)> = self
+            .anchor_owner
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        anchors.sort();
+        IdentityLedger {
+            entry_uri: self.circuit.entry_uri.clone(),
+            top: self.circuit.top.clone(),
+            paths,
+            node_records: self
+                .id_to_path
+                .iter()
+                .map(|(id, p)| (id.0, p.clone()))
+                .collect(),
+            node_tombstones,
+            next_node: self.next,
+            labels,
+            net_records: self
+                .net_label_of
+                .iter()
+                .map(|(id, l)| (id.0, l.clone()))
+                .collect(),
+            net_tombstones,
+            next_net: self.next_net,
+            anchors,
+        }
+    }
+
+    /// Rebuild a registry from a persisted ledger — the other half of
+    /// [`Self::ledger`]. The reconstruction is faithful (every map, journal
+    /// and counter comes back), so a rebuild on the reloaded registry keeps
+    /// the ids the persisting run handed out.
+    pub fn from_ledger(ledger: &IdentityLedger) -> Self {
+        IdentityRegistry {
+            circuit: CircuitKey::new(&ledger.entry_uri, &ledger.top),
+            path_to_id: ledger
+                .paths
+                .iter()
+                .map(|(p, id)| (p.clone(), NodeId(*id)))
+                .collect(),
+            id_to_path: ledger
+                .node_records
+                .iter()
+                .map(|(id, p)| (NodeId(*id), p.clone()))
+                .collect(),
+            tombstones: ledger
+                .node_tombstones
+                .iter()
+                .map(|id| NodeId(*id))
+                .collect(),
+            next: ledger.next_node,
+            net_by_label: ledger
+                .labels
+                .iter()
+                .map(|(l, id)| (l.clone(), NetId(*id)))
+                .collect(),
+            net_label_of: ledger
+                .net_records
+                .iter()
+                .map(|(id, l)| (NetId(*id), l.clone()))
+                .collect(),
+            net_tombstones: ledger.net_tombstones.iter().map(|id| NetId(*id)).collect(),
+            next_net: ledger.next_net,
+            anchor_owner: ledger.anchors.iter().cloned().collect(),
+        }
+    }
+}
+
+/// One serializable snapshot of an [`IdentityRegistry`] ledger (build-design
+/// §3.7 discipline 0 item 4 / tree D6): the on-disk / RPC form a daemon or a
+/// restarted process reloads so `NodeId` / `NetId` still resolve to the same
+/// physical objects as the cached and external references that outlived the
+/// run.
+///
+/// The live registry keeps `HashMap`s, whose iteration order is not
+/// input-determined, so the snapshot is an explicit record and every
+/// map-derived list is sorted: **the file is a pure function of the ledger**,
+/// two runs of one input write the same bytes. The append-only
+/// `node_records` / `net_records` journals stay in allocation order — they are
+/// the tombstone record (`path_of` / `net_label_of` read the latest entry),
+/// and sorting them would throw the allocation history away.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct IdentityLedger {
+    /// The `entry_uri` half of the circuit key this ledger namespaces.
+    pub entry_uri: String,
+    /// The `top` half of the circuit key.
+    pub top: String,
+    /// Live `(canonical path, node id)` pairs, sorted by path.
+    pub paths: Vec<(String, u32)>,
+    /// Append-only `(node id, canonical path)` journal, in allocation order.
+    pub node_records: Vec<(u32, String)>,
+    /// Tombstoned node ids, sorted.
+    pub node_tombstones: Vec<u32>,
+    /// Next node id to allocate.
+    pub next_node: u32,
+    /// Live `(label, net id)` pairs, sorted by label.
+    pub labels: Vec<(String, u32)>,
+    /// Append-only `(net id, label)` journal, in allocation order.
+    pub net_records: Vec<(u32, String)>,
+    /// Tombstoned net ids, sorted.
+    pub net_tombstones: Vec<u32>,
+    /// Next net id to allocate.
+    pub next_net: u32,
+    /// `(anchor key, owning device name)` records, sorted by anchor key.
+    pub anchors: Vec<(String, String)>,
+}
+
+impl IdentityLedger {
+    /// Serialize to a JSON string — the disk / RPC form (daemon, process
+    /// restart). Infallible: every field is JSON-clean.
+    pub fn to_json(&self) -> String {
+        serde_json::to_string(self).expect("identity ledger serialization cannot fail")
+    }
+
+    /// Deserialize an [`IdentityLedger`] from [`Self::to_json`] output.
+    pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
+        serde_json::from_str(json)
+    }
 }
 
 impl Default for IdentityRegistry {
@@ -476,5 +616,88 @@ mod tests {
         let a = reg.intern("main.c1");
         assert!(!a.is_unassigned());
         assert_ne!(a, NodeId::UNASSIGNED);
+    }
+
+    /// Discipline 0 item 4 (tree D6): the ledger round-trips through JSON and
+    /// through a real disk file, and the reloaded registry hands out the same
+    /// ids — the daemon / process-restart alignment surface.
+    #[test]
+    fn dlu_identity__ledger_round_trips_json_and_disk() {
+        let mut reg = IdentityRegistry::new(key());
+        let c1 = reg.intern("main.c1");
+        let c2 = reg.intern("main.c2");
+        let c3 = reg.intern("main.c3");
+        // A tombstone must survive the round trip: deleting c2 reserves its id
+        // forever, and a later re-intern of the same path takes a fresh one.
+        reg.delete(c2);
+        let c4 = reg.intern("main.c4");
+        reg.intern_net("VDD");
+        let gnd = reg.intern_net("GND");
+        reg.delete_net(gnd);
+        let anchor = AutoAnchor {
+            role: AutoNameRole::Normal,
+            offset: 42,
+        };
+        let anchored = anchored_child_key(&mut reg, "main.ldo", "_C1", Some(anchor));
+        assert_eq!(anchored, "main.ldo.normal@42");
+        let ledger = reg.ledger();
+
+        // In-memory JSON round trip.
+        let json = ledger.to_json();
+        assert!(
+            json.contains("/proj/main.mc"),
+            "json carries the circuit key"
+        );
+        assert!(json.contains("main.c4"), "json carries the paths");
+        assert!(json.contains("\"VDD\""), "json carries the net labels");
+        assert!(
+            json.contains("main.ldo.normal@42"),
+            "json carries the anchor owners"
+        );
+        assert_eq!(ledger.to_json(), json, "the ledger form is stable");
+        assert_eq!(
+            IdentityLedger::from_json(&json).expect("json round trips"),
+            ledger,
+            "deserialized ledger is identical"
+        );
+
+        // Disk round trip (daemon / process restart).
+        let path =
+            std::env::temp_dir().join(format!("mcc_identity_ledger_{}.json", std::process::id()));
+        std::fs::write(&path, &json).expect("write ledger to disk");
+        let from_disk = std::fs::read_to_string(&path).expect("read ledger back");
+        std::fs::remove_file(&path).expect("clean up the ledger file");
+        let reloaded = IdentityRegistry::from_ledger(
+            &IdentityLedger::from_json(&from_disk).expect("disk json parses"),
+        );
+
+        // The reloaded registry resolves the same objects ...
+        assert_eq!(reloaded.circuit(), reg.circuit());
+        assert_eq!(reloaded.node_id_of("main.c1"), Some(c1));
+        assert_eq!(reloaded.node_id_of("main.c3"), Some(c3));
+        assert_eq!(reloaded.node_id_of("main.c4"), Some(c4));
+        assert_eq!(reloaded.path_of(c2), Some("main.c2"));
+        assert!(reloaded.is_deleted(c2), "the tombstone comes back");
+        assert_eq!(reloaded.net_id_of("VDD"), reg.net_id_of("VDD"));
+        // The tombstoned net keeps its label record (so "deleted" stays
+        // distinguishable from "never existed") but hands out no live id.
+        assert_eq!(reloaded.net_label_of(gnd), Some("GND"));
+        assert_eq!(reloaded.net_id_of("GND"), None);
+        assert_eq!(
+            reloaded.anchor_owner("main.ldo.normal@42"),
+            Some("_C1"),
+            "the anchor owner comes back"
+        );
+
+        // ... and keeps allocating past the ids the persisting run handed out,
+        // so a rebuild never renumbers the objects the old run named.
+        let mut reloaded = reloaded;
+        let c5 = reloaded.intern("main.c5");
+        assert!(c5 > c4, "fresh ids continue past the reloaded maximum");
+        assert_eq!(
+            reloaded.intern("main.c1"),
+            c1,
+            "an already-named path keeps its id"
+        );
     }
 }

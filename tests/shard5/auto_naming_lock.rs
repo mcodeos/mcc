@@ -11,9 +11,10 @@
 //! observable naming change.
 //!
 //! The per-kind counter semantics themselves (Phantom `@_phantom_<class>_<n>`
-//! and Stub `@?<class>_<n>` sequences, which are backstops rarely reachable
-//! through the public build API) are locked by the in-crate unit test
-//! `mc_mod::tests::auto_name_sequence_lock`.
+//! and Stub `@?<class>_<n>` sequences — backstops with no reachable consumer
+//! today, see CIMP section 1 U80 O8) are locked by the in-crate unit test
+//! `instant::mc_mod::tests::mat_aname__sequence_lock`
+//! (`src/instant/mc_mod/mod.rs`).
 
 // Family naming `{family}__{essence}` deliberately doubles the underscore to
 // keep the grep-able family token separate (matrix §1 taxonomy).

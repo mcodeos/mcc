@@ -37,6 +37,7 @@ use crate::McIds;
 use crate::McSpaceName;
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
+use std::path::Path;
 
 /// One net's point-set snapshot at one checkpoint (design §11.5.1 / D9) — the
 /// carry for unlabeled-net identity across builds (a labeled net's identity is
@@ -174,6 +175,35 @@ impl CircuitWorld {
     /// The persistent identity registry of `key`, if the circuit was built.
     pub fn registry(&self, key: &CircuitKey) -> Option<&IdentityRegistry> {
         self.instance_registry.get(key)
+    }
+
+    // Ledger persistence (build-design §3.7 discipline 0 item 4 / tree D6):
+    // the registry survives a process boundary, not only a rebuild.
+
+    /// Write `key`'s identity ledger to `path` (the circuit's persisted form).
+    /// The file is a pure function of the ledger, so two runs of one input
+    /// write the same bytes.
+    pub fn save_ledger(&self, key: &CircuitKey, path: &Path) -> Result<(), Box<dyn Error>> {
+        let registry = self
+            .instance_registry
+            .get(key)
+            .ok_or_else(|| format!("CircuitWorld::save_ledger: no registry for {key:?}"))?;
+        std::fs::write(path, registry.ledger().to_json())?;
+        Ok(())
+    }
+
+    /// Adopt the ledger written by [`Self::save_ledger`] as the registry of the
+    /// circuit it names, so the next [`Self::instantiate`] of that circuit
+    /// continues on the persisted id namespace — the ids cached and external
+    /// references were holding still resolve to the same objects. Returns the
+    /// circuit key the ledger namespaces.
+    pub fn load_ledger(&mut self, path: &Path) -> Result<CircuitKey, Box<dyn Error>> {
+        let json = std::fs::read_to_string(path)?;
+        let ledger = crate::instant::identity::IdentityLedger::from_json(&json)?;
+        let key = CircuitKey::new(&ledger.entry_uri, &ledger.top);
+        self.instance_registry
+            .insert(key.clone(), IdentityRegistry::from_ledger(&ledger));
+        Ok(key)
     }
 
     /// The versioned checkpoints of `key` (empty until the first build).
@@ -696,6 +726,54 @@ mod tests {
             "unchanged nodes do not appear"
         );
         let _ = a;
+    }
+
+    /// Discipline 0 item 4 / tree D6: the ledger survives a process boundary —
+    /// a rebuilt circuit continues on the persisted ids instead of renumbering
+    /// the objects the previous run named.
+    #[test]
+    fn dlu_world__ledger_survives_a_process_boundary() {
+        let key = key();
+        let mut first = CircuitWorld::new(1000);
+        let mut reg = IdentityRegistry::new(key.clone());
+        let c1 = reg.intern("main.c1");
+        let c2 = reg.intern("main.c2");
+        first.instance_registry.insert(key.clone(), reg);
+        let path =
+            std::env::temp_dir().join(format!("mcc_world_ledger_{}.json", std::process::id()));
+        first.save_ledger(&key, &path).expect("save the ledger");
+
+        // The next process: a fresh world adopts the persisted ledger.
+        let mut second = CircuitWorld::new(1000);
+        let loaded = second.load_ledger(&path).expect("load the ledger");
+        std::fs::remove_file(&path).expect("clean up the ledger file");
+        assert_eq!(loaded, key, "the ledger namespaces its own circuit");
+
+        // The circuit's objects come back on their old ids ...
+        let mut resumed = second
+            .instance_registry
+            .remove(&key)
+            .expect("the ledger was adopted");
+        assert_eq!(resumed.node_id_of("main.c1"), Some(c1));
+        assert_eq!(resumed.node_id_of("main.c2"), Some(c2));
+
+        // ... and a node the source gained in the meantime takes a fresh id
+        // instead of shifting its siblings. Witness that this is the ledger's
+        // doing and not plain determinism: a fresh registry renumbers the pair.
+        let c0 = resumed.intern("main.c0");
+        assert!(c0 > c2, "a new node appends past the persisted ids");
+        assert_eq!(resumed.node_id_of("main.c1"), Some(c1));
+        let mut plain = IdentityRegistry::new(key);
+        assert_ne!(
+            plain.intern("main.c0"),
+            c0,
+            "without the ledger the new node takes the first id"
+        );
+        assert_ne!(
+            plain.intern("main.c1"),
+            c1,
+            "and every sibling shifts — the renumbering the ledger prevents"
+        );
     }
 
     /// Semantic equivalence ignores labels: the same membership set with a
