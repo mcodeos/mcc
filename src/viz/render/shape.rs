@@ -53,8 +53,13 @@ pub trait BoxShape {
 ///
 /// When `is_root` is true, sub-module boxes use root layer block-diagram styling
 /// (solid lines, centered name, no + corner).
-pub fn render_box(b: &McVecBox, is_root: bool) -> String {
-    let inner = render_box_inner(b, is_root);
+///
+/// `clickable_subs` is the layer's roster of boxes that have a sub-layer to open
+/// (`graph.clickable_subs`). It gates the drill-down advertisement and nothing
+/// else: a box outside the roster is drawn exactly as before, just without
+/// claiming to be clickable.
+pub fn render_box(b: &McVecBox, is_root: bool, clickable_subs: &[i64]) -> String {
+    let inner = render_box_inner(b, is_root, clickable_subs);
     // G16: source position travels on the rendered box so the viewer can jump
     // from the drawing back to the declaring line.
     if let Some(sp) = &b.source_span {
@@ -72,7 +77,7 @@ pub fn render_box(b: &McVecBox, is_root: bool) -> String {
 }
 
 /// Body of [`render_box`]; separate so the source-position wrapper stays in one place.
-fn render_box_inner(b: &McVecBox, is_root: bool) -> String {
+fn render_box_inner(b: &McVecBox, is_root: bool, clickable_subs: &[i64]) -> String {
     // ★ The manifest's custom symbol is the author's own drawing of the part, so it
     // wins in **every** layer — block diagram and device schematic alike. A part then
     // looks the same whether it is opened on its own or expanded inside its project;
@@ -85,8 +90,13 @@ fn render_box_inner(b: &McVecBox, is_root: bool) -> String {
     if let Some(cs) = &b.custom_symbol {
         return render_custom_symbol(b, cs);
     }
+    // ★ U87: the root layer draws **every** box in block-diagram style, so a
+    // component standing on the root layer comes through here too. Drilling into
+    // one is possible only when it has a sub-graph, which is a fact the roster
+    // knows and this function must not guess from the symbol.
+    let drill = clickable_subs.contains(&b.id);
     if is_root {
-        return render_sub_module_root(b);
+        return render_sub_module_root(b, drill);
     }
     match b.symbol {
         Symbol::Resistor => ResistorShape.render(b),
@@ -96,9 +106,9 @@ fn render_box_inner(b: &McVecBox, is_root: bool) -> String {
         Symbol::Ic => IcShape.render(b),
         Symbol::Module => {
             if is_root {
-                render_sub_module_root(b)
+                render_sub_module_root(b, drill)
             } else {
-                render_sub_module(b)
+                render_sub_module(b, drill)
             }
         }
         Symbol::PowerRail { .. } => PowerRailShape.render(b),
@@ -134,7 +144,7 @@ fn render_box_inner(b: &McVecBox, is_root: bool) -> String {
             if has_pins && pin_kind {
                 IcShape.render(b)
             } else {
-                render_box_legacy(b, is_root)
+                render_box_legacy(b, is_root, clickable_subs)
             }
         }
     }
@@ -249,15 +259,18 @@ fn render_dot_symbol(b: &McVecBox) -> String {
 }
 
 /// Pre-P05 dispatch logic (by BoxKind), now used as the `Symbol::Unknown` fallback
-fn render_box_legacy(b: &McVecBox, is_root: bool) -> String {
+fn render_box_legacy(b: &McVecBox, is_root: bool, clickable_subs: &[i64]) -> String {
     match b.kind {
         BoxKind::TwoPin => TwoPinShape.render(b),
         BoxKind::MultiPin => MultiPinShape.render(b),
         BoxKind::SubModule => {
+            // Same roster as the symbol dispatch above: the fallback decides how a
+            // box is *drawn*, never whether it can be opened.
+            let drill = clickable_subs.contains(&b.id);
             if is_root {
-                render_sub_module_root(b)
+                render_sub_module_root(b, drill)
             } else {
-                render_sub_module(b)
+                render_sub_module(b, drill)
             }
         }
         BoxKind::PowerLabel => PowerLabelShape.render(b),
@@ -329,7 +342,7 @@ mod tests {
                 height: 16.0,
             },
         });
-        let svg = render_box(&b, false);
+        let svg = render_box(&b, false, &[]);
         assert!(svg.contains(r#"class="comp custom""#));
         assert!(svg.contains(r#"data-symbol-source="MyR""#));
         assert!(svg.contains(r#"class="my-sym""#));
@@ -338,8 +351,105 @@ mod tests {
     #[test]
     fn no_custom_symbol_uses_system() {
         let b = mk(Symbol::Resistor, BoxKind::TwoPin);
-        let svg = render_box(&b, false);
+        let svg = render_box(&b, false, &[]);
         assert!(!svg.contains(r#"class="comp custom""#));
+    }
+
+    /// The drawn box minus its opening `<g>` tag and the click advertisement it
+    /// carries (pointer cursor, `onclick` continuation line, tooltip).
+    ///
+    /// Two renderings that agree here are the *same drawing*; that is the whole
+    /// claim of the roster gate, so the comparison is made on the rest verbatim
+    /// rather than on a hand-picked list of attributes. The identity on the
+    /// opening tag is asserted separately in the callers.
+    fn box_body(svg: &str) -> String {
+        svg.lines()
+            .filter(|l| {
+                let t = l.trim_start();
+                !t.starts_with(r#"<g class="comp "#)
+                    && !l.contains("cursor:pointer")
+                    && !t.starts_with("onclick=")
+                    && !t.starts_with("<title>")
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    /// A real component on the root layer is drawn by the sub-module renderer
+    /// (the root layer block-styles every box), but it has no sub-graph, so the
+    /// click it used to advertise led to a layer that does not exist.
+    ///
+    /// The roster is the layer's own list of sub-graphs, so an id outside it —
+    /// even when the roster is not empty — means "no layer to open".
+    #[test]
+    fn root_box_advertises_drill_down_only_when_the_layer_exists() {
+        // A component: symbol Ic, not a Module. The root path never looks at it.
+        let b = mk(Symbol::Ic, BoxKind::MultiPin);
+
+        let clickable = render_box(&b, true, &[7]);
+        assert!(
+            clickable.contains(r#"onclick="expandSubModule(7)""#),
+            "{clickable}"
+        );
+        assert!(
+            clickable.contains(r#"style="cursor:pointer""#),
+            "{clickable}"
+        );
+        assert!(
+            clickable.contains("<title>Click to expand: u1</title>"),
+            "{clickable}"
+        );
+
+        // The roster holds other boxes, none of them this one — the reported
+        // symptom. An empty roster says the same thing and must read the same.
+        let no_layer = render_box(&b, true, &[8, 9]);
+        assert_eq!(
+            no_layer,
+            render_box(&b, true, &[]),
+            "this box is not in the roster either way"
+        );
+        assert!(!no_layer.contains("onclick"), "{no_layer}");
+        assert!(!no_layer.contains("cursor:pointer"), "{no_layer}");
+        assert!(!no_layer.contains("<title>"), "{no_layer}");
+
+        // Only the advertisement is gone: rect, labels and pins are untouched.
+        assert!(
+            no_layer.contains(r#"class="comp root-block" data-id="7""#),
+            "{no_layer}"
+        );
+        assert!(no_layer.contains(">u1</text>"), "{no_layer}");
+        assert_eq!(
+            box_body(&clickable),
+            box_body(&no_layer),
+            "the same box, drawn the same way, minus the click"
+        );
+    }
+
+    /// The same roster decides for a device layer: whether a box can be opened is a
+    /// fact about the layer, not about which face draws it.
+    #[test]
+    fn drill_down_does_not_depend_on_the_face() {
+        let b = mk(Symbol::Module, BoxKind::SubModule);
+
+        let clickable = render_box(&b, false, &[7]);
+        assert!(
+            clickable.contains(r#"class="comp sub-module""#),
+            "{clickable}"
+        );
+        assert!(
+            clickable.contains(r#"onclick="expandSubModule(7)""#),
+            "{clickable}"
+        );
+
+        let no_layer = render_box(&b, false, &[]);
+        assert!(!no_layer.contains("onclick"), "{no_layer}");
+        assert!(!no_layer.contains("cursor:pointer"), "{no_layer}");
+        assert!(!no_layer.contains("<title>"), "{no_layer}");
+        assert_eq!(
+            box_body(&clickable),
+            box_body(&no_layer),
+            "device layers drop the same three pieces and nothing else"
+        );
     }
 
     /// mcd spec/16-export-viz §6: a virtually instantiated test point
@@ -351,7 +461,7 @@ mod tests {
         b.name = "u_1".into();
         b.class_name = "TP".into();
         b.suppress_instance_name = true;
-        let svg = render_box(&b, false);
+        let svg = render_box(&b, false, &[]);
         assert!(!svg.contains("u_1"), "instance name must not render: {svg}");
         assert!(
             svg.contains(">TP</text>"),
@@ -364,7 +474,7 @@ mod tests {
     fn real_test_point_keeps_instance_name() {
         let mut b = mk(Symbol::TestPoint, BoxKind::Dot);
         b.name = "TP3".into();
-        let svg = render_box(&b, false);
+        let svg = render_box(&b, false, &[]);
         assert!(svg.contains(">TP3</text>"), "{svg}");
         assert!(!svg.contains("u_1"), "{svg}");
     }
@@ -375,7 +485,7 @@ mod tests {
     fn box_with_source_span_stamps_its_coordinate() {
         let mut b = mk(Symbol::Resistor, BoxKind::TwoPin);
         b.source_span = Some(crate::semantic::common::SourcePos::new("/p/power.mc", 1727));
-        let svg = render_box(&b, false);
+        let svg = render_box(&b, false, &[]);
         assert!(svg.contains(r#"data-src-uri="/p/power.mc""#), "{svg}");
         assert!(svg.contains(r#"data-src-offset="1727""#), "{svg}");
     }
@@ -387,7 +497,7 @@ mod tests {
     fn box_without_source_span_stamps_nothing() {
         let b = mk(Symbol::Resistor, BoxKind::TwoPin);
         assert!(b.source_span.is_none());
-        let svg = render_box(&b, false);
+        let svg = render_box(&b, false, &[]);
         assert!(!svg.contains("data-src-uri"), "{svg}");
         assert!(!svg.contains("data-src-offset"), "{svg}");
     }

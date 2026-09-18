@@ -254,6 +254,11 @@ fn render_layer_recursive(
 
     let sub_graphs = std::mem::take(&mut graph.sub_graphs);
     let clickable_subs: Vec<i64> = sub_graphs.iter().map(|sg| sg.bid).collect();
+    // ★ U87: the same list the document gets as `layer.clickable_subs` (and whose
+    // keys are the `layers` of the exported `DOC`) travels on the graph too, so the
+    // renderer can tell a box that really has a layer from one that only looks like
+    // a block. One list, two readers — they cannot drift.
+    graph.clickable_subs = clickable_subs.clone();
 
     // ★ A root layer is a *block diagram* only when it actually contains sub-module
     // boxes. Those sub-modules are the blocks; the block-diagram rules — C5 top-level

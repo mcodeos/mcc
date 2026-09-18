@@ -38,6 +38,10 @@
 //! dumping is a no-op unless the env var is set, and a re-pin must be justified
 //! by a predicted geometry delta, not by "it went green after I re-pinned".
 
+// Family naming `{family}__{essence}` deliberately doubles the underscore to
+// keep the grep-able family token separate (matrix §1 taxonomy).
+#![allow(non_snake_case)]
+
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
@@ -55,8 +59,8 @@ fn anchor_path() -> PathBuf {
 /// tests/renderdiff.rs and tests/rail_rules.rs).
 static RENDER_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-/// Build + lay out + render the hbl fixture, returning the ROOT layer's SVG.
-fn root_layer_svg() -> String {
+/// Build + lay out + render the hbl fixture into the whole document.
+fn full_document() -> mcc::viz::doc::VizDocument {
     let project_root = hbl_project_dir();
     let entry_path = project_root.join("src/hbl.mc");
     let entry_uri: String = entry_path.to_string_lossy().into_owned();
@@ -70,8 +74,12 @@ fn root_layer_svg() -> String {
     let vec_block = mcc::vector::builder::visit::build_mc_vec(&tree, &table, &arena, &store);
     let graph = mcc::vector::graph::fromblock::build_mc_vec_graph(&vec_block, &table);
 
-    let document = mcc::viz::api::render(graph);
-    document
+    mcc::viz::api::render(graph)
+}
+
+/// Build + lay out + render the hbl fixture, returning the ROOT layer's SVG.
+fn root_layer_svg() -> String {
+    full_document()
         .root_layer()
         .expect("root visualization layer")
         .svg
@@ -296,6 +304,167 @@ fn root_layer_drawing_matches_anchor() {
         exp_geometry.len(),
         exp_text.len(),
         findings.join("\n")
+    );
+}
+
+/// Every `expandSubModule(<id>)` written into an SVG, in the order it appears.
+///
+/// The attribute is read off the raw text on purpose: the point of the gate is
+/// what the *drawing* invites, and a reader that went through the layout model
+/// would be checking the model's intentions instead of the emitted promise.
+fn drill_targets(svg: &str) -> Vec<i64> {
+    const NEEDLE: &str = "expandSubModule(";
+    let mut out = Vec::new();
+    let mut rest = svg;
+    while let Some(i) = rest.find(NEEDLE) {
+        let tail = &rest[i + NEEDLE.len()..];
+        let digits: String = tail.chars().take_while(|c| c.is_ascii_digit()).collect();
+        if let Ok(id) = digits.parse::<i64>() {
+            out.push(id);
+        }
+        rest = tail;
+    }
+    out
+}
+
+/// Each `class="comp root-block"` box in a root-layer SVG, as `(data-id, does the
+/// opening tag carry an onclick)`.
+///
+/// The opening tag spans two lines when it advertises a drill-down, so the tag is
+/// taken as everything up to the next `>` rather than up to the newline.
+fn root_block_boxes(svg: &str) -> Vec<(i64, bool)> {
+    const OPEN: &str = r#"<g class="comp root-block""#;
+    let mut out = Vec::new();
+    let mut rest = svg;
+    while let Some(i) = rest.find(OPEN) {
+        let tail = &rest[i..];
+        let Some(end) = tail.find('>') else { break };
+        let tag = &tail[..end];
+        if let Some(id) = attr(tag, "data-id").and_then(|raw| raw.parse::<i64>().ok()) {
+            out.push((id, tag.contains("onclick")));
+        }
+        rest = &tail[end..];
+    }
+    out
+}
+
+/// The ids a layer's own drawing invites a click on, sorted — the drawing's half
+/// of the contract, read back out of the SVG.
+fn advertised_ids(svg: &str) -> Vec<i64> {
+    let mut ids: Vec<i64> = root_block_boxes(svg)
+        .into_iter()
+        .filter(|(_, on)| *on)
+        .map(|(id, _)| id)
+        .collect();
+    ids.sort_unstable();
+    ids
+}
+
+/// U87: the drawing may only invite a click that leads somewhere.
+///
+/// A root-layer box is drawn by the sub-module renderer whether or not it has a
+/// sub-graph, so the advertisement alone cannot be trusted: it is gated by the
+/// roster the layer hands the renderer (`VizLayer::clickable_subs`, whose keys are
+/// the document's own `layers`). An advertisement with no layer behind it is a
+/// dead link — `expandSubModule(<id>)` for an id the document has no layer for,
+/// where clicking does nothing. The three facts must agree:
+/// **drawn ⇒ advertised ⇒ a layer exists**.
+///
+/// Both branches are filled, or this would pass on an empty drawing: the fixture
+/// has boxes that are advertised (the six sub-modules) and boxes that are not (the
+/// components standing on the root layer).
+#[test]
+fn viz_drill_down__every_advertised_id_opens_a_layer() {
+    let _guard = RENDER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let doc = full_document();
+
+    let mut links = 0usize;
+    for (bid, layer) in &doc.layers {
+        for id in drill_targets(&layer.svg) {
+            links += 1;
+            assert!(
+                doc.layers.contains_key(&id),
+                "layer {bid} invites expandSubModule({id}) but this document has no \
+                 such layer — the click goes nowhere"
+            );
+            assert!(
+                layer.clickable_subs.contains(&id),
+                "layer {bid} invites expandSubModule({id}) but its own roster \
+                 ({:?}) does not list it",
+                layer.clickable_subs
+            );
+        }
+    }
+    assert!(
+        links > 0,
+        "no layer in the document draws a drill-down at all"
+    );
+
+    // The player's side of the same contract: every id in a roster is a layer, so
+    // the frontend's lookup cannot miss either, and every rostered id is one the
+    // drawing actually makes clickable (a roster entry with no box is a promise
+    // nobody can take up).
+    for (bid, layer) in &doc.layers {
+        for id in &layer.clickable_subs {
+            assert!(
+                doc.layers.contains_key(id),
+                "layer {bid} rosters sub {id}, which is not a layer of this document"
+            );
+        }
+        let mut roster = layer.clickable_subs.clone();
+        roster.sort_unstable();
+        assert_eq!(
+            advertised_ids(&layer.svg),
+            roster,
+            "layer {bid} must make exactly its roster clickable — no more (a dead \
+             click) and no less (a box nobody can open)"
+        );
+    }
+
+    // Non-vacuity, on the layer where the defect was reported: the root layer must
+    // show both an advertised box and a box that is drawn but not advertised.
+    let root = doc.root_layer().expect("root visualization layer");
+    let boxes = root_block_boxes(&root.svg);
+    assert!(!boxes.is_empty(), "the root layer draws no boxes at all");
+
+    let advertised: Vec<i64> = boxes
+        .iter()
+        .filter(|(_, on)| *on)
+        .map(|(id, _)| *id)
+        .collect();
+    let silent: Vec<i64> = boxes
+        .iter()
+        .filter(|(_, on)| !*on)
+        .map(|(id, _)| *id)
+        .collect();
+    assert!(
+        !advertised.is_empty() && !silent.is_empty(),
+        "the root layer must draw both a drillable and a non-drillable box, got \
+         advertised={advertised:?} silent={silent:?}"
+    );
+    // The two sides of the roster, stated as equalities rather than as spot checks:
+    //   invited ⇔ rostered      (the drawing never invents a promise)
+    //   silent  ⇔ drawn \ roster (a box is silent *because* it has no layer, not
+    //                             because it was forgotten by the renderer)
+    let mut roster = root.clickable_subs.clone();
+    roster.sort_unstable();
+    let mut drawn: Vec<i64> = boxes.iter().map(|(id, _)| *id).collect();
+    drawn.sort_unstable();
+    let mut silent_sorted = silent.clone();
+    silent_sorted.sort_unstable();
+    let expected_silent: Vec<i64> = drawn
+        .iter()
+        .copied()
+        .filter(|id| !roster.contains(id))
+        .collect();
+    assert_eq!(
+        silent_sorted, expected_silent,
+        "a root box is silent exactly when the layer cannot open it"
+    );
+    assert!(
+        roster.iter().all(|id| drawn.contains(id)),
+        "every rostered id ({roster:?}) must be a box actually drawn on the root \
+         layer ({drawn:?})"
     );
 }
 
