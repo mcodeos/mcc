@@ -112,8 +112,6 @@ fn main() -> ExitCode {
         Some(Command::Def(_)) => false,
         Some(Command::Erc(_)) => false,
         Some(Command::Refs(_)) => false,
-        Some(Command::Convert(_)) => false,
-        Some(Command::Report(_)) => false,
         Some(Command::Fmt(_)) => false,
         _ => true,
     };
@@ -179,11 +177,10 @@ fn main() -> ExitCode {
         Some(Command::Rules(_)) => false,
         Some(Command::Show(_)) | Some(Command::List(_)) | Some(Command::Query(_)) => false,
         Some(Command::Export(_)) => false,
-        Some(Command::Parse(_)) | Some(Command::Check(_)) | Some(Command::Extract(_)) => false,
-        Some(Command::Verify(_)) => false,
+        Some(Command::Parse(_)) | Some(Command::Check(_)) => false,
         Some(Command::Join(_)) | Some(Command::Trace(_)) => false,
         Some(Command::Build(_)) | Some(Command::Def(_)) | Some(Command::Erc(_)) => false,
-        Some(Command::Refs(_)) | Some(Command::Convert(_)) | Some(Command::Report(_)) => false,
+        Some(Command::Refs(_)) => false,
         Some(Command::Fmt(_)) => false,
         None => false,
         // Lib / Explain / Caps and any future command keep the conservative
@@ -218,11 +215,9 @@ fn dispatch(cli: Cli) -> Result<ExitCode> {
     let result_format = match &cli.command {
         Some(Command::Parse(_))
         | Some(Command::Check(_))
-        | Some(Command::Extract(_))
         | Some(Command::Show(_))
         | Some(Command::List(_))
         | Some(Command::Build(_))
-        | Some(Command::Verify(_))
         | Some(Command::Join(_))
         | Some(Command::Trace(_)) => Some(mcc::cli::globals().format),
         Some(Command::Query(a)) => Some(if a.json {
@@ -258,10 +253,6 @@ fn dispatch(cli: Cli) -> Result<ExitCode> {
             let outcome = cmds::check::run(&args)?;
             Ok(ExitCode::from(outcome.exit_code.clamp(0, 255) as u8))
         }
-        Some(Command::Verify(args)) => {
-            let outcome = cmds::verify::run(&args)?;
-            Ok(ExitCode::from(outcome.exit_code.clamp(0, 255) as u8))
-        }
         Some(Command::Join(args)) => {
             // A readout never vetoes an exit code (law C): the join reports what
             // it found and always succeeds, exactly as `show` does.
@@ -271,10 +262,6 @@ fn dispatch(cli: Cli) -> Result<ExitCode> {
         Some(Command::Trace(args)) => {
             // Same rule as `join`: a readout never vetoes an exit code (law C).
             cmds::trace::run(&args)?;
-            Ok(ExitCode::SUCCESS)
-        }
-        Some(Command::Extract(args)) => {
-            cmds::extract::run(&args)?;
             Ok(ExitCode::SUCCESS)
         }
         Some(Command::Show(args)) => {
@@ -341,16 +328,6 @@ fn dispatch(cli: Cli) -> Result<ExitCode> {
             cmds::refs::run(&args)?;
             Ok(ExitCode::SUCCESS)
         }
-        Some(Command::Convert(args)) => {
-            mcc::set_trace_stdout_suppressed(true);
-            cmds::convert::run(&args)?;
-            Ok(ExitCode::SUCCESS)
-        }
-        Some(Command::Report(args)) => {
-            mcc::set_trace_stdout_suppressed(true);
-            cmds::report::run(&args)?;
-            Ok(ExitCode::SUCCESS)
-        }
         Some(Command::Fmt(args)) => cmds::fmt::run(&args),
         Some(Command::Caps) => {
             // Capabilities is self-describing; call the handler directly.
@@ -375,12 +352,11 @@ fn print_help_hint() {
     eprintln!("  build    Manifest-driven build");
     eprintln!("  show     Show component / module / interface / net / file details");
     eprintln!("  list     List top-level definition names (component / module / interface / enum / nets / ports / files / all)");
-    eprintln!("  extract  Extract tables (net/instances/components/interfaces) — migration shim: merged into query --kind, verb kept");
     eprintln!("  query    Query defs by DSL <EXPR> or by name; --kind instance/net tables (text|regex|fuzzy); -f csv");
     eprintln!("  search   Alias of `query` for bare-name substring searches");
     eprintln!("  export   Export netlist / BOM / SPICE (text|csv|json)");
     eprintln!(
-        "  lib      System library management (list / install / load / unload / info / search)"
+        "  lib      System library management (list / install / load / unload / show / search / uninstall)"
     );
     eprintln!("  proj     Project scaffolding (create)");
     eprintln!("  start    Start server");

@@ -494,7 +494,7 @@ fn a_keyed_net_names_a_source_net_that_pass2_knows() {
 /// them non-contradictory is that the log says which net went where. On hbl the
 /// only lost name is `V3V3.GND`, and the log's rule `a` records it as
 /// `union 4 nets: GND + V1V2.GND + V3V3.GND + V5V.GND` — the answer to "why does
-/// `verify` count more nets than this view".
+/// `stage.p2` count more nets than this view".
 #[test]
 fn a_net_the_projection_removed_is_named_in_the_log() {
     let dir = scratch("lost");

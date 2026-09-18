@@ -51,12 +51,11 @@ pub fn run(args: &ShowArgs) -> Result<()> {
 
 /// Map show targets to their RPC method + params. Returns `None` when the
 /// command must fall through to local execution:
-///   * `--filter` is set — RPC list methods don't apply filters (parity deferred).
 ///   * output format is `text` — RPC handlers only return JSON, so the aligned
 ///     tables / .mc-like dumps are rendered locally. This also makes the
 ///     default `-f text` output stable whether or not a server is running.
 fn rpc_mapping(args: &ShowArgs) -> Option<(&'static str, Value)> {
-    if matches!(mcc::cli::globals().format, OutputFormat::Text) || args.filter.is_some() {
+    if matches!(mcc::cli::globals().format, OutputFormat::Text) {
         return None;
     }
     match args.target {
@@ -1020,7 +1019,7 @@ fn show_dianlu(args: &ShowArgs) -> Result<()> {
             die!("mcc::show", 1, "{e}");
         });
 
-    // Global module-nesting overview first (shared with `mcc verify`): every
+    // Global module-nesting overview first: every
     // module in source order with its declared / declareb / funcall-generated
     // instances, so the whole instance structure is visible before the
     // per-module sections.
@@ -2170,8 +2169,8 @@ fn render_dianlu_section(
     }
 
     lines.push("Connections:".to_string());
-    // §8.9.5 layered display (vocabulary trunk / lane / wire, shared with
-    // `verify`): bus/interface member lanes that mate the same two ends
+    // §8.9.5 layered display (vocabulary trunk / lane / wire, rendered by
+    // `cmds::common::render_layered_conns`): bus/interface member lanes that mate the same two ends
     // render as `[trunk] left <-> right` headers with numbered lane lines
     // underneath; everything else (independent connections) renders as
     // single `[wire]` lines.

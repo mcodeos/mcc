@@ -14,11 +14,10 @@
 //! handlers provide the same def-search to IDE/LSP/direct RPC callers.
 //!
 //! `--kind net` projects the top module's net table (`{name, points}` through
-//! `cmds/nets.rs` — the same fold `extract nets`, `list nets` and `show` use).
-//! `net` is *not* a definition kind, so it never reaches the lib search
-//! engine; this command guards `Net` and routes it to `run_nets`. `extract`
-//! keeps its own top-level verb during the migration window but shares this
-//! projection (extract-merge plan).
+//! `cmds/nets.rs` — the same fold `list nets` and `show` use). `net` is *not*
+//! a definition kind, so it never reaches the lib search engine; this command
+//! guards `Net` and routes it to `run_nets`. This is now the only entry point
+//! for that projection: the old `mcc extract` verb was removed on 2026-09-18.
 
 use crate::cmds::common;
 use crate::cmds::manifest;

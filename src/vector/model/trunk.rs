@@ -325,7 +325,7 @@ impl TrunkCtx {
     }
 
     /// Structured JSON form `{"name", "member", "kind", "iface_class"}`
-    /// shared by every serialized output (graph JSON, `show` / `verify`).
+    /// shared by every serialized output (graph JSON, `show` and the RPC tree dumps).
     pub fn to_json_value(&self) -> serde_json::Value {
         serde_json::json!({
             "name": self.name,

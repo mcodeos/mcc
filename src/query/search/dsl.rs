@@ -1293,4 +1293,27 @@ mod tests {
             _ => panic!("not comparison"),
         }
     }
+
+    /// `=` is an exact, case-insensitive match — not a prefix match, and not a
+    /// case-sensitive one. (Moved here from the `mcc list --filter` adapter
+    /// when that adapter's row-shaped entry point was deleted.)
+    #[test]
+    fn svc_dsl__json_record_eq_is_case_insensitive_exact() {
+        let q = compile("name=res1").unwrap();
+        for (n, want) in [("res1", true), ("RES1", true), ("Res1", true), ("res12", false)] {
+            let item = serde_json::json!({ "name": n });
+            assert_eq!(matches_json_record(&q, &item), want, "{n}");
+        }
+    }
+
+    /// A glob's metacharacters are escaped in the literal, so `v1.0` matches
+    /// the literal dot and not "v1X0".
+    #[test]
+    fn svc_dsl__json_record_glob_escapes_literal_dot() {
+        let q = compile("name=v1.0").unwrap();
+        let literal = serde_json::json!({ "name": "v1.0" });
+        let other = serde_json::json!({ "name": "v1X0" });
+        assert!(matches_json_record(&q, &literal));
+        assert!(!matches_json_record(&q, &other));
+    }
 }

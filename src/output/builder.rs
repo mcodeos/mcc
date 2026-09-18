@@ -8,7 +8,7 @@
 //!
 //! - Command name / workspace
 //! - Timing (elapsed_ms)
-//! - Filling in pass1 / pass2 / extract / view / viz
+//! - Filling in pass1 / pass2 / view / viz
 //! - Final aggregation of summary (counts, errors, warnings, elapsed)
 //!
 //! These tasks are centralized in one place, so command implementations only need to handle
@@ -23,8 +23,8 @@ pub struct ResultBuilder {
 }
 
 impl ResultBuilder {
-    /// Start building a result. Command names look like "mcc parse", "mcc build", "mcc extract
-    /// instances".
+    /// Start building a result. Command names look like "mcc parse", "mcc build", "mcc show
+    /// pins".
     pub fn start(command: impl Into<String>) -> Self {
         Self {
             started: Instant::now(),
@@ -53,11 +53,6 @@ impl ResultBuilder {
 
     pub fn set_pass2(&mut self, p: Pass2Report) -> &mut Self {
         self.result.pass2 = Some(p);
-        self
-    }
-
-    pub fn set_extract(&mut self, e: ExtractData) -> &mut Self {
-        self.result.extract = Some(e);
         self
     }
 
@@ -101,8 +96,6 @@ impl ResultBuilder {
         payload: serde_json::Value,
     ) -> &mut Self {
         let slot = match key {
-            super::ProjectionKey::Verify => &mut self.result.verify,
-            super::ProjectionKey::Report => &mut self.result.report,
             super::ProjectionKey::Erc => &mut self.result.erc,
             super::ProjectionKey::Rules => &mut self.result.rules,
             super::ProjectionKey::Def => &mut self.result.def,

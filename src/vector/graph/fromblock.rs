@@ -473,7 +473,8 @@ pub fn build_mc_vec_graph(block: &McVecBlock, table: &InstTable) -> McVecGraph {
 /// The projection layer already records every merge / dedup / removal it
 /// performs ([`crate::viz::project::ProjectionLog`]), but the only mandatory
 /// entry used to drop it. A **readout** wants it: `stage.vec` publishes the
-/// actions as items so that "why does `verify` count 19 nets and this view 14"
+/// actions as items so that "why does `stage.p2` count 19 nets and this
+/// view 14"
 /// is answered by the same computation rather than by a second derivation that
 /// merely agrees by luck.
 ///
