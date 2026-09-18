@@ -41,7 +41,7 @@ use mcc::{IOType, McCMIE, McEndpoint, McIds, McInstance, McInstanceRef, McPhrase
 use mcc::{McParamDeclare, McParamTypeKind};
 use serde_json::json;
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 // Entry point
 
@@ -462,15 +462,9 @@ pub fn run(args: &ParseArgs) -> Result<()> {
                     // `--code` mode has no target file; fall back to a stable name.
                     let p = args
                         .target
-                        .as_ref()
-                        .map_or_else(|| "snippet.mc".to_string(), |t| t.clone());
-                    let path = Path::new(&p);
-                    let stem = path
-                        .file_stem()
-                        .map(|s| s.to_string_lossy().to_string())
-                        .unwrap_or_else(|| "output".to_string());
-                    let parent = path.parent().unwrap_or(Path::new(""));
-                    parent.join(format!("{}.html", stem))
+                        .clone()
+                        .unwrap_or_else(|| "snippet.mc".to_string());
+                    viz_default_path(Path::new(&p), stages.viz_json)
                 };
                 let path_str = out_path.to_string_lossy().to_string();
 
@@ -1023,6 +1017,22 @@ fn escape_xml_viz(s: &str) -> String {
         .replace('"', "&quot;")
 }
 
+/// Default outlet for a viz payload written without `-o`: `<stem>.<ext>` beside
+/// the source file, the extension following the payload's own format.
+///
+/// Both viz writers derive their path here so the two cannot drift, and so the
+/// two modes cannot resolve to the same file. They did: `--viz-json` took the
+/// `.html` name and overwrote what `--viz` had written, leaving a JSON payload
+/// under an HTML name in the source tree.
+fn viz_default_path(source: &Path, json: bool) -> PathBuf {
+    let stem = source
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "output".to_string());
+    let parent = source.parent().unwrap_or(Path::new(""));
+    parent.join(format!("{}.{}", stem, if json { "json" } else { "html" }))
+}
+
 fn run_viz(
     ident: &McIds,
     uri: &McURI,
@@ -1097,17 +1107,12 @@ fn run_viz(
         renderer.viz_written(p, output_text.len());
         Some(p.clone())
     } else if !json_mode_viz {
-        // Derive output path from input file: <input_dir>/<input_name>.html
+        // Derive the outlet from the input file; `-o` is the only override.
         let path = args
             .target
             .as_ref()
             .filter(|t| Path::new(t).exists() && Path::new(t).is_file())
-            .map(|t| {
-                let p = Path::new(t);
-                let stem = p.file_stem().unwrap().to_string_lossy();
-                let parent = p.parent().unwrap_or(Path::new(""));
-                parent.join(format!("{}.html", stem))
-            })
+            .map(|t| viz_default_path(Path::new(t), false))
             .unwrap_or_else(|| Path::new("circuit.html").to_path_buf());
         let path_str = path.to_string_lossy().to_string();
         std::fs::write(&path, &output_text)

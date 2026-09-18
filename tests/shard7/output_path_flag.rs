@@ -24,6 +24,9 @@
 //! are pre-existing, not introduced here: the products' own generation stamps,
 //! and `summary.elapsed_ms`, the envelope's one field that is not derived from
 //! the input. Whether a product should carry its generation time is CIMP §1 U92.
+//!
+//! `parse --viz` keeps its own law here too: the outlet it takes when `-o` is
+//! **absent**, derived from the source path and the payload's format.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -215,6 +218,115 @@ fn trace_honours_output_on_both_faces() {
         &["trace", "main.V1V2"],
         &["-f", "json"],
         &tail,
+    );
+}
+
+/// Copy a fixture project tree into `dst`.
+///
+/// `tests/fixtures/hbl` is a project root (`project.toml` plus `src/`,
+/// `symbols/`, `baseline/`); `parse` resolves the modules beside the entry, so
+/// the whole root has to come along. The copy is what keeps this test from
+/// writing into the repository — the outlet is derived from the source path.
+fn copy_tree(src: &Path, dst: &Path) {
+    std::fs::create_dir_all(dst).expect("create dir");
+    for entry in std::fs::read_dir(src).expect("read fixture dir") {
+        let entry = entry.expect("dir entry");
+        let to = dst.join(entry.file_name());
+        if entry.file_type().expect("file type").is_dir() {
+            copy_tree(&entry.path(), &to);
+        } else {
+            std::fs::copy(entry.path(), &to).expect("copy fixture file");
+        }
+    }
+}
+
+/// `parse --viz` / `parse --viz-json` — the **default** outlet, taken when `-o`
+/// is absent: a file beside the source, whose extension follows the payload.
+///
+/// Both modes used to derive `<stem>.html`, so `--viz-json` overwrote what
+/// `--viz` had just written and left a JSON payload under an HTML name, in the
+/// source tree. The two writers now share one naming law, and this locks the two
+/// properties that law has: the name follows the payload, and the two modes
+/// cannot collide.
+///
+/// ⚠ `parse --viz … --top <m>` is a **second** writer (`run_viz`), and it has a
+/// write/no-write rule of its own: for `--viz-json` without `-o` it writes
+/// nothing at all, while the all-modules writer always writes. That disagreement
+/// is **not** locked here — it is CIMP §1 U98, and locking it either way would
+/// settle a question that is not this test's to settle. Only its `--viz` arm is
+/// exercised below (step C), which is the arm the shared naming law covers.
+#[test]
+fn parse_viz_default_outlet_follows_the_payload() {
+    let cwd = scratch("parse-viz");
+    let root = cwd.join("hbl");
+    copy_tree(
+        &PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/hbl"),
+        &root,
+    );
+    let entry = root.join("src/hbl.mc");
+    let entry_str = entry.to_str().expect("fixture path").to_string();
+    let beside_html = root.join("src/hbl.html");
+    let beside_json = root.join("src/hbl.json");
+
+    // A. `--viz`: beside the source, `.html`, and the payload really is HTML.
+    let (_, stderr, ok) = run_mcc(&cwd, &["parse", &entry_str, "--viz"]);
+    assert!(ok, "`mcc parse --viz` failed: {stderr}");
+    assert!(
+        stderr.contains("[viz] wrote"),
+        "`mcc parse --viz` reported no write: {stderr}"
+    );
+    let html = std::fs::read_to_string(&beside_html).unwrap_or_else(|e| {
+        panic!(
+            "`mcc parse --viz` did not write {}: {e}",
+            beside_html.display()
+        )
+    });
+    assert!(
+        html.starts_with("<!DOCTYPE html>"),
+        "`mcc parse --viz` wrote {} bytes that are not an HTML document",
+        html.len()
+    );
+
+    // B. `--viz-json`: a *different* name, and the payload really is JSON.
+    let (_, stderr, ok) = run_mcc(&cwd, &["parse", &entry_str, "--viz-json"]);
+    assert!(ok, "`mcc parse --viz-json` failed: {stderr}");
+    assert!(
+        stderr.contains("[viz] wrote"),
+        "`mcc parse --viz-json` reported no write: {stderr}"
+    );
+    let json = std::fs::read_to_string(&beside_json).unwrap_or_else(|e| {
+        panic!(
+            "`mcc parse --viz-json` did not write {} — the two modes still share \
+             one outlet name: {e}",
+            beside_json.display()
+        )
+    });
+    let parsed: serde_json::Value = serde_json::from_str(&json)
+        .unwrap_or_else(|e| panic!("`mcc parse --viz-json` wrote a payload that is not JSON: {e}"));
+    assert!(
+        parsed.get("root_bid").is_some(),
+        "`mcc parse --viz-json` wrote JSON that is not a viz document: {}",
+        &json[..json.len().min(120)]
+    );
+
+    // …and the JSON run did not clobber the HTML one.
+    let html_after = std::fs::read_to_string(&beside_html).expect("html still beside source");
+    assert_eq!(
+        html_after,
+        html,
+        "`mcc parse --viz-json` overwrote `{}` — the two modes collide",
+        beside_html.display()
+    );
+
+    // C. The second writer, on the arm the shared law covers.
+    std::fs::remove_file(&beside_html).expect("remove html for step C");
+    let (_, stderr, ok) = run_mcc(&cwd, &["parse", &entry_str, "--viz", "--top", "main"]);
+    assert!(ok, "`mcc parse --viz --top main` failed: {stderr}");
+    assert!(
+        std::fs::read_to_string(&beside_html)
+            .expect("`mcc parse --viz --top main` wrote no file beside the source")
+            .starts_with("<!DOCTYPE html>"),
+        "`mcc parse --viz --top main` wrote something that is not an HTML document"
     );
 }
 
