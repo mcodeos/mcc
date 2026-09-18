@@ -7,6 +7,7 @@ pub mod check;
 pub mod common;
 pub mod config;
 pub mod def;
+pub mod diff;
 pub mod erc;
 pub mod explain;
 pub mod export;

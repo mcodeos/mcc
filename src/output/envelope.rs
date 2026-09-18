@@ -498,6 +498,21 @@ pub struct StageViewData {
     /// Per-class item counts plus the diagnostic base. A count in the header
     /// line, never a gate (law C).
     pub counts: serde_json::Value,
+    /// The second side of a difference, and the parts of the answer that are
+    /// not change rows. `Some` only on `mcc diff`.
+    ///
+    /// A difference belongs to **two** worlds, so one token pair cannot say what
+    /// was compared: the fields above are side A's (the reference the `items`
+    /// are stated against), and this block names side B. It also carries what a
+    /// change row cannot: `unaligned` (an item whose class key function produced
+    /// nothing — a statement that no key existed, which a count would lose),
+    /// `nameless_net_pins` (a pair of counts, deliberately not a list), and the
+    /// M12 `stability` summary.
+    ///
+    /// Omitted everywhere else, so the four `stage.*` views and `join` / `trace`
+    /// keep exactly the key set they had.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diff: Option<serde_json::Value>,
 }
 
 /// The one place a [`mcc::stages::StageView`] becomes envelope data.
@@ -521,7 +536,21 @@ impl From<&mcc::stages::StageView> for StageViewData {
             top: view.top.clone(),
             items: serde_json::Value::Array(view.items.clone()),
             counts: view.counts.clone(),
+            diff: None,
         }
+    }
+}
+
+impl StageViewData {
+    /// Attach the second side of a difference.
+    ///
+    /// Mirrors `StageView::carrying_drawing_contract`: a field that only one
+    /// producer has a value for is attached by that producer, at the one call
+    /// site that has it, rather than added to the conversion every view goes
+    /// through.
+    pub fn carrying_second_side(mut self, diff: serde_json::Value) -> Self {
+        self.diff = Some(diff);
+        self
     }
 }
 

@@ -29,6 +29,7 @@ mod point_identity_stage_key;
 mod port_row_with_connection;
 mod product_order;
 mod pwrflow_l1;
+mod stage_diff_command;
 mod stage_join;
 mod stage_p2_view;
 mod stage_top_ver;
