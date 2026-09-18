@@ -36,6 +36,9 @@
 use super::protocol::{JsonRpcError, RpcResult};
 use crate::search_api::{walk_defs, SearchInputs, SearchKind};
 use crate::McURI;
+// The pin-id order is one rule for the whole crate; it lives next to the type
+// that owns pin ids, not here. See `McComponentInst::sorted_pin_ids`.
+use crate::pin_id_cmp;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap};
@@ -1096,6 +1099,22 @@ pub(crate) fn collect_pass1(_uri: &str, include_system: bool) -> Value {
             .collect()
     };
 
+    // The four definition lists are emitted flat, so their order is the
+    // payload's order. `mcb_iter_*` hands them over in load order, which is an
+    // artifact of how the workspace was assembled; the local collector sorts by
+    // (name, uri) and the two payloads are contracted to be identical, so sort
+    // by the same key here.
+    let sort_refs =
+        |items: &mut Vec<(String, String, [usize; 2])>| {
+            items.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+        };
+    let (mut modules, mut components, mut interfaces, mut enums) =
+        (modules, components, interfaces, enums);
+    sort_refs(&mut modules);
+    sort_refs(&mut components);
+    sort_refs(&mut interfaces);
+    sort_refs(&mut enums);
+
     let mut by_uri: BTreeMap<String, FileEntry> = BTreeMap::new();
     for m in &modules {
         let uri = m.1.clone();
@@ -1244,9 +1263,13 @@ pub(crate) fn instance_to_json(inst: &crate::MccProjectTree, view: &crate::TreeV
     let components: Vec<Value> = comps
         .iter()
         .map(|c| {
+            // `sorted_pin_ids`, not `pins.keys()`: the map's own order is drawn
+            // per map instance, so an unsorted walk here made `build.full` — the
+            // payload behind the delegated `mcc build` — read out a different
+            // pin order on every request (build-design §3.7 discipline 4).
             let pins: Vec<Value> = c
-                .pins
-                .keys()
+                .sorted_pin_ids()
+                .into_iter()
                 .map(|pin_id| {
                     let pin_name = c.pin_name(pin_id).unwrap_or_else(|| pin_id.clone());
                     json!({
@@ -1790,76 +1813,6 @@ pub fn func_nets_map(func: &crate::semantic::mc_func::McFunction) -> BTreeMap<St
         nets.insert(format!("stmt_{}", i + 1), points);
     }
     nets
-}
-
-/// Natural ordering for pin IDs in the `pins` view of `show dump` / `show
-/// pins`.
-///
-/// Rule:
-///   * pure-numeric pin IDs sort first, numerically — `1, 2, ..., 9, 10,
-///     11` instead of lexicographic `1, 10, 11, 2, ...`;
-///   * non-numeric pin IDs sort after them, "naturally": letter runs
-///     compare lexically while embedded digit runs compare numerically, so
-///     `A9 < A10` and `B1 > A9`.
-fn pin_id_cmp(a: &str, b: &str) -> std::cmp::Ordering {
-    let a_numeric = !a.is_empty() && a.bytes().all(|c| c.is_ascii_digit());
-    let b_numeric = !b.is_empty() && b.bytes().all(|c| c.is_ascii_digit());
-    // Numeric IDs first, then natural comparison within each group.
-    a_numeric
-        .cmp(&b_numeric)
-        .reverse()
-        .then_with(|| natural_cmp(a, b))
-}
-
-/// Compare two strings run-by-run: digit runs numerically, every other run
-/// lexically (natural sort). `A9 < A10`, `A2 < A10`, `PA0 < PB0`.
-fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
-    let (ba, bb) = (a.as_bytes(), b.as_bytes());
-    let (mut ia, mut ib) = (0usize, 0usize);
-    loop {
-        if ia == ba.len() && ib == bb.len() {
-            return std::cmp::Ordering::Equal;
-        }
-        if ia == ba.len() {
-            return std::cmp::Ordering::Less;
-        }
-        if ib == bb.len() {
-            return std::cmp::Ordering::Greater;
-        }
-        if ba[ia].is_ascii_digit() && bb[ib].is_ascii_digit() {
-            // Both runs are digits: compare them numerically.
-            let (sa, sb) = (ia, ib);
-            while ia < ba.len() && ba[ia].is_ascii_digit() {
-                ia += 1;
-            }
-            while ib < bb.len() && bb[ib].is_ascii_digit() {
-                ib += 1;
-            }
-            match numeric_str_cmp(&a[sa..ia], &b[sb..ib]) {
-                std::cmp::Ordering::Equal => {}
-                ord => return ord,
-            }
-        } else {
-            match ba[ia].cmp(&bb[ib]) {
-                std::cmp::Ordering::Equal => {
-                    ia += 1;
-                    ib += 1;
-                }
-                ord => return ord,
-            }
-        }
-    }
-}
-
-/// Compare two digit-run strings numerically (`"9" < "10"`). Leading zeros
-/// are ignored so `"01"` ties with `"1"`.
-fn numeric_str_cmp(a: &str, b: &str) -> std::cmp::Ordering {
-    let ta = a.trim_start_matches('0');
-    let tb = b.trim_start_matches('0');
-    match ta.len().cmp(&tb.len()) {
-        std::cmp::Ordering::Equal => ta.cmp(tb),
-        ord => ord,
-    }
 }
 
 /// Build the pin JSON view (pins + interfaces + name/id mappings). Single

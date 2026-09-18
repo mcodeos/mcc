@@ -908,6 +908,18 @@ impl McComponentInst {
         self.pins.values().cloned().collect()
     }
 
+    /// This component's pin ids in canonical order — see [`pin_id_cmp`].
+    ///
+    /// Every readout that lists pins goes through here. `pins` is a `HashMap`,
+    /// so `keys()` yields the map's own order, which is drawn per map instance
+    /// rather than from the design: without this the same design reads out in a
+    /// different order on every run (build-design §3.7 discipline 4).
+    pub fn sorted_pin_ids(&self) -> Vec<&String> {
+        let mut ids: Vec<&String> = self.pins.keys().collect();
+        ids.sort_by(|a, b| pin_id_cmp(a, b));
+        ids
+    }
+
     /// Check if the component is a two-port device
     pub fn is_two_port(&self) -> bool {
         self.pins.len() == 2
@@ -1161,6 +1173,88 @@ impl McComponentInst {
     }
 }
 
+/// Canonical order for pin ids: the one definition, and every pin listing uses
+/// it.
+///
+/// A pin id is an opaque string (`"1"`, `"VIN.Vin"`, `"A10"`, …), so
+/// "ascending" is a decision, not a given. The decision, made once here:
+///
+///   * pure-numeric ids first, numerically — `1, 2, … 9, 10, 11`, not the
+///     lexicographic `1, 10, 11, 2, …`;
+///   * then non-numeric ids, "naturally": letter runs compare lexically while
+///     embedded digit runs compare numerically, so `A9 < A10` and `B1 > A9`.
+///
+/// This is a **total** order on the ids a design can spell, so a listing that
+/// sorts by it is a function of the design and not of the container. Some
+/// callers walked a `HashMap` and read the map's own order instead, which is
+/// drawn per map instance; that is the discipline 4 defect this rule closes
+/// (build-design §3.7) — see [`McComponentInst::sorted_pin_ids`].
+pub fn pin_id_cmp(a: &str, b: &str) -> std::cmp::Ordering {
+    let a_numeric = !a.is_empty() && a.bytes().all(|c| c.is_ascii_digit());
+    let b_numeric = !b.is_empty() && b.bytes().all(|c| c.is_ascii_digit());
+    // Numeric ids first, then natural comparison within each group, and the
+    // raw text last. The last term matters: `natural_cmp` ignores leading
+    // zeros, so `"1"` and `"01"` tie there and the order between them would
+    // otherwise fall back to the container's.
+    a_numeric
+        .cmp(&b_numeric)
+        .reverse()
+        .then_with(|| natural_cmp(a, b))
+        .then_with(|| a.cmp(b))
+}
+
+/// Compare two strings run-by-run: digit runs numerically, every other run
+/// lexically (natural sort). `A9 < A10`, `A2 < A10`, `PA0 < PB0`.
+fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
+    let (ba, bb) = (a.as_bytes(), b.as_bytes());
+    let (mut ia, mut ib) = (0usize, 0usize);
+    loop {
+        if ia == ba.len() && ib == bb.len() {
+            return std::cmp::Ordering::Equal;
+        }
+        if ia == ba.len() {
+            return std::cmp::Ordering::Less;
+        }
+        if ib == bb.len() {
+            return std::cmp::Ordering::Greater;
+        }
+        if ba[ia].is_ascii_digit() && bb[ib].is_ascii_digit() {
+            // Both runs are digits: compare them numerically.
+            let (sa, sb) = (ia, ib);
+            while ia < ba.len() && ba[ia].is_ascii_digit() {
+                ia += 1;
+            }
+            while ib < bb.len() && bb[ib].is_ascii_digit() {
+                ib += 1;
+            }
+            match numeric_str_cmp(&a[sa..ia], &b[sb..ib]) {
+                std::cmp::Ordering::Equal => {}
+                ord => return ord,
+            }
+        } else {
+            match ba[ia].cmp(&bb[ib]) {
+                std::cmp::Ordering::Equal => {
+                    ia += 1;
+                    ib += 1;
+                }
+                ord => return ord,
+            }
+        }
+    }
+}
+
+/// Compare two digit runs numerically (`"9" < "10"`). Leading zeros are
+/// ignored, so `"01"` ties with `"1"` — the caller falls through and compares
+/// the rest of the id, which is what breaks the tie in practice.
+fn numeric_str_cmp(a: &str, b: &str) -> std::cmp::Ordering {
+    let ta = a.trim_start_matches('0');
+    let tb = b.trim_start_matches('0');
+    match ta.len().cmp(&tb.len()) {
+        std::cmp::Ordering::Equal => ta.cmp(tb),
+        ord => ord,
+    }
+}
+
 impl std::fmt::Display for McComponentInst {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}::{}", self.name, self.def.name)?;
@@ -1169,8 +1263,15 @@ impl std::fmt::Display for McComponentInst {
         }
 
         if !self.pins.is_empty() {
-            let pins: Vec<String> = self.pins.keys().cloned().collect();
-            write!(f, " [{}]", pins.join(", "))?;
+            let pins: Vec<&String> = self.sorted_pin_ids();
+            write!(
+                f,
+                " [{}]",
+                pins.iter()
+                    .map(|p| p.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )?;
         }
 
         Ok(())

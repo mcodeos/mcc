@@ -140,7 +140,7 @@ pub use instant::lane::{
     collect_stmt_trunks, derive_nets, Lane, Net, NetId, PointGroup, PointId, Trunk,
 };
 pub use instant::mc_bus::McBusInst;
-pub use instant::mc_comp::McComponentInst;
+pub use instant::mc_comp::{pin_id_cmp, McComponentInst};
 pub use instant::mc_mod::{McModuleInst, McVectorInst};
 pub use instant::mc_net::NetPoint;
 pub use instant::nettab::NetTableStore;
