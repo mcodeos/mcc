@@ -1518,9 +1518,9 @@ pub(crate) fn remove_overlay(uri: &McURI) {
     crate::build::loader::mcb_remove(uri);
 }
 
-// Refs (M6)
+// Refs
 
-// ERC — Electrical Rule Check (M6)
+// ERC — Electrical Rule Check
 
 /// Run the flat electrical net checks for the workspace's first module.
 ///
@@ -2625,15 +2625,11 @@ pub(crate) fn extract_lib_dependencies(contents: &str) -> Option<Vec<String>> {
 
 /// Try to find semantic data for any of the candidate URIs
 
-// Report (M5b)
-
-// Convert (M5b)
-
-// Def (M6)
+// Def
 
 /// Handle def RPC — go-to-definition for a symbol.
 
-// Capabilities (M6)
+// Capabilities
 
 /// Handle capabilities RPC — self-describing API for AI discovery.
 
@@ -2646,7 +2642,7 @@ pub(crate) fn extract_lib_dependencies(contents: &str) -> Option<Vec<String>> {
 
 /// Enumerate all visible symbols at a given scope.
 
-// Explain (M6)
+// Explain
 
 /// Handle explain RPC — look up error code descriptions.
 

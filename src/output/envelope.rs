@@ -522,10 +522,10 @@ pub struct Diagnostic {
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub location: Option<DiagLocation>,
-    /// Quick-fix suggestions (M6).
+    /// Quick-fix suggestions.
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub suggestions: Vec<DiagnosticSuggestion>,
-    /// Related locations / context (M6).
+    /// Related locations / context.
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub related: Vec<DiagnosticRelated>,
 }
@@ -554,17 +554,17 @@ pub struct DiagLocation {
     pub file: String,
     pub line: u32,
     pub column: u32,
-    /// End line (M6). Computed from pos+len when available.
+    /// End line. Computed from pos+len when available.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub end_line: Option<u32>,
-    /// End column (M6). Computed from pos+len when available.
+    /// End column. Computed from pos+len when available.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub end_column: Option<u32>,
     pub pos: u32,
     pub len: u32,
 }
 
-/// A quick-fix suggestion attached to a diagnostic (M6).
+/// A quick-fix suggestion attached to a diagnostic.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DiagnosticSuggestion {
     /// Human-readable label for this fix.
@@ -575,7 +575,7 @@ pub struct DiagnosticSuggestion {
     pub location: DiagLocation,
 }
 
-/// A related location / context note attached to a diagnostic (M6).
+/// A related location / context note attached to a diagnostic.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DiagnosticRelated {
     pub message: String,

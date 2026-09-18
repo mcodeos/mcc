@@ -152,7 +152,7 @@ pub(crate) struct FileEntry {
 pub(crate) struct CheckRpcParams {
     #[serde(default)]
     pub(crate) entry: Option<String>,
-    /// Inline source content (M6). When set, loaded from memory — no disk I/O.
+    /// Inline source content. When set, loaded from memory — no disk I/O.
     #[serde(default)]
     pub(crate) content: Option<String>,
     #[serde(default)]
