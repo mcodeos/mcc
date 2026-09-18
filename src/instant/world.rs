@@ -434,6 +434,18 @@ fn diff_checkpoints(a: &CircuitCheckpoint, b: &CircuitCheckpoint) -> CircuitDiff
     }
 }
 
+/// How many members two member sets share.
+///
+/// Only the *count* is shared with `join`, which matches the same kind of object
+/// by the same criterion (design §7 O10) on two views of one build. The
+/// tie-break below is deliberately **not** shared: a diff has to produce exactly
+/// one answer, so it settles a tie by its own rules, while `join` reports the
+/// tie as `ambiguous` rather than guessing — and a shared tie-break would be
+/// sharing the half the ruling forbids.
+pub(crate) fn member_overlap<T: PartialEq>(a: &[T], b: &[T]) -> usize {
+    a.iter().filter(|x| b.contains(x)).count()
+}
+
 /// Per-net member deltas (D9): labeled nets match by label (same label = same
 /// net — the interned id is the same across builds); unlabeled nets match by
 /// greedy bipartite overlap. Deterministic on both snapshots' orders.
@@ -479,7 +491,7 @@ fn net_deltas(a: &[NetSnapshot], b: &[NetSnapshot]) -> Vec<NetDelta> {
             if an.label.is_some() || used.contains(&ai) {
                 continue;
             }
-            let overlap = an.points.iter().filter(|p| bn.points.contains(p)).count();
+            let overlap = member_overlap(&an.points, &bn.points);
             if overlap == 0 {
                 continue;
             }

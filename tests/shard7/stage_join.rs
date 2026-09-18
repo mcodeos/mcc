@@ -2,7 +2,17 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! Stage-readout design §7 phase three (batch 3a) acceptance: `mcc join src p2`.
+//! Stage-readout design §7 phase three acceptance: `mcc join`, all three hops.
+//!
+//! **Batches 3a** (`src -> p2`) and **3b** (`p2 -> vec`, `vec -> viz`). The first
+//! hop matches *statements* against the rows they wrote; the two inner hops match
+//! *objects* against each other on the key §2.4 gives each kind, and where a kind
+//! has no key they match on the criterion that kind has instead — a net's member
+//! set (O10), a path's ordered pair of ends (O9). A key's objects form one
+//! component, and the design's card is read off that component's two sides:
+//! (1,1) `carry`, (1,N) `expand`, (N,1) `merge`, (1,0) `drop`, (0,1) `synth`. A
+//! component with several objects on *both* sides is none of those, and it is
+//! reported as the diagnostic state rather than paired by class or by name.
 //!
 //! Phase three's row in the landing table asks for three constructions, and this
 //! file asserts all three:
@@ -140,13 +150,19 @@ fn line_of(src: &str, needle: &str, nth: usize) -> usize {
     panic!("`{needle}` occurrence #{nth} is not in the fixture");
 }
 
-/// Run `mcc join src p2 …` from `cwd` and return `(stdout, stderr, ok)`.
+/// Run `mcc join <a> <b> …` from `cwd` and return `(stdout, stderr, ok)`.
 ///
 /// `--local` because the readout is local-only: with an `mcc start` service
 /// running, a delegated invocation prints nothing at all (§5.3 last ⚠ — the same
 /// trap `show stage p2` has).
-fn run_join_in(cwd: &Path, entry: &Path, extra: &[&str]) -> (String, String, bool) {
-    let mut args: Vec<&str> = vec!["--local", "join", "src", "p2"];
+fn run_hop_in(
+    cwd: &Path,
+    entry: &Path,
+    a: &str,
+    b: &str,
+    extra: &[&str],
+) -> (String, String, bool) {
+    let mut args: Vec<&str> = vec!["--local", "join", a, b];
     args.extend_from_slice(extra);
     let entry = entry.to_str().expect("fixture path");
     args.push("-F");
@@ -155,12 +171,34 @@ fn run_join_in(cwd: &Path, entry: &Path, extra: &[&str]) -> (String, String, boo
         .current_dir(cwd)
         .args(&args)
         .output()
-        .expect("run mcc join src p2");
+        .expect("run mcc join");
     (
         String::from_utf8_lossy(&out.stdout).into_owned(),
         String::from_utf8_lossy(&out.stderr).into_owned(),
         out.status.success(),
     )
+}
+
+/// The chain's first hop, which most of this file reads.
+fn run_join_in(cwd: &Path, entry: &Path, extra: &[&str]) -> (String, String, bool) {
+    run_hop_in(cwd, entry, "src", "p2", extra)
+}
+
+/// Run `mcc show stage <seg> -f json` from `cwd` — the readout of one segment,
+/// which a hop's own side has to reconcile with.
+fn run_show_stage_in(cwd: &Path, entry: &Path, seg: &str) -> Value {
+    let out = Command::new(env!("CARGO_BIN_EXE_mcc"))
+        .current_dir(cwd)
+        .args(["--local", "show", "stage", seg, "-f", "json", "-F"])
+        .arg(entry)
+        .output()
+        .expect("run mcc show stage");
+    assert!(
+        out.status.success(),
+        "`show stage {seg}` failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    stage_of(&String::from_utf8_lossy(&out.stdout))
 }
 
 /// Run `mcc show stage p2 …` from `cwd` — the other readout of the same build.
@@ -856,6 +894,7 @@ fn an_argument_outside_the_chain_fails_loudly() {
         ["src", "vec"], // not adjacent — it would skip p2 and lose its criterion
         ["p2", "src"],  // the chain is directed; reverse belongs to `trace`
         ["viz", "p2"],  // and it is ordered
+        ["p2", "viz"],  // adjacent in the chain but not to each other
         ["nope", "p2"], // not a segment at all
     ] {
         let out = Command::new(env!("CARGO_BIN_EXE_mcc"))
@@ -874,6 +913,710 @@ fn an_argument_outside_the_chain_fails_loudly() {
             out.stdout.is_empty(),
             "and it must not print a readout: {}",
             String::from_utf8_lossy(&out.stdout)
+        );
+    }
+}
+
+// ── The two inner hops (batch 3b) ──
+//
+// `p2 -> vec` and `vec -> viz` match **objects** rather than statements, so the
+// six words mean something else here and one more question has to be answered:
+// when a key names two objects, which two are they? The design answers with a
+// card on the component a key induces — (1,1) `carry`, (1,N) `expand`, (N,1)
+// `merge` — and where the component is bigger than the card allows, the readout
+// answers with the diagnostic state rather than a pairing. These tests pin that
+// answer, the two criteria that are deliberately **not** keys (a net's member
+// set, a path's end pair), and the accounting that makes an empty class a proof.
+
+/// The `drop` / `synth` annotations of the two inner hops, one pair per match
+/// rule. Written as escapes like the others: the readout is Chinese and this
+/// repository's gate rejects CJK in a Rust source.
+const DROP_KEY: &str = "\u{4e0b}\u{6e38}\u{65e0}\u{540c}\u{952e}\u{9879}";
+const SYNTH_KEY: &str = "\u{4e0a}\u{6e38}\u{65e0}\u{540c}\u{952e}\u{9879}";
+const DROP_ENDS: &str = "\u{4e0b}\u{6e38}\u{65e0}\u{540c}\u{7aef}\u{5bf9}";
+const SYNTH_ENDS: &str = "\u{4e0a}\u{6e38}\u{65e0}\u{540c}\u{7aef}\u{5bf9}";
+const AMBIGUOUS_NOTE: &str = "\u{9879}\u{5e76}\u{5217}\u{ff0c}\u{4e0d}\u{731c}";
+
+/// The two diagnostic states of the class column — the states beyond §5.3's six
+/// words. They
+/// are statements about *a join*, not about an object, so they may never be
+/// written into a `stage.*` item (O9 / O10).
+const DIAG_WORDS: &[&str] = &["branch", "ambiguous"];
+
+/// The two hops of this batch, with the `view` value each must publish.
+const HOPS: &[(&str, &str, &str)] = &[
+    ("p2", "vec", "join.p2->vec"),
+    ("vec", "viz", "join.vec->viz"),
+];
+
+/// Run one hop and return its projection, asserting the run itself succeeded.
+fn hop_stage(cwd: &Path, entry: &Path, a: &str, b: &str) -> Value {
+    let (stdout, stderr, ok) = run_hop_in(cwd, entry, a, b, &["-f", "json"]);
+    assert!(ok, "`join {a} {b}` failed: {stderr}");
+    stage_of(&stdout)
+}
+
+/// The rows of one class, which for these hops name their own kind.
+fn rows_of<'a>(stage: &'a Value, class: &str) -> Vec<&'a Value> {
+    class_items(stage, class)
+}
+
+/// A handle's two parts: the object's class in its own segment, and its key —
+/// `box:D39`. One key can name two classes, so a handle that carried no class
+/// would print `D39 D39` and say nothing.
+fn handle_parts(handle: &str) -> (&str, &str) {
+    handle
+        .split_once(':')
+        .unwrap_or_else(|| panic!("a handle must be `class:key`: {handle}"))
+}
+
+/// Two runs of every face are byte-identical, on both hops.
+///
+/// O15's discipline is a product-level one, and a readout that sorted by anything
+/// but its input would fail here — for these hops that means the rows are ordered
+/// by a key derived from the two segments' own items, never by the order a
+/// `HashMap` happened to have.
+#[test]
+fn the_two_inner_hops_are_byte_identical_across_runs() {
+    let entry = hbl_entry();
+    let first = scratch("inner-det-a");
+    let second = scratch("inner-det-b");
+
+    for (a, b, view) in HOPS {
+        for format in ["text", "json"] {
+            let (x, ex, okx) = run_hop_in(&first, &entry, a, b, &["-f", format]);
+            let (y, ey, oky) = run_hop_in(&second, &entry, a, b, &["-f", format]);
+            assert!(okx && oky, "`join {a} {b} -f {format}` failed: {ex}{ey}");
+            assert!(
+                x.contains(view),
+                "the header must name the hop, or two hops cannot be told apart: {x}"
+            );
+            if format == "json" {
+                assert!(x.len() > 1000, "`-f {format}` printed nothing to compare");
+                assert_eq!(
+                    projection_bytes(&x),
+                    projection_bytes(&y),
+                    "`join {a} {b} -f {format}`: the projection itself must be stable"
+                );
+                assert_eq!(
+                    envelope_without_clock(&x),
+                    envelope_without_clock(&y),
+                    "`join {a} {b} -f {format}`: the wall clock must be the only thing that moves"
+                );
+            } else {
+                assert!(
+                    x.lines().count() > 3,
+                    "`join {a} {b} -f {format}` printed only a header — the comparison would be \
+                     vacuous"
+                );
+                assert_eq!(x, y, "`join {a} {b} -f text`: two runs differ");
+            }
+        }
+    }
+}
+
+/// Every object each hop reads is in exactly one bucket.
+///
+/// The identity is the one that turns an empty class into a proof: for each side,
+/// the objects a kind matched plus the objects kept out of the join for a named
+/// reason must add up to the segment's own item count. A class that quietly
+/// stopped being counted fails here rather than showing up as a smaller number.
+#[test]
+fn every_object_of_both_segments_is_accounted_for_exactly_once() {
+    let dir = scratch("inner-account");
+    let entry = hbl_entry();
+
+    for (a, b, _) in HOPS {
+        let stage = hop_stage(&dir, &entry, a, b);
+        let c = counts_of(&stage);
+        let left = run_show_stage_in(&dir, &entry, a);
+        let right = run_show_stage_in(&dir, &entry, b);
+        assert_eq!(
+            stage["world_ver"], left["world_ver"],
+            "`join {a} {b}` and `show stage {a}` must be two readouts of one world"
+        );
+        assert_eq!(stage["world_ver"], right["world_ver"]);
+
+        let by_kind = c["by_kind"].as_object().expect("by_kind");
+        for (side, view) in [("left", &left), ("right", &right)] {
+            let tally = c[format!("by_class_{side}")]
+                .as_object()
+                .unwrap_or_else(|| panic!("by_class_{side} must be an object"))
+                .iter()
+                .map(|(k, v)| (k.clone(), v.as_u64().unwrap_or(0)))
+                .collect::<std::collections::BTreeMap<_, _>>();
+
+            // The tally is the segment's own histogram, not a second derivation
+            // of it: rule 3 of the settled set, at object granularity.
+            let mut own: std::collections::BTreeMap<String, u64> =
+                std::collections::BTreeMap::new();
+            for item in view["items"].as_array().expect("segment items") {
+                let class = item["class"].as_str().unwrap_or("-").to_string();
+                *own.entry(class).or_default() += 1;
+            }
+            assert_eq!(
+                tally,
+                own,
+                "the {side} side's classes must be `show stage {}`'s classes: two readouts of one \
+                 segment cannot disagree about what is in it",
+                if side == "left" { a } else { b }
+            );
+            assert_eq!(
+                count(c, &format!("{side}_total")),
+                view["items"].as_array().expect("items").len() as u64,
+                "and the total must be that segment's item count"
+            );
+
+            let offhop: u64 = c["offhop"]
+                .as_object()
+                .expect("offhop")
+                .iter()
+                .filter(|(k, _)| k.starts_with(&format!("{}.", if side == "left" { a } else { b })))
+                .map(|(_, v)| v.as_u64().unwrap_or(0))
+                .sum();
+            let keyless: u64 = c["keyless"]
+                .as_object()
+                .expect("keyless")
+                .iter()
+                .filter(|(k, _)| k.starts_with(&format!("{}.", if side == "left" { a } else { b })))
+                .map(|(_, v)| v.as_u64().unwrap_or(0))
+                .sum();
+            let joined: u64 = by_kind
+                .values()
+                .map(|k| count(k, &format!("joined_{side}")))
+                .sum();
+            assert_eq!(
+                offhop + keyless + joined,
+                count(c, &format!("{side}_total")),
+                "`join {a} {b}`, {side} side: {offhop} outside every kind, {keyless} inside one but \
+                 holding no key, {joined} joined — that must be the whole segment, or an object is \
+                 in no bucket at all"
+            );
+        }
+    }
+}
+
+// ── The card: what a key's component is ──
+
+/// One key with one object on each side is a `carry`; one key naming nothing
+/// downstream is a `drop` under the **key** check, not under the member check.
+///
+/// The annotation is the assertion: the six words are the same words at every
+/// hop, so the note is the only place that says *which* criterion was run and
+/// failed. A reader who saw "no member in common" here would go looking for the
+/// wrong fault.
+#[test]
+fn a_key_that_names_nothing_downstream_is_a_drop_under_the_key_check() {
+    let dir = scratch("inner-drop");
+    let stage = hop_stage(&dir, &hbl_entry(), "p2", "vec");
+    let c = counts_of(&stage);
+
+    let drops = rows_of(&stage, "drop");
+    assert!(
+        drops.len() >= 2,
+        "the fixture must reach `drop` at this hop, or nothing below is tested"
+    );
+    for row in &drops {
+        assert_eq!(
+            row["why"].as_str().unwrap_or("-"),
+            DROP_KEY,
+            "a keyed kind's loss says the key was not found: {row}"
+        );
+        assert_eq!(
+            row["side"], "p2",
+            "the subject of a loss is the upstream object — the one with no downstream"
+        );
+        assert!(
+            row["to"].as_array().is_some_and(|t| t.is_empty()),
+            "a `drop` matched nothing, so it names nothing: {row}"
+        );
+        assert!(
+            row["loc"]["uri"].is_string() && row["loc"]["line"].is_u64(),
+            "every item carries a source position, so a loss can be looked up: {row}"
+        );
+    }
+    assert!(
+        count(c, "drop") == drops.len() as u64,
+        "the class column and the summary line must agree"
+    );
+}
+
+/// A key that names two objects on **both** sides is the diagnostic state, not
+/// an `expand`.
+///
+/// This is the ruling this hop exists to get right. The projection publishes a
+/// module's `D<id>` twice — as the collapsed box and as the layer of its
+/// interior — on each side of the hop, so the key corresponds to two objects per
+/// side without saying which is which. Calling it `expand` would report a
+/// fan-out that nothing measured; pairing by class or by name would be the
+/// fallback the design forbids. So the row appears on both sides with the
+/// candidates it refused to choose between, and the two candidates differ in
+/// class while sharing the key.
+#[test]
+fn one_key_naming_two_objects_on_each_side_is_ambiguous_not_expand() {
+    let dir = scratch("inner-ambig");
+    let stage = hop_stage(&dir, &hbl_entry(), "vec", "viz");
+    let c = counts_of(&stage);
+
+    let ambiguous = rows_of(&stage, "ambiguous");
+    assert!(
+        ambiguous.len() >= 2,
+        "the fixture must reach the diagnostic state at this hop, or the ruling is untested"
+    );
+    for row in &ambiguous {
+        let why = row["why"].as_str().unwrap_or("-");
+        assert!(
+            why.ends_with(AMBIGUOUS_NOTE),
+            "the row must say it refused to guess, not merely that something was odd: {row}"
+        );
+        // The count in front of the note is the size of the tie. A row can be
+        // refused because the *other* side is tied while its own side holds one
+        // candidate, so reading the number off its own side would print "1
+        // tied" — a contradiction, and a reader's first reason to distrust the
+        // whole column. It must always come from the side that has the tie.
+        let n: u64 = why
+            .split_once(' ')
+            .and_then(|(n, _)| n.parse().ok())
+            .unwrap_or_else(|| panic!("the note must carry its tie size: {row}"));
+        assert!(
+            n >= 2,
+            "a tie of fewer than two objects is not a tie: {row}"
+        );
+    }
+
+    // The tie is one key across two classes, and the handles must show that.
+    let mut shown = 0;
+    for row in &ambiguous {
+        for cell in [&row["to"], &row["from"]] {
+            let Some(handles) = cell.as_array().filter(|a| a.len() > 1) else {
+                continue;
+            };
+            let handles: Vec<&str> = handles.iter().filter_map(|h| h.as_str()).collect();
+            let (class0, key0) = handle_parts(handles[0]);
+            let (class1, key1) = handle_parts(handles[1]);
+            assert_eq!(
+                key0, key1,
+                "a tie is one key seen twice; two different keys would not be a tie: {row}"
+            );
+            assert_ne!(
+                class0, class1,
+                "and the two objects must be told apart by their class — identical handles would \
+                 make the row unreadable: {row}"
+            );
+            shown += 1;
+        }
+    }
+    assert!(
+        shown >= 2,
+        "the fixture must reach a tie that is actually readable, or the assertion above is vacuous"
+    );
+
+    // And the other half of the card is empty here: a fan-out needs the key to
+    // name one object upstream.
+    assert_eq!(
+        count(c, "expand"),
+        0,
+        "`expand` at this hop would mean one upstream key with several downstream objects; if the \
+         fixture now has one, this test's note is stale and the card needs a member assertion here"
+    );
+}
+
+/// The other half of the card: one upstream object whose key names two
+/// downstream ones is an `expand` — and the two objects are the two the
+/// projection publishes for one module.
+#[test]
+fn an_expand_names_the_two_objects_one_key_reaches() {
+    let dir = scratch("inner-expand");
+    let stage = hop_stage(&dir, &hbl_entry(), "p2", "vec");
+    let c = counts_of(&stage);
+
+    let expands = rows_of(&stage, "expand");
+    assert!(
+        expands.len() >= 2,
+        "the fixture must reach `expand` at this hop, or the card's middle case is untested"
+    );
+    assert_eq!(count(c, "expand"), expands.len() as u64);
+    for row in &expands {
+        assert_eq!(row["side"], "p2", "the subject is the one upstream object");
+        let to = row["to"]
+            .as_array()
+            .expect("an expand names what it reached");
+        assert_eq!(
+            to.len(),
+            2,
+            "an expansion of one into two, and the count is on the row: {row}"
+        );
+        let (class0, key0) = handle_parts(to[0].as_str().expect("handle"));
+        let (class1, key1) = handle_parts(to[1].as_str().expect("handle"));
+        assert_eq!(key0, key1, "both downstream objects carry the upstream key");
+        assert_ne!(
+            class0, class1,
+            "and they are two objects of the segment, not one written twice: {row}"
+        );
+        assert!(
+            row["from"].as_array().is_some_and(|f| f.is_empty()),
+            "an `expand` has one upstream, so `from` names nothing extra: {row}"
+        );
+    }
+}
+
+// ── The two criteria that are deliberately not keys ──
+
+/// A net is matched by its **member set** and never by its label.
+///
+/// Two modules may each declare a `GND`, so a label is not an identity here — and
+/// the fixture proves it twice over: one label is carried by two different nets in
+/// the same segment, and nets whose labels differ are carried against each other
+/// because their members are the same set. A name-keyed join would have reported
+/// both as losses, or worse, paired them by spelling.
+#[test]
+fn a_net_is_matched_by_its_members_and_never_by_its_label() {
+    let dir = scratch("inner-net");
+    let entry = hbl_entry();
+    let stage = hop_stage(&dir, &entry, "p2", "vec");
+    let p2 = run_show_stage_in(&dir, &entry, "p2");
+
+    // The label is not an identity in the segment the hop reads.
+    let mut labels: std::collections::BTreeMap<String, u64> = std::collections::BTreeMap::new();
+    for item in p2["items"].as_array().expect("p2 items") {
+        if item["class"] == "net" {
+            if let Some(key) = item["key"].as_str() {
+                *labels.entry(key.to_string()).or_default() += 1;
+            }
+        }
+    }
+    let collided: Vec<&String> = labels
+        .iter()
+        .filter(|(_, n)| **n > 1)
+        .map(|(k, _)| k)
+        .collect();
+    assert!(
+        collided.len() >= 2,
+        "the fixture must actually carry a label on two different nets, or nothing below is \
+         tested: {collided:?}"
+    );
+
+    // No net row has a key at all: the hop never gives one to a net (O10 — the
+    // match is not an identity and must not become one).
+    let net_rows = stage["items"]
+        .as_array()
+        .expect("items")
+        .iter()
+        .filter(|i| i["kind"] == "net");
+    let mut carried_with_other_label = 0;
+    let mut seen = 0;
+    for row in net_rows {
+        seen += 1;
+        assert!(
+            row["key"].is_null(),
+            "a net carries no key at this hop: naming it would upgrade a match into an identity \
+             {row}"
+        );
+        if row["class"] != "carry" {
+            continue;
+        }
+        // The row's own detail is the upstream net's name and member count; the
+        // downstream handle carries the other side's name. A carry whose two
+        // names differ is a net matched by members and not by spelling.
+        let upstream = row["text"].as_str().unwrap_or("-");
+        assert!(
+            upstream.contains("members="),
+            "a net's row shows the member count, because the count is the criterion and two nets \
+             of one segment may share a name: {row}"
+        );
+        let downstream = row["to"]
+            .as_array()
+            .and_then(|t| t.first())
+            .and_then(|h| h.as_str())
+            .map(|h| handle_parts(h).1)
+            .unwrap_or("-");
+        if upstream.split(' ').next() != Some(downstream) {
+            carried_with_other_label += 1;
+        }
+    }
+    assert!(seen >= 4, "the hop must have nets to match at all");
+    assert!(
+        carried_with_other_label >= 2,
+        "the fixture must carry at least one net against a differently named one, or this test \
+         would pass on a join that matched by name after all ({carried_with_other_label})"
+    );
+}
+
+/// A path is matched by the **ordered pair of both ends** and never by its name.
+///
+/// A drawn segment carries a `trunk` field that is a name, and a trunk carries a
+/// name too — and on this fixture the two sets collide, so a name-keyed join would
+/// have paired them. It pairs fewer than the names collide on, which is the
+/// assertion: the criterion is the pair, and the names are read for the row and
+/// nothing else.
+#[test]
+fn a_path_is_matched_by_its_end_pair_and_never_by_its_name() {
+    let dir = scratch("inner-path");
+    let entry = hbl_entry();
+    let stage = hop_stage(&dir, &entry, "vec", "viz");
+    let vec = run_show_stage_in(&dir, &entry, "vec");
+    let viz = run_show_stage_in(&dir, &entry, "viz");
+    let c = counts_of(&stage);
+
+    let names = |view: &Value, field: &str| -> std::collections::BTreeSet<String> {
+        view["items"]
+            .as_array()
+            .expect("items")
+            .iter()
+            .filter(|i| i["class"] == field)
+            .filter_map(|i| i["name"].as_str().or_else(|| i["trunk"].as_str()))
+            .map(str::to_string)
+            .collect()
+    };
+    let trunk_names = names(&vec, "trunk");
+    let segment_names = names(&viz, "segment");
+    let shared: Vec<&String> = trunk_names.intersection(&segment_names).collect();
+    assert!(
+        shared.len() >= 2,
+        "the fixture must actually have a trunk and a segment spelled alike, or this proves \
+         nothing: {shared:?}"
+    );
+    // The count is the *path* kind's, not the hop's: the other kinds carry on
+    // their own keys and would swamp the comparison.
+    let carried = count(&c["by_kind"]["path"]["classes"], "carry");
+    assert!(
+        (carried as usize) < shared.len(),
+        "a join matching by name would carry at least one object per colliding name, and there \
+         are {}: the path kind carried {carried}",
+        shared.len()
+    );
+
+    // Every path row's handle is the pair, both ends named and each end a sorted
+    // list — never a bare name (O9: a path is a path between two endpoints).
+    let rows = stage["items"]
+        .as_array()
+        .expect("items")
+        .iter()
+        .filter(|i| i["kind"] == "path");
+    let mut seen = 0;
+    for row in rows {
+        seen += 1;
+        let pair = row["key"]
+            .as_str()
+            .unwrap_or_else(|| panic!("a path's key is its pair of ends: {row}"));
+        let (left, right) = pair
+            .split_once("->")
+            .unwrap_or_else(|| panic!("a path's key is the ordered pair: {pair}"));
+        for end in [left, right] {
+            assert!(
+                !end.is_empty() && !end.contains(' '),
+                "an end is a list of canonical names: {pair}"
+            );
+        }
+        match row["class"].as_str().unwrap_or("-") {
+            "drop" => assert_eq!(row["why"], DROP_ENDS, "{row}"),
+            "synth" => {
+                assert_eq!(row["why"], SYNTH_ENDS, "{row}");
+                let own = row["to"]
+                    .as_array()
+                    .and_then(|t| t.first())
+                    .and_then(|h| h.as_str())
+                    .unwrap_or("-");
+                assert_eq!(handle_parts(own).1, pair, "a synth names itself: {row}");
+            }
+            _ => {
+                assert_eq!(
+                    row["why"], "",
+                    "a carried path has nothing to explain: {row}"
+                );
+                let matched = row["to"]
+                    .as_array()
+                    .and_then(|t| t.first())
+                    .and_then(|h| h.as_str())
+                    .unwrap_or("-");
+                let (class, key) = handle_parts(matched);
+                assert_eq!(class, "segment", "a path is carried to what drew it: {row}");
+                assert_eq!(key, pair, "{row}");
+            }
+        }
+    }
+    assert!(seen >= 4, "the hop must have paths on both sides: {seen}");
+}
+
+// ── The classes no fixture here reaches ──
+
+/// Six words, two states, at both hops: each class the hop reaches has members,
+/// and each class it does not is named here with the reason rather than skipped.
+///
+/// A class with no member is a branch the acceptance never really enters, and a
+/// class with one member is nearly the same thing — so both are called out.
+#[test]
+fn every_class_the_inner_hops_reach_is_exercised() {
+    let dir = scratch("inner-cover");
+    let entry = hbl_entry();
+    let p2_vec = hop_stage(&dir, &entry, "p2", "vec");
+    let vec_viz = hop_stage(&dir, &entry, "vec", "viz");
+
+    // Reached at both hops, with room to spare on the fixture.
+    for (stage, hop) in [(&p2_vec, "p2->vec"), (&vec_viz, "vec->viz")] {
+        let c = counts_of(stage);
+        for word in ["carry", "drop", "ambiguous"] {
+            let n = rows_of(stage, word).len();
+            assert!(
+                n >= 2,
+                "`{word}` has {n} member(s) at {hop}; a class with one member is a branch the \
+                 acceptance never really reaches"
+            );
+            assert_eq!(count(c, word), n as u64);
+        }
+    }
+
+    // `expand` is reached where one upstream key reaches two downstream objects,
+    // which the projection does for an instance and does not do for a box.
+    assert!(rows_of(&p2_vec, "expand").len() >= 2);
+    assert_eq!(
+        count(counts_of(&vec_viz), "expand"),
+        0,
+        "at vec -> viz both sides publish a module's box and its layer, so a key there names two \
+         objects per side rather than one; if this is no longer true the note is stale and the \
+         class needs a member assertion here"
+    );
+
+    // `synth` is reached at both hops, but thinly at one of them.
+    assert!(
+        rows_of(&vec_viz, "synth").len() >= 2,
+        "vec -> viz reaches `synth`"
+    );
+    let notes: BTreeSet<&str> = rows_of(&vec_viz, "synth")
+        .iter()
+        .map(|r| r["why"].as_str().unwrap_or("-"))
+        .collect();
+    for (note, what) in [
+        (SYNTH_KEY, "a point the drawing has no upstream point for"),
+        (SYNTH_ENDS, "a segment whose pair of ends no trunk carries"),
+    ] {
+        assert!(
+            notes.contains(note),
+            "`{note}` ({what}) is missing from the `synth` notes: {notes:?}"
+        );
+    }
+    assert!(
+        rows_of(&p2_vec, "synth").len() >= 1,
+        "p2 -> vec reaches `synth` — a downstream net whose members match no upstream net"
+    );
+
+    // `skip` exists at the source hop only: it is a statement about an AST node
+    // kind, and neither of these hops reads an AST node. Emitting it here would
+    // be a claim this hop cannot support, so zero is asserted rather than noted.
+    for (stage, hop) in [(&p2_vec, "p2->vec"), (&vec_viz, "vec->viz")] {
+        assert_eq!(
+            count(counts_of(stage), "skip"),
+            0,
+            "`skip` belongs to the source hop, where the item set is AST clauses; {hop} has no \
+             AST node to classify and must not claim otherwise"
+        );
+    }
+
+    // `merge` is one downstream object reached by several upstream keys. No key
+    // on this fixture has that shape — every keyed kind's left side is either
+    // alone or doubled on both sides — so zero is read off the card, not assumed.
+    for (stage, hop) in [(&p2_vec, "p2->vec"), (&vec_viz, "vec->viz")] {
+        assert_eq!(
+            count(counts_of(stage), "merge"),
+            0,
+            "if {hop} now has a `merge`, this note is stale and the class needs a member \
+             assertion instead of a zero"
+        );
+    }
+
+    // `branch` is O9's state for a path whose ends are not both named. It is
+    // reachable only from a routed `wire` segment, which this fixture has none of.
+    for (stage, hop) in [(&p2_vec, "p2->vec"), (&vec_viz, "vec->viz")] {
+        assert_eq!(
+            count(counts_of(stage), "branch"),
+            0,
+            "if {hop} now has a `branch`, the fixture grew a path with an unnamed end and the note \
+             is stale"
+        );
+    }
+}
+
+/// The two diagnostic states live in the class column and nowhere else.
+///
+/// O9 says a path with no pair is not given a second life as an item, and O10 says
+/// a member-set match is not an identity. Both would be broken the moment a
+/// `branch` or an `ambiguous` was written back into a segment's item — where
+/// `key: null` means "this object holds no identity", a different statement.
+#[test]
+fn the_diagnostic_states_are_never_written_back_into_a_segment() {
+    let dir = scratch("inner-writeback");
+    let entry = hbl_entry();
+    for view in ["p2", "vec", "viz"] {
+        let stage = run_show_stage_in(&dir, &entry, view);
+        for item in stage["items"].as_array().expect("items") {
+            let class = item["class"].as_str().unwrap_or("-");
+            assert!(
+                !DIAG_WORDS.contains(&class),
+                "`stage.{view}` may not carry `{class}`: the diagnostic states are statements \
+                 about a join, not classes of an object"
+            );
+        }
+    }
+}
+
+// ── `--only`, at the hops that have two diagnostic states ──
+
+/// `--only` accepts the six words and the two diagnostic states, filters the same
+/// items, and leaves the counts describing the whole hop. Asking for a class the
+/// hop has none of is an empty readout, not a failure — law C.
+#[test]
+fn only_accepts_the_two_diagnostic_states_as_well() {
+    let dir = scratch("inner-only");
+    let entry = hbl_entry();
+    let full = hop_stage(&dir, &entry, "vec", "viz");
+
+    let (out, err, ok) = run_hop_in(
+        &dir,
+        &entry,
+        "vec",
+        "viz",
+        &["-f", "json", "--only", "ambiguous"],
+    );
+    assert!(ok, "`--only ambiguous` failed: {err}");
+    let only = stage_of(&out);
+    assert_eq!(
+        only["items"].as_array().expect("items").len(),
+        rows_of(&full, "ambiguous").len(),
+        "`--only ambiguous` must select exactly the rows the class column prints"
+    );
+    assert_eq!(
+        only["counts"], full["counts"],
+        "and the counts must keep describing the whole hop"
+    );
+
+    let (out, err, ok) = run_hop_in(
+        &dir,
+        &entry,
+        "vec",
+        "viz",
+        &["-f", "json", "--only", "branch"],
+    );
+    assert!(ok, "an empty class is a reading, not a failure: {err}");
+    let empty = stage_of(&out);
+    assert!(
+        empty["items"].as_array().expect("items").is_empty(),
+        "this hop has no `branch`, so the filter must select nothing"
+    );
+    assert_eq!(empty["counts"], full["counts"]);
+
+    let (out, err, ok) = run_hop_in(
+        &dir,
+        &entry,
+        "vec",
+        "viz",
+        &["-f", "json", "--only", "nope"],
+    );
+    assert!(!ok, "a word the class column cannot print must fail loudly");
+    assert!(out.is_empty(), "and must not print a readout");
+    for word in SIX_WORDS.iter().chain(DIAG_WORDS) {
+        assert!(
+            err.contains(word),
+            "the error must list every word the column can print, `{word}` is missing: {err}"
         );
     }
 }

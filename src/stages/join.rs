@@ -12,7 +12,9 @@
 //!
 //! and `join` answers "why is this source line not drawn?" — not by putting two
 //! dumps side by side, but by matching the two sides on a key and reporting the
-//! cardinality of every mismatch. This module holds the `src -> p2` hop.
+//! cardinality of every mismatch. This module holds all three hops: the first
+//! matches **statements** against the rows they wrote, and the two inner ones
+//! match **objects** against each other.
 //!
 //! ## The source side: statements, not lines
 //!
@@ -99,19 +101,44 @@ use crate::ast::macros::{
 use crate::ast::node::AstNode;
 use crate::db::cmie::tables::WORKSPACE;
 use crate::instant::insttab::{InstKind, InstTable};
+use crate::instant::world::member_overlap;
 use crate::semantic::common::SourcePos;
+use crate::vector::graph::graphdef::McVecGraph;
+use crate::viz::api::RenderedLayer;
+use crate::viz::metrics::SchematicQualityReport;
+use crate::viz::project::ProjectionLog;
 
-use super::{loc_cell, loc_of, render_table, SourceText, StageView};
+use super::{loc_cell, loc_of, p2, render_table, vec, viz, SourceText, StageView};
 
 /// The `view` value of this readout. Spelled with `->` rather than the doc's
 /// `→`: a `view` value is an identifier a consumer greps for, and the arrow is
 /// there to be read by a human.
 pub const SRC_P2_VIEW: &str = "join.src->p2";
 
+/// The two inner hops, spelled the same way. The pair is in the name because
+/// `join` is not symmetric: `join p2 vec` reads p2 as upstream and vec as
+/// downstream, and the counts mean different things in the other order.
+pub const P2_VEC_VIEW: &str = "join.p2->vec";
+pub const VEC_VIZ_VIEW: &str = "join.vec->viz";
+
 /// The six class words of the summary line, in print order. Fixed, so two runs
 /// cannot differ by which words appear, and printed even at zero, so an absent
 /// word cannot read as "not implemented" (§5.3).
 pub const SIX_WORDS: &[&str] = &["carry", "expand", "merge", "drop", "synth", "skip"];
+
+/// The two states the class column prints that are **not** classes: the ways
+/// this readout declines to classify. §5.3 puts them in the class column and
+/// the summary line counts only the six, so they are counted apart, printed
+/// after the six groups, and — being statements about *this join* rather than
+/// about the object — never written back into a `stage.*` item (O9 / O10).
+pub const DIAG_WORDS: &[&str] = &["branch", "ambiguous"];
+
+/// Whether a word may be passed to `--only`: the six classes and the two
+/// diagnostic states. A filtered readout cannot ask for a word the class column
+/// can never print.
+pub fn is_class_word(word: &str) -> bool {
+    SIX_WORDS.contains(&word) || DIAG_WORDS.contains(&word)
+}
 
 /// The annotations the text face prints, and the two labels of its sub-hop line.
 ///
@@ -135,12 +162,40 @@ const MERGE_NOTE: &str = "\u{9879}\u{5e76} 1";
 const SYNTH_NOTE: &str = "\u{4e0b}\u{6e38}\u{6709}\u{3001}\u{4e0a}\u{6e38}\u{786e}\u{5b9e}\u{65e0}";
 const SUBHOP_LABEL: &str = "\u{5b50}\u{8df3}";
 const MISMATCH_LABEL: &str = "\u{5931}\u{914d}";
+/// The two labels of the inner hops' second line: the objects no declared kind
+/// admits, and the objects of a declared kind that hold no key. Both are counts
+/// the summary line would otherwise absorb — and both are proof that an empty
+/// class is empty rather than a branch the readout never reached.
+const OFFHOP_LABEL: &str = "\u{4e0d}\u{53c2}\u{4e0e}";
+const KEYLESS_LABEL: &str = "\u{65e0}\u{952e}";
+/// The `drop` / `synth` annotations of the inner hops, one pair per match rule,
+/// so the note says *which check* ran: an equal key, a shared member, an equal
+/// end pair. The three are not interchangeable — a `drop` under the member rule
+/// means "no member in common", not "no such key".
+const DROP_KEY: &str = "\u{4e0b}\u{6e38}\u{65e0}\u{540c}\u{952e}\u{9879}";
+const SYNTH_KEY: &str = "\u{4e0a}\u{6e38}\u{65e0}\u{540c}\u{952e}\u{9879}";
+const DROP_MEMBER: &str = "\u{4e0b}\u{6e38}\u{65e0}\u{6210}\u{5458}\u{4ea4}\u{96c6}";
+const SYNTH_MEMBER: &str = "\u{4e0a}\u{6e38}\u{65e0}\u{6210}\u{5458}\u{4ea4}\u{96c6}";
+const DROP_ENDS: &str = "\u{4e0b}\u{6e38}\u{65e0}\u{540c}\u{7aef}\u{5bf9}";
+const SYNTH_ENDS: &str = "\u{4e0a}\u{6e38}\u{65e0}\u{540c}\u{7aef}\u{5bf9}";
+/// Prefixed by the size of the tie — the count of objects that claim one
+/// another — read from the side that holds the tie. A row refused because the
+/// *other* side is tied would otherwise print "1 tied", which says nothing.
+const AMBIGUOUS_NOTE: &str = "\u{9879}\u{5e76}\u{5217}\u{ff0c}\u{4e0d}\u{731c}";
+const BRANCH_NOTE: &str = "\u{4e24}\u{7aef}\u{4e0d}\u{5168}\u{6709}\u{952e}";
 
 /// Group order of the text face: the `drop` group on top, because it is the
 /// debug entry point (§5.3 ②), then `synth` (the other flagged class), then the
 /// rest in count-word order. Also the sort order of the JSON `items`, so the two
 /// faces present the same sequence and not merely the same set.
 const GROUP_ORDER: &[&str] = &["drop", "synth", "carry", "expand", "merge", "skip"];
+
+/// Every class the class column can print, in print order: the six classes and
+/// then the two diagnostic states. One list, so the sort order of the items and
+/// the group order of the text face cannot drift.
+fn print_order() -> impl Iterator<Item = &'static str> {
+    GROUP_ORDER.iter().chain(DIAG_WORDS).copied()
+}
 
 /// One clause of a source file: the unit this hop counts.
 struct Clause {
@@ -427,10 +482,9 @@ pub fn build_join_src_p2(table: &InstTable, top: &str, diagnostics: usize) -> St
 }
 
 fn rank_of(class: &str) -> u8 {
-    GROUP_ORDER
-        .iter()
-        .position(|c| *c == class)
-        .unwrap_or(GROUP_ORDER.len()) as u8
+    print_order()
+        .position(|c| c == class)
+        .unwrap_or_else(|| print_order().count()) as u8
 }
 
 /// The `(uri, offset)` of every Pass-1 statement record in the loaded world.
@@ -799,26 +853,42 @@ fn rows_value(rows: &[DRow], idx: &[usize]) -> Value {
 /// lands on the suspicious rows). No ANSI, no box drawing, no tabs; a missing
 /// value prints as `-`.
 pub fn render_join_text(view: &StageView) -> String {
-    let mut out = vec![view.header_line(), sub_hop_line(view), six_word_line(view)];
-    for (gi, class) in GROUP_ORDER.iter().enumerate() {
+    let mut out = vec![view.header_line(), second_line(view), six_word_line(view)];
+    for (gi, class) in print_order().enumerate() {
         let rows: Vec<Vec<String>> = view
             .items
             .iter()
-            .filter(|i| i["class"] == *class)
+            .filter(|i| i["class"] == class)
             .map(|i| {
-                let prefix = match *class {
+                let prefix = match class {
                     "drop" => "!",
                     "synth" => "+",
                     _ => " ",
                 };
-                let (detail, tail) = match *class {
+                let (detail, tail) = match class {
                     // The member set, not the key: a label is not an identity
                     // and two nets may share one (§5.3 six-class table).
                     "merge" => (
                         keys_cell(&i["members"]),
                         format!("← {}", keys_cell(&i["from"])),
                     ),
-                    "synth" => (keys_cell(&i["to"]), String::new()),
+                    // The object the downstream segment has and no upstream
+                    // object accounts for: named as that segment names it, which
+                    // for the source hop is exactly its key.
+                    "synth" => (detail_cell(i), String::new()),
+                    // A tie is reported by showing what tied, and which side the
+                    // candidates are on decides which column holds them: a
+                    // left-side row names its rights, a right-side row names its
+                    // lefts. Printing only one of the two would leave half the
+                    // ties looking like a plain non-match.
+                    "ambiguous" => (
+                        detail_cell(i),
+                        if i["to"].as_array().is_some_and(|a| !a.is_empty()) {
+                            keys_cell(&i["to"])
+                        } else {
+                            format!("← {}", keys_cell(&i["from"]))
+                        },
+                    ),
                     _ => (detail_cell(i), keys_cell(&i["to"])),
                 };
                 let why = i["why"].as_str().unwrap_or("");
@@ -846,17 +916,31 @@ pub fn render_join_text(view: &StageView) -> String {
     out.join("\n")
 }
 
-/// The second line: the two sub-hops of `src -> p2`, counted apart, so a
-/// statement the parser dropped can never be read as a Pass-2 loss.
-fn sub_hop_line(view: &StageView) -> String {
-    format!(
-        "# {} src->ast {} {}   ast->p2 {} {}",
-        SUBHOP_LABEL,
-        MISMATCH_LABEL,
-        view.counts["sub_hop_src_ast"].as_u64().unwrap_or(0),
-        MISMATCH_LABEL,
-        view.counts["sub_hop_ast_p2"].as_u64().unwrap_or(0)
-    )
+/// The second line, which says which hop this is: the two sub-hops of `src -> p2`
+/// counted apart, or the two kinds of object the inner hops keep out of the join
+/// counted apart. Both exist so a number the summary line would otherwise absorb
+/// — "the parser dropped it" versus "Pass 2 never wrote it"; "not an object of
+/// this hop" versus "an object with no key" — is legible in the row.
+fn second_line(view: &StageView) -> String {
+    match view.view {
+        SRC_P2_VIEW => format!(
+            "# {} src->ast {} {}   ast->p2 {} {}",
+            SUBHOP_LABEL,
+            MISMATCH_LABEL,
+            view.counts["sub_hop_src_ast"].as_u64().unwrap_or(0),
+            MISMATCH_LABEL,
+            view.counts["sub_hop_ast_p2"].as_u64().unwrap_or(0)
+        ),
+        _ => format!(
+            "# {} {}   {} {}   branch {}   ambiguous {}",
+            OFFHOP_LABEL,
+            view.counts["offhop_total"].as_u64().unwrap_or(0),
+            KEYLESS_LABEL,
+            view.counts["keyless_total"].as_u64().unwrap_or(0),
+            view.counts["branch"].as_u64().unwrap_or(0),
+            view.counts["ambiguous"].as_u64().unwrap_or(0)
+        ),
+    }
 }
 
 /// The third line: six words, always all of them, always with a cardinality —
@@ -888,4 +972,801 @@ fn keys_cell(v: &Value) -> String {
             .join(" "),
         _ => "-".to_string(),
     }
+}
+
+// ── The two inner hops ──
+//
+// `src -> p2` matched a statement against the rows it wrote by *position*, and
+// both sides of that hop are tables of the same kind. The two inner hops match
+// objects instead, one kind of object at a time, each kind by the key §2.4 gives
+// it:
+//
+// | hop | kind | left classes | right classes | matched on |
+// |---|---|---|---|---|
+// | p2 -> vec | `instance` | `instance` | `box` / `layer` | the `D<id>` key |
+// | p2 -> vec | `point` | `point` | `endpoint` | the `PointId` |
+// | p2 -> vec | `net` | `net` | `net` | the member set |
+// | vec -> viz | `instance` | `box` / `layer` | `box` / `layer` | the `D<id>` key |
+// | vec -> viz | `point` | `endpoint` | `pin` | the `PointId` |
+// | vec -> viz | `path` | `trunk` | `segment` | the ordered end pair |
+//
+// Three things these hops do **not** do, each a ruling rather than an omission:
+//
+// - **They do not fall back to a name.** A net's label is not an identity — two
+//   modules may each declare a `GND`, and on the fixture they do (7 of the 59 net
+//   items in p2 carry a label a second net item already carries) — so nets are
+//   matched by their member set and never by their label. The same holds for a
+//   trunk's name, which a drawn segment also carries and with which it disagrees.
+// - **They do not classify what they cannot match.** An object of a declared kind
+//   that holds no key is counted apart instead of reported as `drop`; a path
+//   whose two ends are not both named is `branch` (O9). Both are numbers in the
+//   second line, so an empty class is proved empty rather than assumed.
+// - **They do not guess at a key that names more than one object.** A key names
+//   whatever carries it, so one key with several objects on **both** sides says
+//   the two sides correspond without saying which pairs with which — the
+//   projection publishing both the collapsed box of a module and the layer of its
+//   interior is that shape. Pairing those by class or by name would be a
+//   fallback, so the object is `ambiguous`. `merge`, the other half of the card,
+//   needs one object downstream of several and neither hop has one; `by_kind`
+//   publishes the per-kind relation counts, so those zeros are read rather than
+//   asserted.
+
+/// Build `join p2->vec`: the flat instance table against the vector graph.
+pub fn build_join_p2_vec(
+    graph: &McVecGraph,
+    log: &ProjectionLog,
+    table: &InstTable,
+    top: &str,
+    diagnostics: usize,
+) -> StageView {
+    // Both sides are the segments' own builders, read back as items — never a
+    // second derivation of the same objects. Otherwise `join` and `mcc show
+    // stage p2` would drift apart one edit at a time (§5.3 ruling ③).
+    let left = p2::build_p2(table, top, diagnostics);
+    let right = vec::build_vec(graph, log, table, top, diagnostics);
+    build_hop(&P2_VEC, &left, &right)
+}
+
+/// Build `join vec->viz`: the vector graph against the laid-out drawing.
+///
+/// Both sides are built here, in pipeline order — the vec view is read off the
+/// graph, then the graph is rendered and the viz view is read off what the
+/// renderer consumed. Taking the graph **by value** is that order rather than a
+/// convenience: the renderer consumes it, and rendering a copy to keep one
+/// around would make this a second reading of a different value.
+pub fn build_join_vec_viz(
+    graph: McVecGraph,
+    log: &ProjectionLog,
+    table: &InstTable,
+    top: &str,
+    diagnostics: usize,
+) -> StageView {
+    let left = vec::build_vec(&graph, log, table, top, diagnostics);
+    let mut layers: Vec<RenderedLayer> = Vec::new();
+    let (_doc, metrics) = crate::viz::api::render_with_metrics_and_sink(
+        graph,
+        crate::viz::api::RenderOpts::default(),
+        Some(&mut layers),
+    );
+    let quality: SchematicQualityReport = metrics.finish_quality(None);
+    let right = viz::build_viz(&layers, &quality, table, top, diagnostics);
+    build_hop(&VEC_VIZ, &left, &right)
+}
+
+/// How the two sides of one kind are matched.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum MatchRule {
+    /// The object's own §2.4 key: `D<id>` for an instance, `PointId` for a pin.
+    Key,
+    /// Member-set overlap, for the kind that owns no key (O10).
+    MemberSet,
+    /// The ordered pair of both ends' canonical keys, for a path (O9).
+    EndPair,
+}
+
+impl MatchRule {
+    /// The `drop` / `synth` annotations. The note says which check ran, so a
+    /// reader can tell "no object with this key" from "no member in common".
+    fn notes(self) -> (&'static str, &'static str) {
+        match self {
+            MatchRule::Key => (DROP_KEY, SYNTH_KEY),
+            MatchRule::MemberSet => (DROP_MEMBER, SYNTH_MEMBER),
+            MatchRule::EndPair => (DROP_ENDS, SYNTH_ENDS),
+        }
+    }
+}
+
+/// One kind of object at a hop: the classes that carry it on each side, and how
+/// the two sides are matched.
+struct HopKind {
+    kind: &'static str,
+    left: &'static [&'static str],
+    right: &'static [&'static str],
+    rule: MatchRule,
+}
+
+/// One hop: which segments it joins and which kinds of object it knows.
+struct Hop {
+    view: &'static str,
+    left: &'static str,
+    right: &'static str,
+    kinds: &'static [HopKind],
+}
+
+const P2_VEC: Hop = Hop {
+    view: P2_VEC_VIEW,
+    left: "p2",
+    right: "vec",
+    kinds: &[
+        // A module instance becomes a box, and a module that owns a layer
+        // becomes that layer too — hence N>1 here, which is what `expand` is.
+        HopKind {
+            kind: "instance",
+            left: &["instance"],
+            right: &["box", "layer"],
+            rule: MatchRule::Key,
+        },
+        HopKind {
+            kind: "point",
+            left: &["point"],
+            right: &["endpoint"],
+            rule: MatchRule::Key,
+        },
+        HopKind {
+            kind: "net",
+            left: &["net"],
+            right: &["net"],
+            rule: MatchRule::MemberSet,
+        },
+    ],
+};
+
+const VEC_VIZ: Hop = Hop {
+    view: VEC_VIZ_VIEW,
+    left: "vec",
+    right: "viz",
+    kinds: &[
+        // Both sides publish a module's `D<id>` twice — once as the collapsed box
+        // and once as the layer of its interior — so this kind is where a key
+        // names more than one object per side, and what the join makes of that is
+        // the diagnostic state rather than a pairing.
+        HopKind {
+            kind: "instance",
+            left: &["box", "layer"],
+            right: &["box", "layer"],
+            rule: MatchRule::Key,
+        },
+        HopKind {
+            kind: "point",
+            left: &["endpoint"],
+            right: &["pin"],
+            rule: MatchRule::Key,
+        },
+        // A trunk and a segment are the same kind of object at two segments —
+        // a path between two endpoints (§2.4) — so their handle is the pair of
+        // ends and nothing is issued for either.
+        HopKind {
+            kind: "path",
+            left: &["trunk"],
+            right: &["segment"],
+            rule: MatchRule::EndPair,
+        },
+    ],
+};
+
+/// One object of a declared kind, ready to be matched.
+struct Obj {
+    kind: &'static str,
+    /// Which segment's view published it, so a row can say where it lives.
+    seg: &'static str,
+    /// The class it has in its own view (`box`, `layer`, `pin`), which is not
+    /// the class this readout prints: the class column is the six words.
+    stage_class: String,
+    /// The §2.4 key, when the kind has one. `null` for a kind matched by a
+    /// derived criterion, whose item therefore carries no key at all.
+    key: Option<String>,
+    /// The member set a net is matched on (O10). Empty for the other kinds.
+    members: Vec<String>,
+    /// How the object is spelled in the `from` / `to` columns: its `stage_class`
+    /// then its key, because one key can name objects of **two** classes — a
+    /// module's `D<id>` is both its box and the layer of its interior — and two
+    /// handles reading `D39 D39` would say nothing about which is which.
+    handle: String,
+    /// The detail column.
+    text: String,
+    loc: Value,
+    /// Deterministic tie-break inside a class: the canonical spelling.
+    sort: String,
+}
+
+/// An object of a declared kind that cannot enter the join, and why.
+enum Unnamed {
+    /// It holds no key at all (`key: null`): §2.4 says a label and a bus member
+    /// own no physical point, so it is not a chain object here.
+    Keyless,
+    /// A path whose two ends are not both named (O9), and a path has no key to
+    /// fall back on.
+    Branch,
+}
+
+fn obj_of(item: &Value, hk: &HopKind, seg: &'static str) -> Result<Obj, Unnamed> {
+    let stage_class = item["class"].as_str().unwrap_or("-").to_string();
+    let canon = item["canon_key"]["path"].as_str();
+    let base = Obj {
+        kind: hk.kind,
+        seg,
+        stage_class,
+        key: None,
+        members: Vec::new(),
+        handle: String::new(),
+        text: String::new(),
+        loc: item["loc"].clone(),
+        sort: String::new(),
+    };
+    let mut o = base;
+    match hk.rule {
+        MatchRule::Key => {
+            let Some(key) = item["key"].as_str() else {
+                return Err(Unnamed::Keyless);
+            };
+            o.key = Some(key.to_string());
+            o.handle = format!("{}:{}", o.stage_class, key);
+            o.text = obj_text(item, key);
+            o.sort = canon.unwrap_or(key).to_string();
+        }
+        MatchRule::MemberSet => {
+            // The label is read for the row and for the handle, never for the
+            // match: §2.4 makes the member set the criterion (O10).
+            let name = item["net"]
+                .as_str()
+                .or_else(|| item["name"].as_str())
+                .unwrap_or("-");
+            o.members = item["members"]
+                .as_array()
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|m| m.as_str().map(str::to_string))
+                        .collect()
+                })
+                .unwrap_or_default();
+            // The member count is in the text on purpose: two nets of one layer
+            // may share a name on the fixture, and the criterion is the set.
+            o.text = format!("{name} members={}", o.members.len());
+            o.handle = format!("{}:{}", o.stage_class, name);
+            o.sort = format!("{}\u{1}{}", name, o.members.join(","));
+        }
+        MatchRule::EndPair => {
+            let Some(pair) = end_pair(item) else {
+                return Err(Unnamed::Branch);
+            };
+            // The pair is the object's handle (§2.4) and is published as its
+            // key; the row itself prints the view's own spelling for it, because
+            // a pair of nine-lane ends is a paragraph and a reader scans names.
+            o.key = Some(pair.clone());
+            o.handle = format!("{}:{}", o.stage_class, pair);
+            o.text = own_text(item);
+            o.sort = pair;
+        }
+    }
+    Ok(o)
+}
+
+/// The detail column of an object that owns a key: its own path, or the key when
+/// it has no path (a net has neither).
+fn obj_text(item: &Value, key: &str) -> String {
+    item["path"]
+        .as_str()
+        .filter(|p| !p.is_empty())
+        .unwrap_or(key)
+        .to_string()
+}
+
+/// A path's handle: the ordered pair of both ends' canonical keys, each end a
+/// **sorted** list so a multi-lane run cannot depend on lane order (O9).
+///
+/// `None` when either end is not named — a routed `wire` segment records
+/// coordinates and no ends, and an end whose path is `null` is one the renderer
+/// invented (a rail-synthesised endpoint), which owns no canonical key. There is
+/// then no pair to compute rather than a pair to guess, and O9 calls that
+/// `branch`.
+fn end_pair(item: &Value) -> Option<String> {
+    let (left, right) = match item["class"].as_str().unwrap_or("") {
+        // A trunk carries its ends lane by lane; a segment side by side.
+        "trunk" => (lanes(item, "left")?, lanes(item, "right")?),
+        _ => (ends(item, "from")?, ends(item, "to")?),
+    };
+    Some(format!("{}->{}", left.join(","), right.join(",")))
+}
+
+fn lanes(item: &Value, side: &str) -> Option<Vec<String>> {
+    let mut out: Vec<String> = item["lanes"]
+        .as_array()?
+        .iter()
+        .map(|l| l[side].as_str().map(str::to_string))
+        .collect::<Option<Vec<String>>>()?;
+    if out.is_empty() {
+        return None;
+    }
+    out.sort();
+    Some(out)
+}
+
+fn ends(item: &Value, side: &str) -> Option<Vec<String>> {
+    let mut out: Vec<String> = item[side]
+        .as_array()?
+        .iter()
+        .map(|e| e["path"].as_str().map(str::to_string))
+        .collect::<Option<Vec<String>>>()?;
+    if out.is_empty() {
+        return None;
+    }
+    out.sort();
+    Some(out)
+}
+
+/// The relation one kind produced, and the class counts inside it.
+///
+/// The totals are the counts of the objects `partition` handed over; the numbers
+/// of the kind's objects that stayed outside the join (no key, or a path whose
+/// ends are not both named) are counted there, so a kind's whole population is
+/// `joined + kept_out` and an empty class cannot hide a non-empty bucket.
+struct KindJoin {
+    joined_left: usize,
+    joined_right: usize,
+    classes: BTreeMap<&'static str, usize>,
+}
+
+/// Join one kind's two sides, by the rule the kind declared.
+///
+/// **`Key` and `EndPair` go through the component card** ([`join_by_key`]):
+/// one key names one component, and the shape of that component *is* the answer.
+///
+/// **`MemberSet` cannot.** A member set names nothing (§2.4, O10), so the
+/// relation it induces is not transitive and has no components — the only thing
+/// to read is which pair is the best on both sides, and a tie on a member set is
+/// two objects that are indistinguishable rather than one object seen twice.
+///
+/// Every object is classified **exactly once** either way, so the summary line is
+/// a reading of the hop and not a restatement of the table.
+fn join_kind(hk: &HopKind, left: &[Obj], right: &[Obj]) -> (Vec<(u8, String, Value)>, KindJoin) {
+    let (out, classes) = match hk.rule {
+        MatchRule::MemberSet => join_by_member_set(hk, left, right),
+        MatchRule::Key | MatchRule::EndPair => join_by_key(hk, left, right),
+    };
+    (
+        out,
+        KindJoin {
+            joined_left: left.len(),
+            joined_right: right.len(),
+            classes,
+        },
+    )
+}
+
+/// Join a kind whose pairs are decided by a key: one key is one component.
+///
+/// Every object carrying one key is in the same connected component of the
+/// relation, which is then read off by [`classify_components`].
+fn join_by_key(
+    hk: &HopKind,
+    left: &[Obj],
+    right: &[Obj],
+) -> (Vec<(u8, String, Value)>, BTreeMap<&'static str, usize>) {
+    let mut groups: BTreeMap<&str, (Vec<usize>, Vec<usize>)> = BTreeMap::new();
+    for (i, o) in left.iter().enumerate() {
+        if let Some(k) = o.key.as_deref() {
+            groups.entry(k).or_default().0.push(i);
+        }
+    }
+    for (j, o) in right.iter().enumerate() {
+        if let Some(k) = o.key.as_deref() {
+            groups.entry(k).or_default().1.push(j);
+        }
+    }
+    classify_components(hk, left, right, groups.into_values().collect())
+}
+
+/// Read the card off the components of a relation (§5).
+///
+/// One component is the set of objects the relation ties together, and the card
+/// is read off its two sides: (1,1) `carry`, (1,N) `expand`, (N,1) `merge`,
+/// (1,0) `drop`, (0,1) `synth`.
+///
+/// A component with several objects on **both** sides is not one of the six
+/// words: the relation says the two sides correspond, not which object pairs
+/// with which. It is the diagnostic state, reported from both sides rather than
+/// guessed — calling it `expand` would report a fan-out that nothing measured,
+/// and pairing across the split by class or by name would be the fallback the
+/// design forbids. On the fixture this is what a module's `D<id>` looks like
+/// where the projection published both its collapsed box and the layer of its
+/// interior: one key, two objects per side.
+///
+/// A `merge` row is anchored on the one downstream object with the upstream ones
+/// in `from`, the shape `join src p2` gives it.
+fn classify_components(
+    hk: &HopKind,
+    left: &[Obj],
+    right: &[Obj],
+    groups: Vec<(Vec<usize>, Vec<usize>)>,
+) -> (Vec<(u8, String, Value)>, BTreeMap<&'static str, usize>) {
+    let (drop_note, synth_note) = hk.rule.notes();
+    let mut out: Vec<(u8, String, Value)> = Vec::new();
+    let mut classes = zero_classes();
+    for (ls, rs) in &groups {
+        let (ls, rs) = (ls.as_slice(), rs.as_slice());
+        let to: Vec<String> = rs.iter().map(|j| right[*j].handle.clone()).collect();
+        let from: Vec<String> = ls.iter().map(|i| left[*i].handle.clone()).collect();
+        match (ls.len(), rs.len()) {
+            (_, 0) => {
+                for i in ls {
+                    bump(&mut classes, "drop");
+                    push_item(&mut out, "drop", &left[*i], &[], &[], drop_note.to_string());
+                }
+            }
+            (0, _) => {
+                for j in rs {
+                    bump(&mut classes, "synth");
+                    let o = &right[*j];
+                    push_item(
+                        &mut out,
+                        "synth",
+                        o,
+                        &[],
+                        &[o.handle.clone()],
+                        synth_note.to_string(),
+                    );
+                }
+            }
+            (1, 1) => {
+                bump(&mut classes, "carry");
+                push_item(&mut out, "carry", &left[ls[0]], &[], &to, String::new());
+            }
+            (1, _) => {
+                bump(&mut classes, "expand");
+                push_item(&mut out, "expand", &left[ls[0]], &[], &to, String::new());
+            }
+            (_, 1) => {
+                bump(&mut classes, "merge");
+                push_item(
+                    &mut out,
+                    "merge",
+                    &right[rs[0]],
+                    &from,
+                    &to,
+                    format!("{} {}", from.len(), MERGE_NOTE),
+                );
+            }
+            (_, _) => {
+                for i in ls {
+                    bump(&mut classes, "ambiguous");
+                    push_item(
+                        &mut out,
+                        "ambiguous",
+                        &left[*i],
+                        &[],
+                        &to,
+                        format!("{} {}", to.len(), AMBIGUOUS_NOTE),
+                    );
+                }
+                for j in rs {
+                    bump(&mut classes, "ambiguous");
+                    push_item(
+                        &mut out,
+                        "ambiguous",
+                        &right[*j],
+                        &from,
+                        &[],
+                        format!("{} {}", from.len(), AMBIGUOUS_NOTE),
+                    );
+                }
+            }
+        }
+    }
+    (out, classes)
+}
+
+/// Join a kind matched by member-set overlap (O10).
+///
+/// The same card as [`join_by_key`], read off a relation built without a key:
+/// two objects are related when their member sets overlap **and** that overlap
+/// is the best score either of them reaches. A score of zero is no evidence of
+/// sameness, so it is not an edge — without that rule every object would be
+/// related to every other one it shares nothing with, and the two segments
+/// would collapse into a single component.
+///
+/// The relation is the **union** of the two directions' best sets: an edge
+/// stands if the pair is best seen from the left **or** from the right. Keeping
+/// only pairs that are best from both sides would hide a real fan-in — two
+/// upstream nets whose best downstream net is one and the same are one
+/// component, and the card calls that `merge`, not two separate carries.
+///
+/// A tie is never broken. That is O10's ruling, and the one place this differs
+/// from [`crate::instant::world::net_deltas`], the overlap function's other
+/// caller: a diff must produce exactly one answer, so it settles its ties.
+fn join_by_member_set(
+    hk: &HopKind,
+    left: &[Obj],
+    right: &[Obj],
+) -> (Vec<(u8, String, Value)>, BTreeMap<&'static str, usize>) {
+    let (l, r) = (left.len(), right.len());
+    let score = |i: usize, j: usize| member_overlap(&left[i].members, &right[j].members);
+    let best_l: Vec<usize> = (0..l)
+        .map(|i| (0..r).map(|j| score(i, j)).max().unwrap_or(0))
+        .collect();
+    let best_r: Vec<usize> = (0..r)
+        .map(|j| (0..l).map(|i| score(i, j)).max().unwrap_or(0))
+        .collect();
+
+    // Union-find over `left ++ right`, so an edge read in either direction lands
+    // in one component. Every loop below scans ascending indices, so the
+    // partition is a function of the input and not of any iteration order
+    // (build-design 3.7, discipline 0).
+    let mut parent: Vec<usize> = (0..l + r).collect();
+    fn find(parent: &mut [usize], mut x: usize) -> usize {
+        while parent[x] != x {
+            parent[x] = parent[parent[x]];
+            x = parent[x];
+        }
+        x
+    }
+    for i in 0..l {
+        for j in 0..r {
+            let s = score(i, j);
+            if s > 0 && (s == best_l[i] || s == best_r[j]) {
+                let (a, b) = (find(&mut parent, i), find(&mut parent, l + j));
+                if a != b {
+                    parent[a] = b;
+                }
+            }
+        }
+    }
+
+    // Components come out in the order of their first member, lefts first, so
+    // the grouping is as stable as the segment views it is built from.
+    let mut groups: Vec<(Vec<usize>, Vec<usize>)> = Vec::new();
+    let mut slot: BTreeMap<usize, usize> = BTreeMap::new();
+    for node in 0..l + r {
+        let root = find(&mut parent, node);
+        let idx = *slot.entry(root).or_insert_with(|| {
+            groups.push((Vec::new(), Vec::new()));
+            groups.len() - 1
+        });
+        if node < l {
+            groups[idx].0.push(node);
+        } else {
+            groups[idx].1.push(node - l);
+        }
+    }
+    classify_components(hk, left, right, groups)
+}
+
+/// The six words plus the two diagnostic states, all at zero.
+///
+/// The words are always all present so a summary line can never omit a class by
+/// having none of it; the diagnostic states are carried along so a hop with
+/// nothing to refuse reads as zero rather than as an absent key.
+fn zero_classes() -> BTreeMap<&'static str, usize> {
+    SIX_WORDS
+        .iter()
+        .chain(DIAG_WORDS)
+        .map(|w| (*w, 0))
+        .collect()
+}
+
+/// Count one class in a per-kind tally.
+fn bump(classes: &mut BTreeMap<&'static str, usize>, class: &'static str) {
+    *classes.entry(class).or_default() += 1;
+}
+
+/// Split one segment's items into the objects of one kind and the leftovers.
+///
+/// Two kinds of leftover, counted apart because they are different statements:
+/// an object of a declared kind that holds no key (counted here), and an object
+/// of a class no declaration names (counted by [`build_hop`], which sees both
+/// sides). The first is about the object, the second about the hop.
+fn partition(
+    items: &[Value],
+    declared: &[&'static str],
+    hk: &HopKind,
+    seg: &'static str,
+    keyless: &mut BTreeMap<String, usize>,
+    out: &mut Vec<(u8, String, Value)>,
+) -> (Vec<Obj>, usize) {
+    let mut objs = Vec::new();
+    let mut total = 0usize;
+    for item in items {
+        let Some(class) = item["class"].as_str() else {
+            continue;
+        };
+        if !declared.contains(&class) {
+            continue;
+        }
+        total += 1;
+        match obj_of(item, hk, seg) {
+            Ok(o) => objs.push(o),
+            Err(Unnamed::Keyless) => *keyless.entry(format!("{seg}.{class}")).or_default() += 1,
+            Err(Unnamed::Branch) => {
+                // O9: a path whose two ends are not both named does not enter
+                // the join. It is reported where it stands rather than as a
+                // loss — nothing downstream is missing, a key is.
+                let o = branch_obj(item, hk, seg);
+                push_item(out, "branch", &o, &[], &[], BRANCH_NOTE.to_string());
+            }
+        }
+    }
+    (objs, total)
+}
+
+/// The object a `branch` row describes: one that exists and has no handle, so
+/// everything a key would have supplied is absent and the row says so.
+fn branch_obj(item: &Value, hk: &HopKind, seg: &'static str) -> Obj {
+    Obj {
+        kind: hk.kind,
+        seg,
+        stage_class: item["class"].as_str().unwrap_or("-").to_string(),
+        key: None,
+        members: Vec::new(),
+        handle: String::new(),
+        text: own_text(item),
+        loc: item["loc"].clone(),
+        sort: own_text(item),
+    }
+}
+
+/// The object's own spelling: the path its view gave it when it has one, else
+/// the name — with the within-net position for a drawn segment, which is one run
+/// of a net and whose label alone is shared with every other run of it.
+///
+/// Used for the objects whose handle is not a name: a path (§2.4) and a `branch`
+/// (no handle at all). A row therefore prints what the object is called where it
+/// lives, and the handle stays in the `key` and `to` cells.
+fn own_text(item: &Value) -> String {
+    let base = ["path", "net", "name"]
+        .iter()
+        .find_map(|k| item[*k].as_str())
+        .unwrap_or("-");
+    match item["index"].as_u64() {
+        Some(i) => format!("{base}#{i}"),
+        None => base.to_string(),
+    }
+}
+
+/// Join a hop's two views: one traversal of each, one item per object.
+fn build_hop(hop: &Hop, left: &StageView, right: &StageView) -> StageView {
+    let mut items: Vec<(u8, String, Value)> = Vec::new();
+    let mut classes: BTreeMap<&'static str, usize> = SIX_WORDS
+        .iter()
+        .chain(DIAG_WORDS)
+        .map(|w| (*w, 0))
+        .collect();
+    let mut keyless: BTreeMap<String, usize> = BTreeMap::new();
+    let mut by_kind = serde_json::Map::new();
+
+    // Classes no kind on that side declares. Counted per class so the second
+    // line's number can always be read back off the rows around it: on the
+    // fixture these are `bus` and `label` in p2 (they own no physical point,
+    // §2.4), `projection` in vec (the projection's own log) and `metrics` in viz
+    // (the quality reports) — containers, logs and reports, none of them a chain
+    // object at these hops.
+    let mut offhop: BTreeMap<String, usize> = BTreeMap::new();
+    let mut by_class: BTreeMap<(bool, String), usize> = BTreeMap::new();
+    for (side, view) in [(false, left), (true, right)] {
+        for item in &view.items {
+            let class = item["class"].as_str().unwrap_or("-").to_string();
+            let declared = hop
+                .kinds
+                .iter()
+                .any(|hk| if side { hk.right } else { hk.left }.contains(&class.as_str()));
+            *by_class.entry((side, class.clone())).or_default() += 1;
+            if !declared {
+                let seg = if side { hop.right } else { hop.left };
+                *offhop.entry(format!("{seg}.{class}")).or_default() += 1;
+            }
+        }
+    }
+    let tally = |m: &BTreeMap<(bool, String), usize>, right: bool| -> Value {
+        Value::Object(
+            m.iter()
+                .filter(|((s, _), _)| *s == right)
+                .map(|((_, c), n)| (c.clone(), json!(n)))
+                .collect(),
+        )
+    };
+
+    for hk in hop.kinds {
+        let (l, lt) = partition(&left.items, hk.left, hk, hop.left, &mut keyless, &mut items);
+        let (r, rt) = partition(
+            &right.items,
+            hk.right,
+            hk,
+            hop.right,
+            &mut keyless,
+            &mut items,
+        );
+        let (kind_items, kj) = join_kind(hk, &l, &r);
+        items.extend(kind_items);
+        for (word, n) in &kj.classes {
+            *classes.entry(word).or_default() += n;
+        }
+        by_kind.insert(
+            hk.kind.to_string(),
+            json!({
+                "left": lt,
+                "right": rt,
+                "joined_left": kj.joined_left,
+                "joined_right": kj.joined_right,
+                "classes": Value::Object(
+                    kj.classes
+                        .iter()
+                        .filter(|(_, n)| **n > 0)
+                        .map(|(w, n)| ((*w).to_string(), json!(n)))
+                        .collect(),
+                ),
+            }),
+        );
+    }
+
+    items.sort_by(|a, b| (a.0, &a.1).cmp(&(b.0, &b.1)));
+
+    let mut counts = serde_json::Map::new();
+    for word in print_order() {
+        counts.insert(word.to_string(), json!(classes[word]));
+    }
+    counts.insert("by_kind".into(), Value::Object(by_kind));
+    counts.insert("offhop".into(), string_tally(&offhop));
+    counts.insert("keyless".into(), string_tally(&keyless));
+    counts.insert("offhop_total".into(), json!(offhop.values().sum::<usize>()));
+    counts.insert(
+        "keyless_total".into(),
+        json!(keyless.values().sum::<usize>()),
+    );
+    counts.insert("by_class_left".into(), tally(&by_class, false));
+    counts.insert("by_class_right".into(), tally(&by_class, true));
+    counts.insert("left_total".into(), json!(left.items.len()));
+    counts.insert("right_total".into(), json!(right.items.len()));
+
+    StageView::with_view(
+        hop.view,
+        &left.top,
+        items.into_iter().map(|(_, _, v)| v).collect(),
+        Value::Object(counts),
+    )
+}
+
+fn string_tally(m: &BTreeMap<String, usize>) -> Value {
+    Value::Object(m.iter().map(|(k, v)| (k.clone(), json!(v))).collect())
+}
+
+/// One row per object.
+///
+/// `from` and `to` are the matched objects' handles, so a row always names what
+/// it matched: a `merge` its member set, an `ambiguous` the tie it refused to
+/// break. A keyed kind carries its key; a kind matched by a derived criterion
+/// carries none, because it has none (§2.4).
+#[allow(clippy::too_many_arguments)]
+fn push_item(
+    out: &mut Vec<(u8, String, Value)>,
+    class: &'static str,
+    o: &Obj,
+    from: &[String],
+    to: &[String],
+    why: String,
+) {
+    let handles = |v: &[String]| Value::Array(v.iter().cloned().map(Value::String).collect());
+    out.push((
+        rank_of(class),
+        format!("{}\u{1}{}", o.kind, o.sort),
+        json!({
+            "class": class,
+            "kind": o.kind,
+            "side": o.seg,
+            "stage_class": o.stage_class,
+            "key": o.key.clone().map(Value::String).unwrap_or(Value::Null),
+            "text": o.text.clone(),
+            "loc": o.loc,
+            "from": handles(from),
+            "to": handles(to),
+            "why": why,
+        }),
+    ));
 }
