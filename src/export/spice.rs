@@ -54,7 +54,13 @@ pub fn build_spice(
         &mut netmap,
     );
 
-    let mut inst_nodes: HashMap<String, BTreeSet<String>> = HashMap::new();
+    // A `BTreeMap`, not a `HashMap`: this map's iteration order *is* the order
+    // of the `X<name> <net> <net>` lines below, and a `HashMap` draws its order
+    // fresh per process, so exporting one design twice produced two different
+    // netlists (build-design §3.7 discipline 4 — a product's order must be
+    // determined by the input alone). Every other exporter in this module
+    // already keys on a `BTreeMap` (`netmap` above, and all of `bom` / `kicad`).
+    let mut inst_nodes: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
 
     for (net_name, points) in &netmap {
         if net_name == "NC" || crate::instant::mc_net::is_anon_net_name(net_name) {
