@@ -26,7 +26,6 @@ pub fn build_spice(
 ) -> (String, Value, usize) {
     let mut out = String::new();
     out.push_str(&format!("* SPICE netlist: top={}\n", top));
-    out.push_str(&format!("* Generated: {}\n\n", super::chrono_like_now()));
     out.push_str(&format!(".SUBCKT {}\n", top));
 
     let mut name_to_class: HashMap<String, String> = HashMap::new();

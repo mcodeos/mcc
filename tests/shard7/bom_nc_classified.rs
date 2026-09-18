@@ -165,10 +165,16 @@ fn bom_nc__text_and_csv_carry_the_marker() {
     let lines: Vec<&str> = text.lines().collect();
 
     assert_eq!(lines[0], "# BOM: top=main");
-    assert!(
-        lines[2].contains("class") && lines[2].contains("nc") && lines[2].contains("count"),
-        "the header line gained the nc column: {}",
-        lines[2]
+    // Found by content first, then pinned by position: the frame is two lines
+    // (title, column header), and an index alone would report the frame's shape
+    // while saying nothing about the nc column.
+    let header = lines
+        .iter()
+        .position(|l| l.contains("class") && l.contains("nc") && l.contains("count"))
+        .unwrap_or_else(|| panic!("no line names the nc column: {text}"));
+    assert_eq!(
+        header, 1,
+        "the header line is the one right after the title: {text}"
     );
     let fitted = lines
         .iter()

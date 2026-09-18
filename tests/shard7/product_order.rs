@@ -26,14 +26,12 @@
 //!   `result_id` no longer picks an entry at all — it is the content fingerprint
 //!   of the payload it is sent with, `dedup_id_coverage.rs`, CIMP §1 U94.)
 //!
-//! ⚠ **What this does and does not assert.** Some of these products stamp the
-//! moment they were written (`# Generated: epoch=…` / `* Generated: …` /
-//! `(date "epoch=…")`). A clock is not a traversal order and does not violate
-//! discipline 4, which asks for a *total order*, not for byte-identity — but it
-//! does defeat byte-reconciliation on those files, and whether an export should
-//! carry its generation time is a separate, open question (CIMP §1 U92). So the
-//! clock line is **masked, not asserted away**: this file locks the ordering
-//! property it is about, and does not quietly bless the clock by demanding it.
+//! ⚠ **Four products used to stamp the moment they were written** (`# Generated:
+//! epoch=…` / `* Generated: …` / `(date "epoch=…")`), which is not a traversal
+//! order and did not violate discipline 4 — but it did defeat byte-reconciliation
+//! on exactly those files. CIMP §1 U92 ruled the stamp out, so this file now
+//! compares the products **as they are**: there is nothing left to mask, and the
+//! comparisons below are whole-file. A reintroduced clock fails them.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -73,17 +71,6 @@ fn run_mcc(cwd: &Path, args: &[&str]) -> (String, String, bool) {
         String::from_utf8_lossy(&out.stderr).to_string(),
         out.status.success(),
     )
-}
-
-/// Drop the generation-time line, so the comparison is about order and content.
-///
-/// Every form the four stamping products use is listed: a missing one would not
-/// fail the test loudly, it would make the test pass for the wrong reason.
-fn without_clock(s: &str) -> String {
-    s.lines()
-        .filter(|l| !(l.contains("Generated: epoch=") || l.contains("(date \"epoch=")))
-        .collect::<Vec<_>>()
-        .join("\n")
 }
 
 /// Every export kind, both faces where a product has two.
@@ -128,8 +115,8 @@ fn every_export_product_is_the_same_file_twice() {
         );
 
         assert_eq!(
-            without_clock(&first),
-            without_clock(&second),
+            first,
+            second,
             "`mcc {}` gave two different products for one input — its order is not \
              determined by the input (build-design §3.7 discipline 4)",
             argv.join(" ")
@@ -159,7 +146,7 @@ fn the_spice_netlist_order_survives_repeated_runs() {
     for _ in 0..RUNS {
         let (out, err, ok) = run_mcc(&cwd, &["export", "spice", t]);
         assert!(ok, "`export spice` failed: {err}");
-        products.push(without_clock(&out));
+        products.push(out);
     }
 
     // The emitter's lines are `X<instance> <net> <net>`; `.SUBCKT` / `.END` are
@@ -402,6 +389,47 @@ fn the_pin_id_order_is_total() {
             } else {
                 assert_ne!(ab, std::cmp::Ordering::Equal, "`{a}` and `{b}` tie");
             }
+        }
+    }
+}
+
+/// No export product carries the moment it was written (CIMP §1 U92).
+///
+/// The ruling is that a product is a function of its input, so the check is
+/// positive: the stamp must be **absent**, not filtered out by a reader. A
+/// reader-side mask is what this file used to do, and a mask cannot tell "the
+/// stamp is gone" from "the stamp moved somewhere the mask does not look".
+///
+/// The four forms are the ones the emitters carried: `# Generated: epoch=` on
+/// `netlist` and `bom`, `* Generated:` on `spice`, and a `(date "epoch=…")`
+/// clause inside kicad's `(design …)` form.
+#[test]
+fn no_export_product_carries_a_generation_time() {
+    let cwd = scratch("export-noclock");
+    let target = hbl_dir();
+    let t = target.to_str().expect("fixture path");
+
+    const FORMS: &[&str] = &["Generated:", "(date "];
+    for args in PRODUCTS {
+        let mut argv: Vec<&str> = args.to_vec();
+        argv.push(t);
+
+        let (out, err, ok) = run_mcc(&cwd, &argv);
+        assert!(ok, "`mcc {}` failed: {err}", argv.join(" "));
+        assert!(
+            out.len() > 200,
+            "`mcc {}` produced {} bytes — too small to be the product under test",
+            argv.join(" "),
+            out.len()
+        );
+        for form in FORMS {
+            assert!(
+                !out.contains(form),
+                "`mcc {}` still stamps `{form}`; CIMP §1 U92 ruled the generation \
+                 time out, because it is the one thing in the product the input does \
+                 not determine",
+                argv.join(" ")
+            );
         }
     }
 }
