@@ -46,29 +46,63 @@ mcc show module ModuleName
 
 ## Commands
 
+25 subcommands, grouped by what they operate on. `mcc <cmd> --help` is authoritative;
+the offline manual lives in the sibling docs repo (`mcd/doc/cli/manual.md`).
+
+**Source editing loop**
+
 | Command | Description |
 |---------|-------------|
 | `parse` | Parse and display the AST of an MC design |
 | `check` | Run syntax and semantic analysis |
-| `extract` | Extract various targets (components, modules, etc.) |
-| `show` | Display detailed information about components/modules |
-| `search` | Text / regex / fuzzy search across definitions |
-| `query` | Structured DSL query across definitions |
-| `export` | Generate netlist / BOM / SPICE / KiCad outputs |
-| `build` | Manifest-driven build (loads dependencies + all passes) |
-| `lib` | Manage system libraries (list/install/load/unload) |
-| `proj` | Create and manage project workspaces |
+| `build` | Manifest-driven build (loads dependencies + Pass1 + Pass2) |
+
+**Electrical checks**
+
+| Command | Description |
+|---------|-------------|
+| `erc` | Electrical rule check — single-point nets, unconnected ports, etc. |
+| `rules` | Check-rule registry catalog (list / detail / severity / allow / accept) |
+
+**Reading a projection**
+
+| Command | Description |
+|---------|-------------|
+| `show` | Show a definition or its internals (pins/ports/nets/funcs/params/...), or a pipeline stage |
+| `list` | List top-level definition names (component/module/interface/enum/nets/ports/files) |
+| `query` | Query definitions by DSL expression or by name (`search` is an alias) |
+| `join` | Join two adjacent pipeline segments by key and report every mismatch |
+| `trace` | Follow one key along the whole chain (source → AST → three circuit segments) |
+| `diff` | Compare two readings of one view and report what changed |
+
+**Navigation**
+
+| Command | Description |
+|---------|-------------|
+| `def` | Go-to-definition for a symbol |
+| `refs` | Find all references to a symbol |
+| `explain` | Explain an error code |
+| `impact` | Blast radius of changing one def (which tops, nets, consumers) |
+
+**Producing and reading back artifacts**
+
+| Command | Description |
+|---------|-------------|
+| `export` | Export netlist / BOM / SPICE (text\|csv\|json) |
+| `import` | Read an EDA artifact back and report how it differs from the current world |
+
+**Session, library and scaffolding**
+
+| Command | Description |
+|---------|-------------|
+| `lib` | System library management (list / install / load / unload / show / search / uninstall) |
+| `proj` | Project workspace management (create) |
 | `start` | Start the MCC server for interactive use |
 | `stop` | Stop the MCC server |
 | `status` | View server status |
 | `config` | Manage configuration settings |
-| `def` | Go-to-definition lookup by name |
-| `refs` | Find references by name |
-| `erc` | Electrical rule check |
-| `convert` | Convert a .mc file to JSON/YAML |
-| `report` | Generate a design report |
-| `explain` | Explain an error code |
-| `caps` | Self-describing capabilities |
+| `caps` | Show compiler capabilities — self-describing API for AI |
+| `fmt` | Format `.mc` sources in place (whitespace only; token text is never touched) |
 
 ## Architecture
 
