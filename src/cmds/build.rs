@@ -13,7 +13,7 @@
 //! (definitions / instance tree / connections / nets / net summary), and
 //! `--format json/yaml` serializes the envelope. The text renderer is
 //! data-driven (reads only the envelope), so `-f text` output is identical
-//! local ↔ server. The design contract (manual-v2) is that command and
+//! local ↔ server. The design contract (mcd `doc/cli/manual.md`) is that command and
 //! output are fully identical, so the RPC result is realigned to the local
 //! command/workspace and emitted with the identical renderer.
 //!
