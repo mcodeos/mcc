@@ -642,6 +642,60 @@ pub struct ListArgs {
     #[arg(long, value_name = "EXPR")]
     pub filter: Option<String>,
 
+impl ShowTarget {
+    /// Canonical sub-face token, as typed on the command line.
+    ///
+    /// Shared by clap's value parsing (the variant names are the tokens, with no
+    /// `#[value(name = …)]` override anywhere in the enum) and by the emitted
+    /// envelope's `command` — `mcc show <token>` — which is the **only**
+    /// discriminator among the 21 sub-faces sharing the `show` projection key:
+    /// 16 of their payloads carry no `type` field of their own. One table, so a
+    /// new sub-face cannot land a token in one place and not the other; the
+    /// pairing is asserted by the test below.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::All => "all",
+            Self::Defs => "defs",
+            Self::Component => "component",
+            Self::Module => "module",
+            Self::Interface => "interface",
+            Self::Enum => "enum",
+            Self::Net => "net",
+            Self::Dianlu => "dianlu",
+            Self::Pwr => "pwr",
+            Self::Pwrflow => "pwrflow",
+            Self::Lapper => "lapper",
+            Self::Ast => "ast",
+            Self::Stage => "stage",
+            Self::Pins => "pins",
+            Self::Ports => "ports",
+            Self::Labels => "labels",
+            Self::Instances => "instances",
+            Self::Nets => "nets",
+            Self::Attrs => "attrs",
+            Self::Funcs => "funcs",
+            Self::Params => "params",
+            Self::Roles => "roles",
+            Self::Values => "values",
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// [`ShowTarget::name`] must return the token clap accepts, because the
+    /// envelope's `command` is built from it and consumers key off that string.
+    #[test]
+    fn show_target_name_matches_the_clap_token() {
+        for t in ShowTarget::value_variants() {
+            let clap = t.to_possible_value().expect("every variant is a value");
+            assert_eq!(t.name(), clap.get_name(), "sub-face token drift");
+        }
+    }
+}
+
     /// Definition layers for `list all` (same policy as `show all`):
     /// file (default) | use | system | all. Accepted for the other targets
     /// but ignored.

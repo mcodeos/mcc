@@ -109,6 +109,7 @@ impl ResultBuilder {
             super::ProjectionKey::Refs => &mut self.result.refs,
             super::ProjectionKey::Explain => &mut self.result.explain,
             super::ProjectionKey::List => &mut self.result.list,
+            super::ProjectionKey::Show => &mut self.result.show,
         };
         *slot = Some(payload);
         self
