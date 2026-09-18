@@ -109,7 +109,7 @@ impl ValidationCheck for DuplicateCmieCheck {
 
             for (kind, uris) in &kind_uris {
                 // Filter out test files and AI dry-run overlays. An overlay
-                // (`/mcc/check_N.mc`) is a candidate *replacement* for a file in
+                // (`/mcc/check.mc`) is a candidate *replacement* for a file in
                 // the workspace, not a second definition — it must not trip the
                 // cross-file duplicate check against the file it will replace.
                 let non_test: Vec<_> = uris
