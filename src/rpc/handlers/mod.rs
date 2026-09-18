@@ -594,8 +594,9 @@ fn run_full_build_dir_envelope(
                     continue;
                 };
                 // Keep the first successful tree; the remaining files still
-                // build + flatten, but neither their owned parts nor their net
-                // checks are carried — `pass2` describes the entry it holds.
+                // build + flatten, and their net checks are carried as well
+                // (U95) — `pass2`'s tree describes the entry it holds, while
+                // `pass2.net_checks` covers every entry the folder built.
                 let pair =
                     build_dir_target(&tgt, file, &mut failures, first_inst.is_none(), &mut nets);
                 if first_inst.is_none() {
@@ -630,7 +631,7 @@ fn run_full_build_dir_envelope(
             "diagnostics": merged.pass2,
         }),
     };
-    // The carried entry's flat electrical net checks, in their own key (see the
+    // Every built entry's flat electrical net checks, in their own key (see the
     // single-file path above). Omitted when empty, matching the local face's
     // `skip_serializing_if`.
     if !nets.is_empty() {
@@ -665,11 +666,15 @@ fn run_full_build_dir_envelope(
 
 /// Build one target out of one file, flattening it so its flat net checks run.
 ///
-/// Returns the tree and its companions only when `keep_tree` — the envelope
-/// carries the first successful entry's tree, and the rest need no more than
-/// their diagnostics, so cloning their owned parts out of the circuit would be
-/// waste. A failure or a panic becomes a Pass 2 diagnostic keyed at `file` and
-/// is swallowed: one bad file must not abort the folder's report.
+/// The checks are appended to `nets` whatever `keep_tree` says: the folder's
+/// report covers every entry it built, in build order, and each row carries the
+/// `uri` of the file it is located in (U95 — the local folder face reports the
+/// same set). Returns the tree and its companions only when `keep_tree` — the
+/// envelope carries the first successful entry's tree, and the rest need no
+/// more than their diagnostics and checks, so cloning their owned parts out of
+/// the circuit would be waste. A failure or a panic becomes a Pass 2 diagnostic
+/// keyed at `file` and is swallowed: one bad file must not abort the folder's
+/// report.
 fn build_dir_target(
     target: &str,
     file: &Path,
@@ -698,10 +703,13 @@ fn build_dir_target(
         let dl = world
             .circuit(&key)
             .ok_or_else(|| format!("dir build produced no circuit for {target}"))?;
-        // `pass2` describes one circuit — the one the envelope carries — so the
-        // net-check rows are that circuit's, on the local face too.
+        // Every entry's own flat net checks ride in the envelope, in build
+        // order (U95). `keep_tree` decides only whether this entry's owned
+        // parts are cloned out as the circuit the envelope describes.
+        nets.extend(crate::semantic::validation::nets::net_check_rows(
+            dl.net_results(),
+        ));
         if keep_tree {
-            *nets = crate::semantic::validation::nets::net_check_rows(dl.net_results());
             Ok::<_, Box<dyn std::error::Error>>(Some((
                 dl.tree().clone(),
                 dl.arena().clone(),
