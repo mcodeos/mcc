@@ -198,6 +198,13 @@ fn main() -> ExitCode {
     match dispatch(cli) {
         Ok(code) => code,
         Err(e) => {
+            // The failure face of `-f json`: one envelope carrying the `error`
+            // arm, so stdout parses on a failed run too. Every command's `Err`
+            // funnels through here, which is why this is one call and not one
+            // per command. Text mode is a no-op — the line below is unchanged.
+            if let Err(inner) = output::emit_failure_envelope(&format!("{:#}", e)) {
+                eprintln!("warning: failed to emit the failure envelope: {inner}");
+            }
             eprintln!("error: {:#}", e);
             ExitCode::FAILURE
         }

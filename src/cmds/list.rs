@@ -10,6 +10,7 @@
 
 use crate::cmds::filter;
 use crate::cmds::show::{classify_def_scope, nets_map, output, resolve_file, resolve_scopes};
+use crate::output::die;
 use crate::output::{emit_projection, OutputFormatExt, ProjectionKey};
 use anyhow::Result;
 use mcc::cli::{rpcclient::RpcClient, ListArgs, ListTarget, OutputFormat};
@@ -17,7 +18,6 @@ use mcc::McURI;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::path::Path;
-use tracing::error;
 
 pub fn run(args: &ListArgs) -> Result<()> {
     // Server path: the list kinds map 1:1 to the legacy `show.*.list` RPC
@@ -178,8 +178,11 @@ fn list_nets(_args: &ListArgs) -> Result<()> {
         .clone()
         .or_else(mcc::mcb_get_first_module_name)
         .unwrap_or_else(|| {
-            error!(target: "mcc::list", "no modules found\nhint: load a file with -F or use --top");
-            std::process::exit(1);
+            die!(
+                "mcc::list",
+                1,
+                "no modules found\nhint: load a file with -F or use --top"
+            );
         });
     let nets = nets_map(&top);
     let items: Vec<Value> = nets
