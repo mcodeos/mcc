@@ -249,6 +249,102 @@ fn the_lapper_readout_is_the_same_file_twice() {
     assert_eq!(keys, sorted, "`def_to_refs` is not in key order");
 }
 
+/// The `=== Electrical Net Checks` section of a stderr stream, verbatim.
+///
+/// The section is the report: `output::net_check::render_section` prints the
+/// rows `run_net_checks` handed over, **in that order** — the rows are not
+/// re-sorted anywhere between the rule and the console. Both faces of it
+/// (`mcc check --nets` and a local `mcc build`) go through that one renderer,
+/// so this is the whole product for the purpose of an order rule.
+fn erc_section(stderr: &str) -> String {
+    stderr
+        .lines()
+        .skip_while(|l| !l.starts_with("=== Electrical Net Checks"))
+        .map(|l| format!("{l}\n"))
+        .collect()
+}
+
+/// The ERC report is the same report twice.
+///
+/// The power-intent rules under `semantic/validation/nets/` are where this is
+/// easiest to get wrong: several of them count into a `HashMap` and then walk
+/// it to emit one row per entry, which makes the report's row order a property
+/// of the process. Two processes, one input, whole section — a stable count
+/// with shuffled rows is exactly the failure this has to see.
+#[test]
+fn the_erc_report_is_the_same_report_twice() {
+    const MIN_ROWS: usize = 20;
+
+    let cwd = scratch("erc-order");
+    let target = hbl_dir();
+    let t = target.to_str().expect("fixture path");
+
+    let mut reports = Vec::new();
+    for _ in 0..3 {
+        // The exit code is not this test's business: the fixture carries
+        // error-level rows, which is what makes it a useful subject.
+        let (_, err, _) = run_mcc(&cwd, &["check", "--nets", t]);
+        reports.push(erc_section(&err));
+    }
+
+    let rows = reports[0].lines().filter(|l| l.starts_with("  [")).count();
+    assert!(
+        rows >= MIN_ROWS,
+        "the fixture's ERC report has {rows} rows, below the {MIN_ROWS} this \
+         lock's reasoning needs"
+    );
+
+    for (i, r) in reports.iter().enumerate().skip(1) {
+        assert_eq!(
+            &reports[0], r,
+            "`mcc check --nets` run 0 and run {i} report the same findings in a \
+             different order — the report's row order comes from a container the \
+             input does not order (build-design §3.7 discipline 4)"
+        );
+    }
+}
+
+/// The drawn circuit is the same file twice.
+///
+/// Rendering has a history here — the root layer was nondeterministic twice
+/// over — but the drawn product itself had no byte-level lock: the golden
+/// readings under `tests/golden/` are **ordered set** readouts (rect/line and
+/// text collections), not the file. Two processes, one input, whole file.
+#[test]
+fn the_drawn_circuit_is_the_same_file_twice() {
+    const MIN_BYTES: usize = 10_000;
+
+    let cwd = scratch("viz-cross-process");
+    let target = hbl_dir().join("src/hbl.mc");
+    let t = target.to_str().expect("fixture path");
+    let product = cwd.join("circuit.html");
+
+    let mut drawings = Vec::new();
+    for _ in 0..2 {
+        let _ = std::fs::remove_file(&product);
+        // `build` reports failure on this fixture (it carries error-level net
+        // checks) while still writing the drawing — the exit code is not what
+        // is under test.
+        let _ = run_mcc(&cwd, &["build", t, "--viz"]);
+        drawings.push(
+            std::fs::read(&product)
+                .unwrap_or_else(|e| panic!("`build --viz` wrote no {}: {e}", product.display())),
+        );
+    }
+
+    assert!(
+        drawings[0].len() >= MIN_BYTES,
+        "the drawing is {} bytes, below the {MIN_BYTES} this lock's reasoning \
+         needs — an empty or truncated product would compare equal vacuously",
+        drawings[0].len()
+    );
+    assert_eq!(
+        drawings[0], drawings[1],
+        "`mcc build --viz` drew two different files for one input — the drawing \
+         is not a function of the design (build-design §3.7 discipline 4)"
+    );
+}
+
 /// Every pin list in a payload, found structurally: an array whose elements are
 /// all objects carrying a string `id` and a string `name`.
 ///

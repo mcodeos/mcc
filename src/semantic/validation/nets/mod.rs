@@ -2233,7 +2233,13 @@ pub(crate) fn check_protective_multi_bridge(table: &InstTable, results: &mut Vec
                 }
             }
         }
-        for (name, spans) in inc {
+        // Emits one row per counted name, in `inc` order - so the order has to
+        // come from the input, not from the process (build-design §3.7
+        // discipline 4). A `HashMap` draws its iteration order fresh per run;
+        // sorting by the name makes it the input's.
+        let mut counted: Vec<(String, Vec<u32>)> = inc.into_iter().collect();
+        counted.sort_by(|a, b| a.0.cmp(&b.0));
+        for (name, spans) in counted {
             if spans.len() < 2 {
                 continue;
             }
@@ -2389,7 +2395,13 @@ pub(crate) fn check_reference_island_root(table: &InstTable, results: &mut Vec<N
                 witness.entry(ra).or_insert(span);
             }
         }
-        for (root, members) in &comp {
+        // One row per component, emitted in this order - so the order has to be
+        // the input's, not a `HashMap`'s per-process draw (build-design §3.7
+        // discipline 4). `members` is built in ascending index order, so its
+        // first element orders the components by source position.
+        let mut comps: Vec<(usize, Vec<usize>)> = comp.into_iter().collect();
+        comps.sort_by_key(|(_, members)| members[0]);
+        for (root, members) in &comps {
             if members.len() < 2 {
                 continue; // lone identity with no ref-ref DC leg is not an island
             }
@@ -2747,10 +2759,20 @@ pub(super) struct DeclEdge {
 /// denotes that member, so the pair also carries the identity `DC:GND` its pad
 /// net carries. PI-2 / SN-2 keep the written spelling; 6022 pairs on the
 /// identity ([`pair_matches`]).
+///
+/// Keyed by module id in a `BTreeMap`, not a `HashMap`. Three of the four
+/// consumers — `bridge::check_bridge_load_decoupling` (PI-2),
+/// `shared_return::check_shared_return_bridge` (SN-2) and
+/// `subface::check_filter_subface_overreach` (PI-4) — flatten this map into
+/// their candidate list and then emit one row per candidate, so its iteration
+/// order reaches the report's row order and has to be the input's, not the
+/// process's (build-design §3.7 discipline 4). The fourth,
+/// [`check_return_leg_undeclared`], only predicates on the collected hits and
+/// is order-insensitive either way.
 pub(super) fn declared_dc_edges(
     table: &InstTable,
-) -> std::collections::HashMap<u32, Vec<DeclEdge>> {
-    let mut out: std::collections::HashMap<u32, Vec<DeclEdge>> = std::collections::HashMap::new();
+) -> std::collections::BTreeMap<u32, Vec<DeclEdge>> {
+    let mut out: std::collections::BTreeMap<u32, Vec<DeclEdge>> = std::collections::BTreeMap::new();
     for (id, pi) in table.power_decls() {
         let is_module = table
             .get_entry(*id)
@@ -3251,7 +3273,14 @@ pub(crate) fn check_device_return_span(table: &InstTable, results: &mut Vec<NetC
         if classes.len() < 2 {
             continue; // single return class — nothing crosses a plane
         }
-        let list: Vec<DeviceReturnClass> = classes.into_values().collect();
+        // The pair loops below push one row per unordered pair in `list` order,
+        // so `list` order *is* the order of this rule's rows. A `HashMap` draws
+        // its iteration order fresh per process, which would make that order -
+        // and with it the report's row order - a property of the process rather
+        // than of the input (build-design §3.7 discipline 4). Sorting by the
+        // class id makes it the input's.
+        let mut list: Vec<DeviceReturnClass> = classes.into_values().collect();
+        list.sort_by(|a, b| a.id.cmp(&b.id));
         // Judge pairs only within one owning scope; a device whose return pins
         // straddle modules is a boundary-tie matter, not a die merge.
         if list.iter().any(|c| c.ma != list[0].ma) {

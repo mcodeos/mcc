@@ -85,7 +85,9 @@ fn spice() -> (String, usize) {
 }
 
 /// The one row for `device` (`{prefix}{name} {net} {net}`), matched by device
-/// name because row order is a `HashMap`'s.
+/// name: these tests are about the letter prefix and the pads, not the file's
+/// line order — that is `tests/shard7/product_order.rs`'s subject, and the
+/// emitter keys on a `BTreeMap` so the order is the input's.
 fn row<'a>(text: &'a str, device: &str) -> &'a str {
     text.lines()
         .find(|line| line.starts_with(device) && line.as_bytes().get(device.len()) == Some(&b' '))
