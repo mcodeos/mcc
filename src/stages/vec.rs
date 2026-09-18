@@ -64,6 +64,8 @@ pub fn build_vec(
             "path": format!("{layer}/nets"),
             "canon_key": Value::Null,
             "layer": layer,
+            "net": Value::Null,
+            "endpoint": Value::Null,
             "rule": "-",
             "before": before,
             "after": after,
@@ -72,6 +74,14 @@ pub fn build_vec(
         }));
     }
     for r in &log.records {
+        // `net` and `endpoint` are published as fields of their own, not only as
+        // the two halves of `path`. A consumer comparing two readings has to
+        // state which row is which, and the alternative -- splitting `path`
+        // back apart -- would be recovering structure from a formatted string,
+        // which this project does not do. The net component in particular
+        // has to be readable on its own: a name the builder minted is not an
+        // identity, and a row keyed on one would claim a stability it does not
+        // have (`stages::net_origin`).
         items.push(json!({
             "class": "projection",
             "key": Value::Null,
@@ -79,6 +89,8 @@ pub fn build_vec(
             "path": format!("{}/{}/{}", r.layer, r.net, r.endpoint),
             "canon_key": Value::Null,
             "layer": r.layer,
+            "net": r.net,
+            "endpoint": r.endpoint,
             "rule": r.rule,
             "before": Value::Null,
             "after": Value::Null,

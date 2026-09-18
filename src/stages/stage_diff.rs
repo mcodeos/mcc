@@ -44,19 +44,19 @@
 //!
 //! # Which segments have a law
 //!
-//! `stage.viz` and `stage.p2` do. `stage.p1` does not, and the reason is not
-//! effort: it publishes **no items at all** (`items: []`, with its counts block
-//! reading `stmts: 0` -- the statement items the design gives it are still
-//! owed). A difference over two empty readings reports zero changes, and zero
-//! changes is indistinguishable from two identical readings on the readout
-//! face. A law whose every answer is "nothing differed" is worse than no law,
-//! so the segment waits for its items.
+//! `stage.viz`, `stage.p2` and `stage.vec` do. `stage.p1` does not, and the
+//! reason is not effort: it publishes **no items at all** (`items: []`, with its
+//! counts block reading `stmts: 0` -- the statement items the design gives it
+//! are still owed). A difference over two empty readings reports zero changes,
+//! and zero changes is indistinguishable from two identical readings on the
+//! readout face. A law whose every answer is "nothing differed" is worse than no
+//! law, so the segment waits for its items.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::{json, Value};
 
-use crate::stages::StageView;
+use crate::stages::{net_origin, NetOrigin, StageView};
 use crate::viz::stability::report::StabilityReport;
 
 /// Separator between key components. `\u{1}` cannot appear in a canonical path
@@ -75,6 +75,9 @@ pub const DIFF_VIZ_VIEW: &str = "diff.stage.viz";
 
 /// The same name for the flat electrical truth.
 pub const DIFF_P2_VIEW: &str = "diff.stage.p2";
+
+/// The same name for the vector graph.
+pub const DIFF_VEC_VIEW: &str = "diff.stage.vec";
 
 /// How many unchanged boxes a reading needs before the share of them that moved
 /// is worth reading at all: below this, "most of them moved" is one or two
@@ -518,31 +521,31 @@ pub const P2_LAW: Law = Law {
             class: "instance",
             key: canon_path_key,
             content: p2_content,
-            id: p2_id,
+            id: path_or_net_id,
         },
         ClassSpec {
             class: "bus",
             key: canon_path_key,
             content: p2_content,
-            id: p2_id,
+            id: path_or_net_id,
         },
         ClassSpec {
             class: "label",
             key: canon_path_key,
             content: p2_content,
-            id: p2_id,
+            id: path_or_net_id,
         },
         ClassSpec {
             class: "point",
             key: canon_path_key,
             content: p2_content,
-            id: p2_id,
+            id: path_or_net_id,
         },
         ClassSpec {
             class: "net",
             key: net_members,
             content: p2_content,
-            id: p2_id,
+            id: path_or_net_id,
         },
     ],
     net_refs: None,
@@ -581,13 +584,17 @@ fn p2_content(item: &Value) -> &'static [&'static str] {
 /// The handle printed on a change row: an item's canonical path, or for a net
 /// the authored name followed by its members.
 ///
+/// Shared by every law whose items carry a `path` -- which is all of them but
+/// the drawing's (its items spell their path inside `canon_key`), and a net row
+/// anywhere is the exception this handles.
+///
 /// A net's handle carries the members because they **are** its identity here, and
 /// a handle that is not the identity cannot tell two rows apart. Measured: the
 /// insert probe emits `remove net:GND` and `add net:GND` -- the same name on both
 /// sides, because the net did not change its name, it changed its members. Two
 /// rows the reader cannot tell apart is the one thing the header rule forbids for
 /// two worlds differing in a single character, and it is the same defect here.
-fn p2_id(item: &Value) -> Value {
+fn path_or_net_id(item: &Value) -> Value {
     if class(item) != "net" {
         return item.get("path").cloned().unwrap_or(Value::Null);
     }
@@ -619,10 +626,11 @@ fn has_authored_name(item: &Value) -> bool {
 /// **canonical paths**, so it survives a rebuild.
 ///
 /// The emitter's `key` is deliberately not used instead, even when it is there:
-/// measured on `hbl`, the two nets named `GND` -- one per scope -- both publish
-/// `net:GND`, so that field is a *name* rather than a key within a reading, and
-/// keying on it would put 32 of 59 net rows in `duplicate-key`. The name is
-/// compared as content, which is what makes a rename a `modify` rather than a
+/// measured on `hbl`, 32 of the 59 net rows carry a name but only 25 names are
+/// distinct -- seven of them (`net:GND`, `net:VCC_1V2`, ...) are each carried by
+/// two scopes -- so that field is a *name* rather than a key within a reading,
+/// and keying on it would leave 14 rows in seven `duplicate-key` pairs. The name
+/// is compared as content, which is what makes a rename a `modify` rather than a
 /// delete plus an add.
 ///
 /// The sort is idempotent with the emitter's (it already sorts), and it is here
@@ -655,6 +663,182 @@ fn net_member_paths(item: &Value) -> Option<Vec<String>> {
     }
     out.sort();
     Some(out)
+}
+
+// The `stage.vec` law
+
+/// The vector graph: the layers, the boxes in them, the endpoints on their
+/// nets, the trunks, the nets themselves, and the projection's own log.
+///
+/// This is the first segment whose objects are **not all instances** (design
+/// §2.4): a layer is a `bid`, a box an instance, an endpoint a pin, a net a
+/// member set, and a trunk owns no id at all. So this table is the first with
+/// three different key functions in it, one per kind of identity, rather than
+/// one path key with a net-shaped exception.
+///
+/// Its nets are items of their own -- keyed on the member set, exactly as
+/// `stage.p2` keys the same nets -- so like that segment it reads no nets off
+/// references and publishes no `nameless_net_pins`. And it draws no boxes in the
+/// drawing sense: a `box` here has no position at all, so there is nothing for a
+/// stability summary to measure and the law makes no such claim.
+pub const VEC_LAW: Law = Law {
+    view: DIFF_VEC_VIEW,
+    classes: &[
+        ClassSpec {
+            class: "box",
+            key: canon_path_key,
+            content: vec_content,
+            id: path_or_net_id,
+        },
+        ClassSpec {
+            class: "layer",
+            key: canon_path_key,
+            content: vec_content,
+            id: path_or_net_id,
+        },
+        ClassSpec {
+            class: "endpoint",
+            key: canon_path_key,
+            content: vec_content,
+            id: path_or_net_id,
+        },
+        ClassSpec {
+            class: "net",
+            key: net_members,
+            content: vec_content,
+            id: path_or_net_id,
+        },
+        ClassSpec {
+            class: "trunk",
+            key: item_path_key,
+            content: vec_content,
+            id: path_or_net_id,
+        },
+        ClassSpec {
+            class: "projection",
+            key: projection_key,
+            content: vec_content,
+            id: path_or_net_id,
+        },
+    ],
+    net_refs: None,
+    box_stability: false,
+};
+
+/// The fields compared for a matched pair of `stage.vec` items.
+///
+/// `key` (`D{n}`) and `point` (`N{n}:{k}`) are build-local ordinals here as
+/// everywhere, and `loc` is a source path; none of the three is compared. Three
+/// exclusions are this segment's own:
+///
+/// * An **endpoint's `net`** is the net's bare **name**, and on `hbl` 84 of the
+///   186 endpoints sit on a name the builder minted (`_net<k>`). Comparing it
+///   would read a renumbering -- which any insertion causes -- as that endpoint
+///   having moved. The membership it states is not lost: it is exactly what the
+///   net row's member list carries, and that list is the net row's key. This is
+///   the same exclusion `stage.p2` makes for a point's `net`, for the same
+///   measured reason.
+/// * A **trunk's `lanes`** are compared as a **set** ([`lane_pairs`]), because
+///   the lane index is assigned either from the source's bracket lane or, when
+///   the source gave none, from the member's position in the trunk.
+/// * A **projection record's `note`** is prose that embeds a builder id
+///   (`port_group_id`, resolved from the block structure), so comparing it would
+///   compare an ordinal assigned during construction. The row's identity and its
+///   rule are compared; its prose is not.
+fn vec_content(item: &Value) -> &'static [&'static str] {
+    match class(item) {
+        "box" => &["def", "name", "class_name", "kind", "pins", "layer"],
+        "layer" => &["def", "name", "style", "boxes", "nets", "root"],
+        "endpoint" => &["def", "pin", "io", "layer"],
+        // A net's own name, only when the emitter says the name is the
+        // source's -- the same test `stage.p2` makes, and the `origin`
+        // classification with it, since `source` / `segment` / `anonymous` is
+        // a three-valued reading and not a name.
+        "net" => {
+            if has_authored_name(item) {
+                &["name", "origin", "kind", "role", "endpoints", "layer"]
+            } else {
+                &["origin", "kind", "role", "endpoints", "layer"]
+            }
+        }
+        "trunk" => &["kind", "op", "dir", "lane_pairs"],
+        // The per-layer row's whole substance is the count pair; an action
+        // record's is its rule (its `path` is its key).
+        "projection" => {
+            if is_projection_layer_row(item) {
+                &["before", "after"]
+            } else {
+                &["rule"]
+            }
+        }
+        _ => &[],
+    }
+}
+
+/// The alignment key of an item whose identity is the `path` the emitter gave
+/// it. A trunk is the one class here that owns no id at all: design §2.4 says
+/// so in as many words -- "a trunk owns no id. Its name and its lanes are what
+/// it is" -- and the path is that name qualified by its layer. Measured unique
+/// within the reading on every board measured (16 of 16 on `hbl`, 16 of 16 on
+/// `hbl1`, 39 of 39 on `hs`); two trunks of one name in one layer is not a shape
+/// the emitter produces, and if it ever does, the core reports the collision
+/// rather than letting first arrival win.
+fn item_path_key(item: &Value) -> Option<String> {
+    let p = item.get("path").and_then(Value::as_str)?;
+    if p.is_empty() {
+        return None;
+    }
+    Some(p.to_string())
+}
+
+/// A projection row's key.
+///
+/// The emitter puts two structurally different rows under this one class: one
+/// per layer, carrying the net count before and after the projection, and one
+/// per action it took. The count pair is what tells them apart -- only the
+/// per-layer row carries it ([`is_projection_layer_row`]).
+///
+/// A per-layer row's identity is its layer. An action record's is the layer, the
+/// net and the endpoint it acted on, published as fields of their own for this
+/// reason: the row's identity cannot be stated by splitting the `path` the
+/// emitter also publishes, because recovering structure from a formatted string
+/// is what this project forbids everywhere else.
+///
+/// **A net name the builder minted is refused, not keyed.** `net_origin` states
+/// the rule in its own words -- a minted name is unique to this build's
+/// segmentation, so "keying on it would claim a stability the name does not
+/// have". Such a row lands in `unaligned`, the same answer the drawing gives a
+/// pin whose `canon_key` is null. Measured: 4 of 58 records on `hbl`, 0 of 62 on
+/// `hbl1`, 2 of 124 on `hs`.
+fn projection_key(item: &Value) -> Option<String> {
+    let layer = field_str(item, "layer")?;
+    if is_projection_layer_row(item) {
+        return Some(format!("nets{SEP}{layer}"));
+    }
+    let net = field_str(item, "net")?;
+    if net_origin(net) != NetOrigin::Source {
+        return None;
+    }
+    let endpoint = item.get("endpoint").and_then(Value::as_str).unwrap_or("");
+    Some(format!("act{SEP}{layer}{SEP}{net}{SEP}{endpoint}"))
+}
+
+/// Whether a `projection` row is the per-layer one.
+///
+/// Structural, not a spelling test: the emitter sets the count pair on that row
+/// and sets both to null on an action record. A row with `before: 0` is still a
+/// per-layer row -- the test is the pair's presence, not its value.
+fn is_projection_layer_row(item: &Value) -> bool {
+    item.get("before").map(|v| !v.is_null()).unwrap_or(false)
+}
+
+/// A non-empty string field, or `None`.
+fn field_str<'a>(item: &'a Value, name: &str) -> Option<&'a str> {
+    let s = item.get(name)?.as_str()?;
+    if s.is_empty() {
+        return None;
+    }
+    Some(s)
 }
 
 // Shared helpers
@@ -718,13 +902,19 @@ fn coord(v: &Value) -> Option<String> {
 
 /// Read one compared field.
 ///
-/// Three names are virtual:
+/// Four names are virtual:
 ///
 /// * `"def"` resolves to the def **ident** rather than the whole `def` object,
 ///   so a build from a different directory (a different `def.uri`) does not read
 ///   as a module replacement.
 /// * `"from_paths"` / `"to_paths"` resolve to a segment's sorted endpoint paths,
 ///   so the comparison agrees with the key about what a lane reorder is.
+/// * `"lane_pairs"` resolves a trunk's lanes to a **set** of members, dropping
+///   the lane index. The producer assigns that index either from the source's
+///   bracket lane or, when the source gave none, from "the member's position
+///   within the trunk" (`vector/builder/visit.rs`) -- a position in this build's
+///   append order, the same family as `key` and `index`. Comparing the raw array
+///   would make one inserted member read as every later lane having changed.
 fn field_value(item: &Value, f: &str) -> Value {
     match f {
         "def" => item
@@ -735,8 +925,32 @@ fn field_value(item: &Value, f: &str) -> Value {
             .unwrap_or(Value::Null),
         "from_paths" => sorted_paths(item, "from"),
         "to_paths" => sorted_paths(item, "to"),
+        "lane_pairs" => lane_pairs(item),
         _ => item.get(f).cloned().unwrap_or(Value::Null),
     }
+}
+
+/// A trunk's lanes as a set: each lane's member and its two pin paths, sorted,
+/// with the lane index left out. See [`field_value`] for why the index is not a
+/// member of the set.
+fn lane_pairs(item: &Value) -> Value {
+    let Some(arr) = item.get("lanes").and_then(Value::as_array) else {
+        return Value::Null;
+    };
+    let mut out: Vec<Value> = arr
+        .iter()
+        .map(|l| {
+            json!({
+                "member": l.get("member").cloned().unwrap_or(Value::Null),
+                "left": l.get("left").cloned().unwrap_or(Value::Null),
+                "right": l.get("right").cloned().unwrap_or(Value::Null),
+            })
+        })
+        .collect();
+    // Sorted by the rendered object, which is a total order because the map is
+    // key-sorted -- `serde_json` is built without `preserve_order`.
+    out.sort_by_key(|v| v.to_string());
+    Value::Array(out)
 }
 
 fn sorted_paths(item: &Value, side: &str) -> Value {
