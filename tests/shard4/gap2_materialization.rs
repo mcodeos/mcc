@@ -166,6 +166,59 @@ fn mat_gap2__phantom_only_connection_reports_gap2() {
     );
 }
 
+/// The quarantined paths recorded so far, in creation order.
+fn quarantine_paths() -> Vec<String> {
+    mcc::instant::mc_net::LITERAL_POINT_DETAILS
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(path, _)| path.clone())
+        .collect()
+}
+
+/// The literal-point quarantine describes one instantiation, not the process.
+///
+/// R01 reads the whole `LITERAL_POINT_DETAILS` list and reports it as this
+/// build's literal references, so a process that instantiates twice — a daemon
+/// request, a multi-target `--viz` render, this test binary — would carry the
+/// earlier run's paths and counts into the later report.
+#[test]
+fn mat_gap2__literal_point_quarantine_is_per_instantiation() {
+    let _lock = common::lock();
+    common::reset();
+
+    let uri_a = "/mcc/gap2-quarantine-a.mc".to_string();
+    mcc::mcc_load_from_string(
+        &uri_a,
+        "module main {\n    func main() {\n        res[1:2] -> led[3:4]\n    }\n}",
+    );
+    let _ = mcc::mcc_build_flat(&McIds::from("main"), &uri_a, 1000).expect("flat build a");
+    let lane_a = quarantine_paths();
+    assert!(
+        !lane_a.is_empty(),
+        "lane A quarantines its undeclared literal bases; got {lane_a:?}"
+    );
+
+    // No reset between the two builds: the second instantiation must start
+    // the quarantine list over on its own.
+    let uri_b = "/mcc/gap2-quarantine-b.mc".to_string();
+    mcc::mcc_load_from_string(&uri_b, "module main {\n    io VDD\n}");
+    let _ = mcc::mcc_build_flat(&McIds::from("main"), &uri_b, 1000).expect("flat build b");
+    let lane_b = quarantine_paths();
+    assert!(
+        lane_b.is_empty(),
+        "build B inherited lane A's quarantined points: {lane_b:?}"
+    );
+    // The isolation names come out of the same reset: B has no literal at all,
+    // so a counter that survived A would show up here while the list stays
+    // empty (name drift without a list entry).
+    assert_eq!(
+        mcc::instant::mc_net::LITERAL_POINTS.load(std::sync::atomic::Ordering::Relaxed),
+        0,
+        "build B left the literal-point counter at a non-zero value"
+    );
+}
+
 /// The local `NAME[k]` alias site still fires E4057 (pass1)
 /// `[GPIO2] -> VDD` (single-element square bracket on an unknown name): the
 /// pass1 indexed-alias site in mc_phrase.rs reports NET_DROPPED_STATEMENT on

@@ -150,6 +150,10 @@ fn do_instantiate(
     start_id: u32,
     mut registry: Option<&mut IdentityRegistry>,
 ) -> Result<DianLu, Box<dyn Error>> {
+    // A second instantiation in this process (daemon request, multi-target
+    // render, test binary) must not report the first one's literal points.
+    crate::instant::mc_net::reset_literal_points();
+
     let (matched_uri, target_module_def) = resolve_entry_module(entry)?;
 
     let mut inst = McModuleInst::new(&entry.ident.to_string(), target_module_def);

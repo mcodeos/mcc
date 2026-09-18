@@ -28,6 +28,16 @@ pub static LITERAL_POINTS: std::sync::atomic::AtomicUsize = std::sync::atomic::A
 pub static LITERAL_POINT_DETAILS: std::sync::LazyLock<Mutex<Vec<(String, Option<i32>)>>> =
     std::sync::LazyLock::new(|| Mutex::new(Vec::new()));
 
+/// Start the quarantine over for the instantiation that is about to run.
+///
+/// Both the isolation names and the list describe one instantiation (R01 reads
+/// the whole list as this build's literal references), so a process that builds
+/// twice must not let the second build inherit the first one's points.
+pub fn reset_literal_points() {
+    LITERAL_POINTS.store(0, std::sync::atomic::Ordering::Relaxed);
+    LITERAL_POINT_DETAILS.lock().unwrap().clear();
+}
+
 // Pin path normalization — unified canonical form
 
 /// Normalize a pin path to canonical form.
