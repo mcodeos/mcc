@@ -71,6 +71,12 @@ pub struct McModule {
     /// `Arc` keeps the `#[derive(Clone)]` on the struct). Drained into
     /// `floating_candidates` at the end of `parse_body`.
     floating_pending: std::sync::Arc<std::sync::Mutex<Vec<(String, u32, u32)>>>,
+    /// §10.11.4 guard ③: this module's whole-referenceable domains, peeked off
+    /// the `domain` clauses **before** the body walk so a bare domain name means
+    /// the same thing whether its clause is written above or below the
+    /// statement that uses it. Read-only: the peek builds its own list
+    /// (`pi::peek_domain` / `pi::domain_pairs_of`) and never touches `pi`.
+    pub(crate) domain_pairs_peek: Vec<pi::L1DomainPair>,
 }
 
 impl McModule {
@@ -118,6 +124,7 @@ impl McModule {
                 gate_candidates: Vec::new(),
                 floating_candidates: Vec::new(),
                 floating_pending: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
+                domain_pairs_peek: Vec::new(),
             };
 
             // 2. Parse parameters
@@ -174,6 +181,7 @@ impl McModule {
             gate_candidates: Vec::new(),
             floating_candidates: Vec::new(),
             floating_pending: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
+            domain_pairs_peek: Vec::new(),
         }
     }
 
@@ -335,10 +343,55 @@ impl McModule {
         }
     }
 
+    /// §10.11.3 ①: did reading this connection statement already report its own
+    /// concrete failure? These are every code the chain-shape gate raises *at
+    /// the operand that failed* — `->` / `+` / `<-` width mismatch, and the
+    /// column-width mix the same gate checks just before them. A statement the
+    /// gate rejected was read to the end; calling it a parse failure
+    /// (`CONN_STMT_PARSE_FAILED`'s own words) restates the same defect in the
+    /// wrong vocabulary and buries the real one.
+    ///
+    /// Deliberately *shape* only. `CONN_OPERATOR_UNSUPPORTED` (4008) is the
+    /// control: a statement that met a construct the grammar has no reading for
+    /// genuinely failed to parse, carries no shape fact, and keeps the wrapper.
+    ///
+    /// Read off the diagnostic ledger by span rather than returned out of
+    /// `McPhrase::new`: the failing arm is nested (a series leg inside a series
+    /// leg), so a return flag would only carry the innermost verdict to one
+    /// caller, while the span query sees every code the statement raised.
+    fn stmt_reports_own_failure(&self, clause: &AstNode) -> bool {
+        const PASS1_SHAPE_CODES: [u32; 4] = [
+            crate::errcodes::CONN_SERIES_SHAPE_MISMATCH,
+            crate::errcodes::CONN_PARALLEL_SHAPE_MISMATCH,
+            crate::errcodes::CONN_LEFT_ARROW_SHAPE_MISMATCH,
+            crate::errcodes::SHAPE_COLUMN_WIDTH_MIXED,
+        ];
+        let uri = crate::current_uri::get();
+        let start = clause.get_pos();
+        let end = start + clause.get_len();
+        PASS1_SHAPE_CODES.iter().any(|&code| {
+            crate::db::diagnostic::diagnostic::has_code_in_range(code, &uri, start, end)
+        })
+    }
+
     pub(crate) fn parse_body(&mut self, body: &AstNode) {
         // ★ LSP: Set scope for instance registration
         self.insts.scope = Some(self.name.to_string());
         if let Some(clauses) = body.get_sub_node() {
+            // ── §10.11.4 guard ③: declaration visibility is position-free ──
+            // A bare domain name must mean the same thing above and below its
+            // own `domain` clause. `pi` fills source-order (the walk below is
+            // one pass), so the table the walk consults is taken here, up
+            // front, off the same clauses — read-only (`pi::peek_domain`), so
+            // `pi` state and every diagnostic the real `parse_domain` would
+            // raise are untouched; the walk still does the one real parse.
+            self.domain_pairs_peek = pi::domain_pairs_of(
+                &clauses
+                    .iter()
+                    .filter(|c| c.is_type(MCAST_DOMAIN))
+                    .filter_map(|c| McPowerDecls::peek_domain(&c))
+                    .collect::<Vec<_>>(),
+            );
             for clause in clauses.iter() {
                 let ct = clause.get_type();
                 match ct {
@@ -423,14 +476,27 @@ impl McModule {
                                     self.stmts.push(net);
                                 }
                                 None => {
-                                    dlog_error(
-                                        crate::errcodes::CONN_STMT_PARSE_FAILED,
-                                        &clause,
-                                        &crate::errcodes::format_msg(
+                                    // ── §10.11.3 ①: the generic wrapper states
+                                    // nothing when the statement's own span
+                                    // already carries the concrete failure.
+                                    // `None` from the series / parallel /
+                                    // left-arrow arms means the phrase was read
+                                    // to the end and failed the chain-shape gate
+                                    // (E4007 / E4005 / E4002, reported at that
+                                    // point); stacking "A connection statement
+                                    // failed to parse." on top reads as a parse
+                                    // error where the real defect is a width
+                                    // mismatch.
+                                    if !self.stmt_reports_own_failure(&clause) {
+                                        dlog_error(
                                             crate::errcodes::CONN_STMT_PARSE_FAILED,
-                                            &[],
-                                        ),
-                                    );
+                                            &clause,
+                                            &crate::errcodes::format_msg(
+                                                crate::errcodes::CONN_STMT_PARSE_FAILED,
+                                                &[],
+                                            ),
+                                        );
+                                    }
                                 }
                             }
                         } else {
@@ -1311,6 +1377,28 @@ impl HasFindInst for McModule {
 
     fn find_func_return(&self, name: &str) -> Option<McFuncReturn> {
         self.funcs.find(name).map(|f| f.returns.clone())
+    }
+
+    fn domain_pair_named(&self, name: &str) -> Option<pi::L1DomainPair> {
+        // The peek, not `self.pi`: the body walk fills `pi` in source order,
+        // so reading it here would make a name written above its `domain`
+        // clause miss silently (guard ③). The two agree once the walk ends.
+        self.domain_pairs_peek
+            .iter()
+            .find(|p| p.domain == name)
+            .cloned()
+    }
+
+    fn declared_endpoint_named(&self, name: &str) -> bool {
+        // Ports, instances, labels/nets, buses, lists and vector-group members
+        // are all instance-table entries, so one scope-chain walk covers them.
+        // A `conduit` (the `MCAST_REF` clause, keyword alias `ref`) is *not* a
+        // name-resolution entry — it is a copper-identity declaration read by
+        // the ERC face, never by `find_inst` — so it is asked here by hand.
+        // Without that second half a name that is both a conduit and a
+        // whole-referenceable domain would be widened into the pair with no
+        // diagnostic: the conduit reading would be lost in silence.
+        self.insts.get(name).is_some() || self.pi.refs.iter().any(|r| r.name == name)
     }
 
     fn scope_name(&self) -> Option<String> {

@@ -52,6 +52,44 @@ fn warn_prefix_id_as_wire(node: &AstNode, name: &str) {
     }
 }
 
+/// R4 step 3 (`intent-reference-layer-design.md` §10.5): a bare word position
+/// where **both** readings hold — `name` is a whole-referenceable domain of the
+/// owning scope (step 1, so the word could denote that domain's declared
+/// `[hot, ret]` pair) and an endpoint already declared in it (step 2, so the
+/// word denotes that endpoint). The two readings name different nets, so the
+/// written word has no single meaning, and letting the resolution order decide
+/// would be a silent pick — the one outcome this layer forbids.
+///
+/// **Report, never choose**: the caller keeps its own reading, which is the
+/// endpoint one this word position meant before R1 existed, so the diagnostic
+/// is the batch's only effect there. Idempotent per position, like every other
+/// span-anchored fact in this tree: repeated parse runs must not multiply it.
+fn report_domain_endpoint_collision(name: &str, node: &AstNode, context: &dyn HasFindInst) {
+    let Some(pair) = context.domain_pair_named(name) else {
+        return;
+    };
+    if !context.declared_endpoint_named(name) {
+        return;
+    }
+    let uri = crate::current_uri::get();
+    let pos = node.get_pos();
+    if crate::db::diagnostic::diagnostic::has_code_at(
+        crate::errcodes::DOMAIN_ENDPOINT_NAME_COLLISION,
+        &uri,
+        pos,
+    ) {
+        return;
+    }
+    dlog_error(
+        crate::errcodes::DOMAIN_ENDPOINT_NAME_COLLISION,
+        node,
+        &crate::errcodes::format_msg(
+            crate::errcodes::DOMAIN_ENDPOINT_NAME_COLLISION,
+            &[&name, &pair.hot, &pair.ret],
+        ),
+    );
+}
+
 /// A subscript glued onto a reserved word (`pins[2:3]`, `this[2:3]`) selects
 /// nothing: the lexer keeps the whole spelling inside one identifier, so the
 /// keyword never exists and the name addresses nothing — the phrase would fall
@@ -592,6 +630,12 @@ impl McPhrase {
                             //     items[0].is_some()
                             // );
                             if let Some(ident) = items.remove(0) {
+                                // ── R4 step 2 reading applies here, and it may
+                                // collide with step 1 (§10.5 step 3): report it
+                                // and carry on with this reading — the endpoint
+                                // one the word position meant before R1 existed
+                                // — so the diagnostic is the only change.
+                                report_domain_endpoint_collision(&ids_str, &subnode, context);
                                 // ── P2-4: square bracket Interface → expand to Multiple ──
                                 // When a square bracket list like `[VDD_3V3, GND]` is found
                                 // as an McInstance::Interface in the symbol table, expand it
@@ -950,8 +994,60 @@ impl McPhrase {
                                 }
                                 // Single segment — plain name.
                                 if chain.len() == 1 {
-                                    warn_prefix_id_as_wire(&subnode, &ids.to_string());
                                     let name = ids.to_string();
+                                    if let Some(pair) = context.domain_pair_named(&name) {
+                                        // ── R1 whole-reference (intent-reference-layer
+                                        // §10.2 D1; word-position write point §10.11.4) ──
+                                        // A bare name that is a *whole-referenceable*
+                                        // domain of the module owning this body denotes
+                                        // that domain's declared `[hot, ret]` pair,
+                                        // exactly as if the pair had been written out.
+                                        //
+                                        // Read off the AST, never off text: the guard is
+                                        // structural. The lookup key is the whole written
+                                        // word — `ids.to_string()` renders every segment
+                                        // (`mc_ids.rs` `Display`) — so guard ①'s "bare
+                                        // single identifier" holds by word identity: a
+                                        // dotted spelling (`AVDD.pins`, and the
+                                        // `uc.AVDD` member of a foreign `MCU.AUDIO32`)
+                                        // is simply not the table's key. The table also
+                                        // answers for the owning scope alone, so a
+                                        // component's own `func` body has no domains to
+                                        // consult.
+                                        //
+                                        // A `[DVDD, GND]` list is **not** exempt: its
+                                        // elements are words of their own and reach this
+                                        // same arm, so the domain element widens too and
+                                        // the list's column widths stop agreeing —
+                                        // reported loudly by the shape gate. That is the
+                                        // ruled-loud hole of §10.11.4, not an oversight.
+                                        //
+                                        // The product mirrors the literal `[V5V, GND]`
+                                        // arm above (same `Multiple` of per-member
+                                        // labels), which is what keeps this word position
+                                        // width-identical to the spelled-out pair at the
+                                        // Pass1 shape gate.
+                                        //
+                                        // Step 3 rides here too: this arm only sees names
+                                        // `find_inst` missed, so an endpoint collision
+                                        // reaching it is the `conduit`-identity half —
+                                        // reported and *not* widened, so the word keeps
+                                        // the reading it had before R1 rather than being
+                                        // silently turned into the pair.
+                                        if !context.declared_endpoint_named(&name) {
+                                            let phrases: Vec<McPhrase> = [pair.hot, pair.ret]
+                                                .into_iter()
+                                                .map(|m| {
+                                                    context
+                                                        .add_label(m.clone())
+                                                        .unwrap_or_else(|| McPhrase::label(m))
+                                                })
+                                                .collect();
+                                            return Some(McPhrase::Multiple(phrases));
+                                        }
+                                        report_domain_endpoint_collision(&name, &subnode, context);
+                                    }
+                                    warn_prefix_id_as_wire(&subnode, &ids.to_string());
                                     context.report_floating_label(&name, &subnode);
                                     return Some(
                                         context

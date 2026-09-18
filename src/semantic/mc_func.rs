@@ -398,6 +398,39 @@ pub trait HasFindInst {
         None
     }
 
+    /// The declared `[hot, ret]` pair a **whole-referenceable** domain name of
+    /// the *owning* scope stands for — the R1 whole-reference rule's data face
+    /// (`intent-reference-layer-design.md` §10.2 D1, word-position write point
+    /// §10.11.4), or `None`.
+    ///
+    /// *Whole-referenceable* means the domain declares exactly one rail under a
+    /// `::DC` contract ([`McPowerDecls::l1_domain_pairs`]): zero DC rails (pure
+    /// AC, or empty) and two-or-more both answer `None`, so a multi-rail domain
+    /// keeps its meaning as a plain name instead of resolving to a guess.
+    ///
+    /// The default `None` is the rule's **scope** half, not a fallback: only a
+    /// scope that owns power-intent declarations can answer, and of the trait's
+    /// implementors that is `McModule` alone. A func body, component, interface,
+    /// enum or capability that sees a domain name from further out therefore
+    /// leaves it alone (R4: resolution happens in the owning scope, never up or
+    /// down the instance tree).
+    fn domain_pair_named(&self, _name: &str) -> Option<crate::semantic::module::pi::L1DomainPair> {
+        None
+    }
+
+    /// R4 step 2 ([`Self::domain_pair_named`]'s companion,
+    /// `intent-reference-layer-design.md` §10.5): is `name` an endpoint already
+    /// declared in this scope — a port, an instance, a label/net, a group
+    /// member, or a conductor identity (`conduit`)?
+    ///
+    /// Steps 1 and 2 can both hold for one bare name, and the two readings name
+    /// different nets — the collision [`crate::errcodes::DOMAIN_ENDPOINT_NAME_COLLISION`]
+    /// reports. The default `false` says "this scope declares no endpoint of
+    /// that name", which is the truth for every implementor but `McModule`.
+    fn declared_endpoint_named(&self, _name: &str) -> bool {
+        false
+    }
+
     /// Return the enclosing scope name (module/component/function name),
     /// or None for file-level scope.
     fn scope_name(&self) -> Option<String> {
@@ -563,6 +596,21 @@ impl<'a> HasFindInst for FuncBodyContext<'a> {
 
     fn find_func_return(&self, name: &str) -> Option<McFuncReturn> {
         self.parent.find_func_return(name)
+    }
+
+    /// R4 asks the *owning* scope, and a func body's owner is the container it
+    /// is written in — reached the same way [`Self::find_func_return`] reaches
+    /// it. So a module's own `func` body resolves domain names against that
+    /// module (the word-position twin of what the R1 call-site rule already
+    /// does with the same table), while a component's `func` body — nobody's
+    /// module, no domains — answers `None` and leaves its bare names alone
+    /// (§10.11.4 guard ②, whose worked example is exactly that component func).
+    fn domain_pair_named(&self, name: &str) -> Option<crate::semantic::module::pi::L1DomainPair> {
+        self.parent.domain_pair_named(name)
+    }
+
+    fn declared_endpoint_named(&self, name: &str) -> bool {
+        self.parent.declared_endpoint_named(name)
     }
 
     fn scope_name(&self) -> Option<String> {

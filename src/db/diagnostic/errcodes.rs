@@ -1950,6 +1950,20 @@ pub const FILTER_SUBFACE_OVERREACH: u32 = 6042;
 /// fires `6031` alone (object disjointness, §3.1.6).
 pub const EXPOSED_NET_DOWNSTREAM_UNPROTECTED: u32 = 6044;
 
+/// R4 **name collision** (intent-reference-layer-design.md §10.5 step 3,
+/// §10.11.4 guard ④): a bare name in a chain word position is *both* a
+/// whole-referenceable domain of the owning module (step 1 — exactly one `::DC`
+/// rail, so the name states a `[hot, ret]` pair) *and* an endpoint already
+/// declared in that scope (step 2 — instance / port / label). The two readings
+/// name different nets, so the written word has no single meaning; letting the
+/// reading order decide would be a silent pick, which is the one outcome this
+/// layer forbids. **Report, never choose.**
+///
+/// Only a bare single identifier can raise this: a dotted / bracketed / braced
+/// word position has its own reading (§10.11.4 guard ①), so a name that merely
+/// carries a domain name as a prefix or element is out of this code's object.
+pub const DOMAIN_ENDPOINT_NAME_COLLISION: u32 = 6050;
+
 static ALL_CODES: &[ErrorCodeInfo] = &[
     // section
     entry!(DUP_INTERFACE, "An interface with the same name already exists in this file.", "Duplicate interface"),
@@ -2376,6 +2390,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(ANALOG_RETURN_MISMATCH, "A part supplied from a declared analog face returns over a reference the face and the scope's analog port agree on.", "part '{0}' draws from the analog face {1} but its return member lands on '{2}', while the face's rail and the analog port of scope '{3}' both name the reference as {4} — a face's declared reference is the plane its protected parts are measured against, so the returns they actually close over must be that reference: land this return on {4}, or correct the rail's return member if the face really closes over '{2}' (power-quality-design.md §3.1, SN-1). Only the declared half is judged: a port stating no @return, and one whose reference names no face of its own scope, are not adjudicated (the source→sink chain has no carrier — §6 R3)"),
     entry!(SHARED_RETURN_BRIDGE, "A DC ground bridge joins a noisy face's return to a quiet/sensitive face's return with no filtering element on the leg.", "the ground bridge {0} puts the noisy face {1} and the quiet/sensitive face {2} on one copper, {3} — a filter is what lets a quiet face keep its own reference while the two coppers meet, so without one the plane the protected parts are measured against sits straight on the noise source's return: carry this leg with a ferrite/inductor (a declared filter, whose completeness PI-2 then judges — 6037), or keep the two returns apart and tie them only where the design declares the crossing (power-quality-design.md §3.2, SN-2)"),
     entry!(FILTER_SUBFACE_OVERREACH, "A sink drawing from a declared filter leg's load-side subface declares a supply pair other than the quiet domain's own.", "sink '{0}' declares the supply pair {1}, and that pair draws from the load side of the declared filter leg {3} — but the subface that leg protects is {4}, the {2} domain's own pair, so only a part declaring {4} is inside the domain the filter was declared for: declare this terminal's pair as {4}, or feed it from the rail its own domain declares and leave this filter's load side to the domain it protects (power-quality-design.md §2.4, PI-4)"),
+    entry!(DOMAIN_ENDPOINT_NAME_COLLISION, "A name in a chain word position is both a whole-referenceable domain and an already-declared endpoint.", "'{0}' is declared as a domain whose one ::DC rail states the pair [{1}, {2}], and the same name is already an endpoint in this scope — the two readings name different nets, so this word has no single meaning: rename the domain (or the endpoint), or write the pair out as [{1}, {2}] at the word positions that meant the domain's pair (intent-reference-layer-design.md §10.5, R4)"),
     entry!(EXPOSED_NET_DOWNSTREAM_UNPROTECTED, "The clamp on a declared @exposed endpoint leaves an unprotected quiet/sensitive face downstream.", "'{0}' declares @exposed({1}) and is clamped, but net '{2}' — the quiet/sensitive face {3} — is reachable from it through transparent copper without crossing a declared series gate, and '{2}' carries no declared clamp of its own: a clamp covers its own side of every branch, so the transient the @exposed declares still pours into the quiet face. Clamp '{2}' as well, put a declared gate on this branch (protect = series on the fuse/ferrite it should pass), or drop the @exposed when this endpoint is not the boundary the threat enters from (exposed-protection-design.md §3.1, PWR-6)"),
     // section
     entry!(GATE_LITERAL_POINT, "R01 — a vector reference reached the netlist unexpanded (literal braces).", "unexpanded vector reference: {0}"),
