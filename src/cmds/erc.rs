@@ -8,23 +8,41 @@
 //! Requires Pass2 (instantiation) to build the netlist.
 
 use crate::cmds::manifest;
+use crate::output::{emit_projection, OutputFormatExt, ProjectionKey};
 use anyhow::Result;
 use mcc::cli::{rpcclient::RpcClient, ErcArgs};
-use serde_json::json;
+use serde_json::{json, Value};
+use std::path::Path;
 
 pub fn run(args: &ErcArgs) -> Result<()> {
     if let Some(c) = RpcClient::probe() {
         let params = json!({ "top": mcc::cli::globals().top });
         match c.call("erc", params) {
-            Ok(result) => {
-                println!("{}", serde_json::to_string_pretty(&result)?);
-                return Ok(());
-            }
+            Ok(result) => return emit_erc(result),
             Err(e) => tracing::debug!(target: "mcc::erc", "RPC failed, using local: {}", e),
         }
     }
 
     run_local(args)
+}
+
+/// Structured face → A-tier envelope (U86 item 7, first slice); text / csv are
+/// untouched (`erc` was format-blind before the slice — see `emit_report`'s note).
+///
+/// ⚠ The envelope's own `summary.errors` does **not** count ERC violations:
+/// those live in the payload (`result.erc.summary.violations`). Read the
+/// envelope summary as "what this command's passes reported", never as a verdict.
+fn emit_erc(data: Value) -> Result<()> {
+    if mcc::cli::globals().format.is_structured() {
+        return emit_projection(
+            ProjectionKey::Erc,
+            data,
+            mcc::cli::globals().format,
+            mcc::cli::globals().output.as_deref().map(Path::new),
+        );
+    }
+    println!("{}", serde_json::to_string_pretty(&data)?);
+    Ok(())
 }
 
 fn run_local(args: &ErcArgs) -> Result<()> {
@@ -201,6 +219,5 @@ fn run_local(args: &ErcArgs) -> Result<()> {
         "violations": diags,
     });
 
-    println!("{}", serde_json::to_string_pretty(&result)?);
-    Ok(())
+    emit_erc(result)
 }

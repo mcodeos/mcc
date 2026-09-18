@@ -93,6 +93,27 @@ impl ResultBuilder {
         self
     }
 
+    /// Attach an A-tier read projection under its own envelope key
+    /// ([`super::ProjectionKey`], world-repartition-design.md §2.5).
+    pub fn set_projection(
+        &mut self,
+        key: super::ProjectionKey,
+        payload: serde_json::Value,
+    ) -> &mut Self {
+        let slot = match key {
+            super::ProjectionKey::Verify => &mut self.result.verify,
+            super::ProjectionKey::Report => &mut self.result.report,
+            super::ProjectionKey::Erc => &mut self.result.erc,
+            super::ProjectionKey::Rules => &mut self.result.rules,
+            super::ProjectionKey::Def => &mut self.result.def,
+            super::ProjectionKey::Refs => &mut self.result.refs,
+            super::ProjectionKey::Explain => &mut self.result.explain,
+            super::ProjectionKey::List => &mut self.result.list,
+        };
+        *slot = Some(payload);
+        self
+    }
+
     /// Print a summary of collected diagnostics (without consuming self).
     /// Useful for displaying diagnostics before Net Summary.
     pub fn print_diagnostics_summary(&self) {

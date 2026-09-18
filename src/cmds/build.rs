@@ -370,6 +370,9 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
 
             if svgs.is_empty() {
                 if netcheck_errors > 0 {
+                    if mcc::cli::globals().format.is_jsonish() {
+                        emit_gate_envelope(builder)?;
+                    }
                     return Ok(BuildOutcome { exit_code: 1 });
                 }
                 return Err(anyhow::anyhow!("viz: no targets rendered"));
@@ -430,7 +433,14 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
                     .unwrap_or(true);
                 if gate_on {
                     mcc_dbg!("build", "[gate] NETCHECK Tier 0 not clean -> build failed.");
-                    return Ok(BuildOutcome { exit_code: 1 });
+                    // JSON mode: the envelope is the contract, so a gate lowers
+                    // the exit code instead of suppressing the output
+                    // (world-repartition-design.md §2.5).
+                    if mcc::cli::globals().format.is_jsonish() {
+                        gate_failed = true;
+                    } else {
+                        return Ok(BuildOutcome { exit_code: 1 });
+                    }
                 }
                 mcc_dbg!(
                     "build",
@@ -477,7 +487,14 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
                         "[golden] MISMATCH vs {} (UPDATE_GOLDEN=1 to refresh)",
                         gp.display()
                     );
-                    return Ok(BuildOutcome { exit_code: 1 });
+                    // JSON mode: the envelope is the contract, so a gate lowers
+                    // the exit code instead of suppressing the output
+                    // (world-repartition-design.md §2.5).
+                    if mcc::cli::globals().format.is_jsonish() {
+                        gate_failed = true;
+                    } else {
+                        return Ok(BuildOutcome { exit_code: 1 });
+                    }
                 }
             }
 
@@ -921,6 +938,9 @@ fn build_browse_dir(
     if args.viz {
         if svgs.is_empty() {
             if netcheck_errors > 0 {
+                if mcc::cli::globals().format.is_jsonish() {
+                    emit_gate_envelope(builder)?;
+                }
                 return Ok(BuildOutcome { exit_code: 1 });
             }
             return Err(anyhow::anyhow!("viz: no targets rendered"));
@@ -970,6 +990,17 @@ fn build_browse_dir(
     Ok(BuildOutcome {
         exit_code: if errors > 0 { 1 } else { 0 },
     })
+}
+
+/// JSON mode (machine contract): a gate that fires *before* the tail emission
+/// still has to leave a parseable stdout behind — the envelope goes out, and the
+/// failure is carried by the exit code. Text mode keeps its own arm at each call
+/// site, so this is only reached under `-f json` / `-f json-pretty`
+/// (world-repartition-design.md §2.5).
+fn emit_gate_envelope(builder: ResultBuilder) -> Result<()> {
+    let env = Envelope::ok(builder.finish());
+    let target = mcc::cli::globals().output.as_deref().map(Path::new);
+    output::emit_envelope(&env, mcc::cli::globals().format, target, false)
 }
 
 fn emit_err(fmt: &OutputFormat, err: RpcError) -> Result<()> {

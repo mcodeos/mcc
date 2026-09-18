@@ -986,8 +986,10 @@ pub struct StopArgs {
 
 #[derive(Parser, Debug)]
 pub struct StatusArgs {
-    /// JSON format output
-    #[arg(long)]
+    /// Shorthand for `--format json`. An alias, never an override: it is
+    /// mutually exclusive with `-f/--format`, so the global format stays the
+    /// single source of truth (world-repartition-design.md §2.5).
+    #[arg(long, conflicts_with = "format")]
     pub json: bool,
 
     /// Real-time monitoring

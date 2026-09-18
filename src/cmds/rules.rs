@@ -8,7 +8,7 @@
 //! ```text
 //! mcc rules                              # list the whole catalog (text)
 //! mcc rules list --scope flat-erc        # filter by a §2.3/§2.5 axis
-//! mcc rules list -f json                 # shared rules.list projection bytes
+//! mcc rules list -f json                 # A-tier envelope, projection in result.rules
 //! mcc rules detail E4101                 # descriptor + override audit
 //! mcc rules set-severity E4101 info --write
 //! mcc rules allow E4101 --path 'boards/**/*.mc' --reason 'doc note' --write
@@ -16,8 +16,12 @@
 //! ```
 //!
 //! Every read path renders one shared projection built in
-//! [`mcc::override_store`] (the same bytes the RPC `rules.list` /
-//! `rule.detail` and the MCP tools emit). Every write path goes through the
+//! [`mcc::override_store`] — the **same** projection the RPC `rules.list` /
+//! `rule.detail` and the MCP tools return as their result. The CLI carries that
+//! projection inside the A-tier envelope under `result.rules`
+//! (world-repartition-design.md §2.5, U86 item 7 first slice), so "same bytes"
+//! now names the projection, not the whole stdout. Every write path goes through
+//! the
 //! process store API: session layer by default, and only the explicit
 //! `--write` flag persists into the project `[config]` diag zone
 //! (design §8-5 persistence discipline). A write is refused whenever the
@@ -29,6 +33,8 @@ use mcc::cli::{OutputFormat, RulesAction};
 use mcc::override_store as store;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
+
+use crate::output::{emit_projection, OutputFormatExt, ProjectionKey};
 
 pub fn run(action: Option<&RulesAction>, format: OutputFormat) -> Result<()> {
     match action {
@@ -112,6 +118,20 @@ fn cmd_list(filter: &mcc::rules::RuleFilter, format: OutputFormat, note: &str) -
         }
         _ => {
             let report = store::rules_list_json(filter);
+            if format.is_structured() {
+                // A-tier envelope (U86 item 7, first slice). The wrap is
+                // **CLI-side only**: `rules_list_json` is shared with the RPC
+                // `rules.list` / MCP
+                // tools, so wrapping it there would double-envelop them. The
+                // projection inside `result.rules` is still the same bytes those
+                // handlers return.
+                return emit_projection(
+                    ProjectionKey::Rules,
+                    report,
+                    format,
+                    mcc::cli::globals().output.as_deref().map(Path::new),
+                );
+            }
             print_json(&report)
         }
     }
@@ -205,6 +225,17 @@ fn cmd_detail(code: &str, format: OutputFormat) -> Result<()> {
         }
         _ => {
             let detail = store::rule_detail_json(code).map_err(|e| anyhow::anyhow!("{e}"))?;
+            if format.is_structured() {
+                // Same key as the list face: `rules` is the word, and the two
+                // payloads are self-distinguishing (`{total,rules}` vs
+                // `{rule,audit,…}`). CLI-side wrap only — see `cmd_list`.
+                return emit_projection(
+                    ProjectionKey::Rules,
+                    detail,
+                    format,
+                    mcc::cli::globals().output.as_deref().map(Path::new),
+                );
+            }
             print_json(&detail)
         }
     }

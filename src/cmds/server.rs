@@ -317,7 +317,9 @@ fn stop_server(force: bool, timeout: u64) -> Result<()> {
 }
 
 fn status_server(json: bool, watch: bool, format: OutputFormat) -> Result<()> {
-    // `--json` (status's own flag) forces JSON regardless of the global format.
+    // `--json` is an alias of the global `-f json`, not an override: clap makes
+    // the two mutually exclusive, so `format` here is always the caller's own
+    // choice and `--json` only spells it (world-repartition-design.md §2.5).
     let fmt = if json { OutputFormat::Json } else { format };
     let render_once = || -> Result<ServerStatus> {
         if !is_server_running()? {
