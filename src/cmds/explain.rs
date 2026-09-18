@@ -9,7 +9,7 @@
 //! mcc explain         # list all known codes
 //! ```
 
-use crate::output::{emit_projection, OutputFormatExt, ProjectionKey};
+use crate::output::{emit_failure_envelope, emit_projection, OutputFormatExt, ProjectionKey};
 use anyhow::Result;
 use mcc::cli::{rpcclient::RpcClient, ExplainArgs};
 use mcc::errcodes;
@@ -96,8 +96,16 @@ fn run_local(args: &ExplainArgs) -> Result<()> {
                 }
             }
             None => {
-                eprintln!("Unknown error code: {code}");
-                eprintln!("Run `mcc explain` to see all known codes.");
+                // Raw stderr with no tracing behind it, so `die!` cannot be used
+                // here: it would add a log line. Emit the envelope, then leave
+                // this face's bytes exactly as they were.
+                let msg = format!(
+                    "Unknown error code: {code}\nRun `mcc explain` to see all known codes."
+                );
+                if let Err(e) = emit_failure_envelope(&msg) {
+                    eprintln!("warning: failed to emit the failure envelope: {e}");
+                }
+                eprintln!("{msg}");
                 std::process::exit(1);
             }
         },

@@ -15,9 +15,9 @@
 //! missing value printed as `-` — and it is a **readout**: the diagnostic count
 //! is a number in the header and never a gate, so the exit code stays 0 (law C).
 
+use crate::output::die;
 use anyhow::Result;
 use serde_json::Value;
-use tracing::error;
 
 use mcc::cli::OutputFormat;
 
@@ -57,8 +57,11 @@ pub fn run(args: &mcc::cli::JoinArgs) -> Result<()> {
             crate::cmds::common::resolve_top_module(&entry_uri, mcc::cli::globals().top.clone())
         })
         .unwrap_or_else(|| {
-            error!("no modules found\nhint: load a file with -F or use --top");
-            std::process::exit(1);
+            die!(
+                "mcc::join",
+                1,
+                "no modules found\nhint: load a file with -F or use --top"
+            );
         });
 
     let (tree, table, arena, store, diags) = match mcc::export::build_tree_diags(
@@ -67,10 +70,7 @@ pub fn run(args: &mcc::cli::JoinArgs) -> Result<()> {
         &mcc::cli::globals().lib,
     ) {
         Ok(quint) => quint,
-        Err(e) => {
-            error!("join: {e}");
-            std::process::exit(1);
-        }
+        Err(e) => die!("mcc::join", 1, "join: {e}"),
     };
 
     // Which hop, and therefore which two views. The two inner hops need the
@@ -101,11 +101,12 @@ pub fn run(args: &mcc::cli::JoinArgs) -> Result<()> {
                 .chain(mcc::stages::join::DIAG_WORDS)
                 .copied()
                 .collect();
-            error!(
+            die!(
+                "mcc::join",
+                2,
                 "unknown class '{only}'\nexpected one of: {}",
                 words.join(" | ")
             );
-            std::process::exit(2);
         }
         view.items.retain(|i| i["class"] == only);
     }
@@ -153,10 +154,11 @@ fn emit_envelope(view: &mcc::stages::StageView) -> Result<()> {
 /// An argument that cannot be honoured is not a judged readout, so it may fail
 /// loudly — the same split `show stage` makes for an unknown segment.
 fn error_pair(a: &str, b: &str) -> ! {
-    error!(
+    die!(
+        "mcc::join",
+        2,
         "cannot join '{a}' with '{b}'\n\
          only adjacent segments join, and only in chain order:\n  \
          join src p2 | join p2 vec | join vec viz"
     );
-    std::process::exit(2);
 }
