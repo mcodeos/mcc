@@ -9,6 +9,13 @@
 //! - top-right `＋` circle corner marker
 //! - cursor:pointer
 //!
+//! ## Drill-down is a fact about the layer, not about the box
+//! The tooltip, the pointer cursor and the `onclick` are one advertisement, and a
+//! box gets it only when the layer it belongs to really has a sub-layer to open
+//! (the caller passes that as `drill`). The root layer hands every box here --
+//! components included -- so without the gate a part with no sub-graph was drawn
+//! inviting a click that went nowhere.
+//!
 //! ## Root layer (P9-B Step 6)
 //! For the root layer block diagram, uses solid lines (no dasharray),
 //! thicker stroke, instance name centered inside the box, no + corner
@@ -66,19 +73,76 @@ fn render_submodule_pin(b: &McVecBox, ep: &EntryPoint) -> String {
 }
 
 /// Render a sub-module box (sub-layer, dashed style with + expand marker).
-pub fn render_sub_module(b: &McVecBox) -> String {
-    render_sub_module_impl(b, false)
+///
+/// `drill` says whether this box has a layer to open. Only then does the box
+/// advertise one (cursor, tooltip, `onclick`); see [`render_sub_module_impl`].
+pub fn render_sub_module(b: &McVecBox, drill: bool) -> String {
+    render_sub_module_impl(b, false, drill)
 }
 
 /// Render a sub-module box for the root layer block diagram.
 ///
 /// Root layer style: solid lines, thicker stroke, name centered inside,
 /// no + corner marker, but keeps onclick drill-down.
-pub fn render_sub_module_root(b: &McVecBox) -> String {
-    render_sub_module_impl(b, true)
+pub fn render_sub_module_root(b: &McVecBox, drill: bool) -> String {
+    render_sub_module_impl(b, true, drill)
 }
 
-fn render_sub_module_impl(b: &McVecBox, is_root: bool) -> String {
+/// The opening `<g>` of a sub-module box.
+///
+/// The identity (`data-id`) is always written — the box is the same object either
+/// way. The click advertisement rides on the *same* tag, so the two branches are
+/// built here rather than assembled from fragments at the call site: a
+/// `cursor:pointer` that answers to no `onclick`, or an `onclick` pointing at a
+/// layer that does not exist, are the same broken promise told two ways.
+fn drill_group_open(b: &McVecBox, class: &str, drill: bool) -> String {
+    if drill {
+        format!(
+            r##"  <g class="comp {class}" data-id="{id}" style="cursor:pointer"
+       onclick="expandSubModule({id})">
+"##,
+            class = class,
+            id = b.id,
+        )
+    } else {
+        format!(
+            r##"  <g class="comp {class}" data-id="{id}">
+"##,
+            class = class,
+            id = b.id,
+        )
+    }
+}
+
+/// The hover tooltip, written only for a box that can really be opened: it is the
+/// same advertisement as the `onclick`, said in words.
+fn drill_title(b: &McVecBox, drill: bool) -> String {
+    if drill {
+        format!(
+            "    <title>Click to expand: {}</title>\n",
+            escape_xml(&b.name)
+        )
+    } else {
+        String::new()
+    }
+}
+
+/// Draw the box body, and advertise the drill-down **only when there is one**.
+///
+/// The root layer hands *every* box to this renderer (see `shape::render_box_inner`),
+/// including real components, which have no sub-graph. Whether a box can be opened
+/// is a fact about the layer, not about the box, so it arrives as `drill` rather
+/// than being guessed here from the symbol or the kind. A box outside the roster
+/// is therefore drawn with no advertisement: an `onclick` naming a layer the
+/// document does not have is a dead link.
+///
+/// Everything else — the rect, the name and class labels, the pin stubs — is
+/// written identically either way: a box that cannot be opened still has to be
+/// *seen*, and it is simply never clickable.
+fn render_sub_module_impl(b: &McVecBox, is_root: bool, drill: bool) -> String {
+    let g_open = drill_group_open(b, if is_root { "root-block" } else { "sub-module" }, drill);
+    let title_svg = drill_title(b, drill);
+
     // ── All port pins (stub + function name) ──
     // Module borders keep the concise sub-module style (no pin numbers, the
     // name rides on the net line). A real component box in the root block
@@ -133,15 +197,12 @@ fn render_sub_module_impl(b: &McVecBox, is_root: bool) -> String {
         };
 
         format!(
-            r##"  <g class="comp root-block" data-id="{id}" style="cursor:pointer"
-       onclick="expandSubModule({id})">
-    <title>Click to expand: {name}</title>
-    <rect x="{x:.1}" y="{y:.1}" width="{w:.1}" height="{h:.1}" rx="6"
+            r##"{g_open}{title_svg}    <rect x="{x:.1}" y="{y:.1}" width="{w:.1}" height="{h:.1}" rx="6"
           fill="#F5F5F5" stroke="#424242" stroke-width="2"/>
 {name_svg}{class_svg}{pins}  </g>
 "##,
-            id = b.id,
-            name = escape_xml(&b.name),
+            g_open = g_open,
+            title_svg = title_svg,
             name_svg = name_svg,
             class_svg = class_svg,
             x = b.x,
@@ -181,10 +242,7 @@ fn render_sub_module_impl(b: &McVecBox, is_root: bool) -> String {
         };
 
         format!(
-            r##"  <g class="comp sub-module" data-id="{id}" style="cursor:pointer"
-       onclick="expandSubModule({id})">
-    <title>Click to expand: {name}</title>
-{name_svg}{class_svg}    <rect x="{x:.1}" y="{y:.1}" width="{w:.1}" height="{h:.1}" rx="6"
+            r##"{g_open}{title_svg}{name_svg}{class_svg}    <rect x="{x:.1}" y="{y:.1}" width="{w:.1}" height="{h:.1}" rx="6"
           fill="none" stroke="#424242" stroke-width="1.5" stroke-dasharray="5,3"
           pointer-events="none"/>
     <g transform="translate({corner_x:.1},{corner_y:.1})">
@@ -194,8 +252,8 @@ fn render_sub_module_impl(b: &McVecBox, is_root: bool) -> String {
     </g>
 {pins}  </g>
 "##,
-            id = b.id,
-            name = escape_xml(&b.name),
+            g_open = g_open,
+            title_svg = title_svg,
             name_svg = name_svg,
             class_svg = class_svg,
             x = b.x,

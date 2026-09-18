@@ -94,9 +94,11 @@ impl SvgRenderer {
             // Render block edges instead of nets.
             svg.push_str(&render_block_edges(graph));
 
-            // Boxes: root layer solid-line styling.
+            // Boxes: root layer solid-line styling. The same roster gates the
+            // drill-down on both faces, so a box cannot be expandable in one
+            // drawing of a layer and dead in the other.
             for b in &graph.boxes {
-                svg.push_str(&shape::render_box(b, true));
+                svg.push_str(&shape::render_box(b, true, &graph.clickable_subs));
             }
         } else {
             // ── ★ Device: equipotential tree rendering for sub-layers ──
@@ -117,7 +119,7 @@ impl SvgRenderer {
                 ) {
                     continue;
                 }
-                svg.push_str(&shape::render_box(b, false));
+                svg.push_str(&shape::render_box(b, false, &graph.clickable_subs));
             }
 
             // ── ★ Module-port drawing: the module's own boundary ──

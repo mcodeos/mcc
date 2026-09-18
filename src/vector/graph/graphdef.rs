@@ -87,6 +87,18 @@ pub struct McVecGraph {
     /// longer re-runs `decide_edges`). Populated for Block layers only; Device
     /// layers leave it empty.
     pub block_edges: Vec<BlockEdge>,
+    /// Which boxes of this layer actually have a layer to open.
+    ///
+    /// The ids are the `bid`s of `sub_graphs`, projected onto the graph before
+    /// rendering so the renderer stays a pure consumer — the same pattern as
+    /// `block_edges` above. `api` fills it from the very list it writes into
+    /// `VizLayer::clickable_subs` (the keys of the document's `layers`), so a box
+    /// advertised as expandable and the layer it would open cannot disagree.
+    ///
+    /// A box that is *not* in here is drawn identically, minus the advertisement:
+    /// it has no layer to open, and an `onclick` naming a missing layer would be a
+    /// dead link.
+    pub clickable_subs: Vec<i64>,
 }
 
 /// ★ C1b F0: rendering style — determines which pipeline a layer uses.
@@ -179,6 +191,7 @@ impl McVecGraph {
             is_root: false,
             layer_style: LayerStyle::Block,
             block_edges: vec![],
+            clickable_subs: vec![],
         }
     }
 
