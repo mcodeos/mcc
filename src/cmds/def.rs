@@ -8,23 +8,22 @@
 //! mcc def RES --lib mcode        # find component definition
 //! mcc def main -F circuit.mc     # find module definition
 //! ```
+//!
+//! ⚠ The CLI no longer delegates to a running server (CIMP §1 U90, ruling (b)).
+//! The RPC `def` method carries `name` (plus an optional LSP `uri`/`position`,
+//! which is a different caller) and no target, so the server resolved the name
+//! in *its own* world — with a daemon running, `mcc def RES -F circuit.mc`
+//! answered "definition not found" for a file the CLI had just loaded. The RPC
+//! method stays for LSP and direct callers.
 
 use crate::output::{emit_projection, OutputFormatExt, ProjectionKey};
 use anyhow::Result;
-use mcc::cli::{rpcclient::RpcClient, DefArgs};
+use mcc::cli::DefArgs;
 use mcc::{get_def, McCMIE, McIds, McURI};
 use serde_json::{json, Value};
 use std::path::Path;
 
 pub fn run(args: &DefArgs) -> Result<()> {
-    if let Some(c) = RpcClient::probe() {
-        let params = json!({ "name": args.name });
-        match c.call("def", params) {
-            Ok(result) => return emit_def(result),
-            Err(e) => tracing::debug!(target: "mcc::def", "RPC failed, using local: {}", e),
-        }
-    }
-
     run_local(args)
 }
 

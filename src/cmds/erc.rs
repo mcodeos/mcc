@@ -14,23 +14,23 @@
 //!
 //! The payload comes from `check::nets::erc_payload`, which the RPC `erc`
 //! method also renders through, so the two faces cannot drift apart again.
+//!
+//! ⚠ The CLI no longer delegates to a running server (CIMP §1 U90, ruling (b)).
+//! The RPC `erc` method takes no params at all — `handle_erc(_params)` drops
+//! them — so the server answered about *its own* world: with a daemon running,
+//! `mcc erc <design>` reported `component_count 0 / module_count 0` for a
+//! design that has 10 and 7. A reader that returns a *smaller* answer is not
+//! the same question's other reading, so the arm is gone. The RPC method stays
+//! for direct callers.
 
 use crate::cmds::{common, manifest};
 use crate::output::{emit_projection, OutputFormatExt, ProjectionKey};
 use anyhow::Result;
-use mcc::cli::{rpcclient::RpcClient, ErcArgs};
-use serde_json::{json, Value};
+use mcc::cli::ErcArgs;
+use serde_json::Value;
 use std::path::Path;
 
 pub fn run(args: &ErcArgs) -> Result<()> {
-    if let Some(c) = RpcClient::probe() {
-        let params = json!({ "top": mcc::cli::globals().top });
-        match c.call("erc", params) {
-            Ok(result) => return emit_erc(result),
-            Err(e) => tracing::debug!(target: "mcc::erc", "RPC failed, using local: {}", e),
-        }
-    }
-
     run_local(args)
 }
 

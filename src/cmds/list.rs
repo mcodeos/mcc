@@ -13,26 +13,21 @@ use crate::cmds::show::{classify_def_scope, nets_map, output, resolve_file, reso
 use crate::output::die;
 use crate::output::{emit_projection, OutputFormatExt, ProjectionKey};
 use anyhow::Result;
-use mcc::cli::{rpcclient::RpcClient, ListArgs, ListTarget, OutputFormat};
+use mcc::cli::{ListArgs, ListTarget};
 use mcc::McURI;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::path::Path;
 
+/// ⚠ The CLI no longer delegates to a running server (CIMP §1 U90, ruling (b)).
+/// The list kinds mapped 1:1 to the legacy `show.*.list` RPC methods, but the
+/// request carried only the raw `file` argument, which the server resolved
+/// against *its own* `current_dir()` — so with a daemon running every
+/// `list <kind> -F <dir> -f json` answered `component_count 0 / module_count 0`
+/// for a design holding 10 components and 7 modules. A reader that returns a
+/// smaller answer is not the same question's other reading. The RPC methods
+/// stay for direct callers.
 pub fn run(args: &ListArgs) -> Result<()> {
-    // Server path: the list kinds map 1:1 to the legacy `show.*.list` RPC
-    // methods. Everything else falls through to local execution.
-    if let Some(c) = RpcClient::probe() {
-        if let Some((method, params)) = rpc_mapping(args) {
-            match c.call(method, params) {
-                Ok(result) => return emit_list(result),
-                Err(e) => {
-                    tracing::debug!(target: "mcc::list", "RPC failed, using local mode: {}", e);
-                }
-            }
-        }
-    }
-
     run_local(args)
 }
 
@@ -52,27 +47,6 @@ fn emit_list(data: Value) -> Result<()> {
         );
     }
     output(&data, false)
-}
-
-/// Map list targets to their RPC method + params. Returns `None` when the
-/// command must fall through to local execution: text format (RPC handlers
-/// only return JSON), a `--filter` (RPC list methods don't apply filters), or
-/// `list all` (local-only flat aggregation).
-fn rpc_mapping(args: &ListArgs) -> Option<(&'static str, Value)> {
-    if matches!(mcc::cli::globals().format, OutputFormat::Text) || args.filter.is_some() {
-        return None;
-    }
-    let m = match args.target {
-        ListTarget::All => return None,
-        ListTarget::Component => "show.component.list",
-        ListTarget::Module => "show.module.list",
-        ListTarget::Interface => "show.interface.list",
-        ListTarget::Enum => "show.enum.list",
-        ListTarget::Nets => "show.net.list",
-        ListTarget::Ports => "show.ports.list",
-        ListTarget::Files => "show.files",
-    };
-    Some((m, json!({ "file": args.file })))
 }
 
 fn run_local(args: &ListArgs) -> Result<()> {

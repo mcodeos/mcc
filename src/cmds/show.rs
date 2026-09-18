@@ -31,112 +31,18 @@ use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+/// ⚠ The CLI no longer delegates to a running server for the entity / drill-down
+/// targets (CIMP §1 U90, ruling (b)). Those requests carried `name` plus the raw
+/// `file` argument, which the server resolved against *its own* `current_dir()`,
+/// so with a daemon running `mcc show component X -F circuit.mc` read the wrong
+/// world. The RPC methods stay for direct callers.
+///
+/// One server call in this file survives, and deliberately: `show lapper`'s
+/// fallback posts `{"uri", "content"}` to `sem` — it ships the file's **bytes**,
+/// so the answer is about the client's source. The rule is "no delegation for a
+/// context that cannot be delivered", not "no delegation".
 pub fn run(args: &ShowArgs) -> Result<()> {
-    // Server path: only legacy container targets have RPC methods today
-    // (server/local parity for the rest is still pending). Everything
-    // else falls through to local execution.
-    if let Some(c) = RpcClient::probe() {
-        if let Some((method, params)) = rpc_mapping(args) {
-            match c.call(method, params) {
-                Ok(result) => return emit_show_owned(args.target, result),
-                Err(e) => {
-                    tracing::debug!(target: "mcc::show", "RPC failed, using local mode: {}", e);
-                }
-            }
-        }
-    }
-
     run_local(args)
-}
-
-/// Map show targets to their RPC method + params. Returns `None` when the
-/// command must fall through to local execution:
-///   * output format is `text` — RPC handlers only return JSON, so the aligned
-///     tables / .mc-like dumps are rendered locally. This also makes the
-///     default `-f text` output stable whether or not a server is running.
-fn rpc_mapping(args: &ShowArgs) -> Option<(&'static str, Value)> {
-    if matches!(mcc::cli::globals().format, OutputFormat::Text) {
-        return None;
-    }
-    match args.target {
-        // overview
-        // show.all / show.defs are local-only: the RPC handler has no
-        // --scope / -F concept and would bypass the layered (file/use/system)
-        // filtering.
-        ShowTarget::All | ShowTarget::Defs => None,
-        ShowTarget::Lapper | ShowTarget::Ast => {
-            // local-only: read file, call internal sem, dump lapper / AST tree
-            return None;
-        }
-        ShowTarget::Stage => {
-            // local-only: a stage view is built from a live Pass2 flatten and
-            // needs the loaded source set for `world_ver` and `loc` line
-            // numbers. Same trap as lapper/ast: with a server running, pass
-            // `-L` or the readout is delegated and prints nothing.
-            return None;
-        }
-
-        // entity detail (name required)
-        ShowTarget::Component | ShowTarget::Module | ShowTarget::Interface | ShowTarget::Enum => {
-            if args.name.is_none() {
-                // name lists moved to `mcc list <kind>`; run_local prints the hint
-                return None;
-            }
-            let m = match args.target {
-                ShowTarget::Component => "show.component",
-                ShowTarget::Module => "show.module",
-                ShowTarget::Interface => "show.interface",
-                ShowTarget::Enum => "show.enum",
-                _ => unreachable!(),
-            };
-            Some((m, json!({ "name": args.name, "file": args.file })))
-        }
-        ShowTarget::Net => {
-            if args.name.is_none() {
-                // net list moved to `mcc list nets`; run_local prints the hint
-                return None;
-            }
-            Some(("show.net", json!({ "name": args.name })))
-        }
-        ShowTarget::Dianlu | ShowTarget::Pwr | ShowTarget::Pwrflow => {
-            // local-only: walks the Pass2 McModuleInst tree / flat InstTable
-            // (sections render from live object data, no RPC method exists)
-            return None;
-        }
-
-        // drill-down
-        ShowTarget::Pins => drill_rpc("show.pins", args),
-        ShowTarget::Ports => {
-            if args.name.is_some() {
-                drill_rpc("show.ports", args)
-            } else {
-                // port list moved to `mcc list ports`; run_local prints the hint
-                None
-            }
-        }
-        ShowTarget::Labels => drill_rpc("show.labels", args),
-        ShowTarget::Instances => drill_rpc("show.instances", args),
-        ShowTarget::Nets => drill_rpc("show.nets", args),
-        ShowTarget::Attrs => drill_rpc("show.attrs", args),
-        ShowTarget::Funcs => drill_rpc("show.funcs", args),
-        ShowTarget::Params => drill_rpc("show.params", args),
-        ShowTarget::Roles => drill_rpc("show.roles", args),
-        ShowTarget::Values => drill_rpc("show.values", args),
-    }
-}
-
-/// Build an RPC call for a drill-down target. All drill-down targets require
-/// `name`; `--type` and `--top` are passed through when present.
-fn drill_rpc(method: &'static str, args: &ShowArgs) -> Option<(&'static str, Value)> {
-    let name = args.name.as_ref()?;
-    let mut params = json!({ "name": name });
-    if let Some(t) = &args.r#type {
-        params["type"] = json!(t);
-    }
-    if let Some(t) = &mcc::cli::globals().top {
-        params["top"] = json!(t);
-    }
-    Some((method, params))
 }
 
 fn run_local(args: &ShowArgs) -> Result<()> {
