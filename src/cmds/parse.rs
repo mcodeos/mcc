@@ -749,10 +749,14 @@ fn instance_to_node(inst: &mcc::MccProjectTree, view: &mcc::TreeView) -> Instanc
     let components = view
         .components(inst)
         .map(|c| {
-            let mut pins: Vec<PinInfo> = c
-                .pins
-                .iter()
-                .map(|(pin_id, _net_point)| {
+            // Canonical pin order (discipline 4). `McComponentInst.pins` is a
+            // `HashMap`, so an unsorted walk would make the pin list order
+            // change on every run; the rule itself lives on the type, so this
+            // collector and the RPC one cannot drift apart again.
+            let pins: Vec<PinInfo> = c
+                .sorted_pin_ids()
+                .into_iter()
+                .map(|pin_id| {
                     let pin_name = c.pin_name(pin_id).unwrap_or_else(|| pin_id.clone());
                     PinInfo {
                         id: pin_id.clone(),
@@ -760,11 +764,6 @@ fn instance_to_node(inst: &mcc::MccProjectTree, view: &mcc::TreeView) -> Instanc
                     }
                 })
                 .collect();
-            // Deterministic pin order: numeric id ascending, non-numeric at the
-            // end. `McComponentInst.pins` is a HashMap with a per-process
-            // random seed (RandomState), so without this the pin list order
-            // changes on every run. Mirrors PinSortMode::PinId (print.rs).
-            pins.sort_by_key(|p| p.id.parse::<i64>().ok().unwrap_or(i64::MAX));
             ComponentInfo {
                 name: c.name.to_string(),
                 class_name: c.def.name.to_string(),

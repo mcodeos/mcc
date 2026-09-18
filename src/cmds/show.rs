@@ -2371,8 +2371,8 @@ fn comp_json(comp: &mcc::McComponentInst, ids: bool) -> Value {
 /// parentheses when one exists.
 fn comp_pin_rows(comp: &mcc::McComponentInst) -> Vec<(String, String)> {
     let mut rows: Vec<(String, String)> = comp
-        .pins
-        .keys()
+        .sorted_pin_ids()
+        .into_iter()
         .map(|pid| {
             let alias = comp
                 .cond_pin_names
@@ -2391,14 +2391,7 @@ fn comp_pin_rows(comp: &mcc::McComponentInst) -> Vec<(String, String)> {
             }
         })
         .collect();
-    rows.sort_by_key(|(raw, _)| {
-        let numeric = raw
-            .split('(')
-            .next()
-            .and_then(|s| s.parse::<i64>().ok())
-            .unwrap_or(i64::MAX);
-        (numeric, raw.clone())
-    });
+    rows.sort_by(|a, b| mcc::pin_id_cmp(&a.0, &b.0));
     rows
 }
 

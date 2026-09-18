@@ -263,3 +263,147 @@ fn the_lapper_readout_is_the_same_file_twice() {
     sorted.sort_unstable();
     assert_eq!(keys, sorted, "`def_to_refs` is not in key order");
 }
+
+/// Every pin list in a payload, found structurally: an array whose elements are
+/// all objects carrying a string `id` and a string `name`.
+///
+/// Structural rather than by path on purpose — the point of this test is that
+/// *every* pin listing obeys one rule, so a walk that only visited the arrays
+/// somebody remembered to name would not be about that.
+fn pin_lists(v: &serde_json::Value, out: &mut Vec<Vec<String>>) {
+    match v {
+        serde_json::Value::Array(items) => {
+            let is_pin_list = !items.is_empty()
+                && items.iter().all(|p| {
+                    p.get("id").and_then(|i| i.as_str()).is_some()
+                        && p.get("name").and_then(|n| n.as_str()).is_some()
+                });
+            if is_pin_list {
+                out.push(
+                    items
+                        .iter()
+                        .map(|p| p["id"].as_str().expect("pin id").to_string())
+                        .collect(),
+                );
+            }
+            for i in items {
+                pin_lists(i, out);
+            }
+        }
+        serde_json::Value::Object(map) => {
+            for (_, i) in map {
+                pin_lists(i, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// The build readout's pin lists, held to discipline 4 — and to the rule.
+///
+/// Two **processes**, like the exports above: `McComponentInst.pins` is a
+/// `HashMap`, and a collector that walked its `keys()` would look perfectly
+/// stable inside one process and shuffle between two. That is not a
+/// hypothetical — the delegated face of `mcc build` shipped exactly this, and it
+/// disagreed with *itself* between consecutive requests, so a same-process
+/// comparison would have called it green.
+///
+/// Stability alone would also be satisfied by an order that froze arbitrarily,
+/// so the lists are read back and checked against `mcc::pin_id_cmp`: the
+/// property under test is "determined by the design", not "constant".
+#[test]
+fn the_build_readout_lists_pins_in_one_order() {
+    const MIN_LISTS: usize = 5;
+    const MIN_PINS: usize = 3;
+
+    let cwd = scratch("build-pin-order");
+    let target = hbl_dir().join("src/hbl.mc");
+    let t = target.to_str().expect("fixture path");
+
+    let mut runs: Vec<Vec<Vec<String>>> = Vec::new();
+    for _ in 0..2 {
+        // The exit code is not this test's business: the fixture trips an
+        // error-level electrical net check, so `build` reports failure while
+        // still publishing its readout. Order is what is under test.
+        let (out, err, _) = run_mcc(&cwd, &["build", t, "-f", "json"]);
+        let payload: serde_json::Value = serde_json::from_str(&out)
+            .unwrap_or_else(|e| panic!("`mcc build -f json` published no payload: {e}\n{err}"));
+        let mut lists = Vec::new();
+        pin_lists(&payload, &mut lists);
+        runs.push(lists);
+    }
+
+    assert!(
+        runs[0].len() >= MIN_LISTS,
+        "the fixture's build readout has {} pin lists, below the {MIN_LISTS} this \
+         lock's reasoning needs",
+        runs[0].len()
+    );
+    assert!(
+        runs[0].iter().any(|l| l.len() >= MIN_PINS),
+        "no pin list in the fixture reaches {MIN_PINS} pins — an order assertion \
+         over lists that short would not bite"
+    );
+
+    for (i, run) in runs.iter().enumerate().skip(1) {
+        assert_eq!(
+            &runs[0], run,
+            "`mcc build` run 0 and run {i} list pins differently — the order comes \
+             from a container the design does not order (build-design §3.7 \
+             discipline 4)"
+        );
+    }
+
+    for list in &runs[0] {
+        let mut ordered = list.clone();
+        ordered.sort_by(|a, b| mcc::pin_id_cmp(a, b));
+        assert_eq!(
+            list, &ordered,
+            "a pin list is stable but not in the canonical order — a frozen \
+             arbitrary order is not an order the input determines"
+        );
+    }
+}
+
+/// The rule itself, including the tie it has to break.
+///
+/// `natural_cmp` compares digit runs numerically and ignores leading zeros, so
+/// `"1"` and `"01"` reach it equal. A comparator that stopped there would leave
+/// those two in whatever order the container handed them over — the same defect
+/// one level down. The last term is the raw text, and this is the assertion that
+/// keeps it.
+#[test]
+fn the_pin_id_order_is_total() {
+    use mcc::pin_id_cmp;
+
+    // Numeric ids first, numerically — not lexicographically.
+    let mut ids = vec!["10", "2", "1", "12", "11", "3"];
+    ids.sort_by(|a, b| pin_id_cmp(a, b));
+    assert_eq!(ids, vec!["1", "2", "3", "10", "11", "12"]);
+
+    // Then non-numeric ids, digit runs compared numerically.
+    let mut mixed = vec!["PA10", "A2", "B1", "PA0", "A10", "AB", "A1"];
+    mixed.sort_by(|a, b| pin_id_cmp(a, b));
+    assert_eq!(mixed, vec!["A1", "A2", "A10", "AB", "B1", "PA0", "PA10"]);
+
+    // The tie `natural_cmp` leaves: only the raw text separates these.
+    assert_eq!(pin_id_cmp("1", "01"), std::cmp::Ordering::Greater);
+    assert_eq!(pin_id_cmp("01", "1"), std::cmp::Ordering::Less);
+    assert_eq!(pin_id_cmp("1", "1"), std::cmp::Ordering::Equal);
+
+    // Total: an antisymmetric comparator that never says "equal" about two
+    // distinct ids is what lets a sort be a function of the input.
+    let ids = ["1", "01", "001", "A1", "A01", "a1", "1A", "10", "2"];
+    for a in ids {
+        for b in ids {
+            let ab = pin_id_cmp(a, b);
+            let ba = pin_id_cmp(b, a);
+            assert_eq!(ab, ba.reverse(), "`{a}` vs `{b}` is not antisymmetric");
+            if a == b {
+                assert_eq!(ab, std::cmp::Ordering::Equal, "`{a}` must equal itself");
+            } else {
+                assert_ne!(ab, std::cmp::Ordering::Equal, "`{a}` and `{b}` tie");
+            }
+        }
+    }
+}

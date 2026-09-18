@@ -39,6 +39,18 @@ pub struct BuildOutcome {
     pub exit_code: i32,
 }
 
+/// Close the build envelope, carrying the failure-ledger summary.
+///
+/// resolve-gate-design.md §7.1-2 / §7.5-12: *every* build envelope carries the
+/// ledger summary (`total` / `by_kind_form` / `resolved_late` / `survived`);
+/// `mcc check` adds the per-row detail on `--ledger`. The delegated face
+/// (`build.full`) always did this, so without it the same argv answered with
+/// and without a `ledger` key depending on whether a daemon was listening.
+fn finish_build(mut builder: ResultBuilder) -> Envelope {
+    builder.set_ledger(mcc::ledger::build_report(mcc::ledger::LedgerMode::Summary));
+    Envelope::ok(builder.finish())
+}
+
 /// Resolve the entry file given on the CLI: the positional `FILE` wins over
 /// the global `--entry` flag; both override the manifest entry. A directory
 /// positional is a project-root target, not an entry file, so it is excluded
@@ -566,7 +578,7 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
     let errors = builder.error_count();
 
     // ── 6. Emit envelope ──
-    let env = Envelope::ok(builder.finish());
+    let env = finish_build(builder);
     let envelope_target = if args.viz && mcc::cli::globals().output.is_some() {
         None
     } else {
@@ -984,7 +996,7 @@ fn build_browse_dir(
 
     // ── 5/6. Exit code + envelope ──
     let errors = builder.error_count();
-    let env = Envelope::ok(builder.finish());
+    let env = finish_build(builder);
     let envelope_target = mcc::cli::globals().output.as_deref().map(Path::new);
     output::emit_envelope(&env, mcc::cli::globals().format, envelope_target, false)?;
     Ok(BuildOutcome {
@@ -998,7 +1010,7 @@ fn build_browse_dir(
 /// site, so this is only reached under `-f json` / `-f json-pretty`
 /// (world-repartition-design.md §2.5).
 fn emit_gate_envelope(builder: ResultBuilder) -> Result<()> {
-    let env = Envelope::ok(builder.finish());
+    let env = finish_build(builder);
     let target = mcc::cli::globals().output.as_deref().map(Path::new);
     output::emit_envelope(&env, mcc::cli::globals().format, target, false)
 }

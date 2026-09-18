@@ -260,13 +260,13 @@ pub fn print_module_inst(
             // Sort by user-specified mode
             match sort_mode {
                 PinSortMode::PinId => {
-                    // Sort by pinid number ascending (default). Try to parse as i64; if failed, put
-                    // at the end.
-                    pins.sort_by_key(|p| {
-                        p.split('(')
-                            .next()
-                            .and_then(|s| s.parse::<i64>().ok())
-                            .unwrap_or(i64::MAX)
+                    // Pin id ascending (default) — the project-wide rule, so this
+                    // face cannot drift from the others.
+                    pins.sort_by(|a, b| {
+                        mcc::pin_id_cmp(
+                            a.split('(').next().unwrap_or(a.as_str()),
+                            b.split('(').next().unwrap_or(b.as_str()),
+                        )
                     });
                 }
                 PinSortMode::Interface => {
@@ -281,21 +281,15 @@ pub fn print_module_inst(
                             .split_once('(')
                             .map(|(_, alias)| alias.trim_end_matches(')'))
                             .unwrap_or("");
-                        let key_a = (
-                            grp_a,
-                            a.split('(')
-                                .next()
-                                .and_then(|s| s.parse::<i64>().ok())
-                                .unwrap_or(i64::MAX),
-                        );
-                        let key_b = (
-                            grp_b,
-                            b.split('(')
-                                .next()
-                                .and_then(|s| s.parse::<i64>().ok())
-                                .unwrap_or(i64::MAX),
-                        );
-                        key_a.cmp(&key_b)
+                        // The inner key is the same pin-id order as `PinId`
+                        // above — a numeric-only fallback would leave the
+                        // non-numeric ids in the container's order.
+                        grp_a.cmp(grp_b).then_with(|| {
+                            mcc::pin_id_cmp(
+                                a.split('(').next().unwrap_or(a.as_str()),
+                                b.split('(').next().unwrap_or(b.as_str()),
+                            )
+                        })
                     });
                 }
             }
