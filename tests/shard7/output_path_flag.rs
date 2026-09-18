@@ -51,7 +51,7 @@ fn scratch(name: &str) -> PathBuf {
 /// Run `mcc --local <args…>` from `cwd`; returns `(stdout, stderr, exit_ok)`.
 ///
 /// `--local` on every call: without it a running `mcc start` service answers
-/// instead, on its own world (`skills/mcc.md` §5.3).
+/// instead, on its own world (`skills/mcc/reference/pipeline.md` §5.3).
 fn run_mcc(cwd: &Path, args: &[&str]) -> (String, String, bool) {
     let mut full = vec!["--local"];
     full.extend_from_slice(args);

@@ -73,7 +73,7 @@ fn scratch(name: &str) -> PathBuf {
 /// `(stdout, stderr, exit_ok)`.
 ///
 /// `--local` on every call: without it a running `mcc start` service answers
-/// instead, on its own world (`skills/mcc.md` §5.3).
+/// instead, on its own world (`skills/mcc/reference/pipeline.md` §5.3).
 fn run_show(cwd: &Path, face: &str, target: &Path) -> (String, String, bool) {
     let out = Command::new(env!("CARGO_BIN_EXE_mcc"))
         .current_dir(cwd)
