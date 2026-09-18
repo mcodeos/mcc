@@ -1284,41 +1284,8 @@ pub(crate) fn build_stage_view(
         mcc::export::build_tree_diags(&entry_uri, Some(top.as_str()), &mcc::cli::globals().lib)
             .map_err(|e| anyhow::anyhow!("stage: {e}"))?;
 
-    // `stage.p1` is the reserved slot: the command family is fixed now so the
-    // Pass1 view (design §8 O2/O3) can land without reshaping it. Its body stays
-    // empty rather than reusing `show ast`'s output, which carries none of the
-    // chain's keys (design §5.2 ①: the chain's identity starts at Pass2).
-    Ok(match seg {
-        mcc::stages::StageSeg::P1 => {
-            mcc::stages::StageView::new(seg, &top, Vec::new(), diags.len())
-        }
-        mcc::stages::StageSeg::P2 => mcc::stages::p2::build_p2(&table, &top, diags.len()),
-        mcc::stages::StageSeg::Vec => {
-            // The vec block is the builder's own output; the graph is what the
-            // projection turns it into. `with_log` hands back the projection's
-            // own record of what it changed — the same computation the graph
-            // came from, not a second derivation of it.
-            let block = mcc::build_mc_vec_with_arena(&tree, &table, &arena, &store);
-            let (graph, log) = mcc::vector::graph::build_mc_vec_graph_with_log(&block, &table);
-            mcc::stages::vec::build_vec(&graph, &log, &table, &top, diags.len())
-        }
-        mcc::stages::StageSeg::Viz => {
-            // The render pipeline consumes the graph it lays out, so the view
-            // reads it back through the observation sink: this is the one
-            // segment whose objects have positions, and they exist nowhere but
-            // in that graph (never in the SVG — design §11.1 / M5).
-            let block = mcc::build_mc_vec_with_arena(&tree, &table, &arena, &store);
-            let graph = mcc::vector::graph::build_mc_vec_graph(&block, &table);
-            let mut layers = Vec::new();
-            let (_doc, metrics) = mcc::viz::api::render_with_metrics_and_sink(
-                graph,
-                mcc::viz::api::RenderOpts::default(),
-                Some(&mut layers),
-            );
-            let quality = metrics.finish_quality(None);
-            mcc::stages::viz::build_viz(&layers, &quality, &table, &top, diags.len())
-        }
-    })
+    let loaded = mcc::stages::read::Loaded::new(tree, table, arena, store, &top, diags.len());
+    Ok(mcc::stages::read::build_segment(seg, &loaded))
 }
 
 /// Render `mcc show stage <p1|p2|vec|viz>`: one segment of the compile

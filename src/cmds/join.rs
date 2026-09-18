@@ -23,9 +23,8 @@ use mcc::cli::OutputFormat;
 /// Render `mcc join <a> <b>` for a supported pair.
 pub fn run(args: &mcc::cli::JoinArgs) -> Result<()> {
     let (a, b) = (args.a.as_str(), args.b.as_str());
-    match (a, b) {
-        ("src", "p2") | ("p2", "vec") | ("vec", "viz") => {}
-        _ => error_pair(a, b),
+    if !mcc::stages::read::is_adjacent_pair(a, b) {
+        error_pair(a, b);
     }
 
     // The file: `-F` wins, else the cwd manifest that `prepare` already loaded
@@ -75,39 +74,20 @@ pub fn run(args: &mcc::cli::JoinArgs) -> Result<()> {
     // Which hop, and therefore which two views. The two inner hops need the
     // vector graph; the block it is built from is the same one `show stage vec`
     // and `show stage viz` build, so a `join` reading and a `show` reading of one
-    // segment are two readings of one build (§5.3 ruling ③).
-    let mut view = match (a, b) {
-        ("src", "p2") => mcc::stages::join::build_join_src_p2(&table, &top, diags.len()),
-        ("p2", "vec") => {
-            let block = mcc::build_mc_vec_with_arena(&tree, &table, &arena, &store);
-            let (graph, log) = mcc::vector::graph::build_mc_vec_graph_with_log(&block, &table);
-            mcc::stages::join::build_join_p2_vec(&graph, &log, &table, &top, diags.len())
-        }
-        _ => {
-            let block = mcc::build_mc_vec_with_arena(&tree, &table, &arena, &store);
-            let (graph, log) = mcc::vector::graph::build_mc_vec_graph_with_log(&block, &table);
-            mcc::stages::join::build_join_vec_viz(graph, &log, &table, &top, diags.len())
-        }
+    // segment are two readings of one build (§5.3 ruling ③). The construction is
+    // shared with the MCP server (`mcc::stages::read`): two readings of one hop
+    // have to be two readings of the *same* world.
+    let loaded = mcc::stages::read::Loaded::new(tree, table, arena, store, &top, diags.len());
+    let mut view = match mcc::stages::read::build_join_pair(a, b, &loaded) {
+        Ok(view) => view,
+        Err(e) => die!("mcc::join", 2, "{e}"),
     };
 
     // `--only` filters the *same* items the unfiltered readout builds, and only
     // the rows: the counts keep describing the whole hop, so a filtered readout
     // cannot be mistaken for a world with nothing else in it.
-    if let Some(only) = args.only.as_deref() {
-        if !mcc::stages::join::is_class_word(only) {
-            let words: Vec<&str> = mcc::stages::join::SIX_WORDS
-                .iter()
-                .chain(mcc::stages::join::DIAG_WORDS)
-                .copied()
-                .collect();
-            die!(
-                "mcc::join",
-                2,
-                "unknown class '{only}'\nexpected one of: {}",
-                words.join(" | ")
-            );
-        }
-        view.items.retain(|i| i["class"] == only);
+    if let Err(e) = mcc::stages::read::filter_join_items(&mut view, args.only.as_deref()) {
+        die!("mcc::join", 2, "{e}");
     }
 
     if matches!(

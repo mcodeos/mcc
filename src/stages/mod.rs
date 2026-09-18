@@ -34,6 +34,8 @@
 
 pub mod join;
 pub mod p2;
+pub mod payload;
+pub mod read;
 pub mod stage_diff;
 pub mod top_ver;
 pub mod trace;
