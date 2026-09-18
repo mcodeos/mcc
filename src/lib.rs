@@ -386,7 +386,7 @@ pub fn mcc_build(ident: &McIds, uri: &McURI) -> Result<MccProjectTree, Box<dyn E
 /// projection, no electrical net checks), and additionally returns the arena
 /// whose `children` edges drive the consumer walks, and the store whose
 /// per-module string net tables the tree-level net consumers read. Tree
-/// rendering consumers (show / print / parse / verify / hierarchy / rpc) hold
+/// rendering consumers (show / print / parse / hierarchy / rpc) hold
 /// the arena + store alongside the tree and read children through a
 /// [`TreeView`](crate::instant::inststore::TreeView)
 /// (`view.components(tree)` / `view.sub_modules(tree)`).

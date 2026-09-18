@@ -102,23 +102,6 @@ fn cli_queryproj__net_json_rows_are_name_points() {
     assert_eq!(gnd["points"], serde_json::json!(["R2.2", "GND", "C1.2"]));
 }
 
-/// Same fold as `extract nets`: the shim and `query --kind net` must project
-/// byte-identical item graphs (no second engine).
-#[test]
-fn cli_queryproj__net_matches_extract_nets_items() {
-    let path = fixture_path();
-    let q = run_json(
-        &path,
-        &["query", "", path.to_str().unwrap(), "--kind", "net"],
-    );
-    let e = run_json(&path, &["extract", "nets", path.to_str().unwrap()]);
-    assert_eq!(e["result"]["extract"]["target"], "nets");
-    assert_eq!(
-        q["result"]["query"]["items"],
-        e["result"]["extract"]["items"]
-    );
-}
-
 /// `-f csv` under `--kind net` is a real CSV projection (explicit columns,
 /// `;`-joined points), not the envelope's text fall-through.
 #[test]

@@ -120,7 +120,7 @@ pub fn build_pass2_with_arena(
     }
 }
 
-// §8.9.5 layered connection rendering (shared by `show dianlu` and `verify`)
+// §8.9.5 layered connection rendering (used by `show dianlu`)
 
 /// One connection row for layered rendering. `dir` is the source direction
 /// tag (`"LtoR"` / `"RtoL"` / anything else = undirected, the `{:?}` form of
@@ -147,7 +147,7 @@ fn join_conn_points(points: &[String], dir: &str) -> String {
     points.join(sep)
 }
 
-/// §8.9.5 layered connection rendering (shared by `show dianlu` and `verify`).
+/// §8.9.5 layered connection rendering (used by `show dianlu`).
 ///
 /// Connections render in two tiers (vocabulary: trunk / lane / wire):
 ///

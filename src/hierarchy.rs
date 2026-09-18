@@ -2,17 +2,17 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! Shared module-nesting overview (the "Hierarchy" tree) used by `mcc verify`
-//! and `mcc show dianlu`: the top module as root, each module node carrying
-//! every instance in source order, tagged by origin — `[src]` (declared),
+//! Shared module-nesting overview (the "Hierarchy" tree) used by `mcc show
+//! dianlu` and the `show.*` RPC handlers: the top module as root, each module
+//! node carrying every instance in source order, tagged by origin — `[src]` (declared),
 //! `[decl]` (declareb), `[gen]` (funcall-generated), `[port]` (real IOType
 //! port) and `[inl]` (inline, from a connection phrase) — so the whole
 //! instance structure is visible at a glance before the per-module sections.
 //!
 //! Pipeline: [`collect_module_nodes`] walks a Pass2 `McModuleInst` tree into
-//! per-module JSON nodes (the same `{module, uri, instances}` shape `verify`
-//! emits for its sections), [`build_hierarchy`] nests those nodes by their
-//! dot path, and [`render_hierarchy_text`] draws the ASCII tree.
+//! per-module JSON nodes (the same `{module, uri, instances}` shape every
+//! caller emits), [`build_hierarchy`] nests those nodes by their dot path,
+//! and [`render_hierarchy_text`] draws the ASCII tree.
 
 use crate::instant::nettab::NetTableStore;
 use crate::{InstOrigin, McInstance, McModuleInst};
@@ -21,8 +21,8 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Write as _;
 use std::path::Path;
 
-/// Instance families extracted from one module, shared by `verify`'s
-/// per-module instance report and by the hierarchy tree.
+/// Instance families extracted from one module, shared by the per-module
+/// instance listing and by the hierarchy tree.
 pub struct InstanceFamilies {
     /// Declared physical instances (component / module / interface / bus /
     /// label) with kind, source line, class and origin (`port` = carries an
@@ -83,9 +83,9 @@ fn bus_class(def: &crate::McModule, name: &str) -> Option<String> {
         .map(|(class, args)| format!("{class}({})", args.join(", ")))
 }
 
-/// Kind abbreviation shared by `verify` and the hierarchy tree: full Pass1
-/// kind names map to 3-4 char tokens (`comp` / `mod` / `ifs` / `lbl` / `bus`)
-/// so the type column stays short.
+/// Kind abbreviation shared by the per-module listing and the hierarchy tree:
+/// full Pass1 kind names map to 3-4 char tokens (`comp` / `mod` / `ifs` /
+/// `lbl` / `bus`) so the type column stays short.
 pub fn kind_abbrev(kind: &str) -> &str {
     match kind {
         "component" | "declareb" => "comp",
@@ -384,9 +384,8 @@ pub fn extract_instance_families(
 }
 
 /// Recursively collect one module node per module in source order — the same
-/// `{module, uri, instances}` shape `verify` emits for its per-module
-/// sections — so [`build_hierarchy`] treats `verify` and `show dianlu`
-/// alike.
+/// `{module, uri, instances}` shape the per-module sections use — so
+/// [`build_hierarchy`] treats every caller alike.
 pub fn collect_module_nodes(
     inst: &McModuleInst,
     path: &str,

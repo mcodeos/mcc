@@ -172,18 +172,6 @@ pub(crate) struct CheckRpcParams {
     pub(crate) ledger: Option<String>,
 }
 
-#[derive(Deserialize, Default)]
-pub(crate) struct ExtractRpcParams {
-    #[serde(default)]
-    pub(crate) entry: Option<String>,
-    #[serde(default)]
-    pub(crate) target: String,
-    #[serde(default)]
-    pub(crate) top: Option<String>,
-    #[serde(default)]
-    pub(crate) libs: Vec<String>,
-}
-
 #[derive(Default, Deserialize)]
 pub(crate) struct ParseParams {
     #[serde(default)]

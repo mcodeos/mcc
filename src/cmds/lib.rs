@@ -8,7 +8,9 @@
 //! - `mcc lib install <name> --from <path>` — install to data_dir/system/public/
 //! - `mcc lib load <name>` — load into memory
 //! - `mcc lib unload <name>` — unload from memory
-//! - `mcc lib info <name>` — show library details
+//! - `mcc lib show <name>` — show library details
+//! - `mcc lib search <pat>` — search installed libraries
+//! - `mcc lib uninstall <name>` — remove an installed library
 
 use crate::output;
 use anyhow::{Context, Result};

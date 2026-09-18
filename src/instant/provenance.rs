@@ -5,7 +5,7 @@
 //! Pass2 instantiation — expansion provenance (logical expansion tree)
 //!
 //! Records every instantiation / expansion event produced by the Pass2
-//! instantiator, so that downstream consumers (verify, `mcc show`, LSP) can
+//! instantiator, so that downstream consumers (`mcc show`, LSP) can
 //! attribute products (components, sub-modules, connections) to the exact
 //! call site and function body line that created them — without re-deriving
 //! the call tree from flat physical structures.
@@ -106,7 +106,7 @@ impl ExpansionRecord {
     }
 }
 
-/// Call statement node: verify-stage aggregation unit.
+/// Call statement node: stage-aggregation unit.
 ///
 /// Built by `ExpansionLog::build_tree` from top-level records sharing the same
 /// `call_site` (statement span start, absolute offset). Records with
@@ -115,7 +115,7 @@ impl ExpansionRecord {
 pub struct StatementNode {
     /// Statement span start (absolute offset). Unified [`SourcePos`] (§7.11(3)).
     pub call_site: SourcePos,
-    /// Statement source text (for display; empty until filled by verify).
+    /// Statement source text (for display; empty until filled by the stages).
     pub text: String,
     /// Top-level expansion record indices belonging to this statement.
     pub expansions: Vec<usize>,

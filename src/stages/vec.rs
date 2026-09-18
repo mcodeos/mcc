@@ -16,7 +16,7 @@
 //!   record.** [`crate::viz::project::ProjectionLog`] holds one row per layer
 //!   (net count before → after) and one row per action (merge / dedup /
 //!   removal). Publishing that log is what lets a reader answer "why does
-//!   `verify` count 19 nets here and this view 14" from the *same*
+//!   `stage.p2` count 19 nets here and this view 14" from the *same*
 //!   computation instead of from a second derivation that happens to agree.
 //!
 //! Everything is read from the graph, never from the rendered SVG: the design is

@@ -1612,133 +1612,6 @@ pub(crate) fn run_erc() -> RpcResult {
     }))
 }
 
-pub(crate) fn extract_from_uri(entry: &Path, top: Option<&str>, target: &str) -> RpcResult {
-    let uri = entry.to_string_lossy().to_string();
-    let mc_uri = McURI::from(uri.as_str());
-
-    let top_name = match top {
-        Some(t) => t.to_string(),
-        None => crate::mcb_get_module_name_by_uri(&mc_uri)
-            .or_else(crate::mcb_get_first_module_name)
-            .ok_or_else(|| JsonRpcError::custom(32107, "no top module found"))?,
-    };
-
-    match target {
-        "instances" | "\"instances\"" => {
-            let ident = crate::McIds::from(top_name.as_str());
-            if let Some(cmie) = crate::get_def(&ident, &mc_uri) {
-                if let crate::McCMIE::Module(module_def) = cmie {
-                    let items: Vec<Value> = module_def
-                        .insts
-                        .iter()
-                        .map(|(name, inst)| {
-                            let (kind, class) = match inst {
-                                crate::McInstance::Component(c) => {
-                                    ("component", c.name.to_string())
-                                }
-                                crate::McInstance::Module(m) => ("module", m.name.to_string()),
-                                crate::McInstance::Label(l) => ("label", l.clone()),
-                                crate::McInstance::Interface(i) => {
-                                    ("interface", i.name.to_string())
-                                }
-                                crate::McInstance::Bus(b) => ("bus", b.to_string()),
-                                crate::McInstance::BusRef { component, bus } => {
-                                    ("busref", format!("{component}.{bus}"))
-                                }
-                                crate::McInstance::List(l) => {
-                                    let name = l.name().to_string();
-                                    let class = format!("{:?}", l);
-                                    if class != name {
-                                        ("list", class)
-                                    } else {
-                                        ("list", name)
-                                    }
-                                }
-                                crate::McInstance::Unresolved { class_name } => {
-                                    ("unresolved", class_name.clone())
-                                }
-                                crate::McInstance::Pins => ("pins", "pins".into()),
-                                crate::McInstance::PinId(id) => ("pinid", id.clone()),
-                                crate::McInstance::Attr(a) => ("attr", a.to_string()),
-                                crate::McInstance::Func(f) => ("func", f.name.to_string()),
-                                crate::McInstance::EnumVal {
-                                    enum_name,
-                                    value_name,
-                                    ..
-                                } => ("enumval", format!("{}.{}", enum_name, value_name)),
-                            };
-                            json!({ "name": name.to_string(), "kind": kind, "class": class })
-                        })
-                        .collect();
-                    Ok(json!({ "target": "instances", "items": items }))
-                } else {
-                    Err(JsonRpcError::custom(
-                        -32107,
-                        &format!("'{top_name}' is not a Module"),
-                    ))
-                }
-            } else {
-                Err(JsonRpcError::custom(
-                    -32107,
-                    &format!("Definition '{top_name}' not found"),
-                ))
-            }
-        }
-        "nets" | "\"nets\"" => {
-            let ident = crate::McIds::from(top_name.as_str());
-            let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                crate::mcc_build(&ident, &mc_uri)
-            }));
-            match built {
-                Ok(Ok(inst)) => {
-                    use std::collections::BTreeMap;
-                    let mut nets: BTreeMap<String, Vec<String>> = BTreeMap::new();
-                    for conn in &inst.connections {
-                        let net = conn.effective_net_name();
-                        if net == "NC" { continue; }
-                        let bucket = nets.entry(net).or_default();
-                        for p in &conn.points {
-                            if p.path == "NC" { continue; }
-                            let label = if let Some(ref o) = p.owner {
-                                format!("{}.{}", o, p.path.split('.').next_back().unwrap_or(&p.path))
-                            } else { p.path.clone() };
-                            if !bucket.contains(&label) { bucket.push(label); }
-                        }
-                    }
-                    let items: Vec<Value> = nets
-                        .into_iter()
-                        .map(|(name, points)| json!({ "name": name, "points": points }))
-                        .collect();
-                    Ok(json!({ "target": "nets", "items": items }))
-                }
-                Ok(Err(e)) => Err(JsonRpcError::custom(32107, &format!("build failed: {e}"))),
-                Err(_) => Err(JsonRpcError::custom(
-                    -32108,
-                    "extract nets: Pass2 build panicked (engine bug); request aborted, server kept alive",
-                )),
-            }
-        }
-        "components" | "\"components\"" => {
-            let items: Vec<Value> = crate::mcb_iter_components()
-                .into_iter()
-                .map(|(name, uri)| json!({ "name": name, "uri": uri }))
-                .collect();
-            Ok(json!({ "target": "components", "items": items }))
-        }
-        "interfaces" | "\"interfaces\"" => {
-            let items: Vec<Value> = crate::mcb_iter_interfaces()
-                .into_iter()
-                .map(|(name, uri)| json!({ "name": name, "uri": uri }))
-                .collect();
-            Ok(json!({ "target": "interfaces", "items": items }))
-        }
-        other => Err(JsonRpcError::custom(
-            -32602,
-            &format!("unknown extract target: {other}"),
-        )),
-    }
-}
-
 // Auxiliary: parameter parsing / error handling
 
 pub(crate) fn parse_strict<T: for<'de> Deserialize<'de>>(
@@ -3086,10 +2959,6 @@ pub static METHODS: &[MethodMeta] = &[
         consumer: "ai",
     },
     MethodMeta {
-        name: "extract",
-        consumer: "cli",
-    },
-    MethodMeta {
         name: "defs.search",
         consumer: "cli",
     },
@@ -3147,14 +3016,6 @@ pub static METHODS: &[MethodMeta] = &[
     },
     MethodMeta {
         name: "lookup_all",
-        consumer: "cli",
-    },
-    MethodMeta {
-        name: "convert",
-        consumer: "cli",
-    },
-    MethodMeta {
-        name: "report",
         consumer: "cli",
     },
     MethodMeta {
@@ -3352,7 +3213,6 @@ pub fn register_all(
     builder = builder.register_method("show.dump.all", handle_show_dump_all);
     // AI
     builder = builder.register_method("check", handle_check);
-    builder = builder.register_method("extract", handle_extract);
     // Defs
     builder = builder.register_method("defs.search", handle_defs_search);
     builder = builder.register_method("defs.query", handle_defs_query);
@@ -3376,8 +3236,6 @@ pub fn register_all(
     builder = builder.register_method("lookup_sub", handle_lookup_sub);
     builder = builder.register_method("lookup_with_sub", handle_lookup_with_sub);
     builder = builder.register_method("lookup_all", handle_lookup_all);
-    builder = builder.register_method("convert", handle_convert);
-    builder = builder.register_method("report", handle_report);
     builder = builder.register_method("caps", handle_caps);
     builder = builder.register_method("diagnostics", handle_diagnostics);
     builder = builder.register_method("project_symbols", handle_project_symbols);

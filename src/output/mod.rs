@@ -51,7 +51,7 @@ where
         OutputFormat::Json => serde_json::to_string(value)?,
         OutputFormat::JsonPretty => serde_json::to_string_pretty(value)?,
         OutputFormat::Yaml => serde_yaml::to_string(value)?,
-        // CSV is rendered by callers (extract/export), not by emit().
+        // CSV is rendered by callers (export), not by emit().
         OutputFormat::Csv => format!("{}", value),
     })
 }
@@ -136,8 +136,8 @@ pub fn emit_envelope(
         OutputFormat::JsonPretty => serde_json::to_string_pretty(env)?,
         OutputFormat::Yaml => serde_yaml::to_string(env)?,
         OutputFormat::Text => render_envelope_text(env, skip_diagnostics),
-        // CSV is structured data emitted by individual commands (extract,
-        // export), not by emit_envelope. Fall through to text here so the
+        // CSV is structured data emitted by individual commands (export),
+        // not by emit_envelope. Fall through to text here so the
         // match is exhaustive; commands that support CSV render the artifact
         // directly to stdout/file.
         OutputFormat::Csv => render_envelope_text(env, skip_diagnostics),
@@ -148,8 +148,8 @@ pub fn emit_envelope(
 // ── A-tier projection envelope (U86 item 7 first slice; see the CLI design §2.5) ──
 
 /// The read-side commands whose `-f json` stdout was the **bare** payload before
-/// this slice: `verify` / `report` / `erc` / `rules` / `def` / `refs` /
-/// `explain` / `list`, plus `show`.
+/// this slice: `erc` / `rules` / `def` / `refs` / `explain` / `list`,
+/// plus `show`.
 ///
 /// Each variant's [`name`](ProjectionKey::name) is both the payload's key in
 /// [`envelope::CommandResult`] and — with the `mcc ` prefix — the envelope's
@@ -164,8 +164,6 @@ pub fn emit_envelope(
 /// discriminator between, say, `roles` and `values`.
 #[derive(Clone, Copy, Debug)]
 pub enum ProjectionKey {
-    Verify,
-    Report,
     Erc,
     Rules,
     Def,
@@ -178,8 +176,6 @@ pub enum ProjectionKey {
 impl ProjectionKey {
     pub fn name(self) -> &'static str {
         match self {
-            Self::Verify => "verify",
-            Self::Report => "report",
             Self::Erc => "erc",
             Self::Rules => "rules",
             Self::Def => "def",
@@ -330,10 +326,6 @@ pub fn render_envelope_brief(env: &envelope::Envelope, skip_diagnostics: bool) -
                 out.push_str(&format!("    {}\n", format_diagnostic(d)));
             }
         }
-    }
-
-    if let Some(e) = &r.extract {
-        out.push_str(&format!("  extract: target={}\n", e.target));
     }
 
     if let Some(view) = &r.view {
@@ -636,9 +628,6 @@ pub fn render_envelope_text(env: &envelope::Envelope, skip_diagnostics: bool) ->
     }
 
     // ── Aux result lines (mirror text mode) ──
-    if let Some(e) = &r.extract {
-        out.push_str(&format!("  extract: target={}\n", e.target));
-    }
     if let Some(view) = &r.view {
         let tree_str = serde_json::to_string_pretty(&view.data).unwrap_or_default();
         out.push_str(&format!(

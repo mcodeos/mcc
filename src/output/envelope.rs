@@ -13,7 +13,7 @@
 //! }
 //! ```
 //!
-//! [`CommandResult`] puts `pass1` / `pass2` / `extract` / `view` / `viz` as top-level
+//! [`CommandResult`] puts `pass1` / `pass2` / `view` / `viz` as top-level
 //! sibling keys (instead of nested). This allows consumers to fetch `pass2.nets` in one line
 //! using `jq '.result.pass2.nets'`, without walking nested paths or using case branches.
 //!
@@ -115,7 +115,7 @@ impl RpcError {
 
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct CommandResult {
-    /// Command string, e.g. "mcc parse" / "mcc build" / "mcc extract instances"
+    /// Command string, e.g. "mcc parse" / "mcc build" / "mcc show pins"
     pub command: String,
 
     /// Current workspace reference (PR-3 uses onsite/project, PR-2 defaults to anonymous)
@@ -132,9 +132,6 @@ pub struct CommandResult {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pass2: Option<Pass2Report>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub extract: Option<ExtractData>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub view: Option<ViewData>,
@@ -166,18 +163,12 @@ pub struct CommandResult {
     // same reading, minus the envelope. Each now hangs under its own key (the
     // ruling for this slice: command envelope + projection key). Carried
     // **verbatim**: wrapping must not reshape it, so an existing consumer moves
-    // exactly one level down (`points` → `result.verify.points`).
+    // exactly one level down (`points` → `result.list.points`).
     //
     // Built through [`crate::output::emit_projection`], the single place that
     // knows the key ↔ `mcc <command>` pairing; the payload types stay
     // `serde_json::Value` because those commands build them as `json!` inline
     // (typed homes are a separate change, not a wrapping one).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub verify: Option<serde_json::Value>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub report: Option<serde_json::Value>,
-
     #[serde(skip_serializing_if = "Option::is_none")]
     pub erc: Option<serde_json::Value>,
 
@@ -445,14 +436,7 @@ pub struct ConnectionEntry {
     pub points: Vec<String>,
 }
 
-// Auxiliary result types: extract / view / viz
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ExtractData {
-    /// "instances" | "nets" | "components" | "interfaces" | ...
-    pub target: String,
-    pub items: serde_json::Value,
-}
+// Auxiliary result types: view / viz
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ViewData {

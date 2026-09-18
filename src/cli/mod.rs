@@ -164,10 +164,6 @@ pub enum Command {
     /// Syntax/semantic check, output diagnostics (corresponding to design doc §8.3)
     Check(CheckArgs),
 
-    /// Verify Pass2 expansion against Pass1 source (instances + connections, statement by
-    /// statement)
-    Verify(VerifyArgs),
-
     /// Join two adjacent segments of the compile pipeline by key, and report
     /// every mismatch with its cardinality (stage-readout-design §5.3 ②)
     Join(JoinArgs),
@@ -175,9 +171,6 @@ pub enum Command {
     /// Follow one key along the whole chain — source, AST, and the three circuit
     /// segments — and print what it is at each (stage-readout-design §5.3 ③)
     Trace(TraceArgs),
-
-    /// Extract various targets (corresponding to design doc §9)
-    Extract(ExtractArgs),
 
     /// Show detailed information for a definition (component/module/interface/enum) or its
     /// internals (pins/ports/nets/funcs/params/...)
@@ -197,7 +190,7 @@ pub enum Command {
     /// Manifest-driven one-click build (load dependencies + Pass1 + Pass2)
     Build(BuildArgs),
 
-    /// System library management (list / install / load / unload / info)
+    /// System library management (list / install / load / unload / show / search / uninstall)
     Lib(LibArgs),
 
     /// Project workspace management (create)
@@ -232,12 +225,6 @@ pub enum Command {
 
     /// Find all references to a symbol (M6)
     Refs(RefsArgs),
-
-    /// Convert .mc files to/from other formats (M5b)
-    Convert(ConvertArgs),
-
-    /// Generate structured design report (M5b)
-    Report(ReportArgs),
 
     /// Format `.mc` sources in place (whitespace only; token text is never touched)
     Fmt(FmtArgs),
@@ -331,14 +318,6 @@ pub struct CheckArgs {
     /// deferred / ambiguous-resolution detail.
     #[arg(long, num_args = 0..=1, default_missing_value = "detail", require_equals = true)]
     pub ledger: Option<String>,
-}
-
-// verify
-
-#[derive(Parser, Debug)]
-pub struct VerifyArgs {
-    /// Target file or project directory to verify
-    pub target: Option<String>,
 }
 
 // join
@@ -440,44 +419,6 @@ pub enum PinSortMode {
     Interface,
 }
 
-// extract
-
-#[derive(Parser, Debug)]
-pub struct ExtractArgs {
-    /// Type of extraction target
-    #[arg(value_enum)]
-    pub target: ExtractTarget,
-
-    /// Target file to extract
-    #[arg(value_name = "FILE")]
-    pub file: Option<String>,
-
-    /// Filter by name
-    #[arg(long, value_name = "PATTERN")]
-    pub name: Option<String>,
-
-    /// Filter by type (RES|CAP|DIO|MCU|...)
-    #[arg(long, value_name = "TYPE")]
-    pub r#type: Option<String>,
-
-    /// Structured filter: comma-separated key=value (key in name|kind|class).
-    /// RHS supports `*`/`?` wildcards (converted to regex).
-    #[arg(long, value_name = "EXPR")]
-    pub filter: Option<String>,
-}
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
-pub enum ExtractTarget {
-    // Extract all instances
-    Instances,
-    // Extract netlist
-    Nets,
-    // Extract component definitions
-    Components,
-    // Extract interface definitions
-    Interfaces,
-}
-
 // show
 
 #[derive(Parser, Debug)]
@@ -500,12 +441,6 @@ pub struct ShowArgs {
     /// used with `show instances <entity>`
     #[arg(long = "type", value_name = "TYPE")]
     pub r#type: Option<String>,
-
-    /// Structured filter (accepted but ignored here; name lists moved to
-    /// `mcc list`, where --filter takes effect). Comma-separated key=value
-    /// (key in name|kind|class). RHS supports `*`/`?` wildcards.
-    #[arg(long, value_name = "EXPR")]
-    pub filter: Option<String>,
 
     /// Show source position spans in `show all` text details (hidden by default)
     #[arg(long)]
@@ -718,14 +653,6 @@ pub struct ListArgs {
     /// but ignored.
     #[arg(long, value_enum)]
     pub scope: Option<ShowScope>,
-
-    /// Filter by instance kind (accepted but ignored here; used by `show instances`)
-    #[arg(long = "type", value_name = "TYPE")]
-    pub r#type: Option<String>,
-
-    /// Show source position spans (accepted but ignored here; used by `show all`)
-    #[arg(long)]
-    pub span: bool,
 }
 
 /// What to list
@@ -999,34 +926,6 @@ pub struct StartArgs {
     #[arg(long, default_value_t = 8080)]
     pub port: u16,
 
-    /// Enable TLS
-    #[arg(long)]
-    pub tls: bool,
-
-    /// TLS certificate file
-    #[arg(long)]
-    pub cert: Option<String>,
-
-    /// TLS private key file
-    #[arg(long)]
-    pub key: Option<String>,
-
-    /// Authentication type (none|basic|token)
-    #[arg(long, default_value = "none")]
-    pub auth: String,
-
-    /// Maximum connections
-    #[arg(long, default_value_t = 100)]
-    pub max_conn: usize,
-
-    /// Timeout (seconds)
-    #[arg(long, default_value_t = 300)]
-    pub timeout: u64,
-
-    /// Log level (debug|info|warn|error)
-    #[arg(long, default_value = "info")]
-    pub log_level: String,
-
     /// Output logs to file (default outputs to stderr)
     #[arg(long)]
     pub log_file: Option<String>,
@@ -1034,10 +933,6 @@ pub struct StartArgs {
     /// Run in background
     #[arg(long, short = 'b')]
     pub background: bool,
-
-    /// PID file location
-    #[arg(long)]
-    pub pid_file: Option<String>,
 }
 
 // stop (top-level command)
@@ -1126,27 +1021,6 @@ pub struct RefsArgs {
     /// Parse directly from file
     #[arg(long, short = 'F')]
     pub file: Option<String>,
-}
-
-// report (M5b)
-
-#[derive(Parser, Debug)]
-pub struct ReportArgs {
-    /// Target file or project (optional — uses current workspace if omitted)
-    pub target: Option<String>,
-}
-
-// convert (M5b)
-
-#[derive(Parser, Debug)]
-pub struct ConvertArgs {
-    /// Source .mc file or project directory; defaults to the current directory
-    /// when it holds a project manifest
-    pub file: Option<String>,
-
-    /// Target format: json, yaml
-    #[arg(long, default_value = "json")]
-    pub to: String,
 }
 
 // fmt
