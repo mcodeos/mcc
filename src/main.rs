@@ -177,6 +177,7 @@ fn main() -> ExitCode {
         Some(Command::Rules(_)) => false,
         Some(Command::Show(_)) | Some(Command::List(_)) | Some(Command::Query(_)) => false,
         Some(Command::Export(_)) => false,
+        Some(Command::Impact(_)) | Some(Command::Import(_)) => false,
         Some(Command::Parse(_)) | Some(Command::Check(_)) => false,
         Some(Command::Join(_)) | Some(Command::Trace(_)) => false,
         Some(Command::Build(_)) | Some(Command::Def(_)) | Some(Command::Erc(_)) => false,
@@ -227,6 +228,16 @@ fn dispatch(cli: Cli) -> Result<ExitCode> {
             mcc::cli::globals().format
         }),
         Some(Command::Export(a)) => Some(if a.json {
+            OutputFormat::Json
+        } else {
+            mcc::cli::globals().format
+        }),
+        Some(Command::Impact(a)) => Some(if a.json {
+            OutputFormat::Json
+        } else {
+            mcc::cli::globals().format
+        }),
+        Some(Command::Import(a)) => Some(if a.json {
             OutputFormat::Json
         } else {
             mcc::cli::globals().format
@@ -337,6 +348,14 @@ fn dispatch(cli: Cli) -> Result<ExitCode> {
             Ok(ExitCode::SUCCESS)
         }
         Some(Command::Fmt(args)) => cmds::fmt::run(&args),
+        Some(Command::Impact(args)) => {
+            // A blast radius is a readout, and a readout never vetoes an exit
+            // code (law C); only "no such symbol" fails, and `impact::run` dies
+            // where it stands.
+            cmds::impact::run(&args)?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Some(Command::Import(args)) => cmds::import::run(&args),
         Some(Command::Caps) => {
             // Capabilities is self-describing; call the handler directly.
             let result =
@@ -363,6 +382,8 @@ fn print_help_hint() {
     eprintln!("  query    Query defs by DSL <EXPR> or by name; --kind instance/net tables (text|regex|fuzzy); -f csv");
     eprintln!("  search   Alias of `query` for bare-name substring searches");
     eprintln!("  export   Export netlist / BOM / SPICE (text|csv|json)");
+    eprintln!("  impact   Blast radius of changing one def (which tops, nets, consumers)");
+    eprintln!("  import   Read an EDA artifact back and report how it differs from the current world");
     eprintln!(
         "  lib      System library management (list / install / load / unload / show / search / uninstall)"
     );
