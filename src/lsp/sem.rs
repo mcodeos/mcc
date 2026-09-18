@@ -236,34 +236,6 @@ pub fn try_lookup_sem(candidates: &[McURI]) -> Option<Value> {
                 }
             }
 
-            // ★ §7.6: Stable result_id for mcext dedup.
-            // Hash of (token_count, total_length, first_token_pos, last_token_pos)
-            // so content-identical responses skip symbol rebuilding.
-            let result_id = if tokens.is_empty() {
-                None
-            } else {
-                use std::hash::{Hash, Hasher};
-                let count = tokens.len();
-                let first_pos = tokens[0]
-                    .get("position")
-                    .and_then(|v| v.as_i64())
-                    .unwrap_or(0);
-                let last_pos = tokens
-                    .last()
-                    .and_then(|v| v.get("position").and_then(|v| v.as_i64()))
-                    .unwrap_or(0);
-                let total_len = raw_tokens
-                    .iter()
-                    .map(|(_, _, len)| *len as i64)
-                    .sum::<i64>();
-                let mut h = std::collections::hash_map::DefaultHasher::new();
-                count.hash(&mut h);
-                total_len.hash(&mut h);
-                first_pos.hash(&mut h);
-                last_pos.hash(&mut h);
-                Some(format!("{:x}", h.finish()))
-            };
-
             let symbols = mcfile
                 .symbols
                 .lock()
@@ -274,6 +246,28 @@ pub fn try_lookup_sem(candidates: &[McURI]) -> Option<Value> {
             let affected: Vec<String> = crate::definition_space()
                 .reverse_deps(mc_uri)
                 .unwrap_or_default();
+
+            // ★ §7.6 / U94: Stable result_id for mcext dedup — the content
+            // fingerprint of the two things the consumer caches under it, the
+            // token list and the symbol table.
+            //
+            // It used to hash four scalars read off the *token* stream (count,
+            // total length, first and last position) while gating the symbol
+            // rebuild as well, so a rename that keeps a token's position and
+            // length — every equal-length rename — left it fixed, and mcext
+            // kept the previous file's symbols with no error. `affected_uris`
+            // is deliberately outside the fingerprint: the consumer acts on it
+            // whether or not it skips, and `reverse_deps` does not promise an
+            // order. An empty token list keeps the id absent, which the
+            // consumer reads as "never skip".
+            let result_id = if tokens.is_empty() {
+                None
+            } else {
+                Some(format!(
+                    "{:x}",
+                    crate::ast::sem::payload_fingerprint(&[&json!(tokens), &symbols])
+                ))
+            };
 
             return Some(json!({
                 "tokens": tokens,
