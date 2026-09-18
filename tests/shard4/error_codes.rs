@@ -94,10 +94,7 @@ fn def_ercode__format_msg_renders_message_templates() {
     // Templates with positional args interpolate. Drawn from the power family
     // (the flat net checks' own numeric codes) — the four `erc`-engine codes
     // that used to cover this were retired with that engine in 2026-09-18.
-    let m1 = mcc::errcodes::format_msg(
-        mcc::errcodes::POWER_BRIDGE_LOOP,
-        &[&"GND_A", &"GND_B"],
-    );
+    let m1 = mcc::errcodes::format_msg(mcc::errcodes::POWER_BRIDGE_LOOP, &[&"GND_A", &"GND_B"]);
     assert!(m1.starts_with("parallel DC @bridge between 'GND_A' and 'GND_B'"));
     let m2 = mcc::errcodes::format_msg(
         mcc::errcodes::POWER_SOURCE_CONTENTION,

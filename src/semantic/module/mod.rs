@@ -309,6 +309,7 @@ impl McModule {
                     MCAST_IOTYPE => {
                         self.insts.parse(&param_node, &self.uri);
                         self.params.parse(&param_node); // also register for unused detection
+
                         // A header power row is the same declaration the body
                         // form writes, only written in the parameter list — the
                         // spelling the corpus uses for every module supply face
