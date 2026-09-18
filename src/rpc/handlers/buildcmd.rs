@@ -225,6 +225,8 @@ fn build_viz_render_opts(layouter_name: Option<&str>) -> crate::viz::api::Render
 mod tests {
     use super::*;
 
+    use std::collections::BTreeSet;
+
     /// Serialize against every other workspace-driving test in the crate
     /// (the C parser is not re-entrant across threads).
     fn parse_lock() -> std::sync::MutexGuard<'static, ()> {
@@ -397,10 +399,13 @@ component RES
     }
 
     /// Regression (world-core Stage D): building a toml-less folder must report
-    /// the real flat net-check ERC of the entry it carries, not just pass-1
+    /// the real flat net-check ERC of every entry it built, not just pass-1
     /// diagnostics. The old dir path built each file tree-only
     /// (`mcc_virtual_build_with_nets`, no flatten, no ERC), so Build Project on
     /// a folder under-reported exactly like the old single-file build.full did.
+    /// Two files, each with its own findings, so "every entry" is a real
+    /// comparison and not one file's rows seen twice (U95: the local folder
+    /// face reports the same set).
     #[test]
     fn cli_buildcmd__build_full_directory_batch_reports_net_erc_truth() {
         let _guard = parse_lock();
@@ -417,7 +422,14 @@ component RES
              module main {\n    BUF b1\n    BUF b2\n    b1.Y -> b2.Y\n}\n",
         )
         .unwrap();
-        std::fs::write(root.join("c.mc"), "module other\n{\n}\n").unwrap();
+        // Second entry: one part, nothing wired → the unwired-pin family. Its
+        // own component name keeps the two entries' symbol spaces apart.
+        std::fs::write(
+            root.join("c.mc"),
+            "component BUF2 {\n    pins = [\n        in 1 = A\n        out 2 = Y\n    ]\n}\n\
+             module other {\n    BUF2 b1\n}\n",
+        )
+        .unwrap();
 
         let resp = run_full_build_envelope(
             &root,
@@ -431,9 +443,10 @@ component RES
         )
         .expect("build.full dir ok");
 
-        // `a.mc` is the first built entry, so it is the circuit the envelope
-        // carries — and `pass2.net_checks` describes that circuit (U90: the
-        // same rule as the local folder build, and never `pass2.diagnostics`).
+        // `a.mc` is the first built entry, so it is the circuit the envelope's
+        // tree describes — but the net-check rows cover the folder (U90 gave
+        // them their own field, never `pass2.diagnostics`; U95 widened them to
+        // every entry built).
         let rows = resp["pass2"]["net_checks"].as_array().unwrap();
         let erc4101 = rows
             .iter()
@@ -443,6 +456,14 @@ component RES
             erc4101["uri"].as_str().unwrap().ends_with("a.mc"),
             "the row must be located at the source file that owns the shorted net"
         );
+        let uris: BTreeSet<&str> = rows.iter().filter_map(|r| r["uri"].as_str()).collect();
+        for name in ["a.mc", "c.mc"] {
+            assert!(
+                uris.iter().any(|u| u.ends_with(name)),
+                "`{name}` was built but its rows are missing — the folder report \
+                 must cover every entry, not only the one the tree describes: {uris:?}"
+            );
+        }
         assert!(
             !resp["pass2"]["diagnostics"]
                 .as_array()

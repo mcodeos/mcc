@@ -667,24 +667,29 @@ fn build_browse_dir(
         mcc::InstanceStore,
         mcc::NetTableStore,
     )> = None;
-    let mut first_nets: Vec<mcc::check::nets::NetCheckRow> = Vec::new();
+    // The flat electrical net checks of every entry this folder build built, in
+    // build order — not just the entry the envelope carries (U95).
+    let mut dir_nets: Vec<mcc::check::nets::NetCheckRow> = Vec::new();
     let mut search_done = false;
     let mut svgs: Vec<(Option<String>, String)> = Vec::new();
     let mut total_boxes = 0usize;
     let mut netcheck_errors = 0usize;
 
     // Build `target` from `file`; record failures (non-fatal) so one bad file
-    // doesn't abort the folder report. The first surfaced circuit is built
-    // through the world-core (design §12.2 / §13.6): one instantiation held as
-    // a live circuit, then the single one-way flat projection — flatten + the
-    // flat electrical net checks run once, and its net results are kept for the
-    // §4.5 report (printed, never written to the Problems store — dir build
-    // owns the console). The remaining files are tree-only builds: dir mode
-    // surfaces the first successful tree (mirroring the RPC envelope).
+    // doesn't abort the folder report. Every entry goes the same way: a
+    // world-core build (design §12.2 / §13.6), one instantiation held as a live
+    // circuit, then the single one-way flat projection — so every entry's flat
+    // electrical net checks run and are appended to `nets`. The folder report
+    // covers the whole folder, which is what the daemon's directory face does
+    // too (U95: one row set, both faces, rows carry their source `uri`).
+    // Findings are printed, never written to the Problems store — dir build
+    // owns the console. A component / interface top is wrapped in a synthetic
+    // module and the projection marks it synthetic, so an unwired single-part
+    // view doesn't flag E4112/E4116. Only the first successful tree is surfaced
+    // in the envelope; the rest are built for their diagnostics and checks.
     let build_one = |target: &str,
                      file: &Path,
                      failures: &mut Vec<Diagnostic>,
-                     keep_nets: bool,
                      nets: &mut Vec<mcc::check::nets::NetCheckRow>|
      -> Option<(
         mcc::MccProjectTree,
@@ -695,34 +700,24 @@ fn build_browse_dir(
         let uri = file.to_string_lossy().to_string();
         let mc_uri = mcc::McURI::from(uri.as_str());
         match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            if keep_nets {
-                // World-core build of the surfaced circuit. A component /
-                // interface top is wrapped in a synthetic module and the
-                // projection marks it synthetic, so an unwired single-part view
-                // doesn't flag E4112/E4116.
-                let (mut world, key, synthetic) =
-                    mcc::mcc_virtual_build_world(target, &mc_uri, 1000)?;
-                let _net_diags = match synthetic {
-                    Some(prefix) => world.flatten_with_prefix(&key, &prefix)?,
-                    None => world.flatten(&key)?,
-                };
-                let dl = world
-                    .circuit(&key)
-                    .ok_or_else(|| anyhow::anyhow!("world build produced no circuit"))?;
-                // The flatten above already ran the checks; read them back
-                // rather than running them a second time over the same table.
-                *nets = mcc::check::nets::net_check_rows(dl.net_results());
-                let pair = (
-                    dl.tree().clone(),
-                    dl.arena().clone(),
-                    dl.store().clone(),
-                    dl.net_store().borrow().clone(),
-                );
-                Ok::<_, Box<dyn std::error::Error>>(pair)
-            } else {
-                let pair = mcc::mcc_virtual_build_with_nets(target, &mc_uri)?;
-                Ok::<_, Box<dyn std::error::Error>>(pair)
-            }
+            let (mut world, key, synthetic) = mcc::mcc_virtual_build_world(target, &mc_uri, 1000)?;
+            let _net_diags = match synthetic {
+                Some(prefix) => world.flatten_with_prefix(&key, &prefix)?,
+                None => world.flatten(&key)?,
+            };
+            let dl = world
+                .circuit(&key)
+                .ok_or_else(|| anyhow::anyhow!("world build produced no circuit"))?;
+            // The flatten above already ran the checks; read them back rather
+            // than running them a second time over the same table.
+            nets.extend(mcc::check::nets::net_check_rows(dl.net_results()));
+            let pair = (
+                dl.tree().clone(),
+                dl.arena().clone(),
+                dl.store().clone(),
+                dl.net_store().borrow().clone(),
+            );
+            Ok::<_, Box<dyn std::error::Error>>(pair)
         })) {
             Ok(Ok(pair)) => Some(pair),
             Ok(Err(e)) => {
@@ -841,13 +836,7 @@ fn build_browse_dir(
                         .any(|n| n == t);
                 if declares {
                     search_done = true;
-                    if let Some(pair) = build_one(
-                        t,
-                        &e.entry,
-                        &mut failures,
-                        first_inst.is_none(),
-                        &mut first_nets,
-                    ) {
+                    if let Some(pair) = build_one(t, &e.entry, &mut failures, &mut dir_nets) {
                         top_name = t.to_string();
                         first_inst = Some(pair);
                         if args.viz {
@@ -872,13 +861,7 @@ fn build_browse_dir(
                     let Some(tgt) = targets.into_iter().next() else {
                         continue;
                     };
-                    if let Some(pair) = build_one(
-                        &tgt,
-                        f,
-                        &mut failures,
-                        first_inst.is_none(),
-                        &mut first_nets,
-                    ) {
+                    if let Some(pair) = build_one(&tgt, f, &mut failures, &mut dir_nets) {
                         if first_inst.is_none() {
                             top_name = tgt.clone();
                             first_inst = Some(pair);
@@ -926,7 +909,7 @@ fn build_browse_dir(
                 &mut tracker,
             );
             report.diagnostics = unique;
-            report.net_checks = first_nets;
+            report.net_checks = dir_nets;
             builder.set_pass2(report);
         }
         None => {
@@ -936,7 +919,7 @@ fn build_browse_dir(
                 nets: vec![],
                 connections: vec![],
                 diagnostics: unique,
-                net_checks: first_nets,
+                net_checks: dir_nets,
             };
             builder.set_pass2(report);
         }
