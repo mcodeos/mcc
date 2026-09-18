@@ -30,8 +30,9 @@
 //! # What this command is not
 //!
 //! It does not re-implement the comparison. The alignment law — a per-class key
-//! function, build-local ordinals excluded — is `mcc::stages::viz_diff`'s, and
-//! this command's job is to name two worlds, hand over their items, and carry
+//! function, build-local ordinals excluded — is `mcc::stages::stage_diff`'s, one
+//! [`mcc::stages::stage_diff::Law`] per view, and this command's job is to pick
+//! the law the `--view` names, name two worlds, hand over their items, and carry
 //! the answer in the envelope.
 //!
 //! # Law C
@@ -53,14 +54,18 @@ const ROW_WORDS: [&str; 4] = ["remove", "add", "modify", "unaligned"];
 
 /// Render `mcc diff <A> <B> --view <view>`.
 pub fn run(args: &DiffArgs) -> Result<()> {
-    let seg = match args.view {
-        DiffView::StageViz => mcc::stages::StageSeg::Viz,
+    let (seg, law): (mcc::stages::StageSeg, &mcc::stages::stage_diff::Law) = match args.view {
+        DiffView::StageViz => (
+            mcc::stages::StageSeg::Viz,
+            &mcc::stages::stage_diff::VIZ_LAW,
+        ),
+        DiffView::StageP2 => (mcc::stages::StageSeg::P2, &mcc::stages::stage_diff::P2_LAW),
     };
 
     let a = read_one(seg, args.a.as_str())?;
     let b = read_one(seg, args.b.as_str())?;
 
-    let diff = mcc::stages::viz_diff::diff_stage_viz(&a.items, &b.items);
+    let diff = law.diff(&a.items, &b.items);
 
     if matches!(
         mcc::cli::globals().format,
@@ -70,10 +75,10 @@ pub fn run(args: &DiffArgs) -> Result<()> {
         // do: a fixed-width readout is not CSV-safe (a canonical path may
         // contain a comma), so a real CSV face would be a separate decision
         // rather than something to fake here.
-        let rendered = mcc::stages::viz_diff::render_viz_diff_text(&a, &b, &diff);
+        let rendered = mcc::stages::stage_diff::render_diff_text(law.view, &a, &b, &diff);
         return write_text(&rendered);
     }
-    emit_envelope(&a, &b, &diff)
+    emit_envelope(law, &a, &b, &diff)
 }
 
 /// Load one operand and read the requested segment off it.
@@ -106,29 +111,26 @@ fn write_text(rendered: &str) -> Result<()> {
 ///
 /// The view rides `result.stage` like `join` and `trace` (law B: a new `view`
 /// value on the existing envelope, not a second envelope format), with
-/// `view = "diff.stage.viz"` and the `items` being the change rows.
+/// `view = "diff.stage.<seg>"` and the `items` being the change rows.
 ///
 /// The envelope's own `world_ver` / `top_ver` are **side A's**, the reference
 /// the changes are stated against — every other field of the view (`top`,
 /// `mcc_version`, `items`) describes that same reading. A difference belongs to
 /// two worlds, so one token pair cannot say what was compared: side B's pair,
 /// and the parts of the answer that are not change rows, ride
-/// `stage.diff.other` / `.unaligned` / `.nameless_net_pins` / `.stability`,
-/// under the one key [`StageViewData::carrying_second_side`] adds.
+/// `stage.diff.other` / `.unaligned` and whatever else the law produces, under
+/// the one key [`StageViewData::carrying_second_side`] adds.
 fn emit_envelope(
+    law: &mcc::stages::stage_diff::Law,
     a: &mcc::stages::StageView,
     b: &mcc::stages::StageView,
-    diff: &mcc::stages::viz_diff::VizDiff,
+    diff: &mcc::stages::stage_diff::StageDiff,
 ) -> Result<()> {
     // `with_view` rather than `new`: a difference's vocabulary is its own (the
     // change types), and it is already sorted by `(kind, id)` — the producer's
     // sort, which is the one the alignment law defines.
-    let mut view = mcc::stages::StageView::with_view(
-        mcc::stages::viz_diff::DIFF_VIZ_VIEW,
-        &a.top,
-        diff.changes.clone(),
-        counts_of(diff),
-    );
+    let mut view =
+        mcc::stages::StageView::with_view(law.view, &a.top, diff.changes.clone(), counts_of(diff));
     // `with_view` derives the tokens from the world that is loaded *now* — side
     // B, by the time we get here. Overwrite them with A's: the envelope makes a
     // claim about which reading its `items` are a statement about, and that is
@@ -154,27 +156,40 @@ fn emit_envelope(
 
 /// The second side and the answer's non-row parts, as the `stage.diff` block.
 ///
-/// `nameless_net_pins` is a pair of **counts** and not a list (the design's
-/// ruling on nets without a cross-build key): listing them would claim an
-/// identity they do not have. `stability` is the M12 summary this difference is
-/// its first producer of.
+/// Two of those parts are the law's, and are present only when the law produces
+/// them. `nameless_net_pins` is a pair of **counts** and not a list (the
+/// design's ruling on nets without a cross-build key): listing them would claim
+/// an identity they do not have, and a segment that does not read nets off
+/// references cannot make the claim at all. `stability` is the M12 summary a
+/// difference of the drawing is the first producer of, and a segment that draws
+/// no boxes has no such reading — an all-zero summary would read as "every box
+/// stayed put", which is not the same statement as "there are no boxes".
 fn second_side(
     b: &mcc::stages::StageView,
-    diff: &mcc::stages::viz_diff::VizDiff,
+    diff: &mcc::stages::stage_diff::StageDiff,
 ) -> serde_json::Value {
-    let st = &diff.stability;
-    serde_json::json!({
-        "other": { "world_ver": b.world_ver, "top_ver": b.top_ver },
-        "unaligned": diff.unaligned,
-        "nameless_net_pins": [diff.nameless_net_pins.0, diff.nameless_net_pins.1],
-        "stability": {
-            "unchanged_boxes_total": st.unchanged_boxes_total,
-            "unchanged_boxes_moved": st.unchanged_boxes_moved,
-            "max_unchanged_box_delta": st.max_unchanged_box_delta,
-            "route_hashes_changed": st.route_hashes_changed,
-            "locality_warning": st.locality_warning,
-        },
-    })
+    let mut block = serde_json::Map::new();
+    block.insert(
+        "other".to_string(),
+        serde_json::json!({ "world_ver": b.world_ver, "top_ver": b.top_ver }),
+    );
+    block.insert("unaligned".to_string(), serde_json::json!(diff.unaligned));
+    if let Some((an, bn)) = diff.nameless_net_pins {
+        block.insert("nameless_net_pins".to_string(), serde_json::json!([an, bn]));
+    }
+    if let Some(st) = &diff.stability {
+        block.insert(
+            "stability".to_string(),
+            serde_json::json!({
+                "unchanged_boxes_total": st.unchanged_boxes_total,
+                "unchanged_boxes_moved": st.unchanged_boxes_moved,
+                "max_unchanged_box_delta": st.max_unchanged_box_delta,
+                "route_hashes_changed": st.route_hashes_changed,
+                "locality_warning": st.locality_warning,
+            }),
+        );
+    }
+    serde_json::Value::Object(block)
 }
 
 /// The diff's counts block: flat word → number, the same kind of thing every
@@ -187,7 +202,7 @@ fn second_side(
 /// folding it in would make a self-difference — which changed nothing — publish a
 /// non-zero number in a block whose every other member is zero. It rides
 /// `stage.diff` instead, where a pair can be a pair.
-fn counts_of(diff: &mcc::stages::viz_diff::VizDiff) -> serde_json::Value {
+fn counts_of(diff: &mcc::stages::stage_diff::StageDiff) -> serde_json::Value {
     let n_of = |t: &str| diff.changes.iter().filter(|c| c["type"] == t).count();
     let mut map = serde_json::Map::new();
     for w in ROW_WORDS {

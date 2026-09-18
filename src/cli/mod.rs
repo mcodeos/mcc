@@ -348,18 +348,25 @@ pub struct JoinArgs {
 
 /// Which view two readings are compared in.
 ///
-/// The value domain is deliberately one word today. The design names the face as
-/// `--view stage.*`, and the three other segments need a per-class key table of
-/// their own before they can be aligned across builds — a view cannot be
-/// compared by a key table written for another view's classes. So the enum is
-/// the *shape* of the closed set, and the segments land in it one at a time
-/// rather than as an open string that would silently accept a name no key table
-/// covers (see the module doc of `cmds::diff`).
+/// The design names the face as `--view stage.*`, and each segment needs a
+/// per-class key table of its own before it can be aligned across builds — a
+/// view cannot be compared by a key table written for another view's classes
+/// (`stages::stage_diff`). So the enum is a closed set, and the segments land in
+/// it one at a time rather than as an open string that would silently accept a
+/// name no key table covers (see the module doc of `cmds::diff`).
+///
+/// `stage.p1` is not a member, and not because it is unbuilt: it publishes no
+/// items at all, so a difference over two of its readings reports zero changes,
+/// which reads exactly like two identical readings.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
 pub enum DiffView {
-    /// `stage.viz`: the drawn circuit. Keyed per class by `stages::viz_diff`.
+    /// `stage.viz`: the drawn circuit. Keyed per class by `stages::stage_diff`.
     #[value(name = "stage.viz")]
     StageViz,
+
+    /// `stage.p2`: the flat electrical truth.
+    #[value(name = "stage.p2")]
+    StageP2,
 }
 
 #[derive(clap::Args, Debug, Clone)]
