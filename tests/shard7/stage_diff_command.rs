@@ -435,6 +435,17 @@ fn the_envelope_names_both_sides_as_show_would_name_them() {
     assert_eq!(stage["diff"]["other"]["world_ver"], shown_b["world_ver"]);
     assert_eq!(stage["diff"]["other"]["top_ver"], shown_b["top_ver"]);
 
+    // Both producers, side by side. `show` writes the version of the build that
+    // read each side, and a difference has two — which is what makes "same
+    // source, two compilers" readable off the answer (CIMP §1 U96). The
+    // difference's own `mcc_version` is side A's, the reading its rows are a
+    // statement about.
+    assert_eq!(stage["mcc_version"], shown_a["mcc_version"]);
+    assert_eq!(
+        stage["diff"]["other"]["mcc_version"],
+        shown_b["mcc_version"]
+    );
+
     // A view name of its own, so a consumer can tell a difference from a segment
     // view without looking at which fields are present.
     assert_eq!(stage["view"], "diff.stage.viz");
