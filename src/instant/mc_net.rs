@@ -20,21 +20,38 @@ use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::sync::Mutex;
 
-/// Literal (unexpanded) vector reference count (R01). Counting only, non-blocking; also active in
-/// release builds.
-pub static LITERAL_POINTS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-
 /// Literal (unexpanded) vector reference details: quarantined (original path, src_pos)
 pub static LITERAL_POINT_DETAILS: std::sync::LazyLock<Mutex<Vec<(String, Option<i32>)>>> =
     std::sync::LazyLock::new(|| Mutex::new(Vec::new()));
 
+/// Quarantine one unexpanded literal path, returning the isolation name it
+/// keeps for this instantiation.
+///
+/// One source reference is resolved more than once - `vexpr_reduce` reads both
+/// faces of the same phrase, and the label fallback both stores a label and
+/// returns a point - so counting constructions made R01 report one reference
+/// as three. The list holds each *distinct* path once, and a path's number is
+/// its index there: the name is a function of the paths this instantiation has
+/// seen, not of how often they were constructed.
+fn quarantine_literal(p: &str) -> String {
+    let mut details = LITERAL_POINT_DETAILS.lock().unwrap();
+    let n = match details.iter().position(|(path, _)| path == p) {
+        Some(n) => n,
+        None => {
+            details.push((p.to_string(), None));
+            details.len() - 1
+        }
+    };
+    format!("@_phantom_{n}")
+}
+
 /// Start the quarantine over for the instantiation that is about to run.
 ///
-/// Both the isolation names and the list describe one instantiation (R01 reads
-/// the whole list as this build's literal references), so a process that builds
-/// twice must not let the second build inherit the first one's points.
+/// The list describes one instantiation: R01 reads the whole list as this
+/// build's literal references, and it is also the numbering the isolation
+/// names come from, so a process that builds twice must not let the second
+/// build inherit the first one's points.
 pub fn reset_literal_points() {
-    LITERAL_POINTS.store(0, std::sync::atomic::Ordering::Relaxed);
     LITERAL_POINT_DETAILS.lock().unwrap().clear();
 }
 
@@ -157,9 +174,9 @@ impl NetPoint {
     /// Create a simple net point (port/label)
     ///
     /// ★ Patch 2-1: literal reference → quarantine, no panic.
-    /// When `{`, `[`, `,` is detected, replace the path with a unique
-    /// `@_phantom_<N>`, record the original path in `LITERAL_POINT_DETAILS`
-    /// and the count in `LITERAL_POINTS`.
+    /// When `{`, `[`, `,` is detected, replace the path with its isolation
+    /// name ([`quarantine_literal`], which records the original path in
+    /// `LITERAL_POINT_DETAILS`).
     /// Quarantined points never enter union-find merging (filtered by
     /// `NetTable::add_connection`), so they cannot spread from R01 into a
     /// giant R06 net.
@@ -167,12 +184,7 @@ impl NetPoint {
         let normalized = normalize_pin_path(path);
         let p = &normalized;
         let actual_path = if p.contains(['{', '[', ',']) {
-            let n = LITERAL_POINTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            let quarantine = format!("@_phantom_{n}");
-            LITERAL_POINT_DETAILS
-                .lock()
-                .unwrap()
-                .push((p.to_string(), None));
+            let quarantine = quarantine_literal(p);
             ledger::record(
                 LedgerEntry::new(LedgerKind::Phantom, p.to_string(), "net-point")
                     .with_action(LedgerAction::Silent),
@@ -196,12 +208,7 @@ impl NetPoint {
         let normalized = normalize_pin_path(path);
         let p = &normalized;
         let actual_path = if p.contains(['{', '[', ',']) {
-            let n = LITERAL_POINTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            let quarantine = format!("@_phantom_{n}");
-            LITERAL_POINT_DETAILS
-                .lock()
-                .unwrap()
-                .push((p.to_string(), None));
+            let quarantine = quarantine_literal(p);
             ledger::record(
                 LedgerEntry::new(LedgerKind::Phantom, p.to_string(), "net-point")
                     .with_action(LedgerAction::Silent),
