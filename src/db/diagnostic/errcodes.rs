@@ -1399,18 +1399,6 @@ pub const UNTYPED_PARAM: u32 = 5643;
 
 // ERC (electrical rule check) (6000-6099)
 
-/// Single-point net: only one connection.
-pub const ERC_SINGLE_POINT_NET: u32 = 6001;
-
-/// Unconnected port: not connected to any net.
-pub const ERC_UNCONNECTED_PORT: u32 = 6002;
-
-/// Multi-drive net.
-pub const ERC_MULTI_DRIVE_NET: u32 = 6003;
-
-/// Floating net.
-pub const ERC_FLOATING_NET: u32 = 6004;
-
 /// Placed abstract component with no selected part (partno unset).
 pub const ABSTRACT_PART_UNSELECTED: u32 = 6005;
 
@@ -2350,10 +2338,6 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(PORT_NEVER_USED, "Port is declared but never used in any net connection.", "Port '{0}' in '{1}' is declared but never used in any net connection."),
     entry!(UNTYPED_PARAM, "Parameter has no inferred type.", "Parameter has no inferred type."),
     // section
-    entry!(ERC_SINGLE_POINT_NET, "Single-point net: only one connection.", "single-point net: '{0}' has only one connection"),
-    entry!(ERC_UNCONNECTED_PORT, "Unconnected port: not connected to any net.", "unconnected port: '{0}' is not connected to any net"),
-    entry!(ERC_MULTI_DRIVE_NET, "Multi-drive net.", "multi-drive net: '{0}' has {1} drivers ({2})"),
-    entry!(ERC_FLOATING_NET, "Floating net.", "floating net: '{0}' has no driver"),
     entry!(ABSTRACT_PART_UNSELECTED, "Placed abstract component has no selected part (partno unset).", "abstract component instance '{0}' is unselected (no partno); BOM must pick a variant"),
     entry!(VARIANT_SPEC_UNSET, "Variant still carries an unset inherited spec item.", "variant '{0}' leaves spec item '{1}' unset (±0/empty)"),
     entry!(POWER_BRIDGE_LOOP, "A DC @bridge subgraph contains a loop (parallel/cyclic legs).", "parallel DC @bridge between '{0}' and '{1}' forms a loop; declare @star on a hub ref to discharge it (PWR-2)"),

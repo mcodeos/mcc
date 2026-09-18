@@ -1469,147 +1469,39 @@ pub(crate) fn remove_overlay(uri: &McURI) {
 
 // ERC — Electrical Rule Check (M6)
 
-/// Run Pass2 ERC: single-point nets, unconnected ports, net stats.
+/// Run the flat electrical net checks for the workspace's first module.
+///
+/// This is the RPC face of `mcc erc`. It used to carry its own root-net engine
+/// (ERC 6001-6004) that also lacked the rail-aware driver rule the local face
+/// had, so the two answered the same question differently; that engine is
+/// retired (`erc/rules-catalog-design.md` §3.1 E3) and both faces now render
+/// through `check::nets::erc_payload` over one `run_net_checks` result set.
 pub(crate) fn run_erc() -> RpcResult {
     let top = crate::mcb_get_first_module_name()
         .ok_or_else(|| JsonRpcError::custom(32112, "semantic: no modules found"))?;
 
     // Resolve the top module to its defining file URI; using the bare module
-    // name as a URI makes mcc_build fail with "Target module not found".
+    // name as a URI makes the build fail with "Target module not found".
     let uri = crate::mcb_iter_modules()
         .into_iter()
         .find(|(name, _)| name == &top)
-        .map(|(_, u)| crate::McURI::from(u.as_str()))
-        .unwrap_or_else(|| crate::McURI::from(top.as_str()));
-    let ident = crate::McIds::from(top.as_str());
+        .map(|(_, u)| u.clone())
+        .unwrap_or_else(|| top.clone());
 
+    let entry = crate::McSpaceName {
+        ident: crate::McIds::from(top.as_str()),
+        uri: crate::uri_intern(&uri),
+    };
+
+    // The server must survive a Pass2 panic, as the CLI's guarded build does.
     let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        crate::mcc_build_with_arena(&ident, &uri)
+        crate::mcb_pass2_flat(&entry, 1)
     }))
     .map_err(|_| JsonRpcError::custom(32111, "semantic: build panicked"))?
     .map_err(|e| JsonRpcError::custom(32111, &format!("semantic: build failed: {e}")))?;
-    let (inst, arena, store, net_store) = built;
-    // Phase C S3-D: children resolve through the view (the tree's Vec fields
-    // are gone).
-    let view = crate::TreeView::new(&arena, &store);
-    // Phase D: the tree never carries `NetPoint` — the root module's frozen
-    // string net table comes from the store (same source the projection and
-    // the other string-net consumers read).
-    let root_nets = net_store
-        .get(&inst.name.to_string())
-        .map(|t| t.to_vec())
-        .unwrap_or_default();
 
-    let mut diags: Vec<Value> = Vec::new();
-
-    // ── Single-point nets ──
-    let single_point: Vec<&String> = root_nets
-        .iter()
-        .filter(|(name, points)| {
-            !crate::instant::mc_net::is_anon_net_name(name)
-                && points.len() <= 1
-                && name.as_str() != "NC"
-        })
-        .map(|(name, _)| name)
-        .collect();
-
-    for net in &single_point {
-        let code = crate::errcodes::ERC_SINGLE_POINT_NET;
-        diags.push(json!({
-            "code": code,
-            "severity": "warning",
-            "message": format!("single-point net: '{net}' has only one connection — may be unconnected"),
-            "check": "single_point_net",
-        }));
-    }
-
-    // ── Unconnected ports ──
-    let all_net_paths: std::collections::HashSet<&str> = root_nets
-        .iter()
-        .flat_map(|(_, pts)| pts.iter())
-        .map(|p| p.path.as_str())
-        .collect();
-
-    for port in &inst.ports {
-        if !all_net_paths.contains(port.name.as_str()) {
-            let code = crate::errcodes::ERC_UNCONNECTED_PORT;
-            diags.push(json!({
-                "code": code,
-                "severity": "warning",
-                "message": format!("unconnected port: '{}' is not connected to any net", port.name),
-                "check": "unconnected_port",
-            }));
-        }
-    }
-
-    // ── Multi-drive / floating net detection ──
-    let mut multi_drive = 0u32;
-    let mut floating = 0u32;
-
-    for (name, points) in &root_nets {
-        if crate::instant::mc_net::is_anon_net_name(name) || name.as_str() == "NC" {
-            continue;
-        }
-        // Classify points: is_driver (Out, InOut, Power, Analog) vs is_load (In, ...)
-        let drivers: Vec<_> = points
-            .iter()
-            .filter(|p| {
-                matches!(
-                    p.iotype,
-                    crate::semantic::common::IOType::Out
-                        | crate::semantic::common::IOType::InOut
-                        | crate::semantic::common::IOType::Power
-                        | crate::semantic::common::IOType::Analog
-                )
-            })
-            .collect();
-
-        if drivers.len() > 1 {
-            multi_drive += 1;
-            let names: Vec<_> = drivers.iter().map(|d| d.path.as_str()).collect();
-            let code = crate::errcodes::ERC_MULTI_DRIVE_NET;
-            diags.push(json!({
-                "code": code,
-                "severity": "error",
-                "check": "multi_drive",
-                "message": format!(
-                    "multi-drive net: '{}' has {} drivers ({}) — short circuit risk",
-                    name, drivers.len(),
-                    names.join(", ")
-                ),
-            }));
-        } else if drivers.is_empty() && points.len() > 1 {
-            floating += 1;
-            let code = crate::errcodes::ERC_FLOATING_NET;
-            diags.push(json!({
-                "code": code,
-                "severity": "warning",
-                "check": "floating_net",
-                "message": format!(
-                    "floating net: '{}' has no driver (no Out/InOut/Power/Analog pin)",
-                    name
-                ),
-            }));
-        }
-    }
-
-    Ok(json!({
-        "summary": {
-            "errors": diags.iter().filter(|d| d["severity"] == "error").count(),
-            "warnings": diags.iter().filter(|d| d["severity"] == "warning").count(),
-            "erc": {
-                "net_count": root_nets.len(),
-                "connection_count": inst.connections.len(),
-                "component_count": view.components(&inst).count(),
-                "port_count": inst.ports.len(),
-                "single_point_nets": single_point.len(),
-                "unconnected_ports": diags.iter().filter(|d| d["check"] == "unconnected_port").count(),
-                "multi_drive_nets": multi_drive,
-                "floating_nets": floating,
-            }
-        },
-        "diagnostics": diags,
-    }))
+    let results = crate::check::nets::run_net_checks(&built.1);
+    Ok(crate::check::nets::erc_payload(&top, &results))
 }
 
 // Auxiliary: parameter parsing / error handling

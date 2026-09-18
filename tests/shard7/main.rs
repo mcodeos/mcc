@@ -11,6 +11,7 @@ pub mod common;
 mod bom_nc_classified;
 mod det_probe;
 mod equi_e2e;
+mod erc_single_ruler;
 mod expr_dot_curly;
 mod flatten_net_check_diagnostics;
 mod floating_label;

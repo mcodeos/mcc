@@ -172,6 +172,51 @@ pub fn run_net_checks(table: &InstTable) -> Vec<NetCheckResult> {
     results
 }
 
+/// The one JSON face of the electrical net checks.
+///
+/// Both readouts of this engine go through here: the CLI's local path
+/// (`mcc erc`, see `cmds/erc.rs`) and the RPC `erc` method. Until 2026-09-18
+/// each had its own hand-written root-net engine over the string net table
+/// (ERC 6001-6004), so the two faces answered the same question with different
+/// rules and different counts -- on a real board they disagreed on which nets
+/// are multi-driven. The engine is retired (`erc/rules-catalog-design.md` §3.2
+/// maps its four checks onto this one) and the command kept; this function is
+/// what "one engine" means in code.
+///
+/// The summary counts are derived from the results, never from a list of check
+/// names: a rule added to `FLAT_ERC_RULES` shows up in `by_check` with no edit
+/// here.
+pub fn erc_payload(top: &str, results: &[NetCheckResult]) -> serde_json::Value {
+    let mut by_check: std::collections::BTreeMap<&str, usize> = std::collections::BTreeMap::new();
+    for r in results {
+        *by_check.entry(r.check).or_default() += 1;
+    }
+    let violations: Vec<serde_json::Value> = results
+        .iter()
+        .map(|r| {
+            serde_json::json!({
+                "code": r.code,
+                "severity": r.severity,
+                "check": r.check,
+                "message": r.message,
+                "net_name": r.net_name,
+                "pos": r.pos,
+                "uri": r.uri,
+            })
+        })
+        .collect();
+    serde_json::json!({
+        "top": top,
+        "summary": {
+            "violations": results.len(),
+            "errors": results.iter().filter(|r| r.severity == "error").count(),
+            "warnings": results.iter().filter(|r| r.severity == "warning").count(),
+            "by_check": by_check,
+        },
+        "violations": violations,
+    })
+}
+
 #[derive(Debug, Clone)]
 pub struct NetCheckResult {
     pub check: &'static str,
@@ -980,6 +1025,10 @@ pub(crate) fn check_unused_module_ports(table: &InstTable, results: &mut Vec<Net
         // is what made C4 re-report Pin pads that the directional checks had
         // already reported — the ldo.4 (E4108+E4114) and UC.8 (E4117+E4114)
         // duplicates on hbl.
+        //
+        // The top module's own ports are skipped because the module-scope face
+        // already owns them: E5162 for a header-declared port, E5642 for a body
+        // `io` (measured -- see `erc/rules-catalog-design.md` §3.2).
         if entry.parent_id == top_id || entry.parent_id.is_none() {
             continue;
         }
