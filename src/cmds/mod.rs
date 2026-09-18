@@ -14,6 +14,7 @@ pub mod export;
 pub mod extract;
 pub mod filter;
 pub mod fmt;
+pub mod join;
 pub mod lib;
 pub mod list;
 pub mod manifest;

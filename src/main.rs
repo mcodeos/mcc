@@ -181,6 +181,7 @@ fn main() -> ExitCode {
         Some(Command::Export(_)) => false,
         Some(Command::Parse(_)) | Some(Command::Check(_)) | Some(Command::Extract(_)) => false,
         Some(Command::Verify(_)) => false,
+        Some(Command::Join(_)) => false,
         Some(Command::Build(_)) | Some(Command::Def(_)) | Some(Command::Erc(_)) => false,
         Some(Command::Refs(_)) | Some(Command::Convert(_)) | Some(Command::Report(_)) => false,
         Some(Command::Fmt(_)) => false,
@@ -214,7 +215,8 @@ fn dispatch(cli: Cli) -> Result<ExitCode> {
         | Some(Command::Show(_))
         | Some(Command::List(_))
         | Some(Command::Build(_))
-        | Some(Command::Verify(_)) => Some(mcc::cli::globals().format),
+        | Some(Command::Verify(_))
+        | Some(Command::Join(_)) => Some(mcc::cli::globals().format),
         Some(Command::Query(a)) => Some(if a.json {
             OutputFormat::Json
         } else {
@@ -251,6 +253,12 @@ fn dispatch(cli: Cli) -> Result<ExitCode> {
         Some(Command::Verify(args)) => {
             let outcome = cmds::verify::run(&args)?;
             Ok(ExitCode::from(outcome.exit_code.clamp(0, 255) as u8))
+        }
+        Some(Command::Join(args)) => {
+            // A readout never vetoes an exit code (law C): the join reports what
+            // it found and always succeeds, exactly as `show` does.
+            cmds::join::run(&args)?;
+            Ok(ExitCode::SUCCESS)
         }
         Some(Command::Extract(args)) => {
             cmds::extract::run(&args)?;
