@@ -209,13 +209,31 @@ fn mat_gap2__literal_point_quarantine_is_per_instantiation() {
         lane_b.is_empty(),
         "build B inherited lane A's quarantined points: {lane_b:?}"
     );
-    // The isolation names come out of the same reset: B has no literal at all,
-    // so a counter that survived A would show up here while the list stays
-    // empty (name drift without a list entry).
+}
+
+/// One source reference, one record. `vexpr_reduce` reads both faces of the
+/// same phrase, and the label fallback both stores a label and returns a
+/// point, so a construction-counted list reported each of these two
+/// references three times (`res[1:2]` ×3, `led[3:4]` ×3) and R01 counted the
+/// construction events as references.
+#[test]
+fn mat_gap2__literal_point_records_one_per_distinct_path() {
+    let _lock = common::lock();
+    common::reset();
+
+    let uri = "/mcc/gap2-quarantine-dedup.mc".to_string();
+    mcc::mcc_load_from_string(
+        &uri,
+        "module main {\n    func main() {\n        res[1:2] -> led[3:4]\n    }\n}",
+    );
+    let _ = mcc::mcc_build_flat(&McIds::from("main"), &uri, 1000).expect("flat build");
+
+    let mut got = quarantine_paths();
+    got.sort();
     assert_eq!(
-        mcc::instant::mc_net::LITERAL_POINTS.load(std::sync::atomic::Ordering::Relaxed),
-        0,
-        "build B left the literal-point counter at a non-zero value"
+        got,
+        vec!["led[3:4]".to_string(), "res[1:2]".to_string()],
+        "each distinct literal path is recorded once"
     );
 }
 

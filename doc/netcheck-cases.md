@@ -17,7 +17,7 @@ reason = "<judgment rationale>"
 
 [case] rule=R01 expect=hit
 module = "<top/unassigned>"
-reason = "4 unique vectors such as dc{VDD_3V3, GND} have unexpanded brace references, 16 occurrences total"
+reason = "4 distinct vectors such as dc{VDD_3V3, GND} have unexpanded brace references"
 
 [case] rule=R01 expect=miss
 module = "main.moddcdc"

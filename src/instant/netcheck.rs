@@ -570,27 +570,24 @@ fn check_r01_literal_point(table: &InstTable, idx: &Index, rep: &mut Report) {
             }
         }
 
-        // ★ Deduplicate: bucket by path, keeping the occurrence count.
-        // R01-e exempted paths are counted separately.
-        let mut buckets: BTreeMap<&str, usize> = BTreeMap::new();
-        let mut waived = 0usize;
+        // The quarantine list holds one record per distinct path, so this is a
+        // set, not a tally; R01-e exempted paths are reported separately.
+        let mut paths: BTreeSet<&str> = BTreeSet::new();
         let mut waived_paths: Vec<String> = Vec::new();
         for (path, _) in details.iter() {
             if is_boundary_port_decl(path, &boundary_leaves) {
-                waived += 1;
                 if !waived_paths.contains(&path.to_string()) {
                     waived_paths.push(path.to_string());
                 }
                 continue;
             }
-            *buckets.entry(path.as_str()).or_insert(0) += 1;
+            paths.insert(path.as_str());
         }
-        let unique = buckets.len();
-        let total: usize = buckets.values().sum();
-        set_scanned(rep, "R01", total + waived);
+        let total = paths.len();
+        set_scanned(rep, "R01", total + waived_paths.len());
 
         // Report R01-e waived count (Info level, separate line)
-        if waived > 0 {
+        if !waived_paths.is_empty() {
             waived_paths.sort();
             let waived_items: Vec<String> = waived_paths.iter().map(|p| format!("`{p}`")).collect();
             note(
@@ -599,36 +596,21 @@ fn check_r01_literal_point(table: &InstTable, idx: &Index, rep: &mut Report) {
                 String::new(),
                 format!(
                     "R01-e waived: {} (pure boundary port declaration: {})",
-                    waived,
+                    waived_paths.len(),
                     waived_items.join(", ")
                 ),
             );
         }
 
-        if !buckets.is_empty() {
-            // Sort by descending occurrence count
-            let mut sorted: Vec<(&str, usize)> = buckets.into_iter().collect();
-            sorted.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(b.0)));
-
-            let items: Vec<String> = sorted
-                .iter()
-                .map(|(path, count)| {
-                    if *count > 1 {
-                        format!("`{path}` ×{count}")
-                    } else {
-                        format!("`{path}`")
-                    }
-                })
-                .collect();
-            *rep.counts.entry("R01").or_insert(0) = unique;
+        if !paths.is_empty() {
+            let items: Vec<String> = paths.iter().map(|p| format!("`{p}`")).collect();
+            *rep.counts.entry("R01").or_insert(0) = total;
             rep.findings.push(Finding {
                 rule: "R01",
                 level: rule_level("R01"),
                 module: String::new(),
                 detail: format!(
-                    "{} unexpanded vector reference(s) ({} unique, {} occurrences): {}",
-                    total,
-                    unique,
+                    "{} unexpanded vector reference(s): {}",
                     total,
                     items.join("  ")
                 ),
