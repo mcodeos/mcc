@@ -55,7 +55,7 @@ pub fn run(args: &ParseArgs) -> Result<()> {
     };
 
     // ── 0. No RPC delegation ──
-    // Ruled 2026-09-18 (mcd/CIMP.md §1 U90): carry the context or don't
+    // Ruled 2026-09-18 (mcd/CIMP-OPEN.md §1 U90): carry the context or don't
     // delegate. `handle_parse` resolves `entry` against the *daemon's*
     // `current_dir()` and reads the *daemon's* `workspace_info()`, neither of
     // which the request carries; `top` is sent but marked "accepted but not yet

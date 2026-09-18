@@ -13,7 +13,7 @@ use serde_json::{json, Value};
 use std::path::Path;
 
 pub fn run(args: &RefsArgs) -> Result<()> {
-    // No server arm — ruled 2026-09-18 (mcd/CIMP.md §1 U90): carry the context
+    // No server arm — ruled 2026-09-18 (mcd/CIMP-OPEN.md §1 U90): carry the context
     // or don't delegate. This one delegated cleanly, envelope and all: measured
     // `mcc refs <sym> -f json` was 284 B in-process vs 283 B over RPC, the sole
     // differing byte being the summary's `interface_count` (57 vs 0). But that

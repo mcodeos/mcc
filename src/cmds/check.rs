@@ -115,7 +115,7 @@ pub fn run(args: &CheckArgs) -> Result<CheckOutcome> {
     // project manifest.
     let target = manifest::effective_target(args.target.as_deref());
 
-    // No server arm — ruled 2026-09-18 (mcd/CIMP.md §1 U90): carry the context
+    // No server arm — ruled 2026-09-18 (mcd/CIMP-OPEN.md §1 U90): carry the context
     // or don't delegate. The request carries `entry`/`libs`, but not the
     // caller's cwd, and `handle_check` resolves the entry against the daemon's
     // own `current_dir()` and reports on the daemon's own workspace — so the
