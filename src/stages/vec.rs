@@ -31,7 +31,10 @@ use crate::vector::graph::netdef::EndpointRef;
 use crate::vector::model::trunk::Trunk;
 use crate::viz::project::ProjectionLog;
 
-use super::{canon_instance, loc_cell, loc_of, render_table, SourceText, StageSeg, StageView};
+use super::{
+    canon_instance, loc_cell, loc_of, net_key, net_origin, render_table, SourceText, StageSeg,
+    StageView,
+};
 
 /// Build the `stage.vec` view over a graph and the projection log that produced
 /// it.
@@ -133,6 +136,7 @@ fn walk(
         // belongs to this build's segmentation, not to the circuit, so the net
         // keeps its member set as its handle instead (§2.4).
         let origin = net_origin(&net.name);
+        let key = net_key(&net.name);
         let mut members: Vec<String> = net
             .endpoints
             .iter()
@@ -141,11 +145,7 @@ fn walk(
         members.sort();
         items.push(json!({
             "class": "net",
-            "key": if origin == NetOrigin::Source {
-                Value::String(format!("net:{}", net.name))
-            } else {
-                Value::Null
-            },
+            "key": key.map(Value::String).unwrap_or(Value::Null),
             "point": Value::Null,
             "path": Value::Null,
             "canon_key": Value::Null,
@@ -280,51 +280,6 @@ fn endpoint_canon(e: &EndpointRef, table: &InstTable) -> Value {
 /// The pin's canonical path, when it has an `InstTable` row.
 fn endpoint_path(e: &EndpointRef, table: &InstTable) -> Option<String> {
     pin_path(table, e.pin_id)
-}
-
-/// Where a net's name came from, which is what decides whether the name may
-/// stand as a key.
-///
-/// Three families, and only the first is the *source's*:
-///
-/// - `Source` — the name is written in the `.mc` (a label, a port). Two builds
-///   of the same source agree on it, so it can key an item.
-/// - `Segment` — the builder split one chain and minted `<base>~<k>` for the
-///   pieces ([`crate::vector::builder::visit`]'s `segment_net_name`, which
-///   states the name is "unique across the chain and never collides with the
-///   original whole-chain name"). Unique to *this* build's segmentation, so
-///   keying on it would claim a stability the name does not have.
-/// - `Anonymous` — `_net<k>`, minted per build by a counter.
-///
-/// A `Segment` or `Anonymous` net is not left unidentifiable: its `members` list
-/// is the recomputable handle §2.4 prescribes for objects that own no key.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum NetOrigin {
-    Source,
-    Segment,
-    Anonymous,
-}
-
-impl NetOrigin {
-    fn as_str(self) -> &'static str {
-        match self {
-            NetOrigin::Source => "source",
-            NetOrigin::Segment => "segment",
-            NetOrigin::Anonymous => "anonymous",
-        }
-    }
-}
-
-/// Classify a net name. `~` cannot occur in an MCode identifier, so its presence
-/// means the builder minted the name rather than the source writing it.
-fn net_origin(name: &str) -> NetOrigin {
-    if crate::instant::mc_net::is_anon_net_name(name) {
-        NetOrigin::Anonymous
-    } else if name.contains('~') {
-        NetOrigin::Segment
-    } else {
-        NetOrigin::Source
-    }
 }
 
 fn pin_path(table: &InstTable, pin_id: i64) -> Option<String> {

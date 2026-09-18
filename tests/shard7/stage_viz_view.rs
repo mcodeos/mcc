@@ -230,6 +230,18 @@ fn yaml_without_clock(text: &str) -> String {
         .join("\n")
 }
 
+/// Whether a `stage.vec` `net` item lists `path` among the pins it joins.
+///
+/// The member list is the handle of a net that owns no key (§2.4), and it is
+/// also what joins the two views: both sides spell a pin through the same
+/// `InstTable` row, so the paths are comparable even though the two views number
+/// their objects independently.
+fn lists_member(net: &Value, path: &str) -> bool {
+    net["members"]
+        .as_array()
+        .is_some_and(|m| m.iter().any(|p| p.as_str() == Some(path)))
+}
+
 /// One `metrics` item's value, by its `<family>.<field>` path.
 fn metric<'a>(items: &'a [Value], path: &str) -> &'a Value {
     let row = items
@@ -561,6 +573,181 @@ fn every_pin_resolves_to_a_pass2_row() {
         keyless > 0,
         "every pin carries a `PointId` — the `None` family (§2.4) is unexercised, \
          so the implication above is asserted over a branch with no members"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Every drawn pin names the net it is on, and names it the way `stage.vec` does.
+///
+/// The SVM skeleton spells a net on every pin (§4:
+/// `"pins": [ { "id": "pin:…", "net": "net:V3V3" } ]`), which is what turns
+/// "highlight this net" into a lookup rather than a search. Two distinct ways to
+/// get it wrong, and this test tells them apart:
+///
+/// * **The two views could key one net two ways.** `stage.vec` keys a `net` item;
+///   this view records a key on a pin. Both go through the one `net_key` rule,
+///   and the assertion here is that the key *and* the run-local id agree with the
+///   vec item that lists this pin among its members.
+/// * **A net with no key is not a pin with no net.** A net the builder minted
+///   (`~`-split, `_net<k>`) can never be a key — its name belongs to this build's
+///   segmentation — so such a pin carries the net's run-local id instead, which
+///   is an index published *beside* the key and never as one (§3.5). A pin on no
+///   net at all carries neither.
+///
+/// The third family is the one that needs an explanation rather than a count: the
+/// render **promotes** the graph before laying it out (`apply_promote_recursive`,
+/// on by default), and promotion replaces `graph.nets` with the nets that reach at
+/// least one box of the layer, discarding the rest. So a pin can name nothing here
+/// while `stage.vec` — which reads the graph *before* promotion — lists it on a
+/// net. The assertion is therefore that this can only happen in a layer where this
+/// view holds *fewer* nets than the vector view does, and that such a layer exists
+/// (otherwise the clause is vacuous).
+#[test]
+fn every_pin_names_the_net_it_is_on() {
+    let dir = scratch("pin-net");
+    let vec = seg_of_hbl(&dir, "vec");
+    let viz = seg_of_hbl(&dir, "viz");
+
+    let vec_items = items_of(&vec);
+    let viz_items = items_of(&viz);
+
+    // The vec view's nets, by the layer they belong to. A net is built per layer
+    // and two layers number theirs independently, so every lookup below is scoped
+    // to the pin's own layer.
+    let mut vec_nets: BTreeMap<&str, Vec<&Value>> = BTreeMap::new();
+    for n in of_class(&vec_items, "net") {
+        vec_nets
+            .entry(n["layer"].as_str().unwrap_or(""))
+            .or_default()
+            .push(n);
+    }
+    let vec_net_count = |layer: &str| vec_nets.get(layer).map(Vec::len).unwrap_or(0);
+    let viz_net_count = |layer: &str| -> usize {
+        of_class(&viz_items, "layer")
+            .into_iter()
+            .find(|l| l["path"].as_str() == Some(layer))
+            .map(|l| l["nets"].as_u64().unwrap_or(0) as usize)
+            .unwrap_or(0)
+    };
+
+    let mut keyed = 0usize;
+    let mut keyless = 0usize;
+    let mut no_net_vec_agrees = 0usize;
+    let mut no_net_promoted = 0usize;
+
+    for p in of_class(&viz_items, "pin") {
+        let path = p["path"]
+            .as_str()
+            .unwrap_or_else(|| panic!("a drawn pin must carry a canonical path: {p}"));
+        let layer = p["layer"].as_str().unwrap_or("");
+        let candidates: Vec<&Value> = vec_nets
+            .get(layer)
+            .map(|ns| {
+                ns.iter()
+                    .copied()
+                    .filter(|n| lists_member(n, path))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        match (p["net"].as_str(), p["nid"].as_i64()) {
+            (Some(key), Some(nid)) => {
+                keyed += 1;
+                let mut hit: Option<&Value> = None;
+                for n in candidates.iter().copied() {
+                    if n["key"].as_str() == Some(key) {
+                        hit = Some(n);
+                        break;
+                    }
+                }
+                let hit = hit.unwrap_or_else(|| {
+                    panic!(
+                        "pin {path} names `{key}`, and no net in {layer} is keyed that \
+                         way — the two views spell one net differently: {p}"
+                    )
+                });
+                assert_eq!(
+                    hit["nid"].as_i64(),
+                    Some(nid),
+                    "pin {path} names `{key}` with net id {nid}, while {layer} gives \
+                     that key id {} — one of the two is not the net it points at",
+                    hit["nid"]
+                );
+            }
+            (None, Some(nid)) => {
+                keyless += 1;
+                let mut hit: Option<&Value> = None;
+                for n in candidates.iter().copied() {
+                    if n["nid"].as_i64() == Some(nid) {
+                        hit = Some(n);
+                        break;
+                    }
+                }
+                let hit = hit.unwrap_or_else(|| {
+                    panic!(
+                        "pin {path} bears net id {nid}, and no net in {layer} owns it — \
+                         an id naming nothing is worse than no id"
+                    )
+                });
+                assert!(
+                    hit["key"].is_null(),
+                    "pin {path} omits a key while {layer} holds one for the same net \
+                     (id {nid}) — a key dropped on the way out is not a net without one"
+                );
+            }
+            (None, None) => {
+                if candidates.is_empty() {
+                    // Unconnected in both views: a real reading on this fixture
+                    // (Pass2 rows of this kind are the ones the ERC reports as
+                    // unconnected).
+                    no_net_vec_agrees += 1;
+                } else {
+                    no_net_promoted += 1;
+                    assert!(
+                        viz_net_count(layer) < vec_net_count(layer),
+                        "pin {path} names no net while {layer} lists it on one, and \
+                         this view holds as many nets as the vector view does ({} vs \
+                         {}) — promote dropped nothing there, so the missing reference \
+                         has no explanation",
+                        viz_net_count(layer),
+                        vec_net_count(layer)
+                    );
+                }
+            }
+            (Some(key), None) => panic!("pin {path} names `{key}` with no net id: {p}"),
+        }
+    }
+
+    assert!(keyed >= 2, "the keyed family is unexercised");
+    assert!(
+        keyless >= 2,
+        "no pin sits on a keyless net — the `net_key` `None` branch is asserted over \
+         an empty population"
+    );
+    assert!(
+        no_net_vec_agrees >= 2,
+        "no pin is unconnected in both views, so the family that must NOT be \
+         explained by promote is unexercised"
+    );
+    assert!(
+        no_net_promoted >= 1,
+        "promote is expected to strip nets from the root layer on this fixture; if it \
+         stops, the clause above passes vacuously"
+    );
+
+    // The text face carries the same reference — a key printed on one face only
+    // would leave a reader to work around it.
+    let (text, err, ok) = run_stage(&dir, &[]);
+    assert!(ok, "show stage viz failed: {err}");
+    let printed = text_rows(&text)
+        .into_iter()
+        .filter(|r| r[2].contains("net="))
+        .count();
+    assert_eq!(
+        printed,
+        of_class(&viz_items, "pin").len(),
+        "`net=` is the pin detail's own cell, so it must appear on exactly the pin rows"
     );
 
     let _ = std::fs::remove_dir_all(&dir);

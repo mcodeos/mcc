@@ -102,7 +102,9 @@ use crate::vector::graph::netdef::{Segment, VizNet};
 use crate::viz::api::RenderedLayer;
 use crate::viz::metrics::SchematicQualityReport;
 
-use super::{canon_instance, loc_cell, loc_of, render_table, SourceText, StageSeg, StageView};
+use super::{
+    canon_instance, loc_cell, loc_of, net_key, render_table, SourceText, StageSeg, StageView,
+};
 
 /// Build the `stage.viz` view from the layers the renderer saw, plus the
 /// metrics it accumulated on the way.
@@ -146,10 +148,14 @@ pub fn build_viz(
             r.canvas,
             r.audited,
         ));
+        // Which net each pin is on, resolved once for the layer: a pin names its
+        // net, so a consumer can group the ends of one net without a second
+        // traversal of the graph.
+        let nets = nets_by_pin(&r.graph, table);
         for b in &r.graph.boxes {
             items.push(box_item(b, table, &path, &mut sources));
             for p in &b.pins {
-                items.push(pin_item(p, b, table, &path, &mut sources));
+                items.push(pin_item(p, b, table, &path, &nets, &mut sources));
             }
         }
         // A block edge names its ends by pin id, and the id is run-local; the
@@ -359,11 +365,13 @@ fn pin_item(
     b: &McVecBox,
     table: &InstTable,
     layer: &str,
+    nets: &NetsByPin,
     sources: &mut SourceText,
 ) -> Value {
     let mut anchors = b.entry_points.iter().filter(|e| e.pin_id == p.id);
     let anchor = anchors.next();
     let path = pin_path(table, p.id);
+    let net = path.as_ref().and_then(|p| nets.get(p.as_str()));
     json!({
         "class": "pin",
         // The stage key: the same `PointId` the net layer derived and the pin
@@ -375,6 +383,10 @@ fn pin_item(
             Some(_) => canon_instance(table, p.id as u32),
             None => Value::Null,
         },
+        // Which net this pin is on — see [`nets_by_pin`] for the two halves and
+        // for why the second one is not a key.
+        "net": net.and_then(|n| n.key.clone()).map(Value::String).unwrap_or(Value::Null),
+        "nid": net.map(|n| json!(n.nid)).unwrap_or(Value::Null),
         // `pin_id` is the number written on the stub ("1", "B", "A1");
         // `description` is the function name drawn inside the box.
         "num": p.pin_id,
@@ -401,6 +413,67 @@ fn side_str(s: EntrySide) -> &'static str {
         EntrySide::Left => "left",
     }
 }
+
+/// The net one pin is on, as the layer's graph records it.
+#[derive(Debug, Clone)]
+struct PinNet {
+    /// The net's canonical key, `None` when the name it carries is not the
+    /// source's ([`net_key`]).
+    key: Option<String>,
+    /// The net's id **within this build**, which is an index and not a key: it
+    /// is an allocation ordinal, so it is not comparable across two builds and
+    /// is published beside the key rather than instead of it (§3.5). It is what
+    /// still groups the pins of a net that owns no key.
+    nid: i64,
+}
+
+/// A layer's nets, indexed by the canonical path of each pin they join.
+///
+/// A pin names its own net, which is the one reference the SVM skeleton spells
+/// on every pin (§4: `"pins": [ { "id": "pin:…", "net": "net:V3V3", … } ]`), and
+/// this is where the answer is found: the graph keeps a net as a *member set*
+/// ([`VizNet::endpoints`]), so the pin's path — not its row id, not its
+/// `PointId` — is what joins them. Both sides spell a path through the same
+/// `InstTable` row, so the join cannot be off by a numbering.
+///
+/// A pin on no net at all gets **no entry**, and so prints `null`. That is not
+/// the same as a net whose key is `null`: the `nid` beside it still tells the two
+/// apart. The family itself has two members on a real project and both are
+/// readings rather than accidents: a pin nothing connects to (the ERC's
+/// unconnected-pin reports), and a pin whose net the render **promoted away** —
+/// promotion replaces `graph.nets` with the nets that reach at least one box of
+/// the layer, and this view reads the graph the renderer consumed.
+///
+/// ⚠ This is deliberately **not** a net item. A figure element carries a
+/// *reference* to its net, and the connectivity is looked up in the projection
+/// (design D1), so the net's own row — its name, kind, role and members — is a
+/// `stage.vec` fact that stays there once. What this view adds is which pin is on
+/// which net, which is a fact about the drawing.
+fn nets_by_pin(g: &McVecGraph, table: &InstTable) -> NetsByPin {
+    let mut out: NetsByPin = std::collections::HashMap::new();
+    for net in &g.nets {
+        let key = net_key(&net.name);
+        for e in &net.endpoints {
+            if let Some(p) = pin_path(table, e.pin_id) {
+                out.insert(
+                    p,
+                    PinNet {
+                        key: key.clone(),
+                        nid: net.nid,
+                    },
+                );
+            }
+        }
+    }
+    out
+}
+
+/// One layer's nets by the canonical path of each pin they join. Scoped to a
+/// layer on purpose: a net is built per layer, and two layers number their nets
+/// independently, so a path lookup that crossed layers would answer with
+/// another layer's net.
+type NetsByPin = std::collections::HashMap<String, PinNet>;
+
 
 /// One routed segment of a net: a straight run between two points.
 ///
@@ -755,7 +828,7 @@ pub fn render_viz_text(view: &StageView) -> String {
                     )
                 }
                 "pin" => format!(
-                    "num={} name={} {} side={}@{} at=({},{})",
+                    "num={} name={} {} side={}@{} at=({},{}) net={}",
                     item["num"]
                         .as_str()
                         .filter(|s| !s.is_empty())
@@ -769,6 +842,12 @@ pub fn render_viz_text(view: &StageView) -> String {
                     num(&item["offset"]),
                     num(&item["at"][0]),
                     num(&item["at"][1]),
+                    // The net's canonical key, or `-` — the same glyph §5.3
+                    // fixes for a value that is not there. A pin on a net that
+                    // owns no key prints `-` here too: the key is what this
+                    // column carries, and the `nid` behind it is an index, not
+                    // a second spelling of the same thing.
+                    item["net"].as_str().unwrap_or("-"),
                 ),
                 "segment" => match item["kind"].as_str().unwrap_or("") {
                     // An edge has ends (canonical paths) and no coordinates.
