@@ -236,7 +236,7 @@ spelling carries no promise about what the thing is.
 different labels for one 3.3 V rail, and pairing them by the "3V3" both spell is
 exactly the kind of inference this rule forbids — pair by the declared voltage.
 The binders in `src/instant/mc_mod/phases.rs`, and the ground / supply / rail
-decision points enumerated in `CIMP.md` §1 (mcd), are the known instances; read
+decision points enumerated in `CIMP-OPEN.md` §1 (mcd), are the known instances; read
 them as worked examples of the shapes above, not as a closed list.
 
 ## Rule: no auto-commit; manual testing and manual commit
