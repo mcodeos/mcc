@@ -28,19 +28,19 @@ pub fn run(args: &ExplainArgs) -> Result<()> {
     run_local(args)
 }
 
-/// Structured face → A-tier envelope (U86 item 7, first slice); text / csv are
-/// untouched.
+/// Structured face → A-tier envelope (U86 item 7); text / csv are untouched.
 ///
-/// ⚠ Two things this word does **not** fix, both recorded rather than papered
-/// over (mcd/log/9.18.cli-output-face-inventory.md §2):
+/// Both branches reach this now. The no-argument branch builds `{"codes": […]}`
+/// inline; the single-code branch reuses the RPC handler's payload verbatim
+/// (see `run_local`), so that shape has exactly one definition — and the
+/// `-f json` face no longer changes shape depending on whether a server
+/// happens to be running.
 ///
-/// 1. `explain` was format-blind in *both* directions — the no-argument branch
-///    printed pretty JSON in every format, the single-code branch printed text
-///    in every format. Only the machine face of the first is wrapped here.
-/// 2. `mcc explain <CODE> -f json` therefore still prints **text**: that branch
-///    has no JSON payload to wrap, and inventing one means choosing its shape
-///    against the RPC handler's richer one (`aicontract.rs`) — a payload-design
-///    step, not a wrapping step. Left for the follow-up slice.
+/// ⚠ One asymmetry remains, recorded rather than papered over
+/// (mcd/log/9.18.cli-output-face-inventory.md §2): the no-argument branch
+/// prints pretty JSON in the **text** face too — it never emitted prose. That
+/// is long-standing behaviour and this slice leaves it alone, but it is worth
+/// knowing that `mcc explain` bare is a machine listing in every format.
 fn emit_explain(data: Value) -> Result<()> {
     if mcc::cli::globals().format.is_structured() {
         return emit_projection(
@@ -56,9 +56,20 @@ fn emit_explain(data: Value) -> Result<()> {
 
 fn run_local(args: &ExplainArgs) -> Result<()> {
     match args.code {
-        // Single-code face: text in every format (see `emit_explain`).
         Some(code) => match errcodes::describe(code) {
             Some(info) => {
+                // Structured face: reuse `handle_explain`'s payload instead of
+                // inventing a second shape for the same view — the same reuse
+                // `bin/mcp.rs` does. `describe` just succeeded, so the handler
+                // cannot report an unknown code on this path.
+                //
+                // Everything below is the text face; the structured face has
+                // already returned.
+                if mcc::cli::globals().format.is_structured() {
+                    let payload = mcc::rpc::handlers::handle_explain(Some(json!({ "code": code })))
+                        .map_err(|e| anyhow::anyhow!("explain failed: {}", e.message))?;
+                    return emit_explain(payload);
+                }
                 println!("Error {}: {}", info.code, info.name);
                 println!("  {}", info.description);
                 // Deepened descriptor for catalog rules (design §8): the
