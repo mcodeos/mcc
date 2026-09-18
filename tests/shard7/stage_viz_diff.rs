@@ -32,7 +32,7 @@ use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use mcc::stages::viz_diff::{diff_stage_viz, VizDiff, LOCALITY_MIN_SAMPLE};
+use mcc::stages::stage_diff::{StageDiff, LOCALITY_MIN_SAMPLE, VIZ_LAW};
 
 /// A small named-instance circuit. Named on purpose: an auto-named device
 /// renumbers when a sibling is inserted, which would churn the `path` column and
@@ -172,11 +172,11 @@ fn items_of(stage: &Value) -> Vec<Value> {
         .clone()
 }
 
-fn changes_of(d: &VizDiff) -> &[Value] {
+fn changes_of(d: &StageDiff) -> &[Value] {
     &d.changes
 }
 
-fn count(d: &VizDiff, ty: &str, kind: &str) -> usize {
+fn count(d: &StageDiff, ty: &str, kind: &str) -> usize {
     changes_of(d)
         .iter()
         .filter(|c| c["type"] == ty && c["kind"] == kind)
@@ -266,7 +266,7 @@ fn wire_seg(net: &str, from: [f64; 2], to: [f64; 2], length: f64) -> Value {
 #[test]
 fn a_reading_does_not_differ_from_itself() {
     for (label, items) in [("synthetic", synthetic_world()), ("hbl", hbl_viz("self"))] {
-        let d = diff_stage_viz(&items, &items);
+        let d = VIZ_LAW.diff(&items, &items);
         assert!(
             changes_of(&d).is_empty(),
             "{label}: a reading differs from itself: {:?}",
@@ -275,9 +275,29 @@ fn a_reading_does_not_differ_from_itself() {
         if label == "hbl" {
             assert!(d.unaligned.is_empty(), "hbl: unaligned on itself");
         }
-        assert_eq!(d.stability.unchanged_boxes_moved, 0, "{label}");
-        assert_eq!(d.stability.route_hashes_changed, 0, "{label}");
-        assert!(!d.stability.locality_warning, "{label}");
+        assert_eq!(
+            d.stability
+                .as_ref()
+                .expect("this law draws boxes")
+                .unchanged_boxes_moved,
+            0,
+            "{label}"
+        );
+        assert_eq!(
+            d.stability
+                .as_ref()
+                .expect("this law draws boxes")
+                .route_hashes_changed,
+            0,
+            "{label}"
+        );
+        assert!(
+            !d.stability
+                .as_ref()
+                .expect("this law draws boxes")
+                .locality_warning,
+            "{label}"
+        );
     }
 }
 
@@ -419,7 +439,7 @@ fn synthetic_world_next() -> Vec<Value> {
 fn every_change_class_has_members() {
     let a = synthetic_world();
     let b = synthetic_world_next();
-    let d = diff_stage_viz(&a, &b);
+    let d = VIZ_LAW.diff(&a, &b);
 
     for (ty, kind) in [
         ("add", "box"),
@@ -452,7 +472,7 @@ fn every_change_class_has_members() {
 fn a_box_that_only_moved_names_only_its_position() {
     let a = vec![box_item("main.b", "CAP", [1.0, 1.0])];
     let b = vec![box_item("main.b", "CAP", [4.0, 5.0])];
-    let d = diff_stage_viz(&a, &b);
+    let d = VIZ_LAW.diff(&a, &b);
     let c = &changes_of(&d)[0];
     assert_eq!(c["type"], "modify");
     assert_eq!(c["kind"], "box");
@@ -469,9 +489,29 @@ fn a_box_that_only_moved_names_only_its_position() {
         vec!["at"],
         "a move must not report anything else as changed"
     );
-    assert_eq!(d.stability.unchanged_boxes_total, 1);
-    assert_eq!(d.stability.unchanged_boxes_moved, 1);
-    assert!((d.stability.max_unchanged_box_delta - 5.0).abs() < 1e-9);
+    assert_eq!(
+        d.stability
+            .as_ref()
+            .expect("this law draws boxes")
+            .unchanged_boxes_total,
+        1
+    );
+    assert_eq!(
+        d.stability
+            .as_ref()
+            .expect("this law draws boxes")
+            .unchanged_boxes_moved,
+        1
+    );
+    assert!(
+        (d.stability
+            .as_ref()
+            .expect("this law draws boxes")
+            .max_unchanged_box_delta
+            - 5.0)
+            .abs()
+            < 1e-9
+    );
 }
 
 /// A module replacement is a `modify`, not a delete plus an add -- which is what
@@ -480,7 +520,7 @@ fn a_box_that_only_moved_names_only_its_position() {
 fn a_replaced_def_is_a_modify_not_a_delete_and_an_add() {
     let a = vec![box_item("main.b", "CAP_A", [1.0, 1.0])];
     let b = vec![box_item("main.b", "CAP_B", [1.0, 1.0])];
-    let d = diff_stage_viz(&a, &b);
+    let d = VIZ_LAW.diff(&a, &b);
     assert_eq!(count(&d, "add", "box"), 0);
     assert_eq!(count(&d, "remove", "box"), 0);
     assert_eq!(count(&d, "modify", "box"), 1);
@@ -501,7 +541,7 @@ fn a_different_source_path_is_not_a_change() {
     b[0]["canon_key"]["def"]["uri"] = json!("/two/m.mc");
     a[0]["loc"] = json!({ "uri": "/one/m.mc", "line": 3, "span": null });
     b[0]["loc"] = json!({ "uri": "/two/m.mc", "line": 3, "span": null });
-    let d = diff_stage_viz(&a, &b);
+    let d = VIZ_LAW.diff(&a, &b);
     assert!(
         changes_of(&d).is_empty(),
         "the same item built from a different path read as a change: {:?}",
@@ -524,7 +564,7 @@ fn an_item_with_no_key_is_reported_not_matched_by_name() {
         keyless_pin(Some("D1"), "same"),
         keyless_pin(Some("D2"), "same"),
     ];
-    let d = diff_stage_viz(&a, &b);
+    let d = VIZ_LAW.diff(&a, &b);
     assert!(
         changes_of(&d).is_empty(),
         "an unkeyable item was matched anyway: {:?}",
@@ -549,7 +589,7 @@ fn a_metric_aligns_even_though_it_has_no_canonical_key() {
         metric("scope", "boxes", json!(63)),
         metric("determinism", "route_geometry_hash", json!("h")),
     ];
-    let d = diff_stage_viz(&a, &b);
+    let d = VIZ_LAW.diff(&a, &b);
     assert!(changes_of(&d).is_empty());
     assert!(d.unaligned.is_empty(), "a metric is not unalignable");
 }
@@ -559,7 +599,7 @@ fn a_metric_aligns_even_though_it_has_no_canonical_key() {
 #[test]
 fn the_real_readout_has_no_spurious_unaligned_items() {
     let items = hbl_viz("unaligned");
-    let d = diff_stage_viz(&items, &items);
+    let d = VIZ_LAW.diff(&items, &items);
     assert!(
         d.unaligned.is_empty(),
         "{} items in a real readout could not be aligned: {:?}",
@@ -576,7 +616,7 @@ fn the_real_readout_has_no_spurious_unaligned_items() {
 fn a_route_with_its_lanes_in_another_order_is_the_same_route() {
     let a = vec![edge_seg(&["main.a", "main.b"], &["main.c", "main.d"])];
     let b = vec![edge_seg(&["main.b", "main.a"], &["main.d", "main.c"])];
-    let d = diff_stage_viz(&a, &b);
+    let d = VIZ_LAW.diff(&a, &b);
     assert!(
         changes_of(&d).is_empty(),
         "a lane reorder read as a change: {:?}",
@@ -592,7 +632,7 @@ fn a_route_with_its_lanes_in_another_order_is_the_same_route() {
 fn a_rerouted_segment_is_a_remove_and_an_add_never_a_modify() {
     let a = vec![edge_seg(&["main.a"], &["main.b"])];
     let b = vec![edge_seg(&["main.a"], &["main.c"])];
-    let d = diff_stage_viz(&a, &b);
+    let d = VIZ_LAW.diff(&a, &b);
     assert_eq!(count(&d, "remove", "segment"), 1);
     assert_eq!(count(&d, "add", "segment"), 1);
     assert_eq!(
@@ -601,7 +641,13 @@ fn a_rerouted_segment_is_a_remove_and_an_add_never_a_modify() {
         "a segment cannot be reported as moved"
     );
     // Rerouting is a layer-level reading.
-    assert_eq!(d.stability.route_hashes_changed, 1);
+    assert_eq!(
+        d.stability
+            .as_ref()
+            .expect("this law draws boxes")
+            .route_hashes_changed,
+        1
+    );
 }
 
 /// A wire segment has no ends, so its key is where it runs. Measured to have no
@@ -616,7 +662,7 @@ fn a_wire_segment_is_keyed_on_where_it_runs() {
     let mut b = a.clone();
     // Same route, different length: a content change, not a different route.
     b[0]["length"] = json!(7.5);
-    let d = diff_stage_viz(&a, &b);
+    let d = VIZ_LAW.diff(&a, &b);
     assert_eq!(count(&d, "modify", "segment"), 1);
     assert_eq!(count(&d, "add", "segment"), 0);
     assert_eq!(count(&d, "remove", "segment"), 0);
@@ -626,7 +672,7 @@ fn a_wire_segment_is_keyed_on_where_it_runs() {
         wire_seg("N", [9.0, 9.0], [5.0, 0.0], 5.0),
         wire_seg("N", [0.0, 1.0], [5.0, 1.0], 5.0),
     ];
-    let d2 = diff_stage_viz(&a, &c);
+    let d2 = VIZ_LAW.diff(&a, &c);
     assert_eq!(count(&d2, "remove", "segment"), 1);
     assert_eq!(count(&d2, "add", "segment"), 1);
 }
@@ -650,7 +696,7 @@ fn a_net_comes_and_goes_with_the_pins_that_reference_it() {
             p["nid"] = json!(3);
         }
     }
-    let d = diff_stage_viz(&a, &b);
+    let d = VIZ_LAW.diff(&a, &b);
     let nets: Vec<&Value> = changes_of(&d)
         .iter()
         .filter(|c| c["kind"] == "net")
@@ -685,13 +731,17 @@ fn a_nameless_net_is_counted_and_never_listed() {
         pin_item("main.b.p3", "CAP", None, Some(8)),
         pin_item("main.b.p4", "CAP", None, Some(8)),
     ];
-    let d = diff_stage_viz(&a, &b);
+    let d = VIZ_LAW.diff(&a, &b);
     assert_eq!(
         count(&d, "add", "net") + count(&d, "remove", "net"),
         0,
         "renumbering an unnamed net must not read as a net coming or going"
     );
-    assert_eq!(d.nameless_net_pins, (4, 4));
+    assert_eq!(
+        d.nameless_net_pins
+            .expect("this law reads nets off its pins"),
+        (4, 4)
+    );
 
     // One fewer pin on an unnamed net is a count, not a list.
     let c = vec![
@@ -699,8 +749,12 @@ fn a_nameless_net_is_counted_and_never_listed() {
         pin_item("main.b.p2", "CAP", None, Some(7)),
         pin_item("main.b.p3", "CAP", None, Some(8)),
     ];
-    let d2 = diff_stage_viz(&a, &c);
-    assert_eq!(d2.nameless_net_pins, (4, 3));
+    let d2 = VIZ_LAW.diff(&a, &c);
+    assert_eq!(
+        d2.nameless_net_pins
+            .expect("this law reads nets off its pins"),
+        (4, 3)
+    );
     assert_eq!(count(&d2, "add", "net") + count(&d2, "remove", "net"), 0);
 }
 
@@ -712,18 +766,40 @@ fn locality_has_both_branches() {
     let a: Vec<Value> = (0..LOCALITY_MIN_SAMPLE)
         .map(|i| box_item(&format!("main.b{i}"), "CAP", [1.0, 1.0]))
         .collect();
-    let d = diff_stage_viz(&a, &a);
-    assert_eq!(d.stability.unchanged_boxes_total, LOCALITY_MIN_SAMPLE);
-    assert!(!d.stability.locality_warning);
+    let d = VIZ_LAW.diff(&a, &a);
+    assert_eq!(
+        d.stability
+            .as_ref()
+            .expect("this law draws boxes")
+            .unchanged_boxes_total,
+        LOCALITY_MIN_SAMPLE
+    );
+    assert!(
+        !d.stability
+            .as_ref()
+            .expect("this law draws boxes")
+            .locality_warning
+    );
 
     // The same four, all of them moved: the change was not local.
     let mut b = a.clone();
     for (i, item) in b.iter_mut().enumerate() {
         item["at"] = json!([100.0 + i as f64, 100.0]);
     }
-    let d2 = diff_stage_viz(&a, &b);
-    assert_eq!(d2.stability.unchanged_boxes_moved, LOCALITY_MIN_SAMPLE);
-    assert!(d2.stability.locality_warning);
+    let d2 = VIZ_LAW.diff(&a, &b);
+    assert_eq!(
+        d2.stability
+            .as_ref()
+            .expect("this law draws boxes")
+            .unchanged_boxes_moved,
+        LOCALITY_MIN_SAMPLE
+    );
+    assert!(
+        d2.stability
+            .as_ref()
+            .expect("this law draws boxes")
+            .locality_warning
+    );
 
     // Below the sample size, "most of them moved" is one box and says nothing.
     let small: Vec<Value> = (0..LOCALITY_MIN_SAMPLE - 1)
@@ -733,8 +809,13 @@ fn locality_has_both_branches() {
     for item in moved.iter_mut() {
         item["at"] = json!([100.0, 100.0]);
     }
-    let d3 = diff_stage_viz(&small, &moved);
-    assert!(!d3.stability.locality_warning);
+    let d3 = VIZ_LAW.diff(&small, &moved);
+    assert!(
+        !d3.stability
+            .as_ref()
+            .expect("this law draws boxes")
+            .locality_warning
+    );
 }
 
 // ── The real readout ──
@@ -746,7 +827,7 @@ fn locality_has_both_branches() {
 fn inserting_an_instance_does_not_erase_the_boxes_that_did_not_change() {
     let a = viz_on("insert-base", BASE_SRC);
     let b = viz_on("insert-inserted", INSERTED_SRC);
-    let d = diff_stage_viz(&a, &b);
+    let d = VIZ_LAW.diff(&a, &b);
 
     assert_eq!(count(&d, "remove", "box"), 0, "nothing was removed");
     assert_eq!(
@@ -802,7 +883,11 @@ fn inserting_an_instance_does_not_erase_the_boxes_that_did_not_change() {
     }
 
     assert!(
-        d.stability.unchanged_boxes_total >= 3,
+        d.stability
+            .as_ref()
+            .expect("this law draws boxes")
+            .unchanged_boxes_total
+            >= 3,
         "c1/c2/c3 did not change, so they must still count as unchanged: {:?}",
         d.stability
     );
@@ -813,12 +898,23 @@ fn inserting_an_instance_does_not_erase_the_boxes_that_did_not_change() {
 fn the_real_readout_does_not_differ_from_itself() {
     let a = hbl_viz("hbl-a");
     let b = hbl_viz("hbl-b");
-    let d = diff_stage_viz(&a, &b);
+    let d = VIZ_LAW.diff(&a, &b);
     assert!(
         changes_of(&d).is_empty(),
         "two readings of one board differ: {:?}",
         changes_of(&d).get(0)
     );
-    assert_eq!(d.stability.route_hashes_changed, 0);
-    assert!(!d.stability.locality_warning);
+    assert_eq!(
+        d.stability
+            .as_ref()
+            .expect("this law draws boxes")
+            .route_hashes_changed,
+        0
+    );
+    assert!(
+        !d.stability
+            .as_ref()
+            .expect("this law draws boxes")
+            .locality_warning
+    );
 }

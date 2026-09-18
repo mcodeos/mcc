@@ -517,18 +517,93 @@ fn a_non_empty_difference_still_exits_zero() {
 ///
 /// The flag's value domain is a closed set, not a free string: a name no key
 /// table covers would silently compare nothing and report no differences, which
-/// is indistinguishable from two identical worlds. Until the other segments have
-/// per-class key tables of their own, the closed set has one member.
+/// is indistinguishable from two identical worlds. `stage.vec` is the example
+/// here precisely because it *is* a real segment: the refusal is about the law
+/// being written, not about the segment existing.
 #[test]
 fn an_unknown_view_is_refused() {
     let (a, b, cwd) = pair("view", BASE_SRC, INSERTED_SRC);
-    let (stdout, stderr, ok) = diff(&cwd, &a, &b, &["--view", "stage.p2"]);
+    let (stdout, stderr, ok) = diff(&cwd, &a, &b, &["--view", "stage.vec"]);
 
     assert!(!ok, "an unknown view must not run");
     assert!(stdout.is_empty(), "nothing may be published: {stdout}");
     assert!(
         stderr.contains("stage.viz"),
         "the refusal must name what is accepted: {stderr}"
+    );
+
+    let _ = std::fs::remove_dir_all(&cwd);
+}
+
+/// Each segment the closed set admits has a law, and the view it publishes is
+/// that law's name — not the one the other law's answer rides under.
+#[test]
+fn every_admitted_view_runs_and_names_its_own_law() {
+    let (a, b, cwd) = pair("views", BASE_SRC, INSERTED_SRC);
+
+    // The default is the drawing, as the flag's help says.
+    let (stdout, stderr, ok) = diff(&cwd, &a, &b, &["-f", "json"]);
+    assert!(ok, "the default view failed: {stderr}");
+    let envelope: Value = serde_json::from_str(&stdout).expect("valid JSON");
+    assert_eq!(envelope["result"]["stage"]["view"], "diff.stage.viz");
+
+    for (view, expected) in [
+        ("stage.viz", "diff.stage.viz"),
+        ("stage.p2", "diff.stage.p2"),
+    ] {
+        let (stdout, stderr, ok) = diff(&cwd, &a, &b, &["--view", view, "-f", "json"]);
+        assert!(ok, "`--view {view}` failed: {stderr}");
+        let envelope: Value = serde_json::from_str(&stdout).expect("valid JSON");
+        let stage = &envelope["result"]["stage"];
+        assert_eq!(
+            stage["view"], expected,
+            "`--view {view}` publishes its own view name"
+        );
+        assert!(
+            !stage["items"].as_array().expect("items").is_empty(),
+            "`--view {view}` must compare the two boards, not nothing"
+        );
+    }
+
+    let _ = std::fs::remove_dir_all(&cwd);
+}
+
+/// The blocks a difference publishes beyond its rows are the **law's**: the
+/// drawing publishes how many pins sit on nets with no cross-build key and the
+/// box-stability summary, and the flat truth — whose nets are items keyed on
+/// their members — publishes neither.
+///
+/// `None` and not a zeroed pair: a count of pins on nameless nets and an
+/// all-zero box summary are statements a segment without pins or boxes cannot
+/// make, and an absent key says so where a zero would claim something false.
+#[test]
+fn the_second_side_carries_only_what_its_law_produces() {
+    let (a, b, cwd) = pair("second-side", BASE_SRC, INSERTED_SRC);
+
+    let viz = stage_of_diff(&cwd, &a, &b);
+    assert!(
+        viz["diff"]["nameless_net_pins"].is_array(),
+        "the drawing reads nets off its pins: {:?}",
+        viz["diff"]
+    );
+    assert!(
+        viz["diff"]["stability"].is_object(),
+        "the drawing draws boxes: {:?}",
+        viz["diff"]
+    );
+
+    let (stdout, stderr, ok) = diff(&cwd, &a, &b, &["--view", "stage.p2", "-f", "json"]);
+    assert!(ok, "`--view stage.p2` failed: {stderr}");
+    let envelope: Value = serde_json::from_str(&stdout).expect("valid JSON");
+    let block = &envelope["result"]["stage"]["diff"];
+    assert!(block["other"].is_object(), "both sides are always named");
+    assert!(
+        block.get("nameless_net_pins").is_none(),
+        "its nets are items, so there is no such count to make: {block}"
+    );
+    assert!(
+        block.get("stability").is_none(),
+        "it draws no boxes, so there is no such summary: {block}"
     );
 
     let _ = std::fs::remove_dir_all(&cwd);
