@@ -872,7 +872,11 @@ fn every_layer_names_the_reports_that_cover_it() {
             .iter()
             .find(|c| c.contains("reports="))
             .expect("the row that carries one has a cell with it");
-        let got = cell.split("reports=").nth(1).expect("split finds it").trim();
+        let got = cell
+            .split("reports=")
+            .nth(1)
+            .expect("split finds it")
+            .trim();
         assert_eq!(
             got,
             want.join(","),
@@ -1284,6 +1288,7 @@ fn every_class_the_readout_reaches_is_exercised() {
         "readability",
         "determinism",
         "connectivity",
+        "engineer_style",
     ] {
         assert!(
             families.contains(want),
@@ -1360,4 +1365,89 @@ fn inserting_an_instance_does_not_reorder_the_canonical_sequence() {
 
     let _ = std::fs::remove_dir_all(&base);
     let _ = std::fs::remove_dir_all(&inserted);
+}
+
+// ── Engineer style: the soft family, and the count that makes it readable ──
+
+/// Every engineer-style score comes with the count it was measured over — the
+/// one family whose axes score `1.0` when they find nothing to measure.
+///
+/// Three things have to stay told apart, and all three are on this page: an
+/// axis that measured nothing (`1.0`, count `0`), one that measured things and
+/// found them in order (`1.0`, count > `0`), and the all-zero default an
+/// **unwired** family would have published. The fixture fills both branches —
+/// `bus_order` has nothing to measure, `signal_flow` has 49 chains — so neither
+/// half of the family is asserted from the code alone.
+#[test]
+fn engineer_style_scores_come_with_the_count_they_were_measured_over() {
+    let dir = scratch("engineer-style");
+    let (stdout, err, ok) = run_stage(&dir, &["-f", "json"]);
+    assert!(ok, "show stage viz failed: {err}");
+    let items = items_of(&stage_of(&stdout));
+
+    // Each score beside the count it was measured over. The right-hand names are
+    // not derived from the left — the pairing is the claim, so it is spelled out.
+    let axes = [
+        ("signal_flow_monotonicity", "signal_flow_samples"),
+        ("rail_alignment_score", "rail_alignment_samples"),
+        ("ground_alignment_score", "ground_alignment_samples"),
+        ("bus_order_score", "bus_order_samples"),
+        ("idiom_proximity_score", "idiom_proximity_samples"),
+        ("pin_side_intent_honor_rate", "pin_side_intent_samples"),
+        ("functional_block_compactness", "functional_block_samples"),
+        ("route_channel_clarity", "route_channel_samples"),
+        ("label_readability_score", "label_readability_samples"),
+    ];
+
+    let (mut measured, mut vacuous, mut in_order) = (0usize, 0usize, 0usize);
+    for (score_field, samples_field) in axes {
+        let raw = metric(&items, &format!("engineer_style.{score_field}"));
+        let score = raw
+            .as_f64()
+            .unwrap_or_else(|| panic!("`{score_field}` is a number, got {raw}"));
+        let raw = metric(&items, &format!("engineer_style.{samples_field}"));
+        let samples = raw
+            .as_u64()
+            .unwrap_or_else(|| panic!("`{samples_field}` is a count, got {raw}"));
+        assert!(
+            (0.0..=1.0).contains(&score),
+            "`{score_field}` is a fraction between 0 and 1: {score}"
+        );
+        if samples == 0 {
+            vacuous += 1;
+            assert_eq!(
+                score, 1.0,
+                "`{score_field}` measured nothing, so it publishes the \
+                 convention — and `{samples_field}` is what says so"
+            );
+        } else {
+            measured += 1;
+            if score == 1.0 {
+                in_order += 1;
+            }
+        }
+        assert!(
+            score == 1.0 || samples > 0,
+            "`{score_field}` cannot be below 1.0 without having measured \
+             something, and `{samples_field}` says it measured nothing"
+        );
+    }
+
+    assert!(
+        measured > 0,
+        "every axis is empty on a real board — the family is wired to nothing, \
+         which is what its absence would have said more honestly"
+    );
+    assert!(
+        vacuous > 0,
+        "no axis is empty here, so the branch that distinguishes the convention \
+         from a perfect score is unexercised"
+    );
+    assert!(
+        in_order > 0,
+        "no axis came out perfectly in order, so the other half of that branch \
+         is unexercised"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
 }
