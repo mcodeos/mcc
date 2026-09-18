@@ -606,6 +606,7 @@ impl<'a> McVecBuilder<'a> {
                         ResolutionOutcome::Direct
                         | ResolutionOutcome::OwnerFallback
                         | ResolutionOutcome::BareLabelFallback
+                        | ResolutionOutcome::DeclaredMemberPort { .. }
                         | ResolutionOutcome::BracketPortMember { .. } => {
                             // Phase D: BracketPortMember is like Direct — "single id hit",
                             // not positional expansion (input is bare name, not `prefix.[A,B]`

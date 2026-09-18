@@ -66,6 +66,7 @@ text 575.0 425.0 V3V3
 text 610.0 400.0 V3V3
 text 610.0 740.0 V3V3
 text 620.0 90.0 V3V3
+text 646.0 256.8 SPI
 text 740.0 100.0 MIC
 text 740.0 116.0 MIC_SIP
 text 740.0 160.0 MIC [2]

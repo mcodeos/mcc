@@ -125,6 +125,47 @@ pub fn resolve_netpoint_v2(
 
     // Iter 7: owner fallback
     if let Some(owner) = &point.owner {
+        // ★ CIMP §1 U97: try the **declared member Port** of the owner first.
+        //
+        // The wiring may name a bundle member by its bare key (`MCU513.8`) while
+        // the declared member is registered under its qualified path
+        // (`main.MCU513.SPI.8`) — one conductor, one identity. The owner
+        // fallback below is strictly coarser: it attaches the sub-module box,
+        // which loses *which* member the wire reaches. Measured on hbl's root
+        // layer before this step existed: the four SPI nets all ended on the
+        // MCU513 box, so the layer saw one endpoint instead of four, the bus
+        // trunk collapsed and the SPI edge lost its `[4]` label.
+        //
+        // Same rule, same helper as `flatten_nets`'s boundary fold — the two
+        // callers must not grow two ladders.
+        let owner_full = format!("{module_path}.{owner}");
+        if let Some(owner_id) = table.get_id_by_path(&owner_full) {
+            if let Some(member_id) = table.declared_member_port_of(owner_id, &point.path, owner) {
+                let port_path = table
+                    .get_entry(member_id)
+                    .map(|e| e.path.clone())
+                    .unwrap_or_default();
+                crate::velog!(
+                    "[mc_vec_builder] declared-member-port: '{}.{}' → '{}' (module: {})",
+                    owner,
+                    point.path,
+                    port_path,
+                    module_path
+                );
+                out.ids.push(member_id as i64);
+                out.records.push(ResolutionRecord {
+                    module_path: module_path.into(),
+                    net_name: net_name.into(),
+                    point_path: point.path.clone(),
+                    outcome: ResolutionOutcome::DeclaredMemberPort {
+                        member: point.path.clone(),
+                        port_path,
+                    },
+                });
+                return out;
+            }
+        }
+
         let candidates = [format!("{module_path}.{owner}"), owner.clone()];
         for cand in &candidates {
             if let Some(id) = table.get_id_by_path(cand) {
@@ -309,6 +350,12 @@ pub fn resolve_netpoint(table: &InstTable, point: &NetPoint, module_path: &str) 
             ResolutionOutcome::BracketPortMember { member, port_path } => {
                 crate::velog!(
                     "[mc_vec_builder] Phase-D bracket-port-member: '{}' → member '{}' of '{}' (module: {})",
+                    rec.point_path, member, port_path, module_path
+                );
+            }
+            ResolutionOutcome::DeclaredMemberPort { member, port_path } => {
+                crate::velog!(
+                    "[mc_vec_builder] declared-member-port: '{}' → member '{}' of '{}' (module: {})",
                     rec.point_path, member, port_path, module_path
                 );
             }

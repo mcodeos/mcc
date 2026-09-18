@@ -1272,6 +1272,62 @@ impl InstTable {
         }
     }
 
+    /// ★ CIMP §1 U97 (the bare-member-spelling defect): the declared member
+    /// `Port` of `owner` that a bare member spelling names, if exactly one
+    /// exists.
+    ///
+    /// A wiring may name a bundle member by its **bare** key (`MCU513.8`) while
+    /// the declared member is registered under its qualified path
+    /// (`MCU513.SPI.8`). Both name one conductor, and the declared member is the
+    /// physical one, so the net point folds onto it instead of minting a second
+    /// identity for it (`flatten_nets`'s on-the-fly boundary pin carries no
+    /// direction, no member semantics, and leaves the declared Port in no net).
+    ///
+    /// Structural, never a name heuristic: the candidates are `owner`'s **own
+    /// direct children** of kind `Port` whose last path segment **equals** the
+    /// member key. A tie — two ports of one owner declaring the same member key,
+    /// e.g. `port1.A` / `port2.A` — is deliberately **not** resolved: an
+    /// ambiguous spelling keeps the caller's default rather than picking one.
+    ///
+    /// `path` is the net point's path, relative to the same module the owner is
+    /// relative to (`MCU513.8` under module `main`), or the bare member key
+    /// alone when the owner is carried separately (`8` with owner `MCU513`).
+    ///
+    /// Two callers, one rule: `flatten_nets`'s on-the-fly boundary fallback and
+    /// `vector::builder::resolve`'s owner fallback. The second one used to
+    /// attach the whole sub-module box, which loses the member identity —
+    /// measured on hbl's root layer, four nets then shared one endpoint, the
+    /// bus trunk collapsed and the SPI edge lost its label.
+    pub(crate) fn declared_member_port_of(
+        &self,
+        owner_id: u32,
+        path: &str,
+        owner_name: &str,
+    ) -> Option<u32> {
+        let member_key = path
+            .strip_prefix(owner_name)
+            .and_then(|rest| rest.strip_prefix('.'))
+            .unwrap_or(path);
+        if member_key.is_empty() {
+            return None;
+        }
+        let suffix = format!(".{member_key}");
+        let mut found: Option<u32> = None;
+        for (id, e) in self.entries.iter() {
+            if e.parent_id != Some(owner_id) || !matches!(e.kind, InstKind::Port) {
+                continue;
+            }
+            if e.path.len() <= suffix.len() || !e.path.ends_with(&suffix) {
+                continue;
+            }
+            if found.is_some() {
+                return None;
+            }
+            found = Some(*id);
+        }
+        found
+    }
+
     /// ★ A′: fold a path-spelling hit along its alias chain onto the physical
     /// member id. Non-alias entries return unchanged. Bounded against a corrupt
     /// alias cycle (never expected — targets are always real member ids).
@@ -2512,50 +2568,64 @@ impl InstTable {
                 // registered as a port or component pin in the InstTable. Register it
                 // as a Pin entry under the owner submodule so flatten_nets can resolve it.
                 //
-                // The minted entry carries no member semantics and no later pass
-                // folds it onto a declared member Port of `owner` (only the `/`
-                // lane does that, above), so a wired bare-member lane leaves its
-                // declared Port in no net. Measured: `main.MCU513.SPI.8/9/10/11`
-                // are reported unwired while their conductors ride the Pins
-                // `main.MCU513.8/9/10/11` (CIMP §1 U97).
+                // Only reached when the spelling names **no** entry of its own: a
+                // bare member key that does answer to a declared member Port of
+                // the same owner folds onto that Port instead (below), and the
+                // minted entry is a last resort — it carries no member semantics
+                // and no direction.
                 if ids.is_empty() && np.owner.is_some() {
                     if let Some(owner_name) = &np.owner {
                         let full_path = format!("{module_path}.{}", np.path);
                         let owner_full = format!("{module_path}.{owner_name}");
                         if let Some(parent_id) = self.get_id_by_path(&owner_full) {
-                            // A wiring may name a component power pin by its
-                            // group member (`ldo33{VOUT}` → `ldo33.VOUT.Vout`)
-                            // while the pin itself is registered under its
-                            // declaration key. Inherit the contract recorded at
-                            // the component flatten site so the endpoint keeps
-                            // its io / role / `psrc|psnk|psbi` direction rather
-                            // than reading as an anonymous pin.
-                            let carried = self.member_pin_sem.get(&full_path).cloned();
-                            let io = carried
-                                .as_ref()
-                                .map(|c| c.0.clone())
-                                .unwrap_or_else(|| np.iotype.clone());
-                            let pin_id = self.register(
-                                full_path,
-                                InstKind::Pin,
-                                Some(parent_id),
-                                String::new(),
-                                io,
-                                np.src_pos.clone(),
-                                String::new(),
-                            );
-                            if let Some((_, info, dir, member)) = carried {
-                                if let Some(info) = info {
-                                    self.set_member_info(pin_id, info);
+                            // ★ CIMP §1 U97 — try the declared member first. A
+                            // bare member spelling (`MCU513.8`) and the declared
+                            // member Port it names (`MCU513.SPI.8`) are one
+                            // conductor; folding the point onto the declared
+                            // member keeps one identity per conductor and lets
+                            // the declared Port read as wired. Minting here
+                            // instead is what made 4 of hbl's 11 E4114 rows
+                            // false positives (see
+                            // `log/9.18.bundle-port-readout.md` §4).
+                            if let Some(member_id) =
+                                self.declared_member_port_of(parent_id, &np.path, owner_name)
+                            {
+                                ids.push(member_id);
+                            } else {
+                                // A wiring may name a component power pin by its
+                                // group member (`ldo33{VOUT}` → `ldo33.VOUT.Vout`)
+                                // while the pin itself is registered under its
+                                // declaration key. Inherit the contract recorded at
+                                // the component flatten site so the endpoint keeps
+                                // its io / role / `psrc|psnk|psbi` direction rather
+                                // than reading as an anonymous pin.
+                                let carried = self.member_pin_sem.get(&full_path).cloned();
+                                let io = carried
+                                    .as_ref()
+                                    .map(|c| c.0.clone())
+                                    .unwrap_or_else(|| np.iotype.clone());
+                                let pin_id = self.register(
+                                    full_path,
+                                    InstKind::Pin,
+                                    Some(parent_id),
+                                    String::new(),
+                                    io,
+                                    np.src_pos.clone(),
+                                    String::new(),
+                                );
+                                if let Some((_, info, dir, member)) = carried {
+                                    if let Some(info) = info {
+                                        self.set_member_info(pin_id, info);
+                                    }
+                                    if let Some(dir) = dir {
+                                        self.set_pwr_dir(pin_id, dir);
+                                    }
+                                    if let Some(member) = member {
+                                        self.set_pwr_member(pin_id, member);
+                                    }
                                 }
-                                if let Some(dir) = dir {
-                                    self.set_pwr_dir(pin_id, dir);
-                                }
-                                if let Some(member) = member {
-                                    self.set_pwr_member(pin_id, member);
-                                }
+                                ids.push(pin_id);
                             }
-                            ids.push(pin_id);
                         }
                     }
                 }

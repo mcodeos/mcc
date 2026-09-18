@@ -1050,11 +1050,39 @@ pub(crate) fn check_power_nets(table: &InstTable, results: &mut Vec<NetCheckResu
 
 // ── C4: Module boundary ports not connected to any net ──
 pub(crate) fn check_unused_module_ports(table: &InstTable, results: &mut Vec<NetCheckResult>) {
-    let connected: HashSet<u32> = table
-        .get_nets()
-        .iter()
-        .flat_map(|n| n.points.iter().cloned())
-        .collect();
+    // `connected` = every id a net carries, **plus every ancestor of one** along
+    // `parent_id`. The upward walk is the old E3 semantics for a bundle port --
+    // "any lane wired ⇒ the port is connected" (`erc/rules-catalog-design.md`
+    // §3.2 ②) -- and it is the only way an interface-typed aggregate can be read
+    // as wired at all: `io I2C0` has no dotted member `Port`, so its members
+    // exist only as `/` lane `Label`s, which are the ids the nets carry.
+    // Measured on hbl: without the walk `main.MCU513.I2C0` / `main.MCU513.UART0`
+    // are reported unwired while all four of their lane Labels are on nets.
+    // A port whose lanes are all unwired (`main.MCU513.UART1`) still reports —
+    // the upward walk never reaches it. See CIMP §1 U97 (both halves landed:
+    // the predicate here and the registration-side fold in `insttab`).
+    let connected: HashSet<u32> = {
+        let mut set: HashSet<u32> = HashSet::new();
+        for id in table
+            .get_nets()
+            .iter()
+            .flat_map(|n| n.points.iter().cloned())
+        {
+            set.insert(id);
+            let mut cur = table.get_entry(id).and_then(|e| e.parent_id);
+            let mut guard = 0usize;
+            while let Some(pid) = cur {
+                // Bounded by the table size: a corrupt parent cycle must not hang
+                // the check, and a re-visited id means the chain is already walked.
+                if guard > table.len() || !set.insert(pid) {
+                    break;
+                }
+                guard += 1;
+                cur = table.get_entry(pid).and_then(|e| e.parent_id);
+            }
+        }
+        set
+    };
     let top_id = table
         .iter()
         .find(|(_, e)| {
@@ -1076,13 +1104,15 @@ pub(crate) fn check_unused_module_ports(table: &InstTable, results: &mut Vec<Net
         // already owns them: E5162 for a header-declared port, E5642 for a body
         // `io` (measured -- see `erc/rules-catalog-design.md` §3.2).
         //
-        // `connected` holds raw net-point ids, so an entry counts as wired only
-        // when a net carries *that* id. A bundle member wired under a different
-        // spelling does not count, and the declared member Port then reads as
-        // unconnected. Measured on hbl: 6 of the 11 rows below are false
-        // positives (4 bare-member lanes minted as Pins, 2 interface aggregates
-        // whose members are `/` lane Labels). See `log/9.18.bundle-port-readout.md`
-        // and CIMP §1 U97 -- widening this set is a ruling, not a local fix.
+        // `connected` counts a port as wired when a net carries the port id or
+        // **any id under it** (see the construction above). Both halves are
+        // needed on a real board: a bundle whose members are enumerated as
+        // dotted `Port`s is wired through a member id, and an interface-typed
+        // aggregate (`io I2C0`) is wired through a `/` lane `Label` it never
+        // names. Measured on hbl before the widening: 6 of the 11 rows were
+        // false positives (4 SPI member Ports, 2 interface aggregates), and the
+        // 5 that remain are true (`UART1` plus `port1.A`-`D`, whose lanes are on
+        // no net). See `log/9.18.bundle-port-readout.md` and CIMP §1 U97.
         if entry.parent_id == top_id || entry.parent_id.is_none() {
             continue;
         }

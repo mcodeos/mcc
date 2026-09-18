@@ -398,12 +398,18 @@ fn frozen_hbl() -> mcc::InstTable {
 // exercise the aggregate port spellings below, so the counts are pinned here
 // rather than inferred from the toy one (§2.4: an endpoint is not necessarily a
 // point).
-const HBL_ROWS: usize = 299;
+//
+// Re-measured for CIMP §1 U97: a bare member key under an owner (`MCU513.8`)
+// now folds onto the **declared** member port (`main.MCU513.SPI.8`) instead of
+// minting a key nobody declared, so the four such rows hbl used to invent are
+// gone (299 → 295 rows, 231 → 227 point-class rows, 42 → 38 of them naming no
+// physical point). The point-carrying count, 189, is unchanged.
+const HBL_ROWS: usize = 295;
 const HBL_INSTANCES: usize = 68;
-const HBL_POINTS: usize = 231;
+const HBL_POINTS: usize = 227;
 /// Point-class rows that name no physical point: a port's aggregate / bus-member
 /// spellings (`main.V1V2.VCC`, `main.DCDC.GND`, …).
-const HBL_POINTLESS: usize = 42;
+const HBL_POINTLESS: usize = 38;
 
 /// The two blocks on a real board, and the promise that no row invents a key it
 /// does not have.
