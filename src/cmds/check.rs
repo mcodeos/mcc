@@ -55,15 +55,11 @@ fn check_one_world(uri: &McURI, args: &CheckArgs, batch: &mut CheckBatch) {
         if let Ok((_tree, table)) = mcc::mcb_pass2_flat(&entry, 1) {
             let net_results = mcc::check::nets::run_net_checks(&table);
             batch.net_errors += net_results.iter().filter(|r| r.severity == "error").count();
-            if !net_results.is_empty() {
-                eprintln!(
-                    "=== Electrical Net Checks ({} issues) ===",
-                    net_results.len()
-                );
-                for r in &net_results {
-                    eprintln!("  [{}] {}: {}", r.severity, r.check, r.message);
-                }
-            }
+            // Same renderer and same row shape as `mcc build`'s section
+            // (`output::net_check`) — one rule for the section's text.
+            crate::output::net_check::render_section(&mcc::check::nets::net_check_rows(
+                &net_results,
+            ));
         }
         return;
     }

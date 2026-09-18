@@ -157,6 +157,17 @@ fn emit_build_result(result: serde_json::Value) -> Result<i32> {
     let cmd: CommandResult = serde_json::from_value(r)?;
     let env = Envelope::ok(cmd);
     let errors = env.result.as_ref().map(|x| x.summary.errors).unwrap_or(0);
+    // The net-check section comes out of the payload the daemon sent, through
+    // the same renderer the local face uses — a delegated build therefore shows
+    // the identical section a local one would (U90; `output::net_check`).
+    if let Some(rows) = env
+        .result
+        .as_ref()
+        .and_then(|x| x.pass2.as_ref())
+        .map(|p| p.net_checks.as_slice())
+    {
+        crate::output::net_check::render_section(rows);
+    }
     output::emit_envelope(&env, format, target, false)?;
     Ok(if errors > 0 { 1 } else { 0 })
 }
@@ -282,13 +293,13 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
     let net_store_rc = dl.net_store();
     let net_store = net_store_rc.borrow();
     let view = mcc::TreeView::new(arena, store);
-    builder.set_pass2(crate::cmds::parse::public_collect_pass2(
-        &top_name,
-        inst,
-        &view,
-        &net_store,
-        &mut tracker,
-    ));
+    let mut pass2 =
+        crate::cmds::parse::public_collect_pass2(&top_name, inst, &view, &net_store, &mut tracker);
+    // The flat electrical checks of this circuit, read back off the live
+    // circuit's cached flatten rather than re-run over the table. They ride in
+    // their own key, never in `diagnostics` — see `Pass2Report::net_checks`.
+    pass2.net_checks = mcc::check::nets::net_check_rows(dl.net_results());
+    builder.set_pass2(pass2);
 
     // ── G4: Write known_missing.md baseline ──
     // Phase C S3-D: the failed-record tree walk resolves sub-modules through
@@ -551,34 +562,25 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
         }
     }
 
-    // ── 4.5. Electrical net checks (Pass2, incl. D7 PULLUP_DEGENERATE) ──
-    // Surface the same findings as `mcc check --nets`. The single flat
-    // projection was already built at §3 (world-core flatten); read the checks
-    // back off the live circuit's cached table rather than re-flattening the
-    // dismembered tree via `InstTable::from_module_inst`, so D7
-    // PULLUP_DEGENERATE and friends appear in `mcc build` output. The synthetic
-    // markers pass2 attached to a virtual wrapper are already on this table, so
-    // no re-marking is needed. Findings are printed, not gated: the Tier-0
-    // netcheck and the exit-code error count below own the failure semantics.
-    let flat = dl
-        .table()
-        .ok_or_else(|| anyhow::anyhow!("no flat projection; the §3 flatten did not run"))?;
-    let net_results = mcc::check::nets::run_net_checks(flat);
-    if !net_results.is_empty() {
-        eprintln!(
-            "=== Electrical Net Checks ({} issues) ===",
-            net_results.len()
-        );
-        for r in &net_results {
-            eprintln!("  [{}] {}: {}", r.severity, r.check, r.message);
-        }
-    }
-
     // ── 5. Exit code: based on error count ──
     let errors = builder.error_count();
 
     // ── 6. Emit envelope ──
     let env = finish_build(builder);
+    // ── 6.5. Electrical net checks (Pass2, incl. D7 PULLUP_DEGENERATE) ──
+    // Rendered from the envelope, not from a private copy: the same rows the
+    // payload carries under `pass2.net_checks` are what the console shows, so
+    // a delegated build (whose payload the CLI reads back) prints the identical
+    // section from the identical field. Findings are reported, never gated —
+    // the exit code above is the diagnostics' error count alone.
+    if let Some(rows) = env
+        .result
+        .as_ref()
+        .and_then(|r| r.pass2.as_ref())
+        .map(|p| p.net_checks.as_slice())
+    {
+        crate::output::net_check::render_section(rows);
+    }
     let envelope_target = if args.viz && mcc::cli::globals().output.is_some() {
         None
     } else {
@@ -665,7 +667,7 @@ fn build_browse_dir(
         mcc::InstanceStore,
         mcc::NetTableStore,
     )> = None;
-    let mut first_nets: Vec<mcc::check::nets::NetCheckResult> = Vec::new();
+    let mut first_nets: Vec<mcc::check::nets::NetCheckRow> = Vec::new();
     let mut search_done = false;
     let mut svgs: Vec<(Option<String>, String)> = Vec::new();
     let mut total_boxes = 0usize;
@@ -683,7 +685,7 @@ fn build_browse_dir(
                      file: &Path,
                      failures: &mut Vec<Diagnostic>,
                      keep_nets: bool,
-                     nets: &mut Vec<mcc::check::nets::NetCheckResult>|
+                     nets: &mut Vec<mcc::check::nets::NetCheckRow>|
      -> Option<(
         mcc::MccProjectTree,
         mcc::NodeArena,
@@ -707,9 +709,9 @@ fn build_browse_dir(
                 let dl = world
                     .circuit(&key)
                     .ok_or_else(|| anyhow::anyhow!("world build produced no circuit"))?;
-                if let Some(tab) = dl.table() {
-                    *nets = mcc::check::nets::run_net_checks(tab);
-                }
+                // The flatten above already ran the checks; read them back
+                // rather than running them a second time over the same table.
+                *nets = mcc::check::nets::net_check_rows(dl.net_results());
                 let pair = (
                     dl.tree().clone(),
                     dl.arena().clone(),
@@ -924,6 +926,7 @@ fn build_browse_dir(
                 &mut tracker,
             );
             report.diagnostics = unique;
+            report.net_checks = first_nets;
             builder.set_pass2(report);
         }
         None => {
@@ -933,6 +936,7 @@ fn build_browse_dir(
                 nets: vec![],
                 connections: vec![],
                 diagnostics: unique,
+                net_checks: first_nets,
             };
             builder.set_pass2(report);
         }
@@ -979,24 +983,20 @@ fn build_browse_dir(
         );
     }
 
-    // ── 4.5. Electrical net checks (Pass2) on the first successful tree ──
-    // The first circuit's checks were produced once by its world-core flatten
-    // above (§3, design §12.2 / §13.6) — no re-flatten of the dismembered
-    // tree. Printed, not gated, and never written to the Problems store (the
-    // explicit build.full / check --nets surfaces own the ERC store logging).
-    if !first_nets.is_empty() {
-        eprintln!(
-            "=== Electrical Net Checks ({} issues) ===",
-            first_nets.len()
-        );
-        for r in &first_nets {
-            eprintln!("  [{}] {}: {}", r.severity, r.check, r.message);
-        }
-    }
-
     // ── 5/6. Exit code + envelope ──
     let errors = builder.error_count();
     let env = finish_build(builder);
+    // ── 6.5. Electrical net checks — rendered from the envelope, so what the
+    // console shows is what the payload carries (same as the single-file face
+    // and the delegated one; see `output::net_check`). ──
+    if let Some(rows) = env
+        .result
+        .as_ref()
+        .and_then(|r| r.pass2.as_ref())
+        .map(|p| p.net_checks.as_slice())
+    {
+        crate::output::net_check::render_section(rows);
+    }
     let envelope_target = mcc::cli::globals().output.as_deref().map(Path::new);
     output::emit_envelope(&env, mcc::cli::globals().format, envelope_target, false)?;
     Ok(BuildOutcome {

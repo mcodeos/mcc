@@ -25,6 +25,7 @@
 //! - All Diagnostics carry the `phase` field, ensuring the semantic level can be traced back to a
 //! specific pass.
 
+use mcc::check::nets::NetCheckRow;
 use mcc::ledger::LedgerReport;
 use serde::{Deserialize, Serialize};
 
@@ -366,6 +367,14 @@ pub struct Pass2Report {
     pub nets: Vec<NetEntry>,
     pub connections: Vec<ConnectionEntry>,
     pub diagnostics: Vec<Diagnostic>,
+    /// Flat electrical net checks (§11.4) of the circuit this report describes.
+    ///
+    /// Their own key, not `diagnostics`: `mcc build` prints them as a separate
+    /// console section and they never count into `summary`. Both build faces
+    /// carry the same rows here so a local build and a delegated one answer
+    /// with the same shape (U90). Omitted when the build produced no checks.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub net_checks: Vec<NetCheckRow>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
