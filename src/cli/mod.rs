@@ -367,6 +367,10 @@ pub enum DiffView {
     /// `stage.p2`: the flat electrical truth.
     #[value(name = "stage.p2")]
     StageP2,
+
+    /// `stage.vec`: the vector graph, and the projection's own log.
+    #[value(name = "stage.vec")]
+    StageVec,
 }
 
 #[derive(clap::Args, Debug, Clone)]

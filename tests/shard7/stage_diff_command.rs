@@ -517,13 +517,13 @@ fn a_non_empty_difference_still_exits_zero() {
 ///
 /// The flag's value domain is a closed set, not a free string: a name no key
 /// table covers would silently compare nothing and report no differences, which
-/// is indistinguishable from two identical worlds. `stage.vec` is the example
-/// here precisely because it *is* a real segment: the refusal is about the law
-/// being written, not about the segment existing.
+/// is indistinguishable from two identical worlds. `stage.p1` is the example
+/// here precisely because it *is* a real segment (`show stage p1` runs): the
+/// refusal is about the law being written, not about the segment existing.
 #[test]
 fn an_unknown_view_is_refused() {
     let (a, b, cwd) = pair("view", BASE_SRC, INSERTED_SRC);
-    let (stdout, stderr, ok) = diff(&cwd, &a, &b, &["--view", "stage.vec"]);
+    let (stdout, stderr, ok) = diff(&cwd, &a, &b, &["--view", "stage.p1"]);
 
     assert!(!ok, "an unknown view must not run");
     assert!(stdout.is_empty(), "nothing may be published: {stdout}");
@@ -550,6 +550,7 @@ fn every_admitted_view_runs_and_names_its_own_law() {
     for (view, expected) in [
         ("stage.viz", "diff.stage.viz"),
         ("stage.p2", "diff.stage.p2"),
+        ("stage.vec", "diff.stage.vec"),
     ] {
         let (stdout, stderr, ok) = diff(&cwd, &a, &b, &["--view", view, "-f", "json"]);
         assert!(ok, "`--view {view}` failed: {stderr}");

@@ -60,6 +60,10 @@ pub fn run(args: &DiffArgs) -> Result<()> {
             &mcc::stages::stage_diff::VIZ_LAW,
         ),
         DiffView::StageP2 => (mcc::stages::StageSeg::P2, &mcc::stages::stage_diff::P2_LAW),
+        DiffView::StageVec => (
+            mcc::stages::StageSeg::Vec,
+            &mcc::stages::stage_diff::VEC_LAW,
+        ),
     };
 
     let a = read_one(seg, args.a.as_str())?;

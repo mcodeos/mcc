@@ -15,9 +15,10 @@
 //!   instead. That is why the drawing publishes that count and this law does not.
 //! * A name is **content, not a key**, for the same reason a box's def is: the
 //!   emitter's own `key` is `net:<name>`, and measured on `hbl` the two nets
-//!   named `GND` -- one per scope -- both publish `net:GND`. Keying on it would
-//!   put 32 of 59 rows in `duplicate-key`; comparing it as content is what makes
-//!   a rename a `modify` rather than a delete plus an add.
+//!   named `GND` -- one per scope -- both publish `net:GND`. 32 of the 59 net
+//!   rows carry a name but only 25 names are distinct, so keying on it would
+//!   leave 14 rows in seven `duplicate-key` pairs; comparing it as content is
+//!   what makes a rename a `modify` rather than a delete plus an add.
 //!
 //! The branches the two given boards cannot reach are built by hand and marked
 //! as such. Everything else runs the real readout, because a synthetic circuit

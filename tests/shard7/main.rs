@@ -35,6 +35,7 @@ mod stage_p2_diff;
 mod stage_p2_view;
 mod stage_top_ver;
 mod stage_trace;
+mod stage_vec_diff;
 mod stage_vec_view;
 mod stage_viz_diff;
 mod stage_viz_view;
