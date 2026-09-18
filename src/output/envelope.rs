@@ -160,11 +160,11 @@ pub struct CommandResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ledger: Option<LedgerReport>,
 
-    // ── A-tier read projections (design §2.5, U86 item 7 first slice) ──
+    // ── A-tier read projections (design §2.5, U86 item 7) ──
     //
-    // Eight read-side commands whose `-f json` stdout was the *bare* payload —
-    // the same reading, minus the envelope. Each now hangs under its own key
-    // (the ruling for this slice: command envelope + projection key). Carried
+    // Read-side commands whose `-f json` stdout was the *bare* payload — the
+    // same reading, minus the envelope. Each now hangs under its own key (the
+    // ruling for this slice: command envelope + projection key). Carried
     // **verbatim**: wrapping must not reshape it, so an existing consumer moves
     // exactly one level down (`points` → `result.verify.points`).
     //
@@ -195,6 +195,15 @@ pub struct CommandResult {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub list: Option<serde_json::Value>,
+
+    // `show`'s 21 sub-faces share this one key (the second slice of the same
+    // ruling). The sub-face is named by the envelope's `command` — `mcc show
+    // pins` — not by a second key or an injected field, because 16 of the
+    // payloads carry no `type` discriminator and wrapping must not reshape
+    // them. Consumers dispatch on `command`, or on the payload's own fields
+    // where it has them (`type` for all/defs/dianlu/pwr/pwrflow).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub show: Option<serde_json::Value>,
 
     pub summary: Summary,
 }

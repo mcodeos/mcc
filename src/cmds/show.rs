@@ -23,7 +23,7 @@
 //!
 //! Top-level name lists live in `mcc list` (see cmds/list.rs).
 
-use crate::output::compact;
+use crate::output::{compact, emit_projection_sub, OutputFormatExt, ProjectionKey};
 use anyhow::{Context, Result};
 use mcc::cli::{rpcclient::RpcClient, OutputFormat, ShowArgs, ShowScope, ShowTarget};
 use mcc::{InstEntry, InstKind, InstTable, McIds, McURI, MemberRole, TreeView};
@@ -39,10 +39,7 @@ pub fn run(args: &ShowArgs) -> Result<()> {
     if let Some(c) = RpcClient::probe() {
         if let Some((method, params)) = rpc_mapping(args) {
             match c.call(method, params) {
-                Ok(result) => {
-                    println!("{}", serde_json::to_string_pretty(&result)?);
-                    return Ok(());
-                }
+                Ok(result) => return emit_show_owned(args.target, result),
                 Err(e) => {
                     tracing::debug!(target: "mcc::show", "RPC failed, using local mode: {}", e);
                 }
@@ -460,7 +457,7 @@ fn show_all(args: &ShowArgs) -> Result<()> {
         data.insert("target_file".to_string(), json!(t));
     }
     data.insert("type".to_string(), json!("layered_all"));
-    output(&json!(data), args.span)
+    emit_show(args.target, &json!(data), args.span)
 }
 
 /// Resolve the `--scope` default policy shared by `show all` and `list all`:
@@ -700,7 +697,7 @@ fn show_defs(args: &ShowArgs) -> Result<()> {
             println!("===== defs =====\n(no definitions loaded)");
             return Ok(());
         }
-        return output(&data, args.span);
+        return emit_show(args.target, &data, args.span);
     }
 
     let layer_of: Vec<ShowScope> = rows
@@ -771,7 +768,7 @@ fn show_defs(args: &ShowArgs) -> Result<()> {
     if let Some(t) = &target {
         data.insert("target_file".to_string(), json!(t));
     }
-    output(&json!(data), args.span)
+    emit_show(args.target, &json!(data), args.span)
 }
 
 /// One registry row as JSON: `id` (null when the def carries no registry id),
@@ -838,8 +835,7 @@ fn show_lapper(args: &ShowArgs) -> Result<()> {
         }
     } else {
         if let Some(json_val) = mcc::dump_symbols_json(&mc_uri) {
-            println!("{}", serde_json::to_string_pretty(&json_val)?);
-            return Ok(());
+            return emit_show_owned(ShowTarget::Lapper, json_val);
         }
     }
 
@@ -862,8 +858,7 @@ fn show_lapper(args: &ShowArgs) -> Result<()> {
         }
     } else {
         if let Some(json_val) = mcc::dump_symbols_json(&mc_uri) {
-            println!("{}", serde_json::to_string_pretty(&json_val)?);
-            return Ok(());
+            return emit_show_owned(ShowTarget::Lapper, json_val);
         }
     }
 
@@ -874,17 +869,16 @@ fn show_lapper(args: &ShowArgs) -> Result<()> {
     let result = c.call("sem", json!({"uri": uri_str, "content": content}))?;
     let symbols = &result["symbols"];
 
-    println!(
-        "{}",
-        serde_json::to_string_pretty(&json!({
+    emit_show_owned(
+        ShowTarget::Lapper,
+        json!({
             "file": uri_str,
             "lapper": symbols["lapper"],
             "local": symbols["local"],
             "ref_def_map": symbols["ref_def_map"],
             "cross_file_targets": symbols["global"]["cross_file_targets"],
-        }))?
-    );
-    Ok(())
+        }),
+    )
 }
 
 fn show_component(name: &str, args: &ShowArgs) -> Result<()> {
@@ -896,7 +890,7 @@ fn show_component(name: &str, args: &ShowArgs) -> Result<()> {
     let mut data = pins_json(&comp.pins);
     data["name"] = json!(name);
     data["uri"] = json!(comp.uri.to_string());
-    output(&data, args.span)
+    emit_show(args.target, &data, args.span)
 }
 
 fn show_module(name: &str, args: &ShowArgs) -> Result<()> {
@@ -910,7 +904,7 @@ fn show_module(name: &str, args: &ShowArgs) -> Result<()> {
         "uri": module.uri.to_string(),
         "instances": instances_json(&module.insts, None),
     });
-    output(&data, args.span)
+    emit_show(args.target, &data, args.span)
 }
 
 fn show_interface(name: &str, args: &ShowArgs) -> Result<()> {
@@ -928,7 +922,7 @@ fn show_interface(name: &str, args: &ShowArgs) -> Result<()> {
         "roles": roles,
         "params": iface.params.names_full(),
     });
-    output(&data, args.span)
+    emit_show(args.target, &data, args.span)
 }
 
 fn show_enum(name: &str, args: &ShowArgs) -> Result<()> {
@@ -944,7 +938,7 @@ fn show_enum(name: &str, args: &ShowArgs) -> Result<()> {
         "value_count": values.len(),
         "values": values,
     });
-    output(&data, args.span)
+    emit_show(args.target, &data, args.span)
 }
 
 /// Points of one Pass2 net (net list moved to `mcc list nets`).
@@ -963,7 +957,7 @@ fn show_net(name: &str, args: &ShowArgs) -> Result<()> {
         Some(points) => json!({ "name": name, "points": points }),
         None => json!({ "name": name, "points": Vec::<String>::new(), "error": "net not found" }),
     };
-    output(&data, args.span)
+    emit_show(args.target, &data, args.span)
 }
 
 // show dianlu — whole circuit tree after instantiation (Pass2)
@@ -1058,7 +1052,7 @@ fn show_dianlu(args: &ShowArgs) -> Result<()> {
         "hierarchy": hierarchy,
         "sections": dianlu_sections(&inst, &top, &view, &net_store, args.ids),
     });
-    output(&data, args.span)
+    emit_show(args.target, &data, args.span)
 }
 
 // show pwr — recursive power-intent tree (Pass2 + flat InstTable)
@@ -1145,7 +1139,7 @@ fn show_pwr(args: &ShowArgs) -> Result<()> {
         "top": top,
         "tree": pwr_node_json(&tree, &top, &view, &table, args.ids),
     });
-    output(&data, args.span)
+    emit_show(args.target, &data, args.span)
 }
 
 // `show pwrflow` — derived power-flow single view
@@ -1224,7 +1218,7 @@ fn show_pwrflow(args: &ShowArgs) -> Result<()> {
     }
 
     let data = pwrflow_json(&flow);
-    output(&data, args.span)
+    emit_show(args.target, &data, args.span)
 }
 
 // `show stage` — one pipeline segment as data (stage-readout-design §5.3 ①)
@@ -2538,7 +2532,7 @@ fn drill_pins(name: &str, args: &ShowArgs) -> Result<()> {
     };
     let mut data = pins_json(pins);
     data["name"] = json!(name);
-    output(&data, args.span)
+    emit_show(args.target, &data, args.span)
 }
 
 fn drill_ports(name: &str, args: &ShowArgs) -> Result<()> {
@@ -2567,7 +2561,7 @@ fn drill_ports(name: &str, args: &ShowArgs) -> Result<()> {
         })
         .collect();
     let data = json!({ "name": name, "port_count": ports.len(), "ports": ports });
-    output(&data, args.span)
+    emit_show(args.target, &data, args.span)
 }
 
 /// Extract a port's type and sub-members from its instance:
@@ -2614,7 +2608,7 @@ fn drill_labels(name: &str, args: &ShowArgs) -> Result<()> {
         .map(|(n, _)| n.to_string())
         .collect();
     let data = json!({ "name": name, "label_count": labels.len(), "labels": labels });
-    output(&data, args.span)
+    emit_show(args.target, &data, args.span)
 }
 
 fn drill_instances(name: &str, args: &ShowArgs) -> Result<()> {
@@ -2623,7 +2617,7 @@ fn drill_instances(name: &str, args: &ShowArgs) -> Result<()> {
         mcc::McCMIE::Component(c) => {
             let items = instances_json(&c.insts, args.r#type.as_deref());
             let data = json!({ "name": name, "count": items.len(), "instances": items });
-            output(&data, args.span)
+            emit_show(args.target, &data, args.span)
         }
         mcc::McCMIE::Module(_) => {
             // Source annotations (stage 5, design §4.5): build the module so
@@ -2672,7 +2666,7 @@ fn drill_instances(name: &str, args: &ShowArgs) -> Result<()> {
             }
             items.sort_by_key(|e| e["line"].as_u64().unwrap_or(u64::MAX));
             let data = json!({ "name": name, "count": items.len(), "instances": items });
-            output(&data, args.span)
+            emit_show(args.target, &data, args.span)
         }
         _ => not_applicable("instances", name),
     }
@@ -2688,7 +2682,7 @@ fn drill_nets(name: &str, args: &ShowArgs) -> Result<()> {
             .map(|(n, points)| json!({ "name": n, "points": points }))
             .collect();
         let data = json!({ "name": name, "kind": "func", "count": items.len(), "nets": items });
-        return output(&data, args.span);
+        return emit_show(args.target, &data, args.span);
     }
 
     // `nets <module>` uses the entity as the top module.
@@ -2702,7 +2696,7 @@ fn drill_nets(name: &str, args: &ShowArgs) -> Result<()> {
         .map(|(n, points)| json!({ "name": n, "points": points }))
         .collect();
     let data = json!({ "name": name, "count": items.len(), "nets": items });
-    output(&data, args.span)
+    emit_show(args.target, &data, args.span)
 }
 
 fn drill_attrs(name: &str, args: &ShowArgs) -> Result<()> {
@@ -2720,7 +2714,7 @@ fn drill_attrs(name: &str, args: &ShowArgs) -> Result<()> {
         })
         .collect();
     let data = json!({ "name": name, "count": items.len(), "attrs": items });
-    output(&data, args.span)
+    emit_show(args.target, &data, args.span)
 }
 
 fn drill_funcs(name: &str, args: &ShowArgs) -> Result<()> {
@@ -2735,7 +2729,7 @@ fn drill_funcs(name: &str, args: &ShowArgs) -> Result<()> {
         .map(|f| json!({ "name": f.name.to_string(), "params": f.params.names_full_annotated() }))
         .collect();
     let data = json!({ "name": name, "count": items.len(), "funcs": items });
-    output(&data, args.span)
+    emit_show(args.target, &data, args.span)
 }
 
 fn drill_params(name: &str, args: &ShowArgs) -> Result<()> {
@@ -2743,7 +2737,7 @@ fn drill_params(name: &str, args: &ShowArgs) -> Result<()> {
     if let Some(func) = mcc::rpc::handlers::find_func_by_path(name) {
         let items: Vec<Value> = func.params.iter().map(|d| param_json(d)).collect();
         let data = json!({ "name": name, "kind": "func", "count": items.len(), "params": items });
-        return output(&data, args.span);
+        return emit_show(args.target, &data, args.span);
     }
     let cmie = def_or_exit(name);
     let params = match &cmie {
@@ -2761,7 +2755,7 @@ fn drill_params(name: &str, args: &ShowArgs) -> Result<()> {
         "optional": arity.optional,
         "params": items
     });
-    output(&data, args.span)
+    emit_show(args.target, &data, args.span)
 }
 
 /// One parameter declaration as JSON, mirroring the RPC `show.params` shape.
@@ -2788,7 +2782,7 @@ fn drill_roles(name: &str, args: &ShowArgs) -> Result<()> {
         })
         .collect();
     let data = json!({ "name": name, "count": items.len(), "roles": items });
-    output(&data, args.span)
+    emit_show(args.target, &data, args.span)
 }
 
 fn drill_values(name: &str, args: &ShowArgs) -> Result<()> {
@@ -2798,7 +2792,7 @@ fn drill_values(name: &str, args: &ShowArgs) -> Result<()> {
     };
     let values: Vec<String> = en.values.iter().map(|v| v.name.to_string()).collect();
     let data = json!({ "name": name, "count": values.len(), "values": values });
-    output(&data, args.span)
+    emit_show(args.target, &data, args.span)
 }
 
 // Entity detail collection (used by `show all` file-layer text details)
@@ -3798,6 +3792,49 @@ fn iface_display(v: &Value) -> Option<String> {
             }
         }
     }
+}
+
+/// One `show` sub-face's payload → the A-tier command envelope (U86 item 7,
+/// second slice), sharing the single [`ProjectionKey::Show`] key with the other
+/// twenty. The sub-face rides in the envelope's `command` (`mcc show pins`);
+/// [`ShowTarget::name`] records why that and not a payload field.
+///
+/// Text / csv keep [`output`]'s renderers byte for byte — csv is deliberately
+/// not [`OutputFormatExt::is_structured`], so every sub-face's `-f csv` face is
+/// unchanged by this slice.
+fn emit_show(target: ShowTarget, data: &Value, span: bool) -> Result<()> {
+    if mcc::cli::globals().format.is_structured() {
+        return emit_projection_sub(
+            ProjectionKey::Show,
+            target.name(),
+            data.clone(),
+            mcc::cli::globals().format,
+            mcc::cli::globals().output.as_deref().map(Path::new),
+        );
+    }
+    output(data, span)
+}
+
+/// [`emit_show`] for the sub-faces whose payload is built inline and therefore
+/// handed over by value: the three `lapper` sites and `run`'s RPC branch.
+///
+/// The non-structured fallback is the **pretty-JSON print** those four sites had
+/// before the envelope, not [`output`]'s csv arm: `-f csv` / `-f yaml` printed
+/// pretty JSON there, and a wrapping change does not get to fix that. (The
+/// `-f yaml` oddity is shared with the other sub-faces, which [`output`] renders
+/// the same way — recorded, not fixed.)
+fn emit_show_owned(target: ShowTarget, data: Value) -> Result<()> {
+    if mcc::cli::globals().format.is_structured() {
+        return emit_projection_sub(
+            ProjectionKey::Show,
+            target.name(),
+            data,
+            mcc::cli::globals().format,
+            mcc::cli::globals().output.as_deref().map(Path::new),
+        );
+    }
+    println!("{}", serde_json::to_string_pretty(&data)?);
+    Ok(())
 }
 
 pub(crate) fn output(data: &Value, span: bool) -> Result<()> {

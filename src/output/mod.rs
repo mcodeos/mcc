@@ -91,15 +91,21 @@ pub fn emit_envelope(
 
 // ── A-tier projection envelope (U86 item 7 first slice; see the CLI design §2.5) ──
 
-/// The eight read-side commands whose `-f json` stdout was the **bare** payload
-/// before this slice: `verify` / `report` / `erc` / `rules` / `def` / `refs` /
-/// `explain` / `list`.
+/// The read-side commands whose `-f json` stdout was the **bare** payload before
+/// this slice: `verify` / `report` / `erc` / `rules` / `def` / `refs` /
+/// `explain` / `list`, plus `show`.
 ///
 /// Each variant's [`name`](ProjectionKey::name) is both the payload's key in
 /// [`envelope::CommandResult`] and — with the `mcc ` prefix — the envelope's
 /// `command` string. Keeping the pairing in one enum is what makes "A-tier
 /// `-f json` = command envelope + projection key" a single definition instead of
 /// fifteen copies at the call sites.
+///
+/// [`Show`](ProjectionKey::Show) is the one word whose `command` does **not** end
+/// at the key: it has sub-faces, and [`emit_projection_sub`] appends the token
+/// the user typed (`mcc show pins`). That is not decoration — 16 of the 21
+/// sub-face payloads carry no `type` field, so `command` is the only
+/// discriminator between, say, `roles` and `values`.
 #[derive(Clone, Copy, Debug)]
 pub enum ProjectionKey {
     Verify,
@@ -110,6 +116,7 @@ pub enum ProjectionKey {
     Refs,
     Explain,
     List,
+    Show,
 }
 
 impl ProjectionKey {
@@ -123,6 +130,7 @@ impl ProjectionKey {
             Self::Refs => "refs",
             Self::Explain => "explain",
             Self::List => "list",
+            Self::Show => "show",
         }
     }
 }
@@ -142,7 +150,38 @@ pub fn emit_projection(
     format: OutputFormat,
     target: Option<&Path>,
 ) -> Result<()> {
-    let mut builder = builder::ResultBuilder::start(format!("mcc {}", key.name()));
+    emit_projection_as(key, None, payload, format, target)
+}
+
+/// [`emit_projection`] for a word with sub-faces: same key, same verbatim
+/// payload, but the envelope's `command` names the sub-face the user actually
+/// typed (`mcc show pins`).
+///
+/// `sub` comes from the command's own name table — `ShowTarget::name` for
+/// `show` — so the `command` string a consumer parses is byte-identical to the
+/// argv that produced it.
+pub fn emit_projection_sub(
+    key: ProjectionKey,
+    sub: &str,
+    payload: serde_json::Value,
+    format: OutputFormat,
+    target: Option<&Path>,
+) -> Result<()> {
+    emit_projection_as(key, Some(sub), payload, format, target)
+}
+
+fn emit_projection_as(
+    key: ProjectionKey,
+    sub: Option<&str>,
+    payload: serde_json::Value,
+    format: OutputFormat,
+    target: Option<&Path>,
+) -> Result<()> {
+    let command = match sub {
+        Some(s) => format!("mcc {} {}", key.name(), s),
+        None => format!("mcc {}", key.name()),
+    };
+    let mut builder = builder::ResultBuilder::start(command);
     builder.set_projection(key, payload);
     let env = envelope::Envelope::ok(builder.finish());
     emit_envelope(&env, format, target, false)
