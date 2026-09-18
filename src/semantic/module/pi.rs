@@ -296,6 +296,35 @@ impl McPowerDecls {
         }
         out
     }
+
+    /// Every whole-referenceable domain — the R1 reference rule's data face
+    /// (intent-reference-layer §10.2 D1). A domain lists iff it declares
+    /// **exactly one** `::DC` rail row: that alone determines a pair, so a bare
+    /// domain name in a pair position has one answer. Zero DC rows (a pure AC
+    /// domain, or an empty one) and two or more both list nothing — the rule
+    /// then leaves the written name alone instead of guessing which rail was
+    /// meant. Shaped beside [`Self::l1_domain_natures`] /
+    /// [`Self::l1_domain_faces`], read from the same `self.domains`; that the
+    /// name resolves in the *owning* module's scope is the rule's step, not
+    /// this projection's.
+    pub fn l1_domain_pairs(&self) -> Vec<L1DomainPair> {
+        let mut out = Vec::new();
+        for d in &self.domains {
+            let mut dc = d.rails.iter().filter(|r| r.iface == "DC");
+            let Some(row) = dc.next() else { continue };
+            // Two DC rails state two pairs: naming the domain would be a guess.
+            if dc.next().is_some() {
+                continue;
+            }
+            out.push(L1DomainPair {
+                domain: d.name.clone(),
+                hot: row.hot.clone(),
+                ret: row.ret.clone(),
+                span: row.span.clone(),
+            });
+        }
+        out
+    }
 }
 
 /// One decoded DC rail guarantee — the §4.1 window shape (`v±tol` →
@@ -515,6 +544,30 @@ pub struct L1DomainFace {
 pub struct L1RailAxisRow {
     pub iface: String,
     pub hot: String,
+    pub span: Span,
+}
+
+/// One **whole-referenceable** domain — a domain whose name, written bare in a
+/// position that expects a DC pair, denotes its declared `[hot, ret]` rail
+/// (intent-reference-layer §10.2 D1, the R1 reference rule's data face).
+///
+/// The predicate is *exactly one* `::DC` row, and nothing else: a domain with
+/// no DC rail (pure AC, or empty) states no pair to stand for, and one with two
+/// or more DC rails states no *single* pair — naming either of those would be a
+/// guess, so neither lists. That is why this is a filtered projection rather
+/// than a lookup that can fail: absence from the list is the predicate.
+///
+/// Scope is the rule's step, not this projection's: a consumer resolves the
+/// name in the **owning module's** own `domains`, never up or down the instance
+/// tree.
+#[derive(Debug, Clone)]
+pub struct L1DomainPair {
+    pub domain: String,
+    /// The row's first member — the pair's hot net (`McRailDecl::hot`).
+    pub hot: String,
+    /// The row's second member — the pair's return net (`McRailDecl::ret`).
+    pub ret: String,
+    /// The row's own span (the rule's anchor).
     pub span: Span,
 }
 
@@ -1695,6 +1748,85 @@ mod tests {
     domain PLAIN { rail [Vx, GND]::DC(1V) }
 }
 "#;
+
+    const SRC_PAIRS: &str = r#"module main {
+    conduit GND  @role(main)
+    conduit GNDA @role(quiet)
+    domain DVDD  @class(digital) { rail [VDD_3V3, GND]::DC(3.3V) }
+    domain AVDD  @class(analog)  { rail [VDDA, GNDA]::DC(3.3V) }
+    domain MAINS @nature(ac) { rail [L, N]::AC(230V, 50Hz) }
+    domain MAINS3 @nature(ac) { rail [U1, U2, U3]::AC_3P3W(400V, 50Hz) }
+    domain DUALA { rail [VDD_1V8, GND]::DC(1.8V)
+                   rail [VDD_1V2, GND]::DC(1.2V) }
+    domain DUALB { rail [VAA, GNDA]::DC(3.3V)
+                   rail [VBB, GNDA]::DC(5V) }
+    domain BARE_A {}
+    domain BARE_B {}
+}
+"#;
+
+    /// §10.2 D1 the whole-reference predicate: a domain lists iff it declares
+    /// **exactly one** `::DC` rail. Both rejection branches are filled twice —
+    /// no rail at all (`BARE_*`), a rail but none DC (`MAINS` / `MAINS3`), and
+    /// two DC rails (`DUALA` / `DUALB`) — so the projection cannot pass by
+    /// listing nothing, and cannot pass by listing everything.
+    #[test]
+    fn l1_domain_pairs_list_only_single_dc_rail_domains() {
+        let pi = parse_pi(SRC_PAIRS);
+        // Pin the fixture first: every negative below is a domain that must be
+        // *present and rejected*, not one the parser dropped — an absent domain
+        // would make those assertions pass vacuously.
+        assert_eq!(pi.domains.len(), 8, "domains: {:?}", pi.domains);
+        let rail_counts: Vec<(&str, usize)> = pi
+            .domains
+            .iter()
+            .map(|d| (d.name.as_str(), d.rails.len()))
+            .collect();
+        assert_eq!(
+            rail_counts,
+            vec![
+                ("DVDD", 1),
+                ("AVDD", 1),
+                ("MAINS", 1),
+                ("MAINS3", 1),
+                ("DUALA", 2),
+                ("DUALB", 2),
+                ("BARE_A", 0),
+                ("BARE_B", 0),
+            ],
+            "the fixture must carry every branch with its stated rail count"
+        );
+        let pairs = pi.l1_domain_pairs();
+        let names: Vec<&str> = pairs.iter().map(|p| p.domain.as_str()).collect();
+        assert_eq!(names, vec!["DVDD", "AVDD"], "pairs: {pairs:?}");
+
+        let dvdd = pairs.iter().find(|p| p.domain == "DVDD").expect("DVDD");
+        assert_eq!(dvdd.hot, "VDD_3V3");
+        assert_eq!(dvdd.ret, "GND");
+        assert!(dvdd.span.end > dvdd.span.start, "the rule needs an anchor");
+        let avdd = pairs.iter().find(|p| p.domain == "AVDD").expect("AVDD");
+        assert_eq!(avdd.hot, "VDDA");
+        assert_eq!(avdd.ret, "GNDA");
+
+        for absent in ["MAINS", "MAINS3"] {
+            assert!(
+                !names.contains(&absent),
+                "{absent} declares no DC rail, so it stands for no pair"
+            );
+        }
+        for dual in ["DUALA", "DUALB"] {
+            assert!(
+                !names.contains(&dual),
+                "{dual} declares two DC rails, so it stands for no single pair"
+            );
+        }
+        for bare in ["BARE_A", "BARE_B"] {
+            assert!(
+                !names.contains(&bare),
+                "{bare} declares nothing to stand for"
+            );
+        }
+    }
 
     const SRC_AC: &str = r#"module main {
     ref GND @role(main)
