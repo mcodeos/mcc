@@ -16,6 +16,7 @@ use crate::output;
 use anyhow::{Context, Result};
 use mcc::cli::{datadir, LibAction, OutputFormat};
 use serde::Serialize;
+use serde_json::Value;
 use std::fmt;
 use std::path::PathBuf;
 
@@ -85,16 +86,30 @@ impl fmt::Display for LibInfoReport {
 
 // Dispatch
 
+/// One daemon arm: make the call, then print the payload in the requested
+/// format.
+///
+/// These seven arms used to print pretty JSON whatever `-f` said, so `-f json`
+/// and `-f yaml` were byte-identical and the same argv had one shape with a
+/// daemon up and another without one (CIMP §1 U90, the face half). The payload
+/// is not the local report — its `loaded` / `modules` fields mean something
+/// else — so it is rendered as it is, in the format asked for.
+fn call_and_emit(
+    client: &mcc::cli::rpcclient::RpcClient,
+    method: &str,
+    params: Value,
+    format: OutputFormat,
+) -> Result<()> {
+    let result = client.call(method, params)?;
+    output::emit_payload(&result, format, None)
+}
+
 pub fn run(action: &LibAction, format: OutputFormat) -> Result<()> {
     let client = mcc::cli::rpcclient::RpcClient::probe();
 
     match action {
         LibAction::List => match &client {
-            Some(c) => {
-                let result = c.call("lib.list", serde_json::json!({}))?;
-                println!("{}", serde_json::to_string_pretty(&result)?);
-                Ok(())
-            }
+            Some(c) => call_and_emit(c, "lib.list", serde_json::json!({}), format),
             None => cmd_list(format),
         },
         LibAction::Install {
@@ -102,57 +117,42 @@ pub fn run(action: &LibAction, format: OutputFormat) -> Result<()> {
             from,
             version,
         } => match &client {
-            Some(c) => {
-                let result = c.call(
-                    "lib.install",
-                    serde_json::json!({ "name": name, "from": from, "version": version }),
-                )?;
-                println!("{}", serde_json::to_string_pretty(&result)?);
-                Ok(())
-            }
+            Some(c) => call_and_emit(
+                c,
+                "lib.install",
+                serde_json::json!({ "name": name, "from": from, "version": version }),
+                format,
+            ),
             None => cmd_install(name, from, version.as_deref(), format),
         },
         LibAction::Load { name } => match &client {
-            Some(c) => {
-                let result = c.call("lib.load", serde_json::json!({ "name": name }))?;
-                println!("{}", serde_json::to_string_pretty(&result)?);
-                Ok(())
-            }
+            Some(c) => call_and_emit(c, "lib.load", serde_json::json!({ "name": name }), format),
             None => cmd_load(name, format),
         },
         LibAction::Unload { name } => match &client {
-            Some(c) => {
-                let result = c.call("lib.unload", serde_json::json!({ "name": name }))?;
-                println!("{}", serde_json::to_string_pretty(&result)?);
-                Ok(())
-            }
+            Some(c) => call_and_emit(c, "lib.unload", serde_json::json!({ "name": name }), format),
             None => cmd_unload(name, format),
         },
         LibAction::Show { name } => match &client {
-            Some(c) => {
-                let result = c.call("lib.info", serde_json::json!({ "name": name }))?;
-                println!("{}", serde_json::to_string_pretty(&result)?);
-                Ok(())
-            }
+            Some(c) => call_and_emit(c, "lib.info", serde_json::json!({ "name": name }), format),
             None => cmd_show(name, format),
         },
         LibAction::Search { pattern } => match &client {
-            Some(c) => {
-                let result = c.call("lib.search", serde_json::json!({ "pattern": pattern }))?;
-                println!("{}", serde_json::to_string_pretty(&result)?);
-                Ok(())
-            }
+            Some(c) => call_and_emit(
+                c,
+                "lib.search",
+                serde_json::json!({ "pattern": pattern }),
+                format,
+            ),
             None => cmd_search(pattern, format),
         },
         LibAction::Uninstall { name, force } => match &client {
-            Some(c) => {
-                let result = c.call(
-                    "lib.uninstall",
-                    serde_json::json!({ "name": name, "force": force }),
-                )?;
-                println!("{}", serde_json::to_string_pretty(&result)?);
-                Ok(())
-            }
+            Some(c) => call_and_emit(
+                c,
+                "lib.uninstall",
+                serde_json::json!({ "name": name, "force": force }),
+                format,
+            ),
             None => cmd_uninstall(name, *force, format),
         },
     }
@@ -497,4 +497,48 @@ fn resolve_lib_uninstall_dir(name: &str) -> Result<PathBuf> {
     }
 
     anyhow::bail!("lib uninstall: install directory for '{}' not found", name);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every daemon arm renders through one dispatch, so `-f` is read.
+    ///
+    /// Before the funnel each of the seven arms printed the payload as pretty
+    /// JSON on its own: `-f json` and `-f yaml` came out byte-identical, and
+    /// the same argv had one shape with a daemon up and another without
+    /// (CIMP §1 U90, the face half). This locks the dispatch, not the payload —
+    /// the payload keeps its own schema and is deliberately not translated into
+    /// the local report.
+    #[test]
+    fn cmds_lib__daemon_payload_is_rendered_in_the_requested_format() {
+        let payload = serde_json::json!({
+            "loaded": [{"name": "mcode", "symbols": 3}],
+            "installed": [],
+        });
+
+        let compact = output::render_payload(&payload, OutputFormat::Json).unwrap();
+        let pretty = output::render_payload(&payload, OutputFormat::JsonPretty).unwrap();
+        let yaml = output::render_payload(&payload, OutputFormat::Yaml).unwrap();
+
+        assert_eq!(
+            compact, r#"{"installed":[],"loaded":[{"name":"mcode","symbols":3}]}"#,
+            "`-f json` must be the compact form the local arm prints"
+        );
+        assert_ne!(
+            compact, yaml,
+            "`-f yaml` answered with JSON — the format is being ignored again"
+        );
+        assert!(!yaml.starts_with('{'), "`-f yaml` produced JSON: {yaml}");
+        assert!(
+            yaml.contains("loaded:"),
+            "`-f yaml` did not produce YAML: {yaml}"
+        );
+        assert_eq!(
+            pretty,
+            serde_json::to_string_pretty(&payload).unwrap(),
+            "the pretty face is the one these arms printed before the funnel"
+        );
+    }
 }
