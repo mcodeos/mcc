@@ -32,6 +32,7 @@
 //!   one); the canonical key is the only thing that survives a rebuild (§2,
 //!   §2.4, §3.7 discipline 2/3). Every item therefore carries **both**.
 
+pub mod join;
 pub mod p2;
 pub mod vec;
 pub mod viz;
@@ -129,6 +130,25 @@ impl StageView {
             world_ver: world_ver::world_ver(),
             mcc_version: format!("{}.{}", crate::buildinfo::VERSION, crate::buildinfo::BUILD),
             view: seg.view_name(),
+            top: top.to_string(),
+            items,
+            counts,
+        }
+    }
+
+    /// Assemble a view whose vocabulary is its own.
+    ///
+    /// `join` and `trace` publish a different `view` name and a different set of
+    /// count words from the four `stage.*` segments, and order their items by a
+    /// grouping rule the design fixes for them (the `drop` group on top), so they
+    /// cannot go through [`StageView::new`]. Same envelope shape either way —
+    /// this is law B's "one `items`, two faces", not a second view format.
+    pub fn with_view(view: &'static str, top: &str, items: Vec<Value>, counts: Value) -> Self {
+        Self {
+            schema_version: "proj.1.0",
+            world_ver: world_ver::world_ver(),
+            mcc_version: format!("{}.{}", crate::buildinfo::VERSION, crate::buildinfo::BUILD),
+            view,
             top: top.to_string(),
             items,
             counts,

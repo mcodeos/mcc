@@ -168,6 +168,10 @@ pub enum Command {
     /// statement)
     Verify(VerifyArgs),
 
+    /// Join two adjacent segments of the compile pipeline by key, and report
+    /// every mismatch with its cardinality (stage-readout-design §5.3 ②)
+    Join(JoinArgs),
+
     /// Extract various targets (corresponding to design doc §9)
     Extract(ExtractArgs),
 
@@ -331,6 +335,26 @@ pub struct CheckArgs {
 pub struct VerifyArgs {
     /// Target file or project directory to verify
     pub target: Option<String>,
+}
+
+// join
+
+#[derive(Parser, Debug)]
+pub struct JoinArgs {
+    /// Left segment: `src` or one of the stage names (`p2` | `vec` | `viz`)
+    pub a: String,
+
+    /// Right segment. Only adjacent pairs in chain order are accepted, so the
+    /// second segment is whichever one follows the first.
+    pub b: String,
+
+    /// Only print this class: carry | expand | merge | drop | synth | skip
+    #[arg(long, value_name = "CLASS")]
+    pub only: Option<String>,
+
+    /// Parse directly from file (doesn't depend on loaded library/project)
+    #[arg(long, short = 'F')]
+    pub file: Option<String>,
 }
 
 // Common types
