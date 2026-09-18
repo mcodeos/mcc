@@ -379,6 +379,67 @@ pub fn canon_instance(table: &InstTable, id: u32) -> Value {
     json!({ "path": path, "def": def_of(table, id) })
 }
 
+/// Where a net's name came from, which is what decides whether the name may
+/// stand as a key.
+///
+/// Three families, and only the first is the *source's*:
+///
+/// - `Source` — the name is written in the `.mc` (a label, a port). Two builds
+///   of the same source agree on it, so it can key an item.
+/// - `Segment` — the builder split one chain and minted `<base>~<k>` for the
+///   pieces ([`crate::vector::builder::visit`]'s `segment_net_name`, which
+///   states the name is "unique across the chain and never collides with the
+///   original whole-chain name"). Unique to *this* build's segmentation, so
+///   keying on it would claim a stability the name does not have.
+/// - `Anonymous` — `_net<k>`, minted per build by a counter.
+///
+/// A `Segment` or `Anonymous` net is not left unidentifiable: its `members` list
+/// is the recomputable handle §2.4 prescribes for objects that own no key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NetOrigin {
+    Source,
+    Segment,
+    Anonymous,
+}
+
+impl NetOrigin {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            NetOrigin::Source => "source",
+            NetOrigin::Segment => "segment",
+            NetOrigin::Anonymous => "anonymous",
+        }
+    }
+}
+
+/// Classify a net name. `~` cannot occur in an MCode identifier, so its presence
+/// means the builder minted the name rather than the source writing it.
+pub fn net_origin(name: &str) -> NetOrigin {
+    if crate::instant::mc_net::is_anon_net_name(name) {
+        NetOrigin::Anonymous
+    } else if name.contains('~') {
+        NetOrigin::Segment
+    } else {
+        NetOrigin::Source
+    }
+}
+
+/// A net's canonical key, or `None` when the name it carries is not the
+/// source's.
+///
+/// Spelled here for the same reason [`canon_instance`] is: two views name the
+/// same net. `stage.vec` keys a `net` item with it, and `stage.viz` records it
+/// on every pin it draws, so a second copy of the rule would let one net be
+/// keyed two ways — and a consumer joining the two would be joining two
+/// vocabularies that happen to look alike.
+pub fn net_key(name: &str) -> Option<String> {
+    if net_origin(name) == NetOrigin::Source {
+        Some(format!("net:{name}"))
+    } else {
+        None
+    }
+}
+
 /// One `loc` value from a source position, with the line number resolved from
 /// the source text. `null` when there is no position — a readout prints `-`
 /// rather than a plausible-looking wrong line.
