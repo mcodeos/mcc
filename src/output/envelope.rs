@@ -160,6 +160,42 @@ pub struct CommandResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ledger: Option<LedgerReport>,
 
+    // ── A-tier read projections (design §2.5, U86 item 7 first slice) ──
+    //
+    // Eight read-side commands whose `-f json` stdout was the *bare* payload —
+    // the same reading, minus the envelope. Each now hangs under its own key
+    // (the ruling for this slice: command envelope + projection key). Carried
+    // **verbatim**: wrapping must not reshape it, so an existing consumer moves
+    // exactly one level down (`points` → `result.verify.points`).
+    //
+    // Built through [`crate::output::emit_projection`], the single place that
+    // knows the key ↔ `mcc <command>` pairing; the payload types stay
+    // `serde_json::Value` because those commands build them as `json!` inline
+    // (typed homes are a separate change, not a wrapping one).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub verify: Option<serde_json::Value>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub report: Option<serde_json::Value>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub erc: Option<serde_json::Value>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rules: Option<serde_json::Value>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub def: Option<serde_json::Value>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub refs: Option<serde_json::Value>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub explain: Option<serde_json::Value>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub list: Option<serde_json::Value>,
+
     pub summary: Summary,
 }
 

@@ -5,21 +5,39 @@
 //! `mcc report` — Structured design summary (M5b).
 
 use crate::cmds::manifest;
+use crate::output::{emit_projection, OutputFormatExt, ProjectionKey};
 use anyhow::Result;
 use mcc::cli::{rpcclient::RpcClient, ReportArgs};
-use serde_json::json;
+use serde_json::{json, Value};
+use std::path::Path;
 
 pub fn run(args: &ReportArgs) -> Result<()> {
     if let Some(c) = RpcClient::probe() {
         match c.call("report", json!({ "entry": args.target })) {
-            Ok(result) => {
-                println!("{}", serde_json::to_string_pretty(&result)?);
-                return Ok(());
-            }
+            Ok(result) => return emit_report(result),
             Err(e) => tracing::debug!(target: "mcc::report", "RPC failed: {}", e),
         }
     }
     run_local(args)
+}
+
+/// Structured face → A-tier envelope (U86 item 7, first slice); text / csv are
+/// untouched.
+///
+/// `report` was **format-blind** before this slice: it printed pretty JSON in
+/// *every* format, text mode included (mcd/log/9.18.cli-output-face-inventory.md
+/// §2). That oddity is left as it is — this slice changes the machine face only.
+fn emit_report(data: Value) -> Result<()> {
+    if mcc::cli::globals().format.is_structured() {
+        return emit_projection(
+            ProjectionKey::Report,
+            data,
+            mcc::cli::globals().format,
+            mcc::cli::globals().output.as_deref().map(Path::new),
+        );
+    }
+    println!("{}", serde_json::to_string_pretty(&data)?);
+    Ok(())
 }
 
 fn run_local(args: &ReportArgs) -> Result<()> {
@@ -69,6 +87,5 @@ fn run_local(args: &ReportArgs) -> Result<()> {
         "enums": enums.iter().map(|(n, u)| json!({"name": n, "uri": u})).collect::<Vec<_>>(),
     });
 
-    println!("{}", serde_json::to_string_pretty(&result)?);
-    Ok(())
+    emit_report(result)
 }

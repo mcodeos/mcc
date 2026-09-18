@@ -10,6 +10,7 @@
 
 use crate::cmds::filter;
 use crate::cmds::show::{classify_def_scope, nets_map, output, resolve_file, resolve_scopes};
+use crate::output::{emit_projection, OutputFormatExt, ProjectionKey};
 use anyhow::Result;
 use mcc::cli::{rpcclient::RpcClient, ListArgs, ListTarget, OutputFormat};
 use mcc::McURI;
@@ -24,10 +25,7 @@ pub fn run(args: &ListArgs) -> Result<()> {
     if let Some(c) = RpcClient::probe() {
         if let Some((method, params)) = rpc_mapping(args) {
             match c.call(method, params) {
-                Ok(result) => {
-                    println!("{}", serde_json::to_string_pretty(&result)?);
-                    return Ok(());
-                }
+                Ok(result) => return emit_list(result),
                 Err(e) => {
                     tracing::debug!(target: "mcc::list", "RPC failed, using local mode: {}", e);
                 }
@@ -36,6 +34,24 @@ pub fn run(args: &ListArgs) -> Result<()> {
     }
 
     run_local(args)
+}
+
+/// Structured face → A-tier envelope (U86 item 7, first slice); text / csv keep
+/// the layered / list renderers in [`show::output`], byte for byte.
+///
+/// One key for all five payload shapes: `list` is the word, and each payload
+/// names its own kind (`type: all|component|…|net|port|files`), so the envelope
+/// does not need a second discriminator.
+fn emit_list(data: Value) -> Result<()> {
+    if mcc::cli::globals().format.is_structured() {
+        return emit_projection(
+            ProjectionKey::List,
+            data,
+            mcc::cli::globals().format,
+            mcc::cli::globals().output.as_deref().map(Path::new),
+        );
+    }
+    output(&data, false)
 }
 
 /// Map list targets to their RPC method + params. Returns `None` when the
@@ -136,7 +152,7 @@ fn list_all(args: &ListArgs) -> Result<()> {
         });
     }
     let data = json!({ "type": "all", "count": items.len(), "list": items });
-    output(&data, false)
+    emit_list(data)
 }
 
 /// Flat name list for one kind.
@@ -152,7 +168,7 @@ fn list_kind(target: ListTarget, args: &ListArgs) -> Result<()> {
     // `--filter` only accepts `name=` for name lists (single string per row).
     let names = filter::apply_to_names(args.filter.as_deref(), names)?;
     let data = json!({ "type": ty, "count": names.len(), "list": names });
-    output(&data, false)
+    emit_list(data)
 }
 
 /// All Pass2 nets of the top module (`--top` overrides).
@@ -171,7 +187,7 @@ fn list_nets(_args: &ListArgs) -> Result<()> {
         .map(|(n, points)| json!({ "name": n, "points": points }))
         .collect();
     let data = json!({ "type": "net", "count": items.len(), "nets": items });
-    output(&data, false)
+    emit_list(data)
 }
 
 /// All module ports (name, iotype, module, uri).
@@ -183,7 +199,7 @@ fn list_ports(_args: &ListArgs) -> Result<()> {
         })
         .collect();
     let data = json!({ "type": "port", "count": ports.len(), "ports": ports });
-    output(&data, false)
+    emit_list(data)
 }
 
 /// Every loaded file with per-file definition counts.
@@ -224,5 +240,5 @@ fn list_files(_args: &ListArgs) -> Result<()> {
         .collect();
 
     let data = json!({ "type": "files", "count": items.len(), "files": items });
-    output(&data, false)
+    emit_list(data)
 }

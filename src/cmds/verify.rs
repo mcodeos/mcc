@@ -140,8 +140,12 @@ pub fn run(args: &VerifyArgs) -> Result<VerifyOutcome> {
             "hierarchy": hierarchy,
             "modules": modules
         });
-        crate::output::emit(
-            &data,
+        // A-tier envelope (U86 item 7, first slice): the payload goes out
+        // verbatim, so a consumer reads `result.verify.*` instead of top-level
+        // keys.
+        crate::output::emit_projection(
+            crate::output::ProjectionKey::Verify,
+            data,
             format,
             mcc::cli::globals().output.as_deref().map(Path::new),
         )?;

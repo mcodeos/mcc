@@ -9,24 +9,38 @@
 //! mcc def main -F circuit.mc     # find module definition
 //! ```
 
+use crate::output::{emit_projection, OutputFormatExt, ProjectionKey};
 use anyhow::Result;
 use mcc::cli::{rpcclient::RpcClient, DefArgs};
 use mcc::{get_def, McCMIE, McIds, McURI};
-use serde_json::json;
+use serde_json::{json, Value};
+use std::path::Path;
 
 pub fn run(args: &DefArgs) -> Result<()> {
     if let Some(c) = RpcClient::probe() {
         let params = json!({ "name": args.name });
         match c.call("def", params) {
-            Ok(result) => {
-                println!("{}", serde_json::to_string_pretty(&result)?);
-                return Ok(());
-            }
+            Ok(result) => return emit_def(result),
             Err(e) => tracing::debug!(target: "mcc::def", "RPC failed, using local: {}", e),
         }
     }
 
     run_local(args)
+}
+
+/// Structured face → A-tier envelope (U86 item 7, first slice); text / csv are
+/// untouched (`def` was format-blind before the slice — see `emit_report`'s note).
+fn emit_def(data: Value) -> Result<()> {
+    if mcc::cli::globals().format.is_structured() {
+        return emit_projection(
+            ProjectionKey::Def,
+            data,
+            mcc::cli::globals().format,
+            mcc::cli::globals().output.as_deref().map(Path::new),
+        );
+    }
+    println!("{}", serde_json::to_string_pretty(&data)?);
+    Ok(())
 }
 
 fn run_local(args: &DefArgs) -> Result<()> {
@@ -92,8 +106,7 @@ fn run_local(args: &DefArgs) -> Result<()> {
                 }),
             };
 
-            println!("{}", serde_json::to_string_pretty(&detail)?);
-            return Ok(());
+            return emit_def(detail);
         }
     }
 

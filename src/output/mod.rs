@@ -89,6 +89,65 @@ pub fn emit_envelope(
     write_out(&buf, target)
 }
 
+// ── A-tier projection envelope (U86 item 7 first slice; see the CLI design §2.5) ──
+
+/// The eight read-side commands whose `-f json` stdout was the **bare** payload
+/// before this slice: `verify` / `report` / `erc` / `rules` / `def` / `refs` /
+/// `explain` / `list`.
+///
+/// Each variant's [`name`](ProjectionKey::name) is both the payload's key in
+/// [`envelope::CommandResult`] and — with the `mcc ` prefix — the envelope's
+/// `command` string. Keeping the pairing in one enum is what makes "A-tier
+/// `-f json` = command envelope + projection key" a single definition instead of
+/// fifteen copies at the call sites.
+#[derive(Clone, Copy, Debug)]
+pub enum ProjectionKey {
+    Verify,
+    Report,
+    Erc,
+    Rules,
+    Def,
+    Refs,
+    Explain,
+    List,
+}
+
+impl ProjectionKey {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Verify => "verify",
+            Self::Report => "report",
+            Self::Erc => "erc",
+            Self::Rules => "rules",
+            Self::Def => "def",
+            Self::Refs => "refs",
+            Self::Explain => "explain",
+            Self::List => "list",
+        }
+    }
+}
+
+/// Emit one command's own JSON projection as an **A-tier envelope**: `payload`
+/// goes out **verbatim** under [`ProjectionKey`]'s key, wrapped in the standard
+/// command envelope.
+///
+/// Callers gate on [`OutputFormatExt::is_structured`] — text / csv keep the
+/// command's own face, byte for byte (several of these words rendered *pretty
+/// JSON even in text mode* before this slice; that oddity is recorded, not fixed
+/// here). `target` is the caller's `-o` path, so the six words that used to
+/// ignore `-o` outright start honoring it on their structured face.
+pub fn emit_projection(
+    key: ProjectionKey,
+    payload: serde_json::Value,
+    format: OutputFormat,
+    target: Option<&Path>,
+) -> Result<()> {
+    let mut builder = builder::ResultBuilder::start(format!("mcc {}", key.name()));
+    builder.set_projection(key, payload);
+    let env = envelope::Envelope::ok(builder.finish());
+    emit_envelope(&env, format, target, false)
+}
+
 /// Emit the envelope as the **brief** trailing report (text) or full
 /// serialization (json/yaml). [`crate::cmds::parse`] prints its detailed tables
 /// live through the renderer layer, so its envelope tail stays compact here to

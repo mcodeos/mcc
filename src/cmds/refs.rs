@@ -6,23 +6,38 @@
 //!
 //! Requires the engine to have collected reference data during Pass1/Pass2.
 
+use crate::output::{emit_projection, OutputFormatExt, ProjectionKey};
 use anyhow::Result;
 use mcc::cli::{rpcclient::RpcClient, RefsArgs};
-use serde_json::json;
+use serde_json::{json, Value};
+use std::path::Path;
 
 pub fn run(args: &RefsArgs) -> Result<()> {
     if let Some(c) = RpcClient::probe() {
         let params = json!({ "name": args.name });
         match c.call("refs", params) {
-            Ok(result) => {
-                println!("{}", serde_json::to_string_pretty(&result)?);
-                return Ok(());
-            }
+            Ok(result) => return emit_refs(result),
             Err(e) => tracing::debug!(target: "mcc::refs", "RPC failed, using local: {}", e),
         }
     }
 
     run_local(args)
+}
+
+/// Structured face → A-tier envelope (U86 item 7, first slice); text / csv are
+/// untouched (`refs` was format-blind before the slice — see `emit_report`'s
+/// note).
+fn emit_refs(data: Value) -> Result<()> {
+    if mcc::cli::globals().format.is_structured() {
+        return emit_projection(
+            ProjectionKey::Refs,
+            data,
+            mcc::cli::globals().format,
+            mcc::cli::globals().output.as_deref().map(Path::new),
+        );
+    }
+    println!("{}", serde_json::to_string_pretty(&data)?);
+    Ok(())
 }
 
 fn run_local(args: &RefsArgs) -> Result<()> {
@@ -57,13 +72,9 @@ fn run_local(args: &RefsArgs) -> Result<()> {
         })
         .collect();
 
-    println!(
-        "{}",
-        serde_json::to_string_pretty(&json!({
-            "name": args.name,
-            "count": items.len(),
-            "refs": items,
-        }))?
-    );
-    Ok(())
+    emit_refs(json!({
+        "name": args.name,
+        "count": items.len(),
+        "refs": items,
+    }))
 }
