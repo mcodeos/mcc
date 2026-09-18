@@ -188,7 +188,7 @@ pub fn build_viz(
 
     items.extend(metrics_items(quality, layers.len(), audited));
 
-    StageView::new(StageSeg::Viz, top, items, diagnostics)
+    StageView::new(StageSeg::Viz, top, items, diagnostics).carrying_drawing_contract()
 }
 
 /// One end of a block edge: one entry per pin, ordered by canonical path so the

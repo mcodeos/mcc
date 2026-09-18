@@ -34,6 +34,7 @@
 
 pub mod join;
 pub mod p2;
+pub mod top_ver;
 pub mod trace;
 pub mod vec;
 pub mod viz;
@@ -43,6 +44,14 @@ use serde_json::{json, Value};
 
 use crate::instant::insttab::InstTable;
 use crate::semantic::common::SourcePos;
+
+/// The projection envelope's schema version, spelled in exactly one place.
+///
+/// Per `projection-schema-design.md` §1 the rule is "increment on a breaking
+/// change": the version describes the shape of `items` and the keys around it. A
+/// view whose item shape breaks *is* a breaking change of this envelope, which
+/// is why the view model does not carry a second version number of its own.
+pub const PROJ_SCHEMA_VERSION: &str = "proj.1.0";
 
 /// Which segment of the chain a view reads. `p1` is a placeholder: the command
 /// surface is fixed now so that the Pass1 view (design §8 O2/O3) can land
@@ -107,8 +116,27 @@ pub struct StageView {
     /// deterministic hash. `None` when the world cannot be fingerprinted —
     /// see [`world_ver::world_ver`].
     pub world_ver: Option<String>,
+    /// The same material restricted to this view's top: "did *this* top
+    /// change?" (`projection-schema-design.md` §1.1). `None` under the same
+    /// conditions as [`world_ver`](Self::world_ver), and for a `top` no single
+    /// project module defines — see [`top_ver::top_ver`].
+    pub top_ver: Option<String>,
     /// `mcc` version that produced this view.
     pub mcc_version: String,
+    /// Drawing contract versions, and only on the view that draws.
+    ///
+    /// These are **declared**, where the two tokens above are **derived**: a
+    /// token must change when the world does, a contract version changes only
+    /// when someone decides the contract changed. `stage.viz` is the sole
+    /// producer of the drawing face (ruling b3477), so these three are `None`
+    /// on every other view — they would be meaningless there, and printing a
+    /// version for a contract a view does not honour is worse than printing
+    /// nothing. Attached by [`StageView::carrying_drawing_contract`].
+    pub layout_version: Option<String>,
+    /// See [`layout_version`](Self::layout_version).
+    pub render_version: Option<String>,
+    /// See [`layout_version`](Self::layout_version).
+    pub metric_schema_version: Option<String>,
     /// `stage.p1` | `stage.p2` | `stage.vec` | `stage.viz`.
     pub view: &'static str,
     /// What this view is scoped to.
@@ -126,15 +154,7 @@ impl StageView {
     pub fn new(seg: StageSeg, top: &str, mut items: Vec<Value>, diagnostics: usize) -> Self {
         sort_items(&mut items);
         let counts = counts(seg, &items, diagnostics);
-        Self {
-            schema_version: "proj.1.0",
-            world_ver: world_ver::world_ver(),
-            mcc_version: format!("{}.{}", crate::buildinfo::VERSION, crate::buildinfo::BUILD),
-            view: seg.view_name(),
-            top: top.to_string(),
-            items,
-            counts,
-        }
+        Self::assemble(seg.view_name(), top, items, counts)
     }
 
     /// Assemble a view whose vocabulary is its own.
@@ -145,10 +165,21 @@ impl StageView {
     /// cannot go through [`StageView::new`]. Same envelope shape either way —
     /// this is law B's "one `items`, two faces", not a second view format.
     pub fn with_view(view: &'static str, top: &str, items: Vec<Value>, counts: Value) -> Self {
+        Self::assemble(view, top, items, counts)
+    }
+
+    /// The one place the envelope identity fields are filled in, so `new` and
+    /// `with_view` cannot drift apart on them.
+    fn assemble(view: &'static str, top: &str, items: Vec<Value>, counts: Value) -> Self {
+        let (world_ver, top_ver) = revision_tokens(top);
         Self {
-            schema_version: "proj.1.0",
-            world_ver: world_ver::world_ver(),
+            schema_version: PROJ_SCHEMA_VERSION,
+            world_ver,
+            top_ver,
             mcc_version: format!("{}.{}", crate::buildinfo::VERSION, crate::buildinfo::BUILD),
+            layout_version: None,
+            render_version: None,
+            metric_schema_version: None,
             view,
             top: top.to_string(),
             items,
@@ -156,15 +187,42 @@ impl StageView {
         }
     }
 
+    /// Attach the drawing contract, making this view the drawing face.
+    ///
+    /// Not folded into [`StageView::assemble`]: three of the segments do not
+    /// draw, and the assembler cannot tell whether its caller does — the caller
+    /// knows. Called by `stage.viz` alone, which is the sole producer of the
+    /// drawing face.
+    pub fn carrying_drawing_contract(mut self) -> Self {
+        self.layout_version = Some(crate::viz::layout::LAYOUT_VERSION.to_string());
+        self.render_version = Some(crate::viz::render::RENDER_VERSION.to_string());
+        self.metric_schema_version =
+            Some(crate::viz::metrics::METRIC_SCHEMA_VERSION.to_string());
+        self
+    }
+
     /// The text face's first line: the envelope header. One line, fixed field
     /// order, `world_ver` printed in full (it is a token meant to be compared,
     /// so truncating it would invite two different worlds to look alike).
     pub fn header_line(&self) -> String {
         let wv = self.world_ver.as_deref().unwrap_or("-");
-        format!(
-            "# {}  top={}  world_ver={}  mcc {}",
-            self.view, self.top, wv, self.mcc_version
-        )
+        let tv = self.top_ver.as_deref().unwrap_or("-");
+        let mut line = format!(
+            "# {}  top={}  world_ver={}  top_ver={}  mcc {}",
+            self.view, self.top, wv, tv, self.mcc_version
+        );
+        // The drawing contract, when there is one. Every field is printed with
+        // the same `-` fallback, so a view that draws and one that does not
+        // stay the same shape rather than gaining a whole clause.
+        if let Some(layout) = &self.layout_version {
+            line.push_str(&format!(
+                "  layout={}  render={}  metrics={}",
+                layout,
+                self.render_version.as_deref().unwrap_or("-"),
+                self.metric_schema_version.as_deref().unwrap_or("-"),
+            ));
+        }
+        line
     }
 
     /// The text face's second line: the count words of this segment, in the
@@ -177,6 +235,26 @@ impl StageView {
             .map(|w| format!("{w} {}", self.counts[*w].as_u64().unwrap_or(0)))
             .collect();
         format!("# {}", words.join("  "))
+    }
+}
+
+/// The two revision tokens of `top`, derived from one scan of the world.
+///
+/// They are siblings, not neighbours: `top_ver` is `world_ver`'s material
+/// restricted to `top`'s dependency closure, so when that closure covers the
+/// whole loaded world the two digests are the same number and only the prefix
+/// differs (`projection-schema-design.md` §1.1). Deriving them together is what
+/// the schema asks for — both tokens from one pass, no second scan — and it is
+/// also the only way the two can be *seen* to agree, since a second scan could
+/// collect a different world.
+fn revision_tokens(top: &str) -> (Option<String>, Option<String>) {
+    let pairs = world_ver::source_pairs();
+    match pairs.as_deref() {
+        Some(pairs) => (
+            Some(world_ver::root_from(pairs)),
+            top_ver::top_ver_from(pairs, top),
+        ),
+        None => (None, None),
     }
 }
 

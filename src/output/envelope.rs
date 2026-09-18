@@ -448,11 +448,16 @@ pub struct ViewData {
 /// Stage readout — `mcc show stage <p1|p2|vec|viz>`
 /// (design `mcd/doc/pipeline/stage-readout-design.md` §3 / §5.3 ①).
 ///
-/// This is the **minimal projection envelope**: the six fields of
+/// This is the **minimal projection envelope**: the fields of
 /// `projection-schema-design.md` §1, carried as one more `view` value on the
 /// existing envelope rather than as a second envelope format (law B). `view` is
 /// `stage.<seg>` and names a *pipeline stage*, which is why it does not
 /// impersonate one of the six read-side projections of the frozen world.
+///
+/// Every key is always emitted, `null` included. That is what makes the key set
+/// identical across views, which is the readable form of law B's claim that
+/// these are one envelope and not six — a consumer can ask for a field without
+/// first asking which view it is reading.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct StageViewData {
     /// Envelope schema version (`proj.1.0`).
@@ -460,8 +465,19 @@ pub struct StageViewData {
     /// Root token: the loaded world's source set as a deterministic hash, or
     /// null when it cannot be fingerprinted. See `mcc::stages::world_ver`.
     pub world_ver: Option<String>,
+    /// The same material restricted to this view's top, or null.
+    /// See `mcc::stages::top_ver`.
+    pub top_ver: Option<String>,
     /// The compiler that produced this view.
     pub mcc_version: String,
+    /// Drawing contract versions, non-null on `stage.viz` alone — the sole
+    /// producer of the drawing face. Declared, not derived: see
+    /// `mcc::stages::StageView::carrying_drawing_contract`.
+    pub layout_version: Option<String>,
+    /// See `layout_version`.
+    pub render_version: Option<String>,
+    /// See `layout_version`.
+    pub metric_schema_version: Option<String>,
     /// `stage.p1` | `stage.p2` | `stage.vec` | `stage.viz`.
     pub view: String,
     /// The resolved top module this view is scoped to.

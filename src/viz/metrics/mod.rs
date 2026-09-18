@@ -23,6 +23,15 @@ use crate::viz::semantic::SemanticSummary;
 /// signal, tunable).
 pub const GRID: f64 = 10.0;
 
+/// Version of the metrics schema: the shape of [`SchematicMetricsSnapshot`].
+///
+/// **Declared, not derived** — see [`crate::viz::layout::LAYOUT_VERSION`] for
+/// why. It is one number consumed in two places, the snapshot that carries it
+/// and the projection envelope that reports it
+/// ([`crate::stages::StageView::metric_schema_version`]); spelling it twice is
+/// how the two would come to disagree.
+pub const METRIC_SCHEMA_VERSION: u32 = 1;
+
 // Electrical fidelity — hard gate, must be all green
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct FidelityReport {
@@ -2118,7 +2127,7 @@ impl SchematicMetricsSnapshot {
         };
 
         Self {
-            schema_version: 1,
+            schema_version: METRIC_SCHEMA_VERSION,
             project: project.into(),
             entry: entry.into(),
             command: command.into(),

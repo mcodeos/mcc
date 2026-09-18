@@ -1376,7 +1376,11 @@ fn emit_stage_envelope(view: &mcc::stages::StageView) -> Result<()> {
     builder.set_stage(crate::output::envelope::StageViewData {
         schema_version: view.schema_version.to_string(),
         world_ver: view.world_ver.clone(),
+        top_ver: view.top_ver.clone(),
         mcc_version: view.mcc_version.clone(),
+        layout_version: view.layout_version.clone(),
+        render_version: view.render_version.clone(),
+        metric_schema_version: view.metric_schema_version.clone(),
         view: view.view.to_string(),
         top: view.top.clone(),
         items: Value::Array(view.items.clone()),
