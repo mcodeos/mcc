@@ -834,8 +834,7 @@ fn show_lapper(args: &ShowArgs) -> Result<()> {
     let is_text = matches!(mcc::cli::globals().format, OutputFormat::Text);
     if is_text {
         if let Some(text) = mcc::dump_symbols_f12_text(&mc_uri) {
-            print!("{text}");
-            return Ok(());
+            return write_show_text(&text);
         }
     } else {
         if let Some(json_val) = mcc::dump_symbols_json(&mc_uri) {
@@ -857,8 +856,7 @@ fn show_lapper(args: &ShowArgs) -> Result<()> {
     mcc::mcc_load_project(&mc_uri);
     if is_text {
         if let Some(text) = mcc::dump_symbols_f12_text(&mc_uri) {
-            print!("{text}");
-            return Ok(());
+            return write_show_text(&text);
         }
     } else {
         if let Some(json_val) = mcc::dump_symbols_json(&mc_uri) {
@@ -1375,7 +1373,15 @@ fn emit_stage_envelope(view: &mcc::stages::StageView) -> Result<()> {
     let mut builder = crate::output::builder::ResultBuilder::start("mcc show stage");
     builder.set_stage(crate::output::envelope::StageViewData::from(view));
     let env = crate::output::envelope::Envelope::ok(builder.finish());
-    crate::output::emit_envelope(&env, mcc::cli::globals().format, None, true)
+    // `-o` belongs to the command, not to one of its faces: the text face of
+    // `show stage` already writes the file, so the structured faces must too.
+    // Hardcoding `None` here made one command behave two ways depending on `-f`.
+    crate::output::emit_envelope(
+        &env,
+        mcc::cli::globals().format,
+        mcc::cli::globals().output.as_deref().map(std::path::Path::new),
+        true,
+    )
 }
 
 /// §5 three-section text projection. Section order and column meaning follow
@@ -3831,8 +3837,26 @@ fn emit_show_owned(target: ShowTarget, data: Value) -> Result<()> {
             mcc::cli::globals().output.as_deref().map(Path::new),
         );
     }
-    println!("{}", serde_json::to_string_pretty(&data)?);
-    Ok(())
+    write_show_text(&serde_json::to_string_pretty(&data)?)
+}
+
+/// Write a rendered text face to `--output` or stdout.
+///
+/// `-o` is the command's, not one face's: the text faces that go through
+/// [`output`] already honour it, so the ones that print directly must too.
+/// `show lapper` (both branches below) and [`emit_show_owned`]'s non-structured
+/// fallback printed straight to stdout and silently ignored the flag.
+fn write_show_text(rendered: &str) -> Result<()> {
+    match &mcc::cli::globals().output {
+        Some(path) => {
+            std::fs::write(path, format!("{rendered}\n"))?;
+            Ok(())
+        }
+        None => {
+            println!("{rendered}");
+            Ok(())
+        }
+    }
 }
 
 pub(crate) fn output(data: &Value, span: bool) -> Result<()> {

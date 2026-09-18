@@ -433,41 +433,71 @@ pub fn scope_from_ids(
     }
 }
 
+/// Sort rows by a key read off the source (a span, or a `(kind, id)` pair) and
+/// drop the key, leaving the emitted rows.
+///
+/// Every table this module emits is a `HashMap`, so without this the product's
+/// order would be redrawn per process (build-design §3.7 discipline 4).
+fn sorted_rows<K: Ord>(rows: Vec<(K, serde_json::Value)>) -> Vec<serde_json::Value> {
+    let mut rows = rows;
+    rows.sort_by(|a, b| a.0.cmp(&b.0));
+    rows.into_iter().map(|(_, v)| v).collect()
+}
+
 /// Convert McSemSymbols to JSON for RPC transfer to LSP
 pub fn symbol_table_to_json(symbols: &McSemSymbols, uri: &McURI) -> serde_json::Value {
     use serde_json::json;
 
     // Get local table data
+    //
+    // §3.7 discipline 4: a product's order must be determined by its input
+    // alone. The four tables below are `HashMap`s — their iteration order is
+    // redrawn from a per-process seed — and this function *is* a product (the
+    // `show lapper` payload and the RPC reply to the extension share it), so
+    // that order became the JSON array order: two processes reading one file
+    // got two different payloads. Each array is sorted by **span**, which is
+    // read off the source, so the order is the file's own reading order and
+    // not a property of the draw. The maps themselves stay as they are: they
+    // are hot O(1) lookup paths, and only the emitted order is at issue.
     let local = &symbols.local_table;
     let file_id = intern_uri(uri.as_str());
-    let local_declares: Vec<serde_json::Value> = local
-        .name_to_declare_id
-        .iter()
-        .filter(|((fid, _, _), _)| *fid == file_id)
-        .map(|((_fid, scope, name), (id, loc))| {
-            json!({
-                "kind": "declare",
-                "id": id._raw,
-                "span": [loc.byte_start, loc.byte_end],
-                "scope": scope,
-                "name": name,
+    let local_declares = sorted_rows(
+        local
+            .name_to_declare_id
+            .iter()
+            .filter(|((fid, _, _), _)| *fid == file_id)
+            .map(|((_fid, scope, name), (id, loc))| {
+                (
+                    (loc.byte_start, loc.byte_end, name.clone()),
+                    json!({
+                        "kind": "declare",
+                        "id": id._raw,
+                        "span": [loc.byte_start, loc.byte_end],
+                        "scope": scope,
+                        "name": name,
+                    }),
+                )
             })
-        })
-        .collect();
+            .collect::<Vec<_>>(),
+    );
 
-    let local_references: Vec<serde_json::Value> = local
-        .inst_id_to_span
-        .iter()
-        .map(|(id, span)| {
-            let declare_id = local.inst_id_to_declare_inst.get(id).map(|d| d._raw);
-            json!({
-                "kind": "reference",
-                "id": id._raw,
-                "span": [span.start, span.end],
-                "declare_id": declare_id,
+    let local_references = sorted_rows(
+        local
+            .inst_id_to_span
+            .iter()
+            .map(|(id, span)| {
+                (
+                    (span.start, span.end),
+                    json!({
+                        "kind": "reference",
+                        "id": id._raw,
+                        "span": [span.start, span.end],
+                        "declare_id": local.inst_id_to_declare_inst.get(id).map(|d| d._raw),
+                    }),
+                )
             })
-        })
-        .collect();
+            .collect::<Vec<_>>(),
+    );
 
     // Get lapper ranges (local symbol positions)
     let lapper_ranges: Vec<serde_json::Value> = symbols
@@ -496,42 +526,53 @@ pub fn symbol_table_to_json(symbols: &McSemSymbols, uri: &McURI) -> serde_json::
         })
         .collect();
 
-    // Get global table data for this URI
+    // Get global table data for this URI — sorted by span for the same reason
+    // the local tables above are (§3.7 discipline 4).
     let gtable = symbols.global_table.lock().ok();
     let uri_str = uri.as_str();
-    let global_declares: Vec<serde_json::Value> = gtable
-        .as_ref()
-        .map(|g| {
-            g.class_id_to_span
-                .iter()
-                .filter(|(_id, (file_uri, _))| file_uri.as_str() == uri_str)
-                .map(|(id, (file_uri, span))| {
-                    json!({
-                        "id": id._raw,
-                        "uri": file_uri,
-                        "span": [span.start, span.end],
+    let global_declares: Vec<serde_json::Value> = sorted_rows(
+        gtable
+            .as_ref()
+            .map(|g| {
+                g.class_id_to_span
+                    .iter()
+                    .filter(|(_id, (file_uri, _))| file_uri.as_str() == uri_str)
+                    .map(|(id, (file_uri, span))| {
+                        (
+                            (span.start, span.end),
+                            json!({
+                                "id": id._raw,
+                                "uri": file_uri,
+                                "span": [span.start, span.end],
+                            }),
+                        )
                     })
-                })
-                .collect()
-        })
-        .unwrap_or_default();
+                    .collect()
+            })
+            .unwrap_or_default(),
+    );
 
-    let global_references: Vec<serde_json::Value> = gtable
-        .as_ref()
-        .map(|g| {
-            g.declare_class_id_to_span
-                .iter()
-                .filter(|(_id, (file_uri, _))| file_uri.as_str() == uri_str)
-                .map(|(id, (file_uri, span))| {
-                    json!({
-                        "id": id._raw,
-                        "uri": file_uri,
-                        "span": [span.start, span.end],
+    let global_references: Vec<serde_json::Value> = sorted_rows(
+        gtable
+            .as_ref()
+            .map(|g| {
+                g.declare_class_id_to_span
+                    .iter()
+                    .filter(|(_id, (file_uri, _))| file_uri.as_str() == uri_str)
+                    .map(|(id, (file_uri, span))| {
+                        (
+                            (span.start, span.end),
+                            json!({
+                                "id": id._raw,
+                                "uri": file_uri,
+                                "span": [span.start, span.end],
+                            }),
+                        )
                     })
-                })
-                .collect()
-        })
-        .unwrap_or_default();
+                    .collect()
+            })
+            .unwrap_or_default(),
+    );
 
     // ★ cross_file_targets: deprecated — replaced by ref_def_map.
     // Kept as empty array for backward compatibility with older mcext.
@@ -539,11 +580,23 @@ pub fn symbol_table_to_json(symbols: &McSemSymbols, uri: &McURI) -> serde_json::
     // ★ §7.6: Build ref_def_map JSON with result_id hash for mcext dedup.
     let ref_def_map_json = symbols.ref_def_map.as_ref().map(|m| {
         use std::hash::{Hash, Hasher};
+
+        // §3.7 discipline 4, the same defect as the tables above: `entries` and
+        // `def_to_refs` are `HashMap`s, so both the emitted array order *and*
+        // `result_id` — which hashes one entry picked by `.next()`, i.e. an
+        // arbitrary one before this sort — were redrawn per process. Sorting by
+        // the map key, `(kind, id)`, makes both a function of the input: the id
+        // comes from the id registry, so the key does not move with the hash
+        // seed.
+        let mut entries: Vec<((SymbolKind, u32), &RefDefEntry)> =
+            m.entries.iter().map(|(k, e)| (*k, e)).collect();
+        entries.sort_by_key(|((kind, id), _)| (*kind as u8, *id));
+
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        m.entries.len().hash(&mut hasher);
+        entries.len().hash(&mut hasher);
         m.containers.len().hash(&mut hasher);
         m.name_index.len().hash(&mut hasher);
-        if let Some((_, e)) = m.entries.iter().next() {
+        if let Some((_, e)) = entries.first() {
             e.ref_kind.hash(&mut hasher);
             e.def_loc.file_id.hash(&mut hasher);
             e.def_loc.byte_start.hash(&mut hasher);
@@ -565,8 +618,15 @@ pub fn symbol_table_to_json(symbols: &McSemSymbols, uri: &McURI) -> serde_json::
             .map(|fid| crate::semantic::common::uri_of_file_id(fid).to_string())
             .collect();
 
+        // ★ §15.2: Reverse index for find-all-references. The inner list is
+        // sorted too: it is pushed in registration order, which this module
+        // does not otherwise depend on.
+        let mut def_to_refs: Vec<((SymbolKind, u32, u32, u32), &Vec<(SymbolKind, u32)>)> =
+            m.def_to_refs.iter().map(|(k, v)| (*k, v)).collect();
+        def_to_refs.sort_by_key(|((kind, fid, start, end), _)| (*kind as u8, *fid, *start, *end));
+
         json!({
-            "entries": m.entries.iter().map(|((_kind, _id), e)| {
+            "entries": entries.iter().map(|(_, e)| {
                 json!({
                     "ref_kind": e.ref_kind as u8,
                     "ref_id": e.ref_id,
@@ -585,14 +645,16 @@ pub fn symbol_table_to_json(symbols: &McSemSymbols, uri: &McURI) -> serde_json::
                 kind.kind_name()
             }).collect::<Vec<_>>(),
             "result_id": result_id,
-            // ★ §15.2: Reverse index for find-all-references
-            "def_to_refs": m.def_to_refs.iter().map(|((dk, fid, bs, be), refs)| {
+            "def_to_refs": def_to_refs.iter().map(|((dk, fid, bs, be), refs)| {
+                let mut refs: Vec<(u8, u32)> =
+                    refs.iter().map(|(rk, rid)| (*rk as u8, *rid)).collect();
+                refs.sort_unstable();
                 json!({
                     "def_kind": *dk as u8,
                     "file_id": *fid,
                     "byte_start": *bs,
                     "byte_end": *be,
-                    "refs": refs.iter().map(|(rk, rid)| json!([*rk as u8, *rid])).collect::<Vec<_>>(),
+                    "refs": refs.iter().map(|(rk, rid)| json!([rk, rid])).collect::<Vec<_>>(),
                 })
             }).collect::<Vec<_>>(),
         })

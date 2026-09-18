@@ -139,7 +139,14 @@ fn emit_envelope(view: &mcc::stages::StageView) -> Result<()> {
     let mut builder = crate::output::builder::ResultBuilder::start("mcc join");
     builder.set_stage(crate::output::envelope::StageViewData::from(view));
     let env = crate::output::envelope::Envelope::ok(builder.finish());
-    crate::output::emit_envelope(&env, mcc::cli::globals().format, None, true)
+    // Same `-o` as the text face (`write_text` above); hardcoding `None` here
+    // made one command behave two ways depending on `-f`.
+    crate::output::emit_envelope(
+        &env,
+        mcc::cli::globals().format,
+        mcc::cli::globals().output.as_deref().map(std::path::Path::new),
+        true,
+    )
 }
 
 /// An argument that cannot be honoured is not a judged readout, so it may fail
