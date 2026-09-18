@@ -24,6 +24,7 @@ pub mod renderer;
 use anyhow::Result;
 use mcc::cli::OutputFormat;
 use serde::Serialize;
+use serde_json::Value;
 use std::fmt::Display;
 use std::fs::File;
 use std::io::{BufWriter, Write};
@@ -55,6 +56,47 @@ where
         // CSV is rendered by callers (export), not by emit().
         OutputFormat::Csv => format!("{}", value),
     })
+}
+
+/// A JSON payload rendered through the same dispatch [`emit`] uses.
+///
+/// An RPC payload has no `Display`, so a command that prints one on its own has
+/// to pick the format before it prints — which is how `mcc lib`'s daemon arms
+/// came to ignore `-f` entirely, answering `-f yaml` with the same pretty JSON
+/// as `-f json` (CIMP §1 U90, the face half). Wrapping the payload supplies the
+/// two impls [`emit`] asks for and keeps the dispatch in one place.
+pub struct Payload<'a>(pub &'a Value);
+
+impl Display for Payload<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // A payload has no text rendering of its own; pretty JSON is what the
+        // callers that used to print one directly printed.
+        match serde_json::to_string_pretty(self.0) {
+            Ok(s) => write!(f, "{}", s),
+            Err(e) => write!(f, "{}", e),
+        }
+    }
+}
+
+impl Serialize for Payload<'_> {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        self.0.serialize(s)
+    }
+}
+
+/// [`render`] for a JSON payload — the pure half, for a caller that must build
+/// the string before deciding where it goes.
+pub(crate) fn render_payload(value: &Value, format: OutputFormat) -> Result<String> {
+    render(&Payload(value), format)
+}
+
+/// Write a JSON payload in the requested format.
+pub(crate) fn emit_payload(
+    value: &Value,
+    format: OutputFormat,
+    target: Option<&Path>,
+) -> Result<()> {
+    write_out(&render_payload(value, format)?, target)
 }
 
 // New API: emit_envelope - main entry of PR-2
