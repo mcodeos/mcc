@@ -111,6 +111,15 @@ impl McPowerDecls {
         }
     }
 
+    /// The pure AST read behind [`Self::parse_domain`] — the same decode without
+    /// the mutation, so Pass1's whole-reference peek can learn a module's
+    /// domains before the body walk has reached their clauses
+    /// (intent-reference-layer-design.md §10.11.4 guard ③). A peeked list is
+    /// read through [`domain_pairs_of`], never pushed into `self.domains`.
+    pub fn peek_domain(node: &AstNode) -> Option<McDomainDecl> {
+        McDomainDecl::from_node(node)
+    }
+
     pub fn parse_net(&mut self, node: &AstNode) {
         if let Some(e) = McNetEdge::from_node(node) {
             self.net_edges.push(e);
@@ -308,23 +317,33 @@ impl McPowerDecls {
     /// name resolves in the *owning* module's scope is the rule's step, not
     /// this projection's.
     pub fn l1_domain_pairs(&self) -> Vec<L1DomainPair> {
-        let mut out = Vec::new();
-        for d in &self.domains {
-            let mut dc = d.rails.iter().filter(|r| r.iface == "DC");
-            let Some(row) = dc.next() else { continue };
-            // Two DC rails state two pairs: naming the domain would be a guess.
-            if dc.next().is_some() {
-                continue;
-            }
-            out.push(L1DomainPair {
-                domain: d.name.clone(),
-                hot: row.hot.clone(),
-                ret: row.ret.clone(),
-                span: row.span.clone(),
-            });
-        }
-        out
+        domain_pairs_of(&self.domains)
     }
+}
+
+/// [`McPowerDecls::l1_domain_pairs`] over a bare domain list — the same
+/// projection, callable on a list that was *not* produced by `parse_domain`.
+/// Pass1's whole-reference peek needs exactly that: the owning module answers a
+/// bare domain name's meaning before its body walk has reached the `domain`
+/// clause, and re-running `parse_domain` would re-enter a mutating path the peek
+/// must not touch (§10.11.4 guard ③).
+pub fn domain_pairs_of(domains: &[McDomainDecl]) -> Vec<L1DomainPair> {
+    let mut out = Vec::new();
+    for d in domains {
+        let mut dc = d.rails.iter().filter(|r| r.iface == "DC");
+        let Some(row) = dc.next() else { continue };
+        // Two DC rails state two pairs: naming the domain would be a guess.
+        if dc.next().is_some() {
+            continue;
+        }
+        out.push(L1DomainPair {
+            domain: d.name.clone(),
+            hot: row.hot.clone(),
+            ret: row.ret.clone(),
+            span: row.span.clone(),
+        });
+    }
+    out
 }
 
 /// One decoded DC rail guarantee — the §4.1 window shape (`v±tol` →

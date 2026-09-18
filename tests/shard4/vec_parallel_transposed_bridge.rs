@@ -173,13 +173,14 @@ fn bridge__narrow_left_operand_is_rejected() {
     // statement died in the arm's own width gate -- 4001
     // (`CONN_TRANSPOSE_SIZE_MISMATCH`). With the arm gone the general parallel
     // predicate rejects it instead -- 4005 -- and 4001 is left with no producer.
-    // 3132 is the statement failing to build once the phrase returns `None`.
+    // 3132 does **not** ride along: the statement was read to the end and
+    // rejected on shape, so `CONN_STMT_PARSE_FAILED` would only restate 4005 in
+    // the vocabulary of a parse error (intent-reference-layer-design.md
+    // §10.11.3 ① — the wrapper is suppressed once the statement carries its own
+    // concrete failure).
     assert_eq!(
         codes,
-        vec![
-            mcc::errcodes::CONN_STMT_PARSE_FAILED,
-            mcc::errcodes::CONN_PARALLEL_SHAPE_MISMATCH,
-        ],
+        vec![mcc::errcodes::CONN_PARALLEL_SHAPE_MISMATCH],
         "a non-2-wide left operand is rejected by the parallel predicate; got {codes:?}"
     );
     assert!(

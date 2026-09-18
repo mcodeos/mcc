@@ -372,3 +372,361 @@ fn u79_r1__non_whole_referenceable_domains_behave_like_an_undeclared_name() {
         );
     }
 }
+
+// ── R1 whole-reference at a **chain word position** (intent-reference-layer-design.md
+//    §10.11.4; write point = `McOpd::Id`'s bare-name arm) ──
+
+/// A child module exposing a **two-member** port. Declared without an interface
+/// on purpose: this file builds without the system library (`common::reset`),
+/// and there a `::DC` port has *unknown* width — every chain touching one is
+/// rejected on shape whatever stands on the other side (measured). The rule
+/// under test never reads the receiver (§10.10.1 "uniform rewrite": no
+/// receiver-shape table),
+/// so a plain membered port is the faithful receiver.
+const WCHILD: &str = "module CHILD2 {\n    io vin{VDD_3V3, GND}\n}\n";
+
+/// `main`'s ports and its child, written first so the only thing that moves in
+/// the ordering test below is where the `domain` clause sits.
+const WHEAD: &str =
+    "module main {\n    io VDD_3V3\n    io GND\n    io A1\n    io AG\n    CHILD2 b1\n";
+
+/// The whole-referenceable domain (D1): **one** `::DC` rail states the pair.
+const WDOM: &str = "    domain DVDD { rail [VDD_3V3, GND]::DC(3.3V) }\n";
+
+/// The predicate's two rejection branches, each declared *rather than absent*
+/// so no rejection cell below can pass because the clause was dropped: two
+/// `::DC` rails state two pairs, and an empty domain states none.
+const WDOM_NO: &str = "    domain DUALA { rail [A1, AG]::DC(3.3V)\n                   rail [A1, AG]::DC(1.8V) }\n    domain BARE  {}\n";
+
+fn wsrc(doms: &str, body: &str) -> String {
+    format!("{WCHILD}{WHEAD}{doms}{body}\n}}\n")
+}
+
+/// A bare whole-referenceable domain name in a chain word position denotes its
+/// declared pair: `b1.vin -> DVDD` lands exactly the partition
+/// `b1.vin -> [VDD_3V3, GND]` lands, and does it quietly.
+///
+/// Asserted on the partition, never on a code list — a list of codes would be
+/// satisfied by the name expanding into nothing. The anti-false-green check
+/// pins that the written form lands the pair on two *different* ports before the
+/// equality is read.
+#[test]
+fn u101_r1__chain_word_position_equals_the_written_pair() {
+    let named_src = wsrc(WDOM, "    b1.vin -> DVDD");
+    let written_src = wsrc(WDOM, "    b1.vin -> [VDD_3V3, GND]");
+    let named = partition_of(&named_src, "/mcc/u101-word-named.mc");
+    let written = partition_of(&written_src, "/mcc/u101-word-written.mc");
+
+    let hot = net_holding(&written, "VDD_3V3").expect("the written pair lands VDD_3V3");
+    let ret = net_holding(&written, "GND").expect("the written pair lands GND");
+    assert_ne!(
+        hot, ret,
+        "the written pair must land two different nets, otherwise the equality \
+         below holds by both sides wiring nothing"
+    );
+    assert_eq!(
+        named, written,
+        "DVDD written as a chain word must land exactly the partition its \
+         written-out pair lands"
+    );
+    // The whole point of the rule: the name was a *floating net name* before it,
+    // so a quiet reading is the observable half of the widening (E3136 gone).
+    assert!(
+        codes_of(&named_src, "/mcc/u101-word-named-codes.mc").is_empty(),
+        "a whole-referenceable domain name must not be reported as floating"
+    );
+}
+
+/// Guard ③: a word position's meaning does not depend on where the `domain`
+/// clause is written. Pass1 peeks the declaration table before the body walk, so
+/// "used above its declaration" must not silently fall back to the floating-net
+/// reading of the same name.
+#[test]
+fn u101_r1__the_word_position_does_not_depend_on_where_the_domain_is_written() {
+    let above = partition_of(
+        &wsrc(WDOM, "    b1.vin -> DVDD"),
+        "/mcc/u101-order-above.mc",
+    );
+    let below = partition_of(
+        &format!("{WCHILD}{WHEAD}    b1.vin -> DVDD\n{WDOM}}}\n"),
+        "/mcc/u101-order-below.mc",
+    );
+    assert!(!above.is_empty(), "the pair must land something to compare");
+    assert_eq!(
+        above, below,
+        "a domain name must mean the same thing above and below its own clause"
+    );
+}
+
+/// §10.10.1 "uniform rewrite": the widening is **unconditional on the receiver's
+/// shape** — no receiver-shape table — so a domain name landing in a *single-word*
+/// position widens there too, and the existing shape gate reports the mismatch. The
+/// alternative reading of the same name (a floating net name) is what the second
+/// half rules out: the plain name beside it keeps E3136 exactly as before.
+#[test]
+fn u101_r1__a_single_word_position_fails_on_shape_not_as_a_floating_name() {
+    let named = codes_of(
+        &wsrc(WDOM, "    b1.vin.VDD_3V3 -> DVDD"),
+        "/mcc/u101-1w-named.mc",
+    );
+    assert!(
+        named.contains(&mcc::errcodes::CONN_SERIES_SHAPE_MISMATCH),
+        "the widened pair against a one-wide position is a shape mismatch: {named:?}"
+    );
+    assert!(
+        !named.contains(&mcc::errcodes::FUNC_FLOATING_LABEL),
+        "the name resolved to a declared pair, so it is no longer a floating \
+         net name: {named:?}"
+    );
+
+    let plain = codes_of(
+        &wsrc(WDOM, "    b1.vin.VDD_3V3 -> ZZZ"),
+        "/mcc/u101-1w-plain.mc",
+    );
+    assert!(
+        plain.contains(&mcc::errcodes::FUNC_FLOATING_LABEL),
+        "the control must keep the floating reading: {plain:?}"
+    );
+}
+
+/// The predicate's rejection branches **at a chain word position**, each
+/// measured against a plain undeclared name in the same position rather than
+/// against a hardcoded expectation: a domain that is not whole-referenceable
+/// must read exactly like a name the scope never declared.
+///
+/// The last cell is the non-vacuity control — the whole-referenceable domain in
+/// that same position must *not* read like the undeclared name, otherwise every
+/// equality above would hold because the rule never fires.
+#[test]
+fn u101_r1__non_whole_referenceable_domains_read_like_an_undeclared_name() {
+    let both = format!("{WDOM}{WDOM_NO}");
+    let plain = codes_of(&wsrc(&both, "    b1.vin -> ZZZ"), "/mcc/u101-rej-plain.mc");
+    assert!(
+        !plain.is_empty(),
+        "the baseline must be a real mismatch (a one-wide name against a \
+         two-wide port), not silence"
+    );
+    for (dom, why) in [
+        (
+            "DUALA",
+            "declares two ::DC rails, so it stands for no single pair",
+        ),
+        ("BARE", "declares no rail at all, so it stands for nothing"),
+    ] {
+        let codes = codes_of(
+            &wsrc(&both, &format!("    b1.vin -> {dom}")),
+            &format!("/mcc/u101-rej-{dom}.mc"),
+        );
+        assert_eq!(
+            codes, plain,
+            "{dom} {why} — it must not widen at a word position either, so it \
+             must read exactly like an undeclared name"
+        );
+    }
+    assert_ne!(
+        codes_of(&wsrc(&both, "    b1.vin -> DVDD"), "/mcc/u101-rej-dvdd.mc"),
+        plain,
+        "the whole-referenceable domain must differ from the undeclared name, \
+         otherwise the two equalities above judge nothing"
+    );
+}
+
+/// Guard ① and guard ② together: only a **bare single identifier**, and only in
+/// the scope that owns the declaration.
+///
+/// ① is asserted by its sharpest consequence: in a source where the very same
+/// fixture reports the collision (test below), a *dotted* word position writes
+/// the same base name and must report nothing — the lookup key is the whole
+/// written word, so `DVDD.pins` is not a bare name at all.
+#[test]
+fn u101_r1__a_dotted_word_position_is_not_a_bare_name() {
+    let head = format!("    io DVDD::DC(5V)\n{WDOM}");
+    let with_domain = codes_of(
+        &wsrc(&head, "    DVDD.pins -> b1.vin"),
+        "/mcc/u101-dot-with.mc",
+    );
+    let without = codes_of(
+        &wsrc("    io DVDD::DC(5V)\n", "    DVDD.pins -> b1.vin"),
+        "/mcc/u101-dot-without.mc",
+    );
+    assert!(
+        !with_domain.contains(&mcc::errcodes::DOMAIN_ENDPOINT_NAME_COLLISION),
+        "a dotted word position is not the bare name the table holds: {with_domain:?}"
+    );
+    assert_eq!(
+        with_domain, without,
+        "the domain clause must change nothing for a dotted word position"
+    );
+}
+
+/// Guard ②: the table answers for the **owning** scope alone. A module's own
+/// `func` body resolves against that module; a component's `func` body — nobody's
+/// module, no domains — leaves its bare names exactly as they were.
+///
+/// Both halves are asserted, so neither can be green because the rule never
+/// fires anywhere: the module half must *differ* from its undeclared twin, the
+/// component half must not.
+#[test]
+fn u101_r1__the_rule_reads_only_the_owning_module() {
+    let module_named = codes_of(
+        &wsrc(WDOM, "    func M() { b1.vin -> DVDD }"),
+        "/mcc/u101-scope-mod-named.mc",
+    );
+    let module_plain = codes_of(
+        &wsrc(WDOM, "    func M() { b1.vin -> ZZZ }"),
+        "/mcc/u101-scope-mod-plain.mc",
+    );
+    assert_ne!(
+        module_named, module_plain,
+        "in the module's own func the domain name resolves against that module, \
+         so it cannot read like an undeclared name"
+    );
+
+    // The component half is the ruling's own worked example: a component pin
+    // named like a domain of a module written elsewhere in the same file.
+    let comp = "component COMP1 {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n    func W() {\n        {NAME} - this - 1\n    }\n}\n";
+    let module = "module main {\n    io VDD_3V3\n    io GND\n    domain DVDD { rail [VDD_3V3, GND]::DC(3.3V) }\n}\n";
+    let named = codes_of(
+        &format!("{}{}", comp.replace("{NAME}", "DVDD"), module),
+        "/mcc/u101-scope-comp-named.mc",
+    );
+    let plain = codes_of(
+        &format!("{}{}", comp.replace("{NAME}", "ZZZ"), module),
+        "/mcc/u101-scope-comp-plain.mc",
+    );
+    assert_eq!(
+        named, plain,
+        "a component func body owns no domains, so a bare name there must read \
+         exactly as it did before the rule existed"
+    );
+}
+
+/// R4 step 3 (`intent-reference-layer-design.md` §10.5): a bare word position
+/// where **both** readings hold — the name is a whole-referenceable domain *and*
+/// an endpoint already declared in the scope — has no single meaning, so it is
+/// reported (6050) instead of being resolved silently by the reading order.
+///
+/// Each endpoint kind the rule names is filled in, and each is read against its
+/// own twin: the same source with the `domain` clause removed. Nothing but the
+/// diagnostic may change, which is what makes "reported, not resolved" a
+/// measurement rather than a promise.
+#[test]
+fn u101_r4__a_name_that_is_both_a_domain_and_an_endpoint_is_reported() {
+    let body = "    b1.vin.VDD_3V3 -> DVDD\n";
+    for (decl, slug, why) in [
+        ("    io DVDD::DC(5V)\n", "port", "a declared port"),
+        ("    CHILD2 DVDD\n", "instance", "a declared instance"),
+        (
+            "    conduit DVDD @role(main)\n",
+            "conduit",
+            "a conductor identity",
+        ),
+    ] {
+        let with_domain = wsrc(&format!("{decl}{WDOM}"), body);
+        let twin = wsrc(decl, body);
+        let codes = codes_of(&with_domain, &format!("/mcc/u101-coll-{slug}.mc"));
+        assert!(
+            codes.contains(&mcc::errcodes::DOMAIN_ENDPOINT_NAME_COLLISION),
+            "'DVDD' is both a whole-referenceable domain and {why} — the two \
+             readings name different nets, so this word position must be \
+             reported, not resolved by order: {codes:?}"
+        );
+        let rest: Vec<u32> = codes
+            .iter()
+            .copied()
+            .filter(|c| *c != mcc::errcodes::DOMAIN_ENDPOINT_NAME_COLLISION)
+            .collect();
+        assert_eq!(
+            rest,
+            codes_of(&twin, &format!("/mcc/u101-coll-{slug}-twin.mc")),
+            "the collision must not resolve the word either way — the reading \
+             stays the endpoint one, so only the diagnostic may change"
+        );
+        assert_eq!(
+            partition_of(&with_domain, &format!("/mcc/u101-collp-{slug}.mc")),
+            partition_of(&twin, &format!("/mcc/u101-collp-{slug}-twin.mc")),
+            "the wiring must be identical with and without the domain clause"
+        );
+    }
+
+    // Control: the same word position with no endpoint of that name is not a
+    // collision — the rule widens it instead.
+    assert!(
+        !codes_of(&wsrc(WDOM, body), "/mcc/u101-coll-only.mc")
+            .contains(&mcc::errcodes::DOMAIN_ENDPOINT_NAME_COLLISION),
+        "a domain whose name no endpoint claims is not a collision"
+    );
+}
+
+/// §10.11.3 ①: a statement the chain-shape gate rejected *was* read to the end,
+/// so `CONN_STMT_PARSE_FAILED` ("failed to parse") must not be stacked on top of
+/// the shape code that already names the defect.
+///
+/// The control is a statement whose failure is **not** a shape: it met an
+/// operator the grammar has no reading for, carries no shape fact, and keeps the
+/// wrapper. (① does not touch the other half of the finding — the rejected
+/// statement is still dropped whole; that is the ruling's own note, not
+/// something this lock claims.)
+#[test]
+fn u101_diag__a_shape_failure_is_not_restated_as_a_parse_failure() {
+    let shaped = codes_of(&wsrc(WDOM, "    b1.vin -> ZZZ"), "/mcc/u101-diag-shaped.mc");
+    assert!(
+        shaped.contains(&mcc::errcodes::CONN_SERIES_SHAPE_MISMATCH),
+        "the premise must be a real shape failure: {shaped:?}"
+    );
+    assert!(
+        !shaped.contains(&mcc::errcodes::CONN_STMT_PARSE_FAILED),
+        "a statement carrying its own shape failure must not also be called a \
+         parse failure: {shaped:?}"
+    );
+
+    let unreadable = codes_of(
+        &wsrc(WDOM, "    [VDD_3V3, GND] ~ b1.vin"),
+        "/mcc/u101-diag-unreadable.mc",
+    );
+    assert!(
+        unreadable.contains(&mcc::errcodes::CONN_OPERATOR_UNSUPPORTED),
+        "the control must be a real non-shape failure: {unreadable:?}"
+    );
+    assert!(
+        unreadable.contains(&mcc::errcodes::CONN_STMT_PARSE_FAILED),
+        "a statement that genuinely failed to parse must keep the wrapper: \
+         {unreadable:?}"
+    );
+}
+
+/// §10.11.4's written-down open hole: a domain name as a **literal element**
+/// (`[DVDD, GND]`) is a word of its own and rides the same arm, so it widens too
+/// and the list's column widths stop agreeing. The ruling's condition was that
+/// this stays **loud** — if it ever goes quiet, this is the test that must fail,
+/// so the word-position rule gets re-ruled instead of patched.
+#[test]
+fn u101_r1__a_domain_name_as_a_literal_element_is_loud() {
+    let clean = codes_of(
+        &wsrc(WDOM, "    [VDD_3V3, GND] -> b1.vin"),
+        "/mcc/u101-el-clean.mc",
+    );
+    assert!(
+        clean.is_empty(),
+        "the premise: the same list of declared names is a legal connection, so \
+         anything the domain element adds comes from the widening: {clean:?}"
+    );
+    let with_domain = codes_of(
+        &wsrc(WDOM, "    [DVDD, GND] -> b1.vin"),
+        "/mcc/u101-el-domain.mc",
+    );
+    assert!(
+        !with_domain.is_empty(),
+        "the widened element leaves a three-wide list against a two-wide port; \
+         that must be reported, not silently accepted"
+    );
+    let plain = codes_of(
+        &wsrc(WDOM, "    [ZZZ, GND] -> b1.vin"),
+        "/mcc/u101-el-plain.mc",
+    );
+    assert_ne!(
+        with_domain, plain,
+        "the domain element must read differently from an undeclared element, \
+         otherwise this cell is measuring the list form rather than the widening"
+    );
+}
