@@ -2511,6 +2511,13 @@ impl InstTable {
                 // When a boundary connection creates a pin like mcu.10, it's not
                 // registered as a port or component pin in the InstTable. Register it
                 // as a Pin entry under the owner submodule so flatten_nets can resolve it.
+                //
+                // The minted entry carries no member semantics and no later pass
+                // folds it onto a declared member Port of `owner` (only the `/`
+                // lane does that, above), so a wired bare-member lane leaves its
+                // declared Port in no net. Measured: `main.MCU513.SPI.8/9/10/11`
+                // are reported unwired while their conductors ride the Pins
+                // `main.MCU513.8/9/10/11` (CIMP §1 U97).
                 if ids.is_empty() && np.owner.is_some() {
                     if let Some(owner_name) = &np.owner {
                         let full_path = format!("{module_path}.{}", np.path);

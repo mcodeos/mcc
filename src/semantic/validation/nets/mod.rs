@@ -1075,6 +1075,14 @@ pub(crate) fn check_unused_module_ports(table: &InstTable, results: &mut Vec<Net
         // The top module's own ports are skipped because the module-scope face
         // already owns them: E5162 for a header-declared port, E5642 for a body
         // `io` (measured -- see `erc/rules-catalog-design.md` §3.2).
+        //
+        // `connected` holds raw net-point ids, so an entry counts as wired only
+        // when a net carries *that* id. A bundle member wired under a different
+        // spelling does not count, and the declared member Port then reads as
+        // unconnected. Measured on hbl: 6 of the 11 rows below are false
+        // positives (4 bare-member lanes minted as Pins, 2 interface aggregates
+        // whose members are `/` lane Labels). See `log/9.18.bundle-port-readout.md`
+        // and CIMP §1 U97 -- widening this set is a ruling, not a local fix.
         if entry.parent_id == top_id || entry.parent_id.is_none() {
             continue;
         }
