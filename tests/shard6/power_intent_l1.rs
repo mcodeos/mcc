@@ -136,6 +136,40 @@ fn msgs_of(code: u32, src: &str) -> Vec<String> {
         .collect()
 }
 
+/// The flat electrical net-check rows in **emission order**, as
+/// `(code, net_name, message)`.
+///
+/// [`build_codes`] sorts, which is what a code-set assertion wants and exactly
+/// what an *order* assertion must not do. This is the other half: the sequence
+/// `run_net_checks` hands the report, which `src/output/net_check.rs` prints in
+/// the order it arrives — so that sequence is a product, and build-design §3.7
+/// discipline 4 holds it to the input. Mirrors the call in `src/cmds/check.rs`
+/// (`mcb_pass2_flat` → `run_net_checks`).
+fn net_rows(src: &str) -> Vec<(u32, String, String)> {
+    let _lock = common::lock();
+    common::reset();
+    let uri: McURI = "/mcc/power-intent-l1.mc".to_string();
+    mcc::mcc_load_from_string(&uri, src);
+    let entry = mcc::McSpaceName {
+        ident: McIds::from("main"),
+        uri: mcc::uri_intern(&uri),
+    };
+    let (_tree, table) = mcc::mcb_pass2_flat(&entry, 1).expect("pass2_flat failed");
+    mcc::check::nets::run_net_checks(&table)
+        .iter()
+        .map(|r| (r.code, r.net_name.clone(), r.message.clone()))
+        .collect()
+}
+
+/// One code's rows, in emission order, as `(net_name, message)`.
+fn rows_of(code: u32, src: &str) -> Vec<(String, String)> {
+    net_rows(src)
+        .into_iter()
+        .filter(|(c, _, _)| *c == code)
+        .map(|(_, n, m)| (n, m))
+        .collect()
+}
+
 /// Golden: two parallel DC `@bridge(GNDA, GND)` legs are a loop, but `@star`
 /// on the GND hub discharges it (main.mc ①). No PWR-2.
 #[test]
@@ -923,6 +957,82 @@ fn protective_second_dc_bridge_fires_6015_even_with_star() {
         codes.contains(&mcc::errcodes::PROTECTIVE_MULTI_BRIDGE)
             && !codes.contains(&mcc::errcodes::POWER_BRIDGE_LOOP),
         "a second protective bridge must fire 6015 even with @star on the hub (6007 stays silent); got codes: {codes:?}"
+    );
+}
+
+/// 6015 emits one row per over-bridged conduit, and the rows come in an order
+/// the **source** determines (build-design §3.7 discipline 4).
+///
+/// The rule counts incident bridges per endpoint name in a map and then walks
+/// it to emit; a `HashMap` there would make the report's row order a property
+/// of the process. Two conduits, each with two legs, give the map two entries —
+/// and the assertion is the canonical (ascending-name) order, not merely
+/// "the same twice": a frozen arbitrary order is stable too, and is still not
+/// an order the input determines.
+#[test]
+fn protective_multi_bridge_rows_follow_the_inputs_order() {
+    let src = format!(
+        "{FB}\nmodule main {{\n    conduit ESDGND_A @role(protective)\n    conduit ESDGND_B @role(protective)\n    conduit GND @role(main)\n    \
+         ESDGND_A - fb1::FB() - GND @bridge(ESDGND_A, GND)\n    \
+         ESDGND_A - fb2::FB() - GND @bridge(ESDGND_A, GND)\n    \
+         ESDGND_B - fb3::FB() - GND @bridge(ESDGND_B, GND)\n    \
+         ESDGND_B - fb4::FB() - GND @bridge(ESDGND_B, GND)\n}}\n"
+    );
+    let rows = rows_of(mcc::errcodes::PROTECTIVE_MULTI_BRIDGE, &src);
+    assert!(
+        rows.len() >= 2,
+        "two over-bridged conduits must give 6015 two rows to order; got {}: {rows:?}",
+        rows.len()
+    );
+    let names: Vec<&str> = rows.iter().map(|(n, _)| n.as_str()).collect();
+    let mut ascending = names.clone();
+    ascending.sort_unstable();
+    assert_eq!(
+        names, ascending,
+        "6015's rows are not in the source's own name order — the emitted order \
+         comes from a container the input does not order (build-design §3.7 \
+         discipline 4)"
+    );
+}
+
+/// The same lock for **6017**, whose rows are one per DC-bridged reference
+/// island.
+///
+/// Four **disjoint** bridged pairs, so the component map has four entries: its
+/// iteration order would be the row order, and four entries make that order a
+/// permutation rather than a coin flip. The rule orders components by their
+/// first member index, which is source order (the members are collected by
+/// walking the island names in `names` order as the bridges are read). The
+/// row's `net_name` is the island's first member, so the assertion is that the
+/// rows come out in the order the source writes the pairs.
+#[test]
+fn reference_island_root_rows_follow_the_inputs_order() {
+    let src = format!(
+        "{FB}\nmodule main {{\n    \
+         conduit REF_A @role(quiet)\n    conduit REF_B @role(quiet)\n    \
+         conduit REF_C @role(quiet)\n    conduit REF_D @role(quiet)\n    \
+         conduit REF_E @role(quiet)\n    conduit REF_F @role(quiet)\n    \
+         conduit REF_G @role(quiet)\n    conduit REF_H @role(quiet)\n    \
+         REF_A - fb1::FB() - REF_B @bridge(REF_A, REF_B)\n    \
+         REF_C - fb2::FB() - REF_D @bridge(REF_C, REF_D)\n    \
+         REF_E - fb3::FB() - REF_F @bridge(REF_E, REF_F)\n    \
+         REF_G - fb4::FB() - REF_H @bridge(REF_G, REF_H)\n}}\n"
+    );
+    let rows = rows_of(mcc::errcodes::REFERENCE_ISLAND_ROOT, &src);
+    assert!(
+        rows.len() >= 4,
+        "four DC-bridged quiet pairs with no main root must give 6017 four \
+         rows to order; got {}: {rows:?}",
+        rows.len()
+    );
+    let names: Vec<&str> = rows.iter().map(|(n, _)| n.as_str()).collect();
+    let mut ascending = names.clone();
+    ascending.sort_unstable();
+    assert_eq!(
+        names, ascending,
+        "6017's rows are not in the source's own order — the emitted order comes \
+         from a container the input does not order (build-design §3.7 \
+         discipline 4)"
     );
 }
 
