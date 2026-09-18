@@ -17,11 +17,23 @@ use serde_json::{json, Value};
 use std::path::Path;
 
 pub fn run(args: &ExplainArgs) -> Result<()> {
-    if let Some(c) = RpcClient::probe() {
-        let params = json!({ "code": args.code });
-        match c.call("explain", params) {
-            Ok(result) => return emit_explain(result),
-            Err(e) => tracing::debug!(target: "mcc::explain", "RPC failed, using local: {}", e),
+    // Only the structured face has a server arm worth taking: its renderer is
+    // the RPC handler's own payload, so it is shape-safe by construction.
+    //
+    // The text / csv face is rendered *only* by `run_local`'s prose — there is
+    // no second implementation of it. Delegating it therefore made one word
+    // print two different things depending on whether a daemon happened to be
+    // running: measured `mcc explain 4101` = 500 B of prose with no daemon vs
+    // 1056 B of pretty JSON with one, and `-f csv` likewise. That is the same
+    // defect b3480 (c) closed on the json face, surviving one face over.
+    // Render this face in-process so it cannot depend on the daemon at all.
+    if mcc::cli::globals().format.is_structured() {
+        if let Some(c) = RpcClient::probe() {
+            let params = json!({ "code": args.code });
+            match c.call("explain", params) {
+                Ok(result) => return emit_explain(result),
+                Err(e) => tracing::debug!(target: "mcc::explain", "RPC failed, using local: {}", e),
+            }
         }
     }
 
@@ -41,6 +53,12 @@ pub fn run(args: &ExplainArgs) -> Result<()> {
 /// prints pretty JSON in the **text** face too — it never emitted prose. That
 /// is long-standing behaviour and this slice leaves it alone, but it is worth
 /// knowing that `mcc explain` bare is a machine listing in every format.
+///
+/// That branch is now the **only** caller that reaches this function on a
+/// non-structured format: `run` takes the server arm for the structured face
+/// alone, and `run_local`'s single-code structured branch is guarded by the
+/// same test. So the fall-through below serves exactly one caller — the bare
+/// listing — and the single-code text face is printed by the prose above.
 fn emit_explain(data: Value) -> Result<()> {
     if mcc::cli::globals().format.is_structured() {
         return emit_projection(
