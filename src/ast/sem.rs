@@ -444,6 +444,33 @@ fn sorted_rows<K: Ord>(rows: Vec<(K, serde_json::Value)>) -> Vec<serde_json::Val
     rows.into_iter().map(|(_, v)| v).collect()
 }
 
+/// Content fingerprint of the payload(s) a dedup id stands for.
+///
+/// A dedup id is read by its consumer as "the data is unchanged, skip the
+/// recompute", so it is sound only if it moves whenever that data moves. A
+/// hand-picked subset of fields cannot promise that: the id then stays put
+/// while a field outside the subset changes, and the consumer keeps the stale
+/// payload without an error (CIMP §1 U94 — the token-stream id missed every
+/// rename, and the ref-map id missed a rename that left the first entry alone).
+/// Hashing the payloads themselves makes the promise structural: the caller
+/// names *what* the id covers, and every field of those values is covered
+/// because none is enumerated.
+///
+/// Requires the values to be equal when the data is equal — `serde_json`
+/// objects are `BTreeMap`s here (no `preserve_order`), so the serialization
+/// this hashes is key-sorted and not a property of the insertion order.
+pub fn payload_fingerprint(parts: &[&serde_json::Value]) -> u64 {
+    use std::hash::{Hash, Hasher};
+
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    for part in parts {
+        // `Hash` for `str` appends its own terminator, so two parts cannot be
+        // read as one longer part.
+        part.to_string().hash(&mut hasher);
+    }
+    hasher.finish()
+}
+
 /// Convert McSemSymbols to JSON for RPC transfer to LSP
 pub fn symbol_table_to_json(symbols: &McSemSymbols, uri: &McURI) -> serde_json::Value {
     use serde_json::json;
@@ -579,8 +606,6 @@ pub fn symbol_table_to_json(symbols: &McSemSymbols, uri: &McURI) -> serde_json::
 
     // ★ §7.6: Build ref_def_map JSON with result_id hash for mcext dedup.
     let ref_def_map_json = symbols.ref_def_map.as_ref().map(|m| {
-        use std::hash::{Hash, Hasher};
-
         // §3.7 discipline 4, the same defect as the tables above: `entries` and
         // `def_to_refs` are `HashMap`s, so both the emitted array order *and*
         // `result_id` — which hashes one entry picked by `.next()`, i.e. an
@@ -591,18 +616,6 @@ pub fn symbol_table_to_json(symbols: &McSemSymbols, uri: &McURI) -> serde_json::
         let mut entries: Vec<((SymbolKind, u32), &RefDefEntry)> =
             m.entries.iter().map(|(k, e)| (*k, e)).collect();
         entries.sort_by_key(|((kind, id), _)| (*kind as u8, *id));
-
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        entries.len().hash(&mut hasher);
-        m.containers.len().hash(&mut hasher);
-        m.name_index.len().hash(&mut hasher);
-        if let Some((_, e)) = entries.first() {
-            e.ref_kind.hash(&mut hasher);
-            e.def_loc.file_id.hash(&mut hasher);
-            e.def_loc.byte_start.hash(&mut hasher);
-            e.def_loc.byte_end.hash(&mut hasher);
-        }
-        let result_id = hasher.finish();
 
         // files: index == interned file_id → uri. The legacy per-map `files`
         // array is replaced by the process-global UriTable (§5.5), so rebuild
@@ -625,7 +638,7 @@ pub fn symbol_table_to_json(symbols: &McSemSymbols, uri: &McURI) -> serde_json::
             m.def_to_refs.iter().map(|(k, v)| (*k, v)).collect();
         def_to_refs.sort_by_key(|((kind, fid, start, end), _)| (*kind as u8, *fid, *start, *end));
 
-        json!({
+        let mut payload = json!({
             "entries": entries.iter().map(|(_, e)| {
                 json!({
                     "ref_kind": e.ref_kind as u8,
@@ -644,7 +657,6 @@ pub fn symbol_table_to_json(symbols: &McSemSymbols, uri: &McURI) -> serde_json::
                 let kind: crate::ast::sem::SymbolKind = unsafe { std::mem::transmute(i) };
                 kind.kind_name()
             }).collect::<Vec<_>>(),
-            "result_id": result_id,
             "def_to_refs": def_to_refs.iter().map(|((dk, fid, bs, be), refs)| {
                 let mut refs: Vec<(u8, u32)> =
                     refs.iter().map(|(rk, rid)| (*rk as u8, *rid)).collect();
@@ -657,7 +669,16 @@ pub fn symbol_table_to_json(symbols: &McSemSymbols, uri: &McURI) -> serde_json::
                     "refs": refs.iter().map(|(rk, rid)| json!([rk, rid])).collect::<Vec<_>>(),
                 })
             }).collect::<Vec<_>>(),
-        })
+        });
+
+        // ★ §7.6 / U94: the id is the fingerprint of the map it is sent with,
+        // so every field above is covered by construction. It used to hash
+        // `entries.len()` / `containers.len()` / `name_index.len()` plus four
+        // fields of the first entry, which left `def_name`, `ref_id`,
+        // `def_kind`, `container_id`, `cmie_kind` and every entry after the
+        // first outside the id: renaming a symbol could leave it fixed.
+        payload["result_id"] = json!(payload_fingerprint(&[&payload]));
+        payload
     });
 
     json!({

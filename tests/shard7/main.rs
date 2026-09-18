@@ -9,6 +9,7 @@
 pub mod common;
 
 mod bom_nc_classified;
+mod dedup_id_coverage;
 mod det_probe;
 mod equi_e2e;
 mod erc_single_ruler;

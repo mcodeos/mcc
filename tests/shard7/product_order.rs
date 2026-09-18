@@ -20,9 +20,11 @@
 //!   `kicad`), so the fix moved it onto the module's existing convention.
 //! * `show lapper` — `symbol_table_to_json` emits four arrays built from
 //!   `HashMap`s (`local.declares`, `ref_def_map.entries`, `ref_def_map.def_to_refs`,
-//!   and the `result_id` that hashes one entry picked by `.next()`). Two of those
-//!   arrays have hundreds of members, so the whole payload was redrawn per
-//!   process. A readout is a product too, and is held to the same rule.
+//!   and the `result_id` that used to hash one entry picked by `.next()`). Two of
+//!   those arrays have hundreds of members, so the whole payload was redrawn per
+//!   process. A readout is a product too, and is held to the same rule. (That
+//!   `result_id` no longer picks an entry at all — it is the content fingerprint
+//!   of the payload it is sent with, `dedup_id_coverage.rs`, CIMP §1 U94.)
 //!
 //! ⚠ **What this does and does not assert.** Some of these products stamp the
 //! moment they were written (`# Generated: epoch=…` / `* Generated: …` /
