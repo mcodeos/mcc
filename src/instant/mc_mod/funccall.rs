@@ -619,6 +619,8 @@ impl InstantiationBuilder {
         member: &McPhrase,
         side: FaceSide,
     ) -> Result<Vec<NetPoint>, InstError> {
+        // Hoisted once: every point this call builds carries the same source site.
+        let site = self.construction_site();
         // ★ P0.5-2 hard gate: if the FuncCall's class failed to instantiate,
         //   return empty to prevent class-name fragments from entering the netlist.
         if let McPhrase::FuncCall(ref fc) = member {
@@ -655,6 +657,7 @@ impl InstantiationBuilder {
                             &format!("{inst_name}{which}"),
                             &inst_name,
                             IOType::None,
+                            site.clone(),
                         )]);
                     }
                 }
@@ -675,6 +678,7 @@ impl InstantiationBuilder {
     /// a known component or the port is not a bus port, fall back to a single
     /// point on the encoded path.
     fn decode_return_endpoint(&self, ep_path: &str) -> Result<Vec<NetPoint>, InstError> {
+        let site = self.construction_site();
         if let Some((owner_name, port_name)) = ep_path.split_once('.') {
             if let Some(comp) = self.find_component(owner_name) {
                 if let Some(pids) = comp.find_bus_port_pin_ids(port_name) {
@@ -686,6 +690,7 @@ impl InstantiationBuilder {
                                     &format!("{}.{}", owner_name, pid),
                                     owner_name,
                                     IOType::None,
+                                    site.clone(),
                                 )
                                 .with_member_name(name)
                             })
@@ -696,7 +701,12 @@ impl InstantiationBuilder {
         }
         // Otherwise fall back to the original single point
         let owner = ep_path.split('.').next().unwrap_or(ep_path);
-        Ok(vec![NetPoint::with_owner(ep_path, owner, IOType::None)])
+        Ok(vec![NetPoint::with_owner(
+            ep_path,
+            owner,
+            IOType::None,
+            site.clone(),
+        )])
     }
 
     /// Decode an [`AutoInst::ReturnNets`] return face: each substituted name
@@ -718,6 +728,7 @@ impl InstantiationBuilder {
         names: &[String],
         side: FaceSide,
     ) -> Result<Vec<NetPoint>, InstError> {
+        let site = self.construction_site();
         let mut points = Vec::new();
         for n in names.iter().filter(|s| !s.is_empty()) {
             if let Some(comp) = self.find_component(n) {
@@ -769,6 +780,7 @@ impl InstantiationBuilder {
                                 &format!("{}.{}.{}", sub_name, p.name, m),
                                 &sub_name,
                                 p.iotype.clone(),
+                                site.clone(),
                             ));
                         }
                     } else {
@@ -776,6 +788,7 @@ impl InstantiationBuilder {
                             &format!("{}.{}", sub_name, p.name),
                             &sub_name,
                             p.iotype.clone(),
+                            site.clone(),
                         ));
                     }
                 }
@@ -833,13 +846,19 @@ impl InstantiationBuilder {
         sub: &McModuleInst,
         side: FaceSide,
     ) -> Result<Vec<NetPoint>, InstError> {
+        let site = self.construction_site();
         if side.is_left() {
             return Ok(sub
                 .ports
                 .iter()
                 .filter(|p| matches!(p.iotype, IOType::In))
                 .map(|p| {
-                    NetPoint::with_owner(&format!("{}.{}", sub.name, p.name), &sub.name, IOType::In)
+                    NetPoint::with_owner(
+                        &format!("{}.{}", sub.name, p.name),
+                        &sub.name,
+                        IOType::In,
+                        site.clone(),
+                    )
                 })
                 .collect());
         }
@@ -853,6 +872,7 @@ impl InstantiationBuilder {
                         &format!("{}.{}.{}", sub_name, p.name, m),
                         &sub_name,
                         p.iotype.clone(),
+                        site.clone(),
                     ));
                 }
             } else {
@@ -860,6 +880,7 @@ impl InstantiationBuilder {
                     &format!("{}.{}", sub_name, p.name),
                     &sub_name,
                     p.iotype.clone(),
+                    site.clone(),
                 ));
             }
         }
@@ -875,6 +896,7 @@ impl InstantiationBuilder {
         buses: &[McBus],
         side: FaceSide,
     ) -> Result<Vec<NetPoint>, InstError> {
+        let site = self.construction_site();
         let mut points: Vec<NetPoint> = Vec::new();
         for e in buses {
             // A synthetic funcall sentinel has no identity of its own
@@ -922,6 +944,7 @@ impl InstantiationBuilder {
                                         &format!("{sub_name}.{clean_name}.{m}"),
                                         &sub_name,
                                         p.iotype.clone(),
+                                        site.clone(),
                                     ));
                                 }
                             } else {
@@ -929,6 +952,7 @@ impl InstantiationBuilder {
                                     &format!("{sub_name}.{clean_name}"),
                                     &sub_name,
                                     p.iotype.clone(),
+                                    site.clone(),
                                 ));
                             }
                         } else {
@@ -937,6 +961,7 @@ impl InstantiationBuilder {
                                 &format!("{}.{}", sub_name, p.name),
                                 &sub_name,
                                 p.iotype.clone(),
+                                site.clone(),
                             ));
                         }
                     }

@@ -745,6 +745,26 @@ impl InstantiationBuilder {
             .map(|s| SourcePos::new(self.def_uri.clone(), s.offset))
     }
 
+    /// Source site of whatever this builder is constructing right now: the
+    /// enclosing func-body statement, else the enclosing top-level statement,
+    /// else `None`.
+    ///
+    /// A func body living in another file (library-function expansion, e.g. the
+    /// `Cap` body in `cap.mc`) is the library author's code, not the user's, so
+    /// the site falls back to the statement that triggered the call. That is a
+    /// different rule from [`Self::current_call_site`], which takes the
+    /// statement alone with no cross-file fallback - keep the two apart.
+    pub(super) fn construction_site(&self) -> Option<SourcePos> {
+        match (&self.current_func_span, &self.current_stmt_span) {
+            (Some(sp), Some(s)) if sp.uri != self.def_uri => {
+                Some(SourcePos::new(self.def_uri.clone(), s.offset))
+            }
+            (Some(sp), _) => Some(sp.clone()),
+            (None, Some(s)) => Some(SourcePos::new(self.def_uri.clone(), s.offset)),
+            (None, None) => None,
+        }
+    }
+
     /// Function definition site (unified [`SourcePos`], §7.11(3)).
     pub(super) fn func_def_site(func_def: &McFunction) -> Option<SourcePos> {
         let uri = func_def.source_uri().cloned()?;

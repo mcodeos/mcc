@@ -59,6 +59,7 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fmt::Write as _;
 
 use super::insttab::{InstEntry, InstKind, InstTable};
+use crate::semantic::common::SourcePos;
 use crate::semantic::pwrid::Face;
 use crate::semantic::validation::finding::CheckFinding;
 use crate::semantic::validation::CheckSeverity;
@@ -121,6 +122,10 @@ pub struct Finding {
     pub module: String,
     /// Human-readable one-line description
     pub detail: String,
+    /// Source site the finding points at, when the rule can name one.
+    /// `None` means "no anchor was recorded", not "the file starts at 0" —
+    /// the projection into [`CheckFinding`] keeps that distinction.
+    pub site: Option<SourcePos>,
 }
 
 /// The health-check report
@@ -168,10 +173,13 @@ impl Report {
                     code: g.meta.code,
                     severity: g.meta.severity,
                     message: f.detail.clone(),
-                    // The report rows carry module scope, not a source byte
-                    // anchor; the finding stays unattributed (None + 0 span).
-                    uri: None,
-                    pos: 0,
+                    // The site a rule recorded, when it had one. A row with no
+                    // anchor projects as `None` + a zero span — the offset is
+                    // only meaningful together with the URI, so it stays 0
+                    // rather than pointing every anchorless row at byte 0 of
+                    // some file.
+                    uri: f.site.as_ref().map(|s| s.uri.clone()),
+                    pos: f.site.as_ref().map_or(0, |s| s.offset),
                     len: 0,
                 })
             })
@@ -241,6 +249,9 @@ impl Report {
                     b.detail.as_str(),
                 ))
             });
+            // Source text is read once per URI and reused across the detail
+            // rows, so the cache is built outside the loop.
+            let mut sources = crate::stages::SourceText::new();
             let mut cur_mod = String::from("\u{0}");
             for f in sorted {
                 if f.module != cur_mod {
@@ -252,7 +263,13 @@ impl Report {
                     };
                     let _ = writeln!(s, "│ ── {name}");
                 }
-                let _ = writeln!(s, "│   [{}] {}", f.rule, f.detail);
+                let _ = writeln!(
+                    s,
+                    "│   [{}] {}{}",
+                    f.rule,
+                    f.detail,
+                    site_suffix(f.site.as_ref(), &mut sources)
+                );
             }
         }
 
@@ -574,23 +591,38 @@ fn check_r01_literal_point(table: &InstTable, idx: &Index, rep: &mut Report) {
         // set, not a tally; R01-e exempted paths are reported separately.
         let mut paths: BTreeSet<&str> = BTreeSet::new();
         let mut waived_paths: Vec<String> = Vec::new();
-        for (path, _) in details.iter() {
+        // Sites travel with the paths so the aggregated row below can name
+        // where the first of them was written.
+        let mut sites: Vec<&SourcePos> = Vec::new();
+        let mut waived_sites: Vec<&SourcePos> = Vec::new();
+        for (path, site) in details.iter() {
             if is_boundary_port_decl(path, &boundary_leaves) {
                 if !waived_paths.contains(&path.to_string()) {
                     waived_paths.push(path.to_string());
+                    waived_sites.extend(site.as_ref());
                 }
                 continue;
             }
-            paths.insert(path.as_str());
+            if paths.insert(path.as_str()) {
+                sites.extend(site.as_ref());
+            }
         }
         let total = paths.len();
         set_scanned(rep, "R01", total + waived_paths.len());
+
+        // The earliest recorded site wins. A path with no site must not erase
+        // the anchor, so the `None`s are dropped before `min()`: `Option`'s
+        // `Ord` puts `None` before every `Some`, which would let one anchorless
+        // path flatten the whole row. Do not "simplify" this back into a bare
+        // `min()` over the options.
+        let r01_site = sites.into_iter().min().cloned();
+        let waived_site = waived_sites.into_iter().min().cloned();
 
         // Report R01-e waived count (Info level, separate line)
         if !waived_paths.is_empty() {
             waived_paths.sort();
             let waived_items: Vec<String> = waived_paths.iter().map(|p| format!("`{p}`")).collect();
-            note(
+            note_at(
                 rep,
                 "R01-e",
                 String::new(),
@@ -599,6 +631,7 @@ fn check_r01_literal_point(table: &InstTable, idx: &Index, rep: &mut Report) {
                     waived_paths.len(),
                     waived_items.join(", ")
                 ),
+                waived_site,
             );
         }
 
@@ -614,6 +647,7 @@ fn check_r01_literal_point(table: &InstTable, idx: &Index, rep: &mut Report) {
                     total,
                     items.join("  ")
                 ),
+                site: r01_site,
             });
         }
         return; // no need to scan the InstTable after isolation
@@ -1512,6 +1546,7 @@ fn check_r15_synthetic_pin(rep: &mut Report) {
                 "{} synthetic terminal(s) (pin_id not belonging to any real pin, possibly from port scalar/member handling or an unresolved endpoint reference)",
                 count
             ),
+            site: None,
         });
     }
 }
@@ -1525,6 +1560,7 @@ fn push(rep: &mut Report, rule: &'static str, module: String, detail: String) {
         level: rule_level(rule),
         module,
         detail,
+        site: None,
     });
 }
 
@@ -1536,7 +1572,46 @@ fn note(rep: &mut Report, rule: &'static str, module: String, detail: String) {
         level: Level::Info,
         module,
         detail,
+        site: None,
     });
+}
+
+/// [`note`], carrying the source site the note points at.
+fn note_at(
+    rep: &mut Report,
+    rule: &'static str,
+    module: String,
+    detail: String,
+    site: Option<SourcePos>,
+) {
+    rep.findings.push(Finding {
+        rule,
+        level: Level::Info,
+        module,
+        detail,
+        site,
+    });
+}
+
+/// The `   at <uri>:<line>` suffix for a row that names a source site.
+///
+/// The line is derived from the offset through the one offset-to-line exit
+/// (`line_of_byte`), reading the text from the in-memory workspace first and
+/// from disk second. With no text the offset is printed as `at <uri>@<offset>`
+/// rather than a line number that was never resolved — the same choice
+/// [`crate::stages::loc_value`] makes.
+fn site_suffix(site: Option<&SourcePos>, sources: &mut crate::stages::SourceText) -> String {
+    let Some(p) = site else {
+        return String::new();
+    };
+    match sources.text(&p.uri).map(|t| t.to_string()) {
+        Some(text) => format!(
+            "   at {}:{}",
+            p.uri,
+            crate::hierarchy::line_of_byte(&text, p.offset as usize)
+        ),
+        None => format!("   at {}@{}", p.uri, p.offset),
+    }
 }
 
 fn set_scanned(rep: &mut Report, rule: &'static str, n: usize) {
@@ -1561,6 +1636,7 @@ fn check_r05_unresolved_unit(rep: &mut Report) {
                 "{} unit-typed argument(s) could not claim any formal parameter slot",
                 count
             ),
+            site: None,
         });
     }
 }
@@ -1706,26 +1782,30 @@ mod tests {
     fn dlu_netcheck__unified_findings_projects_cataloged_rows_only() {
         // The AssemblyGate report normalizes onto the unified CheckFinding
         // line: cataloged rows keep their catalog code + severity (single
-        // source), non-cataloged notes ("R01-e") are skipped, and the report
-        // rows carry no source byte anchor.
+        // source), non-cataloged notes ("R01-e") are skipped, a recorded site
+        // projects as uri + offset, and a row with no site stays unattributed
+        // (None + a zero span) instead of being pointed at byte 0.
         let mut rep = Report::default();
         rep.findings.push(Finding {
             rule: "R02",
             level: Level::Error,
             module: "main.pwr".to_string(),
             detail: "short passive".to_string(),
+            site: Some(SourcePos::new("main.mc", 42)),
         });
         rep.findings.push(Finding {
             rule: "R01-e",
             level: Level::Info,
             module: String::new(),
             detail: "R01-e waived".to_string(),
+            site: None,
         });
         rep.findings.push(Finding {
             rule: "R12",
             level: Level::Info,
             module: String::new(),
             detail: "dangling port".to_string(),
+            site: None,
         });
 
         let out = rep.unified_findings();
@@ -1737,14 +1817,17 @@ mod tests {
         assert_eq!(out[0].code, r02.meta.code);
         assert_eq!(out[0].severity, r02.meta.severity);
         assert_eq!(out[0].message, "short passive");
-        assert_eq!(out[0].uri, None);
-        assert_eq!(out[0].pos, 0);
+        assert_eq!(out[0].uri.as_deref(), Some("main.mc"));
+        assert_eq!(out[0].pos, 42);
         assert_eq!(out[0].len, 0);
 
         assert_eq!(out[1].rule, "R12");
         assert_eq!(out[1].code, r12.meta.code);
         assert_eq!(out[1].severity, r12.meta.severity);
         assert_eq!(out[1].message, "dangling port");
+        assert_eq!(out[1].uri, None);
+        assert_eq!(out[1].pos, 0);
+        assert_eq!(out[1].len, 0);
     }
 
     #[test]

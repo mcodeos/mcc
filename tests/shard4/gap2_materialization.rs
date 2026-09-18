@@ -211,6 +211,123 @@ fn mat_gap2__literal_point_quarantine_is_per_instantiation() {
     );
 }
 
+/// The quarantined records as `(path, site uri, site offset)`, in creation
+/// order. The site's type (`SourcePos`) lives in a `pub(crate)` module, so it
+/// cannot be named here — the tuple flattens what the assertions need.
+fn quarantine_records() -> Vec<(String, Option<String>, Option<u32>)> {
+    mcc::instant::mc_net::LITERAL_POINT_DETAILS
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(path, site)| {
+            (
+                path.clone(),
+                site.as_ref().map(|s| s.uri.clone()),
+                site.as_ref().map(|s| s.offset),
+            )
+        })
+        .collect()
+}
+
+/// Two literal statements, so the aggregated R01 row has two distinct
+/// candidate sites and "earliest" is distinguishable from "latest".
+///
+/// The bases are dotted (`uC.ADC`, not `res`): a bare name that no port/label
+/// declares gets interned as a module Label, which makes its literal a "pure
+/// boundary port declaration" and moves it to the R01-e waiver instead of
+/// R01. A dotted base is not a boundary leaf, so these four paths are the ones
+/// R01 reports.
+const TWO_LITERAL_STATEMENTS: &str = "module main {\n    func main() {\n        \
+     uC.ADC[1:2] -> uC.ADC[3:4]\n        spi.MOSI[5:6] -> spi.MOSI[7:8]\n    }\n}";
+
+/// P11: every quarantined literal records **where it was written**.
+///
+/// The record's second element carries the source site of the statement that
+/// wrote the literal — the statement's start, so both literals of one
+/// statement share one offset. That site is what lets R01 name a file and a
+/// line instead of sending the reader nowhere.
+#[test]
+fn mat_gap2__literal_point_records_the_written_statement() {
+    let _lock = common::lock();
+    common::reset();
+
+    let uri = "/mcc/gap2-anchor.mc".to_string();
+    mcc::mcc_load_from_string(&uri, TWO_LITERAL_STATEMENTS);
+    let _ = mcc::mcc_build_flat(&McIds::from("main"), &uri, 1000).expect("flat build");
+
+    let first = TWO_LITERAL_STATEMENTS
+        .find("uC.ADC[1:2]")
+        .expect("the fixture holds the first statement") as u32;
+    let second = TWO_LITERAL_STATEMENTS
+        .find("spi.MOSI[5:6]")
+        .expect("the fixture holds the second statement") as u32;
+    assert_ne!(first, 0, "the fixture must not sit at byte 0");
+    assert!(first < second);
+
+    let mut got = quarantine_records();
+    got.sort();
+    let want = vec![
+        ("spi.MOSI[5:6]".to_string(), Some(uri.clone()), Some(second)),
+        ("spi.MOSI[7:8]".to_string(), Some(uri.clone()), Some(second)),
+        ("uC.ADC[1:2]".to_string(), Some(uri.clone()), Some(first)),
+        ("uC.ADC[3:4]".to_string(), Some(uri.clone()), Some(first)),
+    ];
+    assert_eq!(
+        got, want,
+        "each literal records its own statement's site, not the file start"
+    );
+}
+
+/// P11 consumer side: the R01 row carries the site, the projection keeps it,
+/// and the rendered line names a file and line instead of `1:1`.
+///
+/// The row aggregates every reported path, so its anchor is the **earliest**
+/// site — the second statement's literals must not move it to line 4.
+#[test]
+fn mat_gap2__r01_row_carries_the_source_site() {
+    let _lock = common::lock();
+    common::reset();
+
+    let uri = "/mcc/gap2-anchor-report.mc".to_string();
+    mcc::mcc_load_from_string(&uri, TWO_LITERAL_STATEMENTS);
+    let (_, table) = mcc::mcc_build_flat(&McIds::from("main"), &uri, 1000).expect("flat build");
+    let report = mcc::instant::netcheck::run(&table);
+
+    let expected = TWO_LITERAL_STATEMENTS
+        .find("uC.ADC[1:2]")
+        .expect("the fixture holds the first statement") as u32;
+
+    let r01: Vec<_> = report.findings.iter().filter(|f| f.rule == "R01").collect();
+    assert_eq!(r01.len(), 1, "R01 aggregates into one row; got {r01:?}");
+    let site = r01[0]
+        .site
+        .as_ref()
+        .expect("the R01 row carries the site of the earliest literal");
+    assert_eq!(site.uri, uri);
+    assert_eq!(
+        site.offset, expected,
+        "the anchor is the first statement, not the last"
+    );
+
+    let unified = report.unified_findings();
+    let row = unified
+        .iter()
+        .find(|f| f.message.contains("unexpanded vector reference"))
+        .expect("the R01 row is cataloged and therefore projected");
+    assert_eq!(row.uri.as_deref(), Some(uri.as_str()));
+    assert_eq!(row.pos, expected);
+    assert_ne!(
+        row.pos, 0,
+        "an anchored row must not project the anchorless placeholder"
+    );
+
+    let rendered = report.render();
+    assert!(
+        rendered.contains(&format!("at {uri}:3")),
+        "the R01 row renders its own line, not `1:1`; got:\n{rendered}"
+    );
+}
+
 /// One source reference, one record. `vexpr_reduce` reads both faces of the
 /// same phrase, and the label fallback both stores a label and returns a
 /// point, so a construction-counted list reported each of these two

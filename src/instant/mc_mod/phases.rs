@@ -143,6 +143,8 @@ impl InstantiationBuilder {
     //     adjacency shape issue, entire body stmt is missing. Iter-5.E vector expansion scope.
 
     pub(super) fn instantiate_interface(&mut self) -> Result<(), InstError> {
+        // Hoisted once: every point this call builds carries the same source site.
+        let site = self.construction_site();
         // First clone port list to release immutable borrow of self.def
         // Loop body needs &mut self (labels / buses write), so can't run
         // directly during iter_with_iotype() borrow.
@@ -381,7 +383,7 @@ impl InstantiationBuilder {
             for member in &bus_members {
                 self.labels.insert(
                     member.clone(),
-                    NetPoint::new(member, iotype.clone()).with_member_name(member),
+                    NetPoint::new(member, iotype.clone(), site.clone()).with_member_name(member),
                 );
             }
         }
@@ -421,6 +423,9 @@ impl InstantiationBuilder {
     /// **Does not push any bridge connections to `self.connections`** — reason in long comment
     /// "Why not do port↔member bridge connections" section.
     fn inject_port_member_labels(&mut self, iotype: &IOType, inst: &McInstance) {
+        // Hoisted: the `or_insert_with` closures below hold `&mut self.labels`,
+        // so the site cannot be reached through `self` inside them.
+        let site = self.construction_site();
         // Step 0: Calculate which members to inject according to port form
         //
         // Returned triple meaning:
@@ -515,9 +520,9 @@ impl InstantiationBuilder {
             if m.is_empty() {
                 continue;
             }
-            self.labels
-                .entry(m.clone())
-                .or_insert_with(|| NetPoint::new(m, iotype.clone()).with_member_name(m));
+            self.labels.entry(m.clone()).or_insert_with(|| {
+                NetPoint::new(m, iotype.clone(), site.clone()).with_member_name(m)
+            });
         }
 
         // Step A2: curly form additional register prefix bus + dotted label
@@ -538,7 +543,7 @@ impl InstantiationBuilder {
                     }
                     let dotted = format!("{prefix}.{m}");
                     self.labels.entry(dotted.clone()).or_insert_with(|| {
-                        NetPoint::new(&dotted, iotype.clone()).with_member_name(m)
+                        NetPoint::new(&dotted, iotype.clone(), site.clone()).with_member_name(m)
                     });
                 }
             }
@@ -556,6 +561,9 @@ impl InstantiationBuilder {
     // Phase 3: Declared instance instantiation
 
     pub(super) fn instantiate_declarations_resilient(&mut self) {
+        // Hoisted: the `or_insert_with` closures below hold `&mut self.labels`,
+        // so the site cannot be reached through `self` inside them.
+        let site = self.construction_site();
         // ★ Clone to owned Vec to release immutable borrow of self.def,
         //   so loop body can call record_error/push etc. with &mut self
         let items: Vec<(String, McInstance)> = self
@@ -815,7 +823,7 @@ impl InstantiationBuilder {
                     // injected by phase 1 using port's iotype.
                     self.labels
                         .entry(label.name.clone())
-                        .or_insert_with(|| NetPoint::new(&label.name, IOType::None));
+                        .or_insert_with(|| NetPoint::new(&label.name, IOType::None, site.clone()));
                 }
                 _ => {}
             }
@@ -1309,6 +1317,10 @@ impl InstantiationBuilder {
         ports: &[PortInst],
         args: &[McParamValue],
     ) {
+        // Hoisted before `make_ports` is defined: the closure is called after
+        // further `&mut self` work, so it must capture this local rather than
+        // reach through `self` (which would keep `self` borrowed for its life).
+        let site = self.construction_site();
         let formal = bindable_formals(Some(sub_def), ports);
 
         let mut used = vec![false; formal.len()];
@@ -1387,12 +1399,14 @@ impl InstantiationBuilder {
                     &format!("{inst_name}.{member}"),
                     inst_name,
                     io.clone(),
+                    site.clone(),
                 )];
                 if named {
                     v.push(NetPoint::with_owner(
                         &format!("{inst_name}.{port_base}.{member}"),
                         inst_name,
                         io,
+                        site.clone(),
                     ));
                 }
                 v
@@ -1457,6 +1471,7 @@ impl InstantiationBuilder {
                     &format!("{}.{}", inst_name, port.name),
                     inst_name,
                     port.iotype.clone(),
+                    site.clone(),
                 );
                 let id = self.next_conn_id();
                 self.add_connection(self.make_conn_with_provenance(
@@ -1512,6 +1527,10 @@ impl InstantiationBuilder {
         ports: &[PortInst],
         args: &[McParamValue],
     ) -> Vec<ConnectionInst> {
+        // Hoisted before `make_ports` is defined: the closure is called after
+        // further `&mut self` work, so it must capture this local rather than
+        // reach through `self` (which would keep `self` borrowed for its life).
+        let site = self.construction_site();
         let mut out: Vec<ConnectionInst> = Vec::new();
 
         // Stage 1 — the declaration-borne set. Stage 2 runs only when it is
@@ -1621,18 +1640,20 @@ impl InstantiationBuilder {
             let named: bool = !base.is_empty() && !base.starts_with('@') && !base.starts_with('[');
 
             // Generate port-side points for a member: named port gives both bare + dotted.
-            // Closure only borrows inst_name/base/named (locals), not self.
+            // Closure borrows inst_name/base/named and site - all locals, not self.
             let make_ports = |member: &str, io: IOType| -> Vec<NetPoint> {
                 let mut v = vec![NetPoint::with_owner(
                     &format!("{inst_name}.{member}"),
                     inst_name,
                     io.clone(),
+                    site.clone(),
                 )];
                 if named {
                     v.push(NetPoint::with_owner(
                         &format!("{inst_name}.{base}.{member}"),
                         inst_name,
                         io,
+                        site.clone(),
                     ));
                 }
                 v
@@ -1684,8 +1705,12 @@ impl InstantiationBuilder {
                 } else {
                     base.clone()
                 };
-                let port_pt =
-                    NetPoint::with_owner(&format!("{inst_name}.{dst_base}"), inst_name, pio);
+                let port_pt = NetPoint::with_owner(
+                    &format!("{inst_name}.{dst_base}"),
+                    inst_name,
+                    pio,
+                    site.clone(),
+                );
                 let id = self.next_conn_id();
                 out.push(self.make_conn_with_provenance(
                     id,
