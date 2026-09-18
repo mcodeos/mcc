@@ -34,9 +34,9 @@ range (threshold 40KB).
 | `viz/layout/equipotential_tree.rs` | 332 KB | 173 |
 | `semantic/basic/mc_phrase.rs` | 296 KB | 61 |
 | `semantic/component/mc_pins/mod.rs` | 215 KB | 101 |
+| `semantic/validation/nets/mod.rs` | 172 KB | 114 |
 | `rules.rs` | 172 KB | 83 |
 | `instant/mc_mod/stmt.rs` | 171 KB | 63 |
-| `semantic/validation/nets/mod.rs` | 170 KB | 114 |
 | `db/diagnostic/errcodes.rs` | 155 KB | 417 |
 | `instant/insttab.rs` | 146 KB | 104 |
 | `db/defregistry.rs` | 143 KB | 174 |
@@ -63,13 +63,13 @@ range (threshold 40KB).
 | `db/` | 27 | 874 KB |
 | `eval/` | 2 | 48 KB |
 | `export/` | 6 | 35 KB |
-| `instant/` | 39 | 1457 KB |
+| `instant/` | 39 | 1470 KB |
 | `lsp/` | 7 | 66 KB |
 | `output/` | 7 | 107 KB |
 | `query/` | 7 | 133 KB |
 | `refdef/` | 7 | 118 KB |
 | `rpc/` | 14 | 267 KB |
-| `semantic/` | 87 | 2457 KB |
+| `semantic/` | 87 | 2459 KB |
 | `stages/` | 11 | 270 KB |
 | `vector/` | 25 | 459 KB |
 | `viz/` | 95 | 2277 KB |
@@ -2521,15 +2521,22 @@ instant/identity.rs#L361  fn reconcile_net_labels
 instant/identity.rs#L374  fn delete_net
 instant/identity.rs#L382  fn next_net_id
 instant/identity.rs#L388  fn alive_paths
-instant/identity.rs#L397  impl Default for IdentityRegistry
-instant/identity.rs#L398  fn default
-instant/identity.rs#L404  mod tests
-instant/identity.rs#L407  fn key
-instant/identity.rs#L412  fn dlu_identity__intern_same_path_same_id
-instant/identity.rs#L423  fn dlu_identity__intern_monotonic_no_reordering
-instant/identity.rs#L434  fn dlu_identity__delete_tombstone_no_reuse
-instant/identity.rs#L450  fn dlu_identity__resume_reloads_existing_pairs
-instant/identity.rs#L473  fn dlu_identity__unassigned_sentinel_is_reserved
+instant/identity.rs#L399  fn ledger
+instant/identity.rs#L449  fn from_ledger
+instant/identity.rs#L499  struct IdentityLedger
+instant/identity.rs#L524  impl IdentityLedger
+instant/identity.rs#L527  fn to_json
+instant/identity.rs#L532  fn from_json
+instant/identity.rs#L537  impl Default for IdentityRegistry
+instant/identity.rs#L538  fn default
+instant/identity.rs#L544  mod tests
+instant/identity.rs#L547  fn key
+instant/identity.rs#L552  fn dlu_identity__intern_same_path_same_id
+instant/identity.rs#L563  fn dlu_identity__intern_monotonic_no_reordering
+instant/identity.rs#L574  fn dlu_identity__delete_tombstone_no_reuse
+instant/identity.rs#L590  fn dlu_identity__resume_reloads_existing_pairs
+instant/identity.rs#L613  fn dlu_identity__unassigned_sentinel_is_reserved
+instant/identity.rs#L625  fn dlu_identity__ledger_round_trips_json_and_disk
 instant/inststore.rs#L32  enum NodeInstance
 instant/inststore.rs#L44  struct InstanceStore
 instant/inststore.rs#L48  impl InstanceStore
@@ -3455,43 +3462,46 @@ instant/refdes.rs#L108  mod tests
 instant/refdes.rs#L112  fn root_segment_answers_for_dotted_variants
 instant/refdes.rs#L122  fn unregistered_class_has_no_prefix
 instant/refdes.rs#L129  fn table_names_every_class_once_and_keeps_m_reserved
-instant/world.rs#L45  struct NetSnapshot
-instant/world.rs#L59  struct CircuitCheckpoint
-instant/world.rs#L69  impl CircuitCheckpoint
-instant/world.rs#L72  fn capture
-instant/world.rs#L95  struct NodePathChange
-instant/world.rs#L109  struct NetDelta
-instant/world.rs#L121  struct CircuitDiff
-instant/world.rs#L131  struct CircuitWorld
-instant/world.rs#L152  impl CircuitWorld
-instant/world.rs#L155  fn new
-instant/world.rs#L165  fn circuit
-instant/world.rs#L170  fn circuits
-instant/world.rs#L175  fn registry
-instant/world.rs#L180  fn checkpoints
-instant/world.rs#L185  fn invalidated
-instant/world.rs#L203  fn flatten
-instant/world.rs#L214  fn flatten_with_prefix
-instant/world.rs#L226  fn flat
-instant/world.rs#L231  fn net_diags
-instant/world.rs#L241  fn instantiate
-instant/world.rs#L271  fn rebuild_invalidated
-instant/world.rs#L295  fn clear
-instant/world.rs#L308  fn diff_versions
-instant/world.rs#L319  fn semantic_equivalent
-instant/world.rs#L333  fn label_violations
-instant/world.rs#L361  fn index_invalidation
-instant/world.rs#L379  fn push_checkpoint
-instant/world.rs#L396  fn diff_checkpoints
-instant/world.rs#L445  fn member_overlap
-instant/world.rs#L452  fn net_deltas
-instant/world.rs#L555  fn canonical_net_membership
-instant/world.rs#L579  mod tests
-instant/world.rs#L582  fn key
-instant/world.rs#L586  fn snap
-instant/world.rs#L604  fn dlu_world__net_deltas_match_labeled_by_label_and_unlabeled_by_overlap
-instant/world.rs#L673  fn dlu_world__diff_checkpoints_report_node_add_and_remove
-instant/world.rs#L704  fn dlu_world__canonical_membership_ignores_labels
+instant/world.rs#L46  struct NetSnapshot
+instant/world.rs#L60  struct CircuitCheckpoint
+instant/world.rs#L70  impl CircuitCheckpoint
+instant/world.rs#L73  fn capture
+instant/world.rs#L96  struct NodePathChange
+instant/world.rs#L110  struct NetDelta
+instant/world.rs#L122  struct CircuitDiff
+instant/world.rs#L132  struct CircuitWorld
+instant/world.rs#L153  impl CircuitWorld
+instant/world.rs#L156  fn new
+instant/world.rs#L166  fn circuit
+instant/world.rs#L171  fn circuits
+instant/world.rs#L176  fn registry
+instant/world.rs#L186  fn save_ledger
+instant/world.rs#L200  fn load_ledger
+instant/world.rs#L210  fn checkpoints
+instant/world.rs#L215  fn invalidated
+instant/world.rs#L233  fn flatten
+instant/world.rs#L244  fn flatten_with_prefix
+instant/world.rs#L256  fn flat
+instant/world.rs#L261  fn net_diags
+instant/world.rs#L271  fn instantiate
+instant/world.rs#L301  fn rebuild_invalidated
+instant/world.rs#L325  fn clear
+instant/world.rs#L338  fn diff_versions
+instant/world.rs#L349  fn semantic_equivalent
+instant/world.rs#L363  fn label_violations
+instant/world.rs#L391  fn index_invalidation
+instant/world.rs#L409  fn push_checkpoint
+instant/world.rs#L426  fn diff_checkpoints
+instant/world.rs#L475  fn member_overlap
+instant/world.rs#L482  fn net_deltas
+instant/world.rs#L585  fn canonical_net_membership
+instant/world.rs#L609  mod tests
+instant/world.rs#L612  fn key
+instant/world.rs#L616  fn snap
+instant/world.rs#L634  fn dlu_world__net_deltas_match_labeled_by_label_and_unlabeled_by_overlap
+instant/world.rs#L703  fn dlu_world__diff_checkpoints_report_node_add_and_remove
+instant/world.rs#L735  fn dlu_world__ledger_survives_a_process_boundary
+instant/world.rs#L782  fn dlu_world__canonical_membership_ignores_labels
 lib.rs#L25  mod dbgflags
 lib.rs#L32  mod ast
 lib.rs#L33  mod build
@@ -6100,71 +6110,71 @@ semantic/module/mod.rs#L76  impl McModule
 semantic/module/mod.rs#L77  fn new
 semantic/module/mod.rs#L157  fn test_stub
 semantic/module/mod.rs#L180  fn parse_params
-semantic/module/mod.rs#L337  fn parse_body
-semantic/module/mod.rs#L645  fn collect_declare_ctor_refs
-semantic/module/mod.rs#L683  fn is_plain_label_candidate
-semantic/module/mod.rs#L705  fn extract_declare_class_span
-semantic/module/mod.rs#L753  fn register_curly_param_bus_def
-semantic/module/mod.rs#L824  fn find_inst
-semantic/module/mod.rs#L831  fn add_label
-semantic/module/mod.rs#L851  fn find_member_in_anon_insts
-semantic/module/mod.rs#L893  fn add_component
-semantic/module/mod.rs#L906  fn add_module
-semantic/module/mod.rs#L913  fn get_input_elements
-semantic/module/mod.rs#L922  fn get_output_elements
-semantic/module/mod.rs#L936  fn port_decl_span
-semantic/module/mod.rs#L943  impl HasFindInst for McModule
-semantic/module/mod.rs#L944  fn find_inst
-semantic/module/mod.rs#L949  fn is_declared_instance_name
-semantic/module/mod.rs#L956  fn note_func_call_caller
-semantic/module/mod.rs#L966  fn report_floating_label
-semantic/module/mod.rs#L974  fn register_gate_candidate
-semantic/module/mod.rs#L983  fn find_inst_mut
-semantic/module/mod.rs#L987  fn get_vector_members
-semantic/module/mod.rs#L993  fn find_inst_with_span
-semantic/module/mod.rs#L1007  fn is_declared_port
-semantic/module/mod.rs#L1015  fn declared_port_members
-semantic/module/mod.rs#L1034  fn interface_param_members
-semantic/module/mod.rs#L1054  fn add_label_at
-semantic/module/mod.rs#L1065  fn add_bus
-semantic/module/mod.rs#L1078  fn add_list
-semantic/module/mod.rs#L1087  fn add_bus_member
-semantic/module/mod.rs#L1172  fn add_interface_member
-semantic/module/mod.rs#L1209  fn check_bus_member
-semantic/module/mod.rs#L1220  fn is_component_bus
-semantic/module/mod.rs#L1229  fn uri
-semantic/module/mod.rs#L1233  fn parse_declare
-semantic/module/mod.rs#L1245  fn add_component
-semantic/module/mod.rs#L1253  fn add_module
-semantic/module/mod.rs#L1271  fn gen_anon_name
-semantic/module/mod.rs#L1277  fn store_inst_span
-semantic/module/mod.rs#L1281  fn record_declareb_def
-semantic/module/mod.rs#L1290  fn upgrade_label_to_bus
-semantic/module/mod.rs#L1311  fn find_func_return
-semantic/module/mod.rs#L1315  fn scope_name
-semantic/module/mod.rs#L1320  impl McModule
-semantic/module/mod.rs#L1326  fn collect_net_def_spans
-semantic/module/mod.rs#L1390  fn collect_net_refs_in_node
-semantic/module/mod.rs#L1523  fn has_dot_chain
-semantic/module/mod.rs#L1561  fn try_record_chain_ref
-semantic/module/mod.rs#L1657  fn collect_instance_segments
-semantic/module/mod.rs#L1675  fn collect_fcall_segments
-semantic/module/mod.rs#L1704  fn walk_chain_children
-semantic/module/mod.rs#L1756  fn collect_ident_segments
-semantic/module/mod.rs#L1816  fn collect_curly_members
-semantic/module/mod.rs#L1843  fn curly_range
-semantic/module/mod.rs#L1850  fn record_scoped_net_ref
-semantic/module/mod.rs#L1959  struct Mc2Module
-semantic/module/mod.rs#L1970  impl Mc2Module
-semantic/module/mod.rs#L1971  fn new
-semantic/module/mod.rs#L1981  fn with_params
-semantic/module/mod.rs#L1992  fn find_port
-semantic/module/mod.rs#L2027  fn get_input_ports
-semantic/module/mod.rs#L2037  fn get_output_ports
-semantic/module/mod.rs#L2047  fn get_all_ports
-semantic/module/mod.rs#L2059  impl std::fmt::Display for McModule
-semantic/module/mod.rs#L2060  fn fmt
-semantic/module/mod.rs#L2066  struct InstRow
+semantic/module/mod.rs#L338  fn parse_body
+semantic/module/mod.rs#L646  fn collect_declare_ctor_refs
+semantic/module/mod.rs#L684  fn is_plain_label_candidate
+semantic/module/mod.rs#L706  fn extract_declare_class_span
+semantic/module/mod.rs#L754  fn register_curly_param_bus_def
+semantic/module/mod.rs#L825  fn find_inst
+semantic/module/mod.rs#L832  fn add_label
+semantic/module/mod.rs#L852  fn find_member_in_anon_insts
+semantic/module/mod.rs#L894  fn add_component
+semantic/module/mod.rs#L907  fn add_module
+semantic/module/mod.rs#L914  fn get_input_elements
+semantic/module/mod.rs#L923  fn get_output_elements
+semantic/module/mod.rs#L937  fn port_decl_span
+semantic/module/mod.rs#L944  impl HasFindInst for McModule
+semantic/module/mod.rs#L945  fn find_inst
+semantic/module/mod.rs#L950  fn is_declared_instance_name
+semantic/module/mod.rs#L957  fn note_func_call_caller
+semantic/module/mod.rs#L967  fn report_floating_label
+semantic/module/mod.rs#L975  fn register_gate_candidate
+semantic/module/mod.rs#L984  fn find_inst_mut
+semantic/module/mod.rs#L988  fn get_vector_members
+semantic/module/mod.rs#L994  fn find_inst_with_span
+semantic/module/mod.rs#L1008  fn is_declared_port
+semantic/module/mod.rs#L1016  fn declared_port_members
+semantic/module/mod.rs#L1035  fn interface_param_members
+semantic/module/mod.rs#L1055  fn add_label_at
+semantic/module/mod.rs#L1066  fn add_bus
+semantic/module/mod.rs#L1079  fn add_list
+semantic/module/mod.rs#L1088  fn add_bus_member
+semantic/module/mod.rs#L1173  fn add_interface_member
+semantic/module/mod.rs#L1210  fn check_bus_member
+semantic/module/mod.rs#L1221  fn is_component_bus
+semantic/module/mod.rs#L1230  fn uri
+semantic/module/mod.rs#L1234  fn parse_declare
+semantic/module/mod.rs#L1246  fn add_component
+semantic/module/mod.rs#L1254  fn add_module
+semantic/module/mod.rs#L1272  fn gen_anon_name
+semantic/module/mod.rs#L1278  fn store_inst_span
+semantic/module/mod.rs#L1282  fn record_declareb_def
+semantic/module/mod.rs#L1291  fn upgrade_label_to_bus
+semantic/module/mod.rs#L1312  fn find_func_return
+semantic/module/mod.rs#L1316  fn scope_name
+semantic/module/mod.rs#L1321  impl McModule
+semantic/module/mod.rs#L1327  fn collect_net_def_spans
+semantic/module/mod.rs#L1391  fn collect_net_refs_in_node
+semantic/module/mod.rs#L1524  fn has_dot_chain
+semantic/module/mod.rs#L1562  fn try_record_chain_ref
+semantic/module/mod.rs#L1658  fn collect_instance_segments
+semantic/module/mod.rs#L1676  fn collect_fcall_segments
+semantic/module/mod.rs#L1705  fn walk_chain_children
+semantic/module/mod.rs#L1757  fn collect_ident_segments
+semantic/module/mod.rs#L1817  fn collect_curly_members
+semantic/module/mod.rs#L1844  fn curly_range
+semantic/module/mod.rs#L1851  fn record_scoped_net_ref
+semantic/module/mod.rs#L1960  struct Mc2Module
+semantic/module/mod.rs#L1971  impl Mc2Module
+semantic/module/mod.rs#L1972  fn new
+semantic/module/mod.rs#L1982  fn with_params
+semantic/module/mod.rs#L1993  fn find_port
+semantic/module/mod.rs#L2028  fn get_input_ports
+semantic/module/mod.rs#L2038  fn get_output_ports
+semantic/module/mod.rs#L2048  fn get_all_ports
+semantic/module/mod.rs#L2060  impl std::fmt::Display for McModule
+semantic/module/mod.rs#L2061  fn fmt
+semantic/module/mod.rs#L2067  struct InstRow
 semantic/module/pi.rs#L57  struct McPowerDecls
 semantic/module/pi.rs#L90  impl McPowerDecls
 semantic/module/pi.rs#L91  fn new
@@ -6918,47 +6928,47 @@ semantic/validation/nets/mod.rs#L1970  fn check_undriven_sink_net
 semantic/validation/nets/mod.rs#L2078  fn check_power_source_contention
 semantic/validation/nets/mod.rs#L2156  fn check_isolated_dc_bridge
 semantic/validation/nets/mod.rs#L2211  fn check_protective_multi_bridge
-semantic/validation/nets/mod.rs#L2266  fn check_earth_dc_leak
-semantic/validation/nets/mod.rs#L2318  fn check_reference_island_root
-semantic/validation/nets/mod.rs#L2428  fn check_role_ref_missing_bridge
-semantic/validation/nets/mod.rs#L2485  fn check_pin_contract_decode
-semantic/validation/nets/mod.rs#L2533  fn check_pin_contract_return_member
-semantic/validation/nets/mod.rs#L2579  fn check_combine_output_tol
-semantic/validation/nets/mod.rs#L2644  struct EffClass
-semantic/validation/nets/mod.rs#L2663  fn eff_class
-semantic/validation/nets/mod.rs#L2719  struct DeclEdge
-semantic/validation/nets/mod.rs#L2750  fn declared_dc_edges
-semantic/validation/nets/mod.rs#L2808  fn endpoint_identity
-semantic/validation/nets/mod.rs#L2822  fn net_identities
-semantic/validation/nets/mod.rs#L2848  fn pair_matches
-semantic/validation/nets/mod.rs#L2859  fn scope_nets
-semantic/validation/nets/mod.rs#L2886  type EdgeEndpoint
-semantic/validation/nets/mod.rs#L2888  fn edge_endpoint
-semantic/validation/nets/mod.rs#L2914  fn leg_sites
-semantic/validation/nets/mod.rs#L2952  fn check_return_leg_undeclared
-semantic/validation/nets/mod.rs#L3069  fn comp_def_uri
-semantic/validation/nets/mod.rs#L3079  struct DeviceReturnClass
-semantic/validation/nets/mod.rs#L3112  fn check_device_return_span
-semantic/validation/nets/mod.rs#L3307  fn check_port_bind_role
-semantic/validation/nets/mod.rs#L3392  fn resolve_bind_role
-semantic/validation/nets/mod.rs#L3480  fn exposed_hosts
-semantic/validation/nets/mod.rs#L3508  fn check_exposed_clamp_coverage
-semantic/validation/nets/mod.rs#L3551  fn segment_is_clamped
-semantic/validation/nets/mod.rs#L3610  fn clamp_declaration_plane
-semantic/validation/nets/mod.rs#L3651  const NO_SKIP
-semantic/validation/nets/mod.rs#L3657  fn role_excluded
-semantic/validation/nets/mod.rs#L3682  fn copper_region_into
-semantic/validation/nets/mod.rs#L3769  fn check_exposed_clamp_downstream
-semantic/validation/nets/mod.rs#L3879  fn fmt_amps
-semantic/validation/nets/mod.rs#L3888  fn fmt_round
-semantic/validation/nets/mod.rs#L3903  fn sink_contract_for
-semantic/validation/nets/mod.rs#L3924  fn source_contract_for
-semantic/validation/nets/mod.rs#L3949  fn member_net_of
-semantic/validation/nets/mod.rs#L3967  fn net_name
-semantic/validation/nets/mod.rs#L3975  mod tests
-semantic/validation/nets/mod.rs#L3982  fn net_result
-semantic/validation/nets/mod.rs#L3994  fn diag_key
-semantic/validation/nets/mod.rs#L3999  fn net_results_to_diagnostics_is_identity_under_any_store_today
+semantic/validation/nets/mod.rs#L2272  fn check_earth_dc_leak
+semantic/validation/nets/mod.rs#L2324  fn check_reference_island_root
+semantic/validation/nets/mod.rs#L2440  fn check_role_ref_missing_bridge
+semantic/validation/nets/mod.rs#L2497  fn check_pin_contract_decode
+semantic/validation/nets/mod.rs#L2545  fn check_pin_contract_return_member
+semantic/validation/nets/mod.rs#L2591  fn check_combine_output_tol
+semantic/validation/nets/mod.rs#L2656  struct EffClass
+semantic/validation/nets/mod.rs#L2675  fn eff_class
+semantic/validation/nets/mod.rs#L2731  struct DeclEdge
+semantic/validation/nets/mod.rs#L2772  fn declared_dc_edges
+semantic/validation/nets/mod.rs#L2830  fn endpoint_identity
+semantic/validation/nets/mod.rs#L2844  fn net_identities
+semantic/validation/nets/mod.rs#L2870  fn pair_matches
+semantic/validation/nets/mod.rs#L2881  fn scope_nets
+semantic/validation/nets/mod.rs#L2908  type EdgeEndpoint
+semantic/validation/nets/mod.rs#L2910  fn edge_endpoint
+semantic/validation/nets/mod.rs#L2936  fn leg_sites
+semantic/validation/nets/mod.rs#L2974  fn check_return_leg_undeclared
+semantic/validation/nets/mod.rs#L3091  fn comp_def_uri
+semantic/validation/nets/mod.rs#L3101  struct DeviceReturnClass
+semantic/validation/nets/mod.rs#L3134  fn check_device_return_span
+semantic/validation/nets/mod.rs#L3336  fn check_port_bind_role
+semantic/validation/nets/mod.rs#L3421  fn resolve_bind_role
+semantic/validation/nets/mod.rs#L3509  fn exposed_hosts
+semantic/validation/nets/mod.rs#L3537  fn check_exposed_clamp_coverage
+semantic/validation/nets/mod.rs#L3580  fn segment_is_clamped
+semantic/validation/nets/mod.rs#L3639  fn clamp_declaration_plane
+semantic/validation/nets/mod.rs#L3680  const NO_SKIP
+semantic/validation/nets/mod.rs#L3686  fn role_excluded
+semantic/validation/nets/mod.rs#L3711  fn copper_region_into
+semantic/validation/nets/mod.rs#L3798  fn check_exposed_clamp_downstream
+semantic/validation/nets/mod.rs#L3908  fn fmt_amps
+semantic/validation/nets/mod.rs#L3917  fn fmt_round
+semantic/validation/nets/mod.rs#L3932  fn sink_contract_for
+semantic/validation/nets/mod.rs#L3953  fn source_contract_for
+semantic/validation/nets/mod.rs#L3978  fn member_net_of
+semantic/validation/nets/mod.rs#L3996  fn net_name
+semantic/validation/nets/mod.rs#L4004  mod tests
+semantic/validation/nets/mod.rs#L4011  fn net_result
+semantic/validation/nets/mod.rs#L4023  fn diag_key
+semantic/validation/nets/mod.rs#L4028  fn net_results_to_diagnostics_is_identity_under_any_store_today
 semantic/validation/nets/protect.rs#L49  fn declared_ref_roles
 semantic/validation/nets/protect.rs#L80  fn role_in_chain
 semantic/validation/nets/protect.rs#L99  fn marked_components
@@ -10435,4 +10445,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-389 files, 10356 declarations.
+389 files, 10366 declarations.
