@@ -2668,6 +2668,8 @@ mod aicontract;
 mod buildcmd;
 mod defs;
 mod exportcmd;
+mod impact;
+mod import;
 mod libcmd;
 mod lsp;
 mod rulescmd;
@@ -2678,6 +2680,8 @@ pub use aicontract::*;
 pub use buildcmd::*;
 pub use defs::*;
 pub use exportcmd::*;
+pub use impact::*;
+pub use import::*;
 pub use libcmd::*;
 pub use lsp::*;
 pub use rulescmd::*;
@@ -2851,6 +2855,14 @@ pub static METHODS: &[MethodMeta] = &[
     },
     MethodMeta {
         name: "export",
+        consumer: "cli",
+    },
+    MethodMeta {
+        name: "impact",
+        consumer: "cli",
+    },
+    MethodMeta {
+        name: "import",
         consumer: "cli",
     },
     MethodMeta {
@@ -3092,6 +3104,8 @@ pub fn register_all(
     builder = builder.register_method("defs.dependents", handle_defs_dependents);
     builder = builder.register_method("defs.relations", handle_defs_relations);
     builder = builder.register_method("export", handle_export);
+    builder = builder.register_method("impact", handle_impact);
+    builder = builder.register_method("import", handle_import);
     // LSP
     builder = builder.register_method("sem", handle_sem);
     builder = builder.register_method("explain", handle_explain);

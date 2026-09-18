@@ -232,6 +232,12 @@ pub enum Command {
 
     /// Format `.mc` sources in place (whitespace only; token text is never touched)
     Fmt(FmtArgs),
+
+    /// Blast radius of changing one def (which tops, nets, consumers)
+    Impact(ImpactArgs),
+
+    /// Read an EDA artifact back and report how it differs from the current world
+    Import(ImportArgs),
 }
 
 // parse
@@ -859,6 +865,93 @@ impl ExportKind {
             "kicad" | "kicad-netlist" => ExportKind::KiCad,
             "inst-list" => ExportKind::InstList,
             _ => ExportKind::Netlist,
+        }
+    }
+}
+
+// impact
+
+#[derive(Parser, Debug)]
+pub struct ImpactArgs {
+    /// Symbol to assess: a def name (component / module / interface / define)
+    /// or an instance path
+    pub sym: String,
+
+    /// Source .mc file or project directory; defaults to the current directory
+    /// when it holds a project manifest
+    pub file: Option<String>,
+
+    /// Shorthand for `--format json`
+    #[arg(long, conflicts_with = "format")]
+    pub json: bool,
+}
+
+// import
+
+#[derive(Parser, Debug)]
+pub struct ImportArgs {
+    /// EDA artifact to read back: the file `mcc export` produced
+    pub file: String,
+
+    /// Source .mc file or project directory the artifact is compared against;
+    /// defaults to the current directory when it holds a project manifest
+    pub target: Option<String>,
+
+    /// Input EDA format. Spelled `--from` because `-f/--format` is the global
+    /// output format.
+    #[arg(
+        long = "from",
+        value_enum,
+        default_value_t = ImportFormat::Netlist,
+        value_name = "FORMAT"
+    )]
+    pub from: ImportFormat,
+
+    /// Shorthand for `--format json`
+    #[arg(long, conflicts_with = "format")]
+    pub json: bool,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
+pub enum ImportFormat {
+    // SPICE-like text netlist (nets -> points); the `export netlist` artifact
+    Netlist,
+    // KiCad s-expression netlist (M8); the `export kicad` artifact
+    #[value(name = "kicad")]
+    KiCad,
+    // EasyEDA netlist; no exporter writes it yet, so read-back has no reference
+    // side to subtract (batch of its own)
+    #[value(name = "easyeda")]
+    EasyEda,
+}
+
+impl ImportFormat {
+    /// The `FORMAT` token carried by the report.
+    pub fn name(self) -> &'static str {
+        match self {
+            ImportFormat::Netlist => "netlist",
+            ImportFormat::KiCad => "kicad",
+            ImportFormat::EasyEda => "easyeda",
+        }
+    }
+
+    /// The `export` kind that produces the artifact this format reads back, or
+    /// `None` where no producer exists.
+    pub fn export_kind(self) -> Option<ExportKind> {
+        match self {
+            ImportFormat::Netlist => Some(ExportKind::Netlist),
+            ImportFormat::KiCad => Some(ExportKind::KiCad),
+            ImportFormat::EasyEda => None,
+        }
+    }
+
+    /// Parse a `FORMAT` token; an unknown token falls back to the netlist
+    /// default, exactly as `ExportKind::from_name` does.
+    pub fn from_name(s: &str) -> ImportFormat {
+        match s {
+            "kicad" => ImportFormat::KiCad,
+            "easyeda" => ImportFormat::EasyEda,
+            _ => ImportFormat::Netlist,
         }
     }
 }
