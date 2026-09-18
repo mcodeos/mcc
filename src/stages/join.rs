@@ -80,14 +80,18 @@
 //! | clause, 1 row | `carry` | one statement became exactly one row |
 //! | clause, N rows | `expand` | a declaration plus its pins; a two-endpoint `Cap` |
 //! | row, N clauses | `merge` | N statements wired into one net |
-//! | clause, 0 rows | `drop` / `skip` | suspicious (a statement) / as-designed (a kind) |
+//! | clause, 0 rows | `drop` | suspicious (a statement) |
+//! | any cardinality | `skip` | as-designed (a kind, not a shape) |
 //! | row, 0 clauses | `synth` | nothing upstream wrote it |
 //!
 //! `skip` is decided by **AST node kind**, never by name or text (§5.3 source-side item 2):
-//! whether an item participates in modelling is a structural fact. It stays
+//! whether an item participates in modelling is a structural fact, so `skip` is
+//! orthogonal to the cardinality axis and shares no cell with `drop`. It stays
 //! `skip` even when rows do land inside its span — a `pins = [...]` block is
 //! skipped *as a construct*, and the rows it declares are listed on it rather
-//! than reclassifying it as an expansion.
+//! than reclassifying it as an expansion. The second line counts those rows
+//! apart, so `skip N` on the summary line cannot read as N statements that
+//! produced nothing.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -162,6 +166,13 @@ const MERGE_NOTE: &str = "\u{9879}\u{5e76} 1";
 const SYNTH_NOTE: &str = "\u{4e0b}\u{6e38}\u{6709}\u{3001}\u{4e0a}\u{6e38}\u{786e}\u{5b9e}\u{65e0}";
 const SUBHOP_LABEL: &str = "\u{5b50}\u{8df3}";
 const MISMATCH_LABEL: &str = "\u{5931}\u{914d}";
+/// The `skip` clauses that do own rows, on the same line and in the same
+/// "label then count" shape as the two sub-hop labels. `skip` is a verdict on
+/// the construct's kind, not on its cardinality, so the count of members on the
+/// summary line is a total only this split can read: the rest took no part in
+/// modelling at all. Printed even at zero, so a `skip` that never owns a row
+/// cannot hide behind a branch the readout never reached.
+const WITH_DOWNSTREAM_LABEL: &str = "\u{5e26}\u{4e0b}\u{6e38}";
 /// The two labels of the inner hops' second line: the objects no declared kind
 /// admits, and the objects of a declared kind that hold no key. Both are counts
 /// the summary line would otherwise absorb — and both are proof that an empty
@@ -307,6 +318,12 @@ pub fn build_join_src_p2(table: &InstTable, top: &str, diagnostics: usize) -> St
     let mut declarations_unmatched = 0usize;
     let mut func_scoped = 0usize;
     let mut header_scoped = 0usize;
+    // A `skip` clause may still own rows: its kind takes no part in modelling,
+    // but the construct can declare rows all the same (a `pins = [...]` block).
+    // Counted apart so the summary line's `skip N` cannot read as N statements
+    // that produced nothing — the split is what makes the word and the
+    // cardinality legible as the two different things they are.
+    let mut skip_with_downstream = 0usize;
     // Every row falls in exactly one of: inside a clause's span (one or several),
     // or in one of the four anchor buckets below. Publishing both halves lets a
     // reader *prove* an empty `synth` is empty rather than silently skipped —
@@ -361,6 +378,9 @@ pub fn build_join_src_p2(table: &InstTable, top: &str, diagnostics: usize) -> St
             "expand"
         };
         counts.insert(class, counts[class] + 1);
+        if class == "skip" && !owned.is_empty() {
+            skip_with_downstream += 1;
+        }
         let why = match class {
             "skip" => SKIP_NOTE,
             // What was measured, and no more. "Downstream truly has none" would
@@ -452,6 +472,7 @@ pub fn build_join_src_p2(table: &InstTable, top: &str, diagnostics: usize) -> St
     }
     counts_value.insert("sub_hop_src_ast".into(), json!(src_ast_mismatch));
     counts_value.insert("sub_hop_ast_p2".into(), json!(ast_p2_mismatch));
+    counts_value.insert("skip_with_downstream".into(), json!(skip_with_downstream));
     counts_value.insert("unanchored".into(), json!(unanchored));
     counts_value.insert(
         "unanchored_by_class".into(),
@@ -938,16 +959,20 @@ pub fn render_join_text(view: &StageView) -> String {
 /// counted apart, or the two kinds of object the inner hops keep out of the join
 /// counted apart. Both exist so a number the summary line would otherwise absorb
 /// — "the parser dropped it" versus "Pass 2 never wrote it"; "not an object of
-/// this hop" versus "an object with no key" — is legible in the row.
+/// this hop" versus "an object with no key" — is legible in the row. The source
+/// hop carries one more of the same kind: how many of its `skip` clauses do own
+/// rows, which is the only way to read `skip`'s count as the kind verdict it is.
 fn second_line(view: &StageView) -> String {
     match view.view {
         SRC_P2_VIEW => format!(
-            "# {} src->ast {} {}   ast->p2 {} {}",
+            "# {} src->ast {} {}   ast->p2 {} {}   skip {} {}",
             SUBHOP_LABEL,
             MISMATCH_LABEL,
             view.counts["sub_hop_src_ast"].as_u64().unwrap_or(0),
             MISMATCH_LABEL,
-            view.counts["sub_hop_ast_p2"].as_u64().unwrap_or(0)
+            view.counts["sub_hop_ast_p2"].as_u64().unwrap_or(0),
+            WITH_DOWNSTREAM_LABEL,
+            view.counts["skip_with_downstream"].as_u64().unwrap_or(0)
         ),
         _ => format!(
             "# {} {}   {} {}   branch {}   ambiguous {}",

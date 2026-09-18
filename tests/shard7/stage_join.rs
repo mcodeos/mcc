@@ -415,6 +415,43 @@ fn the_summary_line_prints_all_six_words_with_their_cardinality() {
         "the sub-hop line must name both hops, or the two faults are one number again: {sub}"
     );
 
+    // `skip` is a verdict on a construct's kind, not on its cardinality, so its
+    // count on the summary line is a total over two different things. The second
+    // line splits it, and the split must be read off the items rather than
+    // restated: a hardcoded count here would pass whatever the readout did.
+    let downstream = class_items(&stage, "skip")
+        .iter()
+        .filter(|i| i["to"].as_array().is_some_and(|a| !a.is_empty()))
+        .count() as u64;
+    let without = count(c, "skip") - downstream;
+    // Shape: `skip <label> <count>`, the same "label then count" the two sub-hop
+    // counters use. Read by position so a reshuffle of the line fails here
+    // instead of silently reporting another counter's number.
+    let toks: Vec<&str> = sub.trim_start_matches('#').split_whitespace().collect();
+    let at = toks
+        .iter()
+        .position(|t| *t == "skip")
+        .unwrap_or_else(|| panic!("the second line must name `skip`: {sub}"));
+    let printed: u64 = toks
+        .get(at + 2)
+        .and_then(|t| t.parse().ok())
+        .unwrap_or_else(|| panic!("`skip` must be followed by a label and a count: {sub}"));
+    assert_eq!(
+        printed,
+        count(c, "skip_with_downstream"),
+        "the text and JSON faces disagree on how many `skip` clauses have rows: {sub}"
+    );
+    assert_eq!(
+        printed, downstream,
+        "the second line must count the `skip` clauses that do have rows: {sub}"
+    );
+    // Both tiers need members, or the split is a branch no fixture reaches —
+    // and `skip` would look like a single kind of thing again.
+    assert!(
+        downstream >= 2 && without >= 2,
+        "both `skip` tiers must be exercised (with rows {downstream}, without {without})"
+    );
+
     // The text face's class column agrees with the JSON classes, on the two
     // classes whose prefix is load-bearing: `grep '^!'` must reach every drop
     // and nothing else.
