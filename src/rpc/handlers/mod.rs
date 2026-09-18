@@ -1376,7 +1376,7 @@ pub(crate) fn diag_in_system_lib(d: &Value) -> bool {
 }
 
 fn diag_file_in_system_lib(file: &str) -> bool {
-    // In-memory overlay URIs (`/mcc/check_N.mc`, the AI's own content) are
+    // In-memory overlay URIs (`/mcc/check.mc`, the AI's own content) are
     // never library files. `file://` and plain paths go to the path check;
     // any other URI scheme is treated as non-library.
     if let Some(path) = file.strip_prefix("file://") {
@@ -1446,15 +1446,17 @@ pub(crate) fn load_libs_rpc(libs: &[String]) {
     }
 }
 
-use std::sync::atomic::{AtomicU64, Ordering};
-static OVERLAY_COUNTER: AtomicU64 = AtomicU64::new(0);
-
-/// Generate a unique overlay URI for this request.
-/// Concurrent AI clients each get their own URI → no cross-contamination.
+/// The one virtual URI an inline AI dry-run is loaded under.
+///
+/// A dry-run is loaded, diagnosed and removed inside one handler, and
+/// `RPC_STATE_LOCK` (protocol.rs) serializes handlers, so a request needs no
+/// URI of its own. A per-request URI would instead consume a permanent
+/// `UriId` each (`URI_TABLE` is append-only) and feed the process-lived
+/// `DeclareId` ledger, making both depend on how many dry-runs this process
+/// has served - build-design 3.7 discipline 0. `mcb_add_from_string` handles
+/// a repeat of one URI by re-parsing it.
 pub(crate) fn make_overlay_uri() -> McURI {
-    let n = OVERLAY_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let s = format!("/mcc/check_{}.mc", n);
-    McURI::from(s.as_str())
+    McURI::from("/mcc/check.mc")
 }
 
 /// Remove a previously loaded overlay from the workspace.
@@ -3505,7 +3507,7 @@ mod tests {
             |file: &str| json!({ "severity": "error", "location": { "file": file, "line": 1 } });
 
         // In-memory overlay URIs (the AI's own content) are never library files.
-        assert!(!diag_in_system_lib(&diag("/mcc/check_0.mc")));
+        assert!(!diag_in_system_lib(&diag("/mcc/check.mc")));
         // Plain project paths are not library files.
         assert!(!diag_in_system_lib(&diag("boards/dev/main.mc")));
         // `file://` scheme is stripped before the path check.
@@ -3621,5 +3623,49 @@ mod tests {
             .lock()
             .unwrap()
             .clear_file(&lib);
+    }
+
+    /// Every inline dry-run loads under the *same* virtual URI (U82-2), so a
+    /// second dry-run interns no new URI — the process-global `URI_TABLE` is
+    /// append-only, and a per-request URI would make its size depend on how
+    /// many dry-runs this process has served.
+    #[test]
+    fn cli_rpc__handle_check_reuses_one_overlay_uri() {
+        let _guard = crate::db::infra::init::MCC_TEST_PARSE_LOCK
+            .lock()
+            .expect("test parse lock");
+
+        let overlay = super::make_overlay_uri();
+        let key = crate::build::pass1::canonicalize_project_uri(&overlay);
+
+        // Intern the slot now, so the high-water scan below starts inside the
+        // table: ids are dense and handed out in insertion order.
+        let start = crate::uri_intern(&key).0;
+        let high_water = || {
+            let mut hi = start;
+            while !crate::uri_of_file_id(hi + 1).is_empty() {
+                hi += 1;
+            }
+            hi
+        };
+
+        let params = Some(json!({ "content": "module main {}\n" }));
+        let first = super::handle_check(params.clone()).expect("first dry-run");
+        assert_eq!(first["summary"]["errors"].as_u64().unwrap(), 0);
+        let after_first = high_water();
+        assert!(
+            !crate::db::cmie::tables::WORKSPACE.mcodes.contains_key(&key)
+                && !crate::db::cmie::tables::WORKSPACE
+                    .sources
+                    .contains_key(&key),
+            "the overlay must be released once the dry-run has reported"
+        );
+
+        super::handle_check(params).expect("second dry-run");
+        assert_eq!(
+            high_water(),
+            after_first,
+            "a second dry-run must not mint a new URI"
+        );
     }
 }

@@ -12,7 +12,8 @@ pub fn handle_check(params: Option<Value>) -> RpcResult {
 
     // ── Mode A: inline content (AI dry-run) (M6) ──
     if let Some(content) = &p.content {
-        // Phase 8.1: unique overlay URI per request → no concurrent cross-contamination
+        // Phase 8.1: one shared overlay slot for every dry-run; the dispatch
+        // lock in protocol.rs serializes handlers, so no per-request URI.
         let uri = super::make_overlay_uri();
         crate::mcc_load_from_string(&uri, content);
 
@@ -38,7 +39,8 @@ pub fn handle_check(params: Option<Value>) -> RpcResult {
         let lib_errors = lib.iter().filter(|d| d["severity"] == "error").count();
         let lib_warnings = lib.iter().filter(|d| d["severity"] == "warning").count();
 
-        // Phase 8.1: clean up overlay so it doesn't accumulate in workspace
+        // Phase 8.1: the slot is shared, so it must be released before the
+        // next request sees the candidate as a workspace file.
         super::remove_overlay(&uri);
 
         return Ok(json!({
