@@ -14,9 +14,9 @@
 //! a key of no form, or one that resolves to nothing in this build — is not a
 //! judged readout, and fails loudly, the same split `join` makes.
 
+use crate::output::die;
 use anyhow::Result;
 use serde_json::Value;
-use tracing::error;
 
 use mcc::cli::OutputFormat;
 
@@ -47,8 +47,11 @@ pub fn run(args: &mcc::cli::TraceArgs) -> Result<()> {
             crate::cmds::common::resolve_top_module(&entry_uri, mcc::cli::globals().top.clone())
         })
         .unwrap_or_else(|| {
-            error!("no modules found\nhint: load a file with -F or use --top");
-            std::process::exit(1);
+            die!(
+                "mcc::trace",
+                1,
+                "no modules found\nhint: load a file with -F or use --top"
+            );
         });
 
     let (tree, table, arena, store, diags) = match mcc::export::build_tree_diags(
@@ -57,10 +60,7 @@ pub fn run(args: &mcc::cli::TraceArgs) -> Result<()> {
         &mcc::cli::globals().lib,
     ) {
         Ok(quint) => quint,
-        Err(e) => {
-            error!("trace: {e}");
-            std::process::exit(1);
-        }
+        Err(e) => die!("mcc::trace", 1, "trace: {e}"),
     };
 
     // All three hops of one build: the source hop is generated from the table,
@@ -76,10 +76,7 @@ pub fn run(args: &mcc::cli::TraceArgs) -> Result<()> {
 
     let view = match mcc::stages::trace::build_trace(&args.key, &src_p2, &p2_vec, &vec_viz, &top) {
         Ok(view) => view,
-        Err(e) => {
-            error!("{e}");
-            std::process::exit(2);
-        }
+        Err(e) => die!("mcc::trace", 2, "{e}"),
     };
 
     if matches!(
