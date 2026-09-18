@@ -625,23 +625,6 @@ pub enum ShowTarget {
     Values,
 }
 
-// list
-
-#[derive(Parser, Debug)]
-pub struct ListArgs {
-    /// What to list
-    #[arg(value_enum)]
-    pub target: ListTarget,
-
-    /// Parse directly from file (doesn't depend on loaded library/project)
-    #[arg(long, short = 'F')]
-    pub file: Option<String>,
-
-    /// Structured filter on the name lists (all/component/module/interface/enum).
-    /// Comma-separated key=value (key in name|kind|class). RHS supports `*`/`?` wildcards.
-    #[arg(long, value_name = "EXPR")]
-    pub filter: Option<String>,
-
 impl ShowTarget {
     /// Canonical sub-face token, as typed on the command line.
     ///
@@ -695,6 +678,23 @@ mod tests {
         }
     }
 }
+
+// list
+
+#[derive(Parser, Debug)]
+pub struct ListArgs {
+    /// What to list
+    #[arg(value_enum)]
+    pub target: ListTarget,
+
+    /// Parse directly from file (doesn't depend on loaded library/project)
+    #[arg(long, short = 'F')]
+    pub file: Option<String>,
+
+    /// Structured filter on the name lists (all/component/module/interface/enum).
+    /// Comma-separated key=value (key in name|kind|class). RHS supports `*`/`?` wildcards.
+    #[arg(long, value_name = "EXPR")]
+    pub filter: Option<String>,
 
     /// Definition layers for `list all` (same policy as `show all`):
     /// file (default) | use | system | all. Accepted for the other targets
