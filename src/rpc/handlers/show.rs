@@ -1048,4 +1048,3 @@ pub fn handle_show_dump_all(params: Option<Value>) -> RpcResult {
         "entities": all,
     }))
 }
-

@@ -88,8 +88,7 @@ fn run_local(args: &ErcArgs) -> Result<()> {
         ident: mcc::McIds::from(top.as_str()),
         uri: mcc::uri_intern(&uri),
     };
-    let (_tree, table) =
-        mcc::mcb_pass2_flat(&entry, 1).map_err(|e| anyhow::anyhow!("erc: {e}"))?;
+    let (_tree, table) = mcc::mcb_pass2_flat(&entry, 1).map_err(|e| anyhow::anyhow!("erc: {e}"))?;
 
     let results = mcc::check::nets::run_net_checks(&table);
     emit_erc(mcc::check::nets::erc_payload(&top, &results))

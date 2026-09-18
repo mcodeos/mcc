@@ -73,7 +73,8 @@ pub(crate) fn top_ver_from(pairs: &[(String, String)], top: &str) -> Option<Stri
     let material: Vec<(String, String)> = pairs
         .iter()
         .filter(|(uri, _)| {
-            closure.contains(uri) || !crate::definition_space().is_project_source(&McURI::from(uri.as_str()))
+            closure.contains(uri)
+                || !crate::definition_space().is_project_source(&McURI::from(uri.as_str()))
         })
         .cloned()
         .collect();

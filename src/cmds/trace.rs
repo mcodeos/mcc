@@ -112,7 +112,10 @@ fn emit_envelope(view: &mcc::stages::StageView) -> Result<()> {
     crate::output::emit_envelope(
         &env,
         mcc::cli::globals().format,
-        mcc::cli::globals().output.as_deref().map(std::path::Path::new),
+        mcc::cli::globals()
+            .output
+            .as_deref()
+            .map(std::path::Path::new),
         true,
     )
 }
