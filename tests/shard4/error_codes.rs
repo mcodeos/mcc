@@ -91,18 +91,19 @@ fn def_ercode__format_msg_renders_message_templates() {
         );
     }
 
-    // ERC templates (the json!-emission form) interpolate positional args.
-    let m1 = mcc::errcodes::format_msg(mcc::errcodes::ERC_SINGLE_POINT_NET, &[&"VCC"]);
-    assert_eq!(m1, "single-point net: 'VCC' has only one connection");
-    let m3 = mcc::errcodes::format_msg(
-        mcc::errcodes::ERC_MULTI_DRIVE_NET,
-        &[&"NET_A", &2usize, &"p1, p2"],
+    // Templates with positional args interpolate. Drawn from the power family
+    // (the flat net checks' own numeric codes) — the four `erc`-engine codes
+    // that used to cover this were retired with that engine in 2026-09-18.
+    let m1 = mcc::errcodes::format_msg(
+        mcc::errcodes::POWER_BRIDGE_LOOP,
+        &[&"GND_A", &"GND_B"],
     );
-    assert_eq!(m3, "multi-drive net: 'NET_A' has 2 drivers (p1, p2)");
-    let m2 = mcc::errcodes::format_msg(mcc::errcodes::ERC_UNCONNECTED_PORT, &[&"VOUT"]);
-    assert_eq!(m2, "unconnected port: 'VOUT' is not connected to any net");
-    let m4 = mcc::errcodes::format_msg(mcc::errcodes::ERC_FLOATING_NET, &[&"GND2"]);
-    assert_eq!(m4, "floating net: 'GND2' has no driver");
+    assert!(m1.starts_with("parallel DC @bridge between 'GND_A' and 'GND_B'"));
+    let m2 = mcc::errcodes::format_msg(
+        mcc::errcodes::POWER_SOURCE_CONTENTION,
+        &[&"V3V3", &2usize, &"U1.1, U2.1"],
+    );
+    assert!(m2.starts_with("net 'V3V3' carries 2 psrc hard sources (U1.1, U2.1)"));
 
     // Unknown codes render an empty string (caller keeps its own message).
     assert_eq!(mcc::errcodes::format_msg(9999, &[]), "");

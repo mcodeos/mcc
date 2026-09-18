@@ -2,12 +2,20 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! `mcc erc` — Electrical Rule Check (M6).
+//! `mcc erc` — Electrical Rule Check.
 //!
-//! Checks: single-point nets, unconnected ports, multi-drive nets.
-//! Requires Pass2 (instantiation) to build the netlist.
+//! The command is a face, not an engine: it runs Pass2 + flatten and hands the
+//! flat instance table to the flat net checks, the same rules `mcc check --nets`
+//! and `mcc build` run. Until 2026-09-18 it carried its own root-net engine over
+//! the string net table (ERC 6001-6004); that engine is retired
+//! (`erc/rules-catalog-design.md` §3.1 E3). `erc` itself is kept — the four
+//! checks it used to answer with are all answerable here, by the world's ERC
+//! truth, which is the point: two rulers over one design disagreed.
+//!
+//! The payload comes from `check::nets::erc_payload`, which the RPC `erc`
+//! method also renders through, so the two faces cannot drift apart again.
 
-use crate::cmds::manifest;
+use crate::cmds::{common, manifest};
 use crate::output::{emit_projection, OutputFormatExt, ProjectionKey};
 use anyhow::Result;
 use mcc::cli::{rpcclient::RpcClient, ErcArgs};
@@ -52,19 +60,20 @@ fn run_local(args: &ErcArgs) -> Result<()> {
     manifest::init_local(target.as_deref(), &mcc::cli::globals().lib);
 
     // Unified target loading: directory → project mode (manifest-driven,
-    // browse fallback), file → loaded directly.
-    if let Some(t) = &target {
-        crate::cmds::common::load_target(
+    // browse fallback), file → loaded directly. A manifest also declares the
+    // design's top module, and that declaration is honored here — `erc` used to
+    // ignore it and fall through to the first loaded module, so on a
+    // multi-module project `erc` and `build` checked different designs.
+    let (entry_uri, manifest_top) = match &target {
+        Some(t) => common::load_target(
             Some(t),
             mcc::cli::globals().top.as_deref(),
             mcc::cli::globals().entry.as_deref(),
-        )?;
-    }
+        )?,
+        None => (String::new(), None),
+    };
 
-    let top = mcc::cli::globals()
-        .top
-        .clone()
-        .or_else(mcc::mcb_get_first_module_name)
+    let top = common::resolve_top_module(&entry_uri, manifest_top)
         .ok_or_else(|| anyhow::anyhow!("erc: no modules found — specify --top"))?;
 
     // Resolve the module's real URI (modules may live in a different file
@@ -73,151 +82,15 @@ fn run_local(args: &ErcArgs) -> Result<()> {
         .iter()
         .find(|(n, _)| *n == top)
         .map(|(_, u)| u.clone())
-        .unwrap_or_else(|| top.clone());
+        .unwrap_or_else(|| entry_uri.clone());
 
-    let (inst, arena, store, net_store) =
-        crate::cmds::common::build_pass2_with_arena(top.as_str(), &uri)
-            .map_err(|e| anyhow::anyhow!("erc: {e}"))?;
-    // Phase C S3-D: children resolve through the view (the tree's Vec fields
-    // are gone).
-    let view = mcc::TreeView::new(&arena, &store);
+    let entry = mcc::McSpaceName {
+        ident: mcc::McIds::from(top.as_str()),
+        uri: mcc::uri_intern(&uri),
+    };
+    let (_tree, table) =
+        mcc::mcb_pass2_flat(&entry, 1).map_err(|e| anyhow::anyhow!("erc: {e}"))?;
 
-    let mut diags: Vec<serde_json::Value> = Vec::new();
-
-    // Phase D: the tree never stores NetPoint — the per-module string net
-    // tables come from the frozen store, keyed by the root module's path.
-    let root_nets = net_store
-        .get(&inst.name.to_string())
-        .map(|t| t.to_vec())
-        .unwrap_or_default();
-
-    // ── Single-point nets ──
-    for (name, points) in &root_nets {
-        if mcc::instant::mc_net::is_anon_net_name(name) || name == "NC" {
-            continue;
-        }
-        if points.len() <= 1 {
-            let code = mcc::errcodes::ERC_SINGLE_POINT_NET;
-            let msg = mcc::errcodes::format_msg(code, &[&name]);
-            diags.push(json!({
-                "code": code,
-                "severity": "warning",
-                "check": "single_point_net",
-                "message": msg,
-            }));
-        }
-    }
-
-    // ── Unconnected ports ──
-    let all_paths: std::collections::HashSet<&str> = root_nets
-        .iter()
-        .flat_map(|(_, pts)| pts.iter())
-        .map(|p| p.path.as_str())
-        .collect();
-
-    // A bus/interface port (e.g. `V3V3{VCC, GND}` / `[VDD_3V3, GND]`) is
-    // considered connected when ANY of its member lanes is a wired net point —
-    // the bare port name is a declaration identity, not an endpoint itself.
-    for port in &inst.ports {
-        let connected = all_paths.contains(port.name.as_str())
-            || port.bus_members.iter().any(|m| {
-                let lane = format!("{}.{}", port.name, m);
-                all_paths.contains(lane.as_str())
-            });
-        if !connected {
-            let code = mcc::errcodes::ERC_UNCONNECTED_PORT;
-            let msg = mcc::errcodes::format_msg(code, &[&port.name]);
-            diags.push(json!({
-                "code": code,
-                "severity": "warning",
-                "check": "unconnected_port",
-                "message": msg,
-            }));
-        }
-    }
-
-    // ── Multi-drive / floating net detection ──
-    let mut multi_drive = 0u32;
-    let mut floating = 0u32;
-
-    // A power/ground rail is driven by its declaration label and upstream
-    // source; module power-input ports on a rail are LOADS, not independent
-    // drivers. Count only genuine source outputs (Out/Power) on rails, keeping
-    // the full driver set (Out/InOut/Power/Analog) for signal nets. Rails are
-    // exempt from the floating check — a load-only rail's source is the
-    // declared rail label / upstream stage, so 0 drivers is normal there.
-    //
-    // A net IS a rail when it carries a **declared** power face: a point whose
-    // own declaration made it a supply or a return. The former test asked
-    // `looks_like_power_rail(name)` — a `VCC`/`VDD`/`GND`/`VSS`/`3V3` word
-    // table, case-folded — so whether a net was treated as a rail depended on
-    // what the author called it (world-axioms §1 A1).
-
-    for (name, points) in &root_nets {
-        if mcc::instant::mc_net::is_anon_net_name(name) || name.as_str() == "NC" {
-            continue;
-        }
-        let rail = points
-            .iter()
-            .any(|p| matches!(p.iotype, mcc::IOType::Power | mcc::IOType::Return));
-        let drivers: Vec<_> = points
-            .iter()
-            .filter(|p| {
-                if rail {
-                    matches!(p.iotype, mcc::IOType::Out | mcc::IOType::Power)
-                } else {
-                    matches!(
-                        p.iotype,
-                        mcc::IOType::Out
-                            | mcc::IOType::InOut
-                            | mcc::IOType::Power
-                            | mcc::IOType::Analog
-                    )
-                }
-            })
-            .collect();
-
-        if drivers.len() > 1 {
-            multi_drive += 1;
-            let names: Vec<_> = drivers.iter().map(|d| d.path.as_str()).collect();
-            let code = mcc::errcodes::ERC_MULTI_DRIVE_NET;
-            let args: &[&dyn std::fmt::Display] = &[&name, &drivers.len(), &names.join(", ")];
-            let msg = mcc::errcodes::format_msg(code, args);
-            diags.push(json!({
-                "code": code,
-                "severity": "error",
-                "check": "multi_drive",
-                "message": msg,
-            }));
-        } else if drivers.is_empty() && points.len() > 1 && !rail {
-            floating += 1;
-            let code = mcc::errcodes::ERC_FLOATING_NET;
-            let msg = mcc::errcodes::format_msg(code, &[&name]);
-            diags.push(json!({
-                "code": code,
-                "severity": "warning",
-                "check": "floating_net",
-                "message": msg,
-            }));
-        }
-    }
-
-    let result = json!({
-        "command": "erc",
-        "top": top,
-        "summary": {
-            "net_count": root_nets.len(),
-            "connection_count": inst.connections.len(),
-            "component_count": view.components(&inst).count(),
-            "port_count": inst.ports.len(),
-            "violations": diags.len(),
-            "single_point_nets": diags.iter().filter(|d| d["check"] == "single_point_net").count(),
-            "unconnected_ports": diags.iter().filter(|d| d["check"] == "unconnected_port").count(),
-            "multi_drive_nets": multi_drive,
-            "floating_nets": floating,
-        },
-        "violations": diags,
-    });
-
-    emit_erc(result)
+    let results = mcc::check::nets::run_net_checks(&table);
+    emit_erc(mcc::check::nets::erc_payload(&top, &results))
 }
