@@ -35,6 +35,7 @@ use crate::semantic::common::{ConnDir, IOType};
 use crate::semantic::component::McComponent;
 use crate::semantic::mc_func::{McFuncReturn, McFunction};
 use crate::semantic::mc_inst::{McInstance, McInstances};
+use crate::semantic::module::pi::{L1DomainPair, McPowerDecls};
 use crate::semantic::module::McModule;
 use crate::vector::model::trunk::TrunkKind;
 use crate::McIds;
@@ -845,6 +846,18 @@ impl InstantiationBuilder {
         }
     }
 
+    /// The declared DC pair a **whole-referenceable** domain name stands for
+    /// (`intent-reference-layer-design.md` §10.2 D1), or `None`.
+    ///
+    /// *Whole-referenceable* means exactly: the domain declares **one** rail
+    /// under a `::DC` contract. Zero rails and two-or-more rails answer `None`
+    /// — absence is the criterion, not a lookup that can fail — so a
+    /// multi-rail domain keeps its meaning as a plain name rather than being
+    /// silently resolved to one of its rails.
+    fn domain_pair_named(pi: &McPowerDecls, name: &str) -> Option<L1DomainPair> {
+        pi.l1_domain_pairs().into_iter().find(|p| p.domain == name)
+    }
+
     /// Vector-width alignment at the instantiation boundary
     /// Enforce the arg-to-formal vector-width rules (matching-rules-design.md
     /// §3) for every binding whose formal is a vector (`[..]::DC(...)` parses
@@ -879,7 +892,31 @@ impl InstantiationBuilder {
                 out.push(b.clone());
                 continue;
             };
-            let elems = Self::param_value_to_node_elements(value);
+            let mut elems = Self::param_value_to_node_elements(value);
+            // ── R1 whole-reference (intent-reference-layer-design.md §10.2 D1,
+            // ruling "uniform rewrite" §10.10.1): a single bare name that is a
+            // *whole-referenceable* domain of the module owning this call
+            // denotes that domain's declared `[hot, ret]` pair, exactly as if
+            // the author had written the literal pair here.
+            //
+            // The name is widened into the literal **`Set` form** and the
+            // elements recomputed, rather than lanes being built by hand: the
+            // width check below then sees the very value a written `[hot, ret]`
+            // would have produced. That is what keeps the rewrite
+            // position-independent — no receiver-shape analysis, no second
+            // judgement — and leaves a formal that cannot take the pair to the
+            // existing check (E4180).
+            if let [only] = elems.as_slice() {
+                if only.member.is_empty() && !only.name.is_empty() {
+                    if let Some(pair) = Self::domain_pair_named(&self.def.pi, &only.name) {
+                        let widened = McParamValue::Set(vec![
+                            McParamValue::Ids(McIds::from(pair.hot.as_str())),
+                            McParamValue::Ids(McIds::from(pair.ret.as_str())),
+                        ]);
+                        elems = Self::param_value_to_node_elements(&widened);
+                    }
+                }
+            }
             let mut lanes: Vec<NetPoint> = Vec::new();
             for e in &elems {
                 lanes.extend(self.expand_node_element(e));

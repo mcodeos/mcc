@@ -288,3 +288,87 @@ fn p25__chain_spelling_agrees_with_the_folded_spelling() {
         "both spellings of the bus-lane expansion must land the same partition"
     );
 }
+
+// ── R1 whole-reference at a call site (intent-reference-layer-design.md §10.2
+//    D1, ruling "uniform rewrite" §10.10.1) ──
+
+/// A module declaring all three branches of the whole-reference predicate:
+/// `DVDD` has exactly one `::DC` rail (whole-referenceable), `DUALA` has two
+/// (not), `BARE` has none (not). Every rejection cell below is a domain that
+/// is *present and rejected*, so none of them can pass by the parser having
+/// dropped the domain.
+const HEAD_PAIR: &str = "module main {\n    io VDD_3V3\n    io GND\n    io A1\n    io A2\n    io AG\n    domain DVDD  { rail [VDD_3V3, GND]::DC(3.3V) }\n    domain DUALA { rail [A1, AG]::DC(3.3V)\n                   rail [A2, AG]::DC(1.8V) }\n    domain BARE  {}\n    func M() {\n";
+
+fn pair_src_of(body: &str) -> String {
+    format!("{RES}{HEAD_PAIR}{body}\n    }}\n}}\n")
+}
+
+/// A bare domain name that is *whole-referenceable* denotes its declared
+/// `[hot, ret]` pair: the call `RES(10).Pullup(DVDD)` lands exactly the
+/// partition the written `RES(10).Pullup([VDD_3V3, GND])` lands.
+///
+/// The assertion is on the partition, never on a diagnostic list — a code list
+/// would be satisfied by the name expanding into nothing. The two anti-false-
+/// green checks pin that the written form is non-trivial *before* the equality
+/// is read: the two lanes must land on two different nets.
+#[test]
+fn u79_r1__whole_referenceable_domain_name_equals_its_written_pair() {
+    let named = pair_src_of("        RES(10).Pullup(DVDD)");
+    let written = pair_src_of("        RES(10).Pullup([VDD_3V3, GND])");
+    let by_name = partition_of(&named, "/mcc/u79-r1-named.mc");
+    let by_pair = partition_of(&written, "/mcc/u79-r1-written.mc");
+
+    // Pin the written form first: both lanes on real, distinct nets.
+    let hot = net_holding(&by_pair, "VDD_3V3")
+        .unwrap_or_else(|| panic!("the written pair must land VDD_3V3: {by_pair:?}"));
+    let ret = net_holding(&by_pair, "GND")
+        .unwrap_or_else(|| panic!("the written pair must land GND: {by_pair:?}"));
+    assert_ne!(
+        hot, ret,
+        "the printed pair must land two different nets, otherwise the equality \
+         below is satisfied by expanding into nothing"
+    );
+    assert!(
+        !codes_of(&named, "/mcc/u79-r1-named.mc").contains(&mcc::errcodes::VECTOR_WIDTH_MISMATCH),
+        "a whole-referenceable name fits a 2-member vector formal and must not \
+         report a width mismatch"
+    );
+    assert_eq!(
+        by_name, by_pair,
+        "DVDD must land exactly the partition [VDD_3V3, GND] lands"
+    );
+}
+
+/// The predicate's two rejection branches, each measured **against a plain
+/// undeclared name in the same position** rather than against a hardcoded
+/// expectation: a domain that is not whole-referenceable must behave exactly
+/// like a name the scope never declared. That pins "not rewritten" without
+/// restating the width rule here.
+#[test]
+fn u79_r1__non_whole_referenceable_domains_behave_like_an_undeclared_name() {
+    let plain = codes_of(
+        &pair_src_of("        RES(10).Pullup(ZZZ)"),
+        "/mcc/u79-r1-plain.mc",
+    );
+    assert!(
+        plain.contains(&mcc::errcodes::VECTOR_WIDTH_MISMATCH),
+        "the baseline must be a real mismatch, not silence: {plain:?}"
+    );
+    for (dom, why) in [
+        (
+            "DUALA",
+            "declares two ::DC rails, so it stands for no single pair",
+        ),
+        ("BARE", "declares no rail at all, so it stands for nothing"),
+    ] {
+        let codes = codes_of(
+            &pair_src_of(&format!("        RES(10).Pullup({dom})")),
+            &format!("/mcc/u79-r1-{dom}.mc"),
+        );
+        assert_eq!(
+            codes, plain,
+            "{dom} {why} — it must not widen into a pair, so it must read \
+             exactly like an undeclared name"
+        );
+    }
+}
