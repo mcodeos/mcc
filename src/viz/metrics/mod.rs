@@ -144,93 +144,228 @@ impl ReadabilityScore {
 
 // Phase F — Engineer style soft metrics
 
+/// One engineer-style axis, kept as raw counts rather than a ratio.
+///
+/// `num / den` is the axis' score and `samples` is how many objects it was
+/// measured over. Raw because a render has several layers and the accumulator
+/// merges them: adding numerators and denominators gives a **ratio of sums**,
+/// where adding finished ratios would give the average of averages. The same
+/// shape the accumulator already uses for pins and authored sides.
+///
+/// `samples` is also why this is not a bare `f64`. Every axis below scores `1.0`
+/// when it has nothing to measure — the historical convention of these helpers —
+/// so a layer with no power nets would otherwise publish the same number as a
+/// layer whose power nets are all placed right. The count is what tells those
+/// two apart, and it is published beside the score.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct Axis {
+    pub num: f64,
+    pub den: f64,
+    pub samples: usize,
+}
+
+impl Axis {
+    /// `den` objects measured, `num` of them good. `den` doubles as `samples`.
+    fn new(num: usize, den: usize) -> Self {
+        Self {
+            num: num as f64,
+            den: den as f64,
+            samples: den,
+        }
+    }
+
+    /// For the axes whose two halves are areas rather than object counts.
+    fn area(num: f64, den: f64, samples: usize) -> Self {
+        Self { num, den, samples }
+    }
+
+    /// The score, with the vacuous case left at `1.0` and recorded by `samples`.
+    fn ratio(self) -> f64 {
+        if self.den == 0.0 {
+            1.0
+        } else {
+            self.num / self.den
+        }
+    }
+
+    fn add(&mut self, o: Self) {
+        self.num += o.num;
+        self.den += o.den;
+        self.samples += o.samples;
+    }
+}
+
+/// Every engineer-style axis for one layer, in raw counts.
+///
+/// Public because it is the unit [`MetricsAccumulator`] merges and the unit the
+/// tests exercise; the published shape is [`EngineerStyleMetrics`], which folds
+/// these into scores.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct EngineerStyleCells {
+    pub signal_flow: Axis,
+    pub rail_align: Axis,
+    pub ground_align: Axis,
+    pub bus_order: Axis,
+    pub idiom_prox: Axis,
+    pub pin_side: Axis,
+    /// `(sum of box areas, bounding-box area of the boxes, boxes)`. Merged by
+    /// summing both areas across layers. The score is their ratio capped at
+    /// `1.0`, since boxes may overlap.
+    pub block_compact: Axis,
+    pub route_channel: Axis,
+    /// `(label pairs that overlap, labels)`. The score is the complement of the
+    /// overlap rate against the most overlaps a set of that size can hold — see
+    /// [`label_readability_score`].
+    pub label_readable: Axis,
+}
+
+impl EngineerStyleCells {
+    /// Measure one layer.
+    pub fn measure(graph: &McVecGraph) -> Self {
+        let (rail_align, ground_align) = measure_rail_alignment(graph);
+        Self {
+            signal_flow: measure_signal_flow(graph),
+            rail_align,
+            ground_align,
+            bus_order: measure_bus_order(graph),
+            idiom_prox: measure_idiom_proximity(graph),
+            pin_side: measure_pin_side_honor(graph),
+            block_compact: measure_block_compactness(graph),
+            route_channel: measure_route_channel_clarity(graph),
+            label_readable: measure_label_readability(graph),
+        }
+    }
+
+    /// Fold another layer's cells in.
+    pub fn merge(&mut self, other: Self) {
+        self.signal_flow.add(other.signal_flow);
+        self.rail_align.add(other.rail_align);
+        self.ground_align.add(other.ground_align);
+        self.bus_order.add(other.bus_order);
+        self.idiom_prox.add(other.idiom_prox);
+        self.pin_side.add(other.pin_side);
+        self.block_compact.add(other.block_compact);
+        self.route_channel.add(other.route_channel);
+        self.label_readable.add(other.label_readable);
+    }
+}
+
 /// Soft metrics that measure how "engineer-like" the schematic looks.
 /// These are informational only — they do NOT affect the hard gate.
+///
+/// Each score carries the count it was measured over. A score of `1.0` with
+/// `*_samples == 0` means the axis found nothing to measure, not that it found
+/// everything in order; read the pair, never the score alone.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct EngineerStyleMetrics {
-    /// Signal flow monotonicity: fraction of signal chains that are left-to-right.
+    /// Signal flow monotonicity: fraction of signal chains drawn left-to-right.
     pub signal_flow_monotonicity: f64,
-    /// Power rail alignment: fraction of power flags above their consumers.
+    /// Chains that fraction was taken over.
+    pub signal_flow_samples: usize,
+    /// Power rail alignment: fraction of power placements above their consumer.
     pub rail_alignment_score: f64,
-    /// Ground alignment: fraction of ground flags below their consumers.
+    pub rail_alignment_samples: usize,
+    /// Ground alignment: fraction of ground placements below their consumer.
     pub ground_alignment_score: f64,
-    /// Bus order: fraction of bus bits in correct order.
+    pub ground_alignment_samples: usize,
+    /// Bus order: fraction of buses whose bit order comes out ascending.
     pub bus_order_score: f64,
-    /// Idiom proximity: fraction of idiom satellites within preferred distance.
+    pub bus_order_samples: usize,
+    /// Idiom proximity: fraction of idiom instances that are not violations.
     pub idiom_proximity_score: f64,
-    /// Pin side intent honor rate: fraction of authored pin sides that are honored.
+    pub idiom_proximity_samples: usize,
+    /// Pin side intent honor rate: fraction of authored pin sides honored.
     pub pin_side_intent_honor_rate: f64,
-    /// Functional block compactness: average ratio of block area to bounding box.
+    pub pin_side_intent_samples: usize,
+    /// Functional block compactness: box area over bounding-box area, capped.
     pub functional_block_compactness: f64,
-    /// Route channel clarity: fraction of routes using clear channels.
+    pub functional_block_samples: usize,
+    /// Route channel clarity: fraction of routes with few bends per segment.
     pub route_channel_clarity: f64,
-    /// Label readability: fraction of labels not overlapping anything.
+    pub route_channel_samples: usize,
+    /// Label readability: how far the label overlap count is from the worst a
+    /// label set that size allows.
     pub label_readability_score: f64,
+    pub label_readability_samples: usize,
 }
 
 impl EngineerStyleMetrics {
-    /// Compute engineer style metrics from a laid-out graph.
+    /// Fold measured cells into the published scores.
+    pub fn from_cells(c: EngineerStyleCells) -> Self {
+        Self {
+            signal_flow_monotonicity: c.signal_flow.ratio(),
+            signal_flow_samples: c.signal_flow.samples,
+            rail_alignment_score: c.rail_align.ratio(),
+            rail_alignment_samples: c.rail_align.samples,
+            ground_alignment_score: c.ground_align.ratio(),
+            ground_alignment_samples: c.ground_align.samples,
+            bus_order_score: c.bus_order.ratio(),
+            bus_order_samples: c.bus_order.samples,
+            idiom_proximity_score: c.idiom_prox.ratio(),
+            idiom_proximity_samples: c.idiom_prox.samples,
+            pin_side_intent_honor_rate: c.pin_side.ratio(),
+            pin_side_intent_samples: c.pin_side.samples,
+            functional_block_compactness: c.block_compact.ratio().min(1.0),
+            functional_block_samples: c.block_compact.samples,
+            route_channel_clarity: c.route_channel.ratio(),
+            route_channel_samples: c.route_channel.samples,
+            label_readability_score: label_readability_score(&c.label_readable),
+            label_readability_samples: c.label_readable.samples,
+        }
+    }
+
+    /// Measure a single graph.
+    ///
+    /// The accumulator path is [`EngineerStyleCells::measure`] into
+    /// [`EngineerStyleMetrics::from_cells`], because a render has more than one
+    /// layer and its axes merge; this is the one-graph convenience over it.
     pub fn compute(graph: &McVecGraph) -> Self {
-        let mut metrics = Self::default();
-
-        // Signal flow monotonicity: check if signal chain nodes are left-to-right
-        metrics.signal_flow_monotonicity = compute_signal_flow_monotonicity(graph);
-
-        // Rail alignment: power flags above their consumers
-        let (rail_score, ground_score) = compute_rail_alignment(graph);
-        metrics.rail_alignment_score = rail_score;
-        metrics.ground_alignment_score = ground_score;
-
-        // Bus order score
-        metrics.bus_order_score = compute_bus_order_score(graph);
-
-        // Idiom proximity score
-        metrics.idiom_proximity_score = compute_idiom_proximity_score(graph);
-
-        // Pin side intent honor rate
-        metrics.pin_side_intent_honor_rate = compute_pin_side_honor_rate(graph);
-
-        // Functional block compactness
-        metrics.functional_block_compactness = compute_block_compactness(graph);
-
-        // Route channel clarity
-        metrics.route_channel_clarity = compute_route_channel_clarity(graph);
-
-        // Label readability
-        metrics.label_readability_score = compute_label_readability(graph);
-
-        metrics
+        Self::from_cells(EngineerStyleCells::measure(graph))
     }
 
     pub fn report_line(&self) -> String {
         format!(
-            "[metrics] ENGINEER-STYLE: signal_flow={:.2} rail_align={:.2} ground_align={:.2} \
-             bus_order={:.2} idiom_prox={:.2} pin_side={:.2} block_compact={:.2} \
-             route_channel={:.2} label_readable={:.2}",
+            "[metrics] ENGINEER-STYLE: signal_flow={:.2}({}) rail_align={:.2}({}) \
+             ground_align={:.2}({}) bus_order={:.2}({}) idiom_prox={:.2}({}) \
+             pin_side={:.2}({}) block_compact={:.2}({}) route_channel={:.2}({}) \
+             label_readable={:.2}({})",
             self.signal_flow_monotonicity,
+            self.signal_flow_samples,
             self.rail_alignment_score,
+            self.rail_alignment_samples,
             self.ground_alignment_score,
+            self.ground_alignment_samples,
             self.bus_order_score,
+            self.bus_order_samples,
             self.idiom_proximity_score,
+            self.idiom_proximity_samples,
             self.pin_side_intent_honor_rate,
+            self.pin_side_intent_samples,
             self.functional_block_compactness,
+            self.functional_block_samples,
             self.route_channel_clarity,
+            self.route_channel_samples,
             self.label_readability_score,
+            self.label_readability_samples,
         )
     }
 }
 
 // ── Engineer style metric helpers ──
+//
+// Each returns the raw counts, not a finished ratio, so the accumulator can add
+// them over layers. The empty-input case yields `den == 0` and is left for
+// `Axis::ratio` to turn into the conventional `1.0`.
 
-fn compute_signal_flow_monotonicity(graph: &McVecGraph) -> f64 {
+fn measure_signal_flow(graph: &McVecGraph) -> Axis {
     // Check if signal chains flow left-to-right
-    let mut total_chains = 0usize;
+    let mut chains = 0usize;
     let mut monotonic = 0usize;
     for net in &graph.nets {
         if net.endpoints.len() < 2 {
             continue;
         }
-        total_chains += 1;
+        chains += 1;
         let mut all_ltr = true;
         let mut prev_x = f64::NEG_INFINITY;
         for ep in &net.endpoints {
@@ -247,14 +382,12 @@ fn compute_signal_flow_monotonicity(graph: &McVecGraph) -> f64 {
             monotonic += 1;
         }
     }
-    if total_chains == 0 {
-        1.0
-    } else {
-        monotonic as f64 / total_chains as f64
-    }
+    Axis::new(monotonic, chains)
 }
 
-fn compute_rail_alignment(graph: &McVecGraph) -> (f64, f64) {
+/// `(power, ground)`. Both count endpoint pairs rather than nets: a net with
+/// three placements offers every ordered pair to the comparison.
+fn measure_rail_alignment(graph: &McVecGraph) -> (Axis, Axis) {
     let mut power_total = 0usize;
     let mut power_above = 0usize;
     let mut ground_total = 0usize;
@@ -293,20 +426,13 @@ fn compute_rail_alignment(graph: &McVecGraph) -> (f64, f64) {
             }
         }
     }
-    let power_score = if power_total == 0 {
-        1.0
-    } else {
-        power_above as f64 / power_total as f64
-    };
-    let ground_score = if ground_total == 0 {
-        1.0
-    } else {
-        ground_below as f64 / ground_total as f64
-    };
-    (power_score, ground_score)
+    (
+        Axis::new(power_above, power_total),
+        Axis::new(ground_below, ground_total),
+    )
 }
 
-fn compute_bus_order_score(graph: &McVecGraph) -> f64 {
+fn measure_bus_order(graph: &McVecGraph) -> Axis {
     let mut total_buses = 0usize;
     let mut ordered = 0usize;
     for net in &graph.nets {
@@ -333,24 +459,17 @@ fn compute_bus_order_score(graph: &McVecGraph) -> f64 {
             ordered += 1;
         }
     }
-    if total_buses == 0 {
-        1.0
-    } else {
-        ordered as f64 / total_buses as f64
-    }
+    Axis::new(ordered, total_buses)
 }
 
-fn compute_idiom_proximity_score(graph: &McVecGraph) -> f64 {
+fn measure_idiom_proximity(graph: &McVecGraph) -> Axis {
     let idioms = crate::viz::idiom::analyze(graph);
-    if idioms.is_empty() {
-        return 1.0;
-    }
     let total = idioms.len();
     let violations = idioms.iter().filter(|i| i.idiom_violation).count();
-    (total - violations) as f64 / total as f64
+    Axis::new(total - violations, total)
 }
 
-fn compute_pin_side_honor_rate(graph: &McVecGraph) -> f64 {
+fn measure_pin_side_honor(graph: &McVecGraph) -> Axis {
     let mut total = 0usize;
     let mut honored = 0usize;
     for b in &graph.boxes {
@@ -370,17 +489,14 @@ fn compute_pin_side_honor_rate(graph: &McVecGraph) -> f64 {
             honored += h;
         }
     }
-    if total == 0 {
-        1.0
-    } else {
-        honored as f64 / total as f64
-    }
+    Axis::new(honored, total)
 }
 
-fn compute_block_compactness(graph: &McVecGraph) -> f64 {
+fn measure_block_compactness(graph: &McVecGraph) -> Axis {
     // Measure how compactly boxes are packed
-    if graph.boxes.len() < 2 {
-        return 1.0;
+    let boxes = graph.boxes.len();
+    if boxes < 2 {
+        return Axis::area(0.0, 0.0, 0);
     }
     let total_box_area: f64 = graph.boxes.iter().map(|b| b.w * b.h).sum();
     let mut min_x = f64::MAX;
@@ -394,14 +510,10 @@ fn compute_block_compactness(graph: &McVecGraph) -> f64 {
         max_y = max_y.max(b.y + b.h);
     }
     let bbox_area = (max_x - min_x) * (max_y - min_y);
-    if bbox_area <= 0.0 {
-        1.0
-    } else {
-        (total_box_area / bbox_area).min(1.0)
-    }
+    Axis::area(total_box_area, bbox_area.max(0.0), boxes)
 }
 
-fn compute_route_channel_clarity(graph: &McVecGraph) -> f64 {
+fn measure_route_channel_clarity(graph: &McVecGraph) -> Axis {
     // Measure how many routes are orthogonal and clear
     let mut total_routes = 0usize;
     let mut clear_routes = 0usize;
@@ -419,24 +531,15 @@ fn compute_route_channel_clarity(graph: &McVecGraph) -> f64 {
             }
         }
     }
-    if total_routes == 0 {
-        1.0
-    } else {
-        clear_routes as f64 / total_routes as f64
-    }
+    Axis::new(clear_routes, total_routes)
 }
 
-fn compute_label_readability(graph: &McVecGraph) -> f64 {
-    // Measure label overlap ratio
+fn measure_label_readability(graph: &McVecGraph) -> Axis {
     let labels: Vec<LabelBounds> = graph
         .boxes
         .iter()
         .flat_map(|b| designator_value_label_bounds(b))
         .collect();
-    if labels.is_empty() {
-        return 1.0;
-    }
-    let total = labels.len();
     let mut overlaps = 0usize;
     for i in 0..labels.len() {
         for j in (i + 1)..labels.len() {
@@ -454,12 +557,20 @@ fn compute_label_readability(graph: &McVecGraph) -> f64 {
             }
         }
     }
-    // Simple heuristic: each label can overlap at most 1 other
-    let max_overlaps = total / 2;
-    if max_overlaps == 0 {
+    Axis::new(overlaps, labels.len())
+}
+
+/// The label axis is the one whose score is not `num / den`: it compares the
+/// overlap count against the most a set that size can hold, which is half its
+/// size (each label sharing with one other). A set of one can hold no overlap at
+/// all, so it scores `1.0` and reports `samples == 1` — not the same thing as an
+/// axis with nothing to measure, but the two are told apart the same way.
+fn label_readability_score(a: &Axis) -> f64 {
+    let worst = (a.den / 2.0).floor();
+    if worst <= 0.0 {
         1.0
     } else {
-        1.0 - (overlaps as f64 / max_overlaps as f64).min(1.0)
+        1.0 - (a.num / worst).min(1.0)
     }
 }
 
@@ -791,6 +902,8 @@ pub struct MetricsAccumulator {
     determinism: Option<super::stability::report::DeterminismReport>,
     stability: Option<super::stability::report::StabilityReport>,
     connectivity: Option<super::connectivity::report::RenderedConnectivityReport>,
+    /// Phase F — engineer style axes, merged over every layer.
+    engineer_style: EngineerStyleCells,
     /// ★ P7-1: renderdiff per-layer readings (measured after route, before render)
     pub renderdiff_layers: Vec<renderdiff::LayerReading>,
 }
@@ -907,6 +1020,17 @@ impl MetricsAccumulator {
         }
     }
 
+    /// Accumulate engineer style metrics for one layer.
+    ///
+    /// Runs for **every** layer, unlike the four audited families: these axes
+    /// read box placement, rails, labels and routes, and a device sub-layer has
+    /// all four. Merged by addition, so the published score is a ratio of sums
+    /// over the whole drawing rather than the last layer's ratio.
+    pub fn accumulate_engineer_style(&mut self, graph: &McVecGraph) {
+        self.engineer_style
+            .merge(EngineerStyleCells::measure(graph));
+    }
+
     /// ★ P7-1: accumulate one renderdiff layer reading (measured after route, before render).
     pub fn accumulate_renderdiff(&mut self, reading: renderdiff::LayerReading) {
         self.renderdiff_layers.push(reading);
@@ -923,6 +1047,9 @@ impl MetricsAccumulator {
         let determinism = self.determinism.clone();
         let stability = self.stability.clone();
         let connectivity = self.connectivity.clone();
+        // `EngineerStyleCells` is `Copy`, so this is read here, before
+        // `finish_parts` consumes `self`, without cloning.
+        let engineer_style = EngineerStyleMetrics::from_cells(self.engineer_style);
         let (fidelity, readability, collisions, builder, truth, visual, semantic, special) =
             self.finish_parts(report);
         SchematicQualityReport {
@@ -937,7 +1064,7 @@ impl MetricsAccumulator {
             determinism,
             stability,
             rendered_connectivity: connectivity,
-            engineer_style: EngineerStyleMetrics::default(),
+            engineer_style,
         }
     }
 
@@ -1746,6 +1873,113 @@ mod tests {
             .report_lines()
             .iter()
             .any(|line| line.contains("[metrics] TRUTH:")));
+    }
+    // ── Engineer style (M4): the axes are counted, merged, and their vacuous
+    // case is visible. These three carry the whole reason the axes are raw
+    // counts rather than finished ratios.
+
+    /// One signal chain of two boxes. `left_to_right` picks which box comes
+    /// first, which is the whole of what the `signal_flow` axis measures.
+    fn chain(g: &mut McVecGraph, nid: i64, left_to_right: bool) {
+        let (a, b) = if left_to_right {
+            (0.0, 100.0)
+        } else {
+            (100.0, 0.0)
+        };
+        let (ida, idb) = (nid * 2, nid * 2 + 1);
+        g.boxes.push(mk_box(ida, a, 0.0));
+        g.boxes.push(mk_box(idb, b, 0.0));
+        g.nets.push(real_net(nid, ida, 10, idb, 20));
+    }
+
+    /// The merge is a **ratio of sums**, not the mean of the layers' ratios —
+    /// the reason [`EngineerStyleCells`] holds counts rather than scores.
+    ///
+    /// One layer is 1/1 and the other 0/3, so the ratio of sums is 1/4 while the
+    /// mean of the two ratios is 1/2. Pinning the first rules out the second.
+    #[test]
+    fn engineer_style_merges_as_a_ratio_of_sums() {
+        let mut one = McVecGraph::new(0, "one".into());
+        chain(&mut one, 1, true);
+        let mut other = McVecGraph::new(1, "other".into());
+        for nid in 1..=3 {
+            chain(&mut other, nid, false);
+        }
+
+        let a = EngineerStyleMetrics::compute(&one);
+        let b = EngineerStyleMetrics::compute(&other);
+        assert_eq!(
+            (a.signal_flow_monotonicity, a.signal_flow_samples),
+            (1.0, 1),
+            "one chain, drawn left to right"
+        );
+        assert_eq!(
+            (b.signal_flow_monotonicity, b.signal_flow_samples),
+            (0.0, 3),
+            "three chains, none of them"
+        );
+
+        let mut cells = EngineerStyleCells::measure(&one);
+        cells.merge(EngineerStyleCells::measure(&other));
+        let merged = EngineerStyleMetrics::from_cells(cells);
+        assert_eq!(
+            (merged.signal_flow_monotonicity, merged.signal_flow_samples),
+            (0.25, 4),
+            "1 of 4 chains across both layers"
+        );
+        let mean_of_ratios = (a.signal_flow_monotonicity + b.signal_flow_monotonicity) / 2.0;
+        assert_ne!(
+            merged.signal_flow_monotonicity, mean_of_ratios,
+            "the merge must not collapse into the average of the two layers"
+        );
+    }
+
+    /// The score alone cannot tell "nothing to measure" from "everything in
+    /// order" — both are `1.0`. The count is what separates them, and that is
+    /// why every score is published with one.
+    #[test]
+    fn a_vacuous_axis_scores_the_same_as_a_perfect_one() {
+        let empty = McVecGraph::new(0, "empty".into());
+        let mut perfect = McVecGraph::new(0, "perfect".into());
+        chain(&mut perfect, 1, true);
+
+        let e = EngineerStyleMetrics::compute(&empty);
+        let p = EngineerStyleMetrics::compute(&perfect);
+        assert_eq!(
+            e.signal_flow_monotonicity, p.signal_flow_monotonicity,
+            "the two agree on the score, which is exactly the hazard"
+        );
+        assert_eq!(e.signal_flow_monotonicity, 1.0);
+        assert_eq!(e.signal_flow_samples, 0, "nothing to measure");
+        assert_eq!(p.signal_flow_samples, 1, "one chain, drawn left to right");
+    }
+
+    /// A graph with nothing on it must not read as the all-zero default: the
+    /// scores are `1.0` and only the counts are zero. The default struct is what
+    /// an unwired family would have published, and it is the opposite claim.
+    #[test]
+    fn an_empty_graph_is_not_the_unwired_default() {
+        let empty = McVecGraph::new(0, "empty".into());
+        let m = EngineerStyleMetrics::compute(&empty);
+        assert_ne!(m, EngineerStyleMetrics::default());
+        assert_eq!(m.signal_flow_monotonicity, 1.0);
+        assert_eq!(m.route_channel_clarity, 1.0);
+        for (name, samples) in [
+            ("signal_flow", m.signal_flow_samples),
+            ("rail_alignment", m.rail_alignment_samples),
+            ("ground_alignment", m.ground_alignment_samples),
+            ("bus_order", m.bus_order_samples),
+            ("idiom_proximity", m.idiom_proximity_samples),
+            ("pin_side_intent", m.pin_side_intent_samples),
+            ("functional_block", m.functional_block_samples),
+            ("route_channel", m.route_channel_samples),
+            ("label_readability", m.label_readability_samples),
+        ] {
+            assert_eq!(
+                samples, 0,
+                "`{name}` has nothing to measure on an empty graph"
+            );
+        }
     }
 }
 

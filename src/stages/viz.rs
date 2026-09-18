@@ -92,15 +92,21 @@
 //!   layer — and it names none. Recorded here rather than papered over; giving it
 //!   a layer would mean changing what the accumulator does.
 //! - `connectivity` merges over every layer, so its scope is the whole drawing.
+//! - `engineer_style` also merges over every layer — including the device
+//!   sub-layers the audited four skip, since its axes read box placement, rails,
+//!   labels and routes, all of which exist there too. It is the one **soft**
+//!   family, and the one whose axes score `1.0` when they find nothing to
+//!   measure: each score is therefore published with its own sample count.
 //!
 //! A count is not a reference, so each `layer` item also carries **`reports`** —
 //! the families whose published rows cover it (design §6.1's "item carries no
 //! report reference", the second of M2's two gaps). The two scopes above are why
-//! the reference is per layer and not one answer: `connectivity` is on every
-//! layer, the audited four are on the layers the pipeline audited, and
-//! `determinism` is on the single layer [`determinism_layer`] reads back off the
-//! report's own geometry hash. A family named there always has a row to land on,
-//! which is what makes the entry point a reference rather than a promise.
+//! the reference is per layer and not one answer: `connectivity` and
+//! `engineer_style` are on every layer, the audited four are on the layers the
+//! pipeline audited, and `determinism` is on the single layer
+//! [`determinism_layer`] reads back off the report's own geometry hash. A family
+//! named there always has a row to land on, which is what makes the entry point
+//! a reference rather than a promise.
 
 use serde_json::{json, Value};
 
@@ -295,9 +301,10 @@ fn layer_item(
 
 /// The report families whose published rows cover one layer, in a fixed order.
 ///
-/// `connectivity` is on every layer because the accumulator merges it over all
-/// of them; `determinism` is on one, because that accumulator **assigns**; the
-/// four audited families are on the layers the pipeline audited.
+/// `connectivity` and `engineer_style` are on every layer because their
+/// accumulators merge over all of them; `determinism` is on one, because that
+/// accumulator **assigns**; the four audited families are on the layers the
+/// pipeline audited.
 fn reports_of(audited: bool, determinism: bool) -> Vec<&'static str> {
     let mut out: Vec<&'static str> = Vec::new();
     if audited {
@@ -306,7 +313,7 @@ fn reports_of(audited: bool, determinism: bool) -> Vec<&'static str> {
     if determinism {
         out.push("determinism");
     }
-    out.push("connectivity");
+    out.extend(["connectivity", "engineer_style"]);
     out
 }
 
@@ -540,7 +547,6 @@ fn nets_by_pin(g: &McVecGraph, table: &InstTable) -> NetsByPin {
 /// another layer's net.
 type NetsByPin = std::collections::HashMap<String, PinNet>;
 
-
 /// One routed segment of a net: a straight run between two points.
 ///
 /// It has no `key` on purpose (§2.4): a segment is not an object, it is the
@@ -590,10 +596,12 @@ fn seg_length(seg: &Segment) -> f64 {
 /// that the reader's job. Each row's `path` is `<family>.<field>`, so the sort
 /// groups the families and the text face prints a value per line.
 ///
-/// `renderdiff` (P7-1) is not here: it reports a **comparison against a
-/// baseline**, and a baseline that is absent on a fresh clone would show up as
-/// a reading rather than as a missing input. It stays where it is, behind
-/// `MC_VIZ_DUMP`.
+/// `renderdiff` (P7-1) is not here, and the reason is not that it is a gate: it
+/// reports a **comparison against a baseline**, and its answer depends on
+/// `MC_RENDER_GOLDEN`/`MC_RENDER_GOLDEN_SAVE` besides. This envelope is a
+/// function of the world alone — every other row is the same bytes whatever the
+/// environment says — and a family that changed with an env var would be the one
+/// exception to that. It stays where it is, behind `MC_VIZ_DUMP`.
 ///
 /// The `scope` family is published first and is not a report — it is the answer
 /// to "how much of the drawing do these numbers cover". See the module doc for
@@ -764,6 +772,56 @@ fn metrics_items(q: &SchematicQualityReport, layers: usize, audited: usize) -> V
         ),
         None => out.push(absent_family("connectivity")),
     }
+
+    // Engineer style is the one **soft** family: informational, never a gate,
+    // and the only one whose axes score `1.0` when they have nothing to measure.
+    // So every score is published with the count it was measured over — read as
+    // a pair. `1.0` with a zero count is an axis that found nothing, not one
+    // that found everything in order; without the count the two are the same
+    // row, which is the defect this family was wired up to avoid.
+    let e = &q.engineer_style;
+    push_fields(
+        &mut out,
+        "engineer_style",
+        &[
+            (
+                "signal_flow_monotonicity",
+                json!(e.signal_flow_monotonicity),
+            ),
+            ("signal_flow_samples", json!(e.signal_flow_samples)),
+            ("rail_alignment_score", json!(e.rail_alignment_score)),
+            ("rail_alignment_samples", json!(e.rail_alignment_samples)),
+            ("ground_alignment_score", json!(e.ground_alignment_score)),
+            (
+                "ground_alignment_samples",
+                json!(e.ground_alignment_samples),
+            ),
+            ("bus_order_score", json!(e.bus_order_score)),
+            ("bus_order_samples", json!(e.bus_order_samples)),
+            ("idiom_proximity_score", json!(e.idiom_proximity_score)),
+            ("idiom_proximity_samples", json!(e.idiom_proximity_samples)),
+            (
+                "pin_side_intent_honor_rate",
+                json!(e.pin_side_intent_honor_rate),
+            ),
+            ("pin_side_intent_samples", json!(e.pin_side_intent_samples)),
+            (
+                "functional_block_compactness",
+                json!(e.functional_block_compactness),
+            ),
+            (
+                "functional_block_samples",
+                json!(e.functional_block_samples),
+            ),
+            ("route_channel_clarity", json!(e.route_channel_clarity)),
+            ("route_channel_samples", json!(e.route_channel_samples)),
+            ("label_readability_score", json!(e.label_readability_score)),
+            (
+                "label_readability_samples",
+                json!(e.label_readability_samples),
+            ),
+        ],
+    );
     out
 }
 

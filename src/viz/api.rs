@@ -576,6 +576,12 @@ fn render_layer_recursive(
     special.vlog_long_stubs(&name);
     metrics.accumulate_special(&special.report);
 
+    // ── Phase F: engineer style soft metrics (read-only) ──
+    // Every layer, deliberately: unlike the four audited families this one is not
+    // gated on `audit.is_some()`, because its axes read placement, rails, labels
+    // and routes — all of which a device sub-layer has as well.
+    metrics.accumulate_engineer_style(&graph);
+
     debug::dump_route(&graph);
 
     super::route::wire_hops::apply_wire_hops(&mut graph);
