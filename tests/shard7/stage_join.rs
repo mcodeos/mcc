@@ -1897,7 +1897,9 @@ fn clause_class_follows_what_it_reaches() {
             "a statement reaching {reached} row(s) is a `{want}`: {item}"
         );
         assert!(
-            item["key"].as_str().is_some_and(|k| k.contains("class-reaches")),
+            item["key"]
+                .as_str()
+                .is_some_and(|k| k.contains("class-reaches")),
             "the fixture's own statements are the members: {item}"
         );
         *seen.entry(class).or_default() += 1;

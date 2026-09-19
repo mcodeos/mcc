@@ -129,7 +129,7 @@ pub use db::defregistry::{
 };
 pub use instant::arena::NodeArena;
 pub use instant::descriptions::{
-    BusGroup, DescriptionLayer, EnumRef, FuncGroup, IfaceBinding, LaneRef,
+    BusGroup, DescriptionLayer, EnumRef, FuncGroup, GroupSites, IfaceBinding, LaneRef,
 };
 pub use instant::dianlu::DianLu;
 pub use instant::identity::{CircuitKey, IdentityRegistry, NodeId};

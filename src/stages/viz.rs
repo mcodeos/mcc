@@ -19,10 +19,16 @@
 //!   [`RenderedLayer`](crate::viz::api::RenderedLayer), the same value the
 //!   renderer consumed — captured through the pipeline's observation sink, which
 //!   every other caller leaves at `None`.
-//! - **It does not re-publish the trunks.** A [`Trunk`](crate::vector::model::trunk::Trunk)
-//!   is built before layout and carries lanes of pins and no coordinates, so
-//!   listing it here would be a second readout of a `stage.vec` fact with nothing
-//!   added. It lives there, once.
+//! - **It does not re-publish the trunks — it publishes statement groups.** A
+//!   [`Trunk`](crate::vector::model::trunk::Trunk) is built before layout and
+//!   carries lanes of pins and no coordinates, so listing it here would be a
+//!   second readout of a `stage.vec` fact with nothing added; the trunk *list*
+//!   lives there, once. Which statements reached **the drawing** is a different
+//!   fact, and only this view can state it, because only this view knows what
+//!   was drawn: a statement produces a `group` item here even when its nets
+//!   were merged into one drawn net, and a statement whose nets were dropped on
+//!   the way has no item — the difference between the two is exactly what a
+//!   reader cannot get from the trunk list.
 //! - **It does not invent keys.** §2.4: a layer and a box own an instance path, a
 //!   pin owns a `PointId`, and a **segment owns nothing** — it is not an object
 //!   but a path between two endpoints, so its handle is the endpoint pair, and
@@ -139,6 +145,13 @@ pub fn build_viz(
     let mut sources = SourceText::new();
     let mut items: Vec<Value> = Vec::new();
 
+    // The statements this view can see, and the nets drawn for each — see
+    // [`group_items`] for why the grouping is read from the flat table rather
+    // than from the drawn net's own copies of its provenance.
+    let statements = crate::stages::join::statement_refs(&mut sources);
+    let mut drawn: std::collections::BTreeMap<usize, Vec<Value>> =
+        std::collections::BTreeMap::new();
+
     // A sub-layer's canonical path is spelled from its parent's, and the sink
     // hands over the parent's `bid` rather than its path — so resolve them as we
     // walk. The sink is in pre-order, so a parent is always already resolved.
@@ -189,12 +202,107 @@ pub fn build_viz(
                     items.push(segment_item(seg, net, &path, i));
                 }
             }
+            for s in net_statements(net, table, &statements) {
+                let slot = drawn.entry(s).or_default();
+                let already = slot.iter().any(|n| {
+                    n["nid"] == json!(net.nid) && n["layer"].as_str() == Some(path.as_str())
+                });
+                if !already {
+                    slot.push(json!({
+                        "net": net_key(&net.name),
+                        "nid": net.nid,
+                        "name": net.name,
+                        "layer": path,
+                    }));
+                }
+            }
         }
     }
 
+    items.extend(group_items(&statements, drawn, &mut sources));
     items.extend(metrics_items(quality, layers.len(), audited));
 
     StageView::new(StageSeg::Viz, top, items, diagnostics).carrying_drawing_contract()
+}
+
+/// One statement item per source statement this view drew nets for: the key the
+/// hop readouts name it by, the nets it produced on this drawing, and how many.
+///
+/// The grouping is read from the **flat table**, through
+/// [`RowAnchor`](crate::stages::join::RowAnchor) — never from the drawn net's
+/// own `source_span` / `trunk_ref`. Those are copies taken at projection time,
+/// and the projection merges and dedupes (that is what `vec.rs`'s
+/// `ProjectionLog` records), so a merged net carries the name of one of the
+/// statements that formed it and silently drops the rest. Grouping on it would
+/// make a statement that produced a merged net look like it produced nothing —
+/// the same failure this batch removes one layer up, which is why the table is
+/// asked instead and why nothing falls back when a statement cannot be found.
+///
+/// A net no statement contains is not in any group: §5.2 hard constraint 2, no
+/// fallback. That is a reading of the drawing, not a defect in it.
+fn group_items(
+    statements: &[crate::stages::join::StatementRef],
+    drawn: std::collections::BTreeMap<usize, Vec<Value>>,
+    sources: &mut SourceText,
+) -> Vec<Value> {
+    drawn
+        .into_iter()
+        .map(|(i, nets)| {
+            let s = &statements[i];
+            let count = nets.len();
+            json!({
+                "class": "group",
+                "key": s.key,
+                "point": Value::Null,
+                "path": Value::Null,
+                "canon_key": Value::Null,
+                "text": s.text,
+                "nets": nets,
+                "count": count,
+                "loc": loc_of(
+                    Some(&crate::semantic::common::SourcePos::new(
+                        s.uri.clone(),
+                        s.start as u32,
+                    )),
+                    sources,
+                ),
+            })
+        })
+        .collect()
+}
+
+/// The statements a drawn net belongs to: for every endpoint, the row the pin
+/// names in the flat table, and every position that row may be attributed
+/// from — the same attribution the `join` hop uses, read through the same
+/// [`RowAnchor`](crate::stages::join::RowAnchor), so the two faces cannot put
+/// one row in different statements.
+///
+/// An endpoint whose pin id resolves to no row is skipped rather than guessed
+/// at: a segment or a boundary end may name something the table does not carry.
+fn net_statements(
+    net: &VizNet,
+    table: &InstTable,
+    statements: &[crate::stages::join::StatementRef],
+) -> Vec<usize> {
+    let mut out: Vec<usize> = Vec::new();
+    for e in &net.endpoints {
+        let Some(entry) = (e.pin_id >= 0)
+            .then(|| table.get_entry(e.pin_id as u32))
+            .flatten()
+        else {
+            continue;
+        };
+        for at in crate::stages::join::RowAnchor::of(entry).attribution() {
+            if let Some(i) =
+                crate::stages::join::statement_ref_at(statements, &at.uri, at.offset as usize)
+            {
+                if !out.contains(&i) {
+                    out.push(i);
+                }
+            }
+        }
+    }
+    out
 }
 
 /// One end of a block edge: one entry per pin, ordered by canonical path so the
@@ -922,9 +1030,18 @@ pub fn render_viz_text(view: &StageView) -> String {
             let key = item["key"].as_str().unwrap_or("-").to_string();
             let second = match class {
                 "segment" => item["net"].as_str().unwrap_or("-").to_string(),
+                // A statement group's own text, not a path: the group is a
+                // source statement, and the second column is where a reader
+                // reads what was written.
+                "group" => item["text"].as_str().unwrap_or("-").to_string(),
                 _ => item["path"].as_str().unwrap_or("-").to_string(),
             };
             let third = match class {
+                // How many nets this statement produced on the drawing. The
+                // nets themselves are on the JSON face, where the `net`/`nid`
+                // pair joins them to the `pin` items; a count is what a column
+                // can say without becoming a list.
+                "group" => format!("nets={}", item["count"].as_u64().unwrap_or(0)),
                 // A layer's own numbers, plus the space its coordinates are in:
                 // a position without a canvas is not a reading. `audited` is
                 // spelled rather than tabulated because it is the scope of the

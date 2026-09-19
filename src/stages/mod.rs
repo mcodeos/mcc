@@ -54,7 +54,16 @@ use crate::semantic::common::SourcePos;
 /// change": the version describes the shape of `items` and the keys around it. A
 /// view whose item shape breaks *is* a breaking change of this envelope, which
 /// is why the view model does not carry a second version number of its own.
-pub const PROJ_SCHEMA_VERSION: &str = "proj.1.0";
+///
+/// `1.0` → `1.1` (b3557/b3558): no key was removed and no type changed, but two
+/// things a cached reading cannot survive did. Every row gained `loc_all` /
+/// `decl_loc` / `via`, and `loc`'s value moved for a row whose first wiring site
+/// is not the site it used to report — so an old reading and a new one under the
+/// same token differ in cells that did not exist before. And a statement's class
+/// changed meaning (`drop`/`carry`/`expand` now count what the statement
+/// *reaches*), so the same token over `join.src->p2` would compare two different
+/// questions. The token's job is to make exactly those comparisons impossible.
+pub const PROJ_SCHEMA_VERSION: &str = "proj.1.1";
 
 /// Which segment of the chain a view reads. `p1` is a placeholder: the command
 /// surface is fixed now so that the Pass1 view (design §8 O2/O3) can land

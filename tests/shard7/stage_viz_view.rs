@@ -1234,7 +1234,7 @@ fn every_class_the_readout_reaches_is_exercised() {
     let stage = stage_of(&stdout);
     let items = items_of(&stage);
 
-    for class in ["layer", "box", "pin", "segment", "metrics"] {
+    for class in ["layer", "box", "pin", "segment", "metrics", "group"] {
         let got = of_class(&items, class);
         assert!(
             got.len() >= 2,
@@ -1276,6 +1276,21 @@ fn every_class_the_readout_reaches_is_exercised() {
         assert!(
             i["path"].as_str().is_some_and(|p| p.contains('.')),
             "a report row's path is `<family>.<field>`: {i}"
+        );
+    }
+    for i in of_class(&items, "group") {
+        // A group is a statement, so its key is a source position and the two
+        // instance-shaped handles are absent — a statement is not an object of
+        // the drawing and must not be given one of its ids.
+        assert!(
+            i["key"].as_str().is_some_and(|k| k
+                .rsplit_once(':')
+                .is_some_and(|(_, l)| l.parse::<u64>().is_ok())),
+            "a statement group keys on its own `uri:line`: {i}"
+        );
+        assert!(
+            i["point"].is_null() && i["canon_key"].is_null(),
+            "a statement has no run-local id and no canonical path: {i}"
         );
     }
 
@@ -1451,6 +1466,175 @@ fn engineer_style_scores_come_with_the_count_they_were_measured_over() {
         in_order > 0,
         "no axis came out perfectly in order, so the other half of that branch \
          is unexercised"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// ── Statement groups ──
+
+/// The drawing publishes one item per source statement it drew nets for.
+///
+/// Two members, one per cardinality the fixture writes: a statement that put a
+/// single net on the drawing and a statement that put several. A group that
+/// counted the statements rather than the nets, or that published a summary
+/// instead of the statement itself, fails on both.
+#[test]
+fn stage_viz_publishes_a_statement_group() {
+    let dir = scratch("groups");
+    let stage = seg_of_hbl(&dir, "viz");
+    let items = items_of(&stage);
+    let groups = of_class(&items, "group");
+
+    let singles = groups
+        .iter()
+        .filter(|g| g["count"].as_u64() == Some(1))
+        .count();
+    let several = groups
+        .iter()
+        .filter(|g| g["count"].as_u64().is_some_and(|c| c >= 2))
+        .count();
+    assert!(
+        singles >= 2,
+        "a statement that drew one net is a member, saw {singles} of {}",
+        groups.len()
+    );
+    assert!(
+        several >= 2,
+        "and so is a statement that drew several, saw {several} of {}",
+        groups.len()
+    );
+
+    // The key is the statement's own `uri:line`, and the row's `loc` is the
+    // same statement — a group does not invent a position. A group is published
+    // for every file of the project, so the statement is looked up in the file
+    // its key names, not in the entry.
+    let mut sources: BTreeMap<String, String> = BTreeMap::new();
+    for g in &groups {
+        let key = g["key"].as_str().expect("a statement group keys on it");
+        let (uri, line) = key.rsplit_once(':').expect("the key is `uri:line`");
+        let line: usize = line.parse().expect("the key's line is a number");
+        assert_eq!(g["loc"]["uri"].as_str(), Some(uri), "{g}");
+        assert_eq!(g["loc"]["line"].as_u64(), Some(line as u64), "{g}");
+
+        // The text is what was written, not a rendering of the group: it is
+        // the statement's own source line.
+        let src = sources
+            .entry(uri.to_string())
+            .or_insert_with(|| std::fs::read_to_string(uri).expect("read the statement's file"));
+        let text = g["text"].as_str().expect("a group carries the statement");
+        assert!(!text.contains('\n'), "a row is one line: {g}");
+        // A statement may span lines; the row carries it flattened onto one.
+        // The line the key names is still where it begins, so the source line
+        // is the head of the text.
+        let head = src.lines().nth(line - 1).unwrap_or("").trim();
+        assert!(
+            !head.is_empty() && text.starts_with(head),
+            "the text begins at the source line {line} of {uri}: {g}"
+        );
+
+        // A statement owns no run-local id and no canonical path: the key is
+        // its position, and it has no second handle to disagree with.
+        assert!(g["point"].is_null() && g["canon_key"].is_null(), "{g}");
+        assert_eq!(
+            g["count"].as_u64(),
+            Some(g["nets"].as_array().expect("nets is a list").len() as u64),
+            "the count is the length of the list beside it: {g}"
+        );
+    }
+
+    // The text face presents the same groups: the key in the first column, the
+    // net count in the third. §5.3 allows no new prefix, so a group row is
+    // recognisable by its key alone.
+    let (text, err, ok) = run_stage(&dir, &[]);
+    assert!(ok, "show stage viz failed: {err}");
+    let rows = text_rows(&text);
+    let mut presented = 0;
+    for g in &groups {
+        let key = g["key"].as_str().expect("a statement group keys on it");
+        let want = format!("nets={}", g["count"].as_u64().unwrap_or(0));
+        if rows
+            .iter()
+            .any(|r| r.first().map(String::as_str) == Some(key) && r.get(2) == Some(&want))
+        {
+            presented += 1;
+        }
+    }
+    assert!(
+        presented >= 2,
+        "the text face shows the groups with their counts, matched {presented} of {}",
+        groups.len()
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A group's nets are the drawn nets spelled the way the `pin` items spell
+/// them — the two faces name one net one way, so a consumer can join them.
+///
+/// Two members, one per nameability: a net that owns a key (`net:<name>`) and
+/// one that owns none (the drawing named it `_netNN`). The unkeyed half is the
+/// one an index would lose, and `name` is the field that keeps it readable.
+#[test]
+fn stage_viz_group_names_the_nets_the_net_items_name() {
+    let dir = scratch("group-nets");
+    let stage = seg_of_hbl(&dir, "viz");
+    let items = items_of(&stage);
+    let groups = of_class(&items, "group");
+
+    let pin_nets: BTreeSet<&str> = of_class(&items, "pin")
+        .iter()
+        .filter_map(|i| i["net"].as_str())
+        .collect();
+    let seg_nets: BTreeSet<&str> = of_class(&items, "segment")
+        .iter()
+        .filter_map(|i| i["net"].as_str())
+        .collect();
+
+    let mut unkeyed = 0;
+    let mut all_keyed = 0;
+    for g in &groups {
+        let nets = g["nets"].as_array().expect("a group lists its nets");
+        assert!(
+            !nets.is_empty(),
+            "a group exists because it drew a net: {g}"
+        );
+        let mut saw_unkeyed = false;
+        for n in nets {
+            match n["net"].as_str() {
+                Some(v) => assert!(
+                    pin_nets.contains(v) || seg_nets.contains(v),
+                    "a keyed net is spelled exactly as the items spell it: {n}"
+                ),
+                // A net the drawing never named: no key to join on, so the
+                // reader's only handle is the name beside it.
+                None => saw_unkeyed = true,
+            }
+            assert!(
+                n["name"].as_str().is_some_and(|s| !s.is_empty()),
+                "every member names its net whether or not it has a key: {n}"
+            );
+            assert!(n["nid"].is_u64(), "and carries the drawing's handle: {n}");
+            assert!(
+                n["layer"].as_str().is_some(),
+                "the layer is what makes the handle readable across layers: {n}"
+            );
+        }
+        if saw_unkeyed {
+            unkeyed += 1;
+        } else {
+            all_keyed += 1;
+        }
+    }
+    assert!(
+        unkeyed >= 2,
+        "the unkeyed half must be populated, saw {unkeyed} of {}",
+        groups.len()
+    );
+    assert!(
+        all_keyed >= 2,
+        "and so must the keyed half, saw {all_keyed} of {}",
+        groups.len()
     );
 
     let _ = std::fs::remove_dir_all(&dir);

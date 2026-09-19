@@ -39,8 +39,31 @@ use crate::instant::mc_mod::McModuleInst;
 use crate::instant::nettab::NetTableStore;
 use crate::instant::overlays::Overlays;
 use crate::instant::provenance::ExpansionKind;
-use crate::semantic::common::SourcePos;
+use crate::semantic::common::{SourcePos, SourcePosSet};
 use std::collections::HashMap;
+
+/// Where a description group was written (design §12.2, extended): the
+/// statement trunks it is anchored on, and the source positions that named it.
+///
+/// This is the group's row of the same axis the clause layer uses — a group is
+/// not a source statement itself (it is derived from the writing syntax), so it
+/// states its own anchors rather than pretending to be one.
+///
+/// The two fields are not the same relation for every group kind, and the
+/// difference is deliberate: for a func group the trunks are the lanes of the
+/// call statement that issued the expansion (what **made** it), while for a bus
+/// bundle and a member-table port they are the statements that **name** the
+/// group's members — a bundle is a grouping of names, and its members may be
+/// named by statements that form no net with each other. Read per kind, never
+/// as one uniform "formed by".
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct GroupSites {
+    /// The statement trunks this group is anchored on, in trunk order.
+    pub trunks: Vec<usize>,
+    /// The source positions that named the group, in walk order. Empty for a
+    /// group whose syntax carries no position at all.
+    pub wired_at: SourcePosSet,
+}
 
 /// One lane of a func expansion group, referenced content-addressably
 /// (design §12.2 `LaneRef`): the statement trunk plus the connection's
@@ -66,8 +89,25 @@ pub struct FuncGroup {
     pub def_site: Option<SourcePos>,
     /// The expansion's direct component / sub-module products.
     pub participants: Vec<NodeId>,
-    /// The statement trunks the expansion's connections group into.
+    /// The statement trunks the expansion's connections group into, one per
+    /// call statement, in trunk order.
+    ///
+    /// Read from the record subtree's call sites mapped through the layer's
+    /// `span_trunk` table, so a func body's own lines — which are not
+    /// statements of any module — are dropped and the user's call is kept.
     pub lanes: Vec<LaneRef>,
+    /// The statements that issued the expansion, and the positions they were
+    /// written at.
+    ///
+    /// `lanes` and `sites.trunks` therefore carry the same trunk list today,
+    /// and that is not a redundancy to remove: `lanes` is the **lane-side**
+    /// anchor (it carries the connection ordinal inside the expansion, 0 until
+    /// a per-connection grouping exists) while `trunks` is the site-side one,
+    /// the field every group kind answers with. `wired_at` is the half no
+    /// trunk id can express — a func body lives in whichever file defines it,
+    /// so the call's own position is the only cross-build-stable way to say
+    /// where the group was written.
+    pub sites: GroupSites,
 }
 
 /// One bus bundle as its member points in declaration order (design §12.3
@@ -79,6 +119,12 @@ pub struct BusGroup {
     pub name: String,
     /// Member points in declaration order (empty when a member has no net).
     pub member_points: Vec<PointId>,
+    /// The statements that name this bundle's members. `wired_at` is **empty**
+    /// here and that is a stated gap, not an omission: the per-module bus table
+    /// stores names and carries no position, and the members' own positions
+    /// live on their points, which this layer reaches by `PointId` and cannot
+    /// turn back into a position today.
+    pub sites: GroupSites,
 }
 
 /// One member-table port binding (design §12.3 `IfaceBinding`): an N×1 port
@@ -94,6 +140,9 @@ pub struct IfaceBinding {
     pub members: Vec<String>,
     /// Member points in declaration order (empty when a member has no net).
     pub points: Vec<PointId>,
+    /// The port line's own sites — the port is a declaration, so its wiring
+    /// sites are where it was written — plus the statements naming its members.
+    pub sites: GroupSites,
 }
 
 /// One enum parameter value reference (design §12.3 `EnumRef`). The def-space
@@ -108,6 +157,10 @@ pub struct EnumRef {
     pub value: String,
     /// The instance node the value binds to.
     pub target: NodeId,
+    /// Always empty: no enum ref is derived today (see above), so there is no
+    /// syntax to anchor. The field exists so every group kind answers the same
+    /// question in the same place.
+    pub sites: GroupSites,
 }
 
 /// The description layer of one circuit (design §12.2): the class template
@@ -123,6 +176,21 @@ pub struct DescriptionLayer {
     pub iface_bindings: Vec<IfaceBinding>,
     /// Enum parameter references (empty today — see [`EnumRef`]).
     pub enum_refs: Vec<EnumRef>,
+    /// Statement span → the trunk of the statement written there. The
+    /// statement's source position is the only cross-build-stable key it has
+    /// (`Trunk::id` is a build-scoped ordinal), so this is the lookup that
+    /// turns "the statement at `uri:line`" into a trunk.
+    ///
+    /// A table on the layer rather than a local of the derivation: it is a
+    /// reading of the lane layer in its own right, and the union of the
+    /// two directions (span → trunk here, trunk → span in [`Self::trunk_spans`])
+    /// is what makes a group's `trunks` comparable across builds.
+    pub span_trunk: HashMap<SourcePos, usize>,
+    /// The reverse reading: trunk id → the position of the statement it came
+    /// from (`None` for a trunk built from the lane layer's non-statement
+    /// sources, which carry no statement span). Parallel to the lane layer's
+    /// trunk order, so index = trunk id.
+    pub trunk_spans: Vec<Option<SourcePos>>,
 }
 
 impl DescriptionLayer {
@@ -142,15 +210,39 @@ impl DescriptionLayer {
             .iter()
             .filter_map(|t| t.stmt_span.clone().map(|s| (s, t.id)))
             .collect();
+        // Point → the statement trunks that name it. Built once and read by
+        // every group kind: a bundle's or a port's members are points, and
+        // "which statements wrote this group" is a question about those points.
+        let mut point_trunks: HashMap<PointId, Vec<usize>> = HashMap::new();
+        for t in lanes {
+            for (pid, _) in &t.points {
+                let named = point_trunks.entry(*pid).or_default();
+                if !named.contains(&t.id) {
+                    named.push(t.id);
+                }
+            }
+        }
         derive_module(
             tree,
             &tree.name,
             overlays,
             net_store,
             &span_trunk,
+            &point_trunks,
             &mut dl,
             view,
         );
+        // The tables are published after the walk: the walk reads them, and
+        // threading `&dl` through it while also writing `dl` would need the
+        // borrow split for nothing.
+        let mut trunk_spans: Vec<Option<SourcePos>> = vec![None; lanes.len()];
+        for t in lanes {
+            if let Some(i) = trunk_spans.get_mut(t.id) {
+                *i = t.stmt_span.clone();
+            }
+        }
+        dl.span_trunk = span_trunk;
+        dl.trunk_spans = trunk_spans;
         dl
     }
 }
@@ -167,6 +259,7 @@ fn derive_module(
     overlays: &Overlays,
     net_store: &NetTableStore,
     span_trunk: &HashMap<SourcePos, usize>,
+    point_trunks: &HashMap<PointId, Vec<usize>>,
     dl: &mut DescriptionLayer,
     view: &TreeView,
 ) {
@@ -189,9 +282,13 @@ fn derive_module(
                 continue;
             }
             let mut participants = Vec::new();
+            let mut call_sites = SourcePosSet::new();
             let mut stack: Vec<usize> = vec![i];
             while let Some(ri) = stack.pop() {
                 let g = &groups.by_record[ri];
+                if let Some(cs) = &expansion.records[ri].call_site {
+                    call_sites.insert(cs.clone());
+                }
                 // S3-D: the groups carry arena node ids directly (was
                 // `components[ci].node_id` through the tree Vec).
                 for &id in &g.components {
@@ -220,25 +317,34 @@ fn derive_module(
             if participants.is_empty() {
                 continue;
             }
-            let mut lanes = Vec::new();
-            let mut top = i;
-            while let Some(p) = expansion.records[top].parent {
-                top = p;
-            }
-            if let Some(cs) = &expansion.records[top].call_site {
-                if let Some(&tid) = span_trunk.get(cs) {
-                    lanes.push(LaneRef {
-                        trunk: tid,
-                        ordinal: 0,
-                    });
-                }
-            }
+            // The statement the expansion was issued at. `call_sites` is every
+            // site the record's subtree was written at — the call statement
+            // and, below it, the func body's own lines — and only the
+            // module-level statements among those are in `span_trunk`. Mapping
+            // the set through the table is what picks the call out; reading
+            // the site off the log's outermost record (as this did) answered
+            // `None` for every call that expanded through a body, which is
+            // every call that has products to group at all.
+            let mut trunks: Vec<usize> = call_sites
+                .iter()
+                .filter_map(|cs| span_trunk.get(cs).copied())
+                .collect();
+            trunks.sort_unstable();
+            trunks.dedup();
+            let lanes: Vec<LaneRef> = trunks
+                .iter()
+                .map(|&trunk| LaneRef { trunk, ordinal: 0 })
+                .collect();
             dl.func_groups.push(FuncGroup {
                 template: None,
                 name: rec.func_name.clone(),
                 def_site: rec.def_site.clone(),
                 participants,
                 lanes,
+                sites: GroupSites {
+                    trunks,
+                    wired_at: call_sites,
+                },
             });
         }
     }
@@ -246,14 +352,28 @@ fn derive_module(
     // ── Bus groups: the module's frozen bus table (curly port bundles and
     // bus accesses), each bundle's members in declaration order. ──
     for bus in net_store.buses_of(path).values() {
-        let member_points = bus
+        let member_points: Vec<PointId> = bus
             .members
             .iter()
             .flat_map(|m| overlays.point_index.get(m).into_iter().flatten().copied())
             .collect();
+        let mut trunks: Vec<usize> = Vec::new();
+        for p in &member_points {
+            for &t in point_trunks.get(p).into_iter().flatten() {
+                if !trunks.contains(&t) {
+                    trunks.push(t);
+                }
+            }
+        }
+        trunks.sort_unstable();
         dl.bus_groups.push(BusGroup {
             name: bus.name.clone(),
             member_points,
+            sites: GroupSites {
+                trunks,
+                // The bus table holds names, not positions — see `BusGroup`.
+                wired_at: SourcePosSet::new(),
+            },
         });
     }
 
@@ -266,16 +386,31 @@ fn derive_module(
         let Some(pid) = port.node_id else {
             continue;
         };
-        let points = port
+        let points: Vec<PointId> = port
             .bus_members
             .iter()
             .flat_map(|m| overlays.point_index.get(m).into_iter().flatten().copied())
             .collect();
+        let mut trunks: Vec<usize> = Vec::new();
+        for p in &points {
+            for &t in point_trunks.get(p).into_iter().flatten() {
+                if !trunks.contains(&t) {
+                    trunks.push(t);
+                }
+            }
+        }
+        trunks.sort_unstable();
         dl.iface_bindings.push(IfaceBinding {
             port: pid,
             name: port.name.clone(),
             members: port.bus_members.clone(),
             points,
+            sites: GroupSites {
+                trunks,
+                // The port line is the port's own declaration site, and it is
+                // the only position this group has: a port is written once.
+                wired_at: port.net_point.src_pos.clone(),
+            },
         });
     }
 
@@ -288,6 +423,7 @@ fn derive_module(
             overlays,
             net_store,
             span_trunk,
+            point_trunks,
             dl,
             view,
         );

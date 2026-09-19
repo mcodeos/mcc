@@ -35,7 +35,7 @@ use crate::stages::StageView;
 /// first asking which view it is reading.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct StageViewData {
-    /// Envelope schema version (`proj.1.0`).
+    /// Envelope schema version (`proj.1.1`).
     pub schema_version: String,
     /// Root token: the loaded world's source set as a deterministic hash, or
     /// null when it cannot be fingerprinted. See `mcc::stages::world_ver`.

@@ -624,6 +624,13 @@ pub struct Net {
     /// member points (the per-point label of [`Trunk::points`]), in written
     /// order. `None` for owner-only nets (e.g. `c1.1 -> c2.1`).
     pub label: Option<String>,
+    /// The statement trunks that **formed** this net, in first-seen order: a
+    /// trunk is recorded when one of its lanes actually merged two distinct
+    /// member classes here. A trunk that only names a member — a lane whose
+    /// other endpoint resolves to nothing, or a redundant merge — is **not**
+    /// recorded, which is what keeps this from being a list of everything the
+    /// net is near. Semantic: "made by", not "mentioned by".
+    pub trunks: Vec<usize>,
 }
 
 /// Derive the net layer from the lane layer: union-find merges every lane
@@ -665,12 +672,19 @@ pub fn derive_nets(trunks: &[Trunk]) -> Vec<Net> {
     }
 
     let mut parent: Vec<usize> = (0..points.len()).collect();
+    // The statement trunks that formed each net, as one representative member
+    // point per effective merge: `(trunk id, a member point of the merge)`.
+    // Recorded here, at the union, because this is the only place that knows a
+    // merge happened at all — the interning loop above sees points, not edges.
+    let mut formed: Vec<(usize, usize)> = Vec::new();
     for trunk in trunks {
         for lane in &trunk.lanes {
             match (&lane.source, &lane.target) {
                 (PointGroup::One(a), PointGroup::One(b)) => {
                     if let (Some(&ia), Some(&ib)) = (index.get(a), index.get(b)) {
-                        union_find_union(&mut parent, ia, ib);
+                        if union_find_union(&mut parent, ia, ib) {
+                            formed.push((trunk.id, ia));
+                        }
                     }
                 }
                 // A scalar endpoint against a preserved slice unions the
@@ -681,7 +695,9 @@ pub fn derive_nets(trunks: &[Trunk]) -> Vec<Net> {
                     let Some(&ia) = index.get(a) else { continue };
                     for m in members {
                         if let Some(&im) = index.get(m) {
-                            union_find_union(&mut parent, ia, im);
+                            if union_find_union(&mut parent, ia, im) {
+                                formed.push((trunk.id, ia));
+                            }
                         }
                     }
                 }
@@ -689,7 +705,9 @@ pub fn derive_nets(trunks: &[Trunk]) -> Vec<Net> {
                     let Some(&ib) = index.get(b) else { continue };
                     for m in members {
                         if let Some(&im) = index.get(m) {
-                            union_find_union(&mut parent, im, ib);
+                            if union_find_union(&mut parent, im, ib) {
+                                formed.push((trunk.id, ib));
+                            }
                         }
                     }
                 }
@@ -699,7 +717,9 @@ pub fn derive_nets(trunks: &[Trunk]) -> Vec<Net> {
                 (PointGroup::Slice { members: m1, .. }, PointGroup::Slice { members: m2, .. }) => {
                     for (a, b) in m1.iter().zip(m2.iter()) {
                         if let (Some(&ia), Some(&ib)) = (index.get(a), index.get(b)) {
-                            union_find_union(&mut parent, ia, ib);
+                            if union_find_union(&mut parent, ia, ib) {
+                                formed.push((trunk.id, ia));
+                            }
                         }
                     }
                 }
@@ -721,6 +741,22 @@ pub fn derive_nets(trunks: &[Trunk]) -> Vec<Net> {
         members[slot].push(i);
     }
 
+    // Point index -> net slot, so a merge recorded at the union can be read
+    // back as "which net did this trunk form".
+    let mut slot_of_point: Vec<usize> = vec![0; points.len()];
+    for (slot, idxs) in members.iter().enumerate() {
+        for &i in idxs {
+            slot_of_point[i] = slot;
+        }
+    }
+    let mut formed_trunks: Vec<Vec<usize>> = vec![Vec::new(); members.len()];
+    for (tid, pi) in formed {
+        let t = &mut formed_trunks[slot_of_point[pi]];
+        if !t.contains(&tid) {
+            t.push(tid);
+        }
+    }
+
     members
         .into_iter()
         .enumerate()
@@ -728,6 +764,7 @@ pub fn derive_nets(trunks: &[Trunk]) -> Vec<Net> {
             id: NetId(slot as u32),
             points: idxs.iter().map(|&i| points[i]).collect(),
             label: idxs.iter().find_map(|&i| labels[i].clone()),
+            trunks: formed_trunks[slot].clone(),
         })
         .collect()
 }
@@ -739,7 +776,10 @@ fn union_find_find(parent: &mut [usize], x: usize) -> usize {
     parent[x]
 }
 
-fn union_find_union(parent: &mut [usize], a: usize, b: usize) {
+/// Merge two classes. Returns `true` when they were distinct and are now one —
+/// asking the question here is what lets a caller record "this trunk formed
+/// this net" without recording every trunk that merely mentions a member.
+fn union_find_union(parent: &mut [usize], a: usize, b: usize) -> bool {
     let ra = union_find_find(parent, a);
     let rb = union_find_find(parent, b);
     if ra != rb {
@@ -749,6 +789,9 @@ fn union_find_union(parent: &mut [usize], a: usize, b: usize) {
         } else {
             parent[ra] = rb;
         }
+        true
+    } else {
+        false
     }
 }
 

@@ -267,7 +267,7 @@ impl Via {
 /// and both are facts about it. Every one is kept, in walk order, and the
 /// clause attribution reads them all — one position per row is what made a
 /// statement's second site invisible, and what made a shared row unownable.
-struct RowAnchor {
+pub struct RowAnchor {
     /// Every wiring site, in walk order.
     sites: Vec<SourcePos>,
     /// The declaration site, when the entity has one.
@@ -279,7 +279,7 @@ struct RowAnchor {
 impl RowAnchor {
     /// The anchor of a flat-table entry: its wiring sites and its declaration
     /// site, both recorded, with the state that anchored read off them.
-    fn of(entry: &InstEntry) -> RowAnchor {
+    pub fn of(entry: &InstEntry) -> RowAnchor {
         let sites: Vec<SourcePos> = entry.src_pos.iter().cloned().collect();
         let decl = entry.fallback_pos.clone();
         let via = if !sites.is_empty() {
@@ -295,7 +295,11 @@ impl RowAnchor {
     /// Every position that may attribute this row to a clause: all wiring
     /// sites, and the declaration site **only when nothing wired it** (a
     /// declaration says where the object was written, not where it was used).
-    fn attribution(&self) -> impl Iterator<Item = &SourcePos> {
+    ///
+    /// Public because the rule is not this hop's private opinion: any face that
+    /// attributes a row to a statement has to read the same positions, or the
+    /// two faces put one row in different statements.
+    pub fn attribution(&self) -> impl Iterator<Item = &SourcePos> {
         let decl = if self.sites.is_empty() {
             self.decl.as_ref()
         } else {
@@ -738,6 +742,51 @@ fn in_scope_clauses() -> (
     }
     out.sort_by(|a, b| (a.uri.as_str(), a.start).cmp(&(b.uri.as_str(), b.start)));
     (out, func_spans, header_spans)
+}
+
+/// One source statement as a readout names it: the key, where it sits, and the
+/// text it is written with.
+///
+/// Published for the other faces that group by statement — [`stage.viz`](crate::stages::viz)
+/// draws the nets a statement produced and has to name the statement the same
+/// way this hop does. Shared rather than copied: `key` falls back to `uri:-`
+/// when a clause has no resolvable line, and a second copy of that rule is a
+/// second answer to the same question.
+pub struct StatementRef {
+    /// `uri:line`, or `uri:-` when the line cannot be resolved.
+    pub key: String,
+    pub uri: String,
+    pub start: usize,
+    pub end: usize,
+    pub text: String,
+}
+
+/// Every in-scope statement, sorted by `(uri, start)` — the same order
+/// [`clause_spans`] publishes, and for the same reason: the walk follows the
+/// workspace's file map, so the sequence has to be imposed here.
+pub fn statement_refs(sources: &mut SourceText) -> Vec<StatementRef> {
+    let (mut clauses, _, _) = in_scope_clauses();
+    clauses.sort_by(|a, b| (&a.uri, a.start).cmp(&(&b.uri, b.start)));
+    clauses
+        .iter()
+        .map(|c| StatementRef {
+            key: clause_key(c, sources).as_str().unwrap_or("").to_string(),
+            uri: c.uri.clone(),
+            start: c.start,
+            end: c.end,
+            text: c.text.clone(),
+        })
+        .collect()
+}
+
+/// The index of the statement containing `(uri, offset)`, if any: the innermost
+/// one, which is why the latest start wins.
+pub fn statement_ref_at(refs: &[StatementRef], uri: &str, offset: usize) -> Option<usize> {
+    refs.iter()
+        .enumerate()
+        .filter(|(_, c)| c.uri == uri && c.start <= offset && offset < c.end)
+        .map(|(i, _)| i)
+        .max_by_key(|i| refs[*i].start)
 }
 
 /// Where a clause begins: the start of the line its node's position is on.

@@ -2083,3 +2083,339 @@ module main {
         );
     }
 }
+
+// The lane layer's production edge and the description layer's group sites
+// (CIMP §1 U111). `Net` gained the trunks that **formed** it, the description
+// layer gained `span_trunk` / `trunk_spans` and a `GroupSites` pair on every
+// group kind. All three are derived-per-build facts; these locks are what says
+// they are read off the right relation and not off "everything nearby".
+
+/// A physical point of the fake tree these two unit locks build by hand.
+fn pid(node: u32, pin: u32) -> mcc::PointId {
+    mcc::PointId {
+        node: mcc::NodeId(node),
+        pin: mcc::DefMemberId(pin),
+    }
+}
+
+/// A scalar trunk of `id`: the points it names (each with the net name the
+/// statement claimed for it), and the lanes it states.
+///
+/// Built by hand on purpose. `derive_nets` is a pure function of the trunk
+/// list, so the lock can put exactly the merge it wants to test in front of it
+/// — a redundant re-merge and a lane onto an unresolvable endpoint are not
+/// shapes a source file will reliably produce.
+fn scalar_trunk(
+    id: usize,
+    points: &[(mcc::PointId, Option<&str>)],
+    lanes: &[(mcc::PointId, mcc::PointId)],
+) -> mcc::Trunk {
+    mcc::Trunk {
+        id,
+        stmt_span: None,
+        points: points
+            .iter()
+            .map(|(p, name)| (*p, name.map(|n| n.to_string())))
+            .collect(),
+        lanes: lanes
+            .iter()
+            .map(|(a, b)| mcc::Lane {
+                source: mcc::PointGroup::One(*a),
+                target: mcc::PointGroup::One(*b),
+            })
+            .collect(),
+    }
+}
+
+/// A net names the statements that **formed** it — whose lane merged two
+/// distinct member classes — not the ones that merely touched a member.
+///
+/// Two members, one per cardinality: a net two statements made, and a net one
+/// statement made. A net that recorded every trunk naming any of its points
+/// would put all three ids on the joined net; one that recorded only the first
+/// merge would drop `1` from it.
+#[test]
+fn net_records_the_trunks_that_formed_it() {
+    let a = pid(1, 1);
+    let b = pid(1, 2);
+    let c = pid(1, 3);
+    let d = pid(2, 1);
+    let e = pid(2, 2);
+    let nets = mcc::derive_nets(&[
+        scalar_trunk(0, &[(a, None), (b, None)], &[(a, b)]),
+        scalar_trunk(1, &[(b, None), (c, None)], &[(b, c)]),
+        scalar_trunk(2, &[(d, None), (e, None)], &[(d, e)]),
+    ]);
+
+    assert_eq!(nets.len(), 2, "two independent merges, two nets: {nets:?}");
+    let joined = nets
+        .iter()
+        .find(|n| n.points.len() == 3)
+        .expect("the net the first two statements met on");
+    assert_eq!(joined.points, vec![a, b, c]);
+    assert_eq!(
+        joined.trunks,
+        vec![0, 1],
+        "both statements formed this net, in first-seen order"
+    );
+
+    let lone = nets
+        .iter()
+        .find(|n| n.points.len() == 2)
+        .expect("the net only the third statement formed");
+    assert_eq!(lone.points, vec![d, e]);
+    assert_eq!(lone.trunks, vec![2], "one statement, one entry");
+}
+
+/// A trunk that only *names* a member of a net is not recorded as having
+/// formed it.
+///
+/// Two members, and they are the two ways a statement can reach a net without
+/// merging anything into it: a lane that re-states a merge an earlier
+/// statement already made, and a lane onto an endpoint that resolves to no
+/// point (the skipped lane). The second still **names** the point — its label
+/// reaches the net, which is what `label` below shows — but `trunks` is the
+/// answer to "made by", and neither of these trunks made anything.
+#[test]
+fn a_trunk_that_merely_names_a_member_is_not_recorded() {
+    let a = pid(1, 1);
+    let b = pid(1, 2);
+    let nowhere = pid(9, 9);
+    let nets = mcc::derive_nets(&[
+        scalar_trunk(0, &[(a, None), (b, None)], &[(a, b)]),
+        // A second statement repeating the same merge: nothing left to merge.
+        scalar_trunk(1, &[(a, None), (b, None)], &[(a, b)]),
+        // A statement whose other endpoint resolves to no physical point. It
+        // names `a` — the label lands on the net `a` is in — and merges
+        // nothing.
+        scalar_trunk(2, &[(a, Some("STUB"))], &[(a, nowhere)]),
+    ]);
+
+    assert_eq!(nets.len(), 1, "one net: {nets:?}");
+    let net = &nets[0];
+    assert_eq!(net.points, vec![a, b]);
+    assert_eq!(
+        net.label.as_deref(),
+        Some("STUB"),
+        "the naming statement did reach the net — with its name, not its edge"
+    );
+    assert_eq!(
+        net.trunks,
+        vec![0],
+        "only the statement that performed the merge is recorded: {net:?}"
+    );
+}
+
+/// The description layer's own shapes, one source per group kind, so the locks
+/// below read a real instantiation rather than a hand-built one.
+const FUNC_CALL_SRC: &str = r#"
+component LEAF {
+    pins = [
+        1 = 1
+        2 = 2
+    ]
+}
+module SUB {
+    io VDD
+    io GND
+    func wire([n1, n2]) {
+        n1 - LEAF() - n2
+    }
+}
+module main {
+    io VDD
+    io GND
+    SUB u1
+    u1.wire([VDD, GND])
+}
+"#;
+
+/// Two connection statements, each of which owns a trunk — and each of which
+/// is locatable in the source by its own text.
+const TWO_STMT_SRC: &str = r#"
+component LEAF {
+    pins = [
+        1 = 1
+        2 = 2
+    ]
+}
+module main {
+    io VDD
+    io GND
+    LEAF u1
+    VDD - u1.1
+    GND - u1.2
+}
+"#;
+
+/// A bus bundle whose member names are also net names, so the bus's member
+/// points resolve: `u1.P` is named by the two statements that wire it.
+const BUS_ACCESS_SRC: &str = r#"
+component CHIP {
+    pins = [ io [1:2] = P{A, B} ]
+}
+module main {
+    io VDD
+    io A
+    io B
+    CHIP u1
+    u1.P.A -> A
+    u1.P.B -> B
+}
+"#;
+
+/// A member-table port declared in the module header: its members are wired by
+/// statements of the body, and the header line itself is not a statement.
+const IFACE_PORT_SRC: &str = r#"
+component LEAF {
+    pins = [
+        1 = 1
+        2 = 2
+    ]
+}
+module main(psnk [VDD, GND]) {
+    LEAF u1
+    VDD - u1.1
+    GND - u1.2
+}
+"#;
+
+/// `span_trunk` and `trunk_spans` are one table read both ways, on the layer.
+///
+/// Two members, one per statement: the fixture's two connection statements
+/// each own a trunk, and both directions must agree about which. A table that
+/// mapped only the first statement, or that mapped in one direction only,
+/// fails here.
+#[test]
+fn span_trunk_is_a_table_on_the_layer() {
+    let _lock = common::lock();
+    common::reset();
+    let dl = build_dianlu(TWO_STMT_SRC);
+    let d = dl.descriptions();
+
+    assert_eq!(
+        d.trunk_spans.len(),
+        dl.lanes().len(),
+        "the reverse table is parallel to the lane layer"
+    );
+    let mut seen = 0;
+    for t in dl.lanes() {
+        assert_eq!(
+            d.trunk_spans[t.id], t.stmt_span,
+            "trunk {} answers with its own statement span",
+            t.id
+        );
+        let Some(span) = t.stmt_span.as_ref() else {
+            continue;
+        };
+        assert_eq!(
+            d.span_trunk.get(span),
+            Some(&t.id),
+            "and the statement at {span:?} answers with its own trunk"
+        );
+        seen += 1;
+    }
+    assert!(
+        seen >= 2,
+        "the fixture writes two statements, so two trunks carry a span; saw {seen}"
+    );
+
+    // Not just "two keys": the two keys are the two statements, at the offsets
+    // the source puts them at. A table keyed on the wrong offset would still
+    // round-trip and would still have two entries.
+    for stmt in ["VDD - u1.1", "GND - u1.2"] {
+        let at = TWO_STMT_SRC.find(stmt).expect("the statement") as u32;
+        assert!(
+            d.span_trunk.keys().any(|p| p.offset == at),
+            "`{stmt}` at offset {at} owns a trunk: {:?}",
+            d.span_trunk
+        );
+    }
+}
+
+/// Every group kind states its own anchors, and which anchors depends on the
+/// kind: a func group answers with the call's statement and position, a bus
+/// bundle and a member-table port with the statements that named their
+/// members.
+///
+/// Three members, one per kind. The fields are read off the derivation, so a
+/// group kind that stopped recording an anchor fails here rather than going
+/// quietly empty.
+#[test]
+fn description_layer_records_a_group_site_per_group() {
+    let _lock = common::lock();
+
+    // ── A func group: the call statement's trunk, and the call's position. ──
+    common::reset();
+    let dl = build_dianlu(FUNC_CALL_SRC);
+    let d = dl.descriptions();
+    let g = d
+        .func_groups
+        .iter()
+        .find(|g| g.name == "wire")
+        .expect("the `u1.wire(...)` expansion is a func group");
+    assert_eq!(g.participants.len(), 1, "the LEAF the body instantiated");
+    assert_eq!(
+        g.sites.trunks,
+        g.lanes.iter().map(|l| l.trunk).collect::<Vec<_>>(),
+        "the site list and the lane list are one anchor written twice: {g:?}"
+    );
+    assert!(
+        !g.sites.trunks.is_empty(),
+        "the expansion is anchored on the statement that called it: {g:?}"
+    );
+    assert!(
+        g.sites.wired_at.len() >= 2,
+        "the call and the body line it expanded are both positions: {:?}",
+        g.sites.wired_at
+    );
+    let call_offset = FUNC_CALL_SRC.find("u1.wire").expect("the call") as u32;
+    assert!(
+        g.sites.wired_at.iter().any(|p| p.offset == call_offset),
+        "the call's own position is one of them: {:?}",
+        g.sites.wired_at
+    );
+
+    // ── A bus bundle: the statements that named its members. ──
+    common::reset();
+    let dl = build_dianlu(BUS_ACCESS_SRC);
+    let d = dl.descriptions();
+    let bus = d
+        .bus_groups
+        .iter()
+        .find(|b| b.name.ends_with('P'))
+        .expect("`u1.P.A` names a bus bundle");
+    assert!(
+        !bus.member_points.is_empty(),
+        "its members resolve to points, or this lock proves nothing: {bus:?}"
+    );
+    assert!(
+        !bus.sites.trunks.is_empty(),
+        "the statements that wired its members are its anchors: {bus:?}"
+    );
+    assert_eq!(
+        bus.sites.wired_at.len(),
+        0,
+        "and the bus table carries no position — a stated gap, not a silent one"
+    );
+
+    // ── A member-table port: the statements that wired its members. ──
+    common::reset();
+    let dl = build_dianlu(IFACE_PORT_SRC);
+    let d = dl.descriptions();
+    let iface = d
+        .iface_bindings
+        .first()
+        .expect("the header port `[VDD, GND]` is a member-table binding");
+    assert_eq!(iface.members, vec!["VDD", "GND"]);
+    assert_eq!(
+        iface.sites.trunks.len(),
+        2,
+        "one anchor per member-naming statement: {iface:?}"
+    );
+    assert!(
+        iface.sites.wired_at.is_empty(),
+        "the port is a header line, which is not a statement, so it has no \
+         wiring site of its own: {iface:?}"
+    );
+}
