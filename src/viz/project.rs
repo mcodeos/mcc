@@ -1173,6 +1173,7 @@ fn detect_net_attr(
     let mut has_ref = false;
     let mut has_hot = false;
     let mut ret_name: Option<String> = None;
+    let mut domain: Option<String> = None;
     let mut diff: Option<DiffFace> = None;
     for &pid in all_ids {
         let Some(e) = table.get_entry(pid as u32) else {
@@ -1193,9 +1194,11 @@ fn detect_net_attr(
                     if r.ret == leaf {
                         has_ret = true;
                         copper.get_or_insert_with(|| leaf.clone());
+                        domain.get_or_insert_with(|| r.domain.clone());
                     } else if r.hot == leaf {
                         has_hot = true;
                         copper.get_or_insert_with(|| leaf.clone());
+                        domain.get_or_insert_with(|| r.domain.clone());
                     }
                 }
             }
@@ -1244,6 +1247,10 @@ fn detect_net_attr(
     Some(NetAttrMirror {
         copper,
         role,
+        // ★ U113: only the layer-own-boundary arm above can name a domain — the
+        // connection-point arm has no rail in hand, and a declared differential
+        // face belongs to no rail at all.
+        domain,
         // Only a Hot net born from a declared DC pair carries a return face.
         ret: if role == AttrRole::Hot {
             ret_name

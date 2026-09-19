@@ -940,6 +940,7 @@ mod tests {
         NetAttrMirror {
             copper: None,
             role: AttrRole::Signal,
+            domain: None,
             ret: None,
             diff: Some(DiffFace::new(group, positive)),
             resolvable: true,
