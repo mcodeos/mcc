@@ -304,8 +304,12 @@ fn sem_instncpin__bracket_port_is_loudly_unmarkable() {
             b.marked
         );
         let msg = b.only(MODULE_PORT_NOT_FOUND);
+        // Written order, same as the sibling lock below (CIMP §1 U119). This
+        // case is a separately known red (the bracket operand marks a member it
+        // should not); the expected list is corrected here so the two reasons
+        // do not stack.
         assert!(
-            msg.contains("Available ports: [@3, MIC, VIN, VOUT]"),
+            msg.contains("Available ports: [VIN, VOUT, MIC, @3]"),
             "the miss must name the ports that do exist: {msg}"
         );
         // Loud, not silent: the port still reports as unconnected.
@@ -387,9 +391,13 @@ fn sem_instncpin__unknown_operands_report() {
 
     let module = build(LEAF, "    Leaf m1 @ncpin(NOSUCH)");
     assert!(module.marked.is_empty());
+    // The hint list reads the module's ports in **written order** (CIMP §1
+    // U119): `Leaf` writes `VIN`, `VOUT`, `MIC`, then the anonymous
+    // `io [VDD_3V3, GND]` that is synthesized as `@3`. Same four ports, the
+    // author's order -- not the name order this lock used to state.
     assert!(module.reports(
         MODULE_PORT_NOT_FOUND,
-        "Available ports: [@3, MIC, VIN, VOUT]"
+        "Available ports: [VIN, VOUT, MIC, @3]"
     ));
 
     // A module port name is never a number, so a range can only miss there.

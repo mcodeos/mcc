@@ -22,6 +22,7 @@ mod pins_empty_declaration;
 mod query_projections;
 mod read_api;
 mod retirement_net_classification;
+mod u119_port_written_order;
 mod u31_positional_fallback;
 mod use_statement_diagnostics;
 mod use_symbol_conflict;

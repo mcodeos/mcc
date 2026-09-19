@@ -24,7 +24,7 @@ use crate::McAttrVal;
 use crate::McCMIE;
 use crate::McFunction;
 use crate::McURI;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -309,6 +309,15 @@ pub struct McInstances {
     vectors: BTreeMap<String, Vec<String>>,
     /// Port spans for LSP goto-definition (name -> span ranges, multiple for DOT patterns)
     port_spans: HashMap<String, Vec<Range<usize>>>,
+    /// ★ Explicit written order of the port declarations (CIMP §1 U119, 2026-09-19):
+    /// every name `store_port_span` saw for the first time, appended in
+    /// registration order (= source order). The same rule as
+    /// `McPins.decl_order` on the component side: presentation, positional
+    /// pairing and the member-ledger feed all read THIS order, while `insts`
+    /// (a `BTreeMap`) stays the **lookup** face and answers in name order.
+    /// Holds non-port names too (bus names, body labels) — the accessor below
+    /// filters by IOType exactly as `iter_ports` does.
+    decl_order: Vec<String>,
     /// LSP: spans in module body that reference port definitions (span, port_name)
     net_ref_spans: Vec<(Range<usize>, String, String)>, // (span, port_name, scope)
     /// LSP: AST-structured chain references (span, segments, scope).
@@ -346,6 +355,7 @@ impl McInstances {
             insts: BTreeMap::new(),
             vectors: BTreeMap::new(),
             port_spans: HashMap::new(),
+            decl_order: Vec::new(),
             net_ref_spans: Vec::new(),
             chain_ref_spans: Vec::new(),
             scope: None,
@@ -431,6 +441,51 @@ impl McInstances {
                 )
             })
             .map(|(name, (io_type, _))| (name.as_str(), io_type))
+    }
+
+    /// ★ CIMP §1 U119: every name in **written order** — the order the
+    /// declarations appear in the source, not the name order of `insts`.
+    ///
+    /// A name is recorded the first time `store_port_span` sees it, and parsing
+    /// walks the source in order, so registration order IS written order. Names
+    /// never registered that way (nothing recorded their span) are appended in
+    /// name order, so this accessor can never lose an entry.
+    ///
+    /// Presentation, positional pairing and the member ledger all read this;
+    /// `iter_ports` keeps the name order of `insts` for the callers that want
+    /// a lookup face rather than a reading order.
+    fn names_in_decl_order(&self) -> impl Iterator<Item = &str> {
+        let registered: HashSet<&str> = self.decl_order.iter().map(|n| n.as_str()).collect();
+        let rest = self
+            .insts
+            .keys()
+            .filter(move |n| !registered.contains(n.as_str()))
+            .map(|n| n.as_str());
+        self.decl_order
+            .iter()
+            .filter(|n| self.insts.contains_key(n.as_str()))
+            .map(|n| n.as_str())
+            .chain(rest)
+    }
+
+    /// All declared instances in written order (see [`Self::names_in_decl_order`]).
+    pub fn iter_in_decl_order(&self) -> impl Iterator<Item = (&str, &McInstance)> {
+        self.names_in_decl_order()
+            .filter_map(|name| self.insts.get(name).map(|(_, inst)| (name, inst)))
+    }
+
+    /// Ports in written order. Same IOType filter as [`Self::iter_ports`], so
+    /// the two always describe the same set; only the order differs.
+    pub fn iter_ports_in_decl_order(&self) -> impl Iterator<Item = (&str, &IOType)> {
+        self.names_in_decl_order().filter_map(|name| {
+            self.insts.get(name).and_then(|(io, _)| {
+                (!matches!(
+                    io,
+                    IOType::None | IOType::Return | IOType::NonCon | IOType::Label
+                ))
+                .then_some((name, io))
+            })
+        })
     }
 
     /// Get port span by name (returns first span if multiple)
@@ -531,12 +586,19 @@ impl McInstances {
         forms
     }
 
-    /// Store port span when a port is inserted
+    /// Store port span when a port is inserted. The first registration of a
+    /// name is also where `decl_order` records it (U119): parsing walks the
+    /// source in order, so first-registration order IS written order. Later
+    /// spans for the same name (DOT patterns) add to `port_spans` only.
     pub(crate) fn store_port_span(&mut self, name: &str, span: Range<usize>) {
+        let first_registration = !self.port_spans.contains_key(name);
         self.port_spans
             .entry(name.to_string())
             .or_default()
             .push(span);
+        if first_registration {
+            self.decl_order.push(name.to_string());
+        }
     }
 
     /// ★ §3.4.3 (rev): register a whole curly-bus definition with member spans.

@@ -28,7 +28,7 @@ use crate::semantic::mc_inst::McInstance;
 use crate::semantic::module::McModule;
 use crate::semantic::nc_pin::{NcPinKind, NcPinSpec};
 use crate::semantic::validation::ledger::{self, LedgerAction, LedgerEntry, LedgerKind};
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 
 impl InstantiationBuilder {
@@ -148,12 +148,37 @@ impl InstantiationBuilder {
         // First clone port list to release immutable borrow of self.def
         // Loop body needs &mut self (labels / buses write), so can't run
         // directly during iter_with_iotype() borrow.
-        let items: Vec<(String, IOType, McInstance)> = self
+        let mut items: Vec<(String, IOType, McInstance)> = self
             .def
             .insts
             .iter_with_iotype()
             .map(|(k, (io, inst))| (k.to_string(), io.clone(), inst.clone()))
             .collect();
+
+        // ★ CIMP §1 U119: the port table is the module's **written order**, not
+        // the name order of `insts` (a `BTreeMap`). Presentation (the drawing,
+        // the port listings) and positional pairing (the `② position fallback`
+        // in `bind_actual_args_to_ports`, which reads the port slice this loop
+        // builds) both follow the order the author wrote. Non-port items keep
+        // the name order they had: a stable sort moves only the ports, and the
+        // loop skips the rest anyway.
+        //
+        // The member ledger follows this same order, deliberately: a module
+        // port's `DefMemberId` is its ordinal in the list the author wrote, the
+        // rule the component side has always had (`McPins.decl_order`). The two
+        // faces -- the drawn port list and `PointId`'s `N<node>:<m>` half --
+        // therefore agree, and neither is a name-order reading.
+        {
+            let rank: HashMap<&str, usize> = self
+                .def
+                .insts
+                .iter_ports_in_decl_order()
+                .enumerate()
+                .map(|(i, (name, _))| (name, i))
+                .collect();
+            items
+                .sort_by_key(|(name, _, _)| rank.get(name.as_str()).copied().unwrap_or(usize::MAX));
+        }
 
         for (port_name, iotype, inst) in &items {
             // Bug fix ①
@@ -398,6 +423,13 @@ impl InstantiationBuilder {
         // synthetic modules, empty def uri) are skipped and keep the
         // positional ordinal in the lane layer.
         if !self.def_uri.is_empty() {
+            // ★ CIMP §1 U119: the feed carries the port list's own order, which
+            // is now the **written** order -- the same rule the component side
+            // has always had (`McPins.decl_order` is what `component_member_seq`
+            // numbers from). A module port's `DefMemberId` is therefore its
+            // ordinal in the list the author wrote, and it agrees with the
+            // drawn port list this same list becomes. Recorded in the
+            // organization-units design draft (§6.2, CIMP §1 U119).
             let ports: Vec<(String, String)> = self
                 .ports
                 .iter()

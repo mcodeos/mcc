@@ -44,10 +44,10 @@ range (threshold 40KB).
 | `cmds/show.rs` | 140 KB | 114 |
 | `viz/layout/equi_audit.rs` | 137 KB | 103 |
 | `rpc/handlers/mod.rs` | 126 KB | 103 |
-| `semantic/mc_inst.rs` | 119 KB | 85 |
+| `semantic/mc_inst.rs` | 122 KB | 88 |
+| `instant/mc_mod/phases.rs` | 113 KB | 25 |
 | `instant/mc_mod/points.rs` | 113 KB | 19 |
 | `semantic/basic/mc_fcall.rs` | 112 KB | 21 |
-| `instant/mc_mod/phases.rs` | 111 KB | 25 |
 | `semantic/module/mod.rs` | 102 KB | 75 |
 
 ## Modules
@@ -64,13 +64,13 @@ range (threshold 40KB).
 | `db/` | 27 | 876 KB |
 | `eval/` | 2 | 48 KB |
 | `export/` | 6 | 44 KB |
-| `instant/` | 39 | 1480 KB |
+| `instant/` | 39 | 1482 KB |
 | `lsp/` | 7 | 66 KB |
 | `output/` | 7 | 107 KB |
-| `query/` | 7 | 133 KB |
+| `query/` | 7 | 134 KB |
 | `refdef/` | 7 | 118 KB |
 | `rpc/` | 16 | 287 KB |
-| `semantic/` | 88 | 2494 KB |
+| `semantic/` | 88 | 2497 KB |
 | `stages/` | 11 | 270 KB |
 | `vector/` | 25 | 462 KB |
 | `viz/` | 95 | 2279 KB |
@@ -3064,29 +3064,29 @@ instant/mc_mod/mod.rs#L630  mod tests
 instant/mc_mod/mod.rs#L649  fn mat_aname__sequence_lock
 instant/mc_mod/phases.rs#L34  impl InstantiationBuilder
 instant/mc_mod/phases.rs#L145  fn instantiate_interface
-instant/mc_mod/phases.rs#L425  fn inject_port_member_labels
-instant/mc_mod/phases.rs#L563  fn instantiate_declarations_resilient
-instant/mc_mod/phases.rs#L861  fn resolve_component_nc_pins
-instant/mc_mod/phases.rs#L930  fn resolve_module_nc_ports
-instant/mc_mod/phases.rs#L996  fn report_nc_operand_miss
-instant/mc_mod/phases.rs#L1021  fn instantiate_stmts_resilient
-instant/mc_mod/phases.rs#L1122  fn dedup_connections
-instant/mc_mod/phases.rs#L1164  fn validate_expanded_net_points
-instant/mc_mod/phases.rs#L1292  fn arg_declared_volt
-instant/mc_mod/phases.rs#L1313  fn bind_actual_args_to_ports
-instant/mc_mod/phases.rs#L1523  fn bind_call_args_to_ports
-instant/mc_mod/phases.rs#L1750  fn check_unbound_param_ports
-instant/mc_mod/phases.rs#L1832  fn run_component_constructor
-instant/mc_mod/phases.rs#L2001  fn extract_port_bus_members
-instant/mc_mod/phases.rs#L2071  fn read_iface_diff_pair
-instant/mc_mod/phases.rs#L2097  fn port_base_name
-instant/mc_mod/phases.rs#L2117  fn port_members
-instant/mc_mod/phases.rs#L2149  fn is_power_terminal
-instant/mc_mod/phases.rs#L2161  fn bindable_formals
-instant/mc_mod/phases.rs#L2191  fn declared_volt_of_params
-instant/mc_mod/phases.rs#L2213  fn declared_volt_of_texts
-instant/mc_mod/phases.rs#L2243  fn nc_port_hits
-instant/mc_mod/phases.rs#L2257  fn nc_port_range_hits
+instant/mc_mod/phases.rs#L457  fn inject_port_member_labels
+instant/mc_mod/phases.rs#L595  fn instantiate_declarations_resilient
+instant/mc_mod/phases.rs#L893  fn resolve_component_nc_pins
+instant/mc_mod/phases.rs#L962  fn resolve_module_nc_ports
+instant/mc_mod/phases.rs#L1028  fn report_nc_operand_miss
+instant/mc_mod/phases.rs#L1053  fn instantiate_stmts_resilient
+instant/mc_mod/phases.rs#L1154  fn dedup_connections
+instant/mc_mod/phases.rs#L1196  fn validate_expanded_net_points
+instant/mc_mod/phases.rs#L1324  fn arg_declared_volt
+instant/mc_mod/phases.rs#L1345  fn bind_actual_args_to_ports
+instant/mc_mod/phases.rs#L1555  fn bind_call_args_to_ports
+instant/mc_mod/phases.rs#L1782  fn check_unbound_param_ports
+instant/mc_mod/phases.rs#L1864  fn run_component_constructor
+instant/mc_mod/phases.rs#L2033  fn extract_port_bus_members
+instant/mc_mod/phases.rs#L2103  fn read_iface_diff_pair
+instant/mc_mod/phases.rs#L2129  fn port_base_name
+instant/mc_mod/phases.rs#L2149  fn port_members
+instant/mc_mod/phases.rs#L2181  fn is_power_terminal
+instant/mc_mod/phases.rs#L2193  fn bindable_formals
+instant/mc_mod/phases.rs#L2223  fn declared_volt_of_params
+instant/mc_mod/phases.rs#L2245  fn declared_volt_of_texts
+instant/mc_mod/phases.rs#L2275  fn nc_port_hits
+instant/mc_mod/phases.rs#L2289  fn nc_port_range_hits
 instant/mc_mod/points.rs#L41  fn parse_curly_select
 instant/mc_mod/points.rs#L55  fn expand_member_ida
 instant/mc_mod/points.rs#L94  fn resolve_bare_member_pid
@@ -3293,11 +3293,11 @@ instant/mc_mod/vexpr/mod.rs#L331  fn parallel__degenerate_left_takes_the_free_fa
 instant/mc_mod/vexpr/mod.rs#L352  fn parallel__degenerate_right_attaches_to_the_left_operands_right_face
 instant/mc_mod/vexpr/mod.rs#L371  fn parallel__both_degenerate_keeps_the_first_operands_faces
 instant/mc_mod/vexpr/mod.rs#L392  fn parallel__one_lane_anchor_cannot_absorb_a_multi_lane_degenerate_operand
-instant/mc_mod/vexpr/mod.rs#L429  fn reversed__swaps_the_two_faces_and_reverses_the_shape
-instant/mc_mod/vexpr/mod.rs#L443  fn reversed__is_an_identity_for_degenerate_operands
-instant/mc_mod/vexpr/mod.rs#L457  fn series__equal_rows_are_legal_and_anchor_right
-instant/mc_mod/vexpr/mod.rs#L470  fn series__mismatched_rows_are_illegal
-instant/mc_mod/vexpr/mod.rs#L481  fn series__an_empty_face_is_not_connectable
+instant/mc_mod/vexpr/mod.rs#L425  fn reversed__swaps_the_two_faces_and_reverses_the_shape
+instant/mc_mod/vexpr/mod.rs#L439  fn reversed__is_an_identity_for_degenerate_operands
+instant/mc_mod/vexpr/mod.rs#L453  fn series__equal_rows_are_legal_and_anchor_right
+instant/mc_mod/vexpr/mod.rs#L466  fn series__mismatched_rows_are_illegal
+instant/mc_mod/vexpr/mod.rs#L477  fn series__an_empty_face_is_not_connectable
 instant/mc_net.rs#L24  static LITERAL_POINT_DETAILS
 instant/mc_net.rs#L41  fn quarantine_literal
 instant/mc_net.rs#L64  fn reset_literal_points
@@ -3937,7 +3937,7 @@ query/iterators.rs#L140  fn mcb_iter_interfaces_with_span
 query/iterators.rs#L158  fn mcb_iter_enums
 query/iterators.rs#L173  fn mcb_iter_enums_with_span
 query/iterators.rs#L193  fn mcb_iter_enum_values
-query/iterators.rs#L211  fn mcb_iter_ports
+query/iterators.rs#L218  fn mcb_iter_ports
 query/lookup.rs#L19  fn unified_lookup
 query/lookup.rs#L35  fn lookup_with_sub
 query/lookup.rs#L63  fn unified_lookup_all
@@ -6119,72 +6119,75 @@ semantic/mc_inst.rs#L240  fn is_label_or_bus
 semantic/mc_inst.rs#L253  fn type_name
 semantic/mc_inst.rs#L279  fn resolve_member
 semantic/mc_inst.rs#L301  struct McInstances
-semantic/mc_inst.rs#L343  impl McInstances
-semantic/mc_inst.rs#L344  fn new
-semantic/mc_inst.rs#L364  fn set_nc_pins
-semantic/mc_inst.rs#L370  fn get_vector_members
-semantic/mc_inst.rs#L376  fn vector_groups
-semantic/mc_inst.rs#L381  fn set_label_kind
-semantic/mc_inst.rs#L391  fn get_label_kind
-semantic/mc_inst.rs#L404  fn is_port_io_type
-semantic/mc_inst.rs#L419  fn contains
-semantic/mc_inst.rs#L424  fn iter_ports
-semantic/mc_inst.rs#L437  fn get_port_span
-semantic/mc_inst.rs#L442  fn port_spans
-semantic/mc_inst.rs#L447  fn iter_instance_names
-semantic/mc_inst.rs#L453  fn iter_port_names
-semantic/mc_inst.rs#L472  fn insts
-semantic/mc_inst.rs#L480  fn resolve_idx
-semantic/mc_inst.rs#L490  fn all_name_forms_for
-semantic/mc_inst.rs#L535  fn store_port_span
-semantic/mc_inst.rs#L543  fn register_bus_def
-semantic/mc_inst.rs#L560  fn bus_def
-semantic/mc_inst.rs#L565  fn iter_bus_defs
-semantic/mc_inst.rs#L572  fn record_declareb_def
-semantic/mc_inst.rs#L579  fn declareb_def
-semantic/mc_inst.rs#L586  fn iter_declareb_defs
-semantic/mc_inst.rs#L593  fn iter_ports_with_span
-semantic/mc_inst.rs#L620  fn iter_labels_with_span
-semantic/mc_inst.rs#L644  fn iter_port_spans_sorted
-semantic/mc_inst.rs#L657  fn record_net_ref
-semantic/mc_inst.rs#L662  fn iter_net_refs
-semantic/mc_inst.rs#L667  fn record_chain_ref
-semantic/mc_inst.rs#L677  fn iter_chain_refs
-semantic/mc_inst.rs#L685  fn find_name_in_text
-semantic/mc_inst.rs#L720  fn parse
-semantic/mc_inst.rs#L1441  fn strip_trailing_digits
-semantic/mc_inst.rs#L1450  fn parse_declare
-semantic/mc_inst.rs#L1974  fn register_nested_iface_declare_args
-semantic/mc_inst.rs#L2021  fn declare_class_ids
-semantic/mc_inst.rs#L2033  fn parse_opd
-semantic/mc_inst.rs#L2188  fn parse_opd_square_vec
-semantic/mc_inst.rs#L2290  fn get
-semantic/mc_inst.rs#L2294  fn get_mut
-semantic/mc_inst.rs#L2298  fn get_with_iotype
-semantic/mc_inst.rs#L2302  fn iter
-semantic/mc_inst.rs#L2306  fn iter_with_iotype
-semantic/mc_inst.rs#L2310  fn create
-semantic/mc_inst.rs#L2317  fn create_inst
-semantic/mc_inst.rs#L2323  fn find_port
-semantic/mc_inst.rs#L2328  fn inputs
-semantic/mc_inst.rs#L2337  fn outputs
-semantic/mc_inst.rs#L2346  fn bidirs
-semantic/mc_inst.rs#L2355  fn get_all_inputs
-semantic/mc_inst.rs#L2364  fn get_all_outputs
-semantic/mc_inst.rs#L2373  fn get_all_ports
-semantic/mc_inst.rs#L2378  fn is_empty
-semantic/mc_inst.rs#L2383  fn inputs_with_name
-semantic/mc_inst.rs#L2392  fn outputs_with_name
-semantic/mc_inst.rs#L2401  fn bidirs_with_name
-semantic/mc_inst.rs#L2410  fn powers_with_name
-semantic/mc_inst.rs#L2419  fn get_iotype
-semantic/mc_inst.rs#L2424  fn get_all_names
-semantic/mc_inst.rs#L2429  impl From<McInstance> for McPhrase
-semantic/mc_inst.rs#L2430  fn from
-semantic/mc_inst.rs#L2437  impl std::fmt::Display for McInstance
-semantic/mc_inst.rs#L2438  fn fmt
-semantic/mc_inst.rs#L2475  impl std::fmt::Display for McInstances
-semantic/mc_inst.rs#L2476  fn fmt
+semantic/mc_inst.rs#L352  impl McInstances
+semantic/mc_inst.rs#L353  fn new
+semantic/mc_inst.rs#L374  fn set_nc_pins
+semantic/mc_inst.rs#L380  fn get_vector_members
+semantic/mc_inst.rs#L386  fn vector_groups
+semantic/mc_inst.rs#L391  fn set_label_kind
+semantic/mc_inst.rs#L401  fn get_label_kind
+semantic/mc_inst.rs#L414  fn is_port_io_type
+semantic/mc_inst.rs#L429  fn contains
+semantic/mc_inst.rs#L434  fn iter_ports
+semantic/mc_inst.rs#L457  fn names_in_decl_order
+semantic/mc_inst.rs#L472  fn iter_in_decl_order
+semantic/mc_inst.rs#L479  fn iter_ports_in_decl_order
+semantic/mc_inst.rs#L492  fn get_port_span
+semantic/mc_inst.rs#L497  fn port_spans
+semantic/mc_inst.rs#L502  fn iter_instance_names
+semantic/mc_inst.rs#L508  fn iter_port_names
+semantic/mc_inst.rs#L527  fn insts
+semantic/mc_inst.rs#L535  fn resolve_idx
+semantic/mc_inst.rs#L545  fn all_name_forms_for
+semantic/mc_inst.rs#L593  fn store_port_span
+semantic/mc_inst.rs#L605  fn register_bus_def
+semantic/mc_inst.rs#L622  fn bus_def
+semantic/mc_inst.rs#L627  fn iter_bus_defs
+semantic/mc_inst.rs#L634  fn record_declareb_def
+semantic/mc_inst.rs#L641  fn declareb_def
+semantic/mc_inst.rs#L648  fn iter_declareb_defs
+semantic/mc_inst.rs#L655  fn iter_ports_with_span
+semantic/mc_inst.rs#L682  fn iter_labels_with_span
+semantic/mc_inst.rs#L706  fn iter_port_spans_sorted
+semantic/mc_inst.rs#L719  fn record_net_ref
+semantic/mc_inst.rs#L724  fn iter_net_refs
+semantic/mc_inst.rs#L729  fn record_chain_ref
+semantic/mc_inst.rs#L739  fn iter_chain_refs
+semantic/mc_inst.rs#L747  fn find_name_in_text
+semantic/mc_inst.rs#L782  fn parse
+semantic/mc_inst.rs#L1503  fn strip_trailing_digits
+semantic/mc_inst.rs#L1512  fn parse_declare
+semantic/mc_inst.rs#L2036  fn register_nested_iface_declare_args
+semantic/mc_inst.rs#L2083  fn declare_class_ids
+semantic/mc_inst.rs#L2095  fn parse_opd
+semantic/mc_inst.rs#L2250  fn parse_opd_square_vec
+semantic/mc_inst.rs#L2352  fn get
+semantic/mc_inst.rs#L2356  fn get_mut
+semantic/mc_inst.rs#L2360  fn get_with_iotype
+semantic/mc_inst.rs#L2364  fn iter
+semantic/mc_inst.rs#L2368  fn iter_with_iotype
+semantic/mc_inst.rs#L2372  fn create
+semantic/mc_inst.rs#L2379  fn create_inst
+semantic/mc_inst.rs#L2385  fn find_port
+semantic/mc_inst.rs#L2390  fn inputs
+semantic/mc_inst.rs#L2399  fn outputs
+semantic/mc_inst.rs#L2408  fn bidirs
+semantic/mc_inst.rs#L2417  fn get_all_inputs
+semantic/mc_inst.rs#L2426  fn get_all_outputs
+semantic/mc_inst.rs#L2435  fn get_all_ports
+semantic/mc_inst.rs#L2440  fn is_empty
+semantic/mc_inst.rs#L2445  fn inputs_with_name
+semantic/mc_inst.rs#L2454  fn outputs_with_name
+semantic/mc_inst.rs#L2463  fn bidirs_with_name
+semantic/mc_inst.rs#L2472  fn powers_with_name
+semantic/mc_inst.rs#L2481  fn get_iotype
+semantic/mc_inst.rs#L2486  fn get_all_names
+semantic/mc_inst.rs#L2491  impl From<McInstance> for McPhrase
+semantic/mc_inst.rs#L2492  fn from
+semantic/mc_inst.rs#L2499  impl std::fmt::Display for McInstance
+semantic/mc_inst.rs#L2500  fn fmt
+semantic/mc_inst.rs#L2537  impl std::fmt::Display for McInstances
+semantic/mc_inst.rs#L2538  fn fmt
 semantic/mod.rs#L5  mod basic
 semantic/mod.rs#L6  mod capability
 semantic/mod.rs#L7  mod common
@@ -10553,4 +10556,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-394 files, 10473 declarations.
+394 files, 10476 declarations.

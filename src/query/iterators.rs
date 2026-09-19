@@ -208,16 +208,28 @@ pub fn mcb_iter_enum_values() -> Vec<(String, String, String, [u32; 2])> {
 // === pub fn mcb_iter_ports() -> Vec<(String, String, String, String)> { ===
 /// Iterate all module port definitions (psrc/psnk/psbi/io/in/out).
 /// Returns Vec of (port_name, iotype, module_name, uri).
+///
+/// ★ CIMP §1 U119 (2026-09-19): **written order within each module**, not name
+/// order. The listing is grouped by module (the module order `enumerate`
+/// returns, sorted by `(uri, ident)`), and inside a module the ports come out in
+/// the order they were declared — the same order the module's instantiated port
+/// table uses. The explicit sort below keeps that order a property of this
+/// function rather than something inherited from the iteration.
 pub fn mcb_iter_ports() -> Vec<(String, String, String, String)> {
     use crate::semantic::common::IOType;
 
-    let mut ports: Vec<(String, String, String, String)> = Vec::new();
+    // (module ordinal, written ordinal, name, iotype, module, uri)
+    let mut ports: Vec<(usize, usize, String, String, String, String)> = Vec::new();
 
-    for (sn, module) in crate::definition_space().workspace_modules() {
+    for (module_ord, (sn, module)) in crate::definition_space()
+        .workspace_modules()
+        .into_iter()
+        .enumerate()
+    {
         let module_name = sn.ident.to_string();
         let uri = sn.uri.to_string();
 
-        for (name, iotype) in module.insts.iter_ports() {
+        for (written_ord, (name, iotype)) in module.insts.iter_ports_in_decl_order().enumerate() {
             let io_name = match iotype {
                 IOType::Power => "power".to_string(),
                 IOType::In => "input".to_string(),
@@ -227,10 +239,24 @@ pub fn mcb_iter_ports() -> Vec<(String, String, String, String)> {
                 IOType::Label => "label".to_string(),
                 IOType::Return | IOType::NonCon | IOType::None => continue, // Skip non-port declarations
             };
-            ports.push((name.to_string(), io_name, module_name.clone(), uri.clone()));
+            ports.push((
+                module_ord,
+                written_ord,
+                name.to_string(),
+                io_name,
+                module_name.clone(),
+                uri.clone(),
+            ));
         }
     }
 
-    ports.sort_by(|a, b| a.0.cmp(&b.0));
+    ports.sort_by(|a, b| {
+        a.0.cmp(&b.0)
+            .then_with(|| a.1.cmp(&b.1))
+            .then_with(|| a.2.cmp(&b.2))
+    });
     ports
+        .into_iter()
+        .map(|(_, _, name, io_name, module_name, uri)| (name, io_name, module_name, uri))
+        .collect()
 }
