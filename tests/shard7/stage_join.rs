@@ -1514,7 +1514,7 @@ fn every_class_the_inner_hops_reach_is_exercised() {
          class needs a member assertion here"
     );
 
-    // `synth` is reached at both hops, but thinly at one of them.
+    // `synth` is reached at the outer hop only, and thinly there.
     assert!(
         rows_of(&vec_viz, "synth").len() >= 2,
         "vec -> viz reaches `synth`"
@@ -1532,9 +1532,25 @@ fn every_class_the_inner_hops_reach_is_exercised() {
             "`{note}` ({what}) is missing from the `synth` notes: {notes:?}"
         );
     }
-    assert!(
-        rows_of(&p2_vec, "synth").len() >= 1,
-        "p2 -> vec reaches `synth` — a downstream net whose members match no upstream net"
+
+    // At p2 -> vec `synth` is empty, and that emptiness is a checked claim
+    // rather than a branch nobody reached: both sides are read off one
+    // construction — p2 off the module's frozen net table, vec off the block
+    // builder's nets over the same connections — so a vec net with no upstream
+    // net over its members means the two no longer agree on what was built.
+    // That divergence is CIMP §1 U104, where a re-entered sub-module body
+    // (`func` with a boundary formal, called from the parent after the module's
+    // table had already been frozen) added connections the vec builder saw and
+    // the net table did not, leaving the four SPI conductors shorted into one
+    // undiagnosed net in vec while p2 read them as unconnected. Every re-entry
+    // now rebuilds the table, so the reading here is 0 — a nonzero one is that
+    // defect returning and belongs investigated, not re-baselined.
+    assert_eq!(
+        rows_of(&p2_vec, "synth").len(),
+        0,
+        "p2 -> vec reaches `synth` — a downstream net whose members match no upstream net, i.e. \
+         the two views disagree about the same construction (CIMP §1 U104): {:?}",
+        rows_of(&p2_vec, "synth")
     );
 
     // `skip` exists at the source hop only: it is a statement about an AST node
