@@ -107,7 +107,7 @@ pub(crate) fn get_right_bus_from_phrase(phrase: &McPhrase) -> Vec<McBus> {
                     .collect(),
             }
         }
-        McPhrase::Lead => vec![McBus::new("lead")],
+        McPhrase::Lead(_) => vec![McBus::new("lead")],
         McPhrase::Multiple(phrases) => phrases
             .iter()
             .flat_map(|p| get_right_bus_from_phrase(p))
@@ -2011,7 +2011,7 @@ impl McFuncCall {
                 }
             }
             McPhrase::Member(p, _) => Self::fill_return_shapes(p, scope),
-            McPhrase::Lead | McPhrase::Endpoint(_) => {}
+            McPhrase::Lead(_) | McPhrase::Endpoint(_) => {}
         }
     }
 

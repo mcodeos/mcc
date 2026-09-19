@@ -183,7 +183,15 @@ fn split_vector_member(ids: &McIds) -> Option<(McIds, String)> {
 
 #[derive(Debug, Clone)]
 pub enum McPhrase {
-    Lead,
+    /// `_` passthrough placeholder. The payload is the source byte offset of
+    /// the `_` token, captured here at the AST->semantic boundary: the point
+    /// name later minted from it (`(lead)_<offset>`, `points.rs`) must be
+    /// decided by the input alone (issuance discipline - allocation order is a
+    /// function of the input, never of the run). The former payload-less
+    /// variant left the instant layer no identity to mint from, so it fell
+    /// back to the phrase's heap address and re-shuffled every surfaced label
+    /// on every run (CIMP §1 U129).
+    Lead(u32),
     Endpoint(McEndpoint),
     Series(Vec<McPhrase>, ConnDir),
     Parallel(Vec<McPhrase>),
@@ -392,7 +400,7 @@ impl McPhrase {
         let scope = context.scope_name();
         let node_type = node.get_type();
         match node_type {
-            MCAST_OPD_USCORE => Some(McPhrase::Lead),
+            MCAST_OPD_USCORE => Some(McPhrase::Lead(node.get_pos())),
 
             MCAST_OPD_THIS | MCAST_OPD_PINS => {
                 // this.X ≡ X (pins transparency): `pins` is the same self face
@@ -1310,7 +1318,7 @@ impl McPhrase {
                             context.add_label(ids.to_string())
                         }
                         McOpd::Pins(ids) => context.add_label(ids.to_string()),
-                        McOpd::Uscore => Some(McPhrase::Lead),
+                        McOpd::Uscore => Some(McPhrase::Lead(subnode.get_pos())),
                     }
                 } else {
                     // McOpd::new failed - subnode might be MCAST_INT or another basic type
@@ -3799,7 +3807,7 @@ impl McPhrase {
                 Some(ReturnShape::Label { bus }) => bus.clone(),
                 Some(ReturnShape::This) | None => f.left.clone(),
             },
-            McPhrase::Lead => vec![McBus::new("(lead)")],
+            McPhrase::Lead(_) => vec![McBus::new("(lead)")],
             McPhrase::Endpoint(ref ep) => ep.get_left(),
             McPhrase::Member(phrase, _) => phrase.get_left(),
         }
@@ -3929,7 +3937,7 @@ impl McPhrase {
                 Some(ReturnShape::Label { bus }) => bus.clone(),
                 Some(ReturnShape::This) | None => f.right.clone(),
             },
-            McPhrase::Lead => vec![McBus::new("(lead)")],
+            McPhrase::Lead(_) => vec![McBus::new("(lead)")],
             McPhrase::Endpoint(ref ep) => ep.get_right(),
             McPhrase::Member(_, ep) => ep.get_right(),
         }
@@ -4260,7 +4268,7 @@ impl McPhrase {
                 );
                 None
             }
-            McPhrase::Lead => {
+            McPhrase::Lead(_) => {
                 dlog_trace(
                     crate::errcodes::PHRASE_MEMBER_ON_LEAD,
                     &crate::errcodes::format_msg(crate::errcodes::PHRASE_MEMBER_ON_LEAD, &[]),
@@ -4566,7 +4574,7 @@ fn format_series_item(phrase: &McPhrase) -> String {
 impl std::fmt::Display for McPhrase {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            McPhrase::Lead => write!(f, "_"),
+            McPhrase::Lead(_) => write!(f, "_"),
             McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
                 base: McInstance::Component(c),
                 ..
@@ -5492,7 +5500,7 @@ fn eval_port_elems(phrase: &McPhrase, right: bool, context: &mut dyn HasFindInst
         //    context-aware rules Pass2 expands). ──
         //
         // A Lead is a 1*1 placeholder contact (same sentinel as before).
-        McPhrase::Lead => vec![McBus::new("(lead)")],
+        McPhrase::Lead(_) => vec![McBus::new("(lead)")],
         // A bare component reference (`R1`): expose the component's declared
         // pin shape — a TwoPin component contributes its two pin contacts,
         // a MultiPort component its in/out/power pin contacts. This is the
@@ -5785,7 +5793,7 @@ fn list_element_elems(e: &McPhrase, right: bool, context: &mut dyn HasFindInst) 
 /// else (unresolved / func-call) is unclassifiable and ignored, so we never
 /// guess at a shape we cannot see.
 fn column_kind(e: &McPhrase, context: &mut dyn HasFindInst) -> ColumnKind {
-    if matches!(e, McPhrase::Lead) {
+    if matches!(e, McPhrase::Lead(_)) {
         return ColumnKind::Lead;
     }
     match OpdShape::of(e, context) {

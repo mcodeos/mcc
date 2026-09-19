@@ -296,7 +296,7 @@ pub(crate) fn count_refs(phrase: &McPhrase, name: &str, c: &mut RefCounts, net_c
             count_refs(inner, name, c, net_ctx);
             count_endpoint_refs(ep, name, &mut c.other);
         }
-        Lead => {}
+        Lead(_) => {}
     }
 }
 

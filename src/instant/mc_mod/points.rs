@@ -182,11 +182,13 @@ impl InstantiationBuilder {
         // site, so there is no need to reach through `self` per point.
         let site = self.construction_site();
         match phrase {
-            McPhrase::Lead => {
-                let name = format!(
-                    "{LEAD_PLACEHOLDER_PREFIX}{:x}",
-                    phrase as *const McPhrase as usize
-                );
+            McPhrase::Lead(src_off) => {
+                // Identity = where the `_` was written (U129): the same source
+                // token mints the same name on every run; two distinct `_`
+                // tokens never collide (different offsets; placeholders are
+                // statement-local, so equal offsets in different modules never
+                // meet one net).
+                let name = format!("{LEAD_PLACEHOLDER_PREFIX}{src_off:x}");
                 Ok(vec![NetPoint::new(&name, IOType::None, site.clone())])
             }
 
@@ -911,11 +913,9 @@ impl InstantiationBuilder {
         // site, so there is no need to reach through `self` per point.
         let site = self.construction_site();
         match member {
-            McPhrase::Lead => {
-                let name = format!(
-                    "{LEAD_PLACEHOLDER_PREFIX}{:x}",
-                    member as *const McPhrase as usize
-                );
+            McPhrase::Lead(src_off) => {
+                // Same identity rule as `get_left_points` (U129).
+                let name = format!("{LEAD_PLACEHOLDER_PREFIX}{src_off:x}");
                 Ok(vec![NetPoint::new(&name, IOType::None, site.clone())])
             }
 

@@ -335,7 +335,7 @@ fn check_unconnected_module_ports(acc: &mut CheckAccumulator) {
 /// func-body connection-line nets.
 pub(crate) fn collect_referenced_names(phrase: &McPhrase, names: &mut HashSet<String>) {
     match phrase {
-        McPhrase::Lead => {}
+        McPhrase::Lead(_) => {}
         McPhrase::Endpoint(ep) => collect_endpoint_names(ep, names),
         McPhrase::Series(items, _) => {
             for item in items {
@@ -386,7 +386,7 @@ pub(crate) fn collect_referenced_names(phrase: &McPhrase, names: &mut HashSet<St
 ///     since those are pin accesses, not label definitions.
 pub(crate) fn collect_net_label_names(phrase: &McPhrase, names: &mut HashSet<String>) {
     match phrase {
-        McPhrase::Lead => {}
+        McPhrase::Lead(_) => {}
         McPhrase::Endpoint(ep) => collect_endpoint_names(ep, names),
         McPhrase::Series(items, _) | McPhrase::Parallel(items) | McPhrase::Multiple(items) => {
             for item in items {

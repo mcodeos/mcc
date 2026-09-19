@@ -538,7 +538,7 @@ impl InstantiationBuilder {
                 bindings,
                 expansion_ctx,
             ))),
-            McPhrase::Lead => phrase.clone(),
+            McPhrase::Lead(_) => phrase.clone(),
             // Iter-2.3
             // Returning Endpoint::Single(Label/Bus/List) as-is would leave the
             // V1V2 formal parameter in `V1V2 => CAP(...)` unsubstituted: the func

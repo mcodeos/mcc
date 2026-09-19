@@ -1286,7 +1286,7 @@ fn phrase_to_info(phrase: &McPhrase) -> StmtInfo {
                 inner: Box::new(phrase_to_info(phrase)),
             }],
         },
-        McPhrase::Lead => StmtInfo { members: vec![] },
+        McPhrase::Lead(_) => StmtInfo { members: vec![] },
         McPhrase::Multiple(phrases) => StmtInfo {
             members: phrases
                 .iter()

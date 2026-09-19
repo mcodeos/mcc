@@ -2574,7 +2574,7 @@ impl InstantiationBuilder {
             McPhrase::Reversed(inner) => McPhrase::Reversed(Box::new(
                 Self::prefix_instance_phrase_with_skip(inner, inst_name, skip),
             )),
-            McPhrase::Lead => phrase.clone(),
+            McPhrase::Lead(_) => phrase.clone(),
 
             // Iter-3.C
             // Label endpoint: names in skip (actuals, parent ports) are not

@@ -76,7 +76,7 @@ fn find_funccall<'a>(inst: &'a mcc::McModuleInst, name: &str) -> &'a mcc::McFunc
             mcc::McPhrase::Reversed(inner) => walk(inner, name),
             mcc::McPhrase::Closure(c) => c.body.iter().find_map(|e| walk(e, name)),
             mcc::McPhrase::Member(p, _) => walk(p, name),
-            mcc::McPhrase::Lead | mcc::McPhrase::Endpoint(_) => None,
+            mcc::McPhrase::Lead(_) | mcc::McPhrase::Endpoint(_) => None,
         }
     }
     inst.def
