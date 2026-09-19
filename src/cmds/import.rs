@@ -67,7 +67,10 @@ pub fn run(args: &ImportArgs) -> Result<ExitCode> {
     }
 
     let count = report.get("count").and_then(Value::as_u64).unwrap_or(0);
-    let diags = report.get("diagnostics").and_then(Value::as_u64).unwrap_or(0);
+    let diags = report
+        .get("diagnostics")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
     Ok(if count > 0 || diags > 0 {
         ExitCode::from(1)
     } else {
@@ -95,11 +98,7 @@ fn cell(v: Option<&Value>) -> String {
 }
 
 fn render_text(r: &Value) -> String {
-    let mut out = format!(
-        "import {} {}\n",
-        cell(r.get("format")),
-        cell(r.get("uri"))
-    );
+    let mut out = format!("import {} {}\n", cell(r.get("format")), cell(r.get("uri")));
     out.push_str(&format!("  world_ver    {}\n", cell(r.get("world_ver"))));
     out.push_str(&format!("  top          {}\n", cell(r.get("top"))));
     out.push_str(&format!("  changes      {}\n", cell(r.get("count"))));

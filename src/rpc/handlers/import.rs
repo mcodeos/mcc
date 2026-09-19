@@ -294,11 +294,7 @@ fn flush_atom(stack: &mut [Vec<Sexp>], atom: &mut String) {
 /// The changes that would reconcile the world with the artifact, one
 /// `change{type,kind,id,delta}` per entry (projection schema §2.5). Only the
 /// kinds a netlist read-back can see are emitted: `instance` and `net`.
-fn diff_models(
-    reference: &EdaModel,
-    foreign: &EdaModel,
-    table: &crate::InstTable,
-) -> Vec<Value> {
+fn diff_models(reference: &EdaModel, foreign: &EdaModel, table: &crate::InstTable) -> Vec<Value> {
     let mut out: Vec<Value> = Vec::new();
 
     for refdes in foreign.components.difference(&reference.components) {
