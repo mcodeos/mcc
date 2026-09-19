@@ -77,12 +77,53 @@ fn frozen(source: &str) -> (mcc::InstTable, u32) {
     (table, arena.root().0)
 }
 
+/// The payload's rows, which live under `items`.
+///
+/// The payload is an object rather than a bare array because the same file
+/// carries the definition ledger beside the rows
+/// (`organization-units-design.md` §10.9): a row names its definition with
+/// `class.key`, and what that definition *is* is written once per key under
+/// `defs`.
 fn rows(items: &Value) -> Vec<&Value> {
-    items
+    items["items"]
         .as_array()
-        .expect("items must be an array")
+        .expect("the payload carries its rows under `items`")
         .iter()
         .collect()
+}
+
+/// The ledger of the payload: one entry per canonical def key the rows name.
+fn defs(payload: &Value) -> Vec<&Value> {
+    payload["defs"]
+        .as_array()
+        .expect("the payload carries its ledger under `defs`")
+        .iter()
+        .collect()
+}
+
+/// One ledger entry, by its canonical def ident (the fixture is single-file, so
+/// the ident picks the key out).
+fn def_for<'a>(payload: &'a Value, ident: &str) -> &'a Value {
+    defs(payload)
+        .into_iter()
+        .find(|d| d["class"]["key"]["ident"] == ident)
+        .unwrap_or_else(|| panic!("no ledger entry for def '{}': {}", ident, payload))
+}
+
+/// The `values` region of a ledger entry as `key -> (view, text)`.
+fn value_of<'a>(d: &'a Value, key: &str) -> (&'a str, &'a str) {
+    d["values"]
+        .as_array()
+        .expect("values is an array")
+        .iter()
+        .find(|v| v["key"] == key)
+        .map(|v| {
+            (
+                v["view"].as_str().expect("a value has a view"),
+                v["text"].as_str().expect("a value has a text"),
+            )
+        })
+        .unwrap_or_else(|| panic!("def has no value for key '{}': {}", key, d))
 }
 
 fn row_for<'a>(items: &'a Value, path: &str) -> &'a Value {
@@ -103,11 +144,27 @@ fn line_of(needle: &str) -> u64 {
     idx as u64 + 1
 }
 
+/// The five fields of the row whose `path` column is `path`.
+///
+/// The scan stops at the blank line: the ledger that follows carries an ident
+/// in the second column too, so reading past the separator would answer a row
+/// question with a ledger line (§10.9 — the two blocks share a column layout).
 fn text_field<'a>(text: &'a str, path: &str) -> Vec<&'a str> {
     text.lines()
+        .take_while(|l| !l.is_empty())
         .find(|l| l.split('\t').nth(1) == Some(path))
         .unwrap_or_else(|| panic!("no text row for path '{}':\n{}", path, text))
         .split('\t')
+        .collect()
+}
+
+/// The ledger block of a text / CSV face, as five-field lines: everything after
+/// the blank line that ends the row block.
+fn ledger_lines<'a>(text: &'a str, sep: char) -> Vec<Vec<&'a str>> {
+    text.lines()
+        .skip_while(|l| !l.is_empty())
+        .skip(1)
+        .map(|l| l.split(sep).collect())
         .collect()
 }
 
@@ -200,25 +257,60 @@ fn inst_list_text_and_csv_serialization() {
     let _lock = common::lock();
     let (table, _) = frozen(SOURCE);
 
+    // Row block first — one five-column line per row — then the blank line that
+    // separates it from the ledger (§10.9), then the ledger's own lines in the
+    // same five columns (uri/ident/block/key/value) so a consumer reads the
+    // whole file with one split.
     let (text, _, count) = mcc::export::instlist::build_inst_list(&table, 0);
     let lines: Vec<&str> = text.lines().collect();
-    assert_eq!(lines.len(), count);
-    for line in &lines {
+    let (row_block, ledger_block) = lines.split_at(count);
+    assert_eq!(
+        ledger_block.first(),
+        Some(&""),
+        "the row block must end at a blank line: {text}"
+    );
+    for line in row_block {
         assert_eq!(
             line.split('\t').count(),
             5,
             "text row must be node/path/ident/point/loc: {line}"
         );
     }
+    let ledger = &ledger_block[1..];
+    assert_eq!(
+        ledger.len(),
+        3,
+        "the fixture names three defs (`main`, `inner`, `RES`): {text}"
+    );
+    for line in ledger {
+        assert_eq!(
+            line.split('\t').count(),
+            5,
+            "ledger line must be uri/ident/block/key/value: {line}"
+        );
+    }
 
     let (csv, _, count) = mcc::export::instlist::build_inst_list(&table, 4);
     let lines: Vec<&str> = csv.lines().collect();
-    assert_eq!(lines.len(), count);
-    for line in &lines {
+    let (row_block, ledger_block) = lines.split_at(count);
+    assert_eq!(ledger_block.first(), Some(&""), "blank line: {csv}");
+    for line in row_block {
         assert_eq!(
             line.split(',').count(),
             5,
             "csv row must be node,path,ident,point,loc: {line}"
+        );
+    }
+    assert_eq!(
+        ledger_block[1..].len(),
+        ledger.len(),
+        "both faces carry the ledger"
+    );
+    for line in &ledger_block[1..] {
+        assert_eq!(
+            line.split(',').count(),
+            5,
+            "csv ledger must be uri,ident,block,key,value: {line}"
         );
     }
 }
@@ -497,4 +589,315 @@ fn hbl_point_rows_agree_with_the_stage_view() {
     let (first, _, _) = mcc::export::instlist::build_inst_list(&table, 0);
     let (second, _, _) = mcc::export::instlist::build_inst_list(&table, 0);
     assert_eq!(first, second, "the artifact is not reproducible");
+}
+
+// The definition ledger (`organization-units-design.md` §10.9): one entry per
+// def key the rows name, in canonical key order, holding the three reads.
+
+/// A board whose definitions put one member in **every** branch of the three
+/// reads: one key per value view the canon names (`contract-design.md` §3.2) in
+/// `PART`, and a definition with no attribute face at all (`main`, whose body is
+/// a module body — no `attrs` table).
+const LEDGER_SOURCE: &str = r#"
+component PART
+{
+    name = "A part with a face"
+    unregistered_q = 3.3V
+    window_v = 2.5V ~ 5.5V
+    plusmin = ±20%
+    set_v = [1.2V, 1.3V]
+    bound_v = [low:0V, high:30V]
+    rec = [
+        case1 = 60mΩ
+        case2 = 80mΩ
+    ]
+    ref_v = p
+    calc = 2 * p
+    undet_v = _
+    spec = [
+        resistance = p
+        construction = _
+    ]
+    pins = [
+        1 = 1
+        2 = 2
+    ]
+}
+module main(psnk GND)
+{
+    PART R1
+    R1.1 -> GND
+    R1.2 -> GND
+}
+"#;
+
+/// The keys of `PART`, in the order the definition writes them — the order the
+/// ledger must keep (discipline 4: the source order is a legal total order).
+const PART_KEYS: [&str; 12] = [
+    "name",
+    "unregistered_q",
+    "window_v",
+    "plusmin",
+    "set_v",
+    "bound_v",
+    "rec",
+    "ref_v",
+    "calc",
+    "undet_v",
+    "spec.resistance",
+    "spec.construction",
+];
+
+/// The rows name two definitions, and the ledger answers once for each — not
+/// once per row, and not once per def in the world.
+#[test]
+fn the_ledger_holds_one_entry_per_definition_the_rows_name() {
+    let _lock = common::lock();
+    let (table, _) = frozen(LEDGER_SOURCE);
+    let (_, payload, count) = mcc::export::instlist::build_inst_list(&table, 0);
+
+    let idents: Vec<&str> = defs(&payload)
+        .iter()
+        .map(|d| d["class"]["key"]["ident"].as_str().expect("a key ident"))
+        .collect();
+    assert_eq!(idents, ["PART", "main"], "canonical key order: {payload}");
+
+    // Several rows name `PART` (the instance and its two pins) and one entry
+    // answers for all of them: the key the rows already carry is the join.
+    let naming_part = rows(&payload)
+        .iter()
+        .filter(|r| r["class"]["key"]["ident"] == "PART")
+        .count();
+    assert!(naming_part > 1, "the fixture must share one def: {payload}");
+    assert_eq!(count, rows(&payload).len());
+
+    // An entry names its definition exactly the way a row does, so a consumer
+    // joins the two without a table of its own.
+    assert_eq!(
+        def_for(&payload, "PART")["class"],
+        row_for(&payload, "main.R1")["class"]
+    );
+    assert_eq!(
+        def_for(&payload, "PART")["class"]["key"]["uri"],
+        URI,
+        "the key is the canonical (uri, ident) pair"
+    );
+}
+
+/// D0: *is the key there*, *what is its value* and *what does the key's name
+/// say* are three reads, and the ledger carries them in three regions.
+#[test]
+fn the_three_reads_of_a_definition_are_written_apart() {
+    let _lock = common::lock();
+    let (table, _) = frozen(LEDGER_SOURCE);
+    let (_, payload, _) = mcc::export::instlist::build_inst_list(&table, 0);
+    let part = def_for(&payload, "PART");
+
+    let present: Vec<&str> = part["present"]
+        .as_array()
+        .expect("present is an array")
+        .iter()
+        .map(|k| k.as_str().expect("a key is a string"))
+        .collect();
+    assert_eq!(present, PART_KEYS, "source order: {part}");
+
+    // Presence and value answer for the same key set (§10.8), so a consumer
+    // cannot read a value for a key it was told is absent.
+    let valued: Vec<&str> = part["values"]
+        .as_array()
+        .expect("values is an array")
+        .iter()
+        .map(|v| v["key"].as_str().expect("a value names its key"))
+        .collect();
+    assert_eq!(valued, present, "the two reads are one walk: {part}");
+
+    // The key read is a real subset and is asked of the dictionary alone: a key
+    // whose value is written but which the dictionary does not register has no
+    // line here at all — which is how "not registered" stays apart from
+    // "registered, with no unit signal".
+    let keys: Vec<&str> = part["keys"]
+        .as_array()
+        .expect("keys is an array")
+        .iter()
+        .map(|k| k["key"].as_str().expect("a key read names its key"))
+        .collect();
+    assert_eq!(keys, ["name", "spec.resistance", "spec.construction"]);
+    assert!(
+        present.contains(&"unregistered_q"),
+        "the fixture must carry a written key the dictionary does not know: {part}"
+    );
+
+    // A registered key answers even with no unit, so the two states above never
+    // print the same cell.
+    let name = part["keys"]
+        .as_array()
+        .expect("keys")
+        .iter()
+        .find(|k| k["key"] == "name")
+        .expect("name is registered");
+    assert_eq!(name["kind"], "text");
+    assert_eq!(name["unit"], Value::Null);
+    let resistance = part["keys"]
+        .as_array()
+        .expect("keys")
+        .iter()
+        .find(|k| k["key"] == "spec.resistance")
+        .expect("spec.resistance is registered");
+    assert_eq!(resistance["kind"], "quantity");
+    assert_eq!(resistance["unit"], "Ω");
+}
+
+/// Every view the canon names has its own tag (§3.2), and the two pairs the
+/// canon keeps apart stay apart in the artifact: a window is never read as a
+/// quantity (D2), and an author's `_` is never read as a missing key (D3).
+#[test]
+fn every_value_view_the_canon_names_has_its_own_tag() {
+    let _lock = common::lock();
+    let (table, _) = frozen(LEDGER_SOURCE);
+    let (_, payload, _) = mcc::export::instlist::build_inst_list(&table, 0);
+    let part = def_for(&payload, "PART");
+
+    let cases = [
+        ("name", "text"),
+        ("unregistered_q", "quantity"),
+        ("window_v", "window"),
+        ("set_v", "set"),
+        ("bound_v", "bound"),
+        ("rec", "record"),
+        ("ref_v", "ref"),
+        ("undet_v", "undetermined"),
+        ("calc", "expr"),
+    ];
+    for (key, want) in cases {
+        assert_eq!(value_of(part, key).0, want, "key {key} in {part}");
+    }
+    // `±` is the other spelling of a window; its text is not asserted here
+    // because the semantic layer synthesises the range from the glyph (the
+    // reading is recorded as a caveat in §10.9, not frozen into a test).
+    assert_eq!(value_of(part, "plusmin").0, "window");
+
+    // D2: `2.5V ~ 5.5V` is a tolerance and never a nominal value, so it cannot
+    // be read as a quantity — the two views are different tags.
+    assert_ne!(
+        value_of(part, "window_v").0,
+        value_of(part, "unregistered_q").0
+    );
+    assert!(
+        value_of(part, "window_v").1.contains('~'),
+        "the window prints as written: {part}"
+    );
+
+    // D3: `_` is a present key with an undetermined value, spelled as the
+    // author spelled it; a key that was never written has no line at all.
+    assert_eq!(value_of(part, "undet_v").1, "_");
+    assert_eq!(value_of(part, "spec.construction").0, "undetermined");
+    assert_eq!(value_of(part, "spec.construction").1, "_");
+    assert!(
+        !part["present"]
+            .as_array()
+            .expect("present")
+            .iter()
+            .any(|k| k == "absent_v"),
+        "a key that was never written must not appear: {part}"
+    );
+
+    // The table the dictionary opens hands its rows up as dotted keys, and a
+    // record does not: `spec` is a namespace, `rec` is one value of one key
+    // (§10.8 — the criterion is the value's shape, not the nesting depth).
+    assert!(present_of(&part).contains(&"spec.resistance"));
+    assert!(present_of(&part).contains(&"rec"));
+    assert!(!present_of(&part).contains(&"rec.case1"));
+
+    // A `pins` row rides the attribute node but is not in the attribute system
+    // (§1.6): the ledger reads the attribute face, so no pin row appears.
+    assert!(
+        !present_of(&part).iter().any(|k| k.starts_with("pins")),
+        "pins rows are not attributes: {part}"
+    );
+}
+
+/// The presence region, as strings.
+fn present_of(part: &Value) -> Vec<&str> {
+    part["present"]
+        .as_array()
+        .expect("present is an array")
+        .iter()
+        .map(|k| k.as_str().expect("a key is a string"))
+        .collect()
+}
+
+/// A definition with no attribute face at all is still in the ledger, and says
+/// so with three empty regions — a definition that is not in the ledger is a
+/// different state, and the two may not share a spelling.
+#[test]
+fn a_definition_with_no_attribute_face_says_so() {
+    let _lock = common::lock();
+    let (table, _) = frozen(LEDGER_SOURCE);
+    let (text, payload, _) = mcc::export::instlist::build_inst_list(&table, 0);
+    let main = def_for(&payload, "main");
+
+    assert_eq!(main["present"], json_array_empty(), "no attribute keys");
+    assert_eq!(main["values"], json_array_empty());
+    assert_eq!(main["keys"], json_array_empty());
+
+    // On the flat faces an empty entry would otherwise be an invisible line, so
+    // it writes one `present` line carrying `-` where a key would go — the same
+    // glyph the row table uses for a field a line does not carry (two states,
+    // two spellings).
+    let ledger = ledger_lines(&text, '\t');
+    let marker = ledger
+        .iter()
+        .find(|l| l[1] == "main")
+        .expect("the module is in the ledger");
+    assert_eq!(marker, &[URI, "main", "present", "-", "-"]);
+
+    // And the entry that does have a face writes one line per leaf in each
+    // region, keyed by the same five columns.
+    let part_present = ledger
+        .iter()
+        .filter(|l| l[1] == "PART" && l[2] == "present")
+        .count();
+    let part_values = ledger
+        .iter()
+        .filter(|l| l[1] == "PART" && l[2] == "values")
+        .count();
+    let part_keys = ledger
+        .iter()
+        .filter(|l| l[1] == "PART" && l[2] == "keys")
+        .count();
+    assert_eq!(
+        (part_present, part_values, part_keys),
+        (PART_KEYS.len(), PART_KEYS.len(), 3)
+    );
+    assert!(
+        ledger.iter().any(|l| l[1] == "PART"
+            && l[2] == "values"
+            && l[3] == "window_v"
+            && l[4].starts_with("window:")),
+        "a value cell is `tag:text`: {ledger:?}"
+    );
+    assert!(
+        ledger.iter().any(|l| l[1] == "PART"
+            && l[2] == "values"
+            && l[3] == "undet_v"
+            && l[4] == "undetermined:_"),
+        "`_` prints as the undetermined view with its own text: {ledger:?}"
+    );
+
+    // The CSV face carries the same ledger lines, escaped the same way the rows
+    // above them are.
+    let (csv, _, count) = mcc::export::instlist::build_inst_list(&table, 4);
+    let csv_ledger = ledger_lines(&csv, ',');
+    assert_eq!(csv_ledger.len(), ledger.len());
+    let csv_marker = csv_ledger
+        .iter()
+        .find(|l| l[1] == "main")
+        .expect("the module is in the csv ledger");
+    assert_eq!(csv_marker, &[URI, "main", "present", "-", "-"]);
+    assert!(count > 0, "the row block is above the ledger: {csv}");
+}
+
+/// An empty JSON array, for comparing against a region with no members.
+fn json_array_empty() -> Value {
+    Value::Array(Vec::new())
 }

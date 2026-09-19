@@ -63,14 +63,14 @@ range (threshold 40KB).
 | `cmds/` | 28 | 472 KB |
 | `db/` | 27 | 876 KB |
 | `eval/` | 2 | 48 KB |
-| `export/` | 6 | 35 KB |
+| `export/` | 6 | 44 KB |
 | `instant/` | 39 | 1475 KB |
 | `lsp/` | 7 | 66 KB |
 | `output/` | 7 | 107 KB |
 | `query/` | 7 | 133 KB |
 | `refdef/` | 7 | 118 KB |
 | `rpc/` | 16 | 287 KB |
-| `semantic/` | 87 | 2481 KB |
+| `semantic/` | 88 | 2494 KB |
 | `stages/` | 11 | 270 KB |
 | `vector/` | 25 | 462 KB |
 | `viz/` | 95 | 2279 KB |
@@ -100,19 +100,19 @@ ast/bindings.rs#L51  fn mcc_get_dlog_entries
 ast/bindings.rs#L52  fn mcc_clear_dlog_entries
 ast/bindings.rs#L53  fn mc_log_init
 ast/bindings.rs#L54  fn mc_log_close
-ast/bindings.rs#L69  static FRONTEND
-ast/bindings.rs#L87  struct Frontend
-ast/bindings.rs#L93  impl Frontend
-ast/bindings.rs#L94  fn acquire
-ast/bindings.rs#L107  fn reset
-ast/bindings.rs#L112  fn set_lex_file
-ast/bindings.rs#L121  fn lex
-ast/bindings.rs#L126  fn parse
-ast/bindings.rs#L132  fn visit_tree_color
-ast/bindings.rs#L136  fn get_error_tokens
-ast/bindings.rs#L140  fn get_dlog_entries
-ast/bindings.rs#L144  fn get_tokens
-ast/bindings.rs#L148  fn get_sem_tokens
+ast/bindings.rs#L67  static FRONTEND
+ast/bindings.rs#L85  struct Frontend
+ast/bindings.rs#L91  impl Frontend
+ast/bindings.rs#L92  fn acquire
+ast/bindings.rs#L105  fn reset
+ast/bindings.rs#L110  fn set_lex_file
+ast/bindings.rs#L119  fn lex
+ast/bindings.rs#L124  fn parse
+ast/bindings.rs#L130  fn visit_tree_color
+ast/bindings.rs#L134  fn get_error_tokens
+ast/bindings.rs#L138  fn get_dlog_entries
+ast/bindings.rs#L142  fn get_tokens
+ast/bindings.rs#L146  fn get_sem_tokens
 ast/error.rs#L6  enum ParseError
 ast/error.rs#L19  impl std::fmt::Display for ParseError
 ast/error.rs#L20  fn fmt
@@ -2309,10 +2309,19 @@ export/bom.rs#L122  fn collect_parts_impl
 export/bom.rs#L196  fn owning_instance
 export/bom.rs#L218  fn nc_status
 export/bom.rs#L244  fn class_of
-export/instlist.rs#L57  fn build_inst_list
-export/instlist.rs#L115  fn row
-export/instlist.rs#L137  fn class_of
-export/instlist.rs#L154  fn class_value
+export/instlist.rs#L111  fn build_inst_list
+export/instlist.rs#L169  fn row
+export/instlist.rs#L191  fn class_of
+export/instlist.rs#L200  fn class_sn
+export/instlist.rs#L215  fn class_value
+export/instlist.rs#L228  fn def_id_of
+export/instlist.rs#L237  struct DefEntry
+export/instlist.rs#L253  fn ledger
+export/instlist.rs#L281  fn def_reads
+export/instlist.rs#L295  fn entry
+export/instlist.rs#L330  fn ledger_cells
+export/instlist.rs#L365  fn cell
+export/instlist.rs#L376  fn row_cells
 export/kicad.rs#L13  fn build_kicad_netlist
 export/kicad.rs#L88  fn collect_instances_from_tree
 export/mod.rs#L8  mod bom
@@ -5681,6 +5690,22 @@ semantic/component/mc_attr.rs#L615  fn eq
 semantic/component/mc_attr.rs#L620  impl std::fmt::Display for McAttribute
 semantic/component/mc_attr.rs#L621  fn fmt
 semantic/component/mc_attr.rs#L631  impl Eq for McAttribute
+semantic/component/mc_attr_view.rs#L68  enum AttrView
+semantic/component/mc_attr_view.rs#L89  impl AttrView
+semantic/component/mc_attr_view.rs#L95  fn tag
+semantic/component/mc_attr_view.rs#L117  struct LeafRead
+semantic/component/mc_attr_view.rs#L138  struct KeySignal
+semantic/component/mc_attr_view.rs#L147  fn leaf_reads
+semantic/component/mc_attr_view.rs#L156  fn key_signal
+semantic/component/mc_attr_view.rs#L175  fn collect
+semantic/component/mc_attr_view.rs#L208  fn opens_table
+semantic/component/mc_attr_view.rs#L216  fn read_values
+semantic/component/mc_attr_view.rs#L237  fn written
+semantic/component/mc_attr_view.rs#L241  fn read_one
+semantic/component/mc_attr_view.rs#L254  fn literal_view
+semantic/component/mc_attr_view.rs#L266  fn literal_text
+semantic/component/mc_attr_view.rs#L274  fn expr_view
+semantic/component/mc_attr_view.rs#L299  fn named_pair
 semantic/component/mc_layout.rs#L25  struct McLayout
 semantic/component/mc_layout.rs#L32  impl McLayout
 semantic/component/mc_layout.rs#L33  fn new
@@ -5826,58 +5851,59 @@ semantic/component/mc_pins/mod.rs#L4213  const SRC
 semantic/component/mc_pins/mod.rs#L4237  fn dynamic_pin_row_identity_attrs_carry_on_the_line
 semantic/component/mc_pins/mod.rs#L4238  const SRC
 semantic/component/mod.rs#L5  mod mc_attr
-semantic/component/mod.rs#L6  mod mc_layout
-semantic/component/mod.rs#L7  mod mc_pins
-semantic/component/mod.rs#L39  struct CondPins
-semantic/component/mod.rs#L49  struct CondAttrs
-semantic/component/mod.rs#L57  struct McComponent
-semantic/component/mod.rs#L91  impl McComponent
-semantic/component/mod.rs#L100  fn bind_params
-semantic/component/mod.rs#L118  fn attr_key_names
-semantic/component/mod.rs#L127  fn closed_pin_ids
-semantic/component/mod.rs#L153  fn has_pin_defs
-semantic/component/mod.rs#L167  fn two_pin_verdict
-semantic/component/mod.rs#L180  fn new
-semantic/component/mod.rs#L362  fn parse_cond_blocks
-semantic/component/mod.rs#L522  fn collect_param_refs_in_body
-semantic/component/mod.rs#L530  fn collect_param_refs_in_node
-semantic/component/mod.rs#L576  impl HasFindInst for McComponent
-semantic/component/mod.rs#L577  fn find_inst
-semantic/component/mod.rs#L581  fn find_inst_mut
-semantic/component/mod.rs#L585  fn find_inst_with_span
-semantic/component/mod.rs#L599  fn find_terminal
-semantic/component/mod.rs#L605  fn add_label_at
-semantic/component/mod.rs#L615  fn add_bus
-semantic/component/mod.rs#L621  fn add_list
-semantic/component/mod.rs#L627  fn add_bus_member
-semantic/component/mod.rs#L631  fn add_interface_member
-semantic/component/mod.rs#L640  fn check_bus_member
-semantic/component/mod.rs#L647  fn is_component_bus
-semantic/component/mod.rs#L651  fn uri
-semantic/component/mod.rs#L655  fn parse_declare
-semantic/component/mod.rs#L675  fn add_component
-semantic/component/mod.rs#L690  fn add_module
-semantic/component/mod.rs#L698  fn gen_anon_name
-semantic/component/mod.rs#L709  fn upgrade_label_to_bus
-semantic/component/mod.rs#L713  fn record_declareb_def
-semantic/component/mod.rs#L722  fn scope_name
-semantic/component/mod.rs#L728  struct Mc2Component
-semantic/component/mod.rs#L743  impl std::fmt::Display for McComponent
-semantic/component/mod.rs#L744  fn fmt
-semantic/component/mod.rs#L750  impl Mc2Component
-semantic/component/mod.rs#L751  fn new
-semantic/component/mod.rs#L762  fn with_nc
-semantic/component/mod.rs#L773  fn with_params
-semantic/component/mod.rs#L788  fn integer_param_bindings
-semantic/component/mod.rs#L812  fn pins_contain
-semantic/component/mod.rs#L822  fn find_pin
-semantic/component/mod.rs#L878  fn resolved_pin_count
-semantic/component/mod.rs#L892  fn find_port
-semantic/component/mod.rs#L906  fn port_to_instance
-semantic/component/mod.rs#L938  fn find_scoped_enum_value
-semantic/component/mod.rs#L973  fn lookup_enum_class_id
-semantic/component/mod.rs#L980  impl std::fmt::Display for Mc2Component
-semantic/component/mod.rs#L981  fn fmt
+semantic/component/mod.rs#L6  mod mc_attr_view
+semantic/component/mod.rs#L7  mod mc_layout
+semantic/component/mod.rs#L8  mod mc_pins
+semantic/component/mod.rs#L40  struct CondPins
+semantic/component/mod.rs#L50  struct CondAttrs
+semantic/component/mod.rs#L58  struct McComponent
+semantic/component/mod.rs#L92  impl McComponent
+semantic/component/mod.rs#L101  fn bind_params
+semantic/component/mod.rs#L119  fn attr_key_names
+semantic/component/mod.rs#L128  fn closed_pin_ids
+semantic/component/mod.rs#L154  fn has_pin_defs
+semantic/component/mod.rs#L168  fn two_pin_verdict
+semantic/component/mod.rs#L181  fn new
+semantic/component/mod.rs#L363  fn parse_cond_blocks
+semantic/component/mod.rs#L523  fn collect_param_refs_in_body
+semantic/component/mod.rs#L531  fn collect_param_refs_in_node
+semantic/component/mod.rs#L577  impl HasFindInst for McComponent
+semantic/component/mod.rs#L578  fn find_inst
+semantic/component/mod.rs#L582  fn find_inst_mut
+semantic/component/mod.rs#L586  fn find_inst_with_span
+semantic/component/mod.rs#L600  fn find_terminal
+semantic/component/mod.rs#L606  fn add_label_at
+semantic/component/mod.rs#L616  fn add_bus
+semantic/component/mod.rs#L622  fn add_list
+semantic/component/mod.rs#L628  fn add_bus_member
+semantic/component/mod.rs#L632  fn add_interface_member
+semantic/component/mod.rs#L641  fn check_bus_member
+semantic/component/mod.rs#L648  fn is_component_bus
+semantic/component/mod.rs#L652  fn uri
+semantic/component/mod.rs#L656  fn parse_declare
+semantic/component/mod.rs#L676  fn add_component
+semantic/component/mod.rs#L691  fn add_module
+semantic/component/mod.rs#L699  fn gen_anon_name
+semantic/component/mod.rs#L710  fn upgrade_label_to_bus
+semantic/component/mod.rs#L714  fn record_declareb_def
+semantic/component/mod.rs#L723  fn scope_name
+semantic/component/mod.rs#L729  struct Mc2Component
+semantic/component/mod.rs#L744  impl std::fmt::Display for McComponent
+semantic/component/mod.rs#L745  fn fmt
+semantic/component/mod.rs#L751  impl Mc2Component
+semantic/component/mod.rs#L752  fn new
+semantic/component/mod.rs#L763  fn with_nc
+semantic/component/mod.rs#L774  fn with_params
+semantic/component/mod.rs#L789  fn integer_param_bindings
+semantic/component/mod.rs#L813  fn pins_contain
+semantic/component/mod.rs#L823  fn find_pin
+semantic/component/mod.rs#L879  fn resolved_pin_count
+semantic/component/mod.rs#L893  fn find_port
+semantic/component/mod.rs#L907  fn port_to_instance
+semantic/component/mod.rs#L939  fn find_scoped_enum_value
+semantic/component/mod.rs#L974  fn lookup_enum_class_id
+semantic/component/mod.rs#L981  impl std::fmt::Display for Mc2Component
+semantic/component/mod.rs#L982  fn fmt
 semantic/context.rs#L26  fn resolve_cmie
 semantic/context.rs#L39  trait NameResolver
 semantic/context.rs#L42  fn resolve
@@ -10526,4 +10552,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-393 files, 10446 declarations.
+394 files, 10472 declarations.
