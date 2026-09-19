@@ -41,11 +41,11 @@ impl McDefineDef {
             },
         };
 
-        // 2. Parse attributes
-        if !ret.body.get_sub_node().is_none() {
-            ret.body
-                .get_sub_node()
-                .unwrap()
+        // 2. Parse attributes — an in-body partition is transparent, so a
+        // `block`'s contents are read exactly as if written in this body.
+        let body_nodes = ret.body.clause_list();
+        if !body_nodes.is_empty() {
+            body_nodes
                 .iter()
                 .filter(|x| x.is_type(MCAST_ATTRIBUTE))
                 .for_each(|x| ret.attrs.parse(&x));

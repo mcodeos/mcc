@@ -56,8 +56,10 @@ impl McInterface {
             .find(|x| x.is_type(MCAST_PARAMS))
             .map(|param_node| ret.params.parse(&param_node));
 
-        //3. body: get subnode of body which contains the clauses
-        if let Some(body_subnodes) = body_node.get_sub_node() {
+        //3. body: the clauses the body holds, an in-body partition made
+        // transparent (`block`'s contents belong to the enclosing body).
+        let body_subnodes = body_node.clause_list();
+        if !body_subnodes.is_empty() {
             //3. attributes
             body_subnodes
                 .iter()

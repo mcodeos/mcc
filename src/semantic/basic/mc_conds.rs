@@ -716,28 +716,28 @@ impl McFuncConds {
             MCAST_COND_BLOCK | MCAST_BODY => {
                 // MCAST_COND_BLOCK: dead parser type (kept for compat).
                 // MCAST_BODY: the actual wrapper for `{ ... }` conditional
-                // blocks — iterate its children (net stmts / pin attributes).
-                if let Some(subnodes) = block.get_sub_node() {
-                    for child in subnodes.iter() {
-                        let child_type = child.get_type();
-                        if child_type == MCAST_NET {
-                            // A NET node may contain a DECLARE or a connection stmt
-                            if let Some(net_sub) = child.get_sub_node() {
-                                if net_sub.get_type() == MCAST_DECLARE {
-                                    continue; // skip declarations in cond blocks
-                                }
-                                if let Some(phrase) = McPhrase::new(&net_sub, context) {
-                                    stmts.push(phrase);
-                                }
+                // blocks — iterate its clauses (net stmts / pin attributes),
+                // with an in-body partition read as transparent so a `block`
+                // written inside a branch cannot swallow its own stmts.
+                for child in block.clause_list() {
+                    let child_type = child.get_type();
+                    if child_type == MCAST_NET {
+                        // A NET node may contain a DECLARE or a connection stmt
+                        if let Some(net_sub) = child.get_sub_node() {
+                            if net_sub.get_type() == MCAST_DECLARE {
+                                continue; // skip declarations in cond blocks
                             }
-                        } else if child_type == MCAST_ATTRIBUTE_PIN
-                            || child_type == MCAST_ATTRIBUTE_PINADD
-                            || child_type == MCAST_ATTRIBUTE
-                        {
-                            // Single stmt attribute
-                            if let Some(phrase) = McPhrase::new(&child, context) {
+                            if let Some(phrase) = McPhrase::new(&net_sub, context) {
                                 stmts.push(phrase);
                             }
+                        }
+                    } else if child_type == MCAST_ATTRIBUTE_PIN
+                        || child_type == MCAST_ATTRIBUTE_PINADD
+                        || child_type == MCAST_ATTRIBUTE
+                    {
+                        // Single stmt attribute
+                        if let Some(phrase) = McPhrase::new(&child, context) {
+                            stmts.push(phrase);
                         }
                     }
                 }

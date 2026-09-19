@@ -856,8 +856,10 @@ impl McFunction {
             gate_candidates: &gate_candidates,
             parent: context,
         };
-        if let Some(body_nodes) = body.get_sub_node() {
-            let body_nodes: AstNode = body_nodes;
+        // `clause_list` makes an in-body partition transparent: a `block`'s
+        // clauses are read exactly as if they had been written in this body.
+        let body_nodes = body.clause_list();
+        if !body_nodes.is_empty() {
             // [BODY-RAW] read-only diagnostic
             // Pure print, no behavior change. List each top-level node's type under body + its
             // child node type sequence, used to confirm that
@@ -886,7 +888,7 @@ impl McFunction {
                     idx
                 );
             }
-            for body_node in body_nodes.iter() {
+            for body_node in body_nodes {
                 match body_node.get_type() {
                     // MCAST_DECLARE: component/module instantiation
                     MCAST_DECLARE => {

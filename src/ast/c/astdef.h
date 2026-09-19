@@ -87,6 +87,24 @@
 #define MCAST_DOMAIN                   108
 #define MCAST_RAIL                     109
 
+//3.6 in-body partition (hierarchy-intent; organization-units-design.md §9.5)
+//    MCAST_PARTITION       = `block <name> { ... }` — a partition inside a
+//                            body, one level finer than `module`. `sheet` and
+//                            `subsystem` are the family's other level words and
+//                            reduce through this same node.
+//                            sub = [ level(MCAST_PARTITION_LEVEL),
+//                                    name(mc_ids), MCAST_BODY ]
+//    MCAST_PARTITION_LEVEL = the level word that opened the partition; data =
+//                            the word as written. It is NOT an identifier: the
+//                            author never declared a name there, so it must not
+//                            be fabricated as one (same reason the `pins`
+//                            keyword gets MCAST_OPD_PINS rather than an IDA).
+//    Semantics are grouping only — the clause opens no scope and issues no id;
+//    names written inside it still belong to the enclosing body's scope.
+//    Nesting is free: mc_body holds mc_clauses, which holds this clause.
+#define MCAST_PARTITION                110
+#define MCAST_PARTITION_LEVEL          113
+
 //3.1 attr
 #define MCAST_ATT_ID                   46
 #define MCAST_ATT_VALUES               47

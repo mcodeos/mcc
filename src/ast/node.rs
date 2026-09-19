@@ -136,6 +136,46 @@ impl AstNode {
         unsafe { AstNode::from_ptr((*self.ptr).next as *mut McValueFFI) }
     }
 
+    /// The clauses of a body, with an in-body partition made transparent.
+    ///
+    /// `block <name> { ... }` (AST kind `MCAST_PARTITION`) groups the clauses
+    /// already written in a body: it opens no scope and issues no id, so a
+    /// clause written inside a partition is read exactly as if it had been
+    /// written in the enclosing body. Every walk over a body's clauses reads
+    /// them from here, so no face can disagree about which clauses a body
+    /// holds — a partition cannot be read by one walk and rejected by the
+    /// next, which is what each body's own catch-all did before this existed
+    /// (measured: E3081 in a module body, E5058 in a capability, E5253/E5255/
+    /// E5261 in a component, an interface and a define).
+    ///
+    /// The partition's own name and level word are not returned: they are the
+    /// grouping's label, not clauses of the body.
+    pub fn clause_list(&self) -> Vec<AstNode> {
+        let mut out: Vec<AstNode> = Vec::new();
+        self.collect_clauses(&mut out);
+        out
+    }
+
+    fn collect_clauses(&self, out: &mut Vec<AstNode>) {
+        let Some(first) = self.get_sub_node() else {
+            return;
+        };
+        for child in first.iter() {
+            if child.is_type(MCAST_PARTITION) {
+                // [ level, name, body ] — the body is the last child; an empty
+                // partition has a body node with no clauses at all.
+                if let Some(body) = child
+                    .get_sub_node()
+                    .and_then(|sub| sub.iter().find(|n| n.is_type(MCAST_BODY)))
+                {
+                    body.collect_clauses(out);
+                }
+            } else {
+                out.push(child);
+            }
+        }
+    }
+
     /// Safely read .data field as CStr.
     ///
     /// C parser occasionally emits corrupted AST (e.g. writing string path to

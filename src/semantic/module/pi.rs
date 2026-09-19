@@ -1220,11 +1220,12 @@ impl McDomainDecl {
 
         let attrs = collect_attrs(&head);
 
-        // Rails live under the domain's MCAST_BODY child.
+        // Rails live under the domain's MCAST_BODY child, with an in-body
+        // partition read as transparent (`clause_list`).
         let rails = head
             .iter()
             .find(|c| c.is_type(MCAST_BODY))
-            .and_then(|body| body.get_sub_node())
+            .map(|body| body.clause_list())
             .map(|first| {
                 first
                     .iter()

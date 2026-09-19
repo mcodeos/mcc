@@ -37,20 +37,20 @@ impl McClosure {
                 }
 
                 MCAST_BODY => {
-                    if let Some(body_nodes) = each.get_sub_node() {
-                        for body_node in body_nodes.iter() {
-                            match body_node.get_type() {
-                                MCAST_NET => {
-                                    if let Some(net_sub) = body_node.get_sub_node() {
-                                        if let Some(phrase) = McPhrase::new(&net_sub, context) {
-                                            body_stmts.push(phrase);
-                                        }
-                                    }
-                                }
-                                _ => {
-                                    if let Some(phrase) = McPhrase::new(&body_node, context) {
+                    // An in-body partition is read as transparent, so a
+                    // `block` inside a closure body cannot swallow its stmts.
+                    for body_node in each.clause_list() {
+                        match body_node.get_type() {
+                            MCAST_NET => {
+                                if let Some(net_sub) = body_node.get_sub_node() {
+                                    if let Some(phrase) = McPhrase::new(&net_sub, context) {
                                         body_stmts.push(phrase);
                                     }
+                                }
+                            }
+                            _ => {
+                                if let Some(phrase) = McPhrase::new(&body_node, context) {
+                                    body_stmts.push(phrase);
                                 }
                             }
                         }

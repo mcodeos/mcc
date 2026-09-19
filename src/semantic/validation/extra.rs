@@ -384,22 +384,24 @@ fn check_empty_defines(acc: &mut CheckAccumulator) {
                 code: crate::errcodes::DEFINE_NO_ATTRS,
             });
         }
-        // U4: define with non-attribute body clauses — scan body AST
-        if let Some(sub) = def.body.get_sub_node() {
-            for child in sub.iter() {
-                let ct = child.get_type();
-                if ct != crate::MCAST_ATTRIBUTE {
-                    acc.push(CheckResult {
-                        check_name: "extra", severity: CheckSeverity::Warning,
-                        uri: Some(uri), span: def_span.clone(),
-                        message: format!(
-                            "Define '{}' contains non-attribute clause (type={}). Defines should only contain attributes.",
-                            def.name, ct
-                        ),
-                        code: crate::errcodes::DEFINE_NON_ATTR_CLAUSE,
-                    });
-                    break;
-                }
+        // U4: define with non-attribute body clauses — scan body AST. The scan
+        // reads the body's clauses with an in-body partition made transparent:
+        // `block` groups what is written there and is not itself a clause, so a
+        // partition holding only attributes must not be reported as a
+        // non-attribute clause.
+        for child in def.body.clause_list() {
+            let ct = child.get_type();
+            if ct != crate::MCAST_ATTRIBUTE {
+                acc.push(CheckResult {
+                    check_name: "extra", severity: CheckSeverity::Warning,
+                    uri: Some(uri), span: def_span.clone(),
+                    message: format!(
+                        "Define '{}' contains non-attribute clause (type={}). Defines should only contain attributes.",
+                        def.name, ct
+                    ),
+                    code: crate::errcodes::DEFINE_NON_ATTR_CLAUSE,
+                });
+                break;
             }
         }
     }
