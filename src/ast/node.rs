@@ -253,6 +253,38 @@ impl AstNode {
         }
     }
 
+    /// Split a named argument into its `(key, value)` node pair.
+    ///
+    /// The argument grammar spells a named key two ways and both mean the same
+    /// thing, so both must read back the same way:
+    ///   `k: v`  -> `MCAST_OPD_COLON` children `(key, value)`
+    ///   `k = v` -> `MCAST_ATTRIBUTE` children `(MCAST_ATT_ID, MCAST_ATT_VALUES)`
+    /// The `MCAST_ATT_*` wrappers are unwrapped so the value is the value node
+    /// itself (an `MCAST_RANGE_PLUSMINUS` and the like keep their type, which is
+    /// where a structural `±` comes from). `None` when `node` is not a named
+    /// argument — an argument reader must not turn a positional one into a
+    /// keyless pair.
+    pub fn named_arg_parts(&self) -> Option<(AstNode, AstNode)> {
+        match self.get_type() {
+            MCAST_OPD_COLON => {
+                let key = self.get_sub_node()?;
+                let value = key.get_next()?;
+                Some((key, value))
+            }
+            MCAST_ATTRIBUTE => {
+                let id = self.get_sub_node().filter(|c| c.is_type(MCAST_ATT_ID))?;
+                let key = match id.get_sub_node() {
+                    Some(key) => key,
+                    None => id.clone(),
+                };
+                let values = id.get_next().filter(|c| c.is_type(MCAST_ATT_VALUES))?;
+                let value = values.get_sub_node()?;
+                Some((key, value))
+            }
+            _ => None,
+        }
+    }
+
     /// node of certain types to String
     pub fn to_string(&self) -> Option<String> {
         if self.is_null() {

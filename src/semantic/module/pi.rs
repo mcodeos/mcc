@@ -1321,18 +1321,15 @@ impl McRailParam {
     fn from_node(node: &AstNode) -> Option<Self> {
         let span = node_span(node);
         let value = node.get_sub_node()?;
-        if value.get_type() == MCAST_OPD_COLON {
-            // named param `key : value`
-            if let Some(left) = value.get_sub_node() {
-                // leaf_text already returns None for empty identifiers.
-                let key = leaf_text(&left);
-                let val = left.get_next().map(|r| value_text(&r)).unwrap_or_default();
-                return Some(Self {
-                    key,
-                    text: val,
-                    span,
-                });
-            }
+        // A named argument reads the same either way it is spelled, `k: v` or
+        // `k = v` -- the grammar gives both one shape. `leaf_text` already
+        // returns None for empty identifiers.
+        if let Some((key_node, val_node)) = value.named_arg_parts() {
+            return Some(Self {
+                key: leaf_text(&key_node),
+                text: value_text(&val_node),
+                span,
+            });
         }
         Some(Self {
             key: None,
