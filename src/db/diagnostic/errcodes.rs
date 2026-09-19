@@ -914,6 +914,16 @@ pub const NET_POWER_NET_COUNT: u32 = 4118;
 /// A component pad is absent from every net.
 pub const NET_PIN_UNWIRED: u32 = 4119;
 
+/// Two endpoints of different interface families are connected (interface
+/// connect rule §1.2 step 1): only same-family interfaces pair — `UART.TTL`
+/// and `UART.RS232` are different families even though both are dotted `UART`.
+pub const IFACE_CROSS_FAMILY_CONNECT: u32 = 4120;
+
+/// Two roles of one interface family are connected but are not mutual peers
+/// (interface connect rule §1.2 step 2): each side's role must name the other
+/// in its `peer` attribute. Skipped when either side carries no role.
+pub const IFACE_ROLE_INCOMPATIBLE: u32 = 4121;
+
 // Pass2: instantiation checks (4150-4199)
 
 /// A chain link was skipped because the method is not defined on the instance.
@@ -2206,6 +2216,8 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(NET_BIDIR_UNCONNECTED, "A bidirectional port is not connected to any net.", "A bidirectional port is not connected to any net."),
     entry!(NET_POWER_NET_COUNT, "Design has many power nets; review for consolidation.", "Design has many power nets; review for consolidation."),
     entry!(NET_PIN_UNWIRED, "A component pad is absent from every net.", "A component pad is absent from every net."),
+    entry!(IFACE_CROSS_FAMILY_CONNECT, "Endpoints of different interface families are connected.", "IFACE_CROSS_FAMILY_CONNECT: '{0}' and '{1}' are different interface families and cannot pair — the interface connect rule pairs only same-family interfaces (ordinal k on the two sides is the same wire). Renaming a member does not bridge families."),
+    entry!(IFACE_ROLE_INCOMPATIBLE, "Connected interface roles are not mutual peers.", "IFACE_ROLE_INCOMPATIBLE: '{0}' and '{1}' of interface '{2}' are connected, but neither role names the other as its `peer` — declare `peer = {1}` on '{0}' and `peer = {0}` on '{1}', or connect a roleless side (which pairs positionally without the role check)."),
     // section
     entry!(INST_CHAIN_LINK_SKIPPED, "A chain link was skipped because the method is not defined on the instance.", "Method '{0}' not defined in {1} '{2}'; chain link skipped, no body expanded."),
     entry!(INST_ARG_NO_FORMAL_PORT, "Instance argument has no formal port to bind.", "Instance '{0}' arg{1} '{2}' has no formal port to bind"),
