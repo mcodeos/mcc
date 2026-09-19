@@ -442,6 +442,12 @@ impl InstantiationBuilder {
         }
         for net in wiring.nets {
             let points: Vec<NetPoint> = net.into_iter().map(|e| e.point).collect();
+            // U128 step 2b/2c: the interface connect rule rides the engine's
+            // second emission site too — this loop is where every §5.1 net
+            // is born, so a `+` junction cannot bypass the rule (the first
+            // site is `create_connection`; one implementation serves both,
+            // design-premises R8). Check only, the net is still emitted.
+            self.check_iface_connect_net(&points);
             let id = self.next_conn_id();
             self.add_connection(
                 self.make_conn_with_provenance(id, points, ConnDir::Undirected, None)
