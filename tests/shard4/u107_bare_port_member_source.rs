@@ -88,11 +88,38 @@ module main
 /// them when neither side declares members.
 const COLLAPSED: [&str; 2] = ["main.s.SPI", "main.s.p.SPI"];
 
+/// The same pairing written in a **module body** instead of a func body: the
+/// statement sits directly in `SUBM`, and nothing hands the port a four-member
+/// actual, so the members can only come from the statement's other end.
+fn body_board(container_declared: bool, peer: &str) -> String {
+    format!(
+        r#"module PEERM
+{{
+    {peer}
+}}
+
+module SUBM
+{{
+    {container}
+    PEERM p
+    SPI + p.SPI
+}}
+
+module main
+{{
+    SUBM s
+}}
+"#,
+        container = bare_or_declared(container_declared),
+    )
+}
+
 struct Built {
     /// Every net's member paths, as a set per net: order within a net is not a
     /// reading, and comparing sets is what keeps this from pinning a walk.
     nets: Vec<BTreeSet<String>>,
     errors: Vec<(u32, String)>,
+    warnings: Vec<(u32, String)>,
 }
 
 impl Built {
@@ -153,7 +180,17 @@ fn build(tag: &str, source: &str) -> Built {
         .map(|d| (d.code, d.msg.clone()))
         .collect();
 
-    Built { nets, errors }
+    let warnings: Vec<(u32, String)> = mcc::mcc_diagnose_all()
+        .iter()
+        .filter(|d| d.level == DiagnosticLevel::Warning)
+        .map(|d| (d.code, d.msg.clone()))
+        .collect();
+
+    Built {
+        nets,
+        errors,
+        warnings,
+    }
 }
 
 /// One lane of the fixed reading: the peer's member `N` shares a two-member net
@@ -291,4 +328,119 @@ fn u107__the_actual_still_reaches_the_boundary_member_by_member() {
             "no container endpoint names `{member}`: {container_paths:?}"
         );
     }
+}
+
+// -- 6. the module-body half: paired by the statement, not by a name scan --
+
+/// A module body has no boundary formal to carry the members in, so the same
+/// pairing is asked of the port's **own statement**: `SPI + p.SPI` names the
+/// peer, and the peer's member table completes the bare port.
+///
+/// This is the half a body-wide scan cannot do. The members come from a
+/// reference the statement itself names — a namesake elsewhere in the body is
+/// not evidence of pairing (measured on `hs`: a bare `io VBUS` picked up an
+/// unrelated `LinkCN.VBUS`, 1 × 4, E4007).
+#[test]
+fn u107__a_module_body_pairs_the_bare_port_with_its_own_statement() {
+    let b = build(
+        "body-bare-module-peer",
+        &body_board(false, &bare_or_declared(true)),
+    );
+
+    assert!(
+        b.errors.is_empty(),
+        "a shape the peer declares must not be an error: {:?}",
+        b.errors
+    );
+    for member in MEMBERS {
+        assert_lane_joins_the_same_member(&b, member);
+    }
+    assert!(
+        !b.has_net(&COLLAPSED),
+        "the four conductors were folded together again: {:?}",
+        b.nets
+    );
+}
+
+/// The twin: the same module body with the port's members written out. The
+/// reading must be the same member for member, so the test above is not
+/// satisfied by "a module body always zips when a peer exists".
+#[test]
+fn u107__a_declared_module_body_port_pairs_the_same_way() {
+    let b = build(
+        "body-declared-module-peer",
+        &body_board(true, &bare_or_declared(true)),
+    );
+
+    assert!(b.errors.is_empty(), "unexpected error: {:?}", b.errors);
+    for member in MEMBERS {
+        assert_lane_joins_the_same_member(&b, member);
+    }
+}
+
+/// A peer of the same name **in another statement** must not complete the port.
+/// Here `LinkCN.VBUS` declares four members and is used one statement away from
+/// `l.one -> VBUS`; if anything paired by name across the body, the bare `VBUS`
+/// would be widened to four lanes and this one-conductor connection would break.
+#[test]
+fn u107__a_namesake_in_another_statement_completes_nothing() {
+    let source = r#"module PEERM { io VBUS{VDD, GND, SHIELD, DET} }
+module LEAF { io one }
+module SUBM {
+    io VBUS
+    io SINK{VDD, GND, SHIELD, DET}
+    PEERM LinkCN
+    LEAF l
+    LinkCN.VBUS -> SINK
+    l.one -> VBUS
+}
+module main { SUBM s }
+"#;
+    let b = build("body-namesake", source);
+
+    assert!(b.errors.is_empty(), "unexpected error: {:?}", b.errors);
+    let net = b.net_of("main.s.VBUS");
+    assert_eq!(
+        net.len(),
+        2,
+        "the bare port must stay one conductor wide: {net:?}"
+    );
+    assert!(
+        net.iter().any(|m| m == "main.s.l.one"),
+        "the bare port must still be paired with what its own statement names: {net:?}"
+    );
+}
+
+// -- 7. the upper boundary can read the lanes the body completed --
+
+/// A completed bare port has lanes the declaration does not spell out, and the
+/// reference check must accept them: the caller hands `s` a four-member actual,
+/// so the boundary names `s.SPI.<member>` — references to lanes the body itself
+/// wires. Reading only the declaration would call every one of them missing
+/// (Warning E3175, "not found in module"), which is what this pins.
+#[test]
+fn u107__the_boundary_does_not_call_the_completed_lanes_missing() {
+    let b = build("boundary-lanes", &board(false, &bare_or_declared(true)));
+
+    let missing: Vec<&(u32, String)> = b
+        .warnings
+        .iter()
+        .filter(|(code, _)| *code == mcc::errcodes::MODULE_PORT_NOT_FOUND)
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "the lanes the body wires are not missing: {missing:?}"
+    );
+    // Guard against the check having gone silent instead: with a peer that
+    // declares nothing there are no lanes to accept, so the same boundary
+    // reference must still be reported missing. Without this the test above
+    // would pass just as well on a build that stopped checking.
+    let b2 = build("boundary-lanes-none", &board(false, "io SPI"));
+    assert!(
+        b2.warnings
+            .iter()
+            .any(|(code, _)| *code == mcc::errcodes::MODULE_PORT_NOT_FOUND),
+        "the check must still report an uncompleted lane as missing: {:?}",
+        b2.warnings
+    );
 }

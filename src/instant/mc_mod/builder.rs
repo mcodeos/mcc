@@ -532,24 +532,15 @@ impl InstantiationBuilder {
         self.modules_of(node_id)
     }
 
-    /// Members of the bus port a bare port of this name is paired with in the
-    /// body — the same-name port of a component instance, else of a sub-module
-    /// instance, in build order.
+    /// Members of one component instance's bus port, in the port's own member
+    /// order. Empty when the component has no such port or declares fewer than
+    /// two members (a bus needs two).
     ///
-    /// A bare `io SPI` declares no members, and the peer it is paired with
-    /// declares them the same way in either case (`io [8:11] = SPI{SCLK, …}`
-    /// for a device, `io SPI{SCLK, …}` for a module), so one rule reads both
-    /// (CIMP §1 U107 ③). The component member names are the port's **declared
-    /// names**, falling back to the pin number for a member with no name, so
-    /// the width is preserved without inventing a name.
-    ///
-    /// Reads only — the caller decides where the members are registered. Build
-    /// order decides which instance answers; never a hash order.
-    pub(super) fn peer_port_members(&self, port_name: &str) -> Vec<String> {
-        let from_component: Option<Vec<String>> = self
-            .components_view()
-            .iter()
-            .find_map(|comp| comp.find_bus_port_pin_ids(port_name))
+    /// The members are the port's **declared names**, falling back to the pin
+    /// number for a member with no name, so the width is preserved without
+    /// inventing a name (CIMP §1 U107 ③, `b3545`).
+    fn component_port_members(&self, comp: &McComponentInst, port: &str) -> Vec<String> {
+        comp.find_bus_port_pin_ids(port)
             .filter(|pin_ids| pin_ids.len() >= 2)
             .map(|pin_ids| {
                 pin_ids
@@ -562,14 +553,76 @@ impl InstantiationBuilder {
                         }
                     })
                     .collect()
-            });
+            })
+            .unwrap_or_default()
+    }
+
+    /// Members of one sub-module instance's bus port. Same rule as
+    /// [`Self::component_port_members`] — a port declares its members the same
+    /// way whether it belongs to a device or to a module.
+    fn submodule_port_members(&self, sub: &McModuleInst, port: &str) -> Vec<String> {
+        sub.ports
+            .iter()
+            .find(|p| p.name == port && p.bus_members.len() >= 2)
+            .map(|p| p.bus_members.clone())
+            .unwrap_or_default()
+    }
+
+    /// Members of the port the reference `owner.port` names, when `owner` is an
+    /// instance of this module — a component, else a sub-module — and its port
+    /// declares a member set. Empty for anything else (a label, a module port,
+    /// a deeper path, a port that declares nothing).
+    ///
+    /// This is the **directed** read: the caller already knows which reference
+    /// it is paired with. [`Self::peer_port_members`] is the same rule asked
+    /// the other way round (given a bare name, which instance port answers).
+    pub(super) fn instance_port_members(&self, path: &str) -> Vec<String> {
+        let Some((owner, port)) = path.split_once('.') else {
+            return Vec::new();
+        };
+        if port.contains('.') || owner.is_empty() || port.is_empty() {
+            return Vec::new();
+        }
+        if let Some(comp) = self.find_component(owner) {
+            let members = self.component_port_members(&comp, port);
+            if members.len() >= 2 {
+                return members;
+            }
+        }
+        if let Some(sub) = self.find_submodule(owner) {
+            return self.submodule_port_members(&sub, port);
+        }
+        Vec::new()
+    }
+
+    /// Members of the bus port a bare port of this name is paired with in the
+    /// body — the same-name port of a component instance, else of a sub-module
+    /// instance, in build order.
+    ///
+    /// A bare `io SPI` declares no members, and the peer it is paired with
+    /// declares them the same way in either case (`io [8:11] = SPI{SCLK, …}`
+    /// for a device, `io SPI{SCLK, …}` for a module), so one rule reads both
+    /// (CIMP §1 U107 ③).
+    ///
+    /// ⚠ This is the **name scan**: sound for a func formal, whose whole
+    /// binding is "the port of that name in this body", and **not** sound for a
+    /// module's own port, where a namesake in the body may be unrelated
+    /// (measured: `hs`'s bare `io VBUS` picked up `LinkCN.VBUS`, 1 × 4, E4007).
+    /// A module body pairs through the **statement** instead — see
+    /// `stmt.rs::complete_bare_port_from_statement`.
+    ///
+    /// Reads only — the caller decides where the members are registered. Build
+    /// order decides which instance answers; never a hash order.
+    pub(super) fn peer_port_members(&self, port_name: &str) -> Vec<String> {
+        let from_component = self.components_view().iter().find_map(|comp| {
+            let members = self.component_port_members(comp, port_name);
+            (members.len() >= 2).then_some(members)
+        });
         from_component
             .or_else(|| {
                 self.submodules_view().iter().find_map(|sub| {
-                    sub.ports
-                        .iter()
-                        .find(|p| p.name == port_name && p.bus_members.len() >= 2)
-                        .map(|p| p.bus_members.clone())
+                    let members = self.submodule_port_members(sub, port_name);
+                    (members.len() >= 2).then_some(members)
                 })
             })
             .unwrap_or_default()
