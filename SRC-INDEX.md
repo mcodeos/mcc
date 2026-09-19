@@ -64,7 +64,7 @@ range (threshold 40KB).
 | `db/` | 27 | 883 KB |
 | `eval/` | 2 | 48 KB |
 | `export/` | 6 | 44 KB |
-| `instant/` | 40 | 1518 KB |
+| `instant/` | 40 | 1513 KB |
 | `lsp/` | 7 | 66 KB |
 | `output/` | 7 | 107 KB |
 | `query/` | 9 | 157 KB |
@@ -2950,34 +2950,32 @@ instant/mc_mod/expand.rs#L232  fn resolve_chain_overlay
 instant/mc_mod/expand.rs#L278  impl InstantiationBuilder
 instant/mc_mod/expand.rs#L282  fn resolve_chain
 instant/mc_mod/expand.rs#L303  struct ExpandMatch
-instant/mc_mod/expand.rs#L332  fn expand_match
-instant/mc_mod/expand.rs#L429  mod expand_match_tests
-instant/mc_mod/expand.rs#L433  fn pt
-instant/mc_mod/expand.rs#L442  fn mat_expand__by_name_matches_and_preserves_left_order
-instant/mc_mod/expand.rs#L474  fn mat_expand__by_name_skips_on_duplicate_member
-instant/mc_mod/expand.rs#L490  fn mat_expand__by_name_skips_on_missing_name
-instant/mc_mod/expand.rs#L501  fn mat_expand__by_name_unique_matching_preserves_lhs_order
-instant/mc_mod/expand.rs#L521  fn mat_expand__partial_by_name_then_positional_fallback
-instant/mc_mod/expand.rs#L556  fn mat_expand__partial_by_name_keeps_lhs_order_when_unmatched_first
-instant/mc_mod/expand.rs#L581  fn mat_expand__total_count_by_name_then_positional_fallback
-instant/mc_mod/expand.rs#L598  fn mat_expand__total_count_positional_without_names
-instant/mc_mod/expand.rs#L612  fn mat_expand__total_count_all_mismatched_signals_d5
-instant/mc_mod/expand.rs#L623  fn mat_expand__count_mismatch_returns_none
-instant/mc_mod/expand.rs#L635  fn mat_expand__empty_side_returns_none
-instant/mc_mod/expand.rs#L645  mod inst_scope_tests
-instant/mc_mod/expand.rs#L663  fn np
-instant/mc_mod/expand.rs#L668  fn comp_inst
-instant/mc_mod/expand.rs#L711  fn comp_inst_with_pins
-instant/mc_mod/expand.rs#L726  fn store_fixture
-instant/mc_mod/expand.rs#L776  fn mat_expand__module_ports_scope_resolves_port_entry
-instant/mc_mod/expand.rs#L788  fn mat_expand__module_labels_scope_resolves_label_entry
-instant/mc_mod/expand.rs#L801  fn mat_expand__module_components_scope_resolves_component_entry
-instant/mc_mod/expand.rs#L813  fn mat_expand__module_sub_modules_scope_resolves_submodule_entry
-instant/mc_mod/expand.rs#L827  fn mat_expand__module_buses_scope_resolves_members_from_labels
-instant/mc_mod/expand.rs#L852  fn empty_overlay
-instant/mc_mod/expand.rs#L863  fn mat_expand__overlay_chain_resolves_component_pin
-instant/mc_mod/expand.rs#L891  fn mat_expand__overlay_chain_priority_ports_over_components
-instant/mc_mod/expand.rs#L937  fn mat_expand__overlay_chain_reaches_submodule_port
+instant/mc_mod/expand.rs#L339  fn expand_match
+instant/mc_mod/expand.rs#L370  mod expand_match_tests
+instant/mc_mod/expand.rs#L374  fn pt
+instant/mc_mod/expand.rs#L384  fn mat_expand__positional_zip_in_declaration_order
+instant/mc_mod/expand.rs#L420  fn mat_expand__same_names_out_of_order_must_not_realign
+instant/mc_mod/expand.rs#L437  fn mat_expand__duplicate_member_names_zip_positionally
+instant/mc_mod/expand.rs#L452  fn mat_expand__missing_member_name_still_zips_positionally
+instant/mc_mod/expand.rs#L463  fn mat_expand__partial_name_match_is_not_repaired
+instant/mc_mod/expand.rs#L479  fn mat_expand__total_count_positional_without_names
+instant/mc_mod/expand.rs#L493  fn mat_expand__total_count_all_mismatched_signals_d5
+instant/mc_mod/expand.rs#L504  fn mat_expand__count_mismatch_returns_none
+instant/mc_mod/expand.rs#L516  fn mat_expand__empty_side_returns_none
+instant/mc_mod/expand.rs#L526  mod inst_scope_tests
+instant/mc_mod/expand.rs#L544  fn np
+instant/mc_mod/expand.rs#L549  fn comp_inst
+instant/mc_mod/expand.rs#L592  fn comp_inst_with_pins
+instant/mc_mod/expand.rs#L607  fn store_fixture
+instant/mc_mod/expand.rs#L657  fn mat_expand__module_ports_scope_resolves_port_entry
+instant/mc_mod/expand.rs#L669  fn mat_expand__module_labels_scope_resolves_label_entry
+instant/mc_mod/expand.rs#L682  fn mat_expand__module_components_scope_resolves_component_entry
+instant/mc_mod/expand.rs#L694  fn mat_expand__module_sub_modules_scope_resolves_submodule_entry
+instant/mc_mod/expand.rs#L708  fn mat_expand__module_buses_scope_resolves_members_from_labels
+instant/mc_mod/expand.rs#L733  fn empty_overlay
+instant/mc_mod/expand.rs#L744  fn mat_expand__overlay_chain_resolves_component_pin
+instant/mc_mod/expand.rs#L772  fn mat_expand__overlay_chain_priority_ports_over_components
+instant/mc_mod/expand.rs#L818  fn mat_expand__overlay_chain_reaches_submodule_port
 instant/mc_mod/fcallinst.rs#L51  static LAST_RETURN_ENDPOINT
 instant/mc_mod/fcallinst.rs#L64  fn wire_series_params
 instant/mc_mod/fcallinst.rs#L69  fn collect_series
@@ -3042,8 +3040,8 @@ instant/mc_mod/iterated.rs#L409  fn gap1_collect_slices
 instant/mc_mod/iterated.rs#L436  fn iterated_item_inst_name
 instant/mc_mod/matching.rs#L25  enum WidthCheck
 instant/mc_mod/matching.rs#L41  fn check_vector_width
-instant/mc_mod/matching.rs#L64  fn pair_members_to_lanes
-instant/mc_mod/matching.rs#L107  fn parse_bracket_members
+instant/mc_mod/matching.rs#L67  fn pair_members_to_lanes
+instant/mc_mod/matching.rs#L80  fn parse_bracket_members
 instant/mc_mod/mod.rs#L25  mod builder
 instant/mc_mod/mod.rs#L26  mod bus
 instant/mc_mod/mod.rs#L27  mod dump
@@ -3101,19 +3099,19 @@ instant/mc_mod/phases.rs#L1154  fn dedup_connections
 instant/mc_mod/phases.rs#L1196  fn validate_expanded_net_points
 instant/mc_mod/phases.rs#L1324  fn arg_declared_volt
 instant/mc_mod/phases.rs#L1345  fn bind_actual_args_to_ports
-instant/mc_mod/phases.rs#L1555  fn bind_call_args_to_ports
-instant/mc_mod/phases.rs#L1782  fn check_unbound_param_ports
-instant/mc_mod/phases.rs#L1864  fn run_component_constructor
-instant/mc_mod/phases.rs#L2033  fn extract_port_bus_members
-instant/mc_mod/phases.rs#L2103  fn read_iface_diff_pair
-instant/mc_mod/phases.rs#L2129  fn port_base_name
-instant/mc_mod/phases.rs#L2149  fn port_members
-instant/mc_mod/phases.rs#L2181  fn is_power_terminal
-instant/mc_mod/phases.rs#L2193  fn bindable_formals
-instant/mc_mod/phases.rs#L2223  fn declared_volt_of_params
-instant/mc_mod/phases.rs#L2245  fn declared_volt_of_texts
-instant/mc_mod/phases.rs#L2275  fn nc_port_hits
-instant/mc_mod/phases.rs#L2289  fn nc_port_range_hits
+instant/mc_mod/phases.rs#L1556  fn bind_call_args_to_ports
+instant/mc_mod/phases.rs#L1784  fn check_unbound_param_ports
+instant/mc_mod/phases.rs#L1866  fn run_component_constructor
+instant/mc_mod/phases.rs#L2035  fn extract_port_bus_members
+instant/mc_mod/phases.rs#L2105  fn read_iface_diff_pair
+instant/mc_mod/phases.rs#L2131  fn port_base_name
+instant/mc_mod/phases.rs#L2151  fn port_members
+instant/mc_mod/phases.rs#L2183  fn is_power_terminal
+instant/mc_mod/phases.rs#L2195  fn bindable_formals
+instant/mc_mod/phases.rs#L2225  fn declared_volt_of_params
+instant/mc_mod/phases.rs#L2247  fn declared_volt_of_texts
+instant/mc_mod/phases.rs#L2277  fn nc_port_hits
+instant/mc_mod/phases.rs#L2291  fn nc_port_range_hits
 instant/mc_mod/points.rs#L41  fn parse_curly_select
 instant/mc_mod/points.rs#L55  fn expand_member_ida
 instant/mc_mod/points.rs#L94  fn resolve_bare_member_pid
@@ -8100,27 +8098,27 @@ vector/model/mod.rs#L14  mod trunk
 vector/model/mod.rs#L15  mod vec
 vector/model/net.rs#L27  enum RailClass
 vector/model/net.rs#L41  struct RailSpec
-vector/model/net.rs#L53  enum AttrRole
-vector/model/net.rs#L75  struct DiffFace
-vector/model/net.rs#L83  impl DiffFace
-vector/model/net.rs#L84  fn new
-vector/model/net.rs#L99  struct NetAttrMirror
-vector/model/net.rs#L139  enum ConnectionType
-vector/model/net.rs#L157  impl fmt::Display for ConnectionType
-vector/model/net.rs#L158  fn fmt
-vector/model/net.rs#L174  struct McVecNet
-vector/model/net.rs#L215  enum PortFlow
-vector/model/net.rs#L228  struct BoundaryInfo
-vector/model/net.rs#L250  impl McVecNet
-vector/model/net.rs#L252  fn new
-vector/model/net.rs#L268  fn with_shape
-vector/model/net.rs#L300  fn connection_type
-vector/model/net.rs#L332  fn shape_type_key
-vector/model/net.rs#L373  fn shape_type_name
-vector/model/net.rs#L387  fn all_point_ids
-vector/model/net.rs#L400  fn total_points
-vector/model/net.rs#L405  impl fmt::Display for McVecNet
-vector/model/net.rs#L406  fn fmt
+vector/model/net.rs#L54  enum AttrRole
+vector/model/net.rs#L81  struct DiffFace
+vector/model/net.rs#L89  impl DiffFace
+vector/model/net.rs#L90  fn new
+vector/model/net.rs#L105  struct NetAttrMirror
+vector/model/net.rs#L145  enum ConnectionType
+vector/model/net.rs#L163  impl fmt::Display for ConnectionType
+vector/model/net.rs#L164  fn fmt
+vector/model/net.rs#L180  struct McVecNet
+vector/model/net.rs#L221  enum PortFlow
+vector/model/net.rs#L234  struct BoundaryInfo
+vector/model/net.rs#L256  impl McVecNet
+vector/model/net.rs#L258  fn new
+vector/model/net.rs#L274  fn with_shape
+vector/model/net.rs#L306  fn connection_type
+vector/model/net.rs#L338  fn shape_type_key
+vector/model/net.rs#L379  fn shape_type_name
+vector/model/net.rs#L393  fn all_point_ids
+vector/model/net.rs#L406  fn total_points
+vector/model/net.rs#L411  impl fmt::Display for McVecNet
+vector/model/net.rs#L412  fn fmt
 vector/model/netshape.rs#L68  struct LaneRef
 vector/model/netshape.rs#L75  impl LaneRef
 vector/model/netshape.rs#L76  fn new
@@ -10659,4 +10657,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-397 files, 10579 declarations.
+397 files, 10577 declarations.

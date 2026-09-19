@@ -329,15 +329,15 @@ impl InstantiationBuilder {
         }
 
         if let Some(m) = expand_match(&left_points, &right_points) {
-            // P4.2: §7 vector expansion matching (eval.md §7)
-            // The pure function expand_match replaces the old
-            // try_match_by_member_name + sorted zip:
-            //   Rule 1 layer correspondence — both sides have unique non-empty
-            //              member names that can be paired one-to-one →
-            //              match by name (keep lhs order, deterministic);
-            //   Rule 2 total correspondence — equal counts → zip after stable
-            //              sort by name, also producing the D5 signal;
-            //   Rule 3 count mismatch → None (implicit auto-expansion is
+            // P4.2: §7 vector expansion matching (eval.md §7, §11.3)
+            // expand_match pairs the two sides by declared order only:
+            // ordinal k on the two sides is the SAME wire, and member names
+            // are never a matching criterion (interface-connect rule,
+            // 2026-09-19 — the former name-first priority is removed):
+            //   Rule 1 count correspondence — equal counts → positional zip
+            //              in declaration order; a fully name-mismatched zip
+            //              also produces the D5 signal below;
+            //   Rule 2 count mismatch → None (implicit auto-expansion is
             //              forbidden, falls into the recovery branch below).
             // Shape matching has already passed here (equal counts and both
             // sides non-empty), so expand_match is necessarily Some.

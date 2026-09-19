@@ -58,45 +58,18 @@ pub fn check_vector_width(
 // Member <-> lane pairing (§3.1 B2 / §11.3)
 
 /// Pair a formal's member names (declaration order) with actual argument
-/// lanes — by name first, positional fallback for the rest. Returns, in member
-/// order, the index into `arg_lanes` paired with each member (`usize::MAX`
-/// when a member has no partner lane).
+/// lanes **positionally**: `members[i]` binds `arg_lanes[i]` (write order).
+/// Member names are each side's local view, never a matching criterion
+/// (interface-connect rule, ruling of 2026-09-19; the former name-first pass
+/// with positional fallback is removed). Returns, in member order, the index
+/// into `arg_lanes` paired with each member (`usize::MAX` when a member has
+/// no partner lane).
 pub fn pair_members_to_lanes(members: &[String], arg_lanes: &[NetPoint]) -> Vec<usize> {
-    let mut result: Vec<usize> = Vec::with_capacity(members.len());
-    let mut used = vec![false; arg_lanes.len()];
-    // Pass 1: pair by name.
-    for m in members {
-        let hit = arg_lanes.iter().position(|a| {
-            let n = a
-                .member_name
-                .as_deref()
-                .unwrap_or_else(|| a.path.rsplit('.').next().unwrap_or(&a.path));
-            n == m.as_str()
-        });
-        match hit {
-            Some(j) if !used[j] => {
-                result.push(j);
-                used[j] = true;
-            }
-            _ => result.push(usize::MAX),
-        }
-    }
-    // Pass 2: positional fallback for names with no partner.
-    let mut rj = 0;
-    for r in result.iter_mut() {
-        if *r != usize::MAX {
-            continue;
-        }
-        while rj < arg_lanes.len() && used[rj] {
-            rj += 1;
-        }
-        if rj < arg_lanes.len() {
-            *r = rj;
-            used[rj] = true;
-            rj += 1;
-        }
-    }
-    result
+    members
+        .iter()
+        .enumerate()
+        .map(|(i, _)| if i < arg_lanes.len() { i } else { usize::MAX })
+        .collect()
 }
 
 // Checked zip (§4 Z1/Z2)
