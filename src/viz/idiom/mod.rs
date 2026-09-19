@@ -464,7 +464,7 @@ fn detect_diff_pair(
 
     let pairs = find_diff_pairs(graph);
 
-    for (_base, (net_p, net_n)) in &pairs {
+    for &(net_p, net_n) in &pairs {
         let boxes_p: Vec<i64> = net_p.endpoints.iter().map(|e| e.box_id).collect();
         let boxes_n: Vec<i64> = net_n.endpoints.iter().map(|e| e.box_id).collect();
 
@@ -517,7 +517,7 @@ fn detect_diff_pair_instances(
     let mut instances = Vec::new();
     let pairs = find_diff_pairs(graph);
 
-    for (_base, (net_p, net_n)) in &pairs {
+    for &(net_p, net_n) in &pairs {
         let boxes_p: Vec<i64> = net_p.endpoints.iter().map(|e| e.box_id).collect();
         let boxes_n: Vec<i64> = net_n.endpoints.iter().map(|e| e.box_id).collect();
 
@@ -570,18 +570,25 @@ fn detect_diff_pair_instances(
 }
 
 /// The declared differential pairs of a laid-out graph, as
-/// `group → (positive net, negative net)`.
+/// `(positive net, negative net)` in the order the nets were walked.
 ///
 /// A pair is a property of the interface declaration, never of a net name: the
 /// faces arrive on the nets as `attr.diff` (U61), and two nets belong together
 /// exactly when one declaration named them, which their shared `group` says.
 /// Nets with no declared face form no pair.
+///
+/// A `Vec` and not a map keyed by `group`, because the order is part of the
+/// answer: the callers append one instance per pair to a sequence, and
+/// `stage.viz` publishes a hash of that sequence. A `HashMap` would hand the
+/// groups back in its own per-process order, and the walk below already holds
+/// the order the input determines — `seen` is that walk. The linear `contains`
+/// is the same trade `setup_facade_entry_points` makes, and for the same
+/// reason (build-design §3.7 discipline 4).
 fn find_diff_pairs(
     graph: &McVecGraph,
-) -> HashMap<String, (&crate::vector::graph::VizNet, &crate::vector::graph::VizNet)> {
-    let mut pairs: HashMap<String, (&crate::vector::graph::VizNet, &crate::vector::graph::VizNet)> =
-        HashMap::new();
-    let mut seen = Vec::new();
+) -> Vec<(&crate::vector::graph::VizNet, &crate::vector::graph::VizNet)> {
+    let mut pairs: Vec<(&crate::vector::graph::VizNet, &crate::vector::graph::VizNet)> = Vec::new();
+    let mut seen: Vec<String> = Vec::new();
 
     for net in &graph.nets {
         let Some(face) = face_of(net) else {
@@ -603,7 +610,7 @@ fn find_diff_pairs(
         } else {
             (mate, net)
         };
-        pairs.insert(face.group.clone(), (net_p, net_n));
+        pairs.push((net_p, net_n));
     }
 
     pairs
@@ -1338,6 +1345,71 @@ mod tests {
             assert_eq!(i1.kind, i2.kind);
             assert_eq!(i1.anchor_box_id, i2.anchor_box_id);
             assert_eq!(i1.satellite_box_ids, i2.satellite_box_ids);
+        }
+    }
+
+    /// The declared pairs come back in the order the nets were walked.
+    ///
+    /// Two pairs is the smallest graph that can show it: with one pair the
+    /// container holds one entry, and every order is the same order. The nets
+    /// below carry one declaration each, the positive net of the first pair
+    /// being net 1 and of the second net 3, so the sequence under test is
+    /// exactly `[1, 3]`.
+    ///
+    /// The loop is not one reading taken `READS` times. Every call builds its
+    /// own map, and `RandomState` draws a fresh key per map, so each pass is an
+    /// independent draw of the order a `HashMap` would have returned.
+    #[test]
+    fn the_diff_pair_instances_come_back_in_net_order() {
+        const READS: usize = 24;
+
+        let mut graph = McVecGraph::new(1, "test".into());
+        graph.boxes.push(make_ic_box(1, "U1", 50.0, 50.0));
+        graph
+            .boxes
+            .push(make_box(2, "R1", Symbol::Resistor, 50.0, 120.0, 40.0, 30.0));
+        graph.boxes.push(make_ic_box(3, "U2", 200.0, 50.0));
+        graph.boxes.push(make_box(
+            4,
+            "R2",
+            Symbol::Resistor,
+            200.0,
+            120.0,
+            40.0,
+            30.0,
+        ));
+
+        let face = |nid: i64, group: &str, positive: bool, a: i64, b: i64| {
+            let mut net = VizNet::new(
+                nid,
+                format!("{group}.{}", if positive { "P" } else { "N" }),
+                NetKind::Signal,
+                NetRole::Signal,
+                vec![EndpointRef::new(a, 1, "1"), EndpointRef::new(b, 1, "2")],
+            );
+            net.attr = Some(declared_face(group, positive));
+            net
+        };
+        graph.nets.push(face(1, "u1.diff", true, 1, 2));
+        graph.nets.push(face(2, "u1.diff", false, 1, 2));
+        graph.nets.push(face(3, "u2.diff", true, 3, 4));
+        graph.nets.push(face(4, "u2.diff", false, 3, 4));
+
+        let protected = HashSet::new();
+        for read in 0..READS {
+            let order: Vec<i64> = detect_placement_instances(&graph, &protected)
+                .iter()
+                .filter(|i| i.kind == IdiomInstanceKind::DiffPair)
+                .map(|i| i.signal_net_id.expect("a pair reports its positive net"))
+                .collect();
+            assert_eq!(
+                order,
+                vec![1, 3],
+                "read {read}: the pairs came back in another order — the sequence \
+                 follows the iteration order of the container they were grouped \
+                 in, not the order the nets were walked (build-design §3.7 \
+                 discipline 4)"
+            );
         }
     }
 

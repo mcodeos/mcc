@@ -73,7 +73,7 @@ range (threshold 40KB).
 | `semantic/` | 88 | 2498 KB |
 | `stages/` | 11 | 271 KB |
 | `vector/` | 25 | 462 KB |
-| `viz/` | 95 | 2279 KB |
+| `viz/` | 95 | 2282 KB |
 
 ## Declaration index
 
@@ -8258,30 +8258,32 @@ viz/idiom/mod.rs#L288  fn detect_decoupling
 viz/idiom/mod.rs#L343  fn detect_decoupling_instances
 viz/idiom/mod.rs#L459  fn detect_diff_pair
 viz/idiom/mod.rs#L512  fn detect_diff_pair_instances
-viz/idiom/mod.rs#L579  fn find_diff_pairs
-viz/idiom/mod.rs#L613  fn face_of
-viz/idiom/mod.rs#L620  fn detect_pullup
-viz/idiom/mod.rs#L647  fn detect_pullup_instances
-viz/idiom/mod.rs#L697  fn detect_pulldown
-viz/idiom/mod.rs#L724  fn detect_pulldown_instances
-viz/idiom/mod.rs#L773  mod tests
-viz/idiom/mod.rs#L779  fn make_box
-viz/idiom/mod.rs#L800  fn make_ic_box
-viz/idiom/mod.rs#L822  fn generated_constraints_carry_source_kind_for_reporting
-viz/idiom/mod.rs#L855  fn detect_decoupling_cap
-viz/idiom/mod.rs#L895  fn decoupling_penalty_grows_with_distance
-viz/idiom/mod.rs#L932  fn declared_face
-viz/idiom/mod.rs#L943  fn detect_diff_pair_pn
-viz/idiom/mod.rs#L987  fn diffpair_symmetric_zero_penalty
-viz/idiom/mod.rs#L1029  fn pair_spelled_p_n_without_a_declaration_is_not_a_pair
-viz/idiom/mod.rs#L1062  fn detect_pullup
-viz/idiom/mod.rs#L1100  fn detect_pulldown
-viz/idiom/mod.rs#L1138  fn pulldown_not_confused_with_pullup
-viz/idiom/mod.rs#L1177  fn placement_instances_decoupling
-viz/idiom/mod.rs#L1216  fn protected_boxes_skipped
-viz/idiom/mod.rs#L1256  fn analyze_deterministic
-viz/idiom/mod.rs#L1307  fn placement_instances_deterministic
-viz/idiom/mod.rs#L1345  fn layout_hint_pins_not_penalized
+viz/idiom/mod.rs#L587  fn find_diff_pairs
+viz/idiom/mod.rs#L620  fn face_of
+viz/idiom/mod.rs#L627  fn detect_pullup
+viz/idiom/mod.rs#L654  fn detect_pullup_instances
+viz/idiom/mod.rs#L704  fn detect_pulldown
+viz/idiom/mod.rs#L731  fn detect_pulldown_instances
+viz/idiom/mod.rs#L780  mod tests
+viz/idiom/mod.rs#L786  fn make_box
+viz/idiom/mod.rs#L807  fn make_ic_box
+viz/idiom/mod.rs#L829  fn generated_constraints_carry_source_kind_for_reporting
+viz/idiom/mod.rs#L862  fn detect_decoupling_cap
+viz/idiom/mod.rs#L902  fn decoupling_penalty_grows_with_distance
+viz/idiom/mod.rs#L939  fn declared_face
+viz/idiom/mod.rs#L950  fn detect_diff_pair_pn
+viz/idiom/mod.rs#L994  fn diffpair_symmetric_zero_penalty
+viz/idiom/mod.rs#L1036  fn pair_spelled_p_n_without_a_declaration_is_not_a_pair
+viz/idiom/mod.rs#L1069  fn detect_pullup
+viz/idiom/mod.rs#L1107  fn detect_pulldown
+viz/idiom/mod.rs#L1145  fn pulldown_not_confused_with_pullup
+viz/idiom/mod.rs#L1184  fn placement_instances_decoupling
+viz/idiom/mod.rs#L1223  fn protected_boxes_skipped
+viz/idiom/mod.rs#L1263  fn analyze_deterministic
+viz/idiom/mod.rs#L1314  fn placement_instances_deterministic
+viz/idiom/mod.rs#L1363  fn the_diff_pair_instances_come_back_in_net_order
+viz/idiom/mod.rs#L1364  const READS
+viz/idiom/mod.rs#L1417  fn layout_hint_pins_not_penalized
 viz/idiom/model.rs#L13  struct IdiomPlacementModel
 viz/idiom/model.rs#L28  struct IdiomInstance
 viz/idiom/model.rs#L50  enum IdiomInstanceKind
@@ -10615,4 +10617,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-397 files, 10535 declarations.
+397 files, 10537 declarations.
