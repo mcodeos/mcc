@@ -347,20 +347,28 @@ pub fn classify_rails(graph: &mut McVecGraph, is_top: bool) {
 }
 
 /// ★ C5: remove two-pin passives from the top level (block-diagram granularity) and
-/// revoke their endpoints on signal nets. Nets drained to <2 endpoints (e.g. the _WP
-/// pull-up left with only flash.3) are deleted too.
+/// revoke their endpoints on signal nets.
 ///
 /// A leaf top whose only content is passives (small module `RES R1; LED L1`) is
 /// never stripped: there is no block diagram to unclutter, and removing everything
 /// leaves the schematic blank (and panics the radial root selection in flow.rs).
+///
+/// ★ U105: uncluttering may not cost a connection. A passive that is the **last
+/// endpoint** of one of its nets is what joins that net to the rest of the circuit:
+/// dropping it drains the net, so the far end is drawn dangling while the netlist
+/// stays connected — `requirement-design.md` D1/E1 forbid that reading (the drawing
+/// must be able to return to electrical truth, one drawing = one netlist). Such a
+/// passive is therefore **kept**; only passives whose removal leaves *every* one of
+/// their nets with ≥2 endpoints are dropped (shunt / bypass / decoupling), and the
+/// drained-net deletion the old criterion needed can no longer happen at all.
 fn drop_top_passives(graph: &mut McVecGraph) {
-    let passive_ids: HashSet<i64> = graph
+    let candidates: HashSet<i64> = graph
         .boxes
         .iter()
         .filter(|b| b.is_two_pin_passive())
         .map(|b| b.id)
         .collect();
-    if passive_ids.is_empty() {
+    if candidates.is_empty() {
         return;
     }
     // Block-diagram granularity only applies when real block content (an IC hub or
@@ -372,25 +380,37 @@ fn drop_top_passives(graph: &mut McVecGraph) {
     if !has_block_content {
         return;
     }
-    let n_boxes = passive_ids.len();
-    graph.boxes.retain(|b| !passive_ids.contains(&b.id));
-
-    let mut dropped_nets = 0usize;
-    let mut cleaned: Vec<VizNet> = Vec::with_capacity(graph.nets.len());
-    for mut net in std::mem::take(&mut graph.nets) {
-        let before = net.endpoints.len();
-        net.endpoints.retain(|e| !passive_ids.contains(&e.box_id));
-        if net.endpoints.len() < 2 && before >= 2 {
-            dropped_nets += 1;
-            continue; // drained nets (single dangling end) are not drawn
-        }
-        cleaned.push(net);
+    // "Carries a connection": at least one of its nets would fall below 2 endpoints
+    // once the passives are gone. Judged against *all* candidates at once, so a
+    // series chain (A - R1 - R2 - B) keeps every link rather than its first one.
+    let dropped: HashSet<i64> = candidates
+        .iter()
+        .copied()
+        .filter(|id| {
+            graph
+                .nets
+                .iter()
+                .filter(|n| n.endpoints.iter().any(|e| e.box_id == *id))
+                .all(|n| {
+                    n.endpoints
+                        .iter()
+                        .filter(|e| !candidates.contains(&e.box_id))
+                        .count()
+                        >= 2
+                })
+        })
+        .collect();
+    if dropped.is_empty() {
+        return;
     }
-    graph.nets = cleaned;
+    graph.boxes.retain(|b| !dropped.contains(&b.id));
+    for net in &mut graph.nets {
+        net.endpoints.retain(|e| !dropped.contains(&e.box_id));
+    }
     crate::vlog!(
-        "[layout::rails] C5: dropped {} top-level passive box(es), {} emptied net(s)",
-        n_boxes,
-        dropped_nets
+        "[layout::rails] C5: dropped {} top-level passive box(es), kept {} carrying a connection",
+        dropped.len(),
+        candidates.len() - dropped.len()
     );
 }
 
