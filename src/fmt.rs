@@ -142,17 +142,20 @@ fn token_starts(content: &str) -> Result<Vec<(i16, usize)>, String> {
     let src = std::ffi::CString::new(content)
         .map_err(|_| "refused: source contains a NUL byte".to_string())?;
     let mut out: Vec<(i16, usize)> = Vec::new();
+    // The C frontend is a process-wide singleton: this session owns the lexer's
+    // token list until it ends, so it holds the lock that says so.
+    let fe = bindings::Frontend::acquire();
     unsafe {
-        bindings::mcc_reset(0);
+        fe.reset(0);
         let buf = bindings::mcc_load_from_string(src.as_ptr() as *const i8, content.len());
         if buf.is_null() {
             return Err("refused: the lexer could not load the source".to_string());
         }
         // Mirrors `McCode::parse_ast_from_string`: the load leaves parser state
         // behind, so reset once more before lexing.
-        bindings::mcc_reset(0);
-        bindings::mcc_lex(buf);
-        let mut cur = bindings::mcc_get_tokens();
+        fe.reset(0);
+        fe.lex(buf);
+        let mut cur = fe.get_tokens();
         while !cur.is_null() {
             if (cur as usize) % std::mem::align_of::<McLexTokenFFI>() != 0 {
                 libc::free(buf as *mut libc::c_void);
