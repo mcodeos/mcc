@@ -3,6 +3,7 @@
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
 pub mod mc_attr;
+pub(crate) mod mc_attr_view;
 pub mod mc_layout;
 pub mod mc_pins; // mc_pins/mod.rs includes mc_pins/dynamic.rs
 

@@ -48,8 +48,12 @@ fn hbl() -> Hbl {
         mcc::mcc_build_flat_with_arena(&McIds::from("main"), &entry_uri, 1000).expect("build hbl");
     let (_, items, _) = mcc::export::bom::build_bom(&tree, &arena, &store, "main", 1);
     let (listing, _, _) = mcc::export::instlist::build_inst_list(&table, 0);
+    // The row block only: a blank line ends it and the definition ledger
+    // follows (organization-units-design §10.9), whose lines carry an ident in
+    // the same column.
     let inst_paths = listing
         .lines()
+        .take_while(|l| !l.is_empty())
         .filter_map(|l| l.split('\t').nth(1))
         .map(|p| p.to_string())
         .collect();

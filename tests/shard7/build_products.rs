@@ -196,7 +196,15 @@ fn the_json_product_carries_the_two_space_row() {
     let path = root.join("build/inst-list.json");
     let body = std::fs::read_to_string(&path)
         .unwrap_or_else(|e| panic!("no product at {}: {e}", path.display()));
-    let rows: Vec<serde_json::Value> = serde_json::from_str(&body).expect("the product is JSON");
+    let payload: serde_json::Value = serde_json::from_str(&body).expect("the product is JSON");
+    // The file carries the rows *and* the ledger of the definitions they name
+    // (organization-units-design §10.9), so the rows live under `items`.
+    let rows = payload["items"]
+        .as_array()
+        .unwrap_or_else(|| panic!("the product carries no `items`: {payload}"));
+    let defs = payload["defs"]
+        .as_array()
+        .unwrap_or_else(|| panic!("the product carries no `defs`: {payload}"));
     assert!(!rows.is_empty(), "the product carries no rows");
 
     // ⚠ Not "every row has a `def`": pin / bus / label rows have no definition
@@ -204,10 +212,20 @@ fn the_json_product_carries_the_two_space_row() {
     // layer, not a defect of the product. What must hold of **every** row is the
     // pair that makes it a row at all — where it is in the circuit, and which
     // class it is.
-    for row in &rows {
+    for row in rows {
         for key in ["node", "path", "class"] {
             assert!(row.get(key).is_some(), "row without `{key}`: {row}");
         }
+    }
+
+    // Every def key the rows name is answered once, and every entry answers for
+    // a key some row actually carries — the coverage is the reference set.
+    for d in defs {
+        let key = &d["class"]["key"];
+        assert!(
+            rows.iter().any(|r| &r["class"]["key"] == key),
+            "ledger entry for a def no row names: {d}"
+        );
     }
 
     // And at least one row must carry the full definition identity, or the
