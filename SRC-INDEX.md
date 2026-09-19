@@ -40,8 +40,8 @@ range (threshold 40KB).
 | `db/diagnostic/errcodes.rs` | 157 KB | 418 |
 | `instant/insttab.rs` | 149 KB | 105 |
 | `db/defregistry.rs` | 147 KB | 179 |
+| `instant/mc_mod/fcallinst.rs` | 143 KB | 27 |
 | `cmds/show.rs` | 143 KB | 116 |
-| `instant/mc_mod/fcallinst.rs` | 142 KB | 27 |
 | `viz/layout/equi_audit.rs` | 137 KB | 103 |
 | `rpc/handlers/mod.rs` | 126 KB | 103 |
 | `semantic/mc_inst.rs` | 122 KB | 88 |
@@ -64,7 +64,7 @@ range (threshold 40KB).
 | `db/` | 27 | 882 KB |
 | `eval/` | 2 | 48 KB |
 | `export/` | 6 | 44 KB |
-| `instant/` | 39 | 1482 KB |
+| `instant/` | 39 | 1484 KB |
 | `lsp/` | 7 | 66 KB |
 | `output/` | 7 | 107 KB |
 | `query/` | 8 | 153 KB |
@@ -2979,16 +2979,16 @@ instant/mc_mod/fcallinst.rs#L1127  fn materialize_vector_groups
 instant/mc_mod/fcallinst.rs#L1179  fn materialize_deferred_subinstances
 instant/mc_mod/fcallinst.rs#L1258  fn instantiate_instance_method
 instant/mc_mod/fcallinst.rs#L1542  fn run_submodule_method
-instant/mc_mod/fcallinst.rs#L1961  fn run_component_method
-instant/mc_mod/fcallinst.rs#L2293  fn strip_host_iface_phantoms
-instant/mc_mod/fcallinst.rs#L2324  fn expand_bus_labels
-instant/mc_mod/fcallinst.rs#L2398  fn instance_declares_port
-instant/mc_mod/fcallinst.rs#L2413  fn actual_is_parent_ref
-instant/mc_mod/fcallinst.rs#L2441  fn prefix_instance_stmt_with_skip
-instant/mc_mod/fcallinst.rs#L2451  fn prefix_instance_phrase_with_skip
-instant/mc_mod/fcallinst.rs#L2765  fn prefix_instance_node_element_with_skip
-instant/mc_mod/fcallinst.rs#L2881  fn prefix_param_value_with_skip
-instant/mc_mod/fcallinst.rs#L2930  fn validate_fcall_return_shape
+instant/mc_mod/fcallinst.rs#L1991  fn run_component_method
+instant/mc_mod/fcallinst.rs#L2323  fn strip_host_iface_phantoms
+instant/mc_mod/fcallinst.rs#L2354  fn expand_bus_labels
+instant/mc_mod/fcallinst.rs#L2428  fn instance_declares_port
+instant/mc_mod/fcallinst.rs#L2443  fn actual_is_parent_ref
+instant/mc_mod/fcallinst.rs#L2471  fn prefix_instance_stmt_with_skip
+instant/mc_mod/fcallinst.rs#L2481  fn prefix_instance_phrase_with_skip
+instant/mc_mod/fcallinst.rs#L2795  fn prefix_instance_node_element_with_skip
+instant/mc_mod/fcallinst.rs#L2911  fn prefix_param_value_with_skip
+instant/mc_mod/fcallinst.rs#L2960  fn validate_fcall_return_shape
 instant/mc_mod/funccall.rs#L40  enum FuncCallInst
 instant/mc_mod/funccall.rs#L57  enum FaceSide
 instant/mc_mod/funccall.rs#L62  impl FaceSide

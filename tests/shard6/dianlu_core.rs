@@ -1787,6 +1787,14 @@ module main {
 /// expansions — a sub-module method call (`ldo.Add`) expands the `Add` body,
 /// whose products (the inline `CAP(1)` instance) and connections are bucketed
 /// into the func group.
+///
+/// `Add`'s formal names a port the container declares (`VOUT`). It has to: a
+/// terminal formal is the inner face of a terminal the container already
+/// declares, so a formal that names no port has no terminal for the actual to
+/// land on, and the call reports `E3175` and builds no boundary instead of
+/// minting one. The former spelling here was `func Add(net)` against a
+/// one-port `REG`, which the engine already flagged with the same code at
+/// Warning level -- the expansion this test is about needs the legal spelling.
 #[test]
 fn dlu_desc__func_groups_anchor_user_func_expansions() {
     let _lock = common::lock();
@@ -1801,9 +1809,9 @@ component CAP(cap::INT) {
         n1 - this - n2
     }
 }
-module REG(in VIN) {
-    func Add(net) {
-        CAP(1).Cap([net, VIN])
+module REG(in VIN, in VOUT) {
+    func Add(VOUT) {
+        CAP(1).Cap([VOUT, VIN])
     }
 }
 module main {
