@@ -109,12 +109,10 @@ pub(crate) fn lookup_line_col(uri: &McURI, pos: u32) -> Option<(u32, u32)> {
         let cell = cell.borrow();
         for (stored_uri, index) in cell.iter().rev() {
             if stored_uri == uri {
-                let max_pos: u32 = index.len().into();
-                if pos > max_pos {
-                    return Some((1, 1));
-                }
-                let line_col = index.line_col(line_index::TextSize::new(pos));
-                return Some((line_col.line + 1, line_col.col + 1));
+                // Same conversion, and so the same fallback, as `McCode`'s
+                // own: an offset that names no position in the text answers
+                // `(1, 1)` rather than unwrapping the index's `None`.
+                return Some(crate::db::infra::mc_code::line_col_or_first(index, pos));
             }
         }
         None

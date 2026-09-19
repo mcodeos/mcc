@@ -174,6 +174,28 @@ fn manifest_reachable_from(start: &Path) -> bool {
     false
 }
 
+/// Resolve a byte offset to a 1-based (line, column), falling back to
+/// `(1, 1)` when the text holds no position there.
+///
+/// The diagnostic layer asks this twice per anchor: once for the span start,
+/// once for the end it computes as `pos + len`. Both are handed over by the
+/// parser and the evaluator, so neither is known to be aligned: an offset can
+/// run past the end of the text, and it can point into the middle of a
+/// multi-byte character. `LineIndex::line_col` refuses the second case by
+/// panicking (`try_line_col(..).expect("invalid offset")`), which would take
+/// the process down rather than lose one diagnostic.
+///
+/// Both call sites route through here so the two cannot answer differently.
+/// The fallback is the one the out-of-range guard has always used; an offset
+/// equal to the text length stays valid, since the index tests `>`, not `>=`.
+pub(crate) fn line_col_or_first(index: &LineIndex, pos: u32) -> (u32, u32) {
+    match index.try_line_col(line_index::TextSize::new(pos)) {
+        // Convert from zero-based to one-based
+        Some(line_col) => (line_col.line + 1, line_col.col + 1),
+        None => (1, 1),
+    }
+}
+
 ////////////////////////////////
 impl McCode {
     pub(crate) fn collect_direct_uses(&self, current_path: &Path) -> Vec<McUse> {
@@ -226,17 +248,10 @@ impl McCode {
     /// Convert character position to line number and column number
     /// Returns (line, column) where both are 1-based
     pub fn pos_to_line_col(&self, pos: u32) -> (u32, u32) {
-        if let Some(line_index) = &self.line_index {
-            let max_pos: u32 = line_index.len().into();
-            if pos > max_pos {
-                return (1, 1);
-            }
-            let line_col = line_index.line_col(line_index::TextSize::new(pos));
-            // Convert from zero-based to one-based
-            (line_col.line + 1, line_col.col + 1)
-        } else {
+        match &self.line_index {
+            Some(line_index) => line_col_or_first(line_index, pos),
             // If we don't have line index, return (1, 1) as fallback
-            (1, 1)
+            None => (1, 1),
         }
     }
 
