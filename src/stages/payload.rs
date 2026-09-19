@@ -64,7 +64,9 @@ pub struct StageViewData {
     /// reporting the changes the running binary's table would produce over
     /// readings it does not describe (CIMP §1 U96).
     pub key_table: Option<String>,
-    /// `stage.p1` | `stage.p2` | `stage.vec` | `stage.viz`.
+    /// `stage.p1` | `stage.p2` | `stage.vec` | `stage.viz`, or one of the
+    /// vocabularies that name what they read (`join` / `trace` /
+    /// `org-units`).
     pub view: String,
     /// The resolved top module this view is scoped to.
     pub top: String,

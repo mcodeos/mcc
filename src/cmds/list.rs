@@ -5,8 +5,15 @@
 //! `mcc list` — List top-level definition names.
 //!
 //! Targets: `all` / `component` / `module` / `interface` / `enum` / `nets` /
-//! `ports` / `files`. Detailed content of one entity is the `mcc show`
-//! command (see cmds/show.rs); the two replace the former dual-mode `show`.
+//! `ports` / `files` / `func` / `bus` / `clause`. Detailed content of one
+//! entity is the `mcc show` command (see cmds/show.rs); the two replace the
+//! former dual-mode `show`.
+//!
+//! ★ CIMP §1 U120 (2026-09-19): the last three complete the organization
+//! directory's word table. They are the units that are not standalone defs —
+//! a func is a host member, a bus carries no `DefId`, a clause has no
+//! declaration object at all — so each is listed on its own key rather than
+//! under `{name, uri}`.
 
 use crate::cmds::filter;
 use crate::cmds::show::{classify_def_scope, nets_map, output, resolve_file, resolve_scopes};
@@ -15,6 +22,7 @@ use crate::output::{emit_projection, OutputFormatExt, ProjectionKey};
 use anyhow::Result;
 use mcc::cli::{ListArgs, ListTarget};
 use mcc::McURI;
+use mcc::{unit_rows, UnitKind};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -34,9 +42,9 @@ pub fn run(args: &ListArgs) -> Result<()> {
 /// Structured face → A-tier envelope (U86 item 7, first slice); text / csv keep
 /// the layered / list renderers in [`show::output`], byte for byte.
 ///
-/// One key for all five payload shapes: `list` is the word, and each payload
-/// names its own kind (`type: all|component|…|net|port|files`), so the envelope
-/// does not need a second discriminator.
+/// One key for every payload shape: `list` is the word, and each payload
+/// names its own kind (`type: all|component|…|net|port|files|func|bus|clause`),
+/// so the envelope does not need a second discriminator.
 fn emit_list(data: Value) -> Result<()> {
     if mcc::cli::globals().format.is_structured() {
         return emit_projection(
@@ -78,6 +86,9 @@ fn run_local(args: &ListArgs) -> Result<()> {
         ListTarget::Nets => list_nets(args),
         ListTarget::Ports => list_ports(args),
         ListTarget::Files => list_files(args),
+        ListTarget::Func => list_units(UnitKind::Func, args),
+        ListTarget::Bus => list_units(UnitKind::Bus, args),
+        ListTarget::Clause => list_units(UnitKind::Clause, args),
     }
 }
 
@@ -217,5 +228,40 @@ fn list_files(_args: &ListArgs) -> Result<()> {
         .collect();
 
     let data = json!({ "type": "files", "count": items.len(), "files": items });
+    emit_list(data)
+}
+
+// ── The three unit kinds that are not standalone defs (CIMP §1 U120) ──
+//
+// `func` / `bus` / `clause` complete the directory's word table. Each is
+// listed **on its own key**, because none of them holds a `DefId` the way a
+// component or a module does: a func's key is its `(host, name)` pair, a bus's
+// is its name plus its host, a clause's is its position. The three rows
+// therefore carry different fields, and none of them is forced into the
+// `{name, uri}` shape the definition kinds share.
+
+/// Every unit row of one kind, filtered by `--filter name=<pat>`.
+///
+/// The payload key is the kind's **plural** word, matching the `net` / `port`
+/// / `files` payloads that name their own kind (`funcs` / `buses` /
+/// `clauses`). `--filter name=` reads [`UnitRow::name`] — for a clause that is
+/// its host's name, since it has none of its own.
+fn list_units(kind: UnitKind, args: &ListArgs) -> Result<()> {
+    let rows = unit_rows(kind);
+    let names: Vec<String> = rows.iter().map(|r| r.name.clone()).collect();
+    // `apply_to_names` answers with the *names* that survived, not a mask, so
+    // the rows are filtered by name (two rows may share one — a func name is
+    // only unique within its host — and both survive together).
+    let kept: std::collections::HashSet<String> =
+        filter::apply_to_names(args.filter.as_deref(), names)?
+            .into_iter()
+            .collect();
+    let items: Vec<Value> = rows
+        .into_iter()
+        .filter(|r| kept.contains(&r.name))
+        .map(|r| r.json)
+        .collect();
+    let key = kind.plural();
+    let data = json!({ "type": kind.word(), "count": items.len(), key: items });
     emit_list(data)
 }

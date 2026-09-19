@@ -152,11 +152,21 @@ pub struct StageView {
     /// `join.*` / `trace` vocabularies state nothing, because no law covers
     /// them — a version for a table that does not exist is worse than none.
     pub key_table: Option<String>,
-    /// `stage.p1` | `stage.p2` | `stage.vec` | `stage.viz`.
+    /// `stage.p1` | `stage.p2` | `stage.vec` | `stage.viz`, or one of the
+    /// vocabularies assembled by [`StageView::with_view`] (`join` / `trace` /
+    /// `org-units`), which name what they read rather than a pipeline stage.
     pub view: &'static str,
     /// What this view is scoped to.
     pub top: String,
-    /// The items, sorted by `(class, key)`.
+    /// The items, in the **view's** order — never the traversal's.
+    ///
+    /// Which order is the view's to state: [`StageView::new`] sorts its items
+    /// by `(class, key)` here, while a vocabulary assembled by
+    /// [`StageView::with_view`] orders its own and documents its own comparator
+    /// (`org-units` by `(kind, canonical key)`, `join` and `trace` by their
+    /// rules). What this field promises is the part every view owes the law:
+    /// the order is a function of the world, so two readings of one world
+    /// serialize alike.
     pub items: Vec<Value>,
     /// Per-class item counts plus the diagnostic base.
     pub counts: Value,
@@ -179,11 +189,13 @@ impl StageView {
 
     /// Assemble a view whose vocabulary is its own.
     ///
-    /// `join` and `trace` publish a different `view` name and a different set of
-    /// count words from the four `stage.*` segments, and order their items by a
-    /// grouping rule the design fixes for them (the `drop` group on top), so they
-    /// cannot go through [`StageView::new`]. Same envelope shape either way —
-    /// this is law B's "one `items`, two faces", not a second view format.
+    /// `join`, `trace` and `org-units` publish their own `view` name and their
+    /// own set of count words — a `join` groups by a rule the design fixes for
+    /// it (the `drop` group on top), and the organization directory counts the
+    /// units a definition space holds rather than the items of a pipeline
+    /// stage — so none of them can go through [`StageView::new`], whose counts
+    /// carry the diagnostic base. Same envelope shape either way: this is law
+    /// B's "one `items`, two faces", not a second view format.
     pub fn with_view(view: &'static str, top: &str, items: Vec<Value>, counts: Value) -> Self {
         Self::assemble(view, top, items, counts)
     }

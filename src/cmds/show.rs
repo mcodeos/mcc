@@ -26,6 +26,7 @@
 use crate::output::{compact, die, emit_projection_sub, OutputFormatExt, ProjectionKey};
 use anyhow::{Context, Result};
 use mcc::cli::{rpcclient::RpcClient, OutputFormat, ShowArgs, ShowScope, ShowTarget};
+use mcc::{host_func_names, org_unit_counts, org_unit_items};
 use mcc::{InstEntry, InstKind, InstTable, McIds, McURI, MemberRole, TreeView};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -81,6 +82,7 @@ fn run_local(args: &ShowArgs) -> Result<()> {
         ShowTarget::Pwr => show_pwr(args),
         ShowTarget::Pwrflow => show_pwrflow(args),
         ShowTarget::Stage => show_stage(args),
+        ShowTarget::OrgUnits => show_org_units(args),
 
         // drill-down
         ShowTarget::Pins => drill_pins(require_name(args), args),
@@ -517,87 +519,44 @@ struct DefsRow {
 
 /// Def kinds in display order: the two hosts that carry func members first,
 /// then the smaller definition kinds.
-const DEF_KINDS: [mcc::DefKind; 6] = [
-    mcc::DefKind::Module,
-    mcc::DefKind::Component,
-    mcc::DefKind::Interface,
-    mcc::DefKind::Enum,
-    mcc::DefKind::Define,
-    mcc::DefKind::Capability,
-];
+///
+/// ⚠ This is a **display order**, not a count — it holds six of the registry's
+/// seven `DefKind` variants (no `Func`), and the seventh is not missing here by
+/// accident: a func is a host member and prints under its host (design §12.1).
+/// The list itself now lives in the registry
+/// ([`mcc::DEF_KIND_ORDER`]), which is what the one read walks, so this alias
+/// exists to keep the group order spelled once.
+const DEF_KINDS: [mcc::DefKind; 6] = mcc::DEF_KIND_ORDER;
 
 /// Every live def of the current definition space, one [`DefsRow`] per def.
+///
+/// ★ CIMP §1 U120 (2026-09-19): this is a **consumer** of the registry's one
+/// read ([`mcc::DefinitionSpace::all_defs`]), not a union of six per-kind
+/// calls. Adding a kind to the space now changes `DEF_KIND_ORDER` in the
+/// registry and nothing here.
+///
+/// The funcs column is read off each host's own `funcs` table rather than
+/// assembled from the func rows: a host prints its members in the order the
+/// author wrote them, which is the host table's order. The read is still one
+/// read — the rows, their keys and their order all come from `all_defs`.
 fn defs_rows() -> Vec<DefsRow> {
-    let ds = mcc::definition_space();
-    let mut rows = Vec::new();
-    for (sn, def) in ds.all_modules() {
-        rows.push(DefsRow {
-            id: mcc::def_id(&sn, mcc::DefKind::Module),
-            kind: mcc::DefKind::Module,
+    mcc::definition_space()
+        .all_defs()
+        .into_iter()
+        .map(|(kind, sn, data)| DefsRow {
+            id: mcc::def_id(&sn, kind),
+            kind,
             name: sn.ident.to_string(),
             uri: mcc::uri_resolve(sn.uri).to_string(),
-            funcs: def.funcs.iter().map(|f| f.name.to_string()).collect(),
-        });
-    }
-    for (sn, def) in ds.all_components() {
-        rows.push(DefsRow {
-            id: mcc::def_id(&sn, mcc::DefKind::Component),
-            kind: mcc::DefKind::Component,
-            name: sn.ident.to_string(),
-            uri: mcc::uri_resolve(sn.uri).to_string(),
-            funcs: def.funcs.iter().map(|f| f.name.to_string()).collect(),
-        });
-    }
-    for (sn, _) in ds.all_interfaces() {
-        rows.push(DefsRow {
-            id: mcc::def_id(&sn, mcc::DefKind::Interface),
-            kind: mcc::DefKind::Interface,
-            name: sn.ident.to_string(),
-            uri: mcc::uri_resolve(sn.uri).to_string(),
-            funcs: Vec::new(),
-        });
-    }
-    for (sn, _) in ds.all_enums() {
-        rows.push(DefsRow {
-            id: mcc::def_id(&sn, mcc::DefKind::Enum),
-            kind: mcc::DefKind::Enum,
-            name: sn.ident.to_string(),
-            uri: mcc::uri_resolve(sn.uri).to_string(),
-            funcs: Vec::new(),
-        });
-    }
-    for (sn, _) in ds.all_defines() {
-        rows.push(DefsRow {
-            id: mcc::def_id(&sn, mcc::DefKind::Define),
-            kind: mcc::DefKind::Define,
-            name: sn.ident.to_string(),
-            uri: mcc::uri_resolve(sn.uri).to_string(),
-            funcs: Vec::new(),
-        });
-    }
-    for (sn, def) in ds.all_capabilities() {
-        rows.push(DefsRow {
-            id: mcc::def_id(&sn, mcc::DefKind::Capability),
-            kind: mcc::DefKind::Capability,
-            name: sn.ident.to_string(),
-            uri: mcc::uri_resolve(sn.uri).to_string(),
-            funcs: def.funcs.iter().map(|f| f.name.to_string()).collect(),
-        });
-    }
-    rows
+            funcs: host_func_names(&data),
+        })
+        .collect()
 }
 
 /// Plural group label of one def kind (registry table grouping).
 fn def_kind_group(kind: mcc::DefKind) -> &'static str {
-    match kind {
-        mcc::DefKind::Module => "modules",
-        mcc::DefKind::Component => "components",
-        mcc::DefKind::Interface => "interfaces",
-        mcc::DefKind::Enum => "enums",
-        mcc::DefKind::Define => "defines",
-        mcc::DefKind::Func => "funcs",
-        mcc::DefKind::Capability => "capabilities",
-    }
+    // The table lives beside the variants ([`mcc::DefKind::group`]).
+    kind.group()
 }
 
 /// Resolved layers for `show defs`. Unlike `show all` there is no implicit
@@ -1288,7 +1247,88 @@ fn show_stage(args: &ShowArgs) -> Result<()> {
         };
         return write_stage_text(&rendered);
     }
-    emit_stage_envelope(&view)
+    emit_stage_envelope(&view, "mcc show stage")
+}
+
+/// `show org-units`: the **organization directory** of the current definition
+/// space (organization-units-design.md §8; CIMP §1 U120).
+///
+/// One `items` array, every unit under its own key: the definition kinds by
+/// `(uri, ident)` (a func as its host's member, design §12.1), a bus by its
+/// name in its host (T12: no `DefId`), a clause by its position (§1: no
+/// declaration object). The rows themselves — and the rule that each unit
+/// keeps its own key — are built by [`mcc::query::units`], which `list
+/// func|bus|clause`, `query --kind func|bus|clause` and the `show.org-units`
+/// RPC method read too, so no two faces can describe one unit two ways.
+///
+/// The view is **derived, read-only and issues no id** (§8.1): it enumerates
+/// the definition space through the registry's one read and follows the
+/// carriers already there. It holds no cross-space correspondence, which is
+/// what keeps it a directory rather than the table §0.1 forbids.
+///
+/// Items are ordered by `(kind, canonical key)`: the kinds in the registry's
+/// display order, each kind by its canonical key, so inserting one def cannot
+/// reshuffle the artifact. `counts` names the nine kind words — there is no
+/// `diagnostics` word here, because this view reads the definition space and a
+/// definition space carries no diagnostics: a `diagnostics 0` line would read
+/// as a measurement rather than as "not applicable".
+fn show_org_units(_args: &ShowArgs) -> Result<()> {
+    let items = org_unit_items();
+    let counts = org_unit_counts(&items);
+
+    let top = mcc::cli::globals()
+        .top
+        .clone()
+        .or_else(mcc::mcb_get_first_module_name)
+        .unwrap_or_default();
+    let view = mcc::stages::StageView::with_view("org-units", &top, items, counts);
+
+    if matches!(
+        mcc::cli::globals().format,
+        OutputFormat::Text | OutputFormat::Csv
+    ) {
+        // CSV falls back to the text face for the same reason `show stage`
+        // does: a fixed-width readout is not CSV-safe (a path may contain a
+        // comma), so a real CSV face would be a decision of its own.
+        return write_stage_text(&render_org_units_text(&view));
+    }
+    emit_stage_envelope(&view, "mcc show org-units")
+}
+
+/// The `org-units` text face, rendered from the **same** items the envelope
+/// carries: header, the count words, then one line per row — `class`, `key`,
+/// `loc`. §5.3's four prohibitions hold: no ANSI, no box drawing, no
+/// tab-delimited columns, and a missing value printed as `-`.
+fn render_org_units_text(view: &mcc::stages::StageView) -> String {
+    let mut lines = vec![view.header_line()];
+    let words: Vec<String> = view
+        .counts
+        .as_object()
+        .map(|m| {
+            m.iter()
+                .map(|(k, v)| format!("{k} {}", v.as_u64().unwrap_or(0)))
+                .collect()
+        })
+        .unwrap_or_default();
+    lines.push(format!("# {}", words.join("  ")));
+    let widest = |f: fn(&Value) -> String| -> usize {
+        view.items.iter().map(|i| f(i).len()).max().unwrap_or(0)
+    };
+    let class_col = widest(|i| i["class"].as_str().unwrap_or("-").to_string()).max(5);
+    let key_col = widest(|i| i["key"].as_str().unwrap_or("-").to_string()).max(3);
+    lines.push(format!(
+        "{:<class_col$}  {:<key_col$}  {}",
+        "class", "key", "loc"
+    ));
+    for it in &view.items {
+        lines.push(format!(
+            "{:<class_col$}  {:<key_col$}  {}",
+            it["class"].as_str().unwrap_or("-"),
+            it["key"].as_str().unwrap_or("-"),
+            mcc::stages::loc_cell(&it["loc"]),
+        ));
+    }
+    lines.join("\n")
 }
 
 /// Write the stage text face to `--output` or stdout, the same way
@@ -1311,8 +1351,8 @@ fn write_stage_text(rendered: &str) -> Result<()> {
 /// law C holds mechanically here: [`crate::output::emit_envelope`] is a pure
 /// serializer and never touches the exit code, so a view's diagnostic count
 /// cannot veto the readout.
-fn emit_stage_envelope(view: &mcc::stages::StageView) -> Result<()> {
-    let mut builder = crate::output::builder::ResultBuilder::start("mcc show stage");
+fn emit_stage_envelope(view: &mcc::stages::StageView, command: &'static str) -> Result<()> {
+    let mut builder = crate::output::builder::ResultBuilder::start(command);
     builder.set_stage(crate::output::envelope::StageViewData::from(view));
     let env = crate::output::envelope::Envelope::ok(builder.finish());
     // `-o` belongs to the command, not to one of its faces: the text face of
