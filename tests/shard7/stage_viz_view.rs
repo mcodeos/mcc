@@ -1234,6 +1234,14 @@ fn every_class_the_readout_reaches_is_exercised() {
     let stage = stage_of(&stdout);
     let items = items_of(&stage);
 
+    // `intent` is deliberately **not** in the list above: it is the one class
+    // whose row count is not its population. A family gets one row however much
+    // of the drawing it claims, so ≥2 rows would be a fixture requirement the
+    // design does not have — and exactly one is the cardinality §1.1 of
+    // intent-canon gives, since one family stands. What has to be populated is
+    // the nets *inside* the row, locked by `stage_viz_publishes_an_intent_axis`
+    // (hot and return, on the fixture) and `the_reference_face_is_claimed_too`
+    // (the third face, on a source written to have one).
     for class in ["layer", "box", "pin", "segment", "metrics", "group"] {
         let got = of_class(&items, class);
         assert!(
@@ -1242,6 +1250,12 @@ fn every_class_the_readout_reaches_is_exercised() {
             got.len()
         );
     }
+    assert_eq!(
+        of_class(&items, "intent").len(),
+        1,
+        "one row per intent family, and one family stands today — a count that \
+         follows the families cannot also follow the drawing"
+    );
 
     // The header counts and the rows are one number.
     for (word, class) in [
@@ -1635,6 +1649,446 @@ fn stage_viz_group_names_the_nets_the_net_items_name() {
         all_keyed >= 2,
         "and so must the keyed half, saw {all_keyed} of {}",
         groups.len()
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// ── The intent axis (§1 U113) ──
+
+/// The drawing carries an **attribution edge** from an intent family to the part
+/// of it that family claims: one row per family, naming the drawn nets.
+///
+/// Before this the axis had no data at all. Every net's declared supply identity
+/// was resolved by the projection and consumed by the drawing, but no readout
+/// published *which* nets a family claims, so "view this drawing by intent"
+/// (intent-canon §3) had nothing to read.
+///
+/// Members, one per declared face the fixture actually has: a **hot** net and a
+/// **return**. A row that carried only the hot side, or that filled the list from
+/// one layer, fails here rather than passing on a thin sample.
+#[test]
+fn stage_viz_publishes_an_intent_axis() {
+    let dir = scratch("intent");
+    let stage = seg_of_hbl(&dir, "viz");
+    let items = items_of(&stage);
+    let intents = of_class(&items, "intent");
+
+    assert_eq!(intents.len(), 1, "one row per family: {intents:?}");
+    let row = intents[0];
+
+    // A family is not an object: it owns no instance, no `PointId` and no
+    // position in the drawing, so every cell that would hold one is `null`.
+    assert_eq!(row["key"].as_str(), Some("power-intent"), "{row}");
+    assert_eq!(
+        row["family"].as_str(),
+        row["key"].as_str(),
+        "the family is the key: {row}"
+    );
+    assert!(
+        row["point"].is_null() && row["path"].is_null() && row["canon_key"].is_null(),
+        "{row}"
+    );
+    assert!(
+        row["loc"].is_null(),
+        "a family is not written anywhere: {row}"
+    );
+    assert!(
+        row["layer"].is_null(),
+        "view level — each net carries its own layer: {row}"
+    );
+
+    let nets = row["nets"].as_array().expect("a family lists its nets");
+    assert_eq!(
+        row["count"].as_u64(),
+        Some(nets.len() as u64),
+        "the count is the length of the list beside it: {row}"
+    );
+
+    let faces: BTreeSet<&str> = nets.iter().filter_map(|n| n["attr"].as_str()).collect();
+    for face in ["hot", "ret"] {
+        let got = nets.iter().filter(|n| n["attr"] == face).count();
+        assert!(
+            got >= 2,
+            "the `{face}` face must be populated, saw {got} of {} (faces: {faces:?})",
+            nets.len()
+        );
+    }
+
+    // The axis spans the layers: a profile that silently kept the root and
+    // dropped the sub-layers would leave the reader looking at the wrong drawing.
+    let layers: BTreeSet<&str> = nets.iter().filter_map(|n| n["layer"].as_str()).collect();
+    assert!(
+        layers.len() >= 2,
+        "a profile crosses layers, saw {} of them: {layers:?}",
+        layers.len()
+    );
+    assert!(layers.contains("main"), "{layers:?}");
+
+    // Every member names its net, and says which declared face put it here.
+    for n in nets {
+        assert!(
+            n["name"].as_str().is_some_and(|s| !s.is_empty()),
+            "a member names its net whether or not it has a key: {n}"
+        );
+        assert!(n["nid"].is_u64(), "and carries the drawing's handle: {n}");
+        assert!(n["attr"].as_str().is_some(), "{n}");
+        assert!(
+            n["domain"].is_null() || n["domain"].as_str().is_some_and(|s| !s.is_empty()),
+            "the declaring domain is either named or unknown, never empty: {n}"
+        );
+    }
+
+    // The text face presents the row: the family in the first column, the count
+    // of what it claims in the third — the same columns a `group` row uses, and
+    // §5.3 allows no new prefix, so the family name is the whole marker.
+    let (text, err, ok) = run_stage(&dir, &[]);
+    assert!(ok, "show stage viz failed: {err}");
+    let want = format!("nets={}", nets.len());
+    let shown = text_rows(&text)
+        .into_iter()
+        .filter(|r| {
+            r.first().map(String::as_str) == Some("power-intent") && r.get(2) == Some(&want)
+        })
+        .count();
+    assert_eq!(shown, 1, "the text face shows the family once: {text}");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The reverse guard, on the fixture's own counterexample: a **declared
+/// differential pair** is a declaration with no supply face, and the family must
+/// not claim it.
+///
+/// `hbl` declares a pair on the microphone interface, so both faces are really
+/// drawn — `MIC.N` and `MIC.P` each land on a pin of the codec. They are
+/// `AttrRole::Signal`: a declaration, yes, but one that says "pair member", which
+/// is an axis of its own over the same drawing. A criterion of "carries a mirror"
+/// would take them; the criterion of "carries a supply **face**" does not, and
+/// this is the pair of members that tells the two apart. Both are on the same
+/// layer as members the row *does* claim, so their absence is a decision rather
+/// than a layer the profile skipped.
+#[test]
+fn a_declared_pair_face_is_not_a_power_net() {
+    let dir = scratch("pair-face");
+    let stage = seg_of_hbl(&dir, "viz");
+    let items = items_of(&stage);
+
+    let drawn: BTreeSet<&str> = of_class(&items, "pin")
+        .iter()
+        .filter_map(|i| i["net"].as_str())
+        .collect();
+    let row = &of_class(&items, "intent")[0];
+    let claimed: BTreeSet<&str> = row["nets"]
+        .as_array()
+        .expect("nets")
+        .iter()
+        .filter_map(|n| n["net"].as_str())
+        .collect();
+
+    for face in ["net:MIC.N", "net:MIC.P"] {
+        assert!(
+            drawn.contains(face),
+            "the fixture must still draw the pair face {face}: a guard on a net \
+             that is no longer there proves nothing"
+        );
+        assert!(
+            !claimed.contains(face),
+            "a declared pair face is not a supply net: {face} is in {row}"
+        );
+    }
+
+    // Not because the layer was skipped: the codec layer is in the profile.
+    let codec = of_class(&items, "pin")
+        .iter()
+        .find(|i| i["net"] == "net:MIC.N")
+        .and_then(|i| i["layer"].as_str())
+        .expect("the pair face is drawn on some layer")
+        .to_string();
+    assert!(
+        row["nets"]
+            .as_array()
+            .expect("nets")
+            .iter()
+            .any(|n| n["layer"].as_str() == Some(codec.as_str())),
+        "the profile reaches {codec}, so the pair faces were left out on purpose: {row}"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The third declared face is claimed too, and the specimen is written to have
+/// two of them: copper that no rail returns to, which is what makes it a
+/// **reference** rather than a supply or a return.
+///
+/// This cannot come from the hbl fixture (it declares none), and the face is the
+/// one whose absence is easiest to mistake for "there is nothing to show" — a
+/// `RailClass` has no reference case, so a criterion borrowed from the drawing's
+/// rail spec would silently drop both members.
+#[test]
+fn the_reference_face_is_claimed_too() {
+    let dir = scratch("reference-face");
+    let stage = run_on(
+        &dir,
+        r#"
+component CAP(cap::INT) {
+    pins = [
+        1 = 1
+        2 = 2
+    ]
+    func Cap([n1, n2]) {
+        n1 - this - n2
+    }
+}
+module main {
+    conduit EARTH @role(earth)
+    conduit ESDGND @role(protective)
+    CAP c1(1)
+    CAP c2(1)
+    c1.1 -> EARTH
+    c2.1 -> ESDGND
+}
+"#,
+    );
+
+    let items = items_of(&stage);
+    let intents = of_class(&items, "intent");
+    assert_eq!(
+        intents.len(),
+        1,
+        "a declared copper is a family member: {items:?}"
+    );
+    let nets = intents[0]["nets"].as_array().expect("nets");
+
+    let references: BTreeSet<&str> = nets
+        .iter()
+        .filter(|n| n["attr"] == "reference")
+        .filter_map(|n| n["name"].as_str())
+        .collect();
+    assert_eq!(
+        references,
+        BTreeSet::from(["EARTH", "ESDGND"]),
+        "both declared references are claimed, and nothing else is: {}",
+        intents[0]
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `domain` is read where the declaration is: the layer that owns the `rail`
+/// names it, and a layer that only *faces* the same copper does not invent one.
+///
+/// Both branches are populated here, so neither is skipped in silence — the two
+/// nets the root layer draws carry `DVDD` and `DCORE`, the ones the sub-layers
+/// draw carry nothing (their face came from a connection point, with no rail in
+/// hand, so the domain is simply not known there). ⚠ This is the **only** lock
+/// that fills the named branch: the hbl fixture declares no `domain` at all, so
+/// the fixture-side lock exercises the null branch only. The shape of the
+/// attribution was measured on the real board first: of its 21 members the five
+/// that name a domain sit on a layer that declares one (`main` for the three
+/// root rails, `main.MIC` for the quiet pair) and the sixteen that do not sit on
+/// layers that only face those rails.
+#[test]
+fn the_declaring_layer_is_the_one_that_names_the_domain() {
+    let dir = scratch("declaring-layer");
+    let stage = run_on(
+        &dir,
+        r#"
+component SINK3 {
+    pins = [
+        psnk [1,2] = [VDD, GND]::DC(3.3V)
+    ]
+}
+
+module sub {
+    conduit GND @role(main)
+    SINK3 t1
+    SINK3 t2
+    t1.VDD -> VDD_3V3
+    t2.VDD -> VCC_1V2
+    t1.GND -> GND
+    t2.GND -> GND
+}
+
+module main {
+    conduit GND @role(main)
+    domain DVDD  { rail [VDD_3V3, GND]::DC(3.3V) }
+    domain DCORE { rail [VCC_1V2, GND]::DC(1.2V) }
+
+    SINK3 s1
+    SINK3 s2
+    s1.VDD -> VDD_3V3
+    s2.VDD -> VCC_1V2
+    s1.GND -> GND
+    s2.GND -> GND
+
+    sub u1
+    sub u2
+}
+"#,
+    );
+
+    let items = items_of(&stage);
+    let intents = of_class(&items, "intent");
+    assert_eq!(
+        intents.len(),
+        1,
+        "declared rails are family members: {items:?}"
+    );
+    let nets = intents[0]["nets"].as_array().expect("nets");
+
+    let root: Vec<&Value> = nets.iter().filter(|n| n["layer"] == "main").collect();
+    assert!(
+        root.len() >= 2,
+        "the declaring layer must carry the named branch more than once, saw {}",
+        root.len()
+    );
+    let named: BTreeSet<&str> = root.iter().filter_map(|n| n["domain"].as_str()).collect();
+    assert_eq!(
+        named,
+        BTreeSet::from(["DVDD", "DCORE"]),
+        "the rail's own domain is what the member names: {}",
+        intents[0]
+    );
+
+    let faced: Vec<&Value> = nets.iter().filter(|n| n["layer"] != "main").collect();
+    assert!(
+        faced.len() >= 2,
+        "the facing layers must carry the null branch more than once, saw {}",
+        faced.len()
+    );
+    for n in faced {
+        assert!(
+            n["domain"].is_null(),
+            "layer '{}' net '{}' faces a rail declared elsewhere — it must not \
+             stand in a domain of its own: {}",
+            n["layer"],
+            n["name"],
+            n
+        );
+    }
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The other direction of the same rule: a net whose **name** is a supply is not
+/// one, and the profile must not claim it.
+///
+/// This circuit declares nothing — its nets are `VDD` and `GND` because the
+/// ports are called that, which is exactly the trap the declared-identity rule
+/// exists to close. The row is therefore **absent**, not empty: §5.2 hard
+/// constraint 2, a family that matches nothing is not published. Same source
+/// shape as the reference lock above, one declaration short.
+#[test]
+fn a_named_supply_without_a_declaration_is_no_intent() {
+    let dir = scratch("no-declaration");
+    let stage = run_on(
+        &dir,
+        r#"
+component CAP(cap::INT) {
+    pins = [
+        1 = 1
+        2 = 2
+    ]
+    func Cap([n1, n2]) {
+        n1 - this - n2
+    }
+}
+module main {
+    io VDD
+    io GND
+    CAP c1(1)
+    c1.1 -> VDD
+    c1.2 -> GND
+}
+"#,
+    );
+
+    // The names really are there — otherwise this proves nothing.
+    let items = items_of(&stage);
+    let named: BTreeSet<&str> = of_class(&items, "pin")
+        .iter()
+        .filter_map(|i| i["net"].as_str())
+        .collect();
+    assert!(
+        named.contains("net:VDD") && named.contains("net:GND"),
+        "the trap must be armed: the drawing names these nets {named:?}"
+    );
+
+    assert!(
+        of_class(&items, "intent").is_empty(),
+        "an undeclared net is never claimed, however it is spelled: {:?}",
+        of_class(&items, "intent")
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The row's nets are the drawn nets, and the `pin` items join them by
+/// **`(layer, nid)`** — the drawing's own handle, and the pair, not the ordinal.
+///
+/// The ordinal alone does not identify a net: allocation is per layer, and 3 of
+/// `hbl`'s 61 net ids appear on two layers with different nets behind them. That
+/// is why every member carries `layer` beside its `nid`, and why the join below
+/// would falsely match without it (this lock failed that way first — nid 28 is
+/// `vin.GND` on the LDO and `SPI.CSN` on the codec).
+///
+/// Every member here owns a key, and that is the fixture rather than the rule: a
+/// claimed net is one the declarations reach, and on this fixture all 18 are
+/// source-named. An **auto-named** net can still carry a declared face — the
+/// `mcs/hbl` board has exactly that (`main.DCDC`'s `_net1`, 1 of its 21 members,
+/// `net: null` beside `name: "_net1"`) — and the row keeps it readable through
+/// `name` for precisely that reason. The spelling of the unkeyed case is the same
+/// `net_key` call the `group` row makes, and that row's lock requires its unkeyed
+/// half to be populated, so the helper is exercised there.
+#[test]
+fn the_intent_row_names_the_nets_the_pin_items_name() {
+    let dir = scratch("intent-nets");
+    let stage = seg_of_hbl(&dir, "viz");
+    let items = items_of(&stage);
+
+    // How a pin spells the net it is on, by the handle the drawing gave the net.
+    let pin_by_handle: BTreeMap<(String, u64), &str> = of_class(&items, "pin")
+        .iter()
+        .filter_map(|i| {
+            let layer = i["layer"].as_str()?.to_string();
+            Some((layer, i["nid"].as_u64()?, i["net"].as_str().unwrap_or("")))
+        })
+        .map(|(l, n, s)| ((l, n), s))
+        .collect();
+    assert!(pin_by_handle.len() >= 2, "the fixture draws pins on nets");
+
+    let row = &of_class(&items, "intent")[0];
+    let mut keyed = 0;
+    let mut unkeyed = 0;
+    for n in row["nets"].as_array().expect("nets") {
+        let layer = n["layer"]
+            .as_str()
+            .expect("a member carries its layer")
+            .to_string();
+        let nid = n["nid"].as_u64().expect("every member carries a handle");
+        let pin_spelling = pin_by_handle
+            .get(&(layer.clone(), nid))
+            .unwrap_or_else(|| panic!("no pin on {layer} carries nid {nid}: {n}"));
+        assert_eq!(
+            n["net"].as_str().unwrap_or(""),
+            *pin_spelling,
+            "the two faces spell one net one way: {n}"
+        );
+        match n["net"].as_str() {
+            Some(_) => keyed += 1,
+            None => unkeyed += 1,
+        }
+    }
+    assert!(
+        keyed >= 2,
+        "the keyed half must be populated, saw {keyed} of {}",
+        row["count"]
+    );
+    assert_eq!(
+        unkeyed, 0,
+        "this fixture claims no auto-named net — if that changes, the unkeyed \
+         spelling is now exercised here and the note above is stale"
     );
 
     let _ = std::fs::remove_dir_all(&dir);

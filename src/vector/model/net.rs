@@ -48,11 +48,17 @@ pub struct RailSpec {
 
 /// Declared supply function of a net, resolved from endpoint declarations
 /// (classification-retirement-design §4). No variant is ever inferred from a
-/// name — a net is whatever its owning declarations say it is, or `Signal`.
+/// name — a net is whatever its owning declarations say it is, or it carries no
+/// mirror at all.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AttrRole {
-    /// No declaration anchors this net — legacy signal; consumers must not
-    /// judge or draw it as a power net.
+    /// The net **is** declared, and what it was declared to be holds no supply
+    /// position: a member of a declared **differential pair** (an interface
+    /// body's `diff_pair`). Consumers must not judge or draw it as a power net
+    /// — reading a pair belongs to the signal axis.
+    ///
+    /// Not to be read as "nothing was declared": an undeclared net has no
+    /// mirror at all (`detect_net_attr` returns `None`), never this variant.
     Signal,
     /// Hot member of a declared DC rail / connection-point DC pair (supply face).
     Hot,
@@ -103,6 +109,18 @@ pub struct NetAttrMirror {
     pub copper: Option<String>,
     /// Declared supply function of the net.
     pub role: AttrRole,
+    /// ★ §1 U113: the **domain** whose rail declaration gave the net this role —
+    /// the `L1Rail.domain` of the rail whose `hot`/`ret` this net matched on the
+    /// layer-own-boundary arm of the scan. `None` when the role came from an
+    /// endpoint's connection-point pair (no rail was matched) or from a
+    /// declared conduit reference, or when the net is a legacy `Signal`: the
+    /// domain is then simply not known here, and it is left unknown rather than
+    /// filled with a stand-in. It is what lets a consumer group a supply net with
+    /// its return by **declaration** instead of by a name.
+    ///
+    /// Distinct from `copper`: that is informational leaf text, this is the
+    /// belonging the intent profile groups on.
+    pub domain: Option<String>,
     /// ★ P3 (ret lineage): for a `Hot` net born from a declared DC pair, the
     /// paired return member's leaf name (e.g. `"GND"`). `None` for every other
     /// net — a return net itself, a `Reference`, a legacy `Signal`. Carried to

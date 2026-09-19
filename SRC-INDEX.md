@@ -71,8 +71,8 @@ range (threshold 40KB).
 | `refdef/` | 7 | 118 KB |
 | `rpc/` | 16 | 293 KB |
 | `semantic/` | 88 | 2500 KB |
-| `stages/` | 11 | 287 KB |
-| `vector/` | 25 | 461 KB |
+| `stages/` | 11 | 292 KB |
+| `vector/` | 25 | 462 KB |
 | `viz/` | 95 | 2282 KB |
 
 ## Declaration index
@@ -7616,34 +7616,37 @@ stages/vec.rs#L285  fn endpoint_canon
 stages/vec.rs#L293  fn endpoint_path
 stages/vec.rs#L297  fn pin_path
 stages/vec.rs#L312  fn render_vec_text
-stages/viz.rs#L138  fn build_viz
-stages/viz.rs#L243  fn group_items
-stages/viz.rs#L282  fn net_statements
-stages/viz.rs#L321  fn edge_end
-stages/viz.rs#L348  fn layer_path
-stages/viz.rs#L363  fn layer_item
-stages/viz.rs#L416  fn reports_of
-stages/viz.rs#L442  fn determinism_layer
-stages/viz.rs#L466  fn edge_item
-stages/viz.rs#L504  fn style_str
-stages/viz.rs#L511  fn box_item
-stages/viz.rs#L544  fn pin_item
-stages/viz.rs#L589  fn side_str
-stages/viz.rs#L600  struct PinNet
-stages/viz.rs#L633  fn nets_by_pin
-stages/viz.rs#L656  type NetsByPin
-stages/viz.rs#L669  fn segment_item
-stages/viz.rs#L694  fn seg_length
-stages/viz.rs#L718  fn metrics_items
-stages/viz.rs#L936  fn push_fields
-stages/viz.rs#L956  fn absent_family
-stages/viz.rs#L973  fn pin_path
-stages/viz.rs#L1005  fn anchor_x
-stages/viz.rs#L1013  fn anchor_y
-stages/viz.rs#L1024  fn render_viz_text
-stages/viz.rs#L1137  fn family_list
-stages/viz.rs#L1157  fn end_list
-stages/viz.rs#L1173  fn num
+stages/viz.rs#L146  fn build_viz
+stages/viz.rs#L269  fn group_items
+stages/viz.rs#L305  const POWER_INTENT
+stages/viz.rs#L317  fn face_name
+stages/viz.rs#L358  fn intent_items
+stages/viz.rs#L388  fn net_statements
+stages/viz.rs#L427  fn edge_end
+stages/viz.rs#L454  fn layer_path
+stages/viz.rs#L469  fn layer_item
+stages/viz.rs#L522  fn reports_of
+stages/viz.rs#L548  fn determinism_layer
+stages/viz.rs#L572  fn edge_item
+stages/viz.rs#L610  fn style_str
+stages/viz.rs#L617  fn box_item
+stages/viz.rs#L650  fn pin_item
+stages/viz.rs#L695  fn side_str
+stages/viz.rs#L706  struct PinNet
+stages/viz.rs#L739  fn nets_by_pin
+stages/viz.rs#L762  type NetsByPin
+stages/viz.rs#L775  fn segment_item
+stages/viz.rs#L800  fn seg_length
+stages/viz.rs#L824  fn metrics_items
+stages/viz.rs#L1042  fn push_fields
+stages/viz.rs#L1062  fn absent_family
+stages/viz.rs#L1079  fn pin_path
+stages/viz.rs#L1111  fn anchor_x
+stages/viz.rs#L1119  fn anchor_y
+stages/viz.rs#L1130  fn render_viz_text
+stages/viz.rs#L1248  fn family_list
+stages/viz.rs#L1268  fn end_list
+stages/viz.rs#L1284  fn num
 stages/world_ver.rs#L39  const FNV_OFFSET_BASIS
 stages/world_ver.rs#L41  const FNV_PRIME
 stages/world_ver.rs#L44  fn fold
@@ -8102,22 +8105,22 @@ vector/model/net.rs#L75  struct DiffFace
 vector/model/net.rs#L83  impl DiffFace
 vector/model/net.rs#L84  fn new
 vector/model/net.rs#L99  struct NetAttrMirror
-vector/model/net.rs#L127  enum ConnectionType
-vector/model/net.rs#L145  impl fmt::Display for ConnectionType
-vector/model/net.rs#L146  fn fmt
-vector/model/net.rs#L162  struct McVecNet
-vector/model/net.rs#L203  enum PortFlow
-vector/model/net.rs#L216  struct BoundaryInfo
-vector/model/net.rs#L238  impl McVecNet
-vector/model/net.rs#L240  fn new
-vector/model/net.rs#L256  fn with_shape
-vector/model/net.rs#L288  fn connection_type
-vector/model/net.rs#L320  fn shape_type_key
-vector/model/net.rs#L361  fn shape_type_name
-vector/model/net.rs#L375  fn all_point_ids
-vector/model/net.rs#L388  fn total_points
-vector/model/net.rs#L393  impl fmt::Display for McVecNet
-vector/model/net.rs#L394  fn fmt
+vector/model/net.rs#L139  enum ConnectionType
+vector/model/net.rs#L157  impl fmt::Display for ConnectionType
+vector/model/net.rs#L158  fn fmt
+vector/model/net.rs#L174  struct McVecNet
+vector/model/net.rs#L215  enum PortFlow
+vector/model/net.rs#L228  struct BoundaryInfo
+vector/model/net.rs#L250  impl McVecNet
+vector/model/net.rs#L252  fn new
+vector/model/net.rs#L268  fn with_shape
+vector/model/net.rs#L300  fn connection_type
+vector/model/net.rs#L332  fn shape_type_key
+vector/model/net.rs#L373  fn shape_type_name
+vector/model/net.rs#L387  fn all_point_ids
+vector/model/net.rs#L400  fn total_points
+vector/model/net.rs#L405  impl fmt::Display for McVecNet
+vector/model/net.rs#L406  fn fmt
 vector/model/netshape.rs#L68  struct LaneRef
 vector/model/netshape.rs#L75  impl LaneRef
 vector/model/netshape.rs#L76  fn new
@@ -8310,19 +8313,19 @@ viz/idiom/mod.rs#L829  fn generated_constraints_carry_source_kind_for_reporting
 viz/idiom/mod.rs#L862  fn detect_decoupling_cap
 viz/idiom/mod.rs#L902  fn decoupling_penalty_grows_with_distance
 viz/idiom/mod.rs#L939  fn declared_face
-viz/idiom/mod.rs#L950  fn detect_diff_pair_pn
-viz/idiom/mod.rs#L994  fn diffpair_symmetric_zero_penalty
-viz/idiom/mod.rs#L1036  fn pair_spelled_p_n_without_a_declaration_is_not_a_pair
-viz/idiom/mod.rs#L1069  fn detect_pullup
-viz/idiom/mod.rs#L1107  fn detect_pulldown
-viz/idiom/mod.rs#L1145  fn pulldown_not_confused_with_pullup
-viz/idiom/mod.rs#L1184  fn placement_instances_decoupling
-viz/idiom/mod.rs#L1223  fn protected_boxes_skipped
-viz/idiom/mod.rs#L1263  fn analyze_deterministic
-viz/idiom/mod.rs#L1314  fn placement_instances_deterministic
-viz/idiom/mod.rs#L1363  fn the_diff_pair_instances_come_back_in_net_order
-viz/idiom/mod.rs#L1364  const READS
-viz/idiom/mod.rs#L1417  fn layout_hint_pins_not_penalized
+viz/idiom/mod.rs#L951  fn detect_diff_pair_pn
+viz/idiom/mod.rs#L995  fn diffpair_symmetric_zero_penalty
+viz/idiom/mod.rs#L1037  fn pair_spelled_p_n_without_a_declaration_is_not_a_pair
+viz/idiom/mod.rs#L1070  fn detect_pullup
+viz/idiom/mod.rs#L1108  fn detect_pulldown
+viz/idiom/mod.rs#L1146  fn pulldown_not_confused_with_pullup
+viz/idiom/mod.rs#L1185  fn placement_instances_decoupling
+viz/idiom/mod.rs#L1224  fn protected_boxes_skipped
+viz/idiom/mod.rs#L1264  fn analyze_deterministic
+viz/idiom/mod.rs#L1315  fn placement_instances_deterministic
+viz/idiom/mod.rs#L1364  fn the_diff_pair_instances_come_back_in_net_order
+viz/idiom/mod.rs#L1365  const READS
+viz/idiom/mod.rs#L1418  fn layout_hint_pins_not_penalized
 viz/idiom/model.rs#L13  struct IdiomPlacementModel
 viz/idiom/model.rs#L28  struct IdiomInstance
 viz/idiom/model.rs#L50  enum IdiomInstanceKind
@@ -9762,15 +9765,15 @@ viz/project.rs#L1041  fn endpoint_is_component_pwr_source
 viz/project.rs#L1063  fn endpoint_is_fed_passive_hop
 viz/project.rs#L1114  fn is_child_module_psrc_port
 viz/project.rs#L1164  fn detect_net_attr
-viz/project.rs#L1266  fn is_rail_source_in_subblock
-viz/project.rs#L1301  struct Dsu
-viz/project.rs#L1305  impl Dsu
-viz/project.rs#L1306  fn new
-viz/project.rs#L1311  fn find
-viz/project.rs#L1318  fn union
-viz/project.rs#L1328  mod tests
-viz/project.rs#L1338  fn entry_uri
-viz/project.rs#L1376  fn hbl1_root_net_ret_lineage
+viz/project.rs#L1273  fn is_rail_source_in_subblock
+viz/project.rs#L1308  struct Dsu
+viz/project.rs#L1312  impl Dsu
+viz/project.rs#L1313  fn new
+viz/project.rs#L1318  fn find
+viz/project.rs#L1325  fn union
+viz/project.rs#L1335  mod tests
+viz/project.rs#L1345  fn entry_uri
+viz/project.rs#L1383  fn hbl1_root_net_ret_lineage
 viz/render/capacitor.rs#L23  struct CapacitorShape
 viz/render/capacitor.rs#L25  impl BoxShape for CapacitorShape
 viz/render/capacitor.rs#L26  fn render
@@ -10656,4 +10659,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-397 files, 10576 declarations.
+397 files, 10579 declarations.

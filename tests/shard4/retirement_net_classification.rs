@@ -22,7 +22,7 @@
 use std::path::PathBuf;
 
 use mcc::vector::graph::{McVecGraph, NetKind};
-use mcc::vector::model::{AttrRole, NetAttrMirror};
+use mcc::vector::model::{AttrRole, NetAttrMirror, RailClass};
 use mcc::McIds;
 
 fn hbl_project_dir() -> PathBuf {
@@ -219,4 +219,68 @@ fn kind_is_pure_function_of_declared_attr() {
             }
         }
     }
+}
+
+/// A net the drawing classified as a rail always carries a **declared supply
+/// face** — the direction that matters, asserted rather than assumed.
+///
+/// There are two readings of a net's declared supply identity and they answer
+/// different questions, so they are not equal and are not meant to be:
+///
+/// * `rail` (`RailSpec`) answers *how this is drawn*. It needs a resolvable
+///   driver, and it refuses to infer a ground from a real endpoint ("return-copper
+///   identity must stay on an explicit pseudo boundary").
+/// * `attr` (`NetAttrMirror`) answers *what this was declared to be*.
+///
+/// So `attr` is the **wider** of the two, and that is the property the intent
+/// axis depends on: the family claims every net carrying a supply face, so it can
+/// never be narrower than what the drawing already treats as a rail. A criterion
+/// borrowed from the rail spec would leave claimed nets out of the axis in
+/// silence. Measured over the four boards (hbl / hbl1 / hs / pwrint, 311 nets
+/// across their projected vector graphs): 53 hot-with-`Power` and 22
+/// return-with-`Ground` agree, 11 nets carry a declared face the rail spec
+/// declines (a hot without a resolvable driver, a return reached on a real
+/// endpoint, and the declared reference — which has no `RailClass` at all), and
+/// **no net has a rail without a declared face**.
+///
+/// Both rail classes are populated on this fixture, so the lock is exercised on
+/// each side of the class rather than on one.
+#[test]
+fn every_rail_classified_net_holds_a_declared_supply_face() {
+    let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let graph = build_graph();
+
+    let mut layers = Vec::new();
+    all_layers(&graph, &mut layers);
+
+    let mut power = 0usize;
+    let mut ground = 0usize;
+    for g in &layers {
+        for n in &g.nets {
+            let Some(spec) = &n.rail else { continue };
+            let ctx = format!("layer '{}' net '{}'", g.name, n.name);
+            let a = n.attr.as_ref().unwrap_or_else(|| {
+                panic!("{ctx}: a rail-classified net must carry the declaration")
+            });
+            assert!(
+                matches!(a.role, AttrRole::Hot | AttrRole::Ret | AttrRole::Reference),
+                "{ctx}: rail says {:?} but the declaration says {:?} — the intent \
+                 family would drop a net the drawing treats as a rail",
+                spec.class,
+                a.role
+            );
+            match spec.class {
+                RailClass::Power => power += 1,
+                RailClass::Ground => ground += 1,
+            }
+        }
+    }
+    assert!(
+        power >= 2,
+        "the Power branch must be populated, saw {power} rail net(s)"
+    );
+    assert!(
+        ground >= 2,
+        "and so must the Ground branch, saw {ground} rail net(s)"
+    );
 }

@@ -29,6 +29,13 @@
 //!   were merged into one drawn net, and a statement whose nets were dropped on
 //!   the way has no item — the difference between the two is exactly what a
 //!   reader cannot get from the trunk list.
+//!
+//!   The `intent` items are the same move one level up, and for the same reason:
+//!   a family to the nets it claims, so that "show me this drawing by intent"
+//!   (intent-canon §3) has an edge to read. It is an edge and not a copy — the
+//!   net's own row stays a `stage.vec` fact published once — and it is derived
+//!   from the declarations the projection already resolved, so the axis costs no
+//!   second drawing pipeline and no second judgement about what a net is.
 //! - **It does not invent keys.** §2.4: a layer and a box own an instance path, a
 //!   pin owns a `PointId`, and a **segment owns nothing** — it is not an object
 //!   but a path between two endpoints, so its handle is the endpoint pair, and
@@ -120,6 +127,7 @@ use crate::instant::insttab::InstTable;
 use crate::vector::graph::boxdef::{BoxPin, EntryPoint, EntrySide, McVecBox};
 use crate::vector::graph::graphdef::{LayerStyle, McVecGraph};
 use crate::vector::graph::netdef::{Segment, VizNet};
+use crate::vector::model::AttrRole;
 use crate::viz::api::RenderedLayer;
 use crate::viz::metrics::SchematicQualityReport;
 
@@ -151,6 +159,9 @@ pub fn build_viz(
     let statements = crate::stages::join::statement_refs(&mut sources);
     let mut drawn: std::collections::BTreeMap<usize, Vec<Value>> =
         std::collections::BTreeMap::new();
+    // The nets this drawing carries that a declared intent claims, in the order
+    // the sink handed the layers over — see [`intent_items`] for what claims one.
+    let mut claimed: Vec<Value> = Vec::new();
 
     // A sub-layer's canonical path is spelled from its parent's, and the sink
     // hands over the parent's `bid` rather than its path — so resolve them as we
@@ -202,6 +213,20 @@ pub fn build_viz(
                     items.push(segment_item(seg, net, &path, i));
                 }
             }
+            // The declared face is read off the projected graph, never
+            // recomputed: `VizNet.attr` is what viz/project.rs resolved from the
+            // same declarations the layout consumes, so the profile and the
+            // drawing cannot disagree about what a net is.
+            if let Some(face) = net.attr.as_ref().and_then(|a| face_name(a.role)) {
+                claimed.push(json!({
+                    "net": net_key(&net.name),
+                    "nid": net.nid,
+                    "name": net.name,
+                    "layer": path,
+                    "attr": face,
+                    "domain": net.attr.as_ref().and_then(|a| a.domain.clone()),
+                }));
+            }
             for s in net_statements(net, table, &statements) {
                 let slot = drawn.entry(s).or_default();
                 let already = slot.iter().any(|n| {
@@ -220,6 +245,7 @@ pub fn build_viz(
     }
 
     items.extend(group_items(&statements, drawn, &mut sources));
+    items.extend(intent_items(claimed));
     items.extend(metrics_items(quality, layers.len(), audited));
 
     StageView::new(StageSeg::Viz, top, items, diagnostics).carrying_drawing_contract()
@@ -269,6 +295,86 @@ fn group_items(
             })
         })
         .collect()
+}
+
+/// The one intent family this view can name today. `power-intent`, spelled per
+/// `arch/space/intent-canon.md` §1.1 (`<name>-intent`), which is the only family
+/// whose declaration, criterion and verification faces all hold today — its
+/// criterion face is the declaration layer itself, which is why the profile can
+/// be read off the projected graph instead of judged again here.
+const POWER_INTENT: &str = "power-intent";
+
+/// The published spelling of a declared supply face, or `None` for a role this
+/// family does not claim.
+///
+/// `AttrRole::Signal` is the `None` arm and deliberately so: it means the net was
+/// declared to be one face of a **differential pair** and holds no supply face at
+/// all. That is a different axis over the same drawing, and claiming it here
+/// would put one net in two profiles at once.
+///
+/// The match is exhaustive rather than a list, so a new `AttrRole` cannot reach
+/// the item face unnamed — it would be a compile error here.
+fn face_name(role: AttrRole) -> Option<&'static str> {
+    match role {
+        AttrRole::Hot => Some("hot"),
+        AttrRole::Ret => Some("ret"),
+        AttrRole::Reference => Some("reference"),
+        AttrRole::Signal => None,
+    }
+}
+
+/// One item per intent family, naming the drawn nets that family claims.
+///
+/// §3 of `arch/space/intent-canon.md` makes the profile an **axis over these
+/// items** — one drawing, one layer laid over it, not a second drawing pipeline
+/// — so the thing the data has to carry is the **attribution edge** from a family
+/// to the part of the drawing that belongs to it. [`group_items`] is the same
+/// shape one level down (a statement to the nets it formed); this is the family
+/// to the nets it claims, and it is an edge rather than a copy: the net's own row
+/// — its name, kind, role and members — stays a `stage.vec` fact, published
+/// there once (see the note on [`PinNet`]). What is added per net here is only
+/// what the attribution itself consists of: which declared face put it in this
+/// family, and the domain that declared that face.
+///
+/// What claims a net is structural, read from the mirror the projection filled
+/// and never from a name: a declared supply face ([`face_name`]). A net with no
+/// mirror is not claimed — the projection's rule for an undeclared net is that it
+/// is never judged and never guessed, and this row does not guess on its behalf.
+///
+/// **No net claimed ⇒ no item**, §5.2 hard constraint 2: a family that matches
+/// nothing is not published as an empty row. That is a reading of the drawing,
+/// not a defect in it.
+///
+/// **Not in [`VIZ_LAW`]**, deliberately, and this is the cost: the class set
+/// there is what a difference is aligned under, and a class outside it is skipped
+/// by `Law::index` — so an intent row is **not itself diffed**, and a change of
+/// attribution with an unchanged net set shows up only through `net_refs`. The
+/// `group` class took the same route when it landed, and the trailing number of
+/// the key table (`stage.viz.keys.1`) was left alone then for the same reason.
+/// When the derived rows do enter the law — `group` and `intent` together, since
+/// they are one kind of row — the number goes to `.2` once.
+///
+/// [`VIZ_LAW`]: crate::stages::stage_diff::VIZ_LAW
+fn intent_items(claimed: Vec<Value>) -> Vec<Value> {
+    if claimed.is_empty() {
+        return Vec::new();
+    }
+    let count = claimed.len();
+    vec![json!({
+        "class": "intent",
+        "key": POWER_INTENT,
+        "point": Value::Null,
+        "path": Value::Null,
+        "canon_key": Value::Null,
+        "family": POWER_INTENT,
+        "nets": claimed,
+        "count": count,
+        // View level, like a `metrics` row: the nets it claims each carry their
+        // own layer, so one row covers the whole drawing and a per-layer split
+        // would say the same thing once per layer.
+        "layer": Value::Null,
+        "loc": Value::Null,
+    })]
 }
 
 /// The statements a drawn net belongs to: for every endpoint, the row the pin
@@ -1042,6 +1148,11 @@ pub fn render_viz_text(view: &StageView) -> String {
                 // pair joins them to the `pin` items; a count is what a column
                 // can say without becoming a list.
                 "group" => format!("nets={}", item["count"].as_u64().unwrap_or(0)),
+                // How many drawn nets the family claims. The nets themselves are
+                // on the JSON face, where the same `net`/`nid` pair joins them to
+                // the `pin` items; the first column already carries the family, so
+                // a second column repeating it would say nothing the row does not.
+                "intent" => format!("nets={}", item["count"].as_u64().unwrap_or(0)),
                 // A layer's own numbers, plus the space its coordinates are in:
                 // a position without a canvas is not a reading. `audited` is
                 // spelled rather than tabulated because it is the scope of the
