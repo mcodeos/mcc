@@ -1670,27 +1670,24 @@ impl InstantiationBuilder {
                     .find(|p| p.name == *formal)
                     .map(|p| p.name.clone())
                     .unwrap_or_else(|| formal.clone());
-                if let Some(pin_ids) = b
-                    .components_view()
-                    .iter()
-                    .find_map(|comp| comp.find_bus_port_pin_ids(&resolved_port))
-                {
-                    if pin_ids.len() >= 2 {
-                        // A port that declares no member names contributes none —
-                        // fall back to the pin number for that member only, so the
-                        // width is preserved without inventing a name.
-                        let members: Vec<String> = pin_ids
-                            .iter()
-                            .map(|(name, pid)| {
-                                if name.is_empty() {
-                                    pid.clone()
-                                } else {
-                                    name.clone()
-                                }
-                            })
-                            .collect();
-                        let _ = b.ensure_bus(formal, &members);
-                    }
+                // The members come from the port this formal is paired with in the
+                // body — a component bus port or a sub-module port, one rule for
+                // both (CIMP §1 U107 ③). Member names, never pin numbers, or
+                // `ensure_bus` unions the two alias spaces for the same conductors.
+                // ★ The members go into the **bus name table only** — never into
+                // the declared port's own `PortInst::bus_members`. Writing them
+                // there reads like the same statement and is not: the port's
+                // member table is the identity the rest of the engine folds by,
+                // and a name-valued table on a bare port un-folds U97's
+                // pin-number fold (`main.MCU513.8` → `main.MCU513.SPI.8`) and
+                // re-spells the body members `SPI/CSN` → `SPI.CSN`. Measured
+                // 2026-09-19: `shard4::inst_list` went 295 → 299 rows (the
+                // pre-U97 count) and `shard7`'s re-entered-body lock lost its
+                // `main.MCU513.SPI/CSN` spelling. Which spelling a bare port's
+                // members take is U107 ①/②, not ③.
+                let members = b.peer_port_members(&resolved_port);
+                if !members.is_empty() {
+                    let _ = b.ensure_bus(formal, &members);
                 }
             }
             // ── P4-b: Isolate anonymous instance entries for each body stmt

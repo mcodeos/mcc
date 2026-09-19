@@ -40,13 +40,13 @@ range (threshold 40KB).
 | `db/diagnostic/errcodes.rs` | 157 KB | 418 |
 | `instant/insttab.rs` | 153 KB | 110 |
 | `db/defregistry.rs` | 147 KB | 179 |
-| `instant/mc_mod/fcallinst.rs` | 143 KB | 27 |
+| `instant/mc_mod/fcallinst.rs` | 144 KB | 27 |
 | `cmds/show.rs` | 143 KB | 116 |
 | `viz/layout/equi_audit.rs` | 137 KB | 103 |
 | `rpc/handlers/mod.rs` | 126 KB | 103 |
 | `semantic/mc_inst.rs` | 122 KB | 88 |
-| `instant/mc_mod/phases.rs` | 113 KB | 25 |
 | `instant/mc_mod/points.rs` | 113 KB | 19 |
+| `instant/mc_mod/phases.rs` | 113 KB | 25 |
 | `semantic/basic/mc_fcall.rs` | 112 KB | 21 |
 | `semantic/module/mod.rs` | 102 KB | 75 |
 
@@ -64,7 +64,7 @@ range (threshold 40KB).
 | `db/` | 27 | 883 KB |
 | `eval/` | 2 | 48 KB |
 | `export/` | 6 | 44 KB |
-| `instant/` | 40 | 1496 KB |
+| `instant/` | 40 | 1499 KB |
 | `lsp/` | 7 | 66 KB |
 | `output/` | 7 | 107 KB |
 | `query/` | 9 | 157 KB |
@@ -2852,40 +2852,41 @@ instant/mc_mod/builder.rs#L489  fn component_in
 instant/mc_mod/builder.rs#L501  fn submodule_in
 instant/mc_mod/builder.rs#L516  fn components_view
 instant/mc_mod/builder.rs#L528  fn submodules_view
-instant/mc_mod/builder.rs#L542  fn add_component
-instant/mc_mod/builder.rs#L587  fn add_submodule
-instant/mc_mod/builder.rs#L638  fn append_port_arena
-instant/mc_mod/builder.rs#L664  fn append_vector_arena
-instant/mc_mod/builder.rs#L688  fn child_path
-instant/mc_mod/builder.rs#L694  fn identity_mut
-instant/mc_mod/builder.rs#L700  fn take_identity
-instant/mc_mod/builder.rs#L705  fn restore_identity
-instant/mc_mod/builder.rs#L710  fn add_connection
-instant/mc_mod/builder.rs#L743  fn current_call_site
-instant/mc_mod/builder.rs#L758  fn construction_site
-instant/mc_mod/builder.rs#L770  fn func_def_site
-instant/mc_mod/builder.rs#L795  fn instantiate
-instant/mc_mod/builder.rs#L862  fn auto_invoke_module_funcs
-instant/mc_mod/builder.rs#L953  fn record_error
-instant/mc_mod/builder.rs#L972  fn has_error_at_current_site
-instant/mc_mod/builder.rs#L995  fn record_error_at
-instant/mc_mod/builder.rs#L1023  fn record_warning
-instant/mc_mod/builder.rs#L1047  fn log_global_diag
-instant/mc_mod/builder.rs#L1073  fn merge_diagnostics_from
-instant/mc_mod/builder.rs#L1082  fn ref_designator_prefix
-instant/mc_mod/builder.rs#L1115  fn auto_name
-instant/mc_mod/builder.rs#L1196  fn enter_func_stmt
-instant/mc_mod/builder.rs#L1222  fn with_func_stmt
-instant/mc_mod/builder.rs#L1239  fn with_func_scope
-instant/mc_mod/builder.rs#L1257  fn is_passthrough_formal
-instant/mc_mod/builder.rs#L1273  fn with_trunk
-instant/mc_mod/builder.rs#L1297  fn current_offset
-instant/mc_mod/builder.rs#L1306  fn next_conn_id
-instant/mc_mod/builder.rs#L1314  fn build_net_table
-instant/mc_mod/builder.rs#L1463  fn is_registered_class_name
-instant/mc_mod/builder.rs#L1500  fn resume_auto_inst_counter
-instant/mc_mod/builder.rs#L1530  fn resume_tree
-instant/mc_mod/builder.rs#L1578  fn boundary_return
+instant/mc_mod/builder.rs#L548  fn peer_port_members
+instant/mc_mod/builder.rs#L585  fn add_component
+instant/mc_mod/builder.rs#L630  fn add_submodule
+instant/mc_mod/builder.rs#L681  fn append_port_arena
+instant/mc_mod/builder.rs#L707  fn append_vector_arena
+instant/mc_mod/builder.rs#L731  fn child_path
+instant/mc_mod/builder.rs#L737  fn identity_mut
+instant/mc_mod/builder.rs#L743  fn take_identity
+instant/mc_mod/builder.rs#L748  fn restore_identity
+instant/mc_mod/builder.rs#L753  fn add_connection
+instant/mc_mod/builder.rs#L786  fn current_call_site
+instant/mc_mod/builder.rs#L801  fn construction_site
+instant/mc_mod/builder.rs#L813  fn func_def_site
+instant/mc_mod/builder.rs#L838  fn instantiate
+instant/mc_mod/builder.rs#L905  fn auto_invoke_module_funcs
+instant/mc_mod/builder.rs#L996  fn record_error
+instant/mc_mod/builder.rs#L1015  fn has_error_at_current_site
+instant/mc_mod/builder.rs#L1038  fn record_error_at
+instant/mc_mod/builder.rs#L1066  fn record_warning
+instant/mc_mod/builder.rs#L1090  fn log_global_diag
+instant/mc_mod/builder.rs#L1116  fn merge_diagnostics_from
+instant/mc_mod/builder.rs#L1125  fn ref_designator_prefix
+instant/mc_mod/builder.rs#L1158  fn auto_name
+instant/mc_mod/builder.rs#L1239  fn enter_func_stmt
+instant/mc_mod/builder.rs#L1265  fn with_func_stmt
+instant/mc_mod/builder.rs#L1282  fn with_func_scope
+instant/mc_mod/builder.rs#L1300  fn is_passthrough_formal
+instant/mc_mod/builder.rs#L1316  fn with_trunk
+instant/mc_mod/builder.rs#L1340  fn current_offset
+instant/mc_mod/builder.rs#L1349  fn next_conn_id
+instant/mc_mod/builder.rs#L1357  fn build_net_table
+instant/mc_mod/builder.rs#L1506  fn is_registered_class_name
+instant/mc_mod/builder.rs#L1543  fn resume_auto_inst_counter
+instant/mc_mod/builder.rs#L1573  fn resume_tree
+instant/mc_mod/builder.rs#L1621  fn boundary_return
 instant/mc_mod/bus.rs#L19  impl InstantiationBuilder
 instant/mc_mod/bus.rs#L47  fn ensure_bus
 instant/mc_mod/bus.rs#L69  fn find_bus
@@ -2990,16 +2991,16 @@ instant/mc_mod/fcallinst.rs#L1127  fn materialize_vector_groups
 instant/mc_mod/fcallinst.rs#L1179  fn materialize_deferred_subinstances
 instant/mc_mod/fcallinst.rs#L1258  fn instantiate_instance_method
 instant/mc_mod/fcallinst.rs#L1542  fn run_submodule_method
-instant/mc_mod/fcallinst.rs#L1991  fn run_component_method
-instant/mc_mod/fcallinst.rs#L2323  fn strip_host_iface_phantoms
-instant/mc_mod/fcallinst.rs#L2354  fn expand_bus_labels
-instant/mc_mod/fcallinst.rs#L2428  fn instance_declares_port
-instant/mc_mod/fcallinst.rs#L2443  fn actual_is_parent_ref
-instant/mc_mod/fcallinst.rs#L2471  fn prefix_instance_stmt_with_skip
-instant/mc_mod/fcallinst.rs#L2481  fn prefix_instance_phrase_with_skip
-instant/mc_mod/fcallinst.rs#L2795  fn prefix_instance_node_element_with_skip
-instant/mc_mod/fcallinst.rs#L2911  fn prefix_param_value_with_skip
-instant/mc_mod/fcallinst.rs#L2960  fn validate_fcall_return_shape
+instant/mc_mod/fcallinst.rs#L1988  fn run_component_method
+instant/mc_mod/fcallinst.rs#L2320  fn strip_host_iface_phantoms
+instant/mc_mod/fcallinst.rs#L2351  fn expand_bus_labels
+instant/mc_mod/fcallinst.rs#L2425  fn instance_declares_port
+instant/mc_mod/fcallinst.rs#L2440  fn actual_is_parent_ref
+instant/mc_mod/fcallinst.rs#L2468  fn prefix_instance_stmt_with_skip
+instant/mc_mod/fcallinst.rs#L2478  fn prefix_instance_phrase_with_skip
+instant/mc_mod/fcallinst.rs#L2792  fn prefix_instance_node_element_with_skip
+instant/mc_mod/fcallinst.rs#L2908  fn prefix_param_value_with_skip
+instant/mc_mod/fcallinst.rs#L2957  fn validate_fcall_return_shape
 instant/mc_mod/funccall.rs#L40  enum FuncCallInst
 instant/mc_mod/funccall.rs#L57  enum FaceSide
 instant/mc_mod/funccall.rs#L62  impl FaceSide
@@ -3124,10 +3125,10 @@ instant/mc_mod/points.rs#L1857  fn expand_port_lanes
 instant/mc_mod/points.rs#L1860  fn parse_brace_members
 instant/mc_mod/points.rs#L1880  fn strip_brace_suffix
 instant/mc_mod/points.rs#L1905  fn iotype_allowed
-instant/mc_mod/points.rs#L2209  fn normalize_one_inst_pin_path
-instant/mc_mod/points.rs#L2232  fn resolve_child_points
-instant/mc_mod/points.rs#L2278  fn is_port
-instant/mc_mod/points.rs#L2282  fn ensure_label
+instant/mc_mod/points.rs#L2218  fn normalize_one_inst_pin_path
+instant/mc_mod/points.rs#L2241  fn resolve_child_points
+instant/mc_mod/points.rs#L2287  fn is_port
+instant/mc_mod/points.rs#L2291  fn ensure_label
 instant/mc_mod/stmt.rs#L27  enum LaneItem
 instant/mc_mod/stmt.rs#L44  enum DirExpect
 instant/mc_mod/stmt.rs#L52  fn brace_plain
@@ -10641,4 +10642,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-397 files, 10561 declarations.
+397 files, 10562 declarations.
