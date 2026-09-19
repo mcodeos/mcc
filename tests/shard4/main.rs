@@ -22,6 +22,7 @@ mod pins_empty_declaration;
 mod query_projections;
 mod read_api;
 mod retirement_net_classification;
+mod u107_bare_port_member_source;
 mod u108_formal_without_declared_port;
 mod u119_port_written_order;
 mod u120_org_directory;

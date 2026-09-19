@@ -2017,6 +2017,15 @@ impl InstantiationBuilder {
                                 // look up the bus in the module's bus table.
                                 // This handles cases like `I2C0` where the bus members
                                 // were registered from the component's interface definition.
+                                //
+                                // ★ Not the paired-port rule (U107 ③) here. This path has
+                                // the port **name** and nothing else — no statement, so no
+                                // peer: a name scan across the body cannot tell the port a
+                                // bare name is paired with from an unrelated namesake, and
+                                // reading members off the namesake invents a shape the
+                                // source never stated (measured: `hs` `io VBUS` picked up
+                                // `LinkCN.VBUS`, 1 × 4 ⇒ E4007). Completing this case needs
+                                // the statement's other endpoint, not a wider name rule.
                                 self.buses
                                     .get(&p.name)
                                     .map(|b| b.members.clone())

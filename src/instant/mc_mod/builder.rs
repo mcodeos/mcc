@@ -532,6 +532,49 @@ impl InstantiationBuilder {
         self.modules_of(node_id)
     }
 
+    /// Members of the bus port a bare port of this name is paired with in the
+    /// body — the same-name port of a component instance, else of a sub-module
+    /// instance, in build order.
+    ///
+    /// A bare `io SPI` declares no members, and the peer it is paired with
+    /// declares them the same way in either case (`io [8:11] = SPI{SCLK, …}`
+    /// for a device, `io SPI{SCLK, …}` for a module), so one rule reads both
+    /// (CIMP §1 U107 ③). The component member names are the port's **declared
+    /// names**, falling back to the pin number for a member with no name, so
+    /// the width is preserved without inventing a name.
+    ///
+    /// Reads only — the caller decides where the members are registered. Build
+    /// order decides which instance answers; never a hash order.
+    pub(super) fn peer_port_members(&self, port_name: &str) -> Vec<String> {
+        let from_component: Option<Vec<String>> = self
+            .components_view()
+            .iter()
+            .find_map(|comp| comp.find_bus_port_pin_ids(port_name))
+            .filter(|pin_ids| pin_ids.len() >= 2)
+            .map(|pin_ids| {
+                pin_ids
+                    .iter()
+                    .map(|(name, pid)| {
+                        if name.is_empty() {
+                            pid.clone()
+                        } else {
+                            name.clone()
+                        }
+                    })
+                    .collect()
+            });
+        from_component
+            .or_else(|| {
+                self.submodules_view().iter().find_map(|sub| {
+                    sub.ports
+                        .iter()
+                        .find(|p| p.name == port_name && p.bus_members.len() >= 2)
+                        .map(|p| p.bus_members.clone())
+                })
+            })
+            .unwrap_or_default()
+    }
+
     // Unified product factories (expansion provenance tagging, §7.11)
 
     /// Push a component instance, tagging it with the current expansion id
