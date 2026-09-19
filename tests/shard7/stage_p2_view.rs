@@ -759,3 +759,122 @@ fn a_labelled_net_keys_on_its_label_and_an_anonymous_one_carries_no_key() {
         assert!(net["canon_key"].is_null());
     }
 }
+
+// ── Both position states, in parallel ──
+
+/// A row states which of the two position states anchored it, and the three
+/// values are told apart by the data they describe.
+///
+/// Three members, one per state. `via` is three-valued rather than a boolean
+/// because a net row owns no position at all — a boolean could not say that.
+#[test]
+fn every_row_states_which_position_anchored_it() {
+    let dir = scratch("via");
+    let (stdout, err, ok) = run_stage(&dir, &["-f", "json"]);
+    assert!(ok, "{err}");
+    let stage = stage_of(&stdout);
+    let items = stage["items"].as_array().expect("items");
+
+    let mut seen: BTreeMap<&str, usize> = BTreeMap::new();
+    let mut wired_also_declared = 0usize;
+    for item in items {
+        let via = item["via"].as_str().unwrap_or("");
+        let sites = item["loc_all"]
+            .as_array()
+            .expect("`loc_all` is always an array");
+        let declared = !item["decl_loc"].is_null();
+
+        match via {
+            "wired" => {
+                assert!(
+                    !sites.is_empty(),
+                    "`wired` says at least one site reached it: {item}"
+                );
+                // A wiring site does not imply a declaration site: a label
+                // declares nothing. Both are recorded where both exist, which
+                // is asserted below on the fixture rather than per row.
+                if declared {
+                    wired_also_declared += 1;
+                }
+            }
+            "declared" => {
+                assert!(
+                    sites.is_empty(),
+                    "nothing wired it, so the set is empty: {item}"
+                );
+                assert!(declared, "and the declaration site is the anchor: {item}");
+            }
+            "none" => {
+                assert!(sites.is_empty(), "no site and no declaration: {item}");
+                assert!(
+                    !declared,
+                    "a row with a declaration site is `declared`, not `none`: {item}"
+                );
+            }
+            other => panic!("`via` is one of three words, not `{other}`: {item}"),
+        }
+        *seen.entry(via).or_default() += 1;
+    }
+    // The states are parallel, not exclusive: the fixture must carry rows that
+    // hold both at once, or "recorded unconditionally" is asserted vacuously.
+    assert!(
+        wired_also_declared >= 2,
+        "a wired row keeps its declaration site too, saw {wired_also_declared}"
+    );
+    for via in ["wired", "declared", "none"] {
+        assert!(
+            seen.get(via).copied().unwrap_or(0) >= 2,
+            "`{via}` has {:?} member(s) on this fixture",
+            seen.get(via)
+        );
+    }
+}
+
+/// Both states are published, side by side.
+///
+/// Two members: a wired row, whose set is not empty and whose `loc` is the first
+/// element of it, and an unwired row, whose set is empty. Neither state is a
+/// fallback for the other — the unwired row is not a row without a position, it
+/// is a row anchored by its declaration, and `loc` keeps saying where the row
+/// sits: the first wiring site, else the declaration site. That is what `loc`
+/// said before this batch, and the *text* face still pins that column to one
+/// position, so a variable-length list there would break the column grammar.
+/// The distinction the pair adds is *which* state anchored it, which `loc` alone
+/// could not say.
+#[test]
+fn stage_p2_publishes_both_position_states() {
+    let dir = scratch("two-states");
+    let (stdout, err, ok) = run_stage(&dir, &["-f", "json"]);
+    assert!(ok, "{err}");
+    let stage = stage_of(&stdout);
+    let items = stage["items"].as_array().expect("items");
+
+    let wired: Vec<&Value> = items.iter().filter(|i| i["via"] == "wired").collect();
+    let declared: Vec<&Value> = items.iter().filter(|i| i["via"] == "declared").collect();
+    assert!(wired.len() >= 2, "{} wired rows", wired.len());
+    assert!(declared.len() >= 2, "{} declared rows", declared.len());
+
+    for row in &wired {
+        let sites = row["loc_all"].as_array().expect("loc_all");
+        assert_eq!(
+            row["loc"], sites[0],
+            "`loc` is the first site, not a separate answer: {row}"
+        );
+        assert!(row["loc"]["line"].as_u64().is_some_and(|l| l > 0), "{row}");
+    }
+    for row in &declared {
+        assert_eq!(
+            row["loc"], row["decl_loc"],
+            "nothing wired it, so the declaration site is what anchors it: {row}"
+        );
+        assert_eq!(
+            row["loc_all"],
+            Value::Array(vec![]),
+            "an empty set is an empty array, never null: {row}"
+        );
+        assert!(
+            row["decl_loc"]["line"].as_u64().is_some_and(|l| l > 0),
+            "{row}"
+        );
+    }
+}

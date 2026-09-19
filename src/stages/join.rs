@@ -72,17 +72,24 @@
 //! A connected component would be transitively closed through shared nets, and
 //! in a real design every statement is a few nets from every other one, so the
 //! whole table would collapse into a single unreadable blob. Per item it is the
-//! design's own table — a clause is classified by how many rows it exclusively
-//! owns, a row by how many clauses contain it:
+//! design's own table — a clause is classified by **how many rows it reaches**,
+//! a row by how many clauses contain it:
 //!
 //! | shape | class | what it says |
 //! |---|---|---|
-//! | clause, 1 row | `carry` | one statement became exactly one row |
+//! | clause, 1 row | `carry` | one statement reaches exactly one row |
 //! | clause, N rows | `expand` | a declaration plus its pins; a two-endpoint `Cap` |
 //! | row, N clauses | `merge` | N statements wired into one net |
 //! | clause, 0 rows | `drop` | suspicious (a statement) |
 //! | any cardinality | `skip` | as-designed (a kind, not a shape) |
 //! | row, 0 clauses | `synth` | nothing upstream wrote it |
+//!
+//! "Reaches" is the whole criterion, and it counts **shared** rows: a statement
+//! that wired a row another statement also wired did get something, and asking
+//! exclusively — which is what "owns" means — reported exactly those
+//! statements as having produced nothing. How many **nets** a statement
+//! produced is a different fact and is published as `layer`, a parallel
+//! reading beside the class, never as the class.
 //!
 //! `skip` is decided by **AST node kind**, never by name or text (§5.3 source-side item 2):
 //! whether an item participates in modelling is a structural fact, so `skip` is
@@ -104,7 +111,7 @@ use crate::ast::macros::{
 };
 use crate::ast::node::AstNode;
 use crate::db::cmie::tables::WORKSPACE;
-use crate::instant::insttab::{InstKind, InstTable};
+use crate::instant::insttab::{InstEntry, InstKind, InstTable};
 use crate::instant::world::member_overlap;
 use crate::semantic::common::SourcePos;
 use crate::vector::graph::graphdef::McVecGraph;
@@ -230,6 +237,74 @@ struct Clause {
     text: String,
 }
 
+/// Which position state anchored a row.
+///
+/// Three values and not a boolean: a net row owns no position at all, and a
+/// boolean cannot say that — it would have to call "nothing" a declaration.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Via {
+    /// A wiring site — a statement named this object.
+    Wired,
+    /// The declaration site, and nothing wired it.
+    Declared,
+    /// Neither: the object owns no position of its own.
+    None,
+}
+
+impl Via {
+    fn word(self) -> &'static str {
+        match self {
+            Via::Wired => "wired",
+            Via::Declared => "declared",
+            Via::None => "none",
+        }
+    }
+}
+
+/// The positions a row was written at.
+///
+/// A wiring site is **not** unique: two statements may name the same endpoint
+/// and both are facts about it. Every one is kept, in walk order, and the
+/// clause attribution reads them all — one position per row is what made a
+/// statement's second site invisible, and what made a shared row unownable.
+struct RowAnchor {
+    /// Every wiring site, in walk order.
+    sites: Vec<SourcePos>,
+    /// The declaration site, when the entity has one.
+    decl: Option<SourcePos>,
+    /// Which of the two states anchored the row.
+    via: Via,
+}
+
+impl RowAnchor {
+    /// The anchor of a flat-table entry: its wiring sites and its declaration
+    /// site, both recorded, with the state that anchored read off them.
+    fn of(entry: &InstEntry) -> RowAnchor {
+        let sites: Vec<SourcePos> = entry.src_pos.iter().cloned().collect();
+        let decl = entry.fallback_pos.clone();
+        let via = if !sites.is_empty() {
+            Via::Wired
+        } else if decl.is_some() {
+            Via::Declared
+        } else {
+            Via::None
+        };
+        RowAnchor { sites, decl, via }
+    }
+
+    /// Every position that may attribute this row to a clause: all wiring
+    /// sites, and the declaration site **only when nothing wired it** (a
+    /// declaration says where the object was written, not where it was used).
+    fn attribution(&self) -> impl Iterator<Item = &SourcePos> {
+        let decl = if self.sites.is_empty() {
+            self.decl.as_ref()
+        } else {
+            None
+        };
+        self.sites.iter().chain(decl)
+    }
+}
+
 /// A downstream row: one line of the flat table.
 struct DRow {
     class: &'static str,
@@ -238,10 +313,10 @@ struct DRow {
     /// `null` for the objects that own no key).
     key: Value,
     loc: Value,
-    /// `(uri, offset, matched_on_declaration)`. The third field is true when the
-    /// row has no wiring site and was matched on its declaration site instead —
-    /// the text face says so rather than letting a declaration pass for a wire.
-    anchor: Option<(String, usize, bool)>,
+    /// Every position the row was written at, and the state that anchored it.
+    /// `None` for a net row, which owns no position of its own — the readout
+    /// says so rather than inventing one for it.
+    anchor: Option<RowAnchor>,
     /// The entry id, so a net row can borrow its members' clauses.
     entry_id: u32,
     /// Member entry ids, for a net row.
@@ -263,13 +338,24 @@ pub fn build_join_src_p2(table: &InstTable, top: &str, diagnostics: usize) -> St
     let (rows, bus_rows) = downstream_rows(table);
 
     // A row's clause set. Anchor first, so a net can never be why a point row
-    // acquired a clause.
+    // acquired a clause. **Every** wiring site is asked, not just the first:
+    // one statement may wire an endpoint a second time, and a row whose second
+    // site falls in that statement's span does belong to it.
     let mut row_clauses: Vec<Vec<usize>> = rows
         .iter()
         .map(|row| match &row.anchor {
-            Some((uri, offset, _)) => containing_clause(&clauses, uri, *offset)
-                .into_iter()
-                .collect(),
+            Some(anchor) => {
+                let mut cs: Vec<usize> = Vec::new();
+                for at in anchor.attribution() {
+                    if let Some(c) = containing_clause(&clauses, &at.uri, at.offset as usize) {
+                        if !cs.contains(&c) {
+                            cs.push(c);
+                        }
+                    }
+                }
+                cs.sort_unstable();
+                cs
+            }
             None => Vec::new(),
         })
         .collect();
@@ -300,12 +386,17 @@ pub fn build_join_src_p2(table: &InstTable, top: &str, diagnostics: usize) -> St
         row_clauses[i] = cs;
     }
 
-    // A clause owns the rows that only it contains; a row contained by several
-    // is the subject of its own `merge` item instead.
-    let mut owners: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+    // A clause **reaches** every row whose clause set holds it, shared or not.
+    // This is the clause axis' own relation, and both questions on it are asked
+    // through it: the class ("did this statement get anything at all") and
+    // sub-hop 2 ("did Pass 2 write a row inside this span"). Neither is a
+    // question about exclusivity, and asking them exclusively made a statement
+    // that wired a row another statement also wired read as having produced
+    // nothing. Rows keep their order, so a clause's list is in row order.
+    let mut reached: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
     for (ri, cs) in row_clauses.iter().enumerate() {
-        if cs.len() == 1 {
-            owners.entry(cs[0]).or_default().push(ri);
+        for c in cs {
+            reached.entry(*c).or_default().push(ri);
         }
     }
 
@@ -349,6 +440,12 @@ pub fn build_join_src_p2(table: &InstTable, top: &str, diagnostics: usize) -> St
     // never wrote it", a different fault with a different owner. Counting the
     // records this walk does not reach instead would make the number depend on
     // the walk rather than on the pipeline.
+    //
+    // "Inside its span" is `reached`, not exclusive ownership. `owners` is a
+    // strictly narrower relation — it excludes a row this clause shares with
+    // another — and using it here would answer "Pass 2 wrote nothing only for
+    // this statement", which is not the claim and which a set-valued anchor
+    // makes rare for no reason.
     let mut ast_p2_mismatch = 0usize;
     for (ci, clause) in clauses.iter().enumerate() {
         let Some(at) = clause.stmt_at else {
@@ -357,28 +454,37 @@ pub fn build_join_src_p2(table: &InstTable, top: &str, diagnostics: usize) -> St
         if !clause.pass1 || !claimed.contains(&(clause.uri.clone(), at)) {
             continue;
         }
-        if owners.get(&ci).map(Vec::is_empty).unwrap_or(true) {
+        if reached.get(&ci).map(Vec::is_empty).unwrap_or(true) {
             ast_p2_mismatch += 1;
         }
     }
 
     for (ci, clause) in clauses.iter().enumerate() {
-        let owned = owners.get(&ci).cloned().unwrap_or_default();
+        let hit = reached.get(&ci).cloned().unwrap_or_default();
+        // The class states **how many rows the statement reaches**: none, one,
+        // or more. The count is of rows, never of exclusively-owned rows, and
+        // never of layer members — how many nets the statement produced is
+        // published beside it as `layer`, a parallel reading, not the criterion.
         let class = if clause.skip {
             "skip"
-        } else if owned.is_empty() {
+        } else if hit.is_empty() {
             if clause.declare {
                 declarations_unmatched += 1;
                 continue;
             }
             "drop"
-        } else if owned.len() == 1 {
+        } else if hit.len() == 1 {
             "carry"
         } else {
             "expand"
         };
+        // The layer this statement produced, as a count: the net rows it
+        // reaches. Published **beside** the class and never as the class — the
+        // class counts rows, and a layer of one net is a different fact from a
+        // reach of one row.
+        let layer = hit.iter().filter(|ri| rows[**ri].class == "net").count();
         counts.insert(class, counts[class] + 1);
-        if class == "skip" && !owned.is_empty() {
+        if class == "skip" && !hit.is_empty() {
             skip_with_downstream += 1;
         }
         let why = match class {
@@ -403,7 +509,8 @@ pub fn build_join_src_p2(table: &InstTable, top: &str, diagnostics: usize) -> St
                 "text": clause.text,
                 "loc": clause_loc(clause, &mut sources),
                 "from": Value::Array(vec![]),
-                "to": rows_value(&rows, &owned),
+                "to": rows_value(&rows, &hit),
+                "layer": layer,
                 "why": why,
             }),
         ));
@@ -411,6 +518,7 @@ pub fn build_join_src_p2(table: &InstTable, top: &str, diagnostics: usize) -> St
 
     for (ri, row) in rows.iter().enumerate() {
         let cs = &row_clauses[ri];
+        let pos_keys = position_keys(row, &mut sources);
         if !cs.is_empty() {
             rows_with_clause += 1;
         }
@@ -423,6 +531,9 @@ pub fn build_join_src_p2(table: &InstTable, top: &str, diagnostics: usize) -> St
                     "class": "merge",
                     "key": row.key,
                     "loc": row.loc,
+                    "loc_all": pos_keys.0,
+                    "decl_loc": pos_keys.1,
+                    "via": pos_keys.2,
                     "from": Value::Array(cs.iter().map(|c| clause_key(&clauses[*c], &mut sources)).collect()),
                     "to": Value::Array(vec![row.key.clone()]),
                     "members": Value::Array(
@@ -432,18 +543,25 @@ pub fn build_join_src_p2(table: &InstTable, top: &str, diagnostics: usize) -> St
                 }),
             ));
         } else if cs.is_empty() {
-            if row.anchor.is_none() {
+            // The position that anchored the row: the first wiring site, else
+            // the declaration site. Both span buckets below ask "where was this
+            // written", and that is exactly the anchoring position.
+            let anchored_at = row
+                .anchor
+                .as_ref()
+                .and_then(|a| a.sites.first().or(a.decl.as_ref()));
+            if anchored_at.is_none() {
                 // A key's defect, not an event (see the module note).
                 unanchored += 1;
                 *unanchored_by_class.entry(row.class).or_default() += 1;
-            } else if in_func_span(&func_spans, row.anchor.as_ref().unwrap()) {
+            } else if in_func_span(&func_spans, anchored_at.unwrap()) {
                 // Positioned inside a `func` body, which this hop does not walk.
                 // The row was written by the call site's statement, so there is
                 // an upstream for it — just not one of these items. Reporting it
                 // as `synth` would claim a generated object where the truth is
                 // an excluded template (§5.2 hard constraint 3).
                 func_scoped += 1;
-            } else if in_func_span(&header_spans, row.anchor.as_ref().unwrap()) {
+            } else if in_func_span(&header_spans, anchored_at.unwrap()) {
                 // Declared on a module header: a port, not a generated object.
                 header_scoped += 1;
             } else {
@@ -455,6 +573,9 @@ pub fn build_join_src_p2(table: &InstTable, top: &str, diagnostics: usize) -> St
                         "class": "synth",
                         "key": row.key,
                         "loc": row.loc,
+                        "loc_all": pos_keys.0,
+                        "decl_loc": pos_keys.1,
+                        "via": pos_keys.2,
                         "from": Value::Array(vec![]),
                         "to": Value::Array(vec![row.key.clone()]),
                         "why": SYNTH_NOTE,
@@ -784,11 +905,12 @@ fn containing_clause(clauses: &[Clause], uri: &str, offset: usize) -> Option<usi
         .max_by_key(|i| clauses[*i].start)
 }
 
-/// Whether a row's anchor sits inside one of these spans.
-fn in_func_span(spans: &[(String, usize, usize)], anchor: &(String, usize, bool)) -> bool {
+/// Whether a position sits inside one of these spans.
+fn in_func_span(spans: &[(String, usize, usize)], at: &SourcePos) -> bool {
+    let offset = at.offset as usize;
     spans
         .iter()
-        .any(|(uri, start, end)| *uri == anchor.0 && *start <= anchor.1 && anchor.1 < *end)
+        .any(|(uri, start, end)| at.uri == *uri && *start <= offset && offset < *end)
 }
 
 /// Every downstream row of the flat table, plus the count of bus rows, which
@@ -815,18 +937,14 @@ fn downstream_rows(table: &InstTable) -> (Vec<DRow>, usize) {
                 .unwrap_or(Value::Null),
             _ => Value::Null,
         };
-        // The wiring site wins; the declaration site is used only when there is
-        // no wiring site, and the row remembers which one it was.
-        let (win, via_declaration) = match (&entry.src_pos, &entry.fallback_pos) {
-            (Some(p), _) => (Some(p), false),
-            (None, Some(p)) => (Some(p), true),
-            (None, None) => (None, false),
-        };
+        // The first wiring site anchors the row; the declaration site is used
+        // only when nothing wired it. Which one it was is published as `via`.
+        let anchor = RowAnchor::of(entry);
         rows.push(DRow {
             class,
             key,
-            loc: loc_of(win, &mut sources),
-            anchor: win.map(|p| (p.uri.clone(), p.offset as usize, via_declaration)),
+            loc: loc_of(entry.anchor_pos(), &mut sources),
+            anchor: Some(anchor),
             entry_id: entry.id,
             members: Vec::new(),
             member_paths: Vec::new(),
@@ -887,6 +1005,35 @@ fn rows_value(rows: &[DRow], idx: &[usize]) -> Value {
     Value::Array(idx.iter().map(|i| rows[*i].key.clone()).collect())
 }
 
+/// The three position keys every **row** item carries: `loc_all` (every wiring
+/// site, always an array — a one-element array rather than a bare position, so
+/// the shape never depends on the data), `decl_loc` (the declaration site), and
+/// `via` (which state anchored the row).
+///
+/// A net row owns no position of its own, so it reports the empty array and
+/// `via: "none"` — which is why `via` has three values: a boolean could not
+/// tell "declared" from "there is nothing here at all".
+fn position_keys(row: &DRow, sources: &mut SourceText) -> (Value, Value, &'static str) {
+    match &row.anchor {
+        Some(anchor) => (
+            Value::Array(
+                anchor
+                    .sites
+                    .iter()
+                    .map(|p| loc_of(Some(p), sources))
+                    .collect(),
+            ),
+            anchor
+                .decl
+                .as_ref()
+                .map(|p| loc_of(Some(p), sources))
+                .unwrap_or(Value::Null),
+            anchor.via.word(),
+        ),
+        None => (Value::Array(vec![]), Value::Null, Via::None.word()),
+    }
+}
+
 /// Render the `join.src->p2` text face from the *same* items the JSON face uses
 /// (§5.3 ruling ③).
 ///
@@ -910,9 +1057,16 @@ pub fn render_join_text(view: &StageView) -> String {
                 };
                 let (detail, tail) = match class {
                     // The member set, not the key: a label is not an identity
-                    // and two nets may share one (§5.3 six-class table).
+                    // and two nets may share one (§5.3 six-class table). A row
+                    // that is a single object rather than a net — an endpoint
+                    // two statements both name — has no member set, and names
+                    // itself instead: the cell must be able to say which shape
+                    // it is holding, or that row has no identity on the face.
                     "merge" => (
-                        keys_cell(&i["members"]),
+                        match i["members"].as_array() {
+                            Some(m) if !m.is_empty() => keys_cell(&i["members"]),
+                            _ => detail_cell(i),
+                        },
                         format!("← {}", keys_cell(&i["from"])),
                     ),
                     // The object the downstream segment has and no upstream

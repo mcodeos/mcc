@@ -327,12 +327,10 @@ pub fn log_net_check_diagnostics(diags: &[Diagnostic]) {
 
 /// Extract the best available source position from an InstEntry.
 /// `src_pos` is the wiring site (preferred); `fallback_pos` is the declaration
-/// site used for unconnected pins/ports; `(0, uri)` is the last resort.
+/// site used for unconnected pins/ports; `(0, uri)` is the last resort. The
+/// precedence is [`InstEntry::anchor_pos`]'s, not a second copy of it.
 fn entry_pos(entry: &InstEntry) -> (u32, String) {
-    if let Some(p) = &entry.src_pos {
-        return (p.offset, p.uri.clone());
-    }
-    if let Some(p) = &entry.fallback_pos {
+    if let Some(p) = entry.anchor_pos() {
         return (p.offset, p.uri.clone());
     }
     (0, entry.def_uri.clone())
@@ -353,7 +351,7 @@ fn is_nc_entry(entry: &InstEntry) -> bool {
 fn best_pos(table: &InstTable, ids: &[u32]) -> (u32, String) {
     for id in ids {
         if let Some(entry) = table.get_entry(*id) {
-            if let Some(p) = &entry.src_pos {
+            if let Some(p) = entry.src_pos.first() {
                 return (p.offset, p.uri.clone());
             }
         }
@@ -2966,7 +2964,7 @@ fn edge_endpoint(
 fn leg_sites(comp: &InstEntry, pins: &[&InstEntry]) -> Vec<(u32, String)> {
     let mut sites = Vec::new();
     for p in pins {
-        if let Some(s) = &p.src_pos {
+        for s in &p.src_pos {
             sites.push((s.offset, s.uri.clone()));
         }
     }
@@ -2975,7 +2973,7 @@ fn leg_sites(comp: &InstEntry, pins: &[&InstEntry]) -> Vec<(u32, String)> {
             sites.push((s.offset, s.uri.clone()));
         }
     }
-    if let Some(s) = &comp.src_pos {
+    for s in &comp.src_pos {
         sites.push((s.offset, s.uri.clone()));
     }
     sites

@@ -145,9 +145,14 @@ pub struct NetPoint {
     /// IO direction (None for ports/labels)
     pub iotype: IOType,
 
-    /// Source position in the AST (for diagnostic source-line reporting).
-    /// Unified [`SourcePos`] (uri + byte offset, §7.11(3)).
-    pub src_pos: Option<crate::semantic::common::SourcePos>,
+    /// Every wiring site that named this point, in walk order (for diagnostic
+    /// source-line reporting). Unified [`SourcePos`] (uri + byte offset,
+    /// §7.11(3)).
+    ///
+    /// A point can be named by several connection statements, and each one is a
+    /// site — the point is where they meet. Accumulated in `ensure_point`,
+    /// which is why this is a set even though a point is created once.
+    pub src_pos: crate::semantic::common::SourcePosSet,
 
     /// P2-1: bus member name (e.g. "CS", "SCLK", "MISO", "MOSI" for SPI).
     /// Used for name-based matching in create_connection.
@@ -210,7 +215,7 @@ impl NetPoint {
             path: actual_path,
             owner: None,
             iotype,
-            src_pos: None,
+            src_pos: Default::default(),
             member_name: None,
             same_name_pads: Vec::new(),
         }
@@ -237,17 +242,10 @@ impl NetPoint {
             path: actual_path,
             owner: Some(owner.to_string()),
             iotype,
-            src_pos: None,
+            src_pos: Default::default(),
             member_name: None,
             same_name_pads: Vec::new(),
         }
-    }
-
-    /// Set source position (for diagnostic source-line reporting).
-    /// Unified [`SourcePos`] (uri + byte offset, §7.11(3)).
-    pub fn with_src_pos(mut self, pos: crate::semantic::common::SourcePos) -> Self {
-        self.src_pos = Some(pos);
-        self
     }
 
     /// P2-1: set bus member name for name-based matching
@@ -1046,7 +1044,7 @@ impl NetTable {
             let src_pos = conn
                 .points
                 .iter()
-                .find_map(|p| p.src_pos.clone())
+                .find_map(|p| p.src_pos.first().cloned())
                 .or(conn_src);
             let paths: Vec<String> = conn.points.iter().map(|p| p.path.clone()).collect();
             let msg = crate::errcodes::format_msg(
@@ -1110,8 +1108,9 @@ impl NetTable {
         // positions, and it feeds net-level diagnostics (E4103 etc.) — without
         // it every net diagnostic resolves to offset 0 → file:1:1.
         let conn_src = conn.source_span.clone();
-        let eff_pos =
-            |p: &NetPoint| -> Option<SourcePos> { p.src_pos.clone().or_else(|| conn_src.clone()) };
+        let eff_pos = |p: &NetPoint| -> Option<SourcePos> {
+            p.src_pos.first().cloned().or_else(|| conn_src.clone())
+        };
 
         if kept.len() == 1 {
             let p = kept[0];
@@ -1351,23 +1350,20 @@ impl NetTable {
     ///
     /// ── Iter-10.1: path already normalized at the caller, used directly here ──
     ///
-    /// `src_pos` is stored when a point is first created; if the point already
-    /// exists with no position and a more specific one arrives (e.g. a port
-    /// first registered bare, then referenced by a connection), it is
-    /// back-filled. The first position wins on ties.
+    /// `src_pos` is stored when a point is first created, and **unioned in**
+    /// when the point already exists: a point named by a second connection
+    /// statement has two wiring sites, and both are facts about it. Union
+    /// keeps walk order, so the first site still anchors.
     fn ensure_point(
         &mut self,
         path: &str,
         owner: Option<String>,
         iotype: IOType,
-        src_pos: Option<SourcePos>,
+        src_pos: impl Into<crate::semantic::common::SourcePosSet>,
     ) -> usize {
+        let src_pos: crate::semantic::common::SourcePosSet = src_pos.into();
         if let Some(&idx) = self.path_to_idx.get(path) {
-            if let Some(sp) = src_pos {
-                if self.points[idx].src_pos.is_none() {
-                    self.points[idx].src_pos = Some(sp);
-                }
-            }
+            self.points[idx].src_pos.extend_from(&src_pos);
             return idx;
         }
         let idx = self.points.len();

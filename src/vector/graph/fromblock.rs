@@ -115,7 +115,7 @@ fn build_box_pins(entries: &[&InstEntry], owner_class: &str) -> Vec<BoxPin> {
                 description,
                 io: translate_io_type(&e.io_type),
                 port_dir: PortDir::None,
-                src_span: e.src_pos.clone().or_else(|| e.fallback_pos.clone()),
+                src_span: e.anchor_pos().cloned(),
                 // Stage-readout §2.1: the pin's stage key, taken from the same row
                 // we are already reading — the net layer's own value, not a
                 // second computation of it.
@@ -372,13 +372,9 @@ fn make_box_from_id(table: &InstTable, id: u32) -> Option<McVecBox> {
             // G16: the component entry itself carries no declaration position, so
             // fall back to its first pin's wiring site (the pin entries do carry one).
             b.source_span = entry
-                .src_pos
-                .clone()
-                .or_else(|| entry.fallback_pos.clone())
-                .or_else(|| {
-                    pins.first()
-                        .and_then(|p| p.src_pos.clone().or_else(|| p.fallback_pos.clone()))
-                });
+                .anchor_pos()
+                .cloned()
+                .or_else(|| pins.first().and_then(|p| p.anchor_pos().cloned()));
             Some(b)
         }
         // ★ P7-6: DetectedKind::Label branch removed — Label entries are no longer
@@ -415,14 +411,9 @@ fn make_box_from_id(table: &InstTable, id: u32) -> Option<McVecBox> {
             // G16: module ports carry declaration spans (backfill_port_decl_pos);
             // prefer the first port when the module entry itself has none.
             b.source_span = entry
-                .src_pos
-                .clone()
-                .or_else(|| entry.fallback_pos.clone())
-                .or_else(|| {
-                    ports
-                        .first()
-                        .and_then(|p| p.src_pos.clone().or_else(|| p.fallback_pos.clone()))
-                });
+                .anchor_pos()
+                .cloned()
+                .or_else(|| ports.first().and_then(|p| p.anchor_pos().cloned()));
             Some(b)
         }
         DetectedKind::PowerLabel => {
@@ -447,7 +438,7 @@ fn make_box_from_id(table: &InstTable, id: u32) -> Option<McVecBox> {
                 inst_path,
                 scope_chain,
             );
-            b.source_span = entry.src_pos.clone().or_else(|| entry.fallback_pos.clone());
+            b.source_span = entry.anchor_pos().cloned();
             Some(b)
         }
         DetectedKind::Skip | DetectedKind::Label => None,
@@ -636,13 +627,9 @@ fn build_mc_vec_graph_inner(
                 // G16: the component entry carries no declaration position, so fall back to
                 // its first pin's wiring site (the pin entries do carry one).
                 b.source_span = entry
-                    .src_pos
-                    .clone()
-                    .or_else(|| entry.fallback_pos.clone())
-                    .or_else(|| {
-                        pins.first()
-                            .and_then(|p| p.src_pos.clone().or_else(|| p.fallback_pos.clone()))
-                    });
+                    .anchor_pos()
+                    .cloned()
+                    .or_else(|| pins.first().and_then(|p| p.anchor_pos().cloned()));
                 graph.boxes.push(b);
                 box_ids_set.insert(id);
             }
@@ -678,14 +665,9 @@ fn build_mc_vec_graph_inner(
                 // G16: module ports carry declaration spans (backfill_port_decl_pos);
                 // prefer the first port when the module entry itself has none.
                 b.source_span = entry
-                    .src_pos
-                    .clone()
-                    .or_else(|| entry.fallback_pos.clone())
-                    .or_else(|| {
-                        ports
-                            .first()
-                            .and_then(|p| p.src_pos.clone().or_else(|| p.fallback_pos.clone()))
-                    });
+                    .anchor_pos()
+                    .cloned()
+                    .or_else(|| ports.first().and_then(|p| p.anchor_pos().cloned()));
                 graph.boxes.push(b);
                 box_ids_set.insert(id);
             }
@@ -716,8 +698,7 @@ fn build_mc_vec_graph_inner(
                             inst_path,
                             scope_chain,
                         );
-                        b.source_span =
-                            entry.src_pos.clone().or_else(|| entry.fallback_pos.clone());
+                        b.source_span = entry.anchor_pos().cloned();
                         graph.boxes.push(b);
                         box_ids_set.insert(id);
                     }
@@ -1829,11 +1810,7 @@ fn generate_viznets_from_block(
                     }
                 };
                 let anchor = module_net_origin
-                    .or_else(|| {
-                        entry
-                            .and_then(|e| e.src_pos.clone())
-                            .or_else(|| entry.and_then(|e| e.fallback_pos.clone()))
-                    })
+                    .or_else(|| entry.and_then(|e| e.anchor_pos().cloned()))
                     .or_else(|| net.source_span.clone());
                 match anchor {
                     Some(sp) => crate::db::diagnostic::diagnostic::diagnostic_log_at(
@@ -2141,7 +2118,7 @@ mod tests {
             class_name: String::new(),
             io_type: IOType::None,
             pin_count: 0,
-            src_pos: src,
+            src_pos: src.into(),
             fallback_pos: fallback,
             def_uri: String::new(),
             member_info: None,

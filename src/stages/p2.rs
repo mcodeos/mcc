@@ -101,8 +101,31 @@ pub fn build_p2(table: &InstTable, top: &str, diagnostics: usize) -> StageView {
             ),
         };
 
-        let pos = entry.src_pos.as_ref().or(entry.fallback_pos.as_ref());
-        let loc = loc_of(pos, &mut sources);
+        // Both position states are published, in parallel — neither is a
+        // fallback for the other. `loc` stays the single position the text face
+        // prints (§5.3 ① pins that column to one position, and a variable-length
+        // list would break the column grammar); the whole wiring set is
+        // `loc_all`, and `via` says which state anchored the row.
+        let loc = loc_of(entry.anchor_pos(), &mut sources);
+        let loc_all = Value::Array(
+            entry
+                .src_pos
+                .iter()
+                .map(|p| loc_of(Some(p), &mut sources))
+                .collect(),
+        );
+        let decl_loc = entry
+            .fallback_pos
+            .as_ref()
+            .map(|p| loc_of(Some(p), &mut sources))
+            .unwrap_or(Value::Null);
+        let via = if !entry.unwired() {
+            "wired"
+        } else if decl_loc.is_null() {
+            "none"
+        } else {
+            "declared"
+        };
 
         items.push(json!({
             "class": class,
@@ -118,6 +141,9 @@ pub fn build_p2(table: &InstTable, top: &str, diagnostics: usize) -> StageView {
             "net": net,
             "members": members,
             "loc": loc,
+            "loc_all": loc_all,
+            "decl_loc": decl_loc,
+            "via": via,
         }));
     }
 
@@ -146,6 +172,9 @@ pub fn build_p2(table: &InstTable, top: &str, diagnostics: usize) -> StageView {
             "net": net.name,
             "members": paths,
             "loc": Value::Null,
+            "loc_all": Value::Array(vec![]),
+            "decl_loc": Value::Null,
+            "via": "none",
         }));
     }
 

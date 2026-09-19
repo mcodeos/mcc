@@ -1673,3 +1673,384 @@ fn only_accepts_the_two_diagnostic_states_as_well() {
         );
     }
 }
+
+// ── A wiring site is a set, and a statement reaches what it writes ──
+
+/// Two chips wired in a chain, so one pin is written by two statements.
+///
+/// `u1.P.A` is written by the first statement and again by the third: the row
+/// exists once, but it was wired twice, and both facts are true of it.
+const MERGE_SRC: &str = r#"
+component CHIP {
+    partno = "C"
+    package = PKG.QFN8
+    pins = [ io [1:2] = P{A, B} ]
+}
+
+module main {
+    CHIP u1
+    CHIP u2
+    CHIP u3
+    CHIP u4
+    u1.P.A -> u2.P.A
+    u3.P.A -> u4.P.A
+    u1.P.A -> u3.P.A
+}
+"#;
+
+/// One statement per class: two that wire a row, two that wire nothing at all,
+/// and a header row the readout classifies by kind.
+const CLASSES_SRC: &str = r#"
+component CAP(cap::INT) {
+    pins = [
+        1 = 1
+        2 = 2
+    ]
+    func Cap([n1, n2]) {
+        n1 - this - n2
+    }
+}
+component CHIP {
+    partno = "C"
+    package = PKG.QFN8
+    pins = [ io [1:2] = P{A, B} ]
+}
+module main {
+    io VDD
+    io GND
+    CAP c1(1)
+    c1.Cap([VDD, GND])
+    CAP c2(1)
+    c2.Cap([VDD, GND])
+    CHIP u1
+    CHIP u2
+    u1.P.A -> u2.P.A
+    u1.P.A -> u2.P.B
+}
+"#;
+
+/// Every row whose wiring set holds both of these lines, in the readout order.
+fn rows_wired_at<'a>(stage: &'a Value, lines: &[u64]) -> Vec<&'a Value> {
+    stage["items"]
+        .as_array()
+        .expect("items")
+        .iter()
+        .filter(|i| {
+            let set: Vec<u64> = i["loc_all"]
+                .as_array()
+                .map(|a| a.iter().filter_map(|p| p["line"].as_u64()).collect())
+                .unwrap_or_default();
+            set == lines
+        })
+        .collect()
+}
+
+/// A row records **every** site that reached it, in walk order.
+///
+/// Two members, and their sets overlap at different ends: `u1.P.A` is written
+/// first and last, `u3.P.A` in the middle. A reader that kept only the first —
+/// or only the last — site would put the same line on both rows and fail here.
+#[test]
+fn wiring_set_records_every_site_in_source_order() {
+    let dir = scratch("sites");
+    let entry = write_fixture("sites", MERGE_SRC);
+    let (stdout, err, ok) = run_join_in(&dir, &entry, &["-f", "json"]);
+    assert!(ok, "{err}");
+    let stage = stage_of(&stdout);
+
+    let first = line_of(MERGE_SRC, "u1.P.A -> u2.P.A", 1) as u64;
+    let second = line_of(MERGE_SRC, "u3.P.A -> u4.P.A", 1) as u64;
+    let third = line_of(MERGE_SRC, "u1.P.A -> u3.P.A", 1) as u64;
+
+    let early = rows_wired_at(&stage, &[first, third]);
+    let late = rows_wired_at(&stage, &[second, third]);
+    assert_eq!(early.len(), 1, "`u1.P.A` is wired at {first} and {third}");
+    assert_eq!(late.len(), 1, "`u3.P.A` is wired at {second} and {third}");
+
+    for (row, want) in [
+        (early[0], vec![first, third]),
+        (late[0], vec![second, third]),
+    ] {
+        let got: Vec<u64> = row["loc_all"]
+            .as_array()
+            .expect("loc_all is always an array")
+            .iter()
+            .map(|p| p["line"].as_u64().expect("a site has a line"))
+            .collect();
+        assert_eq!(got, want, "the set is in walk order, not sorted: {row}");
+        // The shape never depends on the data: a one-element set is still an
+        // array, so a consumer never has to switch on the cardinality.
+        assert!(row["loc_all"].is_array());
+        assert_eq!(row["via"], "wired");
+    }
+}
+
+/// A second wiring site is added to the first, never put in place of it.
+///
+/// Same two rows as the lock above, read the other way round: `loc` is still the
+/// **first** site, and it is on the row that also carries the later one — so the
+/// later registration extended the set instead of winning it.
+#[test]
+fn a_second_wiring_site_does_not_replace_the_first() {
+    let dir = scratch("sites-union");
+    let entry = write_fixture("sites-union", MERGE_SRC);
+    let (stdout, err, ok) = run_join_in(&dir, &entry, &["-f", "json"]);
+    assert!(ok, "{err}");
+    let stage = stage_of(&stdout);
+
+    let first = line_of(MERGE_SRC, "u1.P.A -> u2.P.A", 1) as u64;
+    let second = line_of(MERGE_SRC, "u3.P.A -> u4.P.A", 1) as u64;
+    let third = line_of(MERGE_SRC, "u1.P.A -> u3.P.A", 1) as u64;
+
+    for (lines, want_loc) in [(vec![first, third], first), (vec![second, third], second)] {
+        let rows = rows_wired_at(&stage, &lines);
+        assert_eq!(rows.len(), 1, "{lines:?}");
+        let row = rows[0];
+        assert_eq!(
+            row["loc"]["line"].as_u64(),
+            Some(want_loc),
+            "`loc` is the first site of the set, not the last one to arrive: {row}"
+        );
+        assert!(
+            lines.contains(&want_loc),
+            "the anchoring site is also in the set"
+        );
+    }
+}
+
+/// The declaration site is recorded even when the row was wired.
+///
+/// Two members: a point written by a statement, and a declaration whose instance
+/// is wired by a later statement. Both must carry a non-null `decl_loc`, and the
+/// instance's must be a different line from its wiring site — the two states are
+/// recorded in parallel, not ranked.
+#[test]
+fn declaration_site_is_recorded_even_when_the_row_is_wired() {
+    let dir = scratch("decl-parallel");
+    let entry = write_fixture("decl-parallel", CLASSES_SRC);
+    let (stdout, err, ok) = run_join_in(&dir, &entry, &["-f", "json"]);
+    assert!(ok, "{err}");
+    let stage = stage_of(&stdout);
+
+    // The two wiring statements, whose rows are the pins they name.
+    let mut wired = 0;
+    for needle in ["u1.P.A -> u2.P.A", "u1.P.A -> u2.P.B"] {
+        let at = line_of(CLASSES_SRC, needle, 1) as u64;
+        let rows: Vec<&Value> = stage["items"]
+            .as_array()
+            .expect("items")
+            .iter()
+            .filter(|i| {
+                i["loc_all"]
+                    .as_array()
+                    .is_some_and(|a| a.iter().any(|p| p["line"].as_u64() == Some(at)))
+            })
+            .collect();
+        assert!(!rows.is_empty(), "nothing was wired at `{needle}`");
+        for row in rows {
+            assert_eq!(row["via"], "wired", "{row}");
+            assert!(
+                !row["decl_loc"].is_null(),
+                "a point has a declaration site whatever wired it: {row}"
+            );
+            assert!(
+                row["decl_loc"]["line"].as_u64() != Some(at),
+                "the declaration and the wiring are two different sites: {row}"
+            );
+            wired += 1;
+        }
+    }
+    assert!(wired >= 2, "the lock needs two members, saw {wired}");
+}
+
+/// The class follows what the statement reaches, and nothing else.
+///
+/// Three members, one per rule: a statement that reaches no row is a `drop`, one
+/// that reaches a single row is a `carry`, one that reaches two or more is an
+/// `expand`. The counts are read off the items, so a class computed from
+/// anything but `to` fails here.
+#[test]
+fn clause_class_follows_what_it_reaches() {
+    let dir = scratch("class-reaches");
+    let entry = write_fixture("class-reaches", CLASSES_SRC);
+    let (stdout, err, ok) = run_join_in(&dir, &entry, &["-f", "json"]);
+    assert!(ok, "{err}");
+    let stage = stage_of(&stdout);
+
+    let mut seen: std::collections::BTreeMap<&str, usize> = std::collections::BTreeMap::new();
+    for item in stage["items"].as_array().expect("items") {
+        let class = item["class"].as_str().unwrap_or("");
+        if !matches!(class, "carry" | "expand" | "drop") {
+            continue;
+        }
+        let reached = item["to"]
+            .as_array()
+            .expect("`to` is always an array")
+            .len();
+        let want = match reached {
+            0 => "drop",
+            1 => "carry",
+            _ => "expand",
+        };
+        assert_eq!(
+            class, want,
+            "a statement reaching {reached} row(s) is a `{want}`: {item}"
+        );
+        assert!(
+            item["key"].as_str().is_some_and(|k| k.contains("class-reaches")),
+            "the fixture's own statements are the members: {item}"
+        );
+        *seen.entry(class).or_default() += 1;
+    }
+    for class in ["carry", "expand", "drop"] {
+        assert!(
+            seen.get(class).copied().unwrap_or(0) >= 2,
+            "`{class}` has {:?} member(s) in this fixture",
+            seen.get(class)
+        );
+    }
+}
+
+/// A `drop` reaches nothing — and that is the same thing as the layer being
+/// empty, not a second reading that could disagree with it.
+#[test]
+fn drop_implies_the_layer_has_no_members() {
+    let dir = scratch("drop-layer");
+    let entry = write_fixture("drop-layer", CLASSES_SRC);
+    let (stdout, err, ok) = run_join_in(&dir, &entry, &["-f", "json"]);
+    assert!(ok, "{err}");
+    let stage = stage_of(&stdout);
+
+    let drops = class_items(&stage, "drop");
+    assert!(drops.len() >= 2, "two known losses, saw {}", drops.len());
+    for d in &drops {
+        assert!(d["to"].as_array().is_some_and(|t| t.is_empty()), "{d}");
+        assert_eq!(d["layer"].as_u64(), Some(0), "{d}");
+    }
+
+    // The converse is not claimed: a statement that reaches rows may still
+    // reach no *net* row, which is what `layer` counts. Both members of this
+    // pair reach rows and neither has a net among them.
+    let mut carries = 0;
+    for item in stage["items"].as_array().expect("items") {
+        if item["class"] == "carry" {
+            assert_eq!(item["to"].as_array().map(Vec::len), Some(1), "{item}");
+            carries += 1;
+        }
+    }
+    assert!(carries >= 2, "the class must not be empty here: {carries}");
+}
+
+/// A statement that reaches nothing is a `drop`; the fixture proves one exists
+/// even though every statement is spelled correctly.
+#[test]
+fn drop_still_fires_when_nothing_reaches_it() {
+    let dir = scratch("drop-fires");
+    let entry = write_fixture("drop-fires", CLASSES_SRC);
+    let (stdout, err, ok) = run_join_in(&dir, &entry, &["-f", "json"]);
+    assert!(ok, "{err}");
+    let stage = stage_of(&stdout);
+    let c = counts_of(&stage);
+
+    let a = line_of(CLASSES_SRC, "c1.Cap([VDD, GND])", 1) as u64;
+    let b = line_of(CLASSES_SRC, "c2.Cap([VDD, GND])", 1) as u64;
+    for at in [a, b] {
+        let item = class_items(&stage, "drop")
+            .into_iter()
+            .find(|d| d["loc"]["line"].as_u64() == Some(at))
+            .unwrap_or_else(|| panic!("nothing was lost at line {at}"));
+        assert_eq!(item["to"], Value::Array(vec![]));
+    }
+    // The second sub-hop counts exactly these, and this fixture has no other
+    // loss: the two faces have to agree, or one of them is reporting another
+    // segment's fault.
+    assert_eq!(count(c, "sub_hop_ast_p2"), count(c, "drop"));
+    assert_eq!(count(c, "sub_hop_src_ast"), 0);
+}
+
+/// A `skip` is a verdict on a construct's kind, so it can never become a
+/// `drop` — not even when it reaches nothing.
+#[test]
+fn skip_never_becomes_drop() {
+    let dir = scratch("skip-drop");
+    let entry = write_fixture("skip-drop", CLASSES_SRC);
+    let (stdout, err, ok) = run_join_in(&dir, &entry, &["-f", "json"]);
+    assert!(ok, "{err}");
+    let stage = stage_of(&stdout);
+
+    let skips = class_items(&stage, "skip");
+    let without: Vec<&&Value> = skips
+        .iter()
+        .filter(|s| s["to"].as_array().is_some_and(|t| t.is_empty()))
+        .collect();
+    assert!(
+        skips.len() >= 2,
+        "the classification must have members: {}",
+        skips.len()
+    );
+    // Both halves are filled: a `skip` with rows (a header row the readout
+    // classifies by kind) and one without. An empty half would let this pass
+    // while the `to` list was broken.
+    assert!(
+        !without.is_empty(),
+        "a `skip` with a downstream row is needed"
+    );
+    assert!(
+        without.len() < skips.len(),
+        "a `skip` with no downstream row is needed"
+    );
+    for s in &skips {
+        assert_eq!(s["class"], "skip");
+        assert_ne!(s["why"], DROP_NOTE, "{s}");
+    }
+    assert_eq!(
+        count(counts_of(&stage), "drop"),
+        class_items(&stage, "drop").len() as u64
+    );
+}
+
+/// The root layer's connection statements are no longer reported as losses.
+///
+/// They were `drop` before this batch for a reason that had nothing to do with
+/// the board: their endpoints live in *other* files, and a row could remember
+/// only one position. Every one of them now reaches the rows it writes.
+#[test]
+fn root_layer_clauses_are_no_longer_dropped() {
+    let dir = scratch("root-layer");
+    let entry = hbl_entry();
+    let (stdout, err, ok) = run_join_in(&dir, &entry, &["-f", "json"]);
+    assert!(ok, "{err}");
+    let stage = stage_of(&stdout);
+    let src = std::fs::read_to_string(&entry).expect("read the entry source");
+
+    let mut seen = 0;
+    for needle in [
+        "USB.vin -> V5V::DC(5V)",
+        "V5V -> LDO{vin|vout} -> V3V3::DC(3.3V)",
+        "V3V3 -> DCDC -> V1V2::DC(1.2V)",
+        "MCU513.i2c().loadFlash(FLASH.SPI)",
+        "MIC(V3V3).MIC ->",
+    ] {
+        let at = line_of(&src, needle, 1) as u64;
+        let item = stage["items"]
+            .as_array()
+            .expect("items")
+            .iter()
+            .find(|i| {
+                i["key"]
+                    .as_str()
+                    .is_some_and(|k| k.ends_with(&format!(":{at}")))
+            })
+            .unwrap_or_else(|| panic!("the readout has no clause at line {at}"));
+        assert_ne!(
+            item["class"], "drop",
+            "a root-layer statement that wires the board is not a loss: {item}"
+        );
+        assert!(
+            item["to"].as_array().is_some_and(|t| !t.is_empty()),
+            "and it must name what it reached: {item}"
+        );
+        seen += 1;
+    }
+    assert!(seen >= 2, "the lock needs two members, saw {seen}");
+}

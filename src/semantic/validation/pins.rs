@@ -47,7 +47,7 @@ pub fn run_pin_checks(table: &InstTable) -> Vec<PinCheckResult> {
 
 /// Extract the best available source position from an InstEntry.
 fn entry_pos(entry: &InstEntry) -> (u32, String) {
-    let pos = entry.src_pos.as_ref().map(|p| p.offset).unwrap_or(0);
+    let pos = entry.src_pos.first().map(|p| p.offset).unwrap_or(0);
     (pos, entry.def_uri.clone())
 }
 

@@ -171,7 +171,7 @@ pub fn extract_instance_families(
         store
             .labels_of(path)
             .get(name)
-            .and_then(|p| p.src_pos.as_ref().map(|pos| pos.offset as usize))
+            .and_then(|p| p.src_pos.first().map(|pos| pos.offset as usize))
             .map(|pos| content.as_ref().map(|c| line_of_byte(c, pos)).unwrap_or(0))
             .unwrap_or(0)
     };

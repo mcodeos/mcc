@@ -561,12 +561,20 @@ pub struct InstEntry {
     /// Non-component entries stay 0. Lets vector consumers classify two-pin vs
     /// multi-pin from the class's pin data instead of class-name heuristics.
     pub pin_count: usize,
-    /// Unified source position in the definition file (from NetPoint / AST)
-    pub src_pos: Option<crate::semantic::common::SourcePos>,
+    /// **Every** wiring site that reached this entity, in walk order (from
+    /// NetPoint / AST). One endpoint can be wired by more than one statement
+    /// (`u1.P.A -> u2.P.A` and `u1.P.A -> u3.P.A` both name `u1.P.A`), so this
+    /// is a set, not a single winner: collapsing it to one value silently
+    /// dropped the second site from every readout.
+    ///
+    /// Cardinality 0 = never wired. See [`SourcePosSet`] for the order contract.
+    pub src_pos: crate::semantic::common::SourcePosSet,
     /// Coarse fallback position for diagnostics: where the entity was *declared*
-    /// (e.g. a component pin's pin-id in the component body). Used only when
-    /// `src_pos` is None (unconnected pins/ports have no wiring site, so the
-    /// declaration site is the best anchor). `src_pos` (wiring site) always wins.
+    /// (e.g. a component pin's pin-id in the component body).
+    ///
+    /// Filled **unconditionally**, in parallel with `src_pos` — the two are not
+    /// ranked. Which of them anchors an output row is a readout decision, which
+    /// the `via` key states; it is not a priority between these two fields.
     pub fallback_pos: Option<crate::semantic::common::SourcePos>,
     /// URI of the file where this instance was defined
     pub def_uri: String,
@@ -743,6 +751,26 @@ impl InstEntry {
     /// for an endpoint nothing declares.
     pub fn rail_identity(&self) -> Option<String> {
         self.pwr_member.as_ref().map(|m| m.identity())
+    }
+
+    /// The first wiring site in walk order, or `None` when nothing ever wired
+    /// this entity. All wiring sites are on [`Self::src_pos`].
+    pub fn wired_at(&self) -> Option<&crate::semantic::common::SourcePos> {
+        self.src_pos.first()
+    }
+
+    /// True when no statement ever wired this entity. Says nothing about the
+    /// declaration site — that one is filled either way.
+    pub fn unwired(&self) -> bool {
+        self.src_pos.is_empty()
+    }
+
+    /// The single position an output row anchors on: the first wiring site if
+    /// there is one, else the declaration site. The precedence lives here and
+    /// only here, so every readout states the same rule once; which of the two
+    /// actually anchored a row is published as `via`.
+    pub fn anchor_pos(&self) -> Option<&crate::semantic::common::SourcePos> {
+        self.wired_at().or(self.fallback_pos.as_ref())
     }
 }
 
@@ -996,9 +1024,10 @@ impl InstTable {
         parent_id: Option<u32>,
         class_name: String,
         io_type: IOType,
-        src_pos: Option<crate::semantic::common::SourcePos>,
+        src_pos: impl Into<crate::semantic::common::SourcePosSet>,
         def_uri: String,
     ) -> u32 {
+        let src_pos: crate::semantic::common::SourcePosSet = src_pos.into();
         // Prevent duplicate registration
         if let Some(&existing_id) = self.path_index.get(&path) {
             let existing_kind = self.entries.get(&existing_id).map(|e| e.kind.clone());
@@ -1032,7 +1061,7 @@ impl InstTable {
                     crate::db::diagnostic::diagnostic::diagnostic_log(
                         crate::errcodes::PIN_OCCUPIED_BY_DECLARATION,
                         crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
-                        src_pos.as_ref().map(|s| s.offset).unwrap_or(0),
+                        src_pos.first().map(|s| s.offset).unwrap_or(0),
                         1,
                         &crate::errcodes::format_msg(
                             crate::errcodes::PIN_OCCUPIED_BY_DECLARATION,
@@ -1058,8 +1087,11 @@ impl InstTable {
                             entry.parent_id = parent_id;
                             entry.class_name = class_name;
                             entry.io_type = io_type;
-                            if src_pos.is_some() {
-                                entry.src_pos = src_pos;
+                            // The structural entity replaces the net-side entry
+                            // wholesale -- it is another object, so its wiring
+                            // sites are a fresh set, not a union.
+                            if !src_pos.is_empty() {
+                                entry.src_pos = src_pos.clone();
                             }
                             if !def_uri.is_empty() {
                                 entry.def_uri = def_uri;
@@ -1090,10 +1122,9 @@ impl InstTable {
                                 entry.parent_id = parent_id;
                             }
                         }
-                        // Always update src_pos/def_uri if the new ones are more specific
-                        if src_pos.is_some() && entry.src_pos.is_none() {
-                            entry.src_pos = src_pos;
-                        }
+                        // Same kind: the two registrations name the same object,
+                        // so their wiring sites union in walk order.
+                        entry.src_pos.extend_from(&src_pos);
                         if !def_uri.is_empty() && entry.def_uri.is_empty() {
                             entry.def_uri = def_uri;
                         }
@@ -1576,10 +1607,10 @@ impl InstTable {
     /// bidirectional) has no net point to back-fill a wiring site into
     /// `src_pos`, so net checks would anchor at offset 0 → file:1:1; anchor
     /// them at the port's declaration span in the module body instead.
-    /// `src_pos` (a real wiring site) always wins.
+    /// Recorded in parallel with `src_pos`, never instead of it.
     fn backfill_port_decl_pos(&mut self, id: u32, def_uri: &str, span: Option<Range<usize>>) {
         if let Some(entry) = self.entries.get_mut(&id) {
-            if entry.src_pos.is_none() && entry.fallback_pos.is_none() {
+            if entry.fallback_pos.is_none() {
                 if let Some(span) = span {
                     entry.fallback_pos = Some(crate::semantic::common::SourcePos::new(
                         def_uri.to_string(),
@@ -1989,16 +2020,18 @@ impl InstTable {
             // exactly the set registered as Pin children below.
             self.set_pin_count(comp_id, comp.pins.len());
 
-            // ★ Declaration-site fallback for unwired instances
+            // ★ Declaration site, recorded for every instance.
             // A fully-unconnected component never appears in a net, so no net
             // point back-fills a wiring site into `src_pos` — net diagnostics
             // (E4116 pin-count, E4112, …) would anchor at offset 0 → file:1:1.
             // The module's instance table records the declaration span of
-            // `RES r1` (parse_declare → store_port_span); use it as the
-            // fallback so the report points at the declaration instead.
+            // `RES r1` (parse_declare → store_port_span).
+            // Filled even when the entry already has wiring sites: the two
+            // states are recorded in parallel, and which one anchors a report
+            // is decided by the reader (see `via`), not here.
             if let Some(span) = inst.def.insts.get_port_span(&comp.name) {
                 if let Some(entry) = self.entries.get_mut(&comp_id) {
-                    if entry.src_pos.is_none() && entry.fallback_pos.is_none() {
+                    if entry.fallback_pos.is_none() {
                         entry.fallback_pos = Some(crate::semantic::common::SourcePos::new(
                             inst.def_uri.clone(),
                             span.start as u32,
@@ -2113,15 +2146,15 @@ impl InstTable {
                         self.set_exposed(pin_id, exposed);
                     }
 
-                    // ── Fallback position for unconnected pins ──
+                    // ── Declaration position for pins ──
                     // An unconnected pin never appears in a net, so `flatten_nets`
                     // can't back-fill a wiring site into `src_pos`. Anchor the
                     // pin's diagnostics at its declaration instead: the pin-id
                     // span in the component body (`io [12,13] = UART1...`).
-                    // Only set when the span exists AND the entry has no position
-                    // of its own (declaration is strictly weaker than a wiring site).
+                    // Recorded even when wiring sites exist — the states are
+                    // parallel, and the reader picks (see `via`).
                     if let Some(entry) = self.entries.get_mut(&pin_id) {
-                        if entry.src_pos.is_none() && entry.fallback_pos.is_none() {
+                        if entry.fallback_pos.is_none() {
                             if let Some(r) = comp.def.pins.pin_id_spans.get(pin_name) {
                                 entry.fallback_pos = Some(crate::semantic::common::SourcePos::new(
                                     comp.def.uri.clone(),
@@ -2235,12 +2268,13 @@ impl InstTable {
             // ★ Structural pin count (same as pass-1): pins registered below.
             self.set_pin_count(comp_id, comp.pins.len());
 
-            // ★ Declaration-site fallback (same rationale as pass-1): anchor
-            // net diagnostics for a never-wired func-created instance at the
-            // caller's declaration rather than offset 0 → file:1:1.
+            // ★ Declaration site (same rationale as pass-1): anchor net
+            // diagnostics for a never-wired func-created instance at the
+            // caller's declaration rather than offset 0 → file:1:1. Recorded
+            // in parallel with any wiring site, not in place of one.
             if let Some(span) = inst.def.insts.get_port_span(&comp.name) {
                 if let Some(entry) = self.entries.get_mut(&comp_id) {
-                    if entry.src_pos.is_none() && entry.fallback_pos.is_none() {
+                    if entry.fallback_pos.is_none() {
                         entry.fallback_pos = Some(crate::semantic::common::SourcePos::new(
                             inst.def_uri.clone(),
                             span.start as u32,
@@ -2672,21 +2706,18 @@ impl InstTable {
                     }
                 }
                 for id in ids {
-                    // ★ Back-fill entry src_pos from the net point, so net-level
-                    // diagnostics (E4103 undriven-net, driver-conflict,
+                    // ★ Copy the net point's wiring sites into the entry, so
+                    // net-level diagnostics (E4103 undriven-net, driver-conflict,
                     // voltage-mismatch, …) resolve to the wiring site instead of
-                    // offset 0 → file:1:1. Entries registered earlier (bus
-                    // members, ports, pins) carry no position; the net point's
-                    // src_pos is the first real position available. Only
-                    // back-fill when the position lives in the entry's own file
-                    // — a position from a library func body (e.g. res.mc) would
-                    // be interpreted in the wrong file otherwise.
-                    if let Some(sp) = &np.src_pos {
-                        if let Some(entry) = self.entries.get_mut(&id) {
-                            if entry.src_pos.is_none() && sp.uri == entry.def_uri {
-                                entry.src_pos = Some(sp.clone());
-                            }
-                        }
+                    // offset 0 → file:1:1.
+                    //
+                    // No file filter: a set has no winner to pick, so there is
+                    // nothing for one to choose between. Over-inclusion is
+                    // bounded — the loop only runs over the ids this one net
+                    // point resolved to, so an entry never inherits a position
+                    // from a point it is not part of.
+                    if let Some(entry) = self.entries.get_mut(&id) {
+                        entry.src_pos.extend_from(&np.src_pos);
                     }
                     point_ids.push(id);
                 }
@@ -2735,7 +2766,7 @@ impl InstTable {
                 // stub, not 0-pin, and stays quiet here (the ghost reference is
                 // E3137's pass1 domain; the orphaned pin is the 41xx unconnected
                 // checks' domain) — the domains do not double-report.
-                let src_pos = net_points.iter().find_map(|np| np.src_pos.clone());
+                let src_pos = net_points.iter().find_map(|np| np.src_pos.first().cloned());
                 let paths: Vec<String> = net_points.iter().map(|np| np.path.clone()).collect();
                 let msg = crate::errcodes::format_msg(
                     crate::errcodes::NET_DROPPED_STATEMENT,
