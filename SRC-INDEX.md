@@ -64,7 +64,7 @@ range (threshold 40KB).
 | `db/` | 27 | 883 KB |
 | `eval/` | 2 | 48 KB |
 | `export/` | 6 | 44 KB |
-| `instant/` | 40 | 1495 KB |
+| `instant/` | 40 | 1494 KB |
 | `lsp/` | 7 | 66 KB |
 | `output/` | 7 | 107 KB |
 | `query/` | 9 | 157 KB |
@@ -3320,73 +3320,71 @@ instant/mc_mod/vexpr/mod.rs#L477  fn series__an_empty_face_is_not_connectable
 instant/mc_net.rs#L24  static LITERAL_POINT_DETAILS
 instant/mc_net.rs#L41  fn quarantine_literal
 instant/mc_net.rs#L64  fn reset_literal_points
-instant/mc_net.rs#L90  fn normalize_pin_path
-instant/mc_net.rs#L140  struct NetPoint
-instant/mc_net.rs#L172  const LEAD_PLACEHOLDER_PREFIX
-instant/mc_net.rs#L174  impl NetPoint
-instant/mc_net.rs#L180  fn is_lead_placeholder
-instant/mc_net.rs#L198  fn new
-instant/mc_net.rs#L225  fn with_owner
-instant/mc_net.rs#L250  fn with_src_pos
-instant/mc_net.rs#L256  fn with_member_name
-instant/mc_net.rs#L263  fn with_same_name_pads
-instant/mc_net.rs#L269  impl fmt::Display for NetPoint
-instant/mc_net.rs#L270  fn fmt
-instant/mc_net.rs#L297  struct ConnectionInst
-instant/mc_net.rs#L340  impl ConnectionInst
-instant/mc_net.rs#L348  fn dedup_canonical
-instant/mc_net.rs#L363  fn new
-instant/mc_net.rs#L414  fn with_dir
-instant/mc_net.rs#L421  fn with_op
-instant/mc_net.rs#L427  fn with_lane
-instant/mc_net.rs#L433  fn with_via
-instant/mc_net.rs#L439  fn with_source_span
-instant/mc_net.rs#L445  fn with_trunk
-instant/mc_net.rs#L451  fn effective_net_name
-instant/mc_net.rs#L461  fn is_anon_net_name
-instant/mc_net.rs#L465  impl fmt::Display for ConnectionInst
-instant/mc_net.rs#L466  fn fmt
-instant/mc_net.rs#L486  struct PortInst
-instant/mc_net.rs#L560  impl PortInst
-instant/mc_net.rs#L562  fn new
-instant/mc_net.rs#L579  fn with_members
-instant/mc_net.rs#L595  fn is_bus_port
-instant/mc_net.rs#L607  fn path_suffixes
-instant/mc_net.rs#L654  struct PortPathSuffixes
-instant/mc_net.rs#L663  impl fmt::Display for PortInst
-instant/mc_net.rs#L664  fn fmt
-instant/mc_net.rs#L679  enum InstError
-instant/mc_net.rs#L719  impl fmt::Display for InstError
-instant/mc_net.rs#L720  fn fmt
-instant/mc_net.rs#L764  impl std::error::Error for InstError
-instant/mc_net.rs#L770  enum InstDiagLevel
-instant/mc_net.rs#L786  struct InstDiagnostic
-instant/mc_net.rs#L798  impl InstDiagnostic
-instant/mc_net.rs#L800  fn error
-instant/mc_net.rs#L810  fn warning
-instant/mc_net.rs#L820  impl fmt::Display for InstDiagnostic
-instant/mc_net.rs#L821  fn fmt
-instant/mc_net.rs#L844  fn normalize_pin_segments
-instant/mc_net.rs#L892  fn canonicalize_path
-instant/mc_net.rs#L967  struct NetTable
-instant/mc_net.rs#L981  impl NetTable
-instant/mc_net.rs#L982  fn new
-instant/mc_net.rs#L995  fn register_port
-instant/mc_net.rs#L1057  fn add_connection
-instant/mc_net.rs#L1198  fn tie_paths
-instant/mc_net.rs#L1229  fn batch_union_shared_nodes
-instant/mc_net.rs#L1268  fn into_nets
-instant/mc_net.rs#L1398  fn ensure_point
-instant/mc_net.rs#L1428  fn find
-instant/mc_net.rs#L1436  fn union
-instant/mc_net.rs#L1453  mod tests
-instant/mc_net.rs#L1457  fn dlu_net__canonicalize_duplicate_suffix
-instant/mc_net.rs#L1463  fn dlu_net__canonicalize_double_pin_number
-instant/mc_net.rs#L1468  fn dlu_net__canonicalize_curly_brace_repeat
-instant/mc_net.rs#L1477  fn dlu_net__canonicalize_arrow_residual
-instant/mc_net.rs#L1485  fn dlu_net__canonicalize_no_change
-instant/mc_net.rs#L1495  fn dlu_net__batch_union_merges_shared_nodes
-instant/mc_net.rs#L1537  fn dlu_net__canonicalize_merges_duplicate_suffix_paths
+instant/mc_net.rs#L94  fn normalize_pin_path
+instant/mc_net.rs#L138  struct NetPoint
+instant/mc_net.rs#L170  const LEAD_PLACEHOLDER_PREFIX
+instant/mc_net.rs#L172  impl NetPoint
+instant/mc_net.rs#L178  fn is_lead_placeholder
+instant/mc_net.rs#L196  fn new
+instant/mc_net.rs#L223  fn with_owner
+instant/mc_net.rs#L248  fn with_src_pos
+instant/mc_net.rs#L254  fn with_member_name
+instant/mc_net.rs#L261  fn with_same_name_pads
+instant/mc_net.rs#L267  impl fmt::Display for NetPoint
+instant/mc_net.rs#L268  fn fmt
+instant/mc_net.rs#L295  struct ConnectionInst
+instant/mc_net.rs#L338  impl ConnectionInst
+instant/mc_net.rs#L346  fn dedup_canonical
+instant/mc_net.rs#L361  fn new
+instant/mc_net.rs#L412  fn with_dir
+instant/mc_net.rs#L419  fn with_op
+instant/mc_net.rs#L425  fn with_lane
+instant/mc_net.rs#L431  fn with_via
+instant/mc_net.rs#L437  fn with_source_span
+instant/mc_net.rs#L443  fn with_trunk
+instant/mc_net.rs#L449  fn effective_net_name
+instant/mc_net.rs#L459  fn is_anon_net_name
+instant/mc_net.rs#L463  impl fmt::Display for ConnectionInst
+instant/mc_net.rs#L464  fn fmt
+instant/mc_net.rs#L484  struct PortInst
+instant/mc_net.rs#L558  impl PortInst
+instant/mc_net.rs#L560  fn new
+instant/mc_net.rs#L577  fn with_members
+instant/mc_net.rs#L593  fn is_bus_port
+instant/mc_net.rs#L605  fn path_suffixes
+instant/mc_net.rs#L652  struct PortPathSuffixes
+instant/mc_net.rs#L661  impl fmt::Display for PortInst
+instant/mc_net.rs#L662  fn fmt
+instant/mc_net.rs#L677  enum InstError
+instant/mc_net.rs#L717  impl fmt::Display for InstError
+instant/mc_net.rs#L718  fn fmt
+instant/mc_net.rs#L762  impl std::error::Error for InstError
+instant/mc_net.rs#L768  enum InstDiagLevel
+instant/mc_net.rs#L784  struct InstDiagnostic
+instant/mc_net.rs#L796  impl InstDiagnostic
+instant/mc_net.rs#L798  fn error
+instant/mc_net.rs#L808  fn warning
+instant/mc_net.rs#L818  impl fmt::Display for InstDiagnostic
+instant/mc_net.rs#L819  fn fmt
+instant/mc_net.rs#L842  fn normalize_pin_segments
+instant/mc_net.rs#L885  fn canonicalize_path
+instant/mc_net.rs#L927  struct NetTable
+instant/mc_net.rs#L941  impl NetTable
+instant/mc_net.rs#L942  fn new
+instant/mc_net.rs#L955  fn register_port
+instant/mc_net.rs#L1017  fn add_connection
+instant/mc_net.rs#L1158  fn tie_paths
+instant/mc_net.rs#L1189  fn batch_union_shared_nodes
+instant/mc_net.rs#L1228  fn into_nets
+instant/mc_net.rs#L1358  fn ensure_point
+instant/mc_net.rs#L1388  fn find
+instant/mc_net.rs#L1396  fn union
+instant/mc_net.rs#L1413  mod tests
+instant/mc_net.rs#L1417  fn dlu_net__canonicalize_arrow_residual
+instant/mc_net.rs#L1425  fn dlu_net__canonicalize_no_change
+instant/mc_net.rs#L1452  fn dlu_net__repeated_segment_is_identity
+instant/mc_net.rs#L1483  fn dlu_net__batch_union_merges_shared_nodes
+instant/mc_net.rs#L1525  fn dlu_net__duplicate_suffix_paths_stay_apart
 instant/mod.rs#L5  mod arena
 instant/mod.rs#L6  mod deps
 instant/mod.rs#L7  mod descriptions
@@ -10617,4 +10615,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-397 files, 10537 declarations.
+397 files, 10535 declarations.

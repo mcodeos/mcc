@@ -887,22 +887,26 @@ fn every_layer_names_the_reports_that_cover_it() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// Every block edge's ends resolve to a Pass2 row — including the ends that name
-/// endpoints the block layer's own boxes do not carry.
+/// Every block edge's end resolves to a Pass2 row, and on this fixture every end
+/// also names a pin its own box carries.
 ///
-/// This is the reading that would have been silently wrong. A block edge is
-/// decided at the net layer against the whole world, while the block layer's box
-/// for a sub-module carries only the pins the diagram shows. Measured on hbl, six
-/// of thirty ends are of that kind, and they come in both §2.4 flavours:
+/// The second half is a requirement, not a coincidence (U106): the boxes are one
+/// face of the circuit and a segment's ends are another, and the two are required
+/// to agree. A block edge is decided at the net layer, against the whole world's
+/// endpoints, while the block layer's box for a sub-module carries only the pins
+/// the *diagram* shows — so the agreement is worth asserting rather than assuming.
+/// This fixture now holds it; it is not a property the tree keeps everywhere, and
+/// `hs` is where it does not (13 of its 142 ends name no pin of their box).
+/// Measured here: 2 of 38 ends disagreed before the port-group segment was restored
+/// to the path (the MIC edge's `from` ends reached the drawing spelled
+/// `main.MIC.N`/`.P`, while the module box carried neither spelling and the ports
+/// it does carry are `main.MIC.MIC.N`/`.P`), and 0 of 38 do now.
 ///
-/// * the SPI edge ends at `main.MCU513.8`/`.9`/`.10`/`.11` — `point` rows — none
-///   of which is among the six pins `main.MCU513`'s box carries;
-/// * the MIC edge starts at `main.MIC.N`/`.P`, which are **`label`** rows, not
-///   points at all.
-///
-/// So the assertion is "resolves to a row of some class", and the run-local key
-/// appears only where the row is a point. An endpoint-scoped-to-the-layer lookup
-/// would drop all six and report nothing wrong.
+/// The resolution itself is asserted as "a row of some class", because an end that
+/// **is** a pin need not be a point: the two MIC ends, like 23 of the 38 ends
+/// here, are `label` rows, and the run-local key appears only where the row is a
+/// point. An endpoint-scoped-to-the-layer lookup would resolve neither a `label`
+/// row nor a row the box does not carry, and would report nothing wrong.
 #[test]
 fn every_block_edge_end_resolves_to_a_pass2_row() {
     let dir = scratch("edges");
@@ -931,7 +935,7 @@ fn every_block_edge_end_resolves_to_a_pass2_row() {
         edges.len()
     );
 
-    // The block layer's own pins, to show the ends are *not* confined to them.
+    // The block layer's own pins, against which the ends are required to agree.
     let layer_pins: BTreeSet<String> = of_class(&viz_items, "pin")
         .iter()
         .filter_map(|p| canon_path(p).map(str::to_string))
@@ -940,9 +944,8 @@ fn every_block_edge_end_resolves_to_a_pass2_row() {
     let mut ends = 0usize;
     let mut outside_the_layer = 0usize;
     let mut pointing = 0usize;
-    // Ends the block layer's boxes cannot place *and* that are not points either:
-    // the `label` flavour (the MIC edge's ends).
-    let mut nonpoints_outside = 0usize;
+    // The `label` flavour of §2.4: ends that are not `point` rows.
+    let mut nonpoints = 0usize;
     for e in &edges {
         for side in ["from", "to"] {
             let list = e[side].as_array().expect("an endpoint list");
@@ -969,9 +972,9 @@ fn every_block_edge_end_resolves_to_a_pass2_row() {
                 }
                 if !layer_pins.contains(path) {
                     outside_the_layer += 1;
-                    if r["point"].is_null() {
-                        nonpoints_outside += 1;
-                    }
+                }
+                if r["point"].is_null() {
+                    nonpoints += 1;
                 }
                 // The handle is the *canonical* endpoint pair, so the list is in
                 // canonical order and not in this build's id order.
@@ -984,22 +987,23 @@ fn every_block_edge_end_resolves_to_a_pass2_row() {
     }
 
     assert!(ends >= 4, "too few edge ends to exercise the resolution");
-    assert!(
-        outside_the_layer > 0,
-        "every edge end names a pin of the layer's own boxes; on this fixture \
-         some are supposed to name endpoints the block box does not carry, so a \
-         layer-scoped lookup would pass unnoticed"
+    assert_eq!(
+        outside_the_layer, 0,
+        "every edge end must name a pin of the layer's own boxes (U106); the two \
+         that did not were the MIC edge's `main.MIC.N`/`.P`, and this fixture is \
+         the one that reads them"
     );
     assert!(
         pointing > 0,
         "no edge end carries a `PointId` — the run-local half is unexercised"
     );
-    // Both flavours are exercised: §2.4's point ends and its non-point ones.
+    // Both flavours are exercised: §2.4's point ends and its non-point ones. The
+    // non-point family is counted on its own — an end that is a pin of its box is
+    // a different population from one the box cannot carry.
     assert!(
-        nonpoints_outside > 0,
-        "every edge end the block layer's boxes cannot place turned out to be a \
-         `point` row; hbl is expected to have ends that are `label` rows, so the \
-         `None` family would be unexercised"
+        nonpoints > 0,
+        "every edge end turned out to be a `point` row; hbl is expected to have \
+         ends that are `label` rows, so the `None` family would be unexercised"
     );
 
     let _ = std::fs::remove_dir_all(&dir);

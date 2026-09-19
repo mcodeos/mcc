@@ -57,20 +57,20 @@
 //! published ends as "the pins of the two boxes" and find they are not: an edge is
 //! decided at the **net** layer, against the whole world's endpoints, while the
 //! block layer's box for a sub-module carries only the pins the *diagram* shows.
-//! Measured on `hbl`, where 6 of the 30 ends are of this kind:
-//!
-//! - the SPI edge ends at `main.MCU513.8` / `.9` / `.10` / `.11` — Pass2 `point`
-//!   rows — while `main.MCU513`'s own box carries six pins (`.DAC_OUT`,
-//!   `.MIC.N`, `.MIC.P`, `.SPK_MUTE`, `.VCC_1V2`, `.VDD_3V3`) and none of those
-//!   four;
-//! - the MIC edge starts at `main.MIC.N` / `main.MIC.P`, which are Pass2
-//!   **`label`** rows rather than points, and `main.MIC`'s box carries one pin
-//!   (`.dc.VDD_3V3`) which is neither.
-//!
 //! So an end is resolved through the `InstTable` — which knows every row in the
 //! world — and not through the layer's boxes; the same §2.4 discipline applies as
-//! everywhere else, that an endpoint is not necessarily a point. A lookup scoped
-//! to the layer would have dropped those six ends silently.
+//! everywhere else, that an endpoint is not necessarily a point.
+//!
+//! How far the two faces drift is a measurement, and it moved (U106). On the
+//! `hbl` fixture they now agree exactly: **0 of the 38** ends name a row the
+//! layer's boxes do not carry, where 2 did before — `main.MIC.MIC.N` / `.P`, the
+//! two ports `main.MIC`'s box carries, reached the drawing spelled
+//! `main.MIC.N` / `.P`, and neither face could then find the other. The `hs`
+//! board is where the gap is still real: **13 of its 142** ends name a row no box
+//! carries (its test points, `main.TP1` / `.TP4`-`.TP8`), and 6 more publish no
+//! path at all. So the lookup stays world-scoped: a layer-scoped one would drop
+//! those 19 ends without a word, and on `hbl` it would have dropped the MIC pair
+//! the same way.
 //!
 //! So `segments` counts what the graph owns. Contrast §11.3 of the viz
 //! requirement design, which sketches a wire with a point list — that is the
