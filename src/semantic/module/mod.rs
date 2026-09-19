@@ -377,7 +377,10 @@ impl McModule {
     pub(crate) fn parse_body(&mut self, body: &AstNode) {
         // ★ LSP: Set scope for instance registration
         self.insts.scope = Some(self.name.to_string());
-        if let Some(clauses) = body.get_sub_node() {
+        // `clause_list` makes an in-body partition transparent: a `block`'s
+        // clauses are dispatched exactly as if they had been written here.
+        let clauses = body.clause_list();
+        if !clauses.is_empty() {
             // ── §10.11.4 guard ③: declaration visibility is position-free ──
             // A bare domain name must mean the same thing above and below its
             // own `domain` clause. `pi` fills source-order (the walk below is
@@ -392,7 +395,7 @@ impl McModule {
                     .filter_map(|c| McPowerDecls::peek_domain(&c))
                     .collect::<Vec<_>>(),
             );
-            for clause in clauses.iter() {
+            for clause in clauses {
                 let ct = clause.get_type();
                 match ct {
                     MCAST_NET_PORTS => {

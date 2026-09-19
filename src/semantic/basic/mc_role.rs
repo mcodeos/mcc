@@ -45,8 +45,9 @@ impl McRole {
             },
         };
 
-        // Parse attributes and pins
-        for child in subnodes.iter() {
+        // Parse attributes and pins — read through `clause_list` so an in-body
+        // partition (`block`) is transparent here as everywhere else.
+        for child in node.clause_list() {
             match child.get_type() {
                 MCAST_ATTRIBUTE => {
                     ret.attrs.parse(&child);

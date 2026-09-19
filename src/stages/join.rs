@@ -582,10 +582,14 @@ fn in_scope_clauses() -> (
                 let Some(body) = children.iter().find(|c| c.is_type(MCAST_BODY)) else {
                     continue;
                 };
-                let Some(clauses) = body.get_sub_node() else {
+                if body.get_sub_node().is_none() {
                     continue;
-                };
-                let list: Vec<AstNode> = clauses.iter().collect();
+                }
+                // An in-body partition (`block`) is transparent here too: its
+                // clauses are read as if written directly in this body, so a
+                // row anchored inside one lands in the statement that wrote it
+                // rather than in no clause at all.
+                let list: Vec<AstNode> = body.clause_list();
                 // The header: the declaration line down to the body's first
                 // clause. A port declared there (`psnk dc{VDD_3V3, GND}::DC(3.3V)`)
                 // produces rows, but it is a declaration and not a statement, so

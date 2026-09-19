@@ -250,7 +250,10 @@ impl McComponent {
 
         //3. body
         if let Some(body) = subnodes.iter().find(|x| x.is_type(MCAST_BODY)) {
-            if let Some(body_nodes) = body.get_sub_node() {
+            // `clause_list` makes an in-body partition transparent: a `block`'s
+            // clauses are read exactly as if they had been written here.
+            let body_nodes = body.clause_list();
+            if !body_nodes.is_empty() {
                 //3. attributes
                 body_nodes
                     .iter()

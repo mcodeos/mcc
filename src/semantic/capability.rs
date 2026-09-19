@@ -90,8 +90,11 @@ impl McCapability {
         //   regardless of textual order).
         let mut func_nodes: Vec<AstNode> = Vec::new();
         if let Some(body) = subnodes.iter().find(|x| x.is_type(MCAST_BODY)) {
-            if let Some(body_nodes) = body.get_sub_node() {
-                for clause in body_nodes.iter() {
+            // `clause_list` makes an in-body partition transparent: a `block`'s
+            // clauses are read exactly as if they had been written here.
+            let body_nodes = body.clause_list();
+            if !body_nodes.is_empty() {
+                for clause in body_nodes {
                     match clause.get_type() {
                         // Signal declaration (`psnk …`, `io …`, `in …`): module-port family.
                         MCAST_NET_PORTS => {
