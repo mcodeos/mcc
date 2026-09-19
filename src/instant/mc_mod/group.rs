@@ -210,7 +210,7 @@ impl InstantiationBuilder {
                         .unwrap_or(self.def.span.start as i32);
                     let pos = left_points
                         .first()
-                        .and_then(|p| p.src_pos.as_ref().map(|s| s.offset))
+                        .and_then(|p| p.src_pos.first().map(|s| s.offset))
                         .unwrap_or(fallback as u32);
                     let len = l.path.len() as u32 + r.path.len() as u32 + 1;
                     let msg = format!(
@@ -291,7 +291,7 @@ impl InstantiationBuilder {
                         .unwrap_or(self.def.span.start as i32);
                     let pos = left_points
                         .first()
-                        .and_then(|p| p.src_pos.as_ref().map(|s| s.offset))
+                        .and_then(|p| p.src_pos.first().map(|s| s.offset))
                         .unwrap_or(fallback as u32);
                     if let Some((net, peers)) = short {
                         let len = net.len() as u32;
@@ -387,7 +387,7 @@ impl InstantiationBuilder {
                     .unwrap_or(self.def.span.start as i32);
                 let pos = left_points
                     .first()
-                    .and_then(|p| p.src_pos.as_ref().map(|s| s.offset))
+                    .and_then(|p| p.src_pos.first().map(|s| s.offset))
                     .unwrap_or(fallback as u32);
                 let len = left_points
                     .first()

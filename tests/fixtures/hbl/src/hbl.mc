@@ -23,5 +23,6 @@ module main
     MCU513.i2c().loadFlash(FLASH.SPI)
     
     MIC(V3V3).MIC -> MCU513{ MIC | DAC_OUT, SPK_MUTE } -> SPK{DAC_OUT, US_SPEAKER_MUTE}
+    MCU513.i2c()
 
 }

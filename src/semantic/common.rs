@@ -183,6 +183,83 @@ impl SourcePos {
     }
 }
 
+/// An ordered set of source positions.
+///
+/// Order is **walk order** -- the order this build met the positions. Inside
+/// one file that is source order, because statements are walked in written
+/// order; across files it is simply the order the walk reached them. That is
+/// the same order the Pass-2 `merge` readout prints, and the two faces must
+/// agree: sorting here would let one fact come out in two orders on two
+/// readouts. Determinism comes from the walk, not from a comparison.
+///
+/// Duplicates are dropped by linear scan: cardinality here is one to three,
+/// so an index would cost more than it saves.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SourcePosSet {
+    sites: Vec<SourcePos>,
+}
+
+impl SourcePosSet {
+    pub fn new() -> Self {
+        Self { sites: Vec::new() }
+    }
+
+    /// Append a position unless an equal one is already held, keeping walk order.
+    pub fn insert(&mut self, pos: SourcePos) {
+        if !self.sites.contains(&pos) {
+            self.sites.push(pos);
+        }
+    }
+
+    pub fn iter(&self) -> std::slice::Iter<'_, SourcePos> {
+        self.sites.iter()
+    }
+
+    /// The first position in walk order (the one that anchors an output row).
+    pub fn first(&self) -> Option<&SourcePos> {
+        self.sites.first()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.sites.is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.sites.len()
+    }
+
+    pub fn contains(&self, pos: &SourcePos) -> bool {
+        self.sites.contains(pos)
+    }
+
+    /// Union in walk order: positions already held keep their place, new ones
+    /// append in the order the other set presents them.
+    pub fn extend_from(&mut self, other: &SourcePosSet) {
+        for p in &other.sites {
+            self.insert(p.clone());
+        }
+    }
+}
+
+impl From<Option<SourcePos>> for SourcePosSet {
+    fn from(pos: Option<SourcePos>) -> Self {
+        let mut set = Self::new();
+        if let Some(p) = pos {
+            set.insert(p);
+        }
+        set
+    }
+}
+
+impl<'a> IntoIterator for &'a SourcePosSet {
+    type Item = &'a SourcePos;
+    type IntoIter = std::slice::Iter<'a, SourcePos>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.sites.iter()
+    }
+}
+
 // UriId: global append-only URI interning (design: name-space-global.md §5.5)
 
 /// Globally-unique id for an interned file URI. Ids are never recycled, so a

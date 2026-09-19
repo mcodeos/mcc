@@ -371,10 +371,13 @@ fn the_walk_always_prints_every_stage_in_chain_order() {
     // Every stage is printed; how many *reached* the key is a separate number, so
     // a walk that stopped early cannot be read as a chain that was shorter.
     assert_eq!(count(&view, "stages"), STAGES.len() as u64);
+    // Four, not three: a statement reaches the nets its own rows sit in, so the
+    // walk now carries on to `vec` as well. The number is the whole point of
+    // this row — how far a walk got, told apart from how far the chain goes.
     assert_eq!(
         count(&view, "reached"),
-        3,
-        "this key is named at src, ast and p2 and nowhere past that"
+        4,
+        "this statement writes rows at p2, and those rows are in nets at vec"
     );
     assert!(count(&view, "reached") <= count(&view, "stages"));
     assert_eq!(
@@ -452,24 +455,35 @@ fn the_form_the_readout_reports_is_the_form_it_parsed() {
 fn three_forms_reach_one_object_and_walk_it_identically() {
     let cwd = scratch("agree");
     let entry = hbl_entry();
-    // `main.V1V2` is the point the statement at hbl.mc:19 writes. Its in-domain
-    // handle is `N1:0`, and its source position is the line it is written on —
-    // three ways to name one thing, so three walks that must agree.
+    // `main.V1V2` is one of the points the statement at hbl.mc:19 writes. Its
+    // in-domain handle is `N1:0`, and its source position is the line that
+    // statement is written on — three ways to name one thing.
     let by_domain = trace_of(&cwd, &entry, "N1:0", &[]);
     let by_canon = trace_of(&cwd, &entry, "main.V1V2", &[]);
     let by_loc = trace_of(&cwd, &entry, &format!("{}:19", entry.display()), &[]);
 
-    for other in [&by_canon, &by_loc] {
-        assert_eq!(
-            serde_json::to_string(&by_domain["items"]).unwrap(),
-            serde_json::to_string(&other["items"]).unwrap(),
-            "two forms of one object walked it differently"
-        );
-    }
-    // And the object they agree on is the one the canonical path names: the walk
-    // is keyed on identity, never on the spelling it was entered by.
-    assert_eq!(key_at(&by_domain, "p2"), "N1:0");
+    // Two forms that name the *object* must walk it identically.
+    assert_eq!(
+        serde_json::to_string(&by_domain["items"]).unwrap(),
+        serde_json::to_string(&by_canon["items"]).unwrap(),
+        "two forms of one object walked it differently"
+    );
+
+    // The third form names the *statement*, and a statement may write more than
+    // one row — that is the whole reason a wiring site is a set. So the claim is
+    // not that the two lists are equal, but that the object the other two forms
+    // name is on the statement's walk, at the same stage and under the same key:
+    // the walk is keyed on identity, never on the spelling it was entered by.
+    let named = key_at(&by_domain, "p2");
+    assert_eq!(named, "N1:0");
+    let spelled = key_at(&by_loc, "p2");
+    let reached: Vec<&str> = spelled.split(' ').collect();
+    assert!(
+        reached.contains(&named.as_str()),
+        "the statement at hbl.mc:19 does not name `{named}`, which it writes: {reached:?}"
+    );
     assert_eq!(row_at(&by_domain, "src")["loc"]["line"], 19);
+    assert_eq!(row_at(&by_loc, "src")["loc"]["line"], 19);
 }
 
 // ── A position resolves to the statement it names, not to its neighbour ──
@@ -674,14 +688,21 @@ fn the_class_a_walk_prints_is_the_class_the_hop_prints() {
 
     // A `carry`, an `expand` and a `drop`: one position per class, so a walk
     // that hard-coded a class, or read a different build, fails here.
-    let wanted: [(&str, &str); 3] = [
-        ("FLASH.GD25Q32E FLASH(V3V3)", "carry"),
-        ("V5V -> LDO", "expand"),
-        ("MIC(V3V3).MIC ->", "drop"),
+    //
+    // The `drop` member is a statement that wires nothing at all. A statement
+    // that *does* wire something is no longer a `drop` even when another
+    // statement wires the same rows, so `MIC(V3V3).MIC ->` -- which writes the
+    // microphone rows -- is an `expand` now and cannot serve here. The position
+    // is the second spelling of `MCU513.i2c()`: the first one is chained into
+    // `loadFlash` and reaches a row.
+    let wanted: [(&str, usize, &str); 3] = [
+        ("FLASH.GD25Q32E FLASH(V3V3)", 1, "carry"),
+        ("V5V -> LDO", 1, "expand"),
+        ("MCU513.i2c()", 2, "drop"),
     ];
     let mut seen: BTreeMap<String, usize> = BTreeMap::new();
-    for (needle, class) in wanted {
-        let line = line_of(&src, needle, 1);
+    for (needle, nth, class) in wanted {
+        let line = line_of(&src, needle, nth);
         let key = format!("{}:{line}", entry.display());
         let hop = by_loc
             .get(&key)

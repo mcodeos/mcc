@@ -649,7 +649,7 @@ impl<'a> McVecBuilder<'a> {
                 if p.path.starts_with("(lead)_") {
                     if let Some(pr) = per_point.get(i) {
                         if pr.ids.is_empty() {
-                            let pos = p.src_pos.as_ref().map(|s| s.offset).unwrap_or(0);
+                            let pos = p.src_pos.first().map(|s| s.offset).unwrap_or(0);
                             diagnostic_log(
                                 crate::errcodes::FLOATING_PLACEHOLDER,
                                 DiagnosticLevel::Error,
@@ -705,7 +705,7 @@ impl<'a> McVecBuilder<'a> {
                                 .points
                                 .iter()
                                 .find(|p| unique_paths.iter().any(|up| **up == p.path))
-                                .and_then(|p| p.src_pos.as_ref().map(|s| s.offset))
+                                .and_then(|p| p.src_pos.first().map(|s| s.offset))
                                 .unwrap_or(0);
                             diagnostic_log(
                                 crate::errcodes::NET_MERGED_SHORT,

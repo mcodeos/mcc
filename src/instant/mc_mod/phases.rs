@@ -1218,7 +1218,7 @@ impl InstantiationBuilder {
                             // points near the actual source instead of (1,1).
                             let (uri, pos) = pt
                                 .src_pos
-                                .as_ref()
+                                .first()
                                 .map(|s| (s.uri.clone(), s.offset))
                                 .or_else(|| {
                                     conn.source_span.as_ref().map(|s| (s.uri.clone(), s.offset))
@@ -1269,7 +1269,7 @@ impl InstantiationBuilder {
                             // points near the actual source instead of (1,1).
                             let (uri, pos) = pt
                                 .src_pos
-                                .as_ref()
+                                .first()
                                 .map(|s| (s.uri.clone(), s.offset))
                                 .or_else(|| {
                                     conn.source_span.as_ref().map(|s| (s.uri.clone(), s.offset))

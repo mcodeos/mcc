@@ -140,7 +140,7 @@ impl ReverseIndex {
                 node: e.node_id.map(|n| n.0),
                 point: e.point.map(|p| p.to_string()),
                 class: class.clone(),
-                pos: e.src_pos.clone().or_else(|| e.fallback_pos.clone()),
+                pos: e.anchor_pos().cloned(),
             };
 
             let (uri, ident) = hit.class_pair();

@@ -172,7 +172,7 @@ fn row(table: &InstTable, e: &InstEntry, sources: &mut SourceText) -> Value {
         "path": e.path,
         "class": class_of(table, e),
         "point": e.point.map(|p| p.to_string()),
-        "loc": loc_of(e.src_pos.as_ref().or(e.fallback_pos.as_ref()), sources),
+        "loc": loc_of(e.anchor_pos(), sources),
     })
 }
 
