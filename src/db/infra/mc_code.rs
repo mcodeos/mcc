@@ -332,9 +332,11 @@ impl McCode {
         // visit output is controlled uniformly by Rust side explicitly calling
         // mcc_visit_tree_color()
         let parse_flag = trace_flag & !0x08u8;
-        unsafe {
-            crate::ast::bindings::mcc_reset(parse_flag);
-        }
+        // The C frontend keeps its working state in process-wide variables
+        // (see `bindings::Frontend`), so one session runs under one lock,
+        // from this reset to the last token read below.
+        let fe = crate::ast::bindings::Frontend::acquire();
+        fe.reset(parse_flag);
 
         // Use C mcc_load instead of Rust read_to_string
         // Must use CString to ensure null-terminated string for C
@@ -361,7 +363,7 @@ impl McCode {
         unsafe {
             // Call mcc_reset to ensure complete state cleanup (exclude visit bit, avoid duplicate
             // output)
-            crate::ast::bindings::mcc_reset(parse_flag);
+            fe.reset(parse_flag);
 
             // Clear tokens and symbols, ensure no residual data
             if let Ok(mut t) = self.tokens.lock() {
@@ -374,10 +376,10 @@ impl McCode {
             // P2-7-XTAL: set file name for lexer debug
             let fname_cstr =
                 std::ffi::CString::new(fname.to_string_lossy().as_bytes()).unwrap_or_default();
-            crate::ast::bindings::mcc_set_lex_file(fname_cstr.as_ptr());
-            crate::ast::bindings::mcc_lex(fcontent_ptr);
+            fe.set_lex_file(fname_cstr.as_ptr());
+            fe.lex(fcontent_ptr);
 
-            let ast = AstNode::new(crate::ast::bindings::mcc_parse());
+            let ast = AstNode::new(fe.parse());
             if ast.is_null() {
                 tracing::warn!(target: "mcc::code", file = ?fname, "AST parse returned null");
             } else {
@@ -389,7 +391,7 @@ impl McCode {
                     && !crate::cli::config::is_trace_stdout_suppressed()
                     && !AST_VISIT_DONE.swap(true, Ordering::SeqCst)
                 {
-                    crate::ast::bindings::mcc_visit_tree_color(ast.get_ptr() as *mut McValueFFI);
+                    fe.visit_tree_color(ast.get_ptr() as *mut McValueFFI);
                 }
                 self.ast = ast;
             }
@@ -407,7 +409,7 @@ impl McCode {
 
             // Collect error tokens from parser and create diagnostics
             {
-                let mut err_ptr = crate::ast::bindings::mcc_get_error_tokens();
+                let mut err_ptr = fe.get_error_tokens();
                 while !err_ptr.is_null() {
                     let err = &*err_ptr;
                     let pos = err.pos as u32;
@@ -436,7 +438,7 @@ impl McCode {
             {
                 // Gather all entries, resolve messages, dedup by position
                 let mut raw: Vec<(u32, i32, u32, u32, String)> = Vec::new();
-                let mut dlog_ptr = crate::ast::bindings::mcc_get_dlog_entries();
+                let mut dlog_ptr = fe.get_dlog_entries();
                 while !dlog_ptr.is_null() {
                     let entry = &*dlog_ptr;
                     let msg = if entry.msg.is_null() {
@@ -504,7 +506,7 @@ impl McCode {
                 Ok(mut t) => {
                     // Clear tokens first, then parse new tokens
                     *t = McSemTokens::new();
-                    t.parse(crate::ast::bindings::mcc_get_sem_tokens())
+                    t.parse(fe.get_sem_tokens())
                 }
                 Err(e) => {
                     tracing::error!(target: "mcc::code", error = %e, "tokens mutex poisoned");
@@ -539,9 +541,11 @@ impl McCode {
         let binding = self.uri.clone();
         let fname = Path::new(&binding);
 
-        unsafe {
-            crate::ast::bindings::mcc_reset(0);
-        }
+        // The C frontend keeps its working state in process-wide variables
+        // (see `bindings::Frontend`), so one session runs under one lock,
+        // from this reset to the last token read below.
+        let fe = crate::ast::bindings::Frontend::acquire();
+        fe.reset(0);
 
         let c_path = std::ffi::CString::new(binding.clone()).expect("Failed to create CString");
         let fcontent_ptr = unsafe { crate::ast::bindings::mcc_load(c_path.as_ptr() as *mut i8) };
@@ -563,7 +567,7 @@ impl McCode {
         }
 
         unsafe {
-            crate::ast::bindings::mcc_reset(0);
+            fe.reset(0);
 
             if let Ok(mut t) = self.tokens.lock() {
                 *t = McSemTokens::new();
@@ -575,9 +579,9 @@ impl McCode {
             // P2-7-XTAL: set file name for lexer debug
             let fname_cstr2 =
                 std::ffi::CString::new(fname.to_string_lossy().as_bytes()).unwrap_or_default();
-            crate::ast::bindings::mcc_set_lex_file(fname_cstr2.as_ptr());
-            crate::ast::bindings::mcc_lex(fcontent_ptr);
-            let ast = AstNode::new(crate::ast::bindings::mcc_parse());
+            fe.set_lex_file(fname_cstr2.as_ptr());
+            fe.lex(fcontent_ptr);
+            let ast = AstNode::new(fe.parse());
             if !ast.is_null() {
                 self.ast = ast;
             }
@@ -591,7 +595,7 @@ impl McCode {
 
             // Collect error tokens from parser and create diagnostics
             if emit_diags {
-                let mut err_ptr = crate::ast::bindings::mcc_get_error_tokens();
+                let mut err_ptr = fe.get_error_tokens();
                 while !err_ptr.is_null() {
                     let err = &*err_ptr;
                     let pos = err.pos as u32;
@@ -619,7 +623,7 @@ impl McCode {
             // Collect structured diagnostics from parser (mc_dlog_add)
             if emit_diags {
                 let mut raw: Vec<(u32, i32, u32, u32, String)> = Vec::new();
-                let mut dlog_ptr = crate::ast::bindings::mcc_get_dlog_entries();
+                let mut dlog_ptr = fe.get_dlog_entries();
                 while !dlog_ptr.is_null() {
                     let entry = &*dlog_ptr;
                     let msg = if entry.msg.is_null() {
@@ -811,19 +815,24 @@ impl McCode {
     }
 
     /// Parse AST from an in-memory string (no disk file dependency)
-    /// Note: the caller must set log flags via `mcc_reset()` before calling
     /// Parse AST from in-memory string.
     /// Mirrors `parse_ast()` exactly, but reads content from memory instead of disk.
+    ///
+    /// Takes the frontend lock itself (`bindings::Frontend`), so the caller
+    /// sets neither log flags nor parser state.
     pub fn parse_ast_from_string(&mut self, content: &str) {
         current_uri::set(&self.uri);
         crate::db::diagnostic::diagnostic::dlog_clear_file(&self.uri);
 
-        // ★ mcc_reset BEFORE loading — mirrors parse_ast()'s first reset.
-        //   Clears any residual C parser state (g_token_head, etc.) from
-        //   a previous parse that ran on the same OS thread.
-        unsafe {
-            crate::ast::bindings::mcc_reset(0);
-        }
+        // ★ A reset BEFORE loading — mirrors parse_ast()'s first reset.
+        //   Clears any residual C parser state (g_token_head, etc.) left by a
+        //   previous parse. That state is process-wide, not per-thread (see
+        //   `bindings::Frontend`), which is why the lock is taken first.
+        // The C frontend keeps its working state in process-wide variables
+        // (see `bindings::Frontend`), so one session runs under one lock,
+        // from this reset to the last token read below.
+        let fe = crate::ast::bindings::Frontend::acquire();
+        fe.reset(0);
 
         // Create line index from the content (mirrors parse_ast)
         self.line_index = Some(LineIndex::new(content));
@@ -845,7 +854,7 @@ impl McCode {
 
         unsafe {
             // ★ mcc_reset AFTER loading — mirrors parse_ast()'s second reset
-            crate::ast::bindings::mcc_reset(0);
+            fe.reset(0);
 
             // Clear tokens and symbols, ensure no residual data
             if let Ok(mut t) = self.tokens.lock() {
@@ -857,10 +866,10 @@ impl McCode {
 
             // P2-7-XTAL: set file name for lexer debug
             let uri_cstr = std::ffi::CString::new(self.uri.as_bytes()).unwrap_or_default();
-            crate::ast::bindings::mcc_set_lex_file(uri_cstr.as_ptr());
-            crate::ast::bindings::mcc_lex(fcontent_ptr);
+            fe.set_lex_file(uri_cstr.as_ptr());
+            fe.lex(fcontent_ptr);
 
-            let ast = AstNode::new(crate::ast::bindings::mcc_parse());
+            let ast = AstNode::new(fe.parse());
             if ast.is_null() {
                 tracing::warn!(target: "mcc::code", uri = %self.uri, "AST parse returned null");
             } else {
@@ -869,7 +878,7 @@ impl McCode {
                     && !crate::cli::config::is_trace_stdout_suppressed()
                     && !AST_VISIT_DONE.swap(true, Ordering::SeqCst)
                 {
-                    crate::ast::bindings::mcc_visit_tree_color(ast.get_ptr() as *mut McValueFFI);
+                    fe.visit_tree_color(ast.get_ptr() as *mut McValueFFI);
                 }
                 self.ast = ast;
             }
@@ -885,7 +894,7 @@ impl McCode {
 
             // Collect error tokens from parser and create diagnostics
             {
-                let mut err_ptr = crate::ast::bindings::mcc_get_error_tokens();
+                let mut err_ptr = fe.get_error_tokens();
                 while !err_ptr.is_null() {
                     let err = &*err_ptr;
                     let pos = err.pos as u32;
@@ -913,7 +922,7 @@ impl McCode {
             // Collect structured diagnostics from parser (mc_dlog_add)
             {
                 let mut raw: Vec<(u32, i32, u32, u32, String)> = Vec::new();
-                let mut dlog_ptr = crate::ast::bindings::mcc_get_dlog_entries();
+                let mut dlog_ptr = fe.get_dlog_entries();
                 while !dlog_ptr.is_null() {
                     let entry = &*dlog_ptr;
                     let msg = if entry.msg.is_null() {
@@ -977,7 +986,7 @@ impl McCode {
             match self.tokens.lock() {
                 Ok(mut t) => {
                     *t = McSemTokens::new();
-                    t.parse(crate::ast::bindings::mcc_get_sem_tokens());
+                    t.parse(fe.get_sem_tokens());
                     Self::extract_inline_comments(&mut t.tokens, content);
                 }
                 Err(e) => {
