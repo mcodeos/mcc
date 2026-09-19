@@ -2020,7 +2020,7 @@ mod tests {
         crate::errcodes::HW_PIN_NUMBER_GAP,
         crate::errcodes::HW_PIN_COUNT_HIGH,
         crate::errcodes::HW_ZERO_PINS_WITH_PARAMS,
-        crate::errcodes::HW_IFACE_ROLE_UNBOUND,
+        crate::errcodes::HW_IFACE_PEER_DANGLING,
         crate::errcodes::HW_ALL_SAME_IO_TYPE,
         crate::errcodes::HW_FUNC_PARAM_SHADOWS_PIN,
         // types
@@ -3472,13 +3472,13 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         lock = "tests/lock_pp_hw.rs",
     },
     declare_post_parse_rule! {
-        code = crate::errcodes::HW_IFACE_ROLE_UNBOUND,
-        name = "hw-iface-role-unbound",
-        title = "interface role is never bound",
+        code = crate::errcodes::HW_IFACE_PEER_DANGLING,
+        name = "hw-iface-peer-dangling",
+        title = "interface role references an undefined peer",
         severity = Warning,
         domain = PinDecl,
         host = "hw",
-        doc = "Interface role is never bound.",
+        doc = "Interface role names a peer that is not defined in this interface.",
         lock = "tests/semantic_false_diagnostics.rs",
     },
     declare_post_parse_rule! {

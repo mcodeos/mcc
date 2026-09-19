@@ -377,7 +377,7 @@ fn check_role_peer_dangling(acc: &mut CheckAccumulator) {
                                             .join(", ")
                                     }
                                 ),
-                                code: crate::errcodes::HW_IFACE_ROLE_UNBOUND,
+                                code: crate::errcodes::HW_IFACE_PEER_DANGLING,
                             });
                         }
                     }

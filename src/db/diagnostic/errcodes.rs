@@ -1382,8 +1382,8 @@ pub const HW_PIN_COUNT_HIGH: u32 = 5503;
 /// Component has zero pins but parameter attributes.
 pub const HW_ZERO_PINS_WITH_PARAMS: u32 = 5504;
 
-/// Interface role is never bound.
-pub const HW_IFACE_ROLE_UNBOUND: u32 = 5506;
+/// Interface role names a peer that is not defined in this interface.
+pub const HW_IFACE_PEER_DANGLING: u32 = 5506;
 
 /// All pins have the same IO type.
 pub const HW_ALL_SAME_IO_TYPE: u32 = 5507;
@@ -2359,7 +2359,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(HW_PIN_NUMBER_GAP, "Pin numbers have gaps.", "Pin numbers have gaps."),
     entry!(HW_PIN_COUNT_HIGH, "Pin count is unusually high.", "Pin count is unusually high."),
     entry!(HW_ZERO_PINS_WITH_PARAMS, "Component has zero pins but parameter attributes.", "Component has zero pins but parameter attributes."),
-    entry!(HW_IFACE_ROLE_UNBOUND, "Interface role is never bound.", "Interface role is never bound."),
+    entry!(HW_IFACE_PEER_DANGLING, "Interface role references an undefined peer.", "Interface role names a peer that is not defined in this interface (interface-connect-rule-design.md §3.3 C)."),
     entry!(HW_ALL_SAME_IO_TYPE, "All pins have the same IO type.", "All pins have the same IO type."),
     entry!(HW_IFACE_PEER_NOT_MUTUAL, "Interface role peer is not mutual.", "Interface role names a peer that does not name it back; peer pairs must be mutual (interface-connect-rule-design.md §3.3 A)."),
     entry!(HW_IFACE_PEER_WIDTH_MISMATCH, "Interface role peer width mismatch.", "Interface role and its declared peer declare different member widths (interface-connect-rule-design.md §3.3 B)."),
