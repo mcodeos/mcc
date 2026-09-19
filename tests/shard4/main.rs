@@ -25,6 +25,7 @@ mod retirement_net_classification;
 mod u108_formal_without_declared_port;
 mod u119_port_written_order;
 mod u120_org_directory;
+mod u121_reverse_index;
 mod u31_positional_fallback;
 mod use_statement_diagnostics;
 mod use_symbol_conflict;

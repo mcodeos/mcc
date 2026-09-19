@@ -57,6 +57,28 @@ pub(crate) struct DefsQueryParams {
     pub(crate) limit: usize,
 }
 
+/// `defs.reverse` (design `organization-units-design.md` §9.6): the
+/// circuit-side rows a definition-space name lands on.
+///
+/// Two ways to name the key, matching the index's two key families: `name` is
+/// the typed name — matched as a case-insensitive substring over the keys, as
+/// an editor's filter types it — while `uri` + `ident` together are the
+/// canonical pair (the only way to tell two same-named defs apart), matched
+/// exactly. Neither given = every key.
+#[derive(Deserialize, Default)]
+pub(crate) struct DefsReverseParams {
+    #[serde(default)]
+    pub(crate) name: Option<String>,
+    #[serde(default)]
+    pub(crate) uri: Option<String>,
+    #[serde(default)]
+    pub(crate) ident: Option<String>,
+    /// Top module to build; defaults to the first module, as `defs.search`
+    /// falls back for its instance drill.
+    #[serde(default)]
+    pub(crate) top: Option<String>,
+}
+
 #[derive(Deserialize, Default)]
 pub(crate) struct ExportRpcParams {
     /// "netlist" | "bom" | "spice"

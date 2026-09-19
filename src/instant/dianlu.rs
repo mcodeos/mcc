@@ -32,6 +32,7 @@ use crate::db::diagnostic::diagnostic::Diagnostic;
 use crate::instant::identity::{anchored_child_key, CircuitKey, IdentityRegistry};
 use crate::instant::inststore::{InstanceStore, TreeView};
 use crate::instant::nettab::NetTableStore;
+use crate::instant::reverse::ReverseIndex;
 use crate::McSpaceName;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -47,6 +48,11 @@ pub struct DianLu {
     start_id: u32,
     /// Lazily built flat projection view; `None` until the first `flatten()`.
     table: Option<InstTable>,
+    /// Design §9.6 reverse index: definition-space name → the flat rows it
+    /// lands on, derived from the projection beside it in `flatten()` (same
+    /// lazy carrier as `table`, same per-build discipline as `overlays`:
+    /// derived, no counter, never persisted, never an identity).
+    reverse: Option<ReverseIndex>,
     /// Flat electrical net-check diagnostics (§11.4), produced once by
     /// `flatten()` and returned to the caller for logging (Phase A: DianLu
     /// never writes to the workspace diagnostic manager itself).
@@ -203,6 +209,7 @@ impl DianLu {
             tree,
             start_id,
             table: None,
+            reverse: None,
             net_diags: Vec::new(),
             net_results: Vec::new(),
             identity,
@@ -316,6 +323,15 @@ impl DianLu {
         self.table.as_ref()
     }
 
+    /// The reverse index (design §9.6), if `flatten` has been called.
+    ///
+    /// Derived from the projection in the same step that builds it, so the two
+    /// can never disagree about which rows exist; the index is a second
+    /// *reading* of one table, not a second table.
+    pub fn reverse(&self) -> Option<&ReverseIndex> {
+        self.reverse.as_ref()
+    }
+
     /// The flat electrical net-check diagnostics (§11.4), cached by the first
     /// `flatten` and returned to the caller who owns logging. Empty until the
     /// projection has run. Read here instead of re-calling `flatten` when the
@@ -365,6 +381,9 @@ impl DianLu {
             self.net_diags =
                 crate::semantic::validation::nets::net_results_to_diagnostics(&results);
             self.net_results = results;
+            // Design §9.6: the reverse index is derived from the projection, in
+            // the same step, so "which rows exist" has one answer per build.
+            self.reverse = Some(ReverseIndex::derive(&table));
             self.table = Some(table);
         }
         self.net_diags.clone()

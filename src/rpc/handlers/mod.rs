@@ -2858,6 +2858,10 @@ pub static METHODS: &[MethodMeta] = &[
         consumer: "admin",
     },
     MethodMeta {
+        name: "defs.reverse",
+        consumer: "lsp",
+    },
+    MethodMeta {
         name: "export",
         consumer: "cli",
     },
@@ -3108,6 +3112,7 @@ pub fn register_all(
     builder = builder.register_method("defs.diff", handle_defs_diff);
     builder = builder.register_method("defs.dependents", handle_defs_dependents);
     builder = builder.register_method("defs.relations", handle_defs_relations);
+    builder = builder.register_method("defs.reverse", handle_defs_reverse);
     builder = builder.register_method("export", handle_export);
     builder = builder.register_method("impact", handle_impact);
     builder = builder.register_method("import", handle_import);

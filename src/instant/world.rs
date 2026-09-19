@@ -33,6 +33,7 @@ use crate::instant::dianlu::DianLu;
 use crate::instant::identity::{CircuitKey, IdentityRegistry, NodeId};
 use crate::instant::insttab::InstTable;
 use crate::instant::lane::{Net, NetId, PointId};
+use crate::instant::reverse::ReverseIndex;
 use crate::McIds;
 use crate::McSpaceName;
 use std::collections::{HashMap, HashSet};
@@ -255,6 +256,14 @@ impl CircuitWorld {
     /// The cached flat projection of `key`, once [`Self::flatten`] ran.
     pub fn flat(&self, key: &CircuitKey) -> Option<&InstTable> {
         self.circuits.get(key).and_then(|dl| dl.table())
+    }
+
+    /// The reverse index of `key` (design §9.6), once [`Self::flatten`] ran —
+    /// the circuit-side answer to "where does this definition-space name
+    /// land". Read off the world so an editor's hot query reaches the index of
+    /// the same build it is showing.
+    pub fn reverse(&self, key: &CircuitKey) -> Option<&ReverseIndex> {
+        self.circuits.get(key).and_then(|dl| dl.reverse())
     }
 
     /// The flat electrical net-check diagnostics of `key`, once flattened.
