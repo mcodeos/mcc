@@ -19,6 +19,7 @@ mod erc_single_ruler;
 mod expr_dot_curly;
 mod flatten_net_check_diagnostics;
 mod floating_label;
+mod iface_connect_rule;
 mod iface_pin_number_binding;
 mod lock_pp_conds;
 mod lock_pp_defs;

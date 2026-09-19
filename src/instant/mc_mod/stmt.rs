@@ -834,7 +834,7 @@ impl InstantiationBuilder {
 
     pub(super) fn member_contains_lead(member: &McPhrase) -> bool {
         match member {
-            McPhrase::Multiple(inner) => inner.iter().any(|p| matches!(p, McPhrase::Lead)),
+            McPhrase::Multiple(inner) => inner.iter().any(|p| matches!(p, McPhrase::Lead(_))),
             McPhrase::Parallel(stmts) => stmts.iter().any(|l| Self::member_contains_lead(l)),
             _ => false,
         }
@@ -1076,7 +1076,7 @@ impl InstantiationBuilder {
             McPhrase::Multiple(inner) => {
                 if lane < inner.len() {
                     let p = &inner[lane];
-                    if matches!(p, McPhrase::Lead) {
+                    if matches!(p, McPhrase::Lead(_)) {
                         items.push((member_idx, LaneItem::Lead));
                     } else {
                         items.push((member_idx, LaneItem::Series(p)));
@@ -1089,7 +1089,7 @@ impl InstantiationBuilder {
                         McPhrase::Multiple(inner) => {
                             if lane < inner.len() {
                                 let p = &inner[lane];
-                                if matches!(p, McPhrase::Lead) {
+                                if matches!(p, McPhrase::Lead(_)) {
                                     items.push((member_idx, LaneItem::Lead));
                                 } else {
                                     items.push((member_idx, LaneItem::Series(p)));
@@ -1580,7 +1580,7 @@ impl InstantiationBuilder {
                     Vec::new(),
                 )
             }
-            McPhrase::Lead => (vec![McPhrase::Lead], Vec::new()),
+            McPhrase::Lead(src_off) => (vec![McPhrase::Lead(*src_off)], Vec::new()),
             McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
                 base: McInstance::Bus(ref data),
                 ..
@@ -2203,6 +2203,191 @@ impl InstantiationBuilder {
         }
     }
 
+    /// U128 step 2b — interface connect rule, §1.2 steps 1–2: family equality
+    /// and role mutual-peer between two interface endpoints.
+    ///
+    /// Purely a check: the pairing itself stays positional (§11.3, step 2a) and
+    /// member names are never consulted. A side that is not an interface
+    /// endpoint skips silently — the non-interface path is the positional law,
+    /// not an error; a side whose role is not resolved skips step 2 the same
+    /// way (§1.2: the role check applies only when both sides carry roles).
+    /// Reporting never blocks instantiation (build-so-it's-findable): the
+    /// connection is still made, the diagnostic says the wires are suspect.
+    fn check_iface_connect(&self, left: &McPhrase, right: &McPhrase) {
+        let (lbase, lrole) = match self.extract_iface_endpoint(left) {
+            Some(x) => x,
+            None => return,
+        };
+        let (rbase, rrole) = match self.extract_iface_endpoint(right) {
+            Some(x) => x,
+            None => return,
+        };
+        let lfam = lbase.name.to_string();
+        let rfam = rbase.name.to_string();
+        let fallback = self
+            .current_stmt_span
+            .as_ref()
+            .map(|s| s.offset as i32)
+            .unwrap_or(self.def.span.start as i32);
+        if lfam != rfam {
+            // Step 1: family equality — `UART.TTL` and `UART.RS232` are
+            // different families even though both are dotted `UART`.
+            let msg = crate::errcodes::format_msg(
+                crate::errcodes::IFACE_CROSS_FAMILY_CONNECT,
+                &[&lfam as &dyn std::fmt::Display, &rfam],
+            );
+            crate::db::diagnostic::diagnostic::diagnostic_log(
+                crate::errcodes::IFACE_CROSS_FAMILY_CONNECT,
+                crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
+                fallback as u32,
+                lfam.len() as u32,
+                &msg,
+                &[],
+            );
+            return;
+        }
+        // Step 2: role mutual-peer — each role must name the other in its
+        // `peer` attribute. Self-peer roles (a role whose peer is itself)
+        // pass trivially; the peer names are read from the interface
+        // definition's own role table, never from member names.
+        if let (Some(lr), Some(rr)) = (lrole, rrole) {
+            let peers = |base: &crate::semantic::mc_ifs::McInterface, role: &str| -> Vec<String> {
+                base.roles
+                    .iter()
+                    .find(|r| r.name.to_string() == role)
+                    .map(|r| {
+                        r.attrs
+                            .iter()
+                            .filter(|a| a.id.to_string().to_lowercase() == "peer")
+                            .flat_map(|a| Self::iface_peer_names(&a.values))
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            };
+            let mutual = peers(&lbase, &lr).contains(&rr) && peers(&rbase, &rr).contains(&lr);
+            if !mutual {
+                let msg = crate::errcodes::format_msg(
+                    crate::errcodes::IFACE_ROLE_INCOMPATIBLE,
+                    &[&lr as &dyn std::fmt::Display, &rr, &lfam],
+                );
+                crate::db::diagnostic::diagnostic::diagnostic_log(
+                    crate::errcodes::IFACE_ROLE_INCOMPATIBLE,
+                    crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
+                    fallback as u32,
+                    lfam.len() as u32,
+                    &msg,
+                    &[],
+                );
+            }
+        }
+    }
+
+    /// Interface endpoint of one operand phrase (U128 §1.2 inputs): the bound
+    /// interface *definition* plus the instance's selected role. The role is
+    /// the single `Ids` argument of the interface instance (`::SPI(Master)` →
+    /// `Master`), verified against the definition's role table — an unknown
+    /// role name counts as roleless here (flagged at declaration side by
+    /// E4104). Mirrors `extract_trunk_iface`'s traversal so both readers stay
+    /// in step.
+    fn extract_iface_endpoint(
+        &self,
+        phrase: &McPhrase,
+    ) -> Option<(
+        std::sync::Arc<crate::semantic::mc_ifs::McInterface>,
+        Option<String>,
+    )> {
+        if let McPhrase::Multiple(items) = phrase {
+            return items.iter().find_map(|it| match it {
+                McPhrase::Endpoint(McEndpoint::Single(ir)) => self.iface_endpoint_of(ir),
+                _ => None,
+            });
+        }
+        let ir = match phrase {
+            McPhrase::Endpoint(McEndpoint::Single(ir)) => ir,
+            McPhrase::Member(_base, McEndpoint::Single(ir)) => ir,
+            _ => return None,
+        };
+        self.iface_endpoint_of(ir)
+    }
+
+    /// Interface endpoint of one endpoint ref: a direct `McInstance::Interface`
+    /// yields its own definition; a bus operand (`u1.SPI`, also the carrier of
+    /// a flattened member lane) resolves the port segment against the owner
+    /// component's pin table. The role comes from the interface *instance*'s
+    /// params — the same source `mc_pins` reads for role member tables.
+    fn iface_endpoint_of(
+        &self,
+        ir: &McInstanceRef,
+    ) -> Option<(
+        std::sync::Arc<crate::semantic::mc_ifs::McInterface>,
+        Option<String>,
+    )> {
+        match &ir.base {
+            McInstance::Interface(i) => Some((i.base.clone(), Self::role_of(&i.base, &i.params))),
+            McInstance::Bus(b) => {
+                let member = b.member.first().or_else(|| b.full_members.first())?;
+                let port_name = member.split('.').next()?;
+                if port_name.is_empty() {
+                    return None;
+                }
+                let comp = self.find_component(b.name())?;
+                match comp.def.pins.names_to_id.get(port_name) {
+                    Some(McPinPort::Interface(iface)) => Some((
+                        iface.base.clone(),
+                        Self::role_of(&iface.base, &iface.params),
+                    )),
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
+
+    /// The role selected by an interface instance's params: the single `Ids`
+    /// argument (`::SPI(Master)` → `Master`), verified against the
+    /// definition's role table — an unknown role name counts as roleless here
+    /// (flagged at declaration side by E4104).
+    fn role_of(
+        base: &crate::semantic::mc_ifs::McInterface,
+        params: &[McParamValue],
+    ) -> Option<String> {
+        match params.first() {
+            Some(McParamValue::Ids(ids)) => {
+                let name = ids.to_string();
+                base.roles
+                    .iter()
+                    .map(|r| r.name.to_string())
+                    .find(|rn| *rn == name)
+            }
+            _ => None,
+        }
+    }
+
+    /// Role names named by one `peer` attribute's values (U128 §1.2 step 2).
+    /// Mirrors the reader in `validation/hw.rs` so both stay in step.
+    fn iface_peer_names(values: &[crate::McAttrVal]) -> Vec<String> {
+        let mut out = Vec::new();
+        for val in values {
+            if let crate::McAttrVal::AttrExpr(crate::semantic::basic::mc_expr::McExpression::Set(
+                items,
+            )) = val
+            {
+                out.extend(
+                    items
+                        .iter()
+                        .map(|e| e.to_string().trim().to_string())
+                        .filter(|s| !s.is_empty()),
+                );
+            } else {
+                let s = format!("{}", val).trim().to_string();
+                if !s.is_empty() {
+                    out.push(s);
+                }
+            }
+        }
+        out
+    }
+
     /// Wire one adjacent pair of chain members (unified-core §7.3 L4).
     ///
     /// The `->` leg itself is no longer implemented here: the operand faces and
@@ -2254,6 +2439,9 @@ impl InstantiationBuilder {
         let trunk_iface = self
             .extract_trunk_iface(left_member)
             .or_else(|| self.extract_trunk_iface(right_member));
+        // U128 step 2b: interface connect rule (family equality E4120, role
+        // mutual-peer E4121). Check only — the pairing below stays positional.
+        self.check_iface_connect(left_member, right_member);
         self.with_trunk(trunk, trunk_kind, trunk_iface, |this| {
             // ── Array-form operands fall through to the general row gate below ──
             // Whole declared arrays in plain Series statements (`cap[4:5] -> PWR{VCC,GND}`,
@@ -2473,7 +2661,7 @@ impl InstantiationBuilder {
                     McPhrase::FuncCall(_)
                     | McPhrase::Endpoint(_)
                     | McPhrase::Transposed(_)
-                    | McPhrase::Lead
+                    | McPhrase::Lead(_)
                     | McPhrase::Member(_, _) => {
                         self.process_member_internal(inner)?;
                         // ★ M11.3: record bridge passive instance names from Transposed
@@ -2500,7 +2688,7 @@ impl InstantiationBuilder {
                 | McPhrase::Endpoint(_)
                 | McPhrase::Transposed(_)
                 | McPhrase::Reversed(_)
-                | McPhrase::Lead
+                | McPhrase::Lead(_)
                 | McPhrase::Member(_, _) => {
                     self.process_member_internal(inner)?;
                 }
@@ -2651,7 +2839,7 @@ impl InstantiationBuilder {
                         McPhrase::FuncCall(_)
                         | McPhrase::Endpoint(_)
                         | McPhrase::Transposed(_)
-                        | McPhrase::Lead
+                        | McPhrase::Lead(_)
                         | McPhrase::Member(_, _) => {
                             self.process_member_internal(caller_stmt.as_ref())?;
                         }
@@ -3194,7 +3382,7 @@ impl InstantiationBuilder {
                 }
             }
             // Basic types need no special handling
-            McPhrase::Lead
+            McPhrase::Lead(_)
             | McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
                 base: McInstance::Bus(_),
                 ..
@@ -3299,7 +3487,7 @@ impl InstantiationBuilder {
             McPhrase::Member(ref mut inner, _) => {
                 Self::assign_phrase_ids(inner, next_id);
             }
-            McPhrase::Lead | McPhrase::Endpoint(_) => {}
+            McPhrase::Lead(_) | McPhrase::Endpoint(_) => {}
         }
     }
 
