@@ -51,6 +51,62 @@ fn finish_build(mut builder: ResultBuilder) -> Envelope {
     Envelope::ok(builder.finish())
 }
 
+/// Write every `--product` into `<project-root>/build/` (build-design §3.4).
+///
+/// The bodies come from the single funnel the `mcc export` face also uses, so
+/// the **content** of a product does not depend on which entry produced it
+/// (§3.6 contract 1). What does depend on the entry is the *wrapper*: `mcc
+/// export -f json` answers with its A-tier envelope, whereas a build product
+/// file is the payload itself — a file product in `build/` is not a readout,
+/// and §3.4's names (`netlist.txt`, `design.spice`) are content artifacts. That
+/// asymmetry is recorded, not papered over; it is an open item in the design.
+///
+/// The **envelope** is not in this list: it is the report face and keeps its own
+/// outlet (`-o`, else stdout), which is why the default set here is empty.
+///
+/// The order of the written files follows `--product`, and the row order inside
+/// each body follows the product's own input-determined order (§3.7 discipline
+/// 4) — nothing here adds a container for it to be read back through.
+fn write_build_products(
+    kinds: &[mcc::cli::ExportKind],
+    project_root: &Path,
+    tree: &mcc::McModuleInst,
+    table: &mcc::InstTable,
+    arena: &mcc::NodeArena,
+    store: &mcc::InstanceStore,
+    top: &str,
+) -> Result<()> {
+    if kinds.is_empty() {
+        return Ok(());
+    }
+    let dir = project_root.join("build");
+    std::fs::create_dir_all(&dir).with_context(|| format!("create {}", dir.display()))?;
+    let format = mcc::cli::globals().format;
+    for kind in kinds {
+        let (raw_text, items, _count) =
+            mcc::export::build_payload(tree, table, arena, store, top, kind.id(), format.id());
+        // Mirror `mcc export`'s own split: a structured format carries the
+        // payload value, every other format carries the rendered text (CSV and
+        // the text face both arrive in `raw_text`; `build_payload` already chose
+        // which of the two by the format tag).
+        let body = match format {
+            OutputFormat::Json => serde_json::to_string(&items)?,
+            OutputFormat::JsonPretty => serde_json::to_string_pretty(&items)?,
+            _ => raw_text,
+        };
+        let path = dir.join(kind.default_file_name(format));
+        std::fs::write(&path, body.as_bytes())
+            .with_context(|| format!("write {}", path.display()))?;
+        eprintln!(
+            "{}: {} bytes written to {}",
+            kind.name(),
+            body.len(),
+            path.display()
+        );
+    }
+    Ok(())
+}
+
 /// Resolve the entry file given on the CLI: the positional `FILE` wins over
 /// the global `--entry` flag; both override the manifest entry. A directory
 /// positional is a project-root target, not an entry file, so it is excluded
@@ -63,6 +119,30 @@ fn cli_entry(args: &BuildArgs) -> Option<String> {
 }
 
 pub fn run(args: &BuildArgs) -> Result<BuildOutcome> {
+    // `--product` is a **client-side file write**. `build.full` answers with an
+    // envelope and writes nothing, so delegating to a listening service would
+    // drop the request with the command still reporting success. Until the RPC
+    // face can carry a product (the "same shape on every face" contract of
+    // build-design §3.3), asking for one pins the run to the local path instead.
+    // `bom` is an `ExportKind` but not a build product (§3.3): it was retired
+    // on 2026-09-14. Refusing it here rather than writing it keeps the retired
+    // artifact retired, and says which face still serves it.
+    if let Some(kind) = args
+        .products
+        .iter()
+        .find(|k| !mcc::cli::ExportKind::BUILD_PRODUCTS.contains(k))
+    {
+        anyhow::bail!(
+            "build: `{}` is not a build product -- it was retired on 2026-09-14, \
+             when the pairing moved downstream (build-design §3.3); `mcc export {}` \
+             still serves it as a standalone command",
+            kind.name(),
+            kind.name()
+        );
+    }
+    if !args.products.is_empty() {
+        return run_local(args);
+    }
     match RpcClient::probe() {
         Some(c) => run_rpc(&c, args),
         None => run_local(args),
@@ -305,6 +385,23 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
     // Phase C S3-D: the failed-record tree walk resolves sub-modules through
     // the view (the tree's Vec fields are gone).
     mcc::InstTable::write_known_missing(inst, "baseline/known_missing.md", &view);
+
+    // ── 3.7. Selected file products ──
+    // Read here, off the same flat projection the envelope is built from, so a
+    // product can never describe a second build. Deliberately before the viz
+    // block: that block re-instantiates each target and would leave the engine
+    // holding a different file.
+    if let Some(table) = dl.table() {
+        write_build_products(
+            &args.products,
+            &project_root,
+            inst,
+            table,
+            arena,
+            store,
+            &top_name,
+        )?;
+    }
 
     // ── 4. Viz generation ──
     // ★ JSON mode: fidelity findings (below) degrade the exit code instead of
@@ -643,6 +740,19 @@ fn build_browse_dir(
         ));
         emit_err(&mcc::cli::globals().format, err)?;
         return Ok(BuildOutcome { exit_code: 1 });
+    }
+
+    // A file product is the projection of **one** build, written under one
+    // `<project-root>/build/` (build-design §3.4). This branch has neither: it
+    // builds every `.mc` under the root as its own target, and keeps no frozen
+    // instance table to project. Saying so beats writing nothing while the
+    // command reports success.
+    if !args.products.is_empty() {
+        anyhow::bail!(
+            "build: --product needs a project manifest; {} is a directory batch, \
+             which has no single build to project",
+            root.display()
+        );
     }
 
     // ── 2. Pass1 + 3. Pass2, entry by entry ──
