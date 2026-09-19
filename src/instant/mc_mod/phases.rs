@@ -1445,10 +1445,11 @@ impl InstantiationBuilder {
             };
 
             // ── Case 1: Equal-width multi-member → §11.3 pairing ──
-            // Pair by member name first (deterministic alignment even when the
-            // arg side and the port side declare members in different order),
-            // with positional fallback for names with no partner; output in
-            // port (member) declaration order. No alphabetical re-sorting.
+            // Positional zip in write order: members[i] binds the i-th
+            // argument lane. Member names are each side's local view, never a
+            // matching criterion (interface-connect rule, 2026-09-19; the
+            // former name-first pass is removed). Output stays in port
+            // (member) declaration order.
             if members.len() >= 2 && arg_lanes.len() == members.len() {
                 let lane_idx = pair_members_to_lanes(&members, &arg_lanes);
                 for (m, ai) in members.iter().zip(lane_idx.iter()) {
@@ -1692,9 +1693,10 @@ impl InstantiationBuilder {
             };
 
             // ── Case 1: Equal-width multi-member → §11.3 pairing ──
-            // Pair by member name first, positional fallback for the rest;
-            // output in port (member) declaration order. No alphabetical
-            // re-sorting.
+            // Positional zip in write order: members[i] binds the i-th
+            // argument lane. Member names are never a matching criterion
+            // (interface-connect rule, 2026-09-19; the former name-first pass
+            // is removed). Output stays in port (member) declaration order.
             if members.len() >= 2 && arg_lanes.len() == members.len() {
                 let lane_idx = pair_members_to_lanes(&members, &arg_lanes);
                 for (m, ai) in members.iter().zip(lane_idx.iter()) {

@@ -12,18 +12,24 @@
 //!
 //! # The branch locked here: series pairing
 //!
-//! The **series pairing rule** (`vec-dianlu` §5.2, eval.md §11.3): two
-//! equal-width operand faces are paired **by member name first, position
-//! second** (`expand_match`). The rejected candidate is a hard positional zip.
-//! The two agree whenever the right face lists the same member names in the
-//! same order, so the fixture writes the right face's names **reversed** -- the
-//! one shape on which the rules diverge:
+//! The **series pairing rule** (`vec-dianlu` §5.2, eval.md §11.3, interface
+//! ruling of 2026-09-19): two equal-width operand faces are paired by a hard
+//! **positional zip in written order** (`expand_match`) -- ordinal k on the
+//! two sides is the same wire, and member names are never a matching
+//! criterion. The rejected candidate pairs equal-named members across
+//! different written orders. The two agree whenever the right face lists the
+//! same member names in the same order, so the fixture writes the right face's
+//! names **reversed** -- the one shape on which the rules diverge:
 //!
 //! ```text
 //! u1.SPI{SCLK, MOSI} -> u2.SPI{MOSI, SCLK}
 //! by name : SCLK<->SCLK  MOSI<->MOSI   => u1.1<->u2.2  u1.2<->u2.1
 //! by pos  : first<->first second<->second => u1.1<->u2.1  u1.2<->u2.2
 //! ```
+//!
+//! Under the positional law the reversed written order is itself a declared
+//! misalignment, so each divergent cell also asserts the D5 signal
+//! (E4052 `NET_BUS_ORDER_MISMATCH`); the aligned-order cell stays quiet.
 //!
 //! The three series operators (`-`, `->`, `<-`) share the pairing and differ
 //! only in the internal connection direction (§5.2), so each arm gets its own
@@ -59,18 +65,19 @@ const BUS_FWD: &str =
 
 /// The same device with the members declared in the **opposite** order
 /// (`MOSI` is pin 1, `SCLK` pin 2) -- the divergence input: a by-name pairing
-/// still matches `SCLK` to `SCLK`, a positional zip matches `SCLK` to the
+/// would still match `SCLK` to `SCLK`, the positional zip pairs `SCLK` to the
 /// right face's *first* member, `MOSI`.
 const BUS_REV: &str =
     "component BUS_REV {\n    pins = [\n        io [1:2] = SPI{MOSI, SCLK}\n    ]\n}\n";
 
-/// The by-name partition, written once so every cell states the same law:
-/// `SCLK` (u1.1) lands on `SCLK` (u2.2), `MOSI` (u1.2) on `MOSI` (u2.1). A
-/// positional zip would produce the mirror `u1.1<->u2.1` / `u1.2<->u2.2`.
-fn by_name_partition() -> Vec<Vec<String>> {
+/// The positional partition, written once so every cell states the same law:
+/// ordinal k on the two sides is the same wire, so `u1.1` lands on `u2.1` and
+/// `u1.2` on `u2.2` regardless of the member names. A by-name pairing would
+/// produce the cross `u1.1<->u2.2` / `u1.2<->u2.1`.
+fn positional_partition() -> Vec<Vec<String>> {
     vec![
-        vec!["u1.1".to_string(), "u2.2".to_string()],
-        vec!["u1.2".to_string(), "u2.1".to_string()],
+        vec!["u1.1".to_string(), "u2.1".to_string()],
+        vec!["u1.2".to_string(), "u2.2".to_string()],
     ]
 }
 
@@ -117,52 +124,80 @@ fn build(body: &str, uri: &str) -> (Vec<u32>, Vec<Vec<String>>) {
     (codes, partition)
 }
 
-// one cell per series arm: by name beats position
+// one cell per series arm: written position decides, names never realign
 
-/// `->` (series, left to right): the pairing is by member name.
+/// `->` (series, left to right): the pairing is a positional zip in written
+/// order; the reversed member names must not realign it, and the all-differ
+/// zip raises the D5 hint (E4052).
 #[test]
-fn pair__arrow_series_pairs_by_member_name_not_position() {
+fn pair__arrow_series_zip_by_written_position() {
     let (codes, nets) = build(
         "    u1.SPI{SCLK, MOSI} -> u2.SPI{MOSI, SCLK}",
         "/mcc/rd-pair-arrow.mc",
     );
-    assert_eq!(codes, Vec::<u32>::new(), "quiet statement; got {codes:?}");
+    assert_eq!(
+        codes,
+        vec![4052],
+        "reversed written order is a declared misalignment: E4052; got {codes:?}"
+    );
     assert_eq!(
         nets,
-        by_name_partition(),
-        "`->` must pair SPI members by name, not by written position; got {nets:?}"
+        positional_partition(),
+        "`->` must zip SPI members by written position, never by name; got {nets:?}"
     );
 }
 
 /// `-` (series, undirected): same operands, same pairing -- the undirected arm
-/// must not fall back to a positional zip.
+/// shares the positional zip.
 #[test]
-fn pair__dash_series_pairs_by_member_name_not_position() {
+fn pair__dash_series_zip_by_written_position() {
     let (codes, nets) = build(
         "    u1.SPI{SCLK, MOSI} - u2.SPI{MOSI, SCLK}",
         "/mcc/rd-pair-dash.mc",
     );
-    assert_eq!(codes, Vec::<u32>::new(), "quiet statement; got {codes:?}");
+    assert_eq!(codes, vec![4052], "E4052 expected; got {codes:?}");
     assert_eq!(
         nets,
-        by_name_partition(),
-        "`-` must pair SPI members by name, not by written position; got {nets:?}"
+        positional_partition(),
+        "`-` must zip SPI members by written position, never by name; got {nets:?}"
     );
 }
 
 /// `<-` (series, right to left): the direction flips but the pairing rule does
-/// not -- an implementation that swapped the operands and then zipped
-/// positionally would fail here.
+/// not -- an implementation that swapped the operands before zipping would
+/// produce the cross partition and fail here.
 #[test]
-fn pair__back_arrow_series_pairs_by_member_name_not_position() {
+fn pair__back_arrow_series_zip_by_written_position() {
     let (codes, nets) = build(
         "    u1.SPI{SCLK, MOSI} <- u2.SPI{MOSI, SCLK}",
         "/mcc/rd-pair-back.mc",
     );
-    assert_eq!(codes, Vec::<u32>::new(), "quiet statement; got {codes:?}");
+    assert_eq!(codes, vec![4052], "E4052 expected; got {codes:?}");
     assert_eq!(
         nets,
-        by_name_partition(),
-        "`<-` must pair SPI members by name, not by written position; got {nets:?}"
+        positional_partition(),
+        "`<-` must zip SPI members by written position, never by name; got {nets:?}"
+    );
+}
+
+/// The aligned written order (`SCLK, MOSI` on both faces) is the correct way
+/// to declare the connection: quiet. `u2` is BUS_REV (pin 1 = MOSI), so the
+/// right face's `{SCLK, MOSI}` *selects* u2.2 then u2.1 -- selection reads
+/// names, pairing reads position -- and the zip lands SCLK<->SCLK,
+/// MOSI<->MOSI, which shows up as the cross partition in pin numbers.
+#[test]
+fn pair__aligned_written_order_is_quiet() {
+    let (codes, nets) = build(
+        "    u1.SPI{SCLK, MOSI} -> u2.SPI{SCLK, MOSI}",
+        "/mcc/rd-pair-aligned.mc",
+    );
+    assert_eq!(codes, Vec::<u32>::new(), "aligned order is quiet; got {codes:?}");
+    assert_eq!(
+        nets,
+        vec![
+            vec!["u1.1".to_string(), "u2.2".to_string()],
+            vec!["u1.2".to_string(), "u2.1".to_string()],
+        ],
+        "selection reads names, pairing is positional over the selected lists; got {nets:?}"
     );
 }
