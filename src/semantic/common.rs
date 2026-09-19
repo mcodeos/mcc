@@ -850,10 +850,10 @@ pub fn classify_lead(name: &str, in_vector: bool) -> LeadKind {
 pub fn classify_phrase_leads(phrase: &McPhrase) -> Vec<LeadKind> {
     fn walk(p: &McPhrase, out: &mut Vec<LeadKind>) {
         match p {
-            McPhrase::Lead => out.push(LeadKind::Passthrough),
+            McPhrase::Lead(_) => out.push(LeadKind::Passthrough),
             McPhrase::Multiple(inner) => {
                 for m in inner {
-                    if matches!(m, McPhrase::Lead) {
+                    if matches!(m, McPhrase::Lead(_)) {
                         // Count only direct members: `_` in `[_, R101]` is a placeholder;
                         // `_` inside nested expressions (e.g. `[a1.gnd + _ + GND, ...]`)
                         // recurses → passthrough.
@@ -968,7 +968,7 @@ mod shape_tests {
     /// `classify_phrase_leads`: `_` inside the `[_, R101]` vector → placeholder.
     #[test]
     fn sem_common__phrase_placeholder_in_vector() {
-        let phrase = McPhrase::Multiple(vec![McPhrase::Lead, McPhrase::label("R101".into())]);
+        let phrase = McPhrase::Multiple(vec![McPhrase::Lead(0), McPhrase::label("R101".into())]);
         assert_eq!(classify_phrase_leads(&phrase), vec![LeadKind::Placeholder]);
     }
 
@@ -977,7 +977,7 @@ mod shape_tests {
     fn sem_common__phrase_passthrough_operand() {
         let phrase = McPhrase::Parallel(vec![
             McPhrase::label("a1.gnd".into()),
-            McPhrase::Lead,
+            McPhrase::Lead(0),
             McPhrase::label("GND".into()),
         ]);
         assert_eq!(classify_phrase_leads(&phrase), vec![LeadKind::Passthrough]);
@@ -989,7 +989,7 @@ mod shape_tests {
         let phrase = McPhrase::Series(
             vec![
                 McPhrase::label("VEXT".into()),
-                McPhrase::Lead,
+                McPhrase::Lead(0),
                 McPhrase::label("GND".into()),
             ],
             ConnDir::Undirected,
@@ -1004,7 +1004,7 @@ mod shape_tests {
     fn sem_common__phrase_nested_expression_keeps_passthrough() {
         let nested = McPhrase::Parallel(vec![
             McPhrase::label("a1.gnd".into()),
-            McPhrase::Lead,
+            McPhrase::Lead(0),
             McPhrase::label("GND".into()),
         ]);
         let phrase = McPhrase::Multiple(vec![nested, McPhrase::label("R101".into())]);
@@ -1018,7 +1018,7 @@ mod shape_tests {
             opds: vec![
                 McPhrase::label("a".into()),
                 McPhrase::label("b".into()),
-                McPhrase::Lead,
+                McPhrase::Lead(0),
             ],
             left_match: true,
             right_match: true,

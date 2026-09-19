@@ -41,7 +41,7 @@ const CAP2: &str = "component CAP2 {\n    pins = [\n        1 = 1\n        2 = 2
 /// of `Debug`. Instance names come from `McInstance::get_name`.
 fn shape(p: &McPhrase) -> String {
     match p {
-        McPhrase::Lead => "Lead".to_string(),
+        McPhrase::Lead(_) => "Lead".to_string(),
         McPhrase::Endpoint(ep) => ep_shape(ep),
         McPhrase::Series(v, d) => format!("Series({d:?})[{}]", shapes(v)),
         McPhrase::Parallel(v) => format!("Parallel[{}]", shapes(v)),

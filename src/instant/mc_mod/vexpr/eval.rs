@@ -95,7 +95,7 @@ impl InstantiationBuilder {
             }
             McPhrase::Reversed(inner) => self.vexpr_fold_reversed(member, inner),
             McPhrase::Transposed(inner) => self.vexpr_fold_transposed(member, inner),
-            McPhrase::Lead => self.vexpr_fold_lead(member),
+            McPhrase::Lead(_) => self.vexpr_fold_lead(member),
             other => self.vexpr_reduce(other),
         }
     }
@@ -417,7 +417,7 @@ impl InstantiationBuilder {
         let mut transposed: Vec<bool> = Vec::with_capacity(opds.len());
         for opd in opds {
             transposed.push(matches!(opd, McPhrase::Transposed(_)));
-            if matches!(opd, McPhrase::Lead) {
+            if matches!(opd, McPhrase::Lead(_)) {
                 // A `_` holds its width slot but is not an endpoint.
                 folded.push(ConcreteOpd {
                     left: Vec::new(),
@@ -555,23 +555,26 @@ mod tests {
     fn fold__lead_is_a_width_slot_carrying_the_lead_body() {
         let mut inst = builder();
         let opd = inst
-            .vexpr_fold_member(&McPhrase::Lead)
+            .vexpr_fold_member(&McPhrase::Lead(0x2a))
             .expect("a lead must reduce");
         assert_eq!(opd.body, vec![BodyConn::Lead]);
         assert_eq!(opd.left.len(), 1, "a lead occupies exactly one row");
         assert_eq!(opd.right.len(), 1);
-        // The placeholder name is derived from the phrase's address, so a
-        // comparison must treat it as opaque rather than compare it verbatim.
-        assert!(
-            opd.left[0]
-                .point
-                .path
-                .starts_with(crate::instant::mc_net::LEAD_PLACEHOLDER_PREFIX),
-            "lead placeholder must keep its reserved prefix, got {:?}",
-            opd.left[0].point.path
+        // Identity law (CIMP §1 U129): the placeholder name is the source byte
+        // offset carried by the phrase — same token, same name on every run;
+        // distinct tokens, distinct names. (The former payload-less variant
+        // made the instant layer fall back to the phrase's heap address.)
+        assert_eq!(opd.left[0].point.path, "(lead)_2a");
+        assert_eq!(opd.right[0].point.path, "(lead)_2a");
+        let other = inst
+            .vexpr_fold_member(&McPhrase::Lead(0x2b))
+            .expect("a second lead must reduce");
+        assert_ne!(
+            opd.left[0].point.path, other.left[0].point.path,
+            "distinct `_` tokens must mint distinct placeholder names"
         );
         assert!(
-            wired(&McPhrase::Lead).is_empty(),
+            wired(&McPhrase::Lead(0)).is_empty(),
             "a lead is never wired by the fold"
         );
     }
@@ -616,7 +619,7 @@ mod tests {
         // element wires nothing there by construction).
         let phrase = McPhrase::Series(
             vec![
-                McPhrase::Multiple(vec![bus("A1"), McPhrase::Lead]),
+                McPhrase::Multiple(vec![bus("A1"), McPhrase::Lead(0)]),
                 McPhrase::Multiple(vec![bus("B1"), bus("B2")]),
                 McPhrase::Multiple(vec![bus("C1"), bus("C2")]),
             ],

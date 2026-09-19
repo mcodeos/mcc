@@ -1176,7 +1176,7 @@ fn phrase_to_tree_json(p: &McPhrase, max_depth: usize, cur: usize) -> serde_json
             } else {
                 ps.iter()
                     .map(|c| {
-                        if matches!(c, McPhrase::Lead) {
+                        if matches!(c, McPhrase::Lead(_)) {
                             // §1 P5.1: within a `[...]` vector, `_` is a placeholder
                             json!({"kind": "Lead", "usage": "placeholder", "label": "", "children": []})
                         } else {
@@ -1216,7 +1216,7 @@ fn phrase_to_tree_json(p: &McPhrase, max_depth: usize, cur: usize) -> serde_json
             "label": format!(".{}", ep),
             "children": [phrase_to_tree_json(inner, max_depth, cur + 1)],
         }),
-        McPhrase::Lead => json!({
+        McPhrase::Lead(_) => json!({
             "kind": "Lead",
             "usage": "passthrough",
             "label": "",

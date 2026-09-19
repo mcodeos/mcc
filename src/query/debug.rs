@@ -208,7 +208,7 @@ pub(crate) fn print_phrase_internal(
         McPhrase::Multiple(phrases) => {
             println!("{}(multiple {} items)", prefix, phrases.len());
             for (i, p) in phrases.iter().enumerate() {
-                if matches!(p, McPhrase::Lead) {
+                if matches!(p, McPhrase::Lead(_)) {
                     // §1 P5.1: within a `[...]` vector, `_` is a placeholder
                     println!("{}  [{}]:(lead: placeholder)", prefix, i);
                 } else {
@@ -226,7 +226,7 @@ pub(crate) fn print_phrase_internal(
             print_phrase_internal(inner, "");
             println!(")");
         }
-        McPhrase::Lead => {
+        McPhrase::Lead(_) => {
             // §1 P5.1: a standalone operand `_` is a passthrough
             println!("{prefix}(lead: passthrough)");
         }

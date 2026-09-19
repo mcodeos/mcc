@@ -89,7 +89,7 @@ fn check_uscore_sole_endpoint(acc: &mut CheckAccumulator) {
         }
         for phrase in &module.stmts {
             if let McPhrase::Series(items, _) = phrase {
-                if !items.is_empty() && items.iter().all(|p| matches!(p, McPhrase::Lead)) {
+                if !items.is_empty() && items.iter().all(|p| matches!(p, McPhrase::Lead(_))) {
                     let text = format!("{}", phrase);
                     acc.push(CheckResult {
                         check_name: "exprs",
