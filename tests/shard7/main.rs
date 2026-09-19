@@ -10,6 +10,7 @@ pub mod common;
 
 mod bom_nc_classified;
 mod build_dir_net_checks;
+mod build_products;
 mod dedup_id_coverage;
 mod det_probe;
 mod diff_saved_readings;

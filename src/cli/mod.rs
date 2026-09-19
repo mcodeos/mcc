@@ -867,6 +867,48 @@ impl ExportKind {
             _ => ExportKind::Netlist,
         }
     }
+
+    /// The `ExportKind`s that are also **build products** (build-design §3.3).
+    ///
+    /// `bom` is deliberately absent. It was retired as a product on 2026-09-14
+    /// -- the pairing and the issuing belong to downstream tooling, and mcc
+    /// stops at the instance list -- so accepting it here would rebuild the
+    /// very artifact the boundary document hands off. The standalone command
+    /// survives (`mcc export bom`), which is why the enum still carries it.
+    pub const BUILD_PRODUCTS: [ExportKind; 4] = [
+        ExportKind::Netlist,
+        ExportKind::Spice,
+        ExportKind::KiCad,
+        ExportKind::InstList,
+    ];
+
+    /// The name a build product lands under in `<project-root>/build/`
+    /// (build-design §3.4), for the format its body is written in. The stem
+    /// follows that section's path tree; the extension follows the body, so a
+    /// product written as CSV does not claim to be the text artifact.
+    pub fn default_file_name(self, format: OutputFormat) -> String {
+        // §3.4 names the two design-level artifacts with an extension of their
+        // own, so only an explicit non-text format re-opens the question.
+        if format == OutputFormat::Text {
+            match self {
+                ExportKind::Spice => return "design.spice".to_string(),
+                ExportKind::KiCad => return "design.kicad_netlist".to_string(),
+                _ => {}
+            }
+        }
+        let ext = match format {
+            OutputFormat::Csv => "csv",
+            OutputFormat::Yaml => "yaml",
+            OutputFormat::Json | OutputFormat::JsonPretty => "json",
+            OutputFormat::Text => "txt",
+        };
+        let stem = match self {
+            ExportKind::Spice => "design",
+            ExportKind::KiCad => "design.kicad",
+            _ => self.name(),
+        };
+        format!("{stem}.{ext}")
+    }
 }
 
 // impact
@@ -975,6 +1017,13 @@ pub struct BuildArgs {
     /// (flow|schematic_radial|schematic_sub|hierarchical|radial|layered)
     #[arg(long, value_name = "NAME")]
     pub layouter: Option<String>,
+
+    /// Write file products into `<project-root>/build/` (build-design §3.4).
+    /// The ids are the `mcc export <KIND>` tokens, because a product's bytes
+    /// must not depend on which entry produced them (§3.6 contract 1). Omitted
+    /// = the default set, which is the envelope alone: no file product.
+    #[arg(long = "product", value_name = "IDS", value_delimiter = ',')]
+    pub products: Vec<ExportKind>,
 }
 
 // lib
