@@ -33,6 +33,7 @@ use mcc::cli::{OutputFormat, QueryArgs, SearchKind as CliSearchKind};
 use mcc::export;
 use mcc::search_api::{self, SearchHit, SearchInputs};
 use mcc::McURI;
+use mcc::{unit_rows, UnitKind};
 use serde_json::{json, Value};
 use std::path::Path;
 
@@ -45,6 +46,10 @@ enum RowStyle {
     /// Net projection rows (`{name, points}`) — text `name` per line, csv
     /// `name,points`.
     Name,
+    /// Organization-directory unit rows (`func` / `bus` / `clause`) — text
+    /// `key` per line, csv `key,kind,uri`. These rows carry no `name` of their
+    /// own, which is why they cannot share the `Name` style.
+    Unit,
 }
 
 pub fn run(args: &QueryArgs) -> Result<()> {
@@ -72,6 +77,17 @@ fn run_local(args: &QueryArgs) -> Result<()> {
     // the DSL/name mode logic so `Net` never reaches `cli_to_api_kind`.
     if args.kind == Some(CliSearchKind::Net) {
         return run_nets(args, &entry_uri, manifest_top.as_deref());
+    }
+
+    // The three unit kinds are the same shape of exception (CIMP §1 U120):
+    // func / bus / clause are not standalone defs, so the lib search engine
+    // cannot hold them either, and `query --kind <unit>` projects the
+    // directory rows `list <unit>` lists.
+    match args.kind {
+        Some(CliSearchKind::Func) => return run_units(args, UnitKind::Func),
+        Some(CliSearchKind::Bus) => return run_units(args, UnitKind::Bus),
+        Some(CliSearchKind::Clause) => return run_units(args, UnitKind::Clause),
+        _ => {}
     }
 
     // Mode selection
@@ -166,6 +182,39 @@ fn run_nets(args: &QueryArgs, entry_uri: &str, manifest_top: Option<&str>) -> Re
     emit_query(args.expr.clone(), items, RowStyle::Name, args.json)
 }
 
+/// `--kind func|bus|clause`: project the organization directory's unit rows
+/// (CIMP §1 U120), matching `<EXPR>` against the unit's name with the same
+/// matcher flags `--kind net` uses.
+///
+/// The rows are the ones `list <unit>` emits — built in `mcc::query::units`
+/// once — so the two faces read the same directory rather than each projecting
+/// it.
+/// A clause matches on its **host** name: it has no name of its own (§1).
+fn run_units(args: &QueryArgs, kind: UnitKind) -> Result<()> {
+    // As with nets: a DSL phrase has no meaning against a row that is not a
+    // def, so say so instead of silently reinterpreting it as a name.
+    if expr_looks_like_dsl(&args.expr) {
+        return Err(anyhow::anyhow!(
+            "--kind {}: <EXPR> must be a bare name pattern (empty = all); \
+             DSL expressions do not apply to units that are not defs: {:?}",
+            kind.word(),
+            args.expr
+        ));
+    }
+
+    let matcher = search_api::build_matcher(&args.expr, args.regex, args.fuzzy)?;
+    let mut items: Vec<Value> = unit_rows(kind)
+        .into_iter()
+        .filter(|r| matcher(&r.name))
+        .map(|r| r.json)
+        .collect();
+    if args.limit > 0 && items.len() > args.limit {
+        items.truncate(args.limit);
+    }
+
+    emit_query(args.expr.clone(), items, RowStyle::Unit, args.json)
+}
+
 /// Serialize a projection result set: envelope for structured formats, raw CSV
 /// for `-f csv`, tab/name detail lines after the envelope text report otherwise.
 fn emit_query(expr: String, items: Vec<Value>, style: RowStyle, json_flag: bool) -> Result<()> {
@@ -221,6 +270,13 @@ fn emit_query(expr: String, items: Vec<Value>, style: RowStyle, json_flag: bool)
                     let name = it.get("name").and_then(|v| v.as_str()).unwrap_or("?");
                     println!("{}", name);
                 }
+                // A unit row has no `name` of its own, so the text face prints
+                // its **key** — the spelling that addresses it (a func as
+                // `HOST.FUNC`, a bus as `HOST.BUS`, a clause as `URI@START`).
+                RowStyle::Unit => {
+                    let key = it.get("key").and_then(|v| v.as_str()).unwrap_or("?");
+                    println!("{key}");
+                }
             }
         }
         eprintln!("({} items)", count);
@@ -266,6 +322,19 @@ fn csv_for(style: &RowStyle, items: &[Value]) -> String {
                     "{},{}\n",
                     export::csv_escape(name),
                     export::csv_escape(&points)
+                ));
+            }
+        }
+        RowStyle::Unit => {
+            out.push_str("key,kind,uri\n");
+            for it in items {
+                let cell =
+                    |k: &str| export::csv_escape(it.get(k).and_then(|v| v.as_str()).unwrap_or(""));
+                out.push_str(&format!(
+                    "{},{},{}\n",
+                    cell("key"),
+                    cell("kind"),
+                    cell("uri")
                 ));
             }
         }
@@ -318,6 +387,10 @@ fn cli_to_api_kind(k: CliSearchKind) -> search_api::SearchKind {
         // `net` is not a definition kind; run_local branches to run_nets before
         // any kind→API mapping, so this arm is unreachable.
         CliSearchKind::Net => unreachable!("--kind net is handled in run_local"),
+        // The three unit kinds likewise: run_local branches to run_units.
+        CliSearchKind::Func | CliSearchKind::Bus | CliSearchKind::Clause => {
+            unreachable!("--kind func|bus|clause is handled in run_local")
+        }
     }
 }
 

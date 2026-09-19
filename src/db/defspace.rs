@@ -22,7 +22,7 @@
 use super::cmie::tables::WorkspaceManager;
 use crate::db::defregistry::{
     peel_capabilities, peel_components, peel_defines, peel_enums, peel_interfaces, peel_modules,
-    DefKind, DomainFilter,
+    DefKind, DefValue, DomainFilter,
 };
 use crate::db::infra::mc_code::McCode;
 use crate::semantic::capability::McCapability;
@@ -209,6 +209,54 @@ impl<'a> DefinitionSpace<'a> {
     }
 
     // ── Unified definition view: whole-table enumeration ──
+
+    /// ★ CIMP §1 U120 (2026-09-19): the **whole definition space in one read**.
+    ///
+    /// One row per live def of every kind the registry holds as a standalone
+    /// def, ordered by `(kind, key)` — the kinds in
+    /// [`DEF_KIND_ORDER`](crate::DEF_KIND_ORDER), each kind's rows by
+    /// `(uri, ident)`. The `all_*` accessors below are this read restricted to
+    /// one kind; a consumer that wants the directory **and** a consumer that
+    /// wants one kind now go through the same enumeration, so a new kind is
+    /// added in one place instead of one place per consumer.
+    ///
+    /// `DefKind::Func` is not in the result: funcs are host members, and their
+    /// read is [`all_funcs`](Self::all_funcs).
+    pub fn all_defs(&self) -> Vec<(DefKind, McSpaceName, DefValue)> {
+        self.ws.registry().enumerate_all(DomainFilter::Any)
+    }
+
+    /// Every func member of the definition space, as the member it is
+    /// (design §12.1; CIMP §1 U120).
+    ///
+    /// Returns `(host name, host kind, host uri, func name)` rows, sorted by
+    /// `(host uri, host name, func name)` — the func's **key** is
+    /// `(host, name)`, so name order is key order here. Read off each host's
+    /// own `funcs` table rather than off the arena's func rows: those rows
+    /// carry a display label whose order says nothing about the host's, and
+    /// the host's table is where the author's order lives. Only the kinds that
+    /// can host func members are walked (module / component / capability), the
+    /// same three `register_host_funcs` registers for.
+    pub fn all_funcs(&self) -> Vec<(String, DefKind, String, String)> {
+        let mut rows: Vec<(String, DefKind, String, String)> = Vec::new();
+        for (kind, sn, data) in self.all_defs() {
+            let names: Vec<String> = match &data {
+                DefValue::Module(m) => m.funcs.iter().map(|f| f.name.to_string()).collect(),
+                DefValue::Component(c) => c.funcs.iter().map(|f| f.name.to_string()).collect(),
+                DefValue::Capability(c) => c.funcs.iter().map(|f| f.name.to_string()).collect(),
+                _ => continue,
+            };
+            for name in names {
+                rows.push((sn.ident.to_string(), kind, sn.uri.to_string(), name));
+            }
+        }
+        rows.sort_by(|a, b| {
+            a.2.cmp(&b.2)
+                .then_with(|| a.0.cmp(&b.0))
+                .then_with(|| a.3.cmp(&b.3))
+        });
+        rows
+    }
 
     /// Enumerate every live component definition (any domain). The single
     /// registry holds one identity per `(uri, ident)`, so no dedup is needed.

@@ -260,3 +260,201 @@ pub fn mcb_iter_ports() -> Vec<(String, String, String, String)> {
         .map(|(_, _, name, io_name, module_name, uri)| (name, io_name, module_name, uri))
         .collect()
 }
+
+// ── The organization directory's unit rows (CIMP §1 U120, 2026-09-19) ──
+//
+// `func` / `bus` / `clause` are the three units of the six (design §1) that
+// are **not standalone defs**, so they are read off their own carriers rather
+// than off the registry: a func off its host's `funcs` table, a bus off the
+// declaring host's `bus_defs`, a clause off a body's statement/span parallel
+// arrays. Each row carries its own **key** — `(host, name)` for a func, name
+// plus host for a bus, `(uri, offset)` for a clause — because none of the three
+// holds a `DefId` the way a component or a module does.
+//
+// Named structs rather than the tuples the older `mcb_iter_*` functions
+// return: a row here has up to six fields, three of which are strings that a
+// positional tuple would let a caller transpose silently.
+
+/// One func member of a host def, as its host's member (design §12.1).
+pub struct FuncRow {
+    /// The func name, relative to its host.
+    pub func: String,
+    /// The module / component / capability that carries the `funcs` table.
+    pub host: String,
+    /// That host's kind word (`module` / `component` / `capability`).
+    pub host_kind: String,
+    pub uri: String,
+    /// Byte offset of the func's own declaration, when the parse recorded one.
+    pub offset: Option<usize>,
+}
+
+/// One declared bus (`MIC{P, N}`) of a host def.
+///
+/// Read off `McInstances::iter_bus_defs` — the **declaration** face, which
+/// registers a bus once with its whole member list. A bus carries no `DefId`
+/// (T12), so its key is its name *in its host*, and its members are the names
+/// the declaration lists — never their `PointId`s, which belong to one build
+/// (design §3 ④).
+pub struct BusRow {
+    pub bus: String,
+    pub host: String,
+    pub host_kind: String,
+    /// Member names, in declaration order.
+    pub members: Vec<String>,
+    pub uri: String,
+    /// Byte offset of the bus's base identifier.
+    pub offset: usize,
+}
+
+/// One clause group — a statement and the position it sits at.
+///
+/// A clause is the one unit with **no declaration object** (design §1): what
+/// the definition space holds is the statement (`McPhrase`) plus its span in a
+/// parallel array, so the key is a position and never a name. `(uri, start)` is
+/// a **canonical** key, which is why this is the one unit of the six that stays
+/// comparable across builds as long as its file is unchanged (§3 ④).
+pub struct ClauseRow {
+    /// The module / component / capability whose body carries the statement.
+    pub host: String,
+    pub host_kind: String,
+    /// The func whose body carries it; empty for the host's own body.
+    pub owner: String,
+    pub uri: String,
+    pub start: usize,
+    /// Exclusive end of the statement, when the parse recorded a range. A
+    /// function body's parallel array (`McFunction.stmt_offsets`) records only
+    /// the start, so a func's clause rows carry `None` here rather than a
+    /// fabricated end.
+    pub end: Option<usize>,
+}
+
+// === pub fn mcb_iter_funcs() -> Vec<FuncRow> { ===
+/// Every func member of the definition space, one [`FuncRow`] each, sorted by
+/// `(uri, host, func)` — the key of a func is `(host, name)`, so this is key
+/// order.
+pub fn mcb_iter_funcs() -> Vec<FuncRow> {
+    let mut rows: Vec<FuncRow> = Vec::new();
+    for (kind, sn, data) in crate::definition_space().all_defs() {
+        let funcs = match &data {
+            crate::DefValue::Module(m) => &m.funcs,
+            crate::DefValue::Component(c) => &c.funcs,
+            crate::DefValue::Capability(c) => &c.funcs,
+            _ => continue,
+        };
+        for f in funcs.iter() {
+            rows.push(FuncRow {
+                func: f.name.to_string(),
+                host: sn.ident.to_string(),
+                host_kind: def_kind_word(kind),
+                uri: sn.uri.to_string(),
+                offset: f.span.as_ref().map(|s| s.start),
+            });
+        }
+    }
+    rows.sort_by(|a, b| {
+        a.uri
+            .cmp(&b.uri)
+            .then_with(|| a.host.cmp(&b.host))
+            .then_with(|| a.func.cmp(&b.func))
+    });
+    rows
+}
+
+// === pub fn mcb_iter_buses() -> Vec<BusRow> { ===
+/// Every declared bus of the definition space, one [`BusRow`] each, sorted by
+/// `(uri, host, bus)`.
+pub fn mcb_iter_buses() -> Vec<BusRow> {
+    let mut rows: Vec<BusRow> = Vec::new();
+    for (kind, sn, data) in crate::definition_space().all_defs() {
+        let insts = match &data {
+            crate::DefValue::Module(m) => &m.insts,
+            crate::DefValue::Component(c) => &c.insts,
+            _ => continue,
+        };
+        for bus in insts.iter_bus_defs() {
+            rows.push(BusRow {
+                bus: bus.name.clone(),
+                host: sn.ident.to_string(),
+                host_kind: def_kind_word(kind),
+                members: bus.members.iter().map(|(n, _)| n.clone()).collect(),
+                uri: sn.uri.to_string(),
+                offset: bus.span.start,
+            });
+        }
+    }
+    rows.sort_by(|a, b| {
+        a.uri
+            .cmp(&b.uri)
+            .then_with(|| a.host.cmp(&b.host))
+            .then_with(|| a.bus.cmp(&b.bus))
+    });
+    rows
+}
+
+// === pub fn mcb_iter_clauses() -> Vec<ClauseRow> { ===
+/// Every clause group of the definition space, one [`ClauseRow`] each, sorted
+/// by `(uri, start)` — the clause key, so this is key order.
+///
+/// ⚠ The two parallel arrays are not the same shape, and the rows say so
+/// rather than papering over it: `McModule.stmt_spans` records a full range per
+/// module-body statement, while `McFunction.stmt_offsets` records only the
+/// start of each function-body statement.
+pub fn mcb_iter_clauses() -> Vec<ClauseRow> {
+    let mut rows: Vec<ClauseRow> = Vec::new();
+    for (kind, sn, data) in crate::definition_space().all_defs() {
+        let uri = sn.uri.to_string();
+        let host = sn.ident.to_string();
+        let word = def_kind_word(kind);
+        let funcs = match &data {
+            crate::DefValue::Module(m) => {
+                for (i, span) in m.stmt_spans.iter().enumerate() {
+                    if i < m.stmts.len() {
+                        rows.push(ClauseRow {
+                            host: host.clone(),
+                            host_kind: word.clone(),
+                            owner: String::new(),
+                            uri: uri.clone(),
+                            start: span.start,
+                            end: Some(span.end),
+                        });
+                    }
+                }
+                &m.funcs
+            }
+            crate::DefValue::Component(c) => &c.funcs,
+            crate::DefValue::Capability(c) => &c.funcs,
+            _ => continue,
+        };
+        for f in funcs.iter() {
+            for (i, off) in f.stmt_offsets.iter().enumerate() {
+                if i < f.stmts.len() {
+                    rows.push(ClauseRow {
+                        host: host.clone(),
+                        host_kind: word.clone(),
+                        owner: f.name.to_string(),
+                        uri: uri.clone(),
+                        start: *off as usize,
+                        end: None,
+                    });
+                }
+            }
+        }
+    }
+    rows.sort_by(|a, b| {
+        a.uri
+            .cmp(&b.uri)
+            .then_with(|| a.start.cmp(&b.start))
+            .then_with(|| a.host.cmp(&b.host))
+            .then_with(|| a.owner.cmp(&b.owner))
+    });
+    rows
+}
+
+/// The lowercase word of one def kind, for rows that carry a host kind.
+///
+/// A row's `host_kind` is the **host's** kind (design §12.1), and the word for
+/// it is the registry's own ([`crate::DefKind::word`]) — spelled once, beside
+/// the variants, so this face and the projection face cannot drift apart.
+fn def_kind_word(kind: crate::DefKind) -> String {
+    kind.word().to_string()
+}

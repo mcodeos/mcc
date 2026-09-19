@@ -108,13 +108,14 @@ pub use builder::libmgr::LibInfo;
 pub use builder::{
     lookup_sub_def, lookup_with_sub, mcb_add_recursive, mcb_component_count, mcb_debug_get_cmie,
     mcb_get_first_module_name, mcb_get_module_name_by_uri, mcb_get_module_with_diagnostics,
-    mcb_get_refs, mcb_get_system_root, mcb_interface_count, mcb_iter_components,
-    mcb_iter_components_with_span, mcb_iter_enums, mcb_iter_enums_with_span, mcb_iter_interfaces,
-    mcb_iter_interfaces_with_span, mcb_iter_modules, mcb_iter_modules_with_span, mcb_iter_ports,
-    mcb_lib_info, mcb_load_lib, mcb_load_lib_by_name, mcb_loaded_file_count, mcb_loaded_libs,
-    mcb_module_count, mcb_parse_all_modules, mcb_pass2_flat, mcb_print, mcb_print_lines,
-    mcb_print_loaded_files, mcb_unload_lib, resolve_lib_root, unified_lookup, unified_lookup_all,
-    unified_lookup_all_layered, MccProjectTree, SubElementKind,
+    mcb_get_refs, mcb_get_system_root, mcb_interface_count, mcb_iter_buses, mcb_iter_clauses,
+    mcb_iter_components, mcb_iter_components_with_span, mcb_iter_enums, mcb_iter_enums_with_span,
+    mcb_iter_funcs, mcb_iter_interfaces, mcb_iter_interfaces_with_span, mcb_iter_modules,
+    mcb_iter_modules_with_span, mcb_iter_ports, mcb_lib_info, mcb_load_lib, mcb_load_lib_by_name,
+    mcb_loaded_file_count, mcb_loaded_libs, mcb_module_count, mcb_parse_all_modules,
+    mcb_pass2_flat, mcb_print, mcb_print_lines, mcb_print_loaded_files, mcb_unload_lib,
+    resolve_lib_root, unified_lookup, unified_lookup_all, unified_lookup_all_layered, BusRow,
+    ClauseRow, FuncRow, MccProjectTree, SubElementKind,
 };
 
 // ── Instant / Net ──
@@ -123,7 +124,8 @@ pub use db::defmember::DefMemberId;
 pub use db::defregistry::{
     adopted_capabilities_of, adopters_of, changed_files, checkpoint, checkpoint_if_changed,
     cluster_of, def_id, def_member_id_of, diff_since, diff_versions, kind_of, latest_checkpoint,
-    variant_base_of, Checkpoint, DefChange, DefChangeKind, DefId, DefKind, RegistryEntrySnapshot,
+    variant_base_of, Checkpoint, DefChange, DefChangeKind, DefId, DefKind, DefValue, FuncDef,
+    RegistryEntrySnapshot, DEF_KIND_ORDER,
 };
 pub use instant::arena::NodeArena;
 pub use instant::descriptions::{
@@ -157,6 +159,9 @@ pub use semantic::validation::pwrflow::{build_pwrflow, CrownRow, FlowNode, PwrFl
 // ── Query ──
 pub use query::search as search_api;
 pub use query::search::dsl as query_api;
+pub use query::units::{
+    host_func_names, org_unit_counts, org_unit_items, unit_rows, UnitKind, UnitRow,
+};
 
 // ── Semantic params / types ──
 pub use semantic::basic::mc_conds::{

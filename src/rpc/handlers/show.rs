@@ -359,6 +359,31 @@ pub fn handle_show_all(_params: Option<Value>) -> RpcResult {
     }))
 }
 
+// === handle_show_org_units (CIMP §1 U120, 2026-09-19) ===
+
+/// `show.org-units`: the organization directory of the loaded workspace.
+///
+/// The same rows the `mcc show org-units` CLI face emits, built by the same
+/// one read ([`mcc::org_unit_items`] / [`mcc::org_unit_counts`]) — a consumer
+/// that reaches this method over RPC reads the directory the CLI prints, not a
+/// second derivation of it.
+///
+/// The result is the projection payload itself ([`StageViewData`]): the
+/// `view` field says `org-units`, and `items` carries one row per unit with
+/// its `class`, its own `key`, its `canon_key` and a `loc`. The CLI additionally
+/// attaches this payload under the `stage` key of its command envelope; the
+/// fields are the same either way, so a caller of either face reads the same
+/// reading. It issues no id, holds nothing, and carries no cross-space
+/// correspondence — the directory, not the table the design forbids (§0.1).
+pub fn handle_show_org_units(_params: Option<Value>) -> RpcResult {
+    let items = crate::org_unit_items();
+    let counts = crate::org_unit_counts(&items);
+    let top = crate::mcb_get_first_module_name().unwrap_or_default();
+    let view = crate::stages::StageView::with_view("org-units", &top, items, counts);
+    let payload = crate::stages::payload::StageViewData::from(&view);
+    Ok(serde_json::to_value(payload).unwrap_or(Value::Null))
+}
+
 // === handle_show_file (lines 2778-2822 in original) ===
 
 pub fn handle_show_file(params: Option<Value>) -> RpcResult {

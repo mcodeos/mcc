@@ -103,6 +103,62 @@ pub enum DefKind {
     Func,
 }
 
+impl DefKind {
+    /// The kind's own word, singular and lower case — the `class` an
+    /// organization-directory row carries, and the word a `list` / `query`
+    /// face answers to.
+    ///
+    /// It lives here, beside the variants, so the table is spelled **once**:
+    /// it had two copies (one in the projection face, one in the iterators)
+    /// before CIMP §1 U120, which is one spelling per reader too many.
+    pub fn word(self) -> &'static str {
+        match self {
+            DefKind::Component => "component",
+            DefKind::Module => "module",
+            DefKind::Interface => "interface",
+            DefKind::Enum => "enum",
+            DefKind::Define => "define",
+            DefKind::Capability => "capability",
+            DefKind::Func => "func",
+        }
+    }
+
+    /// The kind's plural word, for a count line or a group label.
+    ///
+    /// Spelled per variant rather than by appending an `s`: two of the seven
+    /// pluralise irregularly (`capability` → `capabilities`) and one ends in
+    /// `s` already, so a suffix rule would print `capabilitys`.
+    pub fn group(self) -> &'static str {
+        match self {
+            DefKind::Component => "components",
+            DefKind::Module => "modules",
+            DefKind::Interface => "interfaces",
+            DefKind::Enum => "enums",
+            DefKind::Define => "defines",
+            DefKind::Capability => "capabilities",
+            DefKind::Func => "funcs",
+        }
+    }
+}
+
+/// The six kinds a whole-space enumeration walks, in the order it walks them
+/// (CIMP §1 U120, 2026-09-19).
+///
+/// This is a **display order**, not a count: `DefKind` holds seven variants,
+/// and `DefKind::Func` is deliberately absent here because a func is a member
+/// of its host rather than a standalone def (design §12.1) — see
+/// [`RegistryState::enumerate_all`]. The two host kinds that carry func
+/// members come first, then the smaller definition kinds, which is the order
+/// `show defs` has printed since it was written.
+pub const DEF_KIND_ORDER: [DefKind; 6] = [
+    DefKind::Module,
+    DefKind::Component,
+    DefKind::Interface,
+    DefKind::Enum,
+    DefKind::Define,
+    DefKind::Capability,
+];
+
 /// A function template's addressing entry (design §12.1 / §13.6 delta 1).
 ///
 /// A func is a logical member of its host container (component / module), so
@@ -1281,6 +1337,39 @@ impl RegistryState {
         }
         keyed.sort_by(|a, b| a.0.cmp(&b.0));
         keyed.into_iter().map(|(_, item)| item).collect()
+    }
+
+    /// ★ CIMP §1 U120 (2026-09-19): the whole definition space in **one** read.
+    ///
+    /// [`enumerate`](Self::enumerate) has always been kind-parameterized; what
+    /// did not exist is the call that covers the space, so every consumer that
+    /// listed it (`show defs`, `list all`) kept a hand-written union per kind
+    /// and a new kind had to be added in as many places. This walks
+    /// [`DEF_KIND_ORDER`] and concatenates, so the result is ordered by
+    /// `(kind, key)` — each kind's rows come out in the `(uri, ident)` order
+    /// `enumerate` returns them in, never in arena insertion order — and a
+    /// consumer that groups by kind needs no ordering rule of its own.
+    ///
+    /// **`DefKind::Func` is not enumerated here, by design.** A func is a
+    /// member of its host (design §12.1): its arena row carries only a display
+    /// label `HOST.func` and a [`FuncDef::host`] link, so a caller that
+    /// enumerated it would have to group the rows back under a host it can
+    /// only reach through that link, in an order the label does not preserve.
+    /// The read for funcs is the host-member one — each host's own `funcs`
+    /// table — which is what `DefinitionSpace::all_funcs` gives.
+    pub(crate) fn enumerate_all(
+        &self,
+        filter: DomainFilter,
+    ) -> Vec<(DefKind, McSpaceName, DefValue)> {
+        let mut out: Vec<(DefKind, McSpaceName, DefValue)> = Vec::new();
+        for kind in DEF_KIND_ORDER {
+            out.extend(
+                self.enumerate(kind, filter)
+                    .into_iter()
+                    .map(|(sn, data)| (kind, sn, data)),
+            );
+        }
+        out
     }
 
     /// The [`DefId`] of a live `(key, kind)` identity, any domain —

@@ -607,6 +607,15 @@ pub enum ShowTarget {
     // service pass `-L`, or the readout is delegated and prints nothing.
     Stage,
 
+    // The organization directory of the current definition space
+    // (organization-units-design.md §8; CIMP §1 U120): every unit listed under
+    // its own key — the definition kinds by `(uri, ident)`, a func by its host,
+    // a bus by its name and host, a clause by its position. Emits the
+    // projection envelope with `view` = "org-units", one `items` array sorted
+    // by `(kind, key)` and rendered to both faces. Derived, read-only, and it
+    // issues no id: it is the directory of the bridge, not the bridge.
+    OrgUnits,
+
     // Entity internals drill-down (<name> = owning entity, required)
     // Pins of a component / interface
     Pins,
@@ -638,7 +647,7 @@ impl ShowTarget {
     /// Shared by clap's value parsing (the variant names are the tokens, with no
     /// `#[value(name = …)]` override anywhere in the enum) and by the emitted
     /// envelope's `command` — `mcc show <token>` — which is the **only**
-    /// discriminator among the 21 sub-faces sharing the `show` projection key:
+    /// discriminator among the 22 sub-faces sharing the `show` projection key:
     /// 16 of their payloads carry no `type` field of their own. One table, so a
     /// new sub-face cannot land a token in one place and not the other; the
     /// pairing is asserted by the test below.
@@ -657,6 +666,7 @@ impl ShowTarget {
             Self::Lapper => "lapper",
             Self::Ast => "ast",
             Self::Stage => "stage",
+            Self::OrgUnits => "org-units",
             Self::Pins => "pins",
             Self::Ports => "ports",
             Self::Labels => "labels",
@@ -698,8 +708,10 @@ pub struct ListArgs {
     #[arg(long, short = 'F')]
     pub file: Option<String>,
 
-    /// Structured filter on the name lists (all/component/module/interface/enum).
-    /// Comma-separated key=value (key in name|kind|class). RHS supports `*`/`?` wildcards.
+    /// Structured filter on the name lists (all/component/module/interface/enum/
+    /// func/bus). Comma-separated key=value (key in name|kind|class). RHS
+    /// supports `*`/`?` wildcards. `list clause` filters on the **host** name —
+    /// a clause has no name of its own.
     #[arg(long, value_name = "EXPR")]
     pub filter: Option<String>,
 
@@ -730,6 +742,18 @@ pub enum ListTarget {
     Ports,
     // All loaded files with per-file definition counts
     Files,
+    // All func members of the definition space, as host members:
+    // (func, host, host_kind, uri). A func is not a standalone def, so its key
+    // is the (host, name) pair rather than a name of its own.
+    Func,
+    // All declared buses (`X{P, N}`), one row per declaration:
+    // (bus, host, host_kind, members, uri). A bus carries no DefId, so its key
+    // is its name plus its host.
+    Bus,
+    // All clause groups of the definition space, keyed by position
+    // (uri, byte offset). A clause is the one unit with no declaration object
+    // and no name, so it is listed by where it is, not by what it is called.
+    Clause,
 }
 
 // query  (search folded in: `mcc search <X>` = alias for a bare-name query)
@@ -744,7 +768,8 @@ pub struct QueryArgs {
     /// Optional file or directory to load before querying
     pub target: Option<String>,
 
-    /// Restrict to one kind: component|module|interface|enum|instance|net
+    /// Restrict to one kind:
+    /// component|module|interface|enum|instance|net|func|bus|clause
     #[arg(long, value_enum)]
     pub kind: Option<SearchKind>,
 
@@ -785,6 +810,14 @@ pub enum SearchKind {
     // points). Not a definition kind — the lib search engine has no Net;
     // `query --kind net` projects the net table in cmds/query.rs.
     Net,
+    // Func members, as host members (host, name). Like `net`, not a definition
+    // kind the search engine holds: `query --kind func` projects the directory
+    // rows in cmds/query.rs.
+    Func,
+    // Declared buses, keyed by name plus host. Same projection route as `func`.
+    Bus,
+    // Clause groups, keyed by position. Same projection route as `func`.
+    Clause,
 }
 
 // export
