@@ -250,3 +250,262 @@ fn iface_conn__func_body_mutual_pair_is_quiet() {
          vacuous quiet where the func never ran); got {nets:?}"
     );
 }
+
+/// U128 step ④ — definition-side self-check cells. The fixture below
+/// replicates the *real* library disease shape (D8: `UART.RS485`'s Repeater
+/// role, mcode/ifs/uart.mc): the repeater names its peers (`peer =
+/// [Master, Slave]`) but neither peer names it back, and its member table is
+/// 6 members against the peers' 3. The rule must flag the non-mutual pair on
+/// the real shape — proving the check catches library-borne diseases, not
+/// only the two-role toy fixtures above. Family naming keeps the
+/// `{family}__{essence}` discipline.
+const D8_RS485: &str = r#"
+interface RS485D8(role)
+{
+    role Master {
+        pins = [
+            1 = A
+            2 = B
+            3 = GND
+        ]
+        peer = Slave
+    }
+    role Slave {
+        pins = [
+            1 = A
+            2 = B
+            3 = GND
+        ]
+        peer = Master
+    }
+    role Repeater {
+        pins = [
+            1 = A_IN
+            2 = B_IN
+            3 = GND_IN
+            4 = A_OUT
+            5 = B_OUT
+            6 = GND_OUT
+        ]
+        peer = [Master, Slave]
+    }
+}
+
+component D8TERM
+{
+    pins = [
+        [1,2,3] = IF::RS485D8(Master)
+    ]
+}
+
+component D8TRM
+{
+    pins = [
+        [1,2,3] = IF::RS485D8(Slave)
+    ]
+}
+
+component D8REP
+{
+    pins = [
+        [1,2,3,4,5,6] = IF::RS485D8(Repeater)
+    ]
+}
+"#;
+
+/// Build `main` from the D8 fixture with the body statement `body`. Same
+/// return shape as [`build`].
+fn build_d8(body: &str, uri: &str) -> (Vec<u32>, Vec<Vec<String>>) {
+    let _lock = common::lock();
+    common::reset();
+    let src = format!(
+        "{D8_RS485}module main {{\n    D8TERM dm\n    D8TRM ds\n    D8REP rp\n{body}\n}}\n"
+    );
+    let u = McURI::from(uri);
+    mcc::mcc_load_from_string(&u, &src);
+    let (_, _, _, net_store) = mcc::mcc_build_with_nets(&McIds::from("main"), &u).expect("build");
+    let mut codes: Vec<u32> = mcc::mcc_diagnose_all()
+        .iter()
+        .map(|d| d.code)
+        .filter(|c| !benign(*c))
+        .collect();
+    codes.sort_unstable();
+
+    let mut partition: Vec<Vec<String>> = net_store
+        .get("main")
+        .map(|t| {
+            t.iter()
+                .map(|(_, pts)| {
+                    let mut ps: Vec<String> = pts.iter().map(|p| p.path.clone()).collect();
+                    ps.sort();
+                    ps
+                })
+                .filter(|ps| !ps.is_empty())
+                .collect()
+        })
+        .unwrap_or_default();
+    partition.sort();
+    (codes, partition)
+}
+
+/// Definition-side self-check (the actual step-④ deliverable): the D8
+/// fixture's interface definition is diseased all by itself, with no
+/// connection statement anywhere. Loading it must raise E5508 (Repeater's
+/// peers never name it back) and E5509 (6 members against the peers' 3) —
+/// reported once each per non-mutual / mismatched declared pair, at
+/// definition load, exactly as `interface-connect-rule-design.md` §3.3 A/B
+/// prescribe. The measured reality this cell pins: on the *whole-port*
+/// statement the 6-vs-3 width rejection (E4007, shape family per §3.2 row 3)
+/// precedes the join, so the join-site role check never runs for the true
+/// shape — the definition-side check is the layer that actually names the
+/// peer disease.
+#[test]
+fn iface_def__d8_repeater_peer_disease_fires_at_definition_load() {
+    let (codes, _nets) = build_d8("", "/mcc/iface-def-d8-disease.mc");
+    assert!(
+        codes.contains(&5508),
+        "the D8 role table must raise the not-mutual self-check at load; got {codes:?}"
+    );
+    assert!(
+        codes.contains(&5509),
+        "the D8 6-vs-3 role tables must raise the peer-width self-check at load; got {codes:?}"
+    );
+    assert_eq!(
+        rule_codes(&codes),
+        Vec::<u32>::new(),
+        "no connection statement exists, so no join-site code may fire; got {codes:?}"
+    );
+}
+
+/// The whole-port D8 statement (`rp.IF -> dm.IF`, 6 members against 3) is
+/// caught by the width axis — E4007, per §3.2 row 3 — and is NOT silent. The
+/// join-site role check is unreachable behind the shape rejection on this
+/// shape; the peer disease itself is named by the definition-side cell above.
+#[test]
+fn iface_conn__d8_whole_port_statement_is_rejected_by_width_not_silently() {
+    let (codes, _nets) = build_d8("    rp.IF -> dm.IF", "/mcc/iface-conn-d8-repeater.mc");
+    assert!(
+        codes.contains(&4007),
+        "the 6-vs-3 whole-port connect must be visibly rejected by the shape layer; got {codes:?}"
+    );
+    assert_eq!(
+        rule_codes(&codes),
+        Vec::<u32>::new(),
+        "width rejection precedes the join, so no join-site role code fires here; got {codes:?}"
+    );
+}
+
+/// An equal-width variant isolates the join-site role axis: `Tap` names
+/// `Master` but Master only names `Slave` back, all tables 3 members wide.
+/// The join is shape-legal, so it reaches the engine and the mutual-pair
+/// test fires E4121 — the connect-side half of the D8 disease, on its own.
+const D8_EQUAL: &str = r#"
+interface RS485EQ(role)
+{
+    role Master {
+        pins = [
+            1 = A
+            2 = B
+            3 = GND
+        ]
+        peer = Slave
+    }
+    role Slave {
+        pins = [
+            1 = A
+            2 = B
+            3 = GND
+        ]
+        peer = Master
+    }
+    role Tap {
+        pins = [
+            1 = A
+            2 = B
+            3 = GND
+        ]
+        peer = [Master]
+    }
+}
+
+component EQDEV
+{
+    pins = [
+        [1,2,3] = IF::RS485EQ(Master)
+    ]
+}
+
+component EQTAP
+{
+    pins = [
+        [1,2,3] = IF::RS485EQ(Tap)
+    ]
+}
+"#;
+
+/// Build `main` from the equal-width variant. Same return shape as [`build`].
+fn build_d8_equal(body: &str, uri: &str) -> (Vec<u32>, Vec<Vec<String>>) {
+    let _lock = common::lock();
+    common::reset();
+    let src = format!("{D8_EQUAL}module main {{\n    EQDEV dm\n    EQTAP tp\n{body}\n}}\n");
+    let u = McURI::from(uri);
+    mcc::mcc_load_from_string(&u, &src);
+    let (_, _, _, net_store) = mcc::mcc_build_with_nets(&McIds::from("main"), &u).expect("build");
+    let mut codes: Vec<u32> = mcc::mcc_diagnose_all()
+        .iter()
+        .map(|d| d.code)
+        .filter(|c| !benign(*c))
+        .collect();
+    codes.sort_unstable();
+
+    let mut partition: Vec<Vec<String>> = net_store
+        .get("main")
+        .map(|t| {
+            t.iter()
+                .map(|(_, pts)| {
+                    let mut ps: Vec<String> = pts.iter().map(|p| p.path.clone()).collect();
+                    ps.sort();
+                    ps
+                })
+                .filter(|ps| !ps.is_empty())
+                .collect()
+        })
+        .unwrap_or_default();
+    partition.sort();
+    (codes, partition)
+}
+
+/// The connect-side half of the D8 disease, isolated from the width axis:
+/// equal widths, shape-legal join, `Tap` names `Master` but Master names only
+/// `Slave` back — the mutual-pair test fails at the engine join, E4121, and
+/// the connection is still made (check-only).
+#[test]
+fn iface_conn__d8_equal_width_not_named_back_is_e4121() {
+    let (codes, nets) = build_d8_equal("    tp.IF -> dm.IF", "/mcc/iface-conn-d8-equal.mc");
+    assert_eq!(
+        rule_codes(&codes),
+        vec![4121],
+        "equal-width not-named-back join must fail the mutual-pair test; got {codes:?}"
+    );
+    assert!(
+        nets.contains(&vec!["dm.1".to_string(), "tp.1".to_string()]),
+        "check-only: the join must still land on one net; got {nets:?}"
+    );
+}
+
+/// The control: Master against Slave is the one wired pairing in the D8
+/// family — both sides name each other, so the same fixture must stay quiet.
+/// Guards against a check that fires on any multi-role family.
+#[test]
+fn iface_conn__d8_master_slave_mutual_pair_is_quiet() {
+    let (codes, nets) = build_d8("    dm.IF -> ds.IF", "/mcc/iface-conn-d8-master-slave.mc");
+    assert_eq!(
+        rule_codes(&codes),
+        Vec::<u32>::new(),
+        "Master<->Slave (each names the other) must stay quiet on the D8 fixture; got {codes:?}"
+    );
+    assert!(
+        nets.contains(&vec!["dm.1".to_string(), "ds.1".to_string()]),
+        "the mutual connect must actually merge pin 1 of both sides; got {nets:?}"
+    );
+}

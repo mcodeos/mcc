@@ -10,6 +10,7 @@
 //!   HW3 — Pin count extremes (too many or too few)
 //!   HW5 — Interface role with dangling peer reference
 //!   HW6 — Component with only single-type IO pins (all inputs, all outputs)
+//!   HW9/HW10 — Interface role peer not mutual (E5508) / peer width mismatch (E5509)
 
 use super::{CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, ValidationCheck};
 use crate::semantic::pwrid::{self, DeclaredFaces, Face};
@@ -35,6 +36,7 @@ impl ValidationCheck for HwCheck {
         check_role_peer_dangling(acc); // HW5
         check_single_ioc_type_component(acc); // HW6
         check_func_param_pin_shadow(acc); // HW8
+        check_role_peer_mutual_and_width(acc); // HW9/HW10
     }
 }
 
@@ -378,6 +380,91 @@ fn check_role_peer_dangling(acc: &mut CheckAccumulator) {
                                 code: crate::errcodes::HW_IFACE_ROLE_UNBOUND,
                             });
                         }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// HW9/HW10: definition-side peer self-check (interface-connect-rule-design.md
+/// §3.3 A/B — the interface definition itself is diseased, so it is reported
+/// where it is declared, not where it is connected):
+///
+///   * peer pairs must be **mutual** (E5508): `Repeater.peer = [Master,
+///     Slave]` while `Master.peer` / `Slave.peer` never name the repeater
+///     back is exactly the real `UART.RS485` library shape.
+///   * declared peers should declare **equal member widths** (E5509):
+///     Repeater's 6 members against Master's 3 can never pair positionally.
+///
+/// Both are definition-space facts — no connection statement is involved.
+/// Dangling peer names stay with HW5 above; absence of a member table is
+/// E3180's territory and is skipped here, not reported as a mismatch.
+fn check_role_peer_mutual_and_width(acc: &mut CheckAccumulator) {
+    let ifaces = crate::definition_space().workspace_interfaces();
+    for (sn, iface) in ifaces.iter() {
+        let uri = sn.uri.to_string();
+        if super::is_test_file(&uri) {
+            continue;
+        }
+
+        // Member width per role, from the role's own declaration table.
+        let width_of =
+            |role: &crate::semantic::basic::mc_role::McRole| role.pins.member_names().len();
+
+        for role in &iface.roles {
+            for attr in &role.attrs {
+                let key = attr.id.to_string().to_lowercase();
+                if key != "peer" {
+                    continue;
+                }
+                let my_width = width_of(role);
+                for peer_name in peer_role_names(&attr.values) {
+                    // Dangling names are HW5's (E5506) verdict — skip here.
+                    let Some(peer_role) =
+                        iface.roles.iter().find(|r| r.name.to_string() == peer_name)
+                    else {
+                        continue;
+                    };
+                    // A: mutuality. The peer's own `peer` attribute must name
+                    // this role back.
+                    let is_named_back = peer_role
+                        .attrs
+                        .iter()
+                        .filter(|a| a.id.to_string().to_lowercase() == "peer")
+                        .flat_map(|a| peer_role_names(&a.values))
+                        .any(|n| n == role.name.to_string());
+                    if !is_named_back {
+                        acc.push(CheckResult {
+                            check_name: "hw",
+                            severity: CheckSeverity::Warning,
+                            uri: Some(uri.clone()),
+                            span: attr.key_span.clone(),
+                            message: format!(
+                                "Interface '{}': role '{}' names peer '{}' \
+                                 but '{}' does not name '{}' back; \
+                                 peer pairs must be mutual",
+                                iface.name, role.name, peer_name, peer_name, role.name,
+                            ),
+                            code: crate::errcodes::HW_IFACE_PEER_NOT_MUTUAL,
+                        });
+                    }
+                    // B: width agreement. Both sides must actually declare a
+                    // member table; an empty table is E3180's verdict.
+                    let peer_width = width_of(peer_role);
+                    if my_width > 0 && peer_width > 0 && my_width != peer_width {
+                        acc.push(CheckResult {
+                            check_name: "hw",
+                            severity: CheckSeverity::Warning,
+                            uri: Some(uri.clone()),
+                            span: attr.key_span.clone(),
+                            message: format!(
+                                "Interface '{}': role '{}' declares {} member(s) \
+                                 but its peer '{}' declares {}",
+                                iface.name, role.name, my_width, peer_name, peer_width,
+                            ),
+                            code: crate::errcodes::HW_IFACE_PEER_WIDTH_MISMATCH,
+                        });
                     }
                 }
             }
