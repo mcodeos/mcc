@@ -1830,32 +1830,62 @@ impl InstantiationBuilder {
         // all uC SPI pins short into the same spi net (S1).
         //
         // Fix: look up via self.find_submodule(inst_name).ports with an exact
-        // match (spec/01 §2), preferring a bus/interface port. If it fails, fall
-        // back to the original formal (safe fallback, preserving old behavior).
-        let resolved: Vec<(String, String, IOType, McParamValue)> = boundary_pairs
+        // match (spec/01 §2), preferring a bus/interface port.
+        //
+        // ★ What the lookup decides is whether the port exists **at all**: both
+        // `find` arms compare `p.name == formal`, so it can never name a port
+        // the formal does not already spell. That matters because a terminal
+        // formal is the *inner* face of a terminal the container already
+        // declares (`terminal-formal-design` §6, principle C: a func adds no
+        // terminal of its own). So there is nothing to fall back to when the
+        // lookup misses — and the former fallback, which reused the formal's
+        // own spelling, minted a boundary endpoint out of nothing: a phantom
+        // point `s.X` carrying the parent's net with **zero** diagnostics, or a
+        // degenerate `EXT~0` whose only report (`E4007`) blames the shape rather
+        // than the missing port (CIMP §1 U108).
+        //
+        // Report the miss and mint nothing. E3175 already carries the shape the
+        // ruling asks for — the offending name plus the ports that do exist —
+        // and `instref.rs` raises it the same way (as an error, and skips).
+        let resolved: Vec<(String, bool, McParamValue)> = boundary_pairs
             .into_iter()
             .map(|(formal, actual)| {
-                let (declared, iotype) = self
-                    .find_submodule(inst_name)
-                    .and_then(|sub| {
-                        // Prefer bus/interface ports (bus_members non-empty);
-                        // these are the **declared** ports registered by
-                        // instantiate_interface in pass1. Otherwise we would
-                        // hit the boundary-formal placeholder port that
-                        // Phase A body adds first (bus_members empty, e.g. `spi`).
-                        sub.ports
-                            .iter()
-                            .find(|p| p.name == formal && !p.bus_members.is_empty())
-                            // Finally fall back to any same-name port (for scalar boundary
-                            // compatibility)
-                            .or_else(|| sub.ports.iter().find(|p| p.name == formal))
-                            .map(|p| (p.name.clone(), p.iotype.clone()))
-                    })
-                    .unwrap_or_else(|| (formal.clone(), IOType::None));
-                (formal, declared, iotype, actual)
+                let declared = self.find_submodule(inst_name).is_some_and(|sub| {
+                    // Prefer bus/interface ports (bus_members non-empty);
+                    // these are the **declared** ports registered by
+                    // instantiate_interface in pass1. Otherwise we would
+                    // hit the boundary-formal placeholder port that
+                    // Phase A body adds first (bus_members empty, e.g. `spi`).
+                    sub.ports
+                        .iter()
+                        .find(|p| p.name == formal && !p.bus_members.is_empty())
+                        // Otherwise any same-name port (scalar boundary).
+                        .or_else(|| sub.ports.iter().find(|p| p.name == formal))
+                        .is_some()
+                });
+                (formal, declared, actual)
             })
             .collect();
-        for (_formal, declared_port_name, _port_iotype, actual) in resolved {
+        for (declared_port_name, declared, actual) in resolved {
+            if !declared {
+                let sub = self.find_submodule(inst_name);
+                let available: Vec<&str> = sub
+                    .iter()
+                    .flat_map(|s| s.ports.iter().map(|p| p.name.as_str()))
+                    .collect();
+                self.record_error(
+                    crate::errcodes::MODULE_PORT_NOT_FOUND,
+                    crate::errcodes::format_msg(
+                        crate::errcodes::MODULE_PORT_NOT_FOUND,
+                        &[
+                            &declared_port_name as &dyn std::fmt::Display,
+                            &inst_name as &dyn std::fmt::Display,
+                            &available.join(", ") as &dyn std::fmt::Display,
+                        ],
+                    ),
+                );
+                continue;
+            }
             let actual_elems = Self::param_value_to_node_elements(&actual);
             let mut left: Vec<NetPoint> = Vec::new();
             for e in &actual_elems {
