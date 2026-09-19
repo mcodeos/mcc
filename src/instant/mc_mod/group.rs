@@ -52,6 +52,14 @@ impl InstantiationBuilder {
             return Ok(());
         }
 
+        // U128 step 2b/2c: interface connect rule (family equality E4120,
+        // role mutual-peer E4121). The engine has exactly two net-emission
+        // sites — this one (series family) and the §5.1 loop in
+        // vexpr_wire_parallel — and both call the same one implementation
+        // (design-premises R8); check only, the pairing below stays
+        // positional.
+        self.check_iface_connect_points(&left_points, &right_points);
+
         // §5.3 shape-match check (vec-dianlu.md)
         // Endpoint-layer shape is N×1 (one NetPoint per row). Same row count
         // → legal 1:1 pairing (by-name / sorted zip). Different row count is

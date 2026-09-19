@@ -34,7 +34,7 @@ range (threshold 40KB).
 | `viz/layout/equipotential_tree.rs` | 332 KB | 173 |
 | `semantic/basic/mc_phrase.rs` | 303 KB | 62 |
 | `semantic/component/mc_pins/mod.rs` | 215 KB | 101 |
-| `instant/mc_mod/stmt.rs` | 185 KB | 73 |
+| `instant/mc_mod/stmt.rs` | 186 KB | 74 |
 | `semantic/validation/nets/mod.rs` | 174 KB | 114 |
 | `rules.rs` | 172 KB | 83 |
 | `db/diagnostic/errcodes.rs` | 158 KB | 420 |
@@ -64,7 +64,7 @@ range (threshold 40KB).
 | `db/` | 27 | 884 KB |
 | `eval/` | 2 | 48 KB |
 | `export/` | 6 | 44 KB |
-| `instant/` | 40 | 1522 KB |
+| `instant/` | 40 | 1523 KB |
 | `lsp/` | 7 | 66 KB |
 | `output/` | 7 | 107 KB |
 | `query/` | 9 | 157 KB |
@@ -3028,10 +3028,10 @@ instant/mc_mod/funccall.rs#L978  fn rebind_submodule_params
 instant/mc_mod/group.rs#L25  static BUS_BITS_MISMATCHED
 instant/mc_mod/group.rs#L28  impl InstantiationBuilder
 instant/mc_mod/group.rs#L42  fn create_connection
-instant/mc_mod/group.rs#L532  fn make_conn_with_provenance
-instant/mc_mod/group.rs#L620  fn try_member_passthrough_scalar
-instant/mc_mod/group.rs#L809  fn trunk_from_points
-instant/mc_mod/group.rs#L855  fn refine_lane_trunk
+instant/mc_mod/group.rs#L540  fn make_conn_with_provenance
+instant/mc_mod/group.rs#L628  fn try_member_passthrough_scalar
+instant/mc_mod/group.rs#L817  fn trunk_from_points
+instant/mc_mod/group.rs#L863  fn refine_lane_trunk
 instant/mc_mod/iterated.rs#L23  impl InstantiationBuilder
 instant/mc_mod/iterated.rs#L46  fn check_and_expand_iterated_call
 instant/mc_mod/iterated.rs#L307  fn resolve_indexed_params
@@ -3190,22 +3190,23 @@ instant/mc_mod/stmt.rs#L2092  fn endpoint_refs_deep
 instant/mc_mod/stmt.rs#L2115  fn extract_trunk_kind
 instant/mc_mod/stmt.rs#L2168  fn extract_trunk_iface
 instant/mc_mod/stmt.rs#L2187  fn iface_class_of
-instant/mc_mod/stmt.rs#L2216  fn check_iface_connect
-instant/mc_mod/stmt.rs#L2292  fn extract_iface_endpoint
-instant/mc_mod/stmt.rs#L2318  fn iface_endpoint_of
-instant/mc_mod/stmt.rs#L2350  fn role_of
-instant/mc_mod/stmt.rs#L2368  fn iface_peer_names
-instant/mc_mod/stmt.rs#L2425  fn connect_adjacent_pair
-instant/mc_mod/stmt.rs#L2477  fn normalize_branch_elem
-instant/mc_mod/stmt.rs#L2495  fn process_series_branch_inplace
-instant/mc_mod/stmt.rs#L2537  fn stash_pass_through
-instant/mc_mod/stmt.rs#L2544  fn process_member_internal
-instant/mc_mod/stmt.rs#L3455  fn assign_phrase_ids
-instant/mc_mod/stmt.rs#L3498  fn reset_phrase_ids
-instant/mc_mod/stmt.rs#L3536  fn member_key
-instant/mc_mod/stmt.rs#L3561  fn extract_caller_inst_name
-instant/mc_mod/stmt.rs#L3643  fn resolve_array_caller_to_existing
-instant/mc_mod/stmt.rs#L3705  fn phrase_contains_failed_class
+instant/mc_mod/stmt.rs#L2229  fn check_iface_connect_points
+instant/mc_mod/stmt.rs#L2249  fn check_iface_connect_net
+instant/mc_mod/stmt.rs#L2270  fn iface_pair_diag
+instant/mc_mod/stmt.rs#L2333  fn iface_endpoint_of_point
+instant/mc_mod/stmt.rs#L2361  fn role_of
+instant/mc_mod/stmt.rs#L2379  fn iface_peer_names
+instant/mc_mod/stmt.rs#L2436  fn connect_adjacent_pair
+instant/mc_mod/stmt.rs#L2485  fn normalize_branch_elem
+instant/mc_mod/stmt.rs#L2503  fn process_series_branch_inplace
+instant/mc_mod/stmt.rs#L2545  fn stash_pass_through
+instant/mc_mod/stmt.rs#L2552  fn process_member_internal
+instant/mc_mod/stmt.rs#L3463  fn assign_phrase_ids
+instant/mc_mod/stmt.rs#L3506  fn reset_phrase_ids
+instant/mc_mod/stmt.rs#L3544  fn member_key
+instant/mc_mod/stmt.rs#L3569  fn extract_caller_inst_name
+instant/mc_mod/stmt.rs#L3651  fn resolve_array_caller_to_existing
+instant/mc_mod/stmt.rs#L3713  fn phrase_contains_failed_class
 instant/mc_mod/subst.rs#L31  impl InstantiationBuilder
 instant/mc_mod/subst.rs#L38  fn param_value_to_node_elements
 instant/mc_mod/subst.rs#L108  fn phrase_to_node_elements
@@ -3238,24 +3239,24 @@ instant/mc_mod/vexpr/eval.rs#L307  fn vexpr_fold_named_form
 instant/mc_mod/vexpr/eval.rs#L347  fn vexpr_fold_parallel_operand
 instant/mc_mod/vexpr/eval.rs#L381  fn vexpr_fold_parallel_form
 instant/mc_mod/vexpr/eval.rs#L412  fn vexpr_wire_parallel
-instant/mc_mod/vexpr/eval.rs#L456  fn points_of
-instant/mc_mod/vexpr/eval.rs#L461  mod tests
-instant/mc_mod/vexpr/eval.rs#L469  fn builder
-instant/mc_mod/vexpr/eval.rs#L476  fn label
-instant/mc_mod/vexpr/eval.rs#L483  fn bus
-instant/mc_mod/vexpr/eval.rs#L489  fn paths
-instant/mc_mod/vexpr/eval.rs#L493  fn point_paths
-instant/mc_mod/vexpr/eval.rs#L499  fn wired
-instant/mc_mod/vexpr/eval.rs#L506  fn adjacent__two_labels_series_wires_one_connection
-instant/mc_mod/vexpr/eval.rs#L515  fn adjacent__three_labels_series_wires_each_written_leg
-instant/mc_mod/vexpr/eval.rs#L524  fn parallel__wires_its_internal_net_via_the_member_pre_pass
-instant/mc_mod/vexpr/eval.rs#L537  fn group__is_a_statement_list_expanded_before_the_fold
-instant/mc_mod/vexpr/eval.rs#L555  fn fold__lead_is_a_width_slot_carrying_the_lead_body
-instant/mc_mod/vexpr/eval.rs#L583  fn fold__transposed_degenerate_operand_is_an_identity
-instant/mc_mod/vexpr/eval.rs#L600  fn fold__reversed_order_less_operand_is_an_identity
-instant/mc_mod/vexpr/eval.rs#L613  fn lane__chain_tags_every_connection_with_its_lane
-instant/mc_mod/vexpr/eval.rs#L652  fn c1__mixed_direction_chain_keeps_written_order_and_each_edge_direction
-instant/mc_mod/vexpr/eval.rs#L677  fn series__mismatched_rows_emit_the_shape_error_and_no_connection
+instant/mc_mod/vexpr/eval.rs#L462  fn points_of
+instant/mc_mod/vexpr/eval.rs#L467  mod tests
+instant/mc_mod/vexpr/eval.rs#L475  fn builder
+instant/mc_mod/vexpr/eval.rs#L482  fn label
+instant/mc_mod/vexpr/eval.rs#L489  fn bus
+instant/mc_mod/vexpr/eval.rs#L495  fn paths
+instant/mc_mod/vexpr/eval.rs#L499  fn point_paths
+instant/mc_mod/vexpr/eval.rs#L505  fn wired
+instant/mc_mod/vexpr/eval.rs#L512  fn adjacent__two_labels_series_wires_one_connection
+instant/mc_mod/vexpr/eval.rs#L521  fn adjacent__three_labels_series_wires_each_written_leg
+instant/mc_mod/vexpr/eval.rs#L530  fn parallel__wires_its_internal_net_via_the_member_pre_pass
+instant/mc_mod/vexpr/eval.rs#L543  fn group__is_a_statement_list_expanded_before_the_fold
+instant/mc_mod/vexpr/eval.rs#L561  fn fold__lead_is_a_width_slot_carrying_the_lead_body
+instant/mc_mod/vexpr/eval.rs#L589  fn fold__transposed_degenerate_operand_is_an_identity
+instant/mc_mod/vexpr/eval.rs#L606  fn fold__reversed_order_less_operand_is_an_identity
+instant/mc_mod/vexpr/eval.rs#L619  fn lane__chain_tags_every_connection_with_its_lane
+instant/mc_mod/vexpr/eval.rs#L658  fn c1__mixed_direction_chain_keeps_written_order_and_each_edge_direction
+instant/mc_mod/vexpr/eval.rs#L683  fn series__mismatched_rows_emit_the_shape_error_and_no_connection
 instant/mc_mod/vexpr/fold.rs#L20  struct SeriesStep
 instant/mc_mod/vexpr/fold.rs#L36  fn fold_series
 instant/mc_mod/vexpr/fold.rs#L77  fn fold_parallel
@@ -10664,4 +10665,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-397 files, 10584 declarations.
+397 files, 10585 declarations.

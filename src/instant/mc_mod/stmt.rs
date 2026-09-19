@@ -2204,53 +2204,96 @@ impl InstantiationBuilder {
     }
 
     /// U128 step 2b — interface connect rule, §1.2 steps 1–2: family equality
-    /// and role mutual-peer between two interface endpoints.
+    /// and role mutual-peer between two interface endpoints, evaluated from
+    /// the already-reduced connection points.
     ///
-    /// Purely a check: the pairing itself stays positional (§11.3, step 2a) and
-    /// member names are never consulted. A side that is not an interface
-    /// endpoint skips silently — the non-interface path is the positional law,
-    /// not an error; a side whose role is not resolved skips step 2 the same
-    /// way (§1.2: the role check applies only when both sides carry roles).
-    /// Reporting never blocks instantiation (build-so-it's-findable): the
-    /// connection is still made, the diagnostic says the wires are suspect.
-    fn check_iface_connect(&self, left: &McPhrase, right: &McPhrase) {
-        let (lbase, lrole) = match self.extract_iface_endpoint(left) {
-            Some(x) => x,
-            None => return,
+    /// U128 step 2b/2c — interface connect rule, §1.2 steps 1–2: family
+    /// equality and role mutual-peer between interface endpoints, evaluated
+    /// from the already-reduced connection points.
+    ///
+    /// The unified vector connection engine (design-premises R8) emits every
+    /// net through exactly two sites: `create_connection` (series adjacency,
+    /// lane-by-lane chains, func-boundary joins) and the `+`/§5.1 wiring loop
+    /// in `vexpr_wire_parallel` (kept off `create_connection` so the edge
+    /// stays tagged `ConnOp::Parallel` — unified-core §7.7 (6)). Both sites
+    /// call this one implementation, so no connection shape can bypass the
+    /// rule and no call site carries its own copy of it.
+    ///
+    /// A point that resolves to no interface endpoint skips silently — the
+    /// non-interface path is the positional law, not an error; an endpoint
+    /// whose role is not resolved skips step 2 the same way. Reporting never
+    /// blocks instantiation (build-so-it's-findable): the connection is still
+    /// made, the diagnostic says the wires are suspect. `log_global_diag`
+    /// dedupes on (code, uri, offset), so the per-lane / per-row split of one
+    /// junction across several engine calls reports once.
+    pub(super) fn check_iface_connect_points(&mut self, left: &[NetPoint], right: &[NetPoint]) {
+        // Cross-side only: each slice is one FACE (all rows of one side), so
+        // rows of the same face must never be compared against each other.
+        let Some((base0, role0)) = left.iter().find_map(|p| self.iface_endpoint_of_point(p)) else {
+            return;
         };
-        let (rbase, rrole) = match self.extract_iface_endpoint(right) {
-            Some(x) => x,
-            None => return,
+        let rights: Vec<_> = right
+            .iter()
+            .filter_map(|p| self.iface_endpoint_of_point(p))
+            .collect();
+        for (base, role) in &rights {
+            if self.iface_pair_diag(&base0, &role0, base, role) {
+                return;
+            }
+        }
+    }
+
+    /// Same rule over one emitted net — the shape the §5.1 wiring loop sees
+    /// (`ha.IF + da.IF + hb.IF` lands all three endpoints on one net), where
+    /// every pair on the net is a genuine junction.
+    pub(super) fn check_iface_connect_net(&mut self, points: &[NetPoint]) {
+        let eps: Vec<(
+            std::sync::Arc<crate::semantic::mc_ifs::McInterface>,
+            Option<String>,
+        )> = points
+            .iter()
+            .filter_map(|p| self.iface_endpoint_of_point(p))
+            .collect();
+        let Some((base0, role0)) = eps.first() else {
+            return;
         };
-        let lfam = lbase.name.to_string();
-        let rfam = rbase.name.to_string();
-        let fallback = self
-            .current_stmt_span
-            .as_ref()
-            .map(|s| s.offset as i32)
-            .unwrap_or(self.def.span.start as i32);
-        if lfam != rfam {
-            // Step 1: family equality — `UART.TTL` and `UART.RS232` are
-            // different families even though both are dotted `UART`.
+        for (base, role) in &eps[1..] {
+            if self.iface_pair_diag(base0, role0, base, role) {
+                return;
+            }
+        }
+    }
+
+    /// §1.2 steps 1–2 for one endpoint pair. Emits at most one diagnostic and
+    /// returns true when the sweep should stop (one report per junction —
+    /// `log_global_diag` dedupes the per-row repeats anyway).
+    fn iface_pair_diag(
+        &mut self,
+        base0: &std::sync::Arc<crate::semantic::mc_ifs::McInterface>,
+        role0: &Option<String>,
+        base: &std::sync::Arc<crate::semantic::mc_ifs::McInterface>,
+        role: &Option<String>,
+    ) -> bool {
+        // Step 1: family equality — `UART.TTL` and `UART.RS232` are
+        // different families even though both are dotted `UART`.
+        let fam0 = base0.name.to_string();
+        let fam = base.name.to_string();
+        if fam != fam0 {
             let msg = crate::errcodes::format_msg(
                 crate::errcodes::IFACE_CROSS_FAMILY_CONNECT,
-                &[&lfam as &dyn std::fmt::Display, &rfam],
+                &[&fam0 as &dyn std::fmt::Display, &fam],
             );
-            crate::db::diagnostic::diagnostic::diagnostic_log(
+            self.log_global_diag(
                 crate::errcodes::IFACE_CROSS_FAMILY_CONNECT,
                 crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
-                fallback as u32,
-                lfam.len() as u32,
-                &msg,
-                &[],
+                msg,
             );
-            return;
+            return true;
         }
         // Step 2: role mutual-peer — each role must name the other in its
-        // `peer` attribute. Self-peer roles (a role whose peer is itself)
-        // pass trivially; the peer names are read from the interface
+        // `peer` attribute. The peer names are read from the interface
         // definition's own role table, never from member names.
-        if let (Some(lr), Some(rr)) = (lrole, rrole) {
+        if let (Some(lr), Some(rr)) = (role0.as_deref(), role.as_deref()) {
             let peers = |base: &crate::semantic::mc_ifs::McInterface, role: &str| -> Vec<String> {
                 base.roles
                     .iter()
@@ -2264,81 +2307,49 @@ impl InstantiationBuilder {
                     })
                     .unwrap_or_default()
             };
-            let mutual = peers(&lbase, &lr).contains(&rr) && peers(&rbase, &rr).contains(&lr);
+            let mutual = peers(base0, lr).contains(&rr.to_string())
+                && peers(base, rr).contains(&lr.to_string());
             if !mutual {
                 let msg = crate::errcodes::format_msg(
                     crate::errcodes::IFACE_ROLE_INCOMPATIBLE,
-                    &[&lr as &dyn std::fmt::Display, &rr, &lfam],
+                    &[&lr as &dyn std::fmt::Display, &rr, &fam0],
                 );
-                crate::db::diagnostic::diagnostic::diagnostic_log(
+                self.log_global_diag(
                     crate::errcodes::IFACE_ROLE_INCOMPATIBLE,
                     crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
-                    fallback as u32,
-                    lfam.len() as u32,
-                    &msg,
-                    &[],
+                    msg,
                 );
+                return true;
             }
         }
+        false
     }
 
-    /// Interface endpoint of one operand phrase (U128 §1.2 inputs): the bound
-    /// interface *definition* plus the instance's selected role. The role is
-    /// the single `Ids` argument of the interface instance (`::SPI(Master)` →
-    /// `Master`), verified against the definition's role table — an unknown
-    /// role name counts as roleless here (flagged at declaration side by
-    /// E4104). Mirrors `extract_trunk_iface`'s traversal so both readers stay
-    /// in step.
-    fn extract_iface_endpoint(
+    /// Interface endpoint behind one reduced connection point: resolve the
+    /// owner instance, the point's pin, and the pin's port; an interface port
+    /// yields its definition plus the instance's selected role. The role comes
+    /// from the port's interface params — the same source `mc_pins` reads for
+    /// role member tables.
+    fn iface_endpoint_of_point(
         &self,
-        phrase: &McPhrase,
+        pt: &NetPoint,
     ) -> Option<(
         std::sync::Arc<crate::semantic::mc_ifs::McInterface>,
         Option<String>,
     )> {
-        if let McPhrase::Multiple(items) = phrase {
-            return items.iter().find_map(|it| match it {
-                McPhrase::Endpoint(McEndpoint::Single(ir)) => self.iface_endpoint_of(ir),
-                _ => None,
-            });
+        let owner = pt.owner.as_ref()?;
+        let comp = self.find_component(owner)?;
+        let pin = pt.path.rsplit('.').next()?;
+        let names = comp.def.pins.pin_id_to_names.get(pin)?;
+        let port_name = names.first()?.split('.').next()?;
+        if port_name.is_empty() {
+            return None;
         }
-        let ir = match phrase {
-            McPhrase::Endpoint(McEndpoint::Single(ir)) => ir,
-            McPhrase::Member(_base, McEndpoint::Single(ir)) => ir,
-            _ => return None,
-        };
-        self.iface_endpoint_of(ir)
-    }
-
-    /// Interface endpoint of one endpoint ref: a direct `McInstance::Interface`
-    /// yields its own definition; a bus operand (`u1.SPI`, also the carrier of
-    /// a flattened member lane) resolves the port segment against the owner
-    /// component's pin table. The role comes from the interface *instance*'s
-    /// params — the same source `mc_pins` reads for role member tables.
-    fn iface_endpoint_of(
-        &self,
-        ir: &McInstanceRef,
-    ) -> Option<(
-        std::sync::Arc<crate::semantic::mc_ifs::McInterface>,
-        Option<String>,
-    )> {
-        match &ir.base {
-            McInstance::Interface(i) => Some((i.base.clone(), Self::role_of(&i.base, &i.params))),
-            McInstance::Bus(b) => {
-                let member = b.member.first().or_else(|| b.full_members.first())?;
-                let port_name = member.split('.').next()?;
-                if port_name.is_empty() {
-                    return None;
-                }
-                let comp = self.find_component(b.name())?;
-                match comp.def.pins.names_to_id.get(port_name) {
-                    Some(McPinPort::Interface(iface)) => Some((
-                        iface.base.clone(),
-                        Self::role_of(&iface.base, &iface.params),
-                    )),
-                    _ => None,
-                }
-            }
+        match comp.def.pins.names_to_id.get(port_name) {
+            Some(McPinPort::Interface(iface)) => Some((
+                iface.base.clone(),
+                Self::role_of(&iface.base, &iface.params),
+            )),
             _ => None,
         }
     }
@@ -2439,9 +2450,6 @@ impl InstantiationBuilder {
         let trunk_iface = self
             .extract_trunk_iface(left_member)
             .or_else(|| self.extract_trunk_iface(right_member));
-        // U128 step 2b: interface connect rule (family equality E4120, role
-        // mutual-peer E4121). Check only — the pairing below stays positional.
-        self.check_iface_connect(left_member, right_member);
         self.with_trunk(trunk, trunk_kind, trunk_iface, |this| {
             // ── Array-form operands fall through to the general row gate below ──
             // Whole declared arrays in plain Series statements (`cap[4:5] -> PWR{VCC,GND}`,

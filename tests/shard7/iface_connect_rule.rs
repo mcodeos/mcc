@@ -45,6 +45,7 @@ component HOSTDEV
     pins = [
         [1,2] = IF::LINK(Host)
     ]
+    func j(S) { S + IF }
 }
 
 component DEVDEV
@@ -207,5 +208,45 @@ fn iface_conn__roleless_interface_is_quiet() {
             vec!["ba.2".to_string(), "bb.2".to_string()],
         ],
         "roleless connect still pairs positionally; got {nets:?}"
+    );
+}
+
+/// The `+`/§5.1 parallel shape must be guarded too: its wiring is emitted by
+/// the engine's second site (`vexpr_wire_parallel`), which deliberately does
+/// not go through `create_connection`. Host against Host → E4121, reported
+/// once (both row nets dedupe on the statement offset), and both pins still
+/// merge onto one net each (check-only).
+#[test]
+fn iface_conn__parallel_join_is_e4121_once() {
+    let (codes, nets) = build("    ha.IF + hb.IF", "/mcc/iface-conn-parallel.mc");
+    assert_eq!(
+        rule_codes(&codes),
+        vec![4121],
+        "the parallel wiring site must run the same rule; got {codes:?}"
+    );
+    assert!(
+        nets.contains(&vec!["ha.1".to_string(), "hb.1".to_string()]),
+        "check-only: pin 1 of both sides still merges onto one net; got {nets:?}"
+    );
+}
+
+/// A mutual-peer pair joined through a func body (`j(S) { S + IF }`, called
+/// `ha.j(da.IF)`) stays quiet — the func boundary is the same engine, not a
+/// second rule. The net assertion is the non-vacuity guard: quiet means
+/// nothing only if the body join demonstrably happened (the actual merges
+/// with `ha`'s own port on one net). (The cross-role func call is covered by
+/// the parallel cell: the body join `S + IF` IS the `+` wiring.)
+#[test]
+fn iface_conn__func_body_mutual_pair_is_quiet() {
+    let (codes, nets) = build("    ha.j(da.IF)", "/mcc/iface-conn-funcbody.mc");
+    assert_eq!(
+        rule_codes(&codes),
+        Vec::<u32>::new(),
+        "a func-body join of mutual peers must be quiet; got {codes:?}"
+    );
+    assert!(
+        nets.contains(&vec!["da.1".to_string(), "ha.1".to_string()]),
+        "the body join must actually merge the actual with the host port (guards against a \
+         vacuous quiet where the func never ran); got {nets:?}"
     );
 }
