@@ -389,6 +389,39 @@ mod tests {
     }
 
     #[test]
+    fn parallel__one_lane_anchor_cannot_absorb_a_multi_lane_degenerate_operand() {
+        // `SPI + UC.SPI` where the container's `SPI` is a bare `io` port (one
+        // point) and the peer is a four-member bus port. A bus port exposes the
+        // same members on both faces, so it looks degenerate -- but its four
+        // lanes are four distinct signals. The one-lane anchor has no lanes to
+        // split them across, so folding them would short all four into a single
+        // net, which is §5.1's illegal `1*1 + N*1` pairing and the silent
+        // recovery §5.3.3 forbids at Pass2. The fold must report it instead.
+        let spi = opd(vec![label("SPI")], vec![label("SPI")]);
+        let bus = opd(
+            vec![
+                pin("UC.SPI.SCLK", "UC", "SCLK"),
+                pin("UC.SPI.MOSI", "UC", "MOSI"),
+                pin("UC.SPI.CSN", "UC", "CSN"),
+                pin("UC.SPI.MISO", "UC", "MISO"),
+            ],
+            vec![
+                pin("UC.SPI.SCLK", "UC", "SCLK"),
+                pin("UC.SPI.MOSI", "UC", "MOSI"),
+                pin("UC.SPI.CSN", "UC", "CSN"),
+                pin("UC.SPI.MISO", "UC", "MISO"),
+            ],
+        );
+        let wiring = fold_parallel_chain(&[spi, bus], &[false, false]).expect("wiring");
+        assert!(wiring.illegal, "a one-lane anchor must not absorb 4 lanes");
+        assert!(
+            wiring.nets.iter().all(|net| net.len() < 2),
+            "no net may be emitted from the dropped operand: {:?}",
+            wiring.nets.iter().map(|n| paths(n)).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
     fn reversed__swaps_the_two_faces_and_reverses_the_shape() {
         // A two-pin row vector: `^` exchanges pin 1 / pin 2 (vec-arch §6.3).
         let r101 = opd(
