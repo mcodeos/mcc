@@ -564,3 +564,147 @@ fn pa_keys__pins_rooted_argument_on_dynamic_pins_is_not_judged() {
     let (diags, _) = probe(&src, "/mcc/keys-pins-dynamic.mc");
     assert_eq!(bind_hits(&diags).len(), 0, "got {diags:?}");
 }
+
+// The colon spelling of a named argument (`k: v`).
+//
+// intent-reference-layer-design.md §7 writes the key with a colon
+// (`uc.power(io33: DVDD, core12: DCORE)`) and the srcv3 corpus follows it, while
+// the call site only ever *built* `k = v`. A colon argument fell through to the
+// colon-expression rules, whose node no argument reader recognises, so it
+// reached neither face: never bound, and never reported either. Both spellings
+// now build one shape, so each row below states one fact twice and the two
+// halves must agree.
+
+/// A diagnostic flattened to the fields a spelling comparison may read. The
+/// file URI is deliberately absent: the two halves compared here are two
+/// spellings of one fact, not two files.
+fn spelling_key(diags: &[Diag]) -> Vec<(u32, String, u32, u32, String)> {
+    diags
+        .iter()
+        .map(|d| {
+            (
+                d.code,
+                format!("{:?}", d.level),
+                d.row,
+                d.col,
+                d.msg.clone(),
+            )
+        })
+        .collect()
+}
+
+/// One parameter-backed key, one literal key and a closed pin row: the three
+/// faces a named argument can reach.
+const COLON_CLASS: &str = "component C (vout::UV.VOLT = 3.3V) {\n    spec.Vout = vout\n    spec.volt = 5V\n    pins = [\n        1 = A\n        2 = B\n    ]\n}\n";
+
+/// Both spellings of one argument are one fact: the same verdict at the same
+/// position, and the same value on the instance.
+#[test]
+fn pa_keys__colon_and_equal_spellings_are_one_fact() {
+    for (equal, colon) in [
+        ("C c1( Vout = 2.5V )", "C c1( Vout: 2.5V )"),
+        ("C c1( nope = 1 )", "C c1( nope: 1 )"),
+        ("C c1( spec.volt = 9V )", "C c1( spec.volt: 9V )"),
+        (
+            "C c1( Vout = 2.5V, nope = 1 )",
+            "C c1( Vout: 2.5V, nope: 1 )",
+        ),
+    ] {
+        let (d_eq, a_eq) = probe(
+            &format!("{COLON_CLASS}\nmodule main {{\n    {equal}\n}}\n"),
+            "/mcc/keys-colon-spelling.mc",
+        );
+        let (d_co, a_co) = probe(
+            &format!("{COLON_CLASS}\nmodule main {{\n    {colon}\n}}\n"),
+            "/mcc/keys-colon-spelling.mc",
+        );
+        assert_eq!(
+            spelling_key(&d_eq),
+            spelling_key(&d_co),
+            "`{equal}` and `{colon}` must reach the same verdict"
+        );
+        assert_eq!(
+            a_eq, a_co,
+            "`{equal}` and `{colon}` must reach the same value"
+        );
+    }
+}
+
+/// The colon spelling is judged, not swallowed: an orphan names nothing exactly
+/// as its `=` twin does, once, at the instance's own declaration.
+#[test]
+fn pa_keys__colon_orphan_is_an_error_at_the_instance() {
+    let src = format!("{COLON_CLASS}\nmodule main {{\n    C c1( nope: 1 )\n}}\n");
+    let (diags, _) = probe(&src, "/mcc/keys-colon-orphan.mc");
+    let hits = bind_hits(&diags);
+    assert_eq!(
+        hits.len(),
+        1,
+        "a swallowed argument reports nothing at all; got {diags:?}"
+    );
+    assert!(
+        hits[0].msg.contains("nope") && hits[0].msg.contains("Unknown parameter"),
+        "got {}",
+        hits[0].msg
+    );
+    assert_eq!(
+        hits[0].row,
+        row_of(&src, "C c1( nope: 1 )"),
+        "the error belongs on the instance declaration; got {diags:?}"
+    );
+}
+
+/// A colon argument through a parameter-backed key binds that parameter, so the
+/// instance carries the call-site value rather than the definition's.
+#[test]
+fn pa_keys__colon_binds_a_parameter_backed_key() {
+    let src = format!("{COLON_CLASS}\nmodule main {{\n    C c1( Vout: 2.5V )\n}}\n");
+    let (diags, attrs) = probe(&src, "/mcc/keys-colon-binds.mc");
+    assert_eq!(bind_hits(&diags).len(), 0, "got {diags:?}");
+    let got = attrs_of(&attrs, "c1");
+    assert!(
+        got.iter().any(|a| a.contains("2.5V")),
+        "the call-site value must reach the instance; got {got:?}"
+    );
+}
+
+/// Guard 1 under the colon spelling: a name claimed by both a parameter and a
+/// key is ambiguous, exactly as it is under `=`.
+#[test]
+fn pa_keys__colon_formal_and_key_collision_errors() {
+    let src = "component C (Vout::UV.VOLT = 3.3V) {\n    spec.Vout = Vout\n    pins = [\n        1 = A\n        2 = B\n    ]\n}\n\nmodule main {\n    C c1( Vout: 2.5V )\n}\n";
+    let (diags, _) = probe(src, "/mcc/keys-colon-collision.mc");
+    let hits = bind_hits(&diags);
+    assert_eq!(hits.len(), 1, "got {diags:?}");
+    assert!(
+        hits[0].msg.contains("Ambiguous name") && hits[0].msg.contains("Vout"),
+        "got {}",
+        hits[0].msg
+    );
+}
+
+/// The inline construction (no instance name) states the colon orphan once, at
+/// the construction that wrote it.
+#[test]
+fn pa_keys__inline_ctor_colon_orphan_reports_once() {
+    let src = format!("{BARE_HEAD}\nmodule main {{\n    C( nope: 1 )\n}}\n");
+    let (diags, _) = probe(&src, "/mcc/keys-colon-inline.mc");
+    let hits = bind_hits(&diags);
+    assert_eq!(hits.len(), 1, "got {diags:?}");
+    assert_eq!(hits[0].row, row_of(&src, "C( nope: 1 )"), "got {diags:?}");
+}
+
+/// A method call site: the colon spelling assigns the receiver class's key, so
+/// the receiver carries the call-site value just as it does under `=`.
+#[test]
+fn pa_keys__method_colon_assigns_a_receiver_class_key() {
+    let src =
+        format!("{METHOD_CLASS}\nmodule main {{\n    C c1\n    c1.link(GND, GND, volt: 9V)\n}}\n");
+    let (diags, attrs) = probe(&src, "/mcc/keys-method-colon.mc");
+    assert_eq!(bind_hits(&diags).len(), 0, "got {diags:?}");
+    assert_eq!(
+        attrs_of(&attrs, "c1"),
+        vec!["spec.volt = 9V".to_string()],
+        "the receiver must carry the call-site value; got {attrs:?}"
+    );
+}

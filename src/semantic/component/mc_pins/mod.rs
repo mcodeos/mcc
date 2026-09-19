@@ -650,21 +650,16 @@ impl McPins {
         out
     }
 
-    /// One `::(...)` argument: `key:value` (MCAST_OPD_COLON) or positional text.
+    /// One `::(...)` argument: a named `key: value` / `key = value` pair, or
+    /// positional text.
     fn read_param(node: &AstNode) -> Option<PwrParam> {
         let value = node.get_sub_node()?;
-        if value.is_type(MCAST_OPD_COLON) {
-            if let Some(left) = value.get_sub_node() {
-                let key = Self::leaf_text(&left).unwrap_or_default();
-                let right = left
-                    .get_next()
-                    .map(|r| Self::value_text(&r))
-                    .unwrap_or_default();
-                return Some(PwrParam {
-                    key: Some(key),
-                    text: right,
-                });
-            }
+        // Both named spellings read back the same -- see `named_arg_parts`.
+        if let Some((key_node, val_node)) = value.named_arg_parts() {
+            return Some(PwrParam {
+                key: Self::leaf_text(&key_node),
+                text: Self::value_text(&val_node),
+            });
         }
         Some(PwrParam {
             key: None,
