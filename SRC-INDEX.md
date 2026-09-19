@@ -1894,7 +1894,7 @@ db/diagnostic/errcodes.rs#L1372  const COND_DUPLICATE
 db/diagnostic/errcodes.rs#L1377  const HW_PIN_NUMBER_GAP
 db/diagnostic/errcodes.rs#L1380  const HW_PIN_COUNT_HIGH
 db/diagnostic/errcodes.rs#L1383  const HW_ZERO_PINS_WITH_PARAMS
-db/diagnostic/errcodes.rs#L1386  const HW_IFACE_ROLE_UNBOUND
+db/diagnostic/errcodes.rs#L1386  const HW_IFACE_PEER_DANGLING
 db/diagnostic/errcodes.rs#L1389  const HW_ALL_SAME_IO_TYPE
 db/diagnostic/errcodes.rs#L1392  const HW_IFACE_PEER_NOT_MUTUAL
 db/diagnostic/errcodes.rs#L1395  const HW_IFACE_PEER_WIDTH_MISMATCH
