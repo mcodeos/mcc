@@ -2363,7 +2363,7 @@ pub(crate) fn dump_enum_json(name: &str, en: &crate::McEnumDef, uri: &str) -> Va
 pub(crate) fn instances_json(insts: &crate::McInstances, type_filter: Option<&str>) -> Vec<Value> {
     let port_spans = insts.port_spans();
     insts
-        .iter()
+        .iter_in_decl_order()
         .filter_map(|(n, inst)| {
             let (kind, class) = inst_kind_class(inst);
             let kind = if kind == "label" {

@@ -3075,7 +3075,7 @@ fn inst_kind_class(inst: &mcc::McInstance) -> (&'static str, String) {
 fn instances_json(insts: &mcc::McInstances, type_filter: Option<&str>) -> Vec<Value> {
     let port_spans = insts.port_spans();
     insts
-        .iter()
+        .iter_in_decl_order()
         .filter_map(|(n, inst)| {
             let (kind, class) = inst_kind_class(inst);
             let kind = if kind == "label" {

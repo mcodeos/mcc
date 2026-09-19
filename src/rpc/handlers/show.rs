@@ -558,7 +558,7 @@ pub fn handle_show_ports(params: Option<Value>) -> RpcResult {
     };
     let ports: Vec<Value> = module
         .insts
-        .iter_ports()
+        .iter_ports_in_decl_order()
         .map(|(pname, io)| json!({ "name": pname, "iotype": format!("{:?}", io) }))
         .collect();
     Ok(json!({ "name": name, "port_count": ports.len(), "ports": ports }))

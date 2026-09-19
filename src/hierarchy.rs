@@ -204,7 +204,7 @@ pub fn extract_instance_families(
             .map(|sp| line_of_span(&sp))
             .unwrap_or(0)
     };
-    for (name, mc_inst) in inst.def.insts.iter() {
+    for (name, mc_inst) in inst.def.insts.iter_in_decl_order() {
         if name.starts_with('@') || name.starts_with('[') {
             continue;
         }
