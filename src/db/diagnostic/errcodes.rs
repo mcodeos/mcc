@@ -1388,6 +1388,12 @@ pub const HW_IFACE_ROLE_UNBOUND: u32 = 5506;
 /// All pins have the same IO type.
 pub const HW_ALL_SAME_IO_TYPE: u32 = 5507;
 
+/// Interface role names a peer that does not name it back.
+pub const HW_IFACE_PEER_NOT_MUTUAL: u32 = 5508;
+
+/// Interface role and its declared peer declare different member widths.
+pub const HW_IFACE_PEER_WIDTH_MISMATCH: u32 = 5509;
+
 /// Function parameter shadows a pin name.
 pub const HW_FUNC_PARAM_SHADOWS_PIN: u32 = 5510;
 
@@ -2355,6 +2361,8 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(HW_ZERO_PINS_WITH_PARAMS, "Component has zero pins but parameter attributes.", "Component has zero pins but parameter attributes."),
     entry!(HW_IFACE_ROLE_UNBOUND, "Interface role is never bound.", "Interface role is never bound."),
     entry!(HW_ALL_SAME_IO_TYPE, "All pins have the same IO type.", "All pins have the same IO type."),
+    entry!(HW_IFACE_PEER_NOT_MUTUAL, "Interface role peer is not mutual.", "Interface role names a peer that does not name it back; peer pairs must be mutual (interface-connect-rule-design.md §3.3 A)."),
+    entry!(HW_IFACE_PEER_WIDTH_MISMATCH, "Interface role peer width mismatch.", "Interface role and its declared peer declare different member widths (interface-connect-rule-design.md §3.3 B)."),
 
     entry!(HW_FUNC_PARAM_SHADOWS_PIN, "Function parameter shadows a pin name.", "Function parameter shadows a pin name."),
     // section
