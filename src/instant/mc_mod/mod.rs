@@ -533,10 +533,25 @@ impl McModuleInst {
         }
         // 3. Dotted member: port.member.
         if let Some((port, member)) = name.split_once('.') {
-            return self
+            if self
                 .ports
                 .iter()
-                .any(|p| base_matches(&p.name, port) && p.bus_members.iter().any(|m| m == member));
+                .any(|p| base_matches(&p.name, port) && p.bus_members.iter().any(|m| m == member))
+            {
+                return true;
+            }
+            // 4. A lane the module itself wires. A bare port is completed from
+            // the port it is paired with (U107 ③), so its lanes are real
+            // without the declaration carrying a member list — and the body's
+            // own net points are where they show up. The owner must still be a
+            // port of this module: an internal label's member path is not part
+            // of the interface.
+            if self.ports.iter().any(|p| base_matches(&p.name, port)) {
+                return self
+                    .connections
+                    .iter()
+                    .any(|c| c.points.iter().any(|pt| pt.path == name));
+            }
         }
         false
     }

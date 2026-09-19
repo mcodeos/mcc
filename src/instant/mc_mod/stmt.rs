@@ -102,6 +102,14 @@ impl InstantiationBuilder {
             return Ok(());
         }
 
+        // ── U107 ③ (module body): a bare `io SPI` declares no members, so its
+        // member table comes from the port it is **paired with** in this very
+        // statement. Done before the flatten below so the lanes exist by the
+        // time the members are expanded. See
+        // [`Self::complete_bare_ports_from_stmt`] for why the peer must come
+        // from the statement and not from a name scan over the body.
+        self.complete_bare_ports_from_stmt(&phrase);
+
         // ── P0.4 follow-up: the phrase_to_members clones below reuse the ids the
         // entry above assigned.
         // ★ M-1'-A (edge-level): `members` + `gaps` come from one gapped flatten.
@@ -138,6 +146,145 @@ impl InstantiationBuilder {
         // adjacent pairing wire the pass-through lanes. `[2×1] -> CAP(1×2) ->
         // [2×1]` is a shape error reported by the series-row check.
         self.process_series_members(&members, &gaps)
+    }
+
+    // ── U107 ③: the member table of a bare own-port ──
+    //
+    // A bare `io SPI` (no member table) has nothing to compare a shape against,
+    // so the members come from the port it is **paired with** — the other end of
+    // the same connection (`SPI + p.SPI` / `UC.SPI`, where the peer declares
+    // `io SPI{SCLK, MOSI, CSN, MISO}`). Same rule as the boundary formal in
+    // `fcallinst.rs`, asked the other way round: there the func formal has a
+    // name and no statement, here the module port has a statement and no name.
+    //
+    // ⚠ Why the peer must be a **dotted instance reference of the same
+    // statement**, and not a namesake found anywhere in the body: a name scan
+    // cannot tell a port's real peer from an unrelated namesake, so it invents a
+    // shape the source never stated. Measured: `hs`'s bare `io VBUS`
+    // (`daplink.mc:107`) picked up an unrelated `LinkCN.VBUS`, widening
+    // `DAP_USB_Vbus -> VBUS` from 1 × 1 to 1 × 4 ⇒ E4007. In `DAP_USB_Vbus ->
+    // VBUS` neither end is a dotted reference, so this pass leaves it alone.
+    //
+    // Reads only. The members go into the **bus name table** (`ensure_bus`),
+    // never into `PortInst::bus_members` — that field is the identity key the
+    // whole engine folds by (U97, U104, `is_valid_port_ref`), and widening it
+    // moves locked readings (see the ★ note in `fcallinst.rs`).
+
+    /// Complete the member table of every bare own-port in `phrase` from the
+    /// peer it is paired with. A no-op for a phrase with nothing to pair, and
+    /// for a port that already declares its members.
+    fn complete_bare_ports_from_stmt(&mut self, phrase: &McPhrase) {
+        let mut leaves = Vec::new();
+        Self::collect_ref_leaves(phrase, &mut leaves);
+        if leaves.len() == 2 {
+            self.pair_two_ends(&leaves);
+        }
+        // A `(a + b)` group nested in a longer chain is its own pairing, and the
+        // group is one member of the outer flatten (so it never shows up as two
+        // leaves above) — walk in and judge it on its own.
+        match phrase {
+            McPhrase::Series(items, _) | McPhrase::Parallel(items) | McPhrase::Multiple(items) => {
+                for item in items {
+                    self.complete_bare_ports_from_stmt(item);
+                }
+            }
+            McPhrase::Reversed(inner) => self.complete_bare_ports_from_stmt(inner),
+            _ => {}
+        }
+    }
+
+    /// The two ends of one connection: a bare own-port takes its members from
+    /// the other end, when that end is an instance reference to a port that
+    /// declares a member set. Exactly two leaves — a wider group is ambiguous,
+    /// and guessing which namesake answers is the failure this pass exists to
+    /// avoid.
+    fn pair_two_ends(&mut self, leaves: &[&McPhrase]) {
+        let paths: Vec<Option<String>> = leaves.iter().map(|l| Self::ref_path_of(l)).collect();
+        for i in 0..2 {
+            let Some(port) = paths[i].as_deref() else {
+                continue;
+            };
+            // The bare side is the port's own name (no owner), otherwise it
+            // would already carry a member path of its own.
+            if port.contains('.') || !self.ports.iter().any(|p| brace_plain(&p.name) == port) {
+                continue;
+            }
+            if !self.is_bare_own_port(port) {
+                continue;
+            }
+            // The peer must be directed: `owner.port`. A bare namesake is what
+            // the name scan used and is not evidence of pairing.
+            let Some(peer) = paths[1 - i].as_deref() else {
+                continue;
+            };
+            if !peer.contains('.') {
+                continue;
+            }
+            let members = self.instance_port_members(peer);
+            if members.len() >= 2 {
+                let _ = self.ensure_bus(port, &members);
+            }
+        }
+    }
+
+    /// A port of this module declared with no members of its own — the shape
+    /// this pass is here to complete.
+    fn is_bare_own_port(&self, name: &str) -> bool {
+        self.ports
+            .iter()
+            .any(|p| brace_plain(&p.name) == name && p.bus_members.is_empty())
+    }
+
+    /// The reference path a leaf names: `owner.port` for a dotted reference
+    /// (`p.SPI`), the bare name otherwise (`SPI`). None when the leaf is not an
+    /// instance reference (a func call, a `_` lead, a multi-member access).
+    fn ref_path_of(phrase: &McPhrase) -> Option<String> {
+        match phrase {
+            McPhrase::Endpoint(McEndpoint::Single(iref)) => {
+                if !iref.members.is_empty() {
+                    return None;
+                }
+                match &iref.base {
+                    McInstance::Label(s) => Some(s.clone()),
+                    McInstance::Component(c) => Some(c.name.to_string()),
+                    McInstance::Module(m) => Some(m.name.to_string()),
+                    McInstance::BusRef { component, bus } => Some(format!("{component}.{bus}")),
+                    McInstance::Bus(b) => match b.full_members.as_slice() {
+                        [] => Some(b.name.clone()),
+                        [member] => Some(format!("{}.{}", b.name, member)),
+                        _ => None,
+                    },
+                    _ => None,
+                }
+            }
+            // `p.SPI` written as a member access on another phrase: append the
+            // access to whatever the inner phrase names.
+            McPhrase::Member(inner, McEndpoint::Single(iref)) => {
+                if !iref.members.is_empty() {
+                    return None;
+                }
+                let McInstance::Label(tail) = &iref.base else {
+                    return None;
+                };
+                Some(format!("{}.{}", Self::ref_path_of(inner)?, tail))
+            }
+            _ => None,
+        }
+    }
+
+    /// Leaves of a phrase in **written order** (§2.4). A `Parallel` is one
+    /// member of the flatten but several leaves here — which is the point: the
+    /// pairing lives inside it.
+    fn collect_ref_leaves<'a>(phrase: &'a McPhrase, out: &mut Vec<&'a McPhrase>) {
+        match phrase {
+            McPhrase::Series(items, _) | McPhrase::Parallel(items) | McPhrase::Multiple(items) => {
+                for item in items {
+                    Self::collect_ref_leaves(item, out);
+                }
+            }
+            McPhrase::Reversed(inner) => Self::collect_ref_leaves(inner, out),
+            _ => out.push(phrase),
+        }
     }
 
     // ── PWR-10 (6028): arrow/direction-word consistency audit ──
