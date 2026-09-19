@@ -560,6 +560,67 @@ fn the_counts_do_not_contradict_the_build_summary() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Locks CIMP §1 U104: a connection a re-entered sub-module body draws is a
+/// connection in that module's net table.
+///
+/// `US513` declares four of its ports bare (`io MIC{P, N}, I2C0, SPI, …`) and
+/// wires one of them from a function with a boundary formal — `func
+/// loadFlash(SPI) { SPI + UC.SPI }`, called by `main` as
+/// `MCU513.i2c().loadFlash(FLASH.SPI)`. Because the call arrives *after* the
+/// sub-module's `instantiate` finished, the body's connections are made into an
+/// already-frozen module, and the net table is built exactly once — at the end
+/// of `instantiate`. Freezing only the overlay fragment after the re-entry left
+/// the table at its pre-re-entry state, so `stage.p2` read the four SPI
+/// conductors as unconnected while the vec builder, which reads the tree the
+/// body did extend, minted them into a single four-member net: two views giving
+/// opposite readings of one fact, the vec side a short, and no diagnostic.
+///
+/// The reading asserted here is the wiring itself, member by member, because a
+/// count would not distinguish the two states: before the fix `stage.p2` also
+/// carried four `SPI.*`-named rows, over the alias-space paths `…SPI.8 …SPI.11`
+/// and with no peer. What must be true is that each member name pairs with the
+/// pin the component's own declaration assigns it.
+#[test]
+fn a_re_entered_body_connection_reaches_the_net_table() {
+    let dir = scratch("reentry");
+    let (stdout, err, ok) = run_stage(&dir, &["-f", "json"]);
+    assert!(ok, "show stage p2 failed: {err}");
+
+    let items = stage_of(&stdout)["items"]
+        .as_array()
+        .expect("items is an array")
+        .clone();
+    let net_members = |name: &str| -> Vec<String> {
+        items
+            .iter()
+            .find(|i| i["class"] == "net" && i["net"] == name)
+            .unwrap_or_else(|| panic!("no net named `{name}` in stage.p2: {items:?}"))["members"]
+            .as_array()
+            .expect("a net has members")
+            .iter()
+            .map(|m| m.as_str().expect("a member is a path").to_string())
+            .collect()
+    };
+
+    // The member order of the component's `io [8:11] = SPI{SCLK, MOSI, CSN,
+    // MISO}` — derived from the port bus's own declaration, not from the pin
+    // list read the other way round.
+    for (member, pin) in [("SCLK", "8"), ("MOSI", "9"), ("CSN", "10"), ("MISO", "11")] {
+        let net = format!("SPI.{member}");
+        assert_eq!(
+            net_members(&net),
+            vec![
+                format!("main.MCU513.SPI/{member}"),
+                format!("main.MCU513.UC.{pin}")
+            ],
+            "`{net}` must join its own port member to the pin the component \
+             declaration gives it"
+        );
+    }
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 // ── The key: two forms, and only one of them crosses builds ──
 
 /// Build `main` in a fresh workspace and return the `stage.p2` items.

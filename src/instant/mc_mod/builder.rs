@@ -409,10 +409,11 @@ impl InstantiationBuilder {
 
     /// Phase E: freeze this module's overlay fragment (label registry + bus
     /// table) into the shared store, keyed by the canonical path. Called at
-    /// the end of `build_net_table` (initial construction) and after every
-    /// re-entry body (`run_submodule_method` / conds block) so the store's
-    /// fragment always reflects the module's final construction state —
-    /// `McModuleInst` never carries labels/buses (overlay layer only).
+    /// the end of `build_net_table`, which is itself what a re-entry body
+    /// (`run_submodule_method` / conds block) calls after adding its
+    /// connections, so the store always reflects the module's final
+    /// construction state — `McModuleInst` never carries labels/buses
+    /// (overlay layer only).
     pub(super) fn freeze_fragment(&mut self) {
         let overlay = ModuleOverlay::new(self.labels.clone(), self.buses.clone());
         self.net_store

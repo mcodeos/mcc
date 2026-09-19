@@ -865,14 +865,23 @@ fn the_nets_the_new_part_joined_read_as_removal_and_addition() {
 
 /// The real board, where the law's one refusal is exercised: `hbl` has records
 /// whose net the builder minted, and they are reported as unalignable on both
-/// sides rather than keyed on the name. Measured: 4 per side.
+/// sides rather than keyed on the name.
+///
+/// Measured: 3 per side, all of them in the `MIC` layer — the `union 2 nets:
+/// MIC.N + MIC.N~0` record and the two `PortTerminal` markers over `MIC.N~0` /
+/// `MIC.P~0`. It was 4 per side until the `SPI.SCLK~0` record went away with
+/// CIMP §1 U104: that minted net was the four SPI conductors shorted into one,
+/// which the fix that made a re-entered sub-module body rebuild its net table
+/// removed. The count is a reading of the board, so it moves when the board's
+/// construction does; what must not move is that these records are refused on
+/// both sides.
 #[test]
 fn a_real_board_refuses_only_its_minted_net_records() {
     let items = hbl_vec("hbl");
     let d = VEC_LAW.diff(&items, &items);
 
     assert!(d.changes.is_empty(), "changes: {:?}", d.changes);
-    assert_eq!(d.unaligned.len(), 8, "4 per side: {:?}", d.unaligned);
+    assert_eq!(d.unaligned.len(), 6, "3 per side: {:?}", d.unaligned);
     assert!(
         reasons(&d).iter().all(|r| r == "no-key"),
         "{:?}",
@@ -890,7 +899,7 @@ fn a_real_board_refuses_only_its_minted_net_records() {
         .collect();
     assert_eq!(
         sides.iter().filter(|s| **s == "a").count(),
-        4,
+        3,
         "each side reports its own: {sides:?}"
     );
 }

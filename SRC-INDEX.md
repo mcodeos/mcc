@@ -40,8 +40,8 @@ range (threshold 40KB).
 | `db/diagnostic/errcodes.rs` | 157 KB | 418 |
 | `instant/insttab.rs` | 149 KB | 105 |
 | `db/defregistry.rs` | 143 KB | 174 |
+| `instant/mc_mod/fcallinst.rs` | 142 KB | 27 |
 | `cmds/show.rs` | 140 KB | 114 |
-| `instant/mc_mod/fcallinst.rs` | 139 KB | 27 |
 | `viz/layout/equi_audit.rs` | 137 KB | 103 |
 | `rpc/handlers/mod.rs` | 126 KB | 103 |
 | `semantic/mc_inst.rs` | 119 KB | 85 |
@@ -64,7 +64,7 @@ range (threshold 40KB).
 | `db/` | 27 | 876 KB |
 | `eval/` | 2 | 48 KB |
 | `export/` | 6 | 44 KB |
-| `instant/` | 39 | 1475 KB |
+| `instant/` | 39 | 1478 KB |
 | `lsp/` | 7 | 66 KB |
 | `output/` | 7 | 107 KB |
 | `query/` | 7 | 133 KB |
@@ -2320,8 +2320,8 @@ export/instlist.rs#L253  fn ledger
 export/instlist.rs#L281  fn def_reads
 export/instlist.rs#L295  fn entry
 export/instlist.rs#L330  fn ledger_cells
-export/instlist.rs#L365  fn cell
-export/instlist.rs#L376  fn row_cells
+export/instlist.rs#L367  fn cell
+export/instlist.rs#L378  fn row_cells
 export/kicad.rs#L13  fn build_kicad_netlist
 export/kicad.rs#L88  fn collect_instances_from_tree
 export/mod.rs#L8  mod bom
@@ -2821,49 +2821,49 @@ instant/mc_mod/builder.rs#L285  fn assemble
 instant/mc_mod/builder.rs#L383  fn finish
 instant/mc_mod/builder.rs#L397  fn into_parts
 instant/mc_mod/builder.rs#L406  fn net_store
-instant/mc_mod/builder.rs#L416  fn freeze_fragment
-instant/mc_mod/builder.rs#L428  fn components_of
-instant/mc_mod/builder.rs#L446  fn modules_of
-instant/mc_mod/builder.rs#L468  fn find_component
-instant/mc_mod/builder.rs#L477  fn find_submodule
-instant/mc_mod/builder.rs#L488  fn component_in
-instant/mc_mod/builder.rs#L500  fn submodule_in
-instant/mc_mod/builder.rs#L515  fn components_view
-instant/mc_mod/builder.rs#L527  fn submodules_view
-instant/mc_mod/builder.rs#L541  fn add_component
-instant/mc_mod/builder.rs#L586  fn add_submodule
-instant/mc_mod/builder.rs#L637  fn append_port_arena
-instant/mc_mod/builder.rs#L663  fn append_vector_arena
-instant/mc_mod/builder.rs#L687  fn child_path
-instant/mc_mod/builder.rs#L693  fn identity_mut
-instant/mc_mod/builder.rs#L699  fn take_identity
-instant/mc_mod/builder.rs#L704  fn restore_identity
-instant/mc_mod/builder.rs#L709  fn add_connection
-instant/mc_mod/builder.rs#L742  fn current_call_site
-instant/mc_mod/builder.rs#L757  fn construction_site
-instant/mc_mod/builder.rs#L769  fn func_def_site
-instant/mc_mod/builder.rs#L794  fn instantiate
-instant/mc_mod/builder.rs#L861  fn auto_invoke_module_funcs
-instant/mc_mod/builder.rs#L952  fn record_error
-instant/mc_mod/builder.rs#L971  fn has_error_at_current_site
-instant/mc_mod/builder.rs#L994  fn record_error_at
-instant/mc_mod/builder.rs#L1022  fn record_warning
-instant/mc_mod/builder.rs#L1046  fn log_global_diag
-instant/mc_mod/builder.rs#L1072  fn merge_diagnostics_from
-instant/mc_mod/builder.rs#L1081  fn ref_designator_prefix
-instant/mc_mod/builder.rs#L1114  fn auto_name
-instant/mc_mod/builder.rs#L1195  fn enter_func_stmt
-instant/mc_mod/builder.rs#L1221  fn with_func_stmt
-instant/mc_mod/builder.rs#L1238  fn with_func_scope
-instant/mc_mod/builder.rs#L1256  fn is_passthrough_formal
-instant/mc_mod/builder.rs#L1272  fn with_trunk
-instant/mc_mod/builder.rs#L1296  fn current_offset
-instant/mc_mod/builder.rs#L1305  fn next_conn_id
-instant/mc_mod/builder.rs#L1313  fn build_net_table
-instant/mc_mod/builder.rs#L1462  fn is_registered_class_name
-instant/mc_mod/builder.rs#L1499  fn resume_auto_inst_counter
-instant/mc_mod/builder.rs#L1529  fn resume_tree
-instant/mc_mod/builder.rs#L1577  fn boundary_return
+instant/mc_mod/builder.rs#L417  fn freeze_fragment
+instant/mc_mod/builder.rs#L429  fn components_of
+instant/mc_mod/builder.rs#L447  fn modules_of
+instant/mc_mod/builder.rs#L469  fn find_component
+instant/mc_mod/builder.rs#L478  fn find_submodule
+instant/mc_mod/builder.rs#L489  fn component_in
+instant/mc_mod/builder.rs#L501  fn submodule_in
+instant/mc_mod/builder.rs#L516  fn components_view
+instant/mc_mod/builder.rs#L528  fn submodules_view
+instant/mc_mod/builder.rs#L542  fn add_component
+instant/mc_mod/builder.rs#L587  fn add_submodule
+instant/mc_mod/builder.rs#L638  fn append_port_arena
+instant/mc_mod/builder.rs#L664  fn append_vector_arena
+instant/mc_mod/builder.rs#L688  fn child_path
+instant/mc_mod/builder.rs#L694  fn identity_mut
+instant/mc_mod/builder.rs#L700  fn take_identity
+instant/mc_mod/builder.rs#L705  fn restore_identity
+instant/mc_mod/builder.rs#L710  fn add_connection
+instant/mc_mod/builder.rs#L743  fn current_call_site
+instant/mc_mod/builder.rs#L758  fn construction_site
+instant/mc_mod/builder.rs#L770  fn func_def_site
+instant/mc_mod/builder.rs#L795  fn instantiate
+instant/mc_mod/builder.rs#L862  fn auto_invoke_module_funcs
+instant/mc_mod/builder.rs#L953  fn record_error
+instant/mc_mod/builder.rs#L972  fn has_error_at_current_site
+instant/mc_mod/builder.rs#L995  fn record_error_at
+instant/mc_mod/builder.rs#L1023  fn record_warning
+instant/mc_mod/builder.rs#L1047  fn log_global_diag
+instant/mc_mod/builder.rs#L1073  fn merge_diagnostics_from
+instant/mc_mod/builder.rs#L1082  fn ref_designator_prefix
+instant/mc_mod/builder.rs#L1115  fn auto_name
+instant/mc_mod/builder.rs#L1196  fn enter_func_stmt
+instant/mc_mod/builder.rs#L1222  fn with_func_stmt
+instant/mc_mod/builder.rs#L1239  fn with_func_scope
+instant/mc_mod/builder.rs#L1257  fn is_passthrough_formal
+instant/mc_mod/builder.rs#L1273  fn with_trunk
+instant/mc_mod/builder.rs#L1297  fn current_offset
+instant/mc_mod/builder.rs#L1306  fn next_conn_id
+instant/mc_mod/builder.rs#L1314  fn build_net_table
+instant/mc_mod/builder.rs#L1463  fn is_registered_class_name
+instant/mc_mod/builder.rs#L1500  fn resume_auto_inst_counter
+instant/mc_mod/builder.rs#L1530  fn resume_tree
+instant/mc_mod/builder.rs#L1578  fn boundary_return
 instant/mc_mod/bus.rs#L19  impl InstantiationBuilder
 instant/mc_mod/bus.rs#L47  fn ensure_bus
 instant/mc_mod/bus.rs#L69  fn find_bus
@@ -2968,16 +2968,16 @@ instant/mc_mod/fcallinst.rs#L1127  fn materialize_vector_groups
 instant/mc_mod/fcallinst.rs#L1179  fn materialize_deferred_subinstances
 instant/mc_mod/fcallinst.rs#L1258  fn instantiate_instance_method
 instant/mc_mod/fcallinst.rs#L1542  fn run_submodule_method
-instant/mc_mod/fcallinst.rs#L1921  fn run_component_method
-instant/mc_mod/fcallinst.rs#L2253  fn strip_host_iface_phantoms
-instant/mc_mod/fcallinst.rs#L2284  fn expand_bus_labels
-instant/mc_mod/fcallinst.rs#L2358  fn instance_declares_port
-instant/mc_mod/fcallinst.rs#L2373  fn actual_is_parent_ref
-instant/mc_mod/fcallinst.rs#L2401  fn prefix_instance_stmt_with_skip
-instant/mc_mod/fcallinst.rs#L2411  fn prefix_instance_phrase_with_skip
-instant/mc_mod/fcallinst.rs#L2725  fn prefix_instance_node_element_with_skip
-instant/mc_mod/fcallinst.rs#L2841  fn prefix_param_value_with_skip
-instant/mc_mod/fcallinst.rs#L2890  fn validate_fcall_return_shape
+instant/mc_mod/fcallinst.rs#L1961  fn run_component_method
+instant/mc_mod/fcallinst.rs#L2293  fn strip_host_iface_phantoms
+instant/mc_mod/fcallinst.rs#L2324  fn expand_bus_labels
+instant/mc_mod/fcallinst.rs#L2398  fn instance_declares_port
+instant/mc_mod/fcallinst.rs#L2413  fn actual_is_parent_ref
+instant/mc_mod/fcallinst.rs#L2441  fn prefix_instance_stmt_with_skip
+instant/mc_mod/fcallinst.rs#L2451  fn prefix_instance_phrase_with_skip
+instant/mc_mod/fcallinst.rs#L2765  fn prefix_instance_node_element_with_skip
+instant/mc_mod/fcallinst.rs#L2881  fn prefix_param_value_with_skip
+instant/mc_mod/fcallinst.rs#L2930  fn validate_fcall_return_shape
 instant/mc_mod/funccall.rs#L40  enum FuncCallInst
 instant/mc_mod/funccall.rs#L57  enum FaceSide
 instant/mc_mod/funccall.rs#L62  impl FaceSide
@@ -5698,14 +5698,14 @@ semantic/component/mc_attr_view.rs#L138  struct KeySignal
 semantic/component/mc_attr_view.rs#L147  fn leaf_reads
 semantic/component/mc_attr_view.rs#L156  fn key_signal
 semantic/component/mc_attr_view.rs#L175  fn collect
-semantic/component/mc_attr_view.rs#L208  fn opens_table
-semantic/component/mc_attr_view.rs#L216  fn read_values
-semantic/component/mc_attr_view.rs#L237  fn written
-semantic/component/mc_attr_view.rs#L241  fn read_one
-semantic/component/mc_attr_view.rs#L254  fn literal_view
-semantic/component/mc_attr_view.rs#L266  fn literal_text
-semantic/component/mc_attr_view.rs#L274  fn expr_view
-semantic/component/mc_attr_view.rs#L299  fn named_pair
+semantic/component/mc_attr_view.rs#L212  fn opens_table
+semantic/component/mc_attr_view.rs#L218  fn read_values
+semantic/component/mc_attr_view.rs#L239  fn written
+semantic/component/mc_attr_view.rs#L243  fn read_one
+semantic/component/mc_attr_view.rs#L256  fn literal_view
+semantic/component/mc_attr_view.rs#L268  fn literal_text
+semantic/component/mc_attr_view.rs#L276  fn expr_view
+semantic/component/mc_attr_view.rs#L301  fn named_pair
 semantic/component/mc_layout.rs#L25  struct McLayout
 semantic/component/mc_layout.rs#L32  impl McLayout
 semantic/component/mc_layout.rs#L33  fn new

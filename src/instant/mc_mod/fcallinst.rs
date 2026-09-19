@@ -1648,8 +1648,20 @@ impl InstantiationBuilder {
             // When a boundary formal (e.g. `spi`) is paired with a component bus
             // (e.g. `uC[SPI]`), a scalar-formal fan-out (the §5.3.1-abolished 1×N
             // broadcast) would short all bus pins. By registering the formal as a
-            // bus with the component's pin IDs, the body connection zips N×N
+            // bus of the peer port's **members**, the body connection zips N×N
             // instead of fanning 1×N.
+            //
+            // ★ The members registered are the port's **declared names**, never its
+            // pin numbers. A port has one member identity — the name its own
+            // declaration gives (params/func-header-port-design §7.2: the pin number
+            // is an alias the pin expansion supplies). Registering the pids here put
+            // a second, alias-space member list for the *same* conductors into the
+            // submodule's bus table: `ensure_bus` merges incrementally, so a
+            // 4-conductor bus widened to 8 (`{SCLK,MOSI,CSN,MISO}` ∪ `{8,9,10,11}`),
+            // and the formal then expanded to 8 lanes. Paired against the peer's 4
+            // pins, no lane split was possible and `fold_parallel_chain` emitted one
+            // silent over-wide net — the four SPI wires shorted together with zero
+            // diagnostics (CIMP §1 U104 / U107).
             for (formal, _) in &boundary_pairs {
                 // Resolve formal to declared port name (exact, spec/01 §2)
                 let resolved_port = b
@@ -1664,8 +1676,19 @@ impl InstantiationBuilder {
                     .find_map(|comp| comp.find_bus_port_pin_ids(&resolved_port))
                 {
                     if pin_ids.len() >= 2 {
-                        let members: Vec<String> =
-                            pin_ids.iter().map(|(_, pid)| pid.clone()).collect();
+                        // A port that declares no member names contributes none —
+                        // fall back to the pin number for that member only, so the
+                        // width is preserved without inventing a name.
+                        let members: Vec<String> = pin_ids
+                            .iter()
+                            .map(|(name, pid)| {
+                                if name.is_empty() {
+                                    pid.clone()
+                                } else {
+                                    name.clone()
+                                }
+                            })
+                            .collect();
                         let _ = b.ensure_bus(formal, &members);
                     }
                 }
@@ -1693,7 +1716,21 @@ impl InstantiationBuilder {
             }
             // Freeze the body products back into the sub-module tree and hand
             // the registry back to the parent builder.
-            b.freeze_fragment();
+            //
+            // ★ `build_net_table`, not `freeze_fragment`: the body just added
+            // connections to the sub-module, and the net table is what makes
+            // them visible downstream. A re-entered module's table lives only
+            // in the circuit-wide `net_store` (keyed by canonical path — the
+            // `instantiate()` call that first built it ran before the body
+            // re-entry, so nothing else will ever rebuild it). Freezing only
+            // the overlay fragment left the store's table at its pre-re-entry
+            // state: the re-entered connections existed in the tree (which the
+            // vec builder reads) but had no net in the table (which
+            // `stage.p2` reads), so the same fact got opposite readings in the
+            // two views, with the vec side electrically a multi-point short
+            // and zero diagnostics (CIMP §1 U104). `build_net_table` ends with
+            // the same `freeze_fragment` call.
+            b.build_net_table();
             let (frozen, reg) = b.into_parts();
             // Phase C S3-D: write the re-entered + extended sub-module back into
             // the shared instance store — the sole content store (the
@@ -1748,7 +1785,10 @@ impl InstantiationBuilder {
                     });
                 }
             }
-            b.freeze_fragment();
+            // Same reason as the Phase A body above: a matched cond block adds
+            // connections, so the table the store holds must be rebuilt, not
+            // just the overlay fragment re-frozen.
+            b.build_net_table();
             let (frozen, reg) = b.into_parts();
             // Phase C S3-D: write the re-entered + extended sub-module back into
             // the shared instance store — the sole content store (the
