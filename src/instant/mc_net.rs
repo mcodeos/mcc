@@ -71,9 +71,13 @@ pub fn reset_literal_points() {
 ///
 /// Rules:
 /// - Remove `pins` segment (pins transparency): `uC.pins.VDD` → `uC.VDD`
-/// - Fold consecutive identical segments: `uC.VDD.VDD` → `uC.VDD`
 /// - Preserve `pins` when followed by numeric index (e.g. `uC.pins.8` keeps
 ///   `pins` — the numeric index indicates ID-based access, not name-based)
+///
+/// Every segment of a path is identity: the path is
+/// `{instance}.{port-group}.{lane}` and a repeat of one segment is a repeat of
+/// a *name*, never a duplicate. `MIC.MIC.P` (instance `MIC`, port group `MIC`,
+/// lane `P`) is exactly such a repeat, and it must survive.
 ///
 /// Returns the normalized path, or the original if no changes were needed.
 ///
@@ -83,7 +87,7 @@ pub fn reset_literal_points() {
 /// use mcc::instant::mc_net::normalize_pin_path;
 /// assert_eq!(normalize_pin_path("uC.pins.VDD"), "uC.VDD");
 /// assert_eq!(normalize_pin_path("uC.VDD"), "uC.VDD");
-/// assert_eq!(normalize_pin_path("uC.VDD.VDD"), "uC.VDD");
+/// assert_eq!(normalize_pin_path("MIC.MIC.P"), "MIC.MIC.P");
 /// assert_eq!(normalize_pin_path("uC.pins.8"), "uC.pins.8");
 /// assert_eq!(normalize_pin_path("R1.1"), "R1.1");
 /// ```
@@ -108,12 +112,6 @@ pub fn normalize_pin_path(path: &str) -> String {
                 }
             }
             // Non-numeric or end-of-path — skip "pins" transparently
-            changed = true;
-            continue;
-        }
-
-        // Fold consecutive identical segments: "VDD.VDD" → "VDD"
-        if result.last() == Some(&seg) {
             changed = true;
             continue;
         }
@@ -869,24 +867,19 @@ pub(crate) fn normalize_pin_segments(path: &str) -> String {
     out.join(".")
 }
 
-/// Normalize NetPoint path, eliminating different string representations of the same physical node.
+/// Normalize NetPoint path to the one spelling of a physical node.
 ///
 /// Handles the following patterns:
-///   1. **Duplicate suffix**: `VCC_1V2.VCC_1V2` → `VCC_1V2`
-/// When the path is of the form `A.A` and the two segments are identical, remove the duplicate.
-///   2. **Pin number duplication**: `uC.21.21` → `uC.21`
-/// When the last two segments are identical (including numbers and non-numbers), remove the
-/// duplicate.
-///   3. **Curly brace duplicate suffix**: `dc{VDD_3V3, GND}.dc{VDD_3V3, GND}` → `dc{VDD_3V3, GND}`
-///      When the segments inside curly braces are repeated, remove the duplicate.
-///   4. **Arrow residual rejection**: if the path contains `->` or `<-`, it is
+///   1. **Arrow residual rejection**: if the path contains `->` or `<-`, it is
 ///      considered an AST flattening failure; strip both sides of the arrow
 ///      and take the last valid identifier.
-///   5. **pins qualifier normalization**: `uC.pins7` → `uC.7`, `uC.pins.7` → `uC.7`
+///   2. **pins qualifier normalization**: `uC.pins7` → `uC.7`, `uC.pins.7` → `uC.7`
 ///
 /// # Design constraints
-/// - Only handles **explicit bug artifacts**, not fuzzy matches
-/// - `MIC.P` (different segment names) is unaffected
+/// - Only rewrites the two **keywords** above, never a name
+/// - A repeated segment is a repeated *name*, not a duplicate: `MIC.MIC.P` is
+///   instance `MIC` + port group `MIC` + lane `P` and every segment is
+///   identity, so no segment-level collapse may be applied (§0.2).
 /// - `dcdc.FB` (normal component.pin) is unaffected
 /// - Empty string / single-segment path returns as is
 pub fn canonicalize_path(path: &str) -> String {
@@ -897,7 +890,7 @@ pub fn canonicalize_path(path: &str) -> String {
     // point) ──
     let path = normalize_pin_segments(path);
 
-    // ── 4. Arrow residual rejection: strip arrow sides and take last valid token ──
+    // ── 1. Arrow residual rejection: strip arrow sides and take last valid token ──
     if path.contains("->") || path.contains("<-") {
         let cleaned = path
             .split("->")
@@ -910,40 +903,7 @@ pub fn canonicalize_path(path: &str) -> String {
         return canonicalize_path(cleaned);
     }
 
-    // ── 3. Curly brace duplicate suffix ──
-    // `dc{VDD_3V3, GND}.dc{VDD_3V3, GND}` → `dc{VDD_3V3, GND}`
-    // Detection: Split at first `}.`, check if prefix == suffix
-    if path.contains('{') && path.contains('}') {
-        if let Some(close_dot) = path.find("}.") {
-            let first_part = &path[..close_dot + 1]; // Includes '}'
-            let second_part = &path[close_dot + 2..]; // Skip '}.', get suffix
-            if first_part == second_part {
-                return first_part.to_string();
-            }
-        }
-    }
-
-    // ── 1 & 2. Duplicate suffix ──
-    if let Some(last_dot) = path.rfind('.') {
-        let prefix = &path[..last_dot];
-        let suffix = &path[last_dot + 1..];
-
-        // Case 1: `A.A` — Duplicate suffix (e.g. `VCC_1V2.VCC_1V2`)
-        if prefix == suffix {
-            return prefix.to_string();
-        }
-
-        // Case 2: `X.Y.Y` — Duplicate suffix (e.g. `uC.21.21`, `AVDD09_CAP.AVDD09_CAP`)
-        // Detection: Find last '.', check if last two segments are identical
-        if let Some(prev_dot) = prefix.rfind('.') {
-            let prev_suffix = &prefix[prev_dot + 1..];
-            if prev_suffix == suffix {
-                return prefix.to_string();
-            }
-        }
-    }
-
-    path.to_string()
+    path
 }
 
 // NetTable - Network table (union-find merge)
@@ -1454,26 +1414,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn dlu_net__canonicalize_duplicate_suffix() {
-        assert_eq!(canonicalize_path("VCC_1V2.VCC_1V2"), "VCC_1V2");
-        assert_eq!(canonicalize_path("AVDD09_CAP.AVDD09_CAP"), "AVDD09_CAP");
-    }
-
-    #[test]
-    fn dlu_net__canonicalize_double_pin_number() {
-        assert_eq!(canonicalize_path("uC.21.21"), "uC.21");
-    }
-
-    #[test]
-    fn dlu_net__canonicalize_curly_brace_repeat() {
-        assert_eq!(
-            canonicalize_path("dc{VDD_3V3, GND}.dc{VDD_3V3, GND}"),
-            "dc{VDD_3V3, GND}"
-        );
-        assert_eq!(canonicalize_path("mic{1, 2}.mic{1, 2}"), "mic{1, 2}");
-    }
-
-    #[test]
     fn dlu_net__canonicalize_arrow_residual() {
         assert_eq!(
             canonicalize_path("dc{VDD_3V3} -> wm7121{VCC}.dc{VDD_3V3} -> wm7121{VCC}"),
@@ -1486,9 +1426,57 @@ mod tests {
         // Normal paths should not be modified
         assert_eq!(canonicalize_path("lp322dcdc.FB"), "lp322dcdc.FB");
         assert_eq!(canonicalize_path("MIC.P"), "MIC.P");
+        assert_eq!(canonicalize_path("MIC.MIC.P"), "MIC.MIC.P");
         assert_eq!(canonicalize_path("@CAP1.1"), "@CAP1.1");
         assert_eq!(canonicalize_path("VCC"), "VCC");
         assert_eq!(canonicalize_path(""), "");
+        // A repeated segment is a repeated *name*, not a duplicate: every one
+        // of these is kept verbatim.
+        assert_eq!(canonicalize_path("VCC_1V2.VCC_1V2"), "VCC_1V2.VCC_1V2");
+        assert_eq!(
+            canonicalize_path("AVDD09_CAP.AVDD09_CAP"),
+            "AVDD09_CAP.AVDD09_CAP"
+        );
+        assert_eq!(canonicalize_path("uC.21.21"), "uC.21.21");
+        assert_eq!(
+            canonicalize_path("dc{VDD_3V3, GND}.dc{VDD_3V3, GND}"),
+            "dc{VDD_3V3, GND}.dc{VDD_3V3, GND}"
+        );
+        assert_eq!(
+            canonicalize_path("mic{1, 2}.mic{1, 2}"),
+            "mic{1, 2}.mic{1, 2}"
+        );
+    }
+
+    #[test]
+    fn dlu_net__repeated_segment_is_identity() {
+        // `MIC.MIC.P` is instance `MIC` + port group `MIC` + lane `P`; all
+        // three segments are identity, so the path survives both normalizers
+        // unchanged (the drawing face and the circuit face join on it).
+        assert_eq!(normalize_pin_path("MIC.MIC.P"), "MIC.MIC.P");
+        assert_eq!(canonicalize_path("MIC.MIC.P"), "MIC.MIC.P");
+
+        // Two different names stay two different points.
+        let mut table = NetTable::new();
+        let conn0 = ConnectionInst::new(
+            0,
+            vec![
+                NetPoint::new("MIC.MIC.P", IOType::None, None),
+                NetPoint::with_owner("@RES6.1", "@RES6", IOType::None, None),
+            ],
+        );
+        let conn1 = ConnectionInst::new(
+            1,
+            vec![
+                NetPoint::new("MIC.P", IOType::None, None),
+                NetPoint::with_owner("@CAP5.1", "@CAP5", IOType::None, None),
+            ],
+        );
+        table.add_connection(&conn0);
+        table.add_connection(&conn1);
+
+        let nets = table.into_nets();
+        assert_eq!(nets.len(), 2, "Expected 2 nets, got {}", nets.len());
     }
 
     #[test]
@@ -1534,10 +1522,12 @@ mod tests {
     }
 
     #[test]
-    fn dlu_net__canonicalize_merges_duplicate_suffix_paths() {
+    fn dlu_net__duplicate_suffix_paths_stay_apart() {
         let mut table = NetTable::new();
 
-        // Simulate: one connection uses "VCC_1V2", another uses "VCC_1V2.VCC_1V2"
+        // Two spellings: `VCC_1V2` and `VCC_1V2.VCC_1V2`. Under the identity
+        // law they are two names, so they are two points — the earlier
+        // behavior unioned them by string shape.
         let conn0 = ConnectionInst::new(
             0,
             vec![
@@ -1557,10 +1547,6 @@ mod tests {
         table.add_connection(&conn1);
 
         let nets = table.into_nets();
-
-        // After normalization the two VCC_1V2 are the same point, should merge into 1 3-pts net
-        assert_eq!(nets.len(), 1, "Expected 1 merged net, got {}", nets.len());
-        let (_, points) = nets.iter().next().unwrap();
-        assert_eq!(points.len(), 3, "Expected 3 points, got {}", points.len());
+        assert_eq!(nets.len(), 2, "Expected 2 nets, got {}", nets.len());
     }
 }
