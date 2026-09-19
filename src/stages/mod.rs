@@ -457,22 +457,17 @@ fn cell(s: &str) -> String {
 ///
 /// A component / module row carries its own `class_def`; a pin, port or net
 /// row has none, so it is recovered from the nearest ancestor that declares
-/// one. Walking `parent_id` is a read of a value the build already computed,
-/// not a second identity system — `parent_id` strictly decreases towards the
-/// root, so the walk terminates.
+/// one — [`InstTable::class_def_of`], the one owner of that walk (the
+/// inst-list rows and the reverse index read the same method). Walking
+/// `parent_id` is a read of a value the build already computed, not a second
+/// identity system.
 pub fn def_of(table: &InstTable, id: u32) -> Option<Value> {
-    let mut cur = Some(id);
-    while let Some(cid) = cur {
-        let e = table.get_entry(cid)?;
-        if let Some(sn) = &e.class_def {
-            return Some(json!({
-                "uri": sn.uri.as_uri().to_string(),
-                "ident": sn.ident.to_string(),
-            }));
-        }
-        cur = e.parent_id;
-    }
-    None
+    table.class_def_of(id).map(|sn| {
+        json!({
+            "uri": sn.uri.as_uri().to_string(),
+            "ident": sn.ident.to_string(),
+        })
+    })
 }
 
 /// The canonical key of an instance, from its `InstTable` row: the canonical

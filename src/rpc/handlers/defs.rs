@@ -96,6 +96,94 @@ pub fn handle_defs_query(params: Option<Value>) -> RpcResult {
     }))
 }
 
+// === handle_defs_reverse ===
+
+/// `defs.reverse` (design `organization-units-design.md` §9.6): the
+/// circuit-side rows a definition-space name lands on.
+///
+/// The server answers from the index of **the build it just made for this
+/// call** — the index is per build by construction, so there is nothing to
+/// cache and nothing that could go stale between a source edit and a
+/// keystroke. The reply carries `mode` (`keys` | `hits`) so a caller can tell
+/// "nothing is typeable" from "this name is not a key", and no field of the
+/// reply is an id of either space.
+pub fn handle_defs_reverse(params: Option<Value>) -> RpcResult {
+    let p: DefsReverseParams = parse_or_default(params)?;
+
+    // Which build to ask: the named top, else the first loaded module (the
+    // same fallback `defs.search` uses for its instance drill).
+    let modules = crate::mcb_iter_modules();
+    let top = match p.top.clone() {
+        Some(t) => t,
+        None => modules
+            .first()
+            .map(|(n, _)| n.clone())
+            .ok_or_else(|| JsonRpcError::custom(32110, "defs.reverse: no module loaded"))?,
+    };
+    let uri = modules
+        .iter()
+        .find(|(n, _)| *n == top)
+        .map(|(_, u)| crate::McURI::from(u.as_str()))
+        .unwrap_or_else(|| crate::McURI::from(top.as_str()));
+
+    let ident = crate::McIds::from(top.as_str());
+    let mut dl = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        crate::mcc_build_dianlu(&ident, &uri, 1000)
+    }))
+    .map_err(|_| JsonRpcError::custom(32111, "build panicked (engine Pass2 bug)"))?
+    .map_err(|e| JsonRpcError::custom(32111, &format!("build failed: {e}")))?;
+    dl.flatten();
+    let index = dl.reverse().ok_or_else(|| {
+        JsonRpcError::custom(32111, "defs.reverse: the projection produced no index")
+    })?;
+
+    let mut sources = crate::stages::SourceText::new();
+    // The third slot is the matched keys, present only for the typed-name
+    // reading: an exact canonical lookup already names its one key in `name`,
+    // and repeating it would spell one answer two ways.
+    let (mode, key, matched, items) =
+        match (p.name.as_deref(), p.uri.as_deref(), p.ident.as_deref()) {
+            (Some(name), _, _) => {
+                let (keys, rows) = crate::matched_rows(index, name, &mut sources);
+                ("hits", name.to_string(), Some(keys), rows)
+            }
+            // The canonical pair, kept as a pair: this is the lookup that tells
+            // two same-named defs apart, and both halves are required for it.
+            // Exact on purpose — a canonical key is copied out of a row's
+            // `class`, so there is no partial spelling of it to match.
+            (None, Some(uri), Some(ident)) => {
+                let key = format!("{}#{}", uri, ident);
+                (
+                    "hits",
+                    key.clone(),
+                    None,
+                    crate::hit_rows(&key, index.lookup_canon(uri, ident), &mut sources),
+                )
+            }
+            (None, Some(_), None) | (None, None, Some(_)) => {
+                return Err(JsonRpcError::custom(
+                    -32602,
+                    "defs.reverse: the canonical key needs both uri and ident",
+                ));
+            }
+            // No key: the key index, the reading that answers "what can I type".
+            (None, None, None) => ("keys", String::new(), None, crate::key_rows(index)),
+        };
+
+    let mut payload = json!({
+        "name": key,
+        "space": "circuit",
+        "top": top,
+        "mode": mode,
+        "count": items.len(),
+        "items": items,
+    });
+    if let Some(keys) = matched {
+        payload["keys"] = json!(keys);
+    }
+    Ok(payload)
+}
+
 // === handle_refs (lines 1534-1556 in original) ===
 
 pub fn handle_refs(params: Option<Value>) -> RpcResult {

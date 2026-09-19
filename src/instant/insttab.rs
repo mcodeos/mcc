@@ -66,6 +66,23 @@ impl std::fmt::Display for InstKind {
 }
 
 impl InstKind {
+    /// The lowercase tag this kind carries on the outward faces (JSON rows,
+    /// query filters). Spelled per variant rather than lowercased from the
+    /// `Display` form, so the two spellings can be changed apart.
+    ///
+    /// `Display` stays capitalized: it is what diagnostics print, and those
+    /// strings are frozen in test expectations.
+    pub fn word(&self) -> &'static str {
+        match self {
+            InstKind::Module => "module",
+            InstKind::Component => "component",
+            InstKind::Pin => "pin",
+            InstKind::Port => "port",
+            InstKind::Bus => "bus",
+            InstKind::Label => "label",
+        }
+    }
+
     /// Registration priority — used to arbitrate when two different kinds
     /// compete for the same path.
     ///
@@ -1413,6 +1430,31 @@ impl InstTable {
     /// Find entry by ID
     pub fn get_entry(&self, id: u32) -> Option<&InstEntry> {
         self.entries.get(&id)
+    }
+
+    /// The definition this entry belongs to: its own `class_def`, or the
+    /// nearest ancestor's.
+    ///
+    /// §3.7: `class_def` is set for the kinds that name a def — a module, a
+    /// component — while a pin or a port names a *member* of one and carries
+    /// none, so its def half is recovered by walking `parent_id` up to the
+    /// first entry that declares one. `parent_id` strictly decreases towards
+    /// the root, so the walk terminates.
+    ///
+    /// **One owner for the walk.** The rows of `export::instlist`, the
+    /// two-space key of `stages::def_of` and the keys of the reverse index
+    /// (`instant::reverse`) all read it here, so no two faces of the same
+    /// entry can name different defs.
+    pub fn class_def_of(&self, id: u32) -> Option<&McSpaceName> {
+        let mut cur = Some(id);
+        while let Some(cid) = cur {
+            let e = self.entries.get(&cid)?;
+            if let Some(sn) = &e.class_def {
+                return Some(sn);
+            }
+            cur = e.parent_id;
+        }
+        None
     }
 
     /// Get all direct child instances under a given parent node

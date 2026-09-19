@@ -181,35 +181,17 @@ fn row(table: &InstTable, e: &InstEntry, sources: &mut SourceText) -> Value {
 /// An instance row carries its own `class_def`. A pin / port row has none
 /// (§3.7: the field is set for the kinds that name a def, and a pin names a
 /// member of one), so the def half of its canonical key is read off the nearest
-/// ancestor that declares one — the same walk, for the same reason, the
-/// `stage.*` views do it. `parent_id` strictly decreases towards the root, so
-/// the walk terminates.
+/// ancestor that declares one — [`InstTable::class_def_of`], the one owner of
+/// that walk.
 ///
-/// Unlike the views' `def_of`, the row also spells the world-local `DefId`, so
-/// this walk cannot be shared with it; that `DefId` is the field the artifact
-/// has always carried, and pin rows keep the shape of the rows beside them.
+/// The row spells this class one step further than the `stage.*` views do: it
+/// also names the world-local `DefId`, which is the field the artifact has
+/// always carried, and pin rows keep the shape of the rows beside them.
 fn class_of(table: &InstTable, e: &InstEntry) -> Value {
-    match class_sn(table, e) {
-        Some(sn) => class_value(&sn),
+    match table.class_def_of(e.id) {
+        Some(sn) => class_value(sn),
         None => Value::Null,
     }
-}
-
-/// The definition a row belongs to — the entry's own `class_def`, or the
-/// nearest ancestor's.
-fn class_sn(table: &InstTable, e: &InstEntry) -> Option<McSpaceName> {
-    if let Some(sn) = &e.class_def {
-        return Some(sn.clone());
-    }
-    let mut cur = e.parent_id;
-    while let Some(id) = cur {
-        let entry = table.get_entry(id)?;
-        if let Some(sn) = &entry.class_def {
-            return Some(sn.clone());
-        }
-        cur = entry.parent_id;
-    }
-    None
 }
 
 fn class_value(sn: &McSpaceName) -> Value {
@@ -253,9 +235,9 @@ struct DefEntry {
 fn ledger(table: &InstTable, rows: &[&InstEntry]) -> Vec<DefEntry> {
     let mut keys: BTreeMap<(String, String), McSpaceName> = BTreeMap::new();
     for e in rows {
-        if let Some(sn) = class_sn(table, e) {
+        if let Some(sn) = table.class_def_of(e.id) {
             keys.entry((sn.uri.as_uri().to_string(), sn.ident.to_string()))
-                .or_insert(sn);
+                .or_insert_with(|| sn.clone());
         }
     }
     keys.into_iter()

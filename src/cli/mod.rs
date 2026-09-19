@@ -1239,12 +1239,22 @@ pub struct DefArgs {
 
 #[derive(Parser, Debug)]
 pub struct RefsArgs {
-    /// Symbol name to find references for
+    /// Symbol name to find references for. With --circuit this is matched
+    /// against the keys of the built circuit's reverse index (def names;
+    /// case-insensitive substring, so a prefix finds them too), and an empty
+    /// name lists every key instead of matching.
     pub name: String,
 
     /// Parse directly from file
     #[arg(long, short = 'F')]
     pub file: Option<String>,
+
+    /// Answer in the circuit space: the built board's rows this definition-space
+    /// name lands on (design organization-units-design.md §9.6), instead of the
+    /// definition space's source spans. Requires a top module (target directory
+    /// manifest, or --top <NAME>).
+    #[arg(long)]
+    pub circuit: bool,
 }
 
 // fmt

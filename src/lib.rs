@@ -150,6 +150,7 @@ pub use instant::overlays::{ModuleOverlay, Overlays};
 pub use instant::provenance::{
     ExpansionKind, ExpansionLog, ExpansionRecord, ProductGroup, ProductGroups, StatementNode,
 };
+pub use instant::reverse::{Hit, ReverseIndex};
 pub use instant::world::{
     CircuitCheckpoint, CircuitDiff, CircuitWorld, NetDelta, NetSnapshot, NodePathChange,
 };
@@ -157,6 +158,7 @@ pub use semantic::common::ConnDir;
 pub use semantic::validation::pwrflow::{build_pwrflow, CrownRow, FlowNode, PwrFlow, RailRow};
 
 // ── Query ──
+pub use query::reverse::{hit_rows, key_rows, matched_rows};
 pub use query::search as search_api;
 pub use query::search::dsl as query_api;
 pub use query::units::{

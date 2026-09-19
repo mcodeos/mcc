@@ -21,6 +21,7 @@ pub(crate) mod overlays;
 pub(crate) mod provenance;
 pub(crate) mod read;
 pub(crate) mod refdes;
+pub(crate) mod reverse;
 pub(crate) mod world;
 
 /// Reset the R05 UNRESOLVED_UNIT counter (call before each build run).
