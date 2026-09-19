@@ -531,6 +531,104 @@ fn u101_r1__non_whole_referenceable_domains_read_like_an_undeclared_name() {
     );
 }
 
+// ── R1 whole-reference against a **curly receiver** (the "module-port word
+//    position" of intent-reference-layer-design.md §10.9 step 2) ──
+
+/// A child module exposing **two scalar ports**, so a curly group `b1{p, m}`
+/// resolves through `dot_or_curly` into a two-lane bus. Declared without an
+/// interface for the same harness reason as `CHILD2` above.
+const MCHILD: &str = "module CHILD3 {\n    io p\n    io m\n}\n";
+
+/// `main`'s rail-face names and the child instance, written first.
+const MHEAD: &str =
+    "module main {\n    io VDD_3V3\n    io GND\n    io A1\n    io AG\n    CHILD3 b1\n";
+
+fn msrc(doms: &str, body: &str) -> String {
+    format!("{MCHILD}{MHEAD}{doms}{body}\n}}\n")
+}
+
+/// The **receiver** of a whole reference may be a curly group on an instance:
+/// `DVDD -> b1{p, m}` (source side) and `b1{p, m} -> DVDD` (target side) must
+/// each land exactly the partition their written-out pairs land.
+///
+/// The domain word itself is a bare single identifier in both spellings — the
+/// receiver's curly shape comes from `dot_or_curly`, not from the widening —
+/// so no write point besides the bare-name arm exists; this test pins that
+/// reading against a regression that narrows the widening to dotted receivers.
+#[test]
+fn u79_r1__a_curly_module_port_receiver_equals_the_written_pair() {
+    for (named_body, written_body, side) in [
+        ("    DVDD -> b1{p, m}", "    [VDD_3V3, GND] -> b1{p, m}", "source"),
+        ("    b1{p, m} -> DVDD", "    b1{p, m} -> [VDD_3V3, GND]", "target"),
+    ] {
+        let named = partition_of(&msrc(WDOM, named_body), "/mcc/u79-curly-named.mc");
+        let written = partition_of(&msrc(WDOM, written_body), "/mcc/u79-curly-written.mc");
+
+        // Anti-false-green: the written form lands the two rail faces on two
+        // different nets, otherwise the equality below judges nothing.
+        let hot = net_holding(&written, "VDD_3V3").unwrap_or_else(|| {
+            panic!("the written pair must land VDD_3V3 ({side}): {written:?}")
+        });
+        let ret = net_holding(&written, "GND")
+            .unwrap_or_else(|| panic!("the written pair must land GND ({side}): {written:?}"));
+        assert_ne!(hot, ret, "the written pair must land two nets ({side})");
+
+        assert_eq!(
+            named, written,
+            "the domain word against a curly receiver must land exactly the \
+             written-out pair's partition ({side})"
+        );
+        assert!(
+            codes_of(&msrc(WDOM, named_body), "/mcc/u79-curly-named-codes.mc").is_empty(),
+            "the whole reference at a curly receiver must be quiet ({side})"
+        );
+    }
+}
+
+/// The rejection branches survive the curly receiver too: a domain that is not
+/// whole-referenceable reads exactly like an undeclared name there, and the
+/// whole-referenceable one must not (non-vacuity, same shape as the chain
+/// lock above).
+#[test]
+fn u79_r1__non_whole_referenceable_domains_keep_their_curly_reading() {
+    let both = format!("{WDOM}{WDOM_NO}");
+    let plain = codes_of(
+        &msrc(&both, "    b1{p, m} -> ZZZ"),
+        "/mcc/u79-curly-rej-plain.mc",
+    );
+    assert!(
+        !plain.is_empty(),
+        "the baseline must be a real mismatch (a one-wide name against a \
+         two-wide curly group), not silence: {plain:?}"
+    );
+    for (dom, why) in [
+        (
+            "DUALA",
+            "declares two ::DC rails, so it stands for no single pair",
+        ),
+        ("BARE", "declares no rail at all, so it stands for nothing"),
+    ] {
+        let codes = codes_of(
+            &msrc(&both, &format!("    b1{{p, m}} -> {dom}")),
+            &format!("/mcc/u79-curly-rej-{dom}.mc"),
+        );
+        assert_eq!(
+            codes, plain,
+            "{dom} {why} — it must not widen against a curly receiver either, \
+             so it must read exactly like an undeclared name"
+        );
+    }
+    assert_ne!(
+        codes_of(
+            &msrc(&both, "    b1{p, m} -> DVDD"),
+            "/mcc/u79-curly-rej-dvdd.mc"
+        ),
+        plain,
+        "the whole-referenceable domain must differ from the undeclared name, \
+         otherwise the two equalities above judge nothing"
+    );
+}
+
 /// Guard ① and guard ② together: only a **bare single identifier**, and only in
 /// the scope that owns the declaration.
 ///
