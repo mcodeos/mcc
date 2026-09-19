@@ -73,7 +73,7 @@ range (threshold 40KB).
 | `semantic/` | 87 | 2481 KB |
 | `stages/` | 11 | 270 KB |
 | `vector/` | 25 | 462 KB |
-| `viz/` | 95 | 2277 KB |
+| `viz/` | 95 | 2279 KB |
 
 ## Declaration index
 
@@ -9089,37 +9089,37 @@ viz/layout/radial.rs#L452  fn assign_coordinates
 viz/layout/radial.rs#L760  const EDGE_INSET
 viz/layout/radial.rs#L763  const FAN_SPAN
 viz/layout/radial.rs#L779  fn setup_facade_entry_points
-viz/layout/radial.rs#L950  fn facing_side_and_offset
-viz/layout/radial.rs#L979  fn side_order
-viz/layout/radial.rs#L991  mod tests
-viz/layout/radial.rs#L995  fn weighted_degree_signal_vs_rail
-viz/layout/radial.rs#L1037  fn edge_neighbors_bidirectional
-viz/layout/radial.rs#L1075  fn facade_entry_points_name_agnostic
-viz/layout/radial.rs#L1202  fn facade_reconciles_ends_to_straight_line
-viz/layout/radial.rs#L1292  fn power_supply_rank_orders_supply_chain
-viz/layout/radial.rs#L1324  fn power_supply_rank_terminates_on_cycle
+viz/layout/radial.rs#L962  fn facing_side_and_offset
+viz/layout/radial.rs#L991  fn side_order
+viz/layout/radial.rs#L1003  mod tests
+viz/layout/radial.rs#L1007  fn weighted_degree_signal_vs_rail
+viz/layout/radial.rs#L1049  fn edge_neighbors_bidirectional
+viz/layout/radial.rs#L1087  fn facade_entry_points_name_agnostic
+viz/layout/radial.rs#L1214  fn facade_reconciles_ends_to_straight_line
+viz/layout/radial.rs#L1304  fn power_supply_rank_orders_supply_chain
+viz/layout/radial.rs#L1336  fn power_supply_rank_terminates_on_cycle
 viz/layout/rails.rs#L73  fn is_rail_box
 viz/layout/rails.rs#L78  const DRIVER_NET_ID_BASE
 viz/layout/rails.rs#L81  fn classify_rails
-viz/layout/rails.rs#L356  fn drop_top_passives
-viz/layout/rails.rs#L423  fn apply_net_labels
-viz/layout/rails.rs#L432  mod tests
-viz/layout/rails.rs#L437  fn mk_rail
-viz/layout/rails.rs#L453  fn mk_mod
-viz/layout/rails.rs#L470  fn placed
-viz/layout/rails.rs#L487  fn net_label_disabled_keeps_all_nets
-viz/layout/rails.rs#L518  fn net_label_disabled_leaves_short_net_alone
-viz/layout/rails.rs#L541  fn net_label_disabled_skips_power_net
-viz/layout/rails.rs#L563  fn net_label_disabled_no_single_endpoint_rescue
-viz/layout/rails.rs#L582  fn net_label_disabled_leaves_anonymous_dangling_net_alone
-viz/layout/rails.rs#L599  fn rail_net
-viz/layout/rails.rs#L628  fn r1_ground_no_driver_no_edge_no_symbol_at_top
-viz/layout/rails.rs#L649  fn r1_ground_symbols_per_pin_at_sub_layer
-viz/layout/rails.rs#L681  fn r2_top_keeps_shared_power_rail
-viz/layout/rails.rs#L748  fn r2_sub_edges_only_to_power_domain_and_hub
-viz/layout/rails.rs#L825  fn r3_sub_layer_consumers_get_rail_terminals
-viz/layout/rails.rs#L857  fn c5_top_layer_drops_two_pin_passives
-viz/layout/rails.rs#L906  fn is_rail_box_is_kind_based_not_name_based
+viz/layout/rails.rs#L364  fn drop_top_passives
+viz/layout/rails.rs#L443  fn apply_net_labels
+viz/layout/rails.rs#L452  mod tests
+viz/layout/rails.rs#L457  fn mk_rail
+viz/layout/rails.rs#L473  fn mk_mod
+viz/layout/rails.rs#L490  fn placed
+viz/layout/rails.rs#L507  fn net_label_disabled_keeps_all_nets
+viz/layout/rails.rs#L538  fn net_label_disabled_leaves_short_net_alone
+viz/layout/rails.rs#L561  fn net_label_disabled_skips_power_net
+viz/layout/rails.rs#L583  fn net_label_disabled_no_single_endpoint_rescue
+viz/layout/rails.rs#L602  fn net_label_disabled_leaves_anonymous_dangling_net_alone
+viz/layout/rails.rs#L619  fn rail_net
+viz/layout/rails.rs#L648  fn r1_ground_no_driver_no_edge_no_symbol_at_top
+viz/layout/rails.rs#L669  fn r1_ground_symbols_per_pin_at_sub_layer
+viz/layout/rails.rs#L701  fn r2_top_keeps_shared_power_rail
+viz/layout/rails.rs#L768  fn r2_sub_edges_only_to_power_domain_and_hub
+viz/layout/rails.rs#L845  fn r3_sub_layer_consumers_get_rail_terminals
+viz/layout/rails.rs#L877  fn c5_top_layer_drops_two_pin_passives
+viz/layout/rails.rs#L926  fn is_rail_box_is_kind_based_not_name_based
 viz/layout/select.rs#L49  fn layout_best
 viz/layout/select.rs#L59  fn run_single
 viz/layout/select.rs#L171  static RENDER_GATE_FAILED

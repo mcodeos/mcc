@@ -838,9 +838,21 @@ fn setup_facade_entry_points(graph: &mut McVecGraph, edges: &[BlockEdge]) {
         }
 
         // Group pin indices by (side, neighbour) so only same-target pins fan out.
-        let mut groups: HashMap<(EntrySide, i64), Vec<usize>> = HashMap::new();
+        //
+        // Insertion-ordered on purpose. This order reaches the output through the
+        // **stable** sort below, so a hash map here would let its iteration order
+        // decide how pins that tie on (side, offset) are drawn: the same input drew
+        // them in a different order on every run once the facade put all of a box's
+        // pins on one side with one offset. Grouping by first appearance keeps the
+        // drawn order a function of the edges, which is the order this function is
+        // handed — build-design §3.7 discipline 4 (a product's order must be a
+        // total order fixed by the input; never a container's iteration order).
+        let mut groups: Vec<((EntrySide, i64), Vec<usize>)> = Vec::new();
         for (i, &(side, nid, _, _)) in kept.iter().enumerate() {
-            groups.entry((side, nid)).or_default().push(i);
+            match groups.iter_mut().find(|(k, _)| *k == (side, nid)) {
+                Some((_, v)) => v.push(i),
+                None => groups.push(((side, nid), vec![i])),
+            }
         }
 
         let mut eps: Vec<EntryPoint> = Vec::new();
