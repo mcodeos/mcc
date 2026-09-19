@@ -383,7 +383,9 @@ fn print_help_hint() {
     eprintln!("  search   Alias of `query` for bare-name substring searches");
     eprintln!("  export   Export netlist / BOM / SPICE (text|csv|json)");
     eprintln!("  impact   Blast radius of changing one def (which tops, nets, consumers)");
-    eprintln!("  import   Read an EDA artifact back and report how it differs from the current world");
+    eprintln!(
+        "  import   Read an EDA artifact back and report how it differs from the current world"
+    );
     eprintln!(
         "  lib      System library management (list / install / load / unload / show / search / uninstall)"
     );

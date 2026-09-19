@@ -122,16 +122,21 @@ pub fn impact_report(
 /// `sym` is a name, so every comparison here is exact string equality.
 fn resolve_impact_target(sym: &str, table: &crate::InstTable) -> Result<ImpactTarget, ImpactError> {
     if let Some((ident, uri)) = def_by_name(sym) {
-        let sn = crate::McSpaceName::new(&crate::McIds::from(ident.as_str()), crate::McURI::from(uri.as_str()));
-        let kind = crate::kind_of(&sn).ok_or_else(|| {
-            ImpactError::Unresolved(format!("impact: no live def for '{}'", sym))
-        })?;
-        let def_id = crate::def_id(&sn, kind).ok_or_else(|| {
-            ImpactError::Unresolved(format!("impact: no live def for '{}'", sym))
-        })?;
+        let sn = crate::McSpaceName::new(
+            &crate::McIds::from(ident.as_str()),
+            crate::McURI::from(uri.as_str()),
+        );
+        let kind = crate::kind_of(&sn)
+            .ok_or_else(|| ImpactError::Unresolved(format!("impact: no live def for '{}'", sym)))?;
+        let def_id = crate::def_id(&sn, kind)
+            .ok_or_else(|| ImpactError::Unresolved(format!("impact: no live def for '{}'", sym)))?;
         return Ok(ImpactTarget { def_id, uri, ident });
     }
-    for entry in table.get_components().into_iter().chain(table.get_modules()) {
+    for entry in table
+        .get_components()
+        .into_iter()
+        .chain(table.get_modules())
+    {
         if entry.path == sym {
             if let Some(cd) = &entry.class_def {
                 let ident = cd.ident.to_string();
