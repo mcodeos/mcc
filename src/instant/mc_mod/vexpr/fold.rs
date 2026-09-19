@@ -187,14 +187,29 @@ pub fn fold_parallel_chain(ops: &[ConcreteOpd], transposed: &[bool]) -> Option<P
             // anchor repeats the point once per lane so the lane split below
             // hands it to every lane's right end; a single-ended anchor keeps
             // it on the left (there the two nets are the same nodes anyway).
+            //
+            // "The same nodes anyway" holds for a single point, not for an
+            // operand carrying several lanes: the operand's lanes must pair 1:1
+            // with the face they attach to (§5.1 paired-side rows), and a face
+            // that cannot be split against folds them all into ONE net. That is
+            // the silent recovery §5.3.3 forbids at Pass2 -- `SPI + UC.SPI` with
+            // a one-point `SPI` merged four conductors into one node, and the
+            // mirrored `UC.SPI + SPI` merged them on the other face, each with
+            // no diagnostic. Report the width mismatch instead of wiring it.
             if anchor_dim >= 2 && anchor_is_chain {
                 for _ in 0..anchor_dim {
                     right_net.extend(lp.iter().cloned());
                 }
             } else if anchor_is_chain {
-                right_net.extend(lp.iter().cloned());
-            } else {
+                if lp.len() == anchor_right.len() {
+                    right_net.extend(lp.iter().cloned());
+                } else {
+                    illegal = true; // width mismatch: drop the operand
+                }
+            } else if lp.len() == anchor_dim {
                 left_net.extend(lp.iter().cloned());
+            } else {
+                illegal = true; // width mismatch: drop the operand
             }
         } else if anchor_dim >= 2 && lp.len() + rp.len() == anchor_dim {
             // Implicit transpose: `left ++ right` is the operand's N-row view.

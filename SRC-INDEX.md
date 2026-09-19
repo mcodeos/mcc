@@ -64,7 +64,7 @@ range (threshold 40KB).
 | `db/` | 27 | 876 KB |
 | `eval/` | 2 | 48 KB |
 | `export/` | 6 | 44 KB |
-| `instant/` | 39 | 1478 KB |
+| `instant/` | 39 | 1480 KB |
 | `lsp/` | 7 | 66 KB |
 | `output/` | 7 | 107 KB |
 | `query/` | 7 | 133 KB |
@@ -3224,7 +3224,7 @@ instant/mc_mod/vexpr/fold.rs#L36  fn fold_series
 instant/mc_mod/vexpr/fold.rs#L77  fn fold_parallel
 instant/mc_mod/vexpr/fold.rs#L103  struct ParallelWiring
 instant/mc_mod/vexpr/fold.rs#L144  fn fold_parallel_chain
-instant/mc_mod/vexpr/fold.rs#L262  fn lane_slice
+instant/mc_mod/vexpr/fold.rs#L277  fn lane_slice
 instant/mc_mod/vexpr/identity.rs#L48  fn id_key
 instant/mc_mod/vexpr/identity.rs#L57  fn id_counts
 instant/mc_mod/vexpr/identity.rs#L67  fn pins_on
@@ -3292,11 +3292,12 @@ instant/mc_mod/vexpr/mod.rs#L313  fn i1__holds_for_every_basic_shape
 instant/mc_mod/vexpr/mod.rs#L331  fn parallel__degenerate_left_takes_the_free_face_from_the_right
 instant/mc_mod/vexpr/mod.rs#L352  fn parallel__degenerate_right_attaches_to_the_left_operands_right_face
 instant/mc_mod/vexpr/mod.rs#L371  fn parallel__both_degenerate_keeps_the_first_operands_faces
-instant/mc_mod/vexpr/mod.rs#L392  fn reversed__swaps_the_two_faces_and_reverses_the_shape
-instant/mc_mod/vexpr/mod.rs#L406  fn reversed__is_an_identity_for_degenerate_operands
-instant/mc_mod/vexpr/mod.rs#L420  fn series__equal_rows_are_legal_and_anchor_right
-instant/mc_mod/vexpr/mod.rs#L433  fn series__mismatched_rows_are_illegal
-instant/mc_mod/vexpr/mod.rs#L444  fn series__an_empty_face_is_not_connectable
+instant/mc_mod/vexpr/mod.rs#L392  fn parallel__one_lane_anchor_cannot_absorb_a_multi_lane_degenerate_operand
+instant/mc_mod/vexpr/mod.rs#L429  fn reversed__swaps_the_two_faces_and_reverses_the_shape
+instant/mc_mod/vexpr/mod.rs#L443  fn reversed__is_an_identity_for_degenerate_operands
+instant/mc_mod/vexpr/mod.rs#L457  fn series__equal_rows_are_legal_and_anchor_right
+instant/mc_mod/vexpr/mod.rs#L470  fn series__mismatched_rows_are_illegal
+instant/mc_mod/vexpr/mod.rs#L481  fn series__an_empty_face_is_not_connectable
 instant/mc_net.rs#L24  static LITERAL_POINT_DETAILS
 instant/mc_net.rs#L41  fn quarantine_literal
 instant/mc_net.rs#L64  fn reset_literal_points
@@ -10552,4 +10553,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-394 files, 10472 declarations.
+394 files, 10473 declarations.
