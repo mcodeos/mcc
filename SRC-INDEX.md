@@ -45,9 +45,9 @@ range (threshold 40KB).
 | `viz/layout/equi_audit.rs` | 137 KB | 103 |
 | `rpc/handlers/mod.rs` | 126 KB | 103 |
 | `semantic/mc_inst.rs` | 122 KB | 88 |
+| `instant/mc_mod/phases.rs` | 115 KB | 26 |
 | `instant/mc_mod/points.rs` | 114 KB | 19 |
 | `semantic/module/mod.rs` | 114 KB | 80 |
-| `instant/mc_mod/phases.rs` | 113 KB | 25 |
 | `semantic/basic/mc_fcall.rs` | 112 KB | 21 |
 
 ## Modules
@@ -64,7 +64,7 @@ range (threshold 40KB).
 | `db/` | 27 | 900 KB |
 | `eval/` | 2 | 48 KB |
 | `export/` | 6 | 44 KB |
-| `instant/` | 40 | 1528 KB |
+| `instant/` | 40 | 1530 KB |
 | `lsp/` | 7 | 66 KB |
 | `output/` | 7 | 107 KB |
 | `query/` | 9 | 157 KB |
@@ -3099,28 +3099,29 @@ instant/mc_mod/mod.rs#L664  fn mat_aname__sequence_lock
 instant/mc_mod/phases.rs#L34  impl InstantiationBuilder
 instant/mc_mod/phases.rs#L145  fn instantiate_interface
 instant/mc_mod/phases.rs#L457  fn inject_port_member_labels
-instant/mc_mod/phases.rs#L595  fn instantiate_declarations_resilient
-instant/mc_mod/phases.rs#L893  fn resolve_component_nc_pins
-instant/mc_mod/phases.rs#L962  fn resolve_module_nc_ports
-instant/mc_mod/phases.rs#L1028  fn report_nc_operand_miss
-instant/mc_mod/phases.rs#L1053  fn instantiate_stmts_resilient
-instant/mc_mod/phases.rs#L1154  fn dedup_connections
-instant/mc_mod/phases.rs#L1196  fn validate_expanded_net_points
-instant/mc_mod/phases.rs#L1324  fn arg_declared_volt
-instant/mc_mod/phases.rs#L1345  fn bind_actual_args_to_ports
-instant/mc_mod/phases.rs#L1556  fn bind_call_args_to_ports
-instant/mc_mod/phases.rs#L1784  fn check_unbound_param_ports
-instant/mc_mod/phases.rs#L1866  fn run_component_constructor
-instant/mc_mod/phases.rs#L2035  fn extract_port_bus_members
-instant/mc_mod/phases.rs#L2105  fn read_iface_diff_pair
-instant/mc_mod/phases.rs#L2131  fn port_base_name
-instant/mc_mod/phases.rs#L2151  fn port_members
-instant/mc_mod/phases.rs#L2183  fn is_power_terminal
-instant/mc_mod/phases.rs#L2195  fn bindable_formals
-instant/mc_mod/phases.rs#L2225  fn declared_volt_of_params
-instant/mc_mod/phases.rs#L2247  fn declared_volt_of_texts
-instant/mc_mod/phases.rs#L2277  fn nc_port_hits
-instant/mc_mod/phases.rs#L2291  fn nc_port_range_hits
+instant/mc_mod/phases.rs#L596  fn instantiate_declarations_resilient
+instant/mc_mod/phases.rs#L894  fn resolve_component_nc_pins
+instant/mc_mod/phases.rs#L963  fn resolve_module_nc_ports
+instant/mc_mod/phases.rs#L1029  fn report_nc_operand_miss
+instant/mc_mod/phases.rs#L1054  fn instantiate_stmts_resilient
+instant/mc_mod/phases.rs#L1155  fn dedup_connections
+instant/mc_mod/phases.rs#L1197  fn validate_expanded_net_points
+instant/mc_mod/phases.rs#L1325  fn arg_declared_volt
+instant/mc_mod/phases.rs#L1346  fn bind_actual_args_to_ports
+instant/mc_mod/phases.rs#L1557  fn bind_call_args_to_ports
+instant/mc_mod/phases.rs#L1785  fn check_unbound_param_ports
+instant/mc_mod/phases.rs#L1867  fn run_component_constructor
+instant/mc_mod/phases.rs#L2051  fn iface_ordinal_member_names
+instant/mc_mod/phases.rs#L2067  fn extract_port_bus_members
+instant/mc_mod/phases.rs#L2139  fn read_iface_diff_pair
+instant/mc_mod/phases.rs#L2165  fn port_base_name
+instant/mc_mod/phases.rs#L2185  fn port_members
+instant/mc_mod/phases.rs#L2217  fn is_power_terminal
+instant/mc_mod/phases.rs#L2229  fn bindable_formals
+instant/mc_mod/phases.rs#L2259  fn declared_volt_of_params
+instant/mc_mod/phases.rs#L2281  fn declared_volt_of_texts
+instant/mc_mod/phases.rs#L2311  fn nc_port_hits
+instant/mc_mod/phases.rs#L2325  fn nc_port_range_hits
 instant/mc_mod/points.rs#L41  fn parse_curly_select
 instant/mc_mod/points.rs#L55  fn expand_member_ida
 instant/mc_mod/points.rs#L94  fn resolve_bare_member_pid
@@ -3373,44 +3374,44 @@ instant/mc_net.rs#L458  fn is_anon_net_name
 instant/mc_net.rs#L462  impl fmt::Display for ConnectionInst
 instant/mc_net.rs#L463  fn fmt
 instant/mc_net.rs#L483  struct PortInst
-instant/mc_net.rs#L557  impl PortInst
-instant/mc_net.rs#L559  fn new
-instant/mc_net.rs#L576  fn with_members
-instant/mc_net.rs#L592  fn is_bus_port
-instant/mc_net.rs#L604  fn path_suffixes
-instant/mc_net.rs#L651  struct PortPathSuffixes
-instant/mc_net.rs#L660  impl fmt::Display for PortInst
-instant/mc_net.rs#L661  fn fmt
-instant/mc_net.rs#L676  enum InstError
-instant/mc_net.rs#L716  impl fmt::Display for InstError
-instant/mc_net.rs#L717  fn fmt
-instant/mc_net.rs#L761  impl std::error::Error for InstError
-instant/mc_net.rs#L767  enum InstDiagLevel
-instant/mc_net.rs#L783  struct InstDiagnostic
-instant/mc_net.rs#L795  impl InstDiagnostic
-instant/mc_net.rs#L797  fn error
-instant/mc_net.rs#L807  fn warning
-instant/mc_net.rs#L817  impl fmt::Display for InstDiagnostic
-instant/mc_net.rs#L818  fn fmt
-instant/mc_net.rs#L841  fn normalize_pin_segments
-instant/mc_net.rs#L884  fn canonicalize_path
-instant/mc_net.rs#L926  struct NetTable
-instant/mc_net.rs#L940  impl NetTable
-instant/mc_net.rs#L941  fn new
-instant/mc_net.rs#L954  fn register_port
-instant/mc_net.rs#L1016  fn add_connection
-instant/mc_net.rs#L1158  fn tie_paths
-instant/mc_net.rs#L1189  fn batch_union_shared_nodes
-instant/mc_net.rs#L1228  fn into_nets
-instant/mc_net.rs#L1358  fn ensure_point
-instant/mc_net.rs#L1385  fn find
-instant/mc_net.rs#L1393  fn union
-instant/mc_net.rs#L1410  mod tests
-instant/mc_net.rs#L1414  fn dlu_net__canonicalize_arrow_residual
-instant/mc_net.rs#L1422  fn dlu_net__canonicalize_no_change
-instant/mc_net.rs#L1449  fn dlu_net__repeated_segment_is_identity
-instant/mc_net.rs#L1480  fn dlu_net__batch_union_merges_shared_nodes
-instant/mc_net.rs#L1522  fn dlu_net__duplicate_suffix_paths_stay_apart
+instant/mc_net.rs#L558  impl PortInst
+instant/mc_net.rs#L560  fn new
+instant/mc_net.rs#L577  fn with_members
+instant/mc_net.rs#L593  fn is_bus_port
+instant/mc_net.rs#L605  fn path_suffixes
+instant/mc_net.rs#L652  struct PortPathSuffixes
+instant/mc_net.rs#L661  impl fmt::Display for PortInst
+instant/mc_net.rs#L662  fn fmt
+instant/mc_net.rs#L677  enum InstError
+instant/mc_net.rs#L717  impl fmt::Display for InstError
+instant/mc_net.rs#L718  fn fmt
+instant/mc_net.rs#L762  impl std::error::Error for InstError
+instant/mc_net.rs#L768  enum InstDiagLevel
+instant/mc_net.rs#L784  struct InstDiagnostic
+instant/mc_net.rs#L796  impl InstDiagnostic
+instant/mc_net.rs#L798  fn error
+instant/mc_net.rs#L808  fn warning
+instant/mc_net.rs#L818  impl fmt::Display for InstDiagnostic
+instant/mc_net.rs#L819  fn fmt
+instant/mc_net.rs#L842  fn normalize_pin_segments
+instant/mc_net.rs#L885  fn canonicalize_path
+instant/mc_net.rs#L927  struct NetTable
+instant/mc_net.rs#L941  impl NetTable
+instant/mc_net.rs#L942  fn new
+instant/mc_net.rs#L955  fn register_port
+instant/mc_net.rs#L1017  fn add_connection
+instant/mc_net.rs#L1159  fn tie_paths
+instant/mc_net.rs#L1190  fn batch_union_shared_nodes
+instant/mc_net.rs#L1229  fn into_nets
+instant/mc_net.rs#L1359  fn ensure_point
+instant/mc_net.rs#L1386  fn find
+instant/mc_net.rs#L1394  fn union
+instant/mc_net.rs#L1411  mod tests
+instant/mc_net.rs#L1415  fn dlu_net__canonicalize_arrow_residual
+instant/mc_net.rs#L1423  fn dlu_net__canonicalize_no_change
+instant/mc_net.rs#L1450  fn dlu_net__repeated_segment_is_identity
+instant/mc_net.rs#L1481  fn dlu_net__batch_union_merges_shared_nodes
+instant/mc_net.rs#L1523  fn dlu_net__duplicate_suffix_paths_stay_apart
 instant/mod.rs#L5  mod arena
 instant/mod.rs#L6  mod deps
 instant/mod.rs#L7  mod descriptions
@@ -10702,4 +10703,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-397 files, 10622 declarations.
+397 files, 10623 declarations.
