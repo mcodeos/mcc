@@ -493,7 +493,9 @@ pub const ATTR_TYPE_NOT_SUPPORTED: u32 = 3022;
 /// Attribute node is missing a required subnode.
 pub const ATTR_MISSING_SUBNODE: u32 = 3023;
 
-/// Invalid value type in a KVS node.
+/// Retired: the KVS value decode grew typed reading (pin-row value tails),
+/// removing the untyped catch-all this code reported. Registration kept, no
+/// producer (successor surface: the UVAL value family 3042+).
 pub const KVS_VALUE_TYPE_INVALID: u32 = 3041;
 
 /// Invalid unit value type.
@@ -773,7 +775,10 @@ pub const GHOST_PORT: u32 = 4055;
 /// '_X' prefix identifier used as a standalone operand — it is a member name, not the wire '_'.
 pub const LEAD_PREFIX_ID_AS_WIRE: u32 = 4058;
 
-/// Func param shadows a same-named component pin during func body expansion.
+/// Retired: the legacy edge path that reported param-over-pin shadowing was
+/// removed; binding is name-first and a same-named pin is shadowed by design.
+/// Registration kept, no producer (live definition-side variant:
+/// HW_FUNC_PARAM_SHADOWS_PIN 5510).
 pub const FUNC_PARAM_SHADOWS_PIN: u32 = 4059;
 
 /// Pullup/pulldown degenerated into a signal-signal bridge.
@@ -805,7 +810,8 @@ pub const PHANTOM_IO_ACCESS: u32 = 4063;
 /// instantiation is dropped to an @? stub.
 pub const UNRESOLVED_CLASS_STUB: u32 = 4064;
 
-/// Layout attribute is missing a required subnode.
+/// Retired: superseded by the per-slot missing-subnode codes (4085/4086/4088/
+/// 4089/4091/4093) that name the exact slot. Registration kept, no producer.
 pub const LAYOUT_MISSING_SUBNODE: u32 = 4081;
 
 /// Layout attribute node type mismatch.
@@ -814,7 +820,8 @@ pub const LAYOUT_TYPE_MISMATCH: u32 = 4082;
 /// Layout set is missing a required subnode.
 pub const LAYOUT_SET_MISSING_SUBNODE: u32 = 4083;
 
-/// Layout values node type mismatch.
+/// Retired: superseded by LAYOUT_VALUE_TYPE_MISMATCH 4090, which checks each
+/// value as it is parsed. Registration kept, no producer.
 pub const LAYOUT_VALUES_TYPE_MISMATCH: u32 = 4084;
 
 /// Layout name is missing a required subnode.
@@ -838,7 +845,9 @@ pub const LAYOUT_VALUE_TYPE_MISMATCH: u32 = 4090;
 /// Layout set is missing a subnode.
 pub const LAYOUT_SET_SUBNODE_MISSING: u32 = 4091;
 
-/// Malformed layout: unexpected extra nodes.
+/// Retired: the layout face is deliberately lenient - unknown words warn and
+/// extra nodes are ignored - so an extra-node refusal contradicts the face's
+/// contract. Registration kept, no producer.
 pub const LAYOUT_EXTRA_NODES: u32 = 4092;
 
 /// Layout values are missing a subnode.
@@ -856,7 +865,8 @@ pub const LAYOUT_EDGE_NAME_ID_MISSING_SUBNODE: u32 = 4096;
 /// Invalid layout edge.
 pub const LAYOUT_EDGE_INVALID: u32 = 4097;
 
-/// Malformed layout: edge name is not an ID.
+/// Retired: superseded by LAYOUT_EDGE_NAME_MISSING_SUBNODE 4088 and
+/// LAYOUT_EDGE_NAME_ID_MISSING_SUBNODE 4096. Registration kept, no producer.
 pub const LAYOUT_EDGE_NAME_NOT_ID: u32 = 4098;
 
 // Pass2: netlist / interface binding (4100-4149)
@@ -970,7 +980,9 @@ pub const INST_LANE_FUNCCALL_FAILED: u32 = 4162;
 /// Failed to instantiate a Transposed member during lane-by-lane wiring.
 pub const INST_LANE_TRANSPOSED_FAILED: u32 = 4163;
 
-/// Group connection shape mismatch; the operation generates no connection.
+/// Retired: the R0 rework makes `+` always produce Parallel, so the
+/// group-shape refusal has no producer left (sister code
+/// CONN_SERIES_SHAPE_MISMATCH 4167 stays live). Registration kept, no producer.
 pub const CONN_GROUP_SHAPE_MISMATCH: u32 = 4166;
 
 /// Sub-module DC power port is never connected (missing power argument?).
@@ -2150,7 +2162,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(ATTR_TYPE_MISMATCH, "Attribute node type mismatch.", "Attribute node type mismatch."),
     entry!(ATTR_TYPE_NOT_SUPPORTED, "Attribute type is not supported.", "Attribute type not support (node_type={0})"),
     entry!(ATTR_MISSING_SUBNODE, "Attribute node is missing a required subnode.", "Attribute node is missing a required subnode."),
-    entry!(KVS_VALUE_TYPE_INVALID, "Invalid value type in a KVS node.", "Invalid value type in KVS node."),
+    entry!(KVS_VALUE_TYPE_INVALID, "Retired: no producer.", "Retired - no producer. The KVS value decode reads typed values (UVAL family 3042+); the untyped catch-all this code reported is gone."),
     entry!(UVAL_VALUE_TYPE_INVALID, "Invalid unit value type.", "Invalid unit value type."),
     entry!(UVAL_DATA_NODE_INVALID, "Invalid unit value data node.", "Invalid unit value data node."),
     entry!(UVAL_UNIT_INVALID, "Invalid unit.", "Invalid unit."),
@@ -2232,7 +2244,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(SORT_HAZARD, "Bus pin numbers are non-monotonic; the binding follows declaration order, never numeric sorting.", "SORT_HAZARD: pin numbers in component '{0}' bus '{1}' are non-monotonic. Member-to-pin binding: [{2}]. Binding follows declaration order and is never sorted numerically; if you expected numeric pairing, reorder the members or the pins."),
     entry!(FLOATING_PLACEHOLDER, "A '_' placeholder could not be bound to any pin.", "FLOATING_PLACEHOLDER: '_' placeholder in net '{0}' (module '{1}') could not be bound to any existing pin. The placeholder is floating."),
     entry!(LEAD_PREFIX_ID_AS_WIRE, "'_X' is a prefix identifier (member name), not the wire '_'.", "PREFIX_ID_AS_WIRE: '{0}' is a prefix identifier (member name) like '_OPEN', not the wire '_'. If you meant pass-through in a connection line, write '_' instead."),
-    entry!(FUNC_PARAM_SHADOWS_PIN, "Func param shadows a same-named component pin in function body expansion; the param takes priority.", "FUNC_PARAM_SHADOWS_PIN: func param '{0}' shadows pin of component '{1}' in function body expansion - param takes priority."),
+    entry!(FUNC_PARAM_SHADOWS_PIN, "Retired: no producer.", "Retired - no producer. The legacy edge path was removed; binding is name-first and a same-named pin is shadowed by design. The definition-side check lives on as HW_FUNC_PARAM_SHADOWS_PIN (5510)."),
     entry!(GHOST_PORT, "A net endpoint is not mapped to any box — possible unexposed module boundary port.", "GHOST_PORT: net '{0}' endpoint id={1} is not mapped to any box. This pin may cross a module boundary without being properly exposed as a port."),
     entry!(PULLUP_DEGENERATE, "Pullup/pulldown degenerated into a signal-signal bridge.", "PULLUP_DEGENERATE: '{0}' both ends are non-rail nets ({1} ~ {2}). Pullup/Pulldown may have degenerated into a signal-signal bridge instead of (signal, rail)."),
     entry!(NET_DROPPED_STATEMENT, "A connection statement materialized no physical pins; no nets or constraints were produced.", "DROPPED_STATEMENT: {0} {1}. The statement may produce no nets or constraints."),
@@ -2241,10 +2253,10 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(PIN_OCCUPIED_BY_DECLARATION, "Two different declarations materialized to the same physical pin id; the later registration is merged into the first.", "OCCUPIED_PIN: physical pin '{0}' (declaration class '{1}') is also claimed by a second, different declaration (class '{2}'). Two different-named declarations materialized to the same physical pin id; the later registration is absorbed by the first."),
     entry!(PHANTOM_IO_ACCESS, "An .in/.out access on a component/class that declares no such pin was isolated into a phantom endpoint.", "PHANTOM_IO: access '{0}' is isolated as a phantom endpoint: '{1}' has no declared pin '{2}'. The access does not connect to any net; it is fallout of an internal function-chain placeholder, not a real {1} pin."),
     entry!(UNRESOLVED_CLASS_STUB, "A class-looking construction was not opened into a real instance; it is dropped to an @? stub that produces no nets or parts.", "UNRESOLVED_CLASS: construction of '{0}' was not opened into a real instance and is dropped to an @? stub — it produces no nets or parts. '{0}' is a registered class, so review the construction / caller shape (a func-call dispatcher PassThrough fallback), or an alias-normalization gap that routed it here instead of real construction."),
-    entry!(LAYOUT_MISSING_SUBNODE, "Layout attribute is missing a required subnode.", "Layout attribute is missing a required subnode."),
+    entry!(LAYOUT_MISSING_SUBNODE, "Retired: no producer.", "Retired - no producer. Superseded by the per-slot missing-subnode codes (4085, 4086, 4088, 4089, 4091, 4093)."),
     entry!(LAYOUT_TYPE_MISMATCH, "Layout attribute node type mismatch.", "Layout attribute node type mismatch."),
     entry!(LAYOUT_SET_MISSING_SUBNODE, "Layout set is missing a required subnode.", "Layout set is missing a required subnode."),
-    entry!(LAYOUT_VALUES_TYPE_MISMATCH, "Layout values node type mismatch.", "Layout values node type mismatch."),
+    entry!(LAYOUT_VALUES_TYPE_MISMATCH, "Retired: no producer.", "Retired - no producer. Superseded by LAYOUT_VALUE_TYPE_MISMATCH (4090)."),
     entry!(LAYOUT_NAME_MISSING_SUBNODE, "Layout name is missing a required subnode.", "Layout name is missing a required subnode."),
     entry!(LAYOUT_EDGE_MISSING_SUBNODE, "Layout edge is missing a subnode.", "While building layout: Missing subnode for edge"),
     entry!(LAYOUT_EDGE_TYPE_MISMATCH, "Layout edge node type mismatch.", "Type mismatch in layout edge"),
@@ -2252,13 +2264,13 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(LAYOUT_VALUE_MISSING_SUBNODE, "Layout value is missing a subnode.", "Missing subnode for layout value"),
     entry!(LAYOUT_VALUE_TYPE_MISMATCH, "Layout value node type mismatch.", "Type mismatch in layout value"),
     entry!(LAYOUT_SET_SUBNODE_MISSING, "Layout set is missing a subnode.", "Missing subnode for layout set"),
-    entry!(LAYOUT_EXTRA_NODES, "Malformed layout: unexpected extra nodes.", "Malformed layout: unexpected extra nodes"),
+    entry!(LAYOUT_EXTRA_NODES, "Retired: no producer.", "Retired - no producer. The layout face ignores extra nodes by design; unknown words warn only."),
     entry!(LAYOUT_VALUES_MISSING_SUBNODE, "Layout values are missing a subnode.", "Missing subnode for layout values"),
     entry!(LAYOUT_CONST_MISSING_INT, "CONST node is missing its INT subnode.", "CONST node missing subnode INT"),
     entry!(LAYOUT_PIN_NUMBER_PARSE, "Parse error in a layout pin number.", "Parse error in layout pin number"),
     entry!(LAYOUT_EDGE_NAME_ID_MISSING_SUBNODE, "Layout edge name id is missing a subnode.", "Missing subnode for layout edge name id"),
     entry!(LAYOUT_EDGE_INVALID, "Invalid layout edge.", "Invalid edge. Edges should be one of: \"left\", \"right\", \"top\", \"bottom\""),
-    entry!(LAYOUT_EDGE_NAME_NOT_ID, "Malformed layout: edge name is not an ID.", "Malformed layout: edge name not an ID"),
+    entry!(LAYOUT_EDGE_NAME_NOT_ID, "Retired: no producer.", "Retired - no producer. Superseded by 4088 and 4096."),
     // section
     entry!(NET_MULTI_DRIVE, "Net has multiple drivers — possible short circuit.", "Net has multiple drivers — possible short circuit."),
     entry!(IFACE_PINS_NOT_ALL_BOUND, "Interface requires more pins than are bound to physical pins.", "Interface requires more pins than are bound to physical pins."),
@@ -2303,7 +2315,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(SHAPE_INCOMPLETE, "NetShape missing; fell back to the deprecated connection_type() inference (stage 3).", "SHAPE_INCOMPLETE: net '{0}' has no NetShape provenance; fell back to connection_type() inference."),
     entry!(SHAPE_COLUMN_WIDTH_MIXED, "Column-width mix in a `[...]` list (vec-arch.md §4.1.1 R4): a single-column element among two-pin/node elements silently spans both columns.", "Column-width mix in a list: '{0}' spans both columns (single-column element among two-pin/node elements, e.g. `[A, R101]`). All elements must be single-column or all two-pin/node; use '_' to inherit the sibling column width."),
     entry!(SHAPE_INST_PORTCOUNT_PLUSMINUS, "Two component bodies with unequal port counts cannot participate in `+`/`-` (a body pair must have matching terminals).", "Instances '{0}' ({1} ports) and '{2}' ({3} ports) cannot participate in `+`/`-`: two component bodies must have equal port counts. Use a single pin ('{0}.1') to attach one body to a net."),
-    entry!(CONN_GROUP_SHAPE_MISMATCH, "Group connection shape mismatch; no connection generated.", "Group shape mismatch: {0} external points vs {1} group points ({2} branches); no connection generated"),
+    entry!(CONN_GROUP_SHAPE_MISMATCH, "Retired: no producer.", "Retired - no producer. The R0 rework removed the group-shape refusal path; sister code CONN_SERIES_SHAPE_MISMATCH (4167) stays live."),
     entry!(INST_POWER_PORT_UNBOUND, "Sub-module DC power port is never connected (missing power argument?).", "Sub-module instance '{0}' DC power port '{1}' is never connected (missing power argument?)"),
     entry!(INST_CTOR_BODY_STMT_FAILED, "A constructor function body statement failed.", "Constructor '{0}' body statement failed: {1}"),
     entry!(INST_CTOR_PARAM_BIND_FAILED, "Constructor parameter binding failed.", "Constructor '{0}' on '{1}' param bind: {2}"),
