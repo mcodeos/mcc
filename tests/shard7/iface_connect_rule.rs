@@ -551,3 +551,190 @@ fn iface_conn__d8_master_slave_mutual_pair_is_quiet() {
         "the mutual connect must actually merge pin 1 of both sides; got {nets:?}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// U133 phase 1 (interface-member-config-design.md §3): the direction word on
+// an adoption row (`out [1,2] = IF::DRX(Tx)`) is the carrier for per-member
+// direction. Phase 1 judges exactly one matrix cell — out↔out is a drive
+// fight (E5511). in↔in is E4103's territory (it fires in the flatten stage,
+// hence the `dir_flat` helper); the bidir cells are phase 2; a side without a
+// declared direction word skips the cell (the D9 discipline).
+// ---------------------------------------------------------------------------
+
+/// One family, six adoption shapes. Tx/Rx are mutual peers like LINK; the
+/// components differ only in the direction word (or its absence) on the pin
+/// row and in which role they adopt.
+const DIR_IFACE: &str = r#"
+interface DRX(role)
+{
+    pins = [
+        [1,2] = [A, B]
+    ]
+    role Tx { peer = Rx }
+    role Rx { peer = Tx }
+}
+
+component OUTDEV
+{
+    pins = [
+        out [1,2] = IF::DRX(Tx)
+    ]
+}
+
+component OUTDEV2
+{
+    pins = [
+        out [1,2] = IF::DRX(Rx)
+    ]
+}
+
+component INDEV
+{
+    pins = [
+        in [1,2] = IF::DRX(Rx)
+    ]
+}
+
+component INDEV2
+{
+    pins = [
+        in [1,2] = IF::DRX(Tx)
+    ]
+}
+
+component IODEV
+{
+    pins = [
+        io [1,2] = IF::DRX(Rx)
+    ]
+}
+
+component NODEV
+{
+    pins = [
+        [1,2] = IF::DRX(Rx)
+    ]
+}
+"#;
+
+/// Build `main` with the DIR_IFACE fixture and `body`, keeping only codes
+/// outside the benign set. Same normalization as `build`.
+fn build_dir(body: &str, uri: &str) -> (Vec<u32>, Vec<Vec<String>>) {
+    let _lock = common::lock();
+    common::reset();
+    let src = format!(
+        "{DIR_IFACE}module main {{\n    OUTDEV o1\n    OUTDEV2 o2\n    INDEV i1\n    INDEV2 i2\n    IODEV g1\n    NODEV n1\n{body}\n}}\n"
+    );
+    let u = McURI::from(uri);
+    mcc::mcc_load_from_string(&u, &src);
+    let (_, _, _, net_store) = mcc::mcc_build_with_nets(&McIds::from("main"), &u).expect("build");
+    let mut codes: Vec<u32> = mcc::mcc_diagnose_all()
+        .iter()
+        .map(|d| d.code)
+        .filter(|c| !benign(*c))
+        .collect();
+    codes.sort_unstable();
+    let mut partition: Vec<Vec<String>> = net_store
+        .get("main")
+        .map(|t| {
+            t.iter()
+                .map(|(_, pts)| {
+                    let mut ps: Vec<String> = pts.iter().map(|p| p.path.clone()).collect();
+                    ps.sort();
+                    ps
+                })
+                .filter(|ps| !ps.is_empty())
+                .collect()
+        })
+        .unwrap_or_default();
+    partition.sort();
+    (codes, partition)
+}
+
+/// The in↔in cell through the flatten stage: the net-level no-driver check
+/// (E4103) only runs inside `mcc_build_flat`, so `build_with_nets` alone
+/// cannot see it. Returns the non-benign code list.
+fn dir_flat(body: &str) -> Vec<u32> {
+    let _lock = common::lock();
+    common::reset();
+    let src = format!(
+        "{DIR_IFACE}module main {{\n    OUTDEV o1\n    OUTDEV2 o2\n    INDEV i1\n    INDEV2 i2\n    IODEV g1\n    NODEV n1\n{body}\n}}\n"
+    );
+    let u = McURI::from("/mcc/iface-dir-flat.mc");
+    mcc::mcc_load_from_string(&u, &src);
+    mcc::mcc_build_flat(&McIds::from("main"), &u, 1000).expect("flat build");
+    let mut codes: Vec<u32> = mcc::mcc_diagnose_all()
+        .iter()
+        .map(|d| d.code)
+        .filter(|c| !benign(*c))
+        .collect();
+    codes.sort_unstable();
+    codes
+}
+
+/// out↔out: two declared push-pull outputs wired against each other — E5511,
+/// and per the build-so-it's-findable principle the connection itself is
+/// still made.
+#[test]
+fn u133__out_out_is_e5511_and_still_connects() {
+    let (codes, nets) = build_dir("    o1.IF -> o2.IF", "/mcc/iface-dir-out-out.mc");
+    assert_eq!(codes, vec![5511], "exactly the drive-fight code; got {codes:?}");
+    assert!(
+        nets.contains(&vec!["o1.1".to_string(), "o2.1".to_string()]),
+        "the connection must still merge pin 1 of both sides; got {nets:?}"
+    );
+}
+
+/// out↔in: the driven input — quiet, and still one net.
+#[test]
+fn u133__out_in_is_quiet() {
+    let (codes, nets) = build_dir("    o1.IF -> i1.IF", "/mcc/iface-dir-out-in.mc");
+    assert!(
+        !codes.contains(&5511) && !codes.contains(&4120) && !codes.contains(&4121),
+        "no direction or role complaint; got {codes:?}"
+    );
+    assert!(
+        nets.contains(&vec!["i1.1".to_string(), "o1.1".to_string()]),
+        "driver and load share one net; got {nets:?}"
+    );
+}
+
+/// in↔in: two inputs, no driver — E4103's cell, not 5511's. Phase 1 must not
+/// shadow the net-level check.
+#[test]
+fn u133__in_in_is_e4103_territory_not_5511() {
+    let codes = dir_flat("    i1.IF -> i2.IF");
+    assert!(
+        !codes.contains(&5511),
+        "in↔in is not a direction conflict; got {codes:?}"
+    );
+    assert!(
+        codes.contains(&4103),
+        "two inputs and no driver is the no-driver check's cell; got {codes:?}"
+    );
+}
+
+/// out↔io: bidir cells are phase 2 (od/pull deferred) — quiet in phase 1.
+#[test]
+fn u133__out_io_stays_quiet_in_phase_1() {
+    let (codes, _nets) = build_dir("    o1.IF -> g1.IF", "/mcc/iface-dir-out-io.mc");
+    assert!(
+        !codes.contains(&5511),
+        "the bidir cells are phase 2; got {codes:?}"
+    );
+}
+
+/// One side undeclared (`NODEV`'s row carries no direction word): the cell is
+/// skipped entirely — no declaration, no inference.
+#[test]
+fn u133__one_side_undeclared_skips() {
+    let (codes, nets) = build_dir("    o1.IF -> n1.IF", "/mcc/iface-dir-undeclared.mc");
+    assert!(
+        !codes.contains(&5511),
+        "a side without a declared direction skips the cell; got {codes:?}"
+    );
+    assert!(
+        nets.contains(&vec!["n1.1".to_string(), "o1.1".to_string()]),
+        "the connection itself is unaffected; got {nets:?}"
+    );
+}
