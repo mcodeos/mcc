@@ -1053,22 +1053,63 @@ impl McComponentInst {
             }
         }
 
+        // ── U150 (ruled 2026-09-21): a bare-name interface adoption carries its
+        // pin→lane order in `registered_pins` — the WRITTEN list order of the
+        // adoption row (`[1, 6, 2, 5] = SPI::SPI(Slave)` binds lane 2 to pin 6,
+        // whatever the numeric order). The general-case scan below iterates the
+        // BTreeMap key order and sorts by numeric pid, which silently re-orders
+        // lanes for any non-ascending list (measured: GD25Q32E `[1, 2, 5, 6]`
+        // landed SO on the SCLK lane). Written order is the vector order (R0
+        // source-order rule): read the pairs off `registered_pins` and never
+        // re-sort here.
+        if let McPinPort::Interface(iface) = port_kind {
+            // Multi-lane interfaces only: a single-pin interface reused across
+            // pin groups accumulates every group into `registered_pins`, which
+            // is a pad list, not a lane order — those keep the old paths.
+            if iface.base.pins.member_names().len() >= 2 && !iface.registered_pins.is_empty() {
+                let prefix = format!("{port_name}.");
+                let mut pid_with_name: Vec<(String, String)> = Vec::new();
+                let mut seen: std::collections::BTreeSet<String> =
+                    std::collections::BTreeSet::new();
+                for pid in &iface.registered_pins {
+                    if !seen.insert(pid.clone()) {
+                        continue;
+                    }
+                    let member_name = self
+                        .def
+                        .pins
+                        .pin_id_to_names
+                        .get(pid)
+                        .and_then(|names| {
+                            names.iter().find_map(|n| {
+                                n.strip_prefix(&prefix).map(|m| m.to_string())
+                            })
+                        })
+                        .unwrap_or_default();
+                    pid_with_name.push((member_name, pid.clone()));
+                }
+                // Fewer than 2 lanes, or no pin resolved a member name (unnamed
+                // registration) → the written order carried nothing usable; fall
+                // through to the general scan.
+                if pid_with_name.len() >= 2 && pid_with_name.iter().any(|(n, _)| !n.is_empty()) {
+                    return Some(pid_with_name);
+                }
+            }
+        }
+
         // Direct hit: Multi(pids)
-        // P2-1: extract member names from pin_id_to_names for each pid
+        // P2-1: extract member names from pin_id_to_names for each pid.
+        // U150: iterate in the WRITTEN list order — the list is a vector, its
+        // element order is the lane order; sorting by numeric pid re-ordered
+        // lanes for non-ascending lists (same defect as the Interface arm above).
         if let McPinPort::Multi(pids) = port_kind {
             if pids.len() >= 2 {
-                let mut sorted = pids.clone();
-                sorted.sort_by(|a, b| {
-                    let na: i64 = a.parse().unwrap_or(0);
-                    let nb: i64 = b.parse().unwrap_or(0);
-                    na.cmp(&nb)
-                });
                 // P2-1: look up member names from pin_id_to_names
                 // Qualified names like "SPI.CS" are stored in pin_id_to_names.
                 // Extract the member name (last segment after port_name.)
                 let prefix = format!("{port_name}.");
                 let mut pid_with_name: Vec<(String, String)> = Vec::new();
-                for pid in &sorted {
+                for pid in pids.iter() {
                     let member_name = self
                         .def
                         .pins
