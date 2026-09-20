@@ -382,7 +382,7 @@ mod expand_match_tests {
             pt("flash.SPI.4", Some("SI")),
         ];
         let m = expand_match(&lhs, &rhs).expect("equal-count zip");
-        assert!(!m.all_members_mismatched);
+        assert!(!m.pairs.iter().all(|(l, r)| l.member_name != r.member_name));
         let got: Vec<(&str, &str)> = m
             .pairs
             .iter()
@@ -413,7 +413,7 @@ mod expand_match_tests {
             .map(|(l, r)| (l.path.as_str(), r.path.as_str()))
             .collect();
         assert_eq!(got, vec![("l.VDD", "r.GND"), ("l.GND", "r.VDD")]);
-        assert!(m.all_members_mismatched);
+        assert!(m.pairs.iter().all(|(l, r)| l.member_name != r.member_name));
     }
 
     #[test]
@@ -445,11 +445,11 @@ mod expand_match_tests {
     #[test]
     fn mat_expand__partial_name_match_is_not_repaired() {
         // One name coincides at its position, the rest differ: the zip stays
-        // positional and the D5 signal does not fire (not ALL pairs differ).
+        // positional regardless — and every pair still differs, so D5 fires.
         let lhs = vec![pt("l.GND", Some("GND")), pt("l.VDD", Some("VDD"))];
         let rhs = vec![pt("r.VDD_3V3", Some("VDD_3V3")), pt("r.GND", Some("GND"))];
         let m = expand_match(&lhs, &rhs).expect("equal-count zip");
-        assert!(m.all_members_mismatched);
+        assert!(m.pairs.iter().all(|(l, r)| l.member_name != r.member_name));
         let got: Vec<(&str, &str)> = m
             .pairs
             .iter()
@@ -478,7 +478,7 @@ mod expand_match_tests {
         let lhs = vec![pt("l.1", Some("A")), pt("l.2", Some("B"))];
         let rhs = vec![pt("r.1", Some("C")), pt("r.2", Some("D"))];
         let m = expand_match(&lhs, &rhs).expect("total-count zip");
-        assert!(m.all_members_mismatched);
+        assert!(m.pairs.iter().all(|(l, r)| l.member_name != r.member_name));
     }
 
     // ── §7 rule 3: count mismatch → None (implicit expansion forbidden) ──

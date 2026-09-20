@@ -874,7 +874,7 @@ mod tests {
     }
 
     #[test]
-    fn c5_top_layer_drops_two_pin_passives() {
+    fn c5_top_layer_keeps_series_passives_drops_parallel_ones() {
         // C5: top level draws no passives; the drained _WP net disappears, cross-module net kept
         let mut g = McVecGraph::new(0, "main".into());
         g.boxes.push(mk_mod(1, "flash"));
@@ -884,7 +884,8 @@ mod tests {
         res.symbol = Symbol::Resistor;
         res.class_name = "RES".into();
         g.boxes.push(res);
-        // _WP: flash.3 ~ RES.1 —— after removing RES only 1 end remains → delete
+        // _WP: flash.3 ~ RES.1 — removing RES leaves 1 end dangling, so RES
+        // carries this connection and 04de7ef keeps the box.
         g.nets.push(VizNet::new(
             30,
             "_WP".into(),
@@ -895,7 +896,7 @@ mod tests {
                 EndpointRef::with_io(3, 31, "1", IoDirection::Passive),
             ],
         ));
-        // CSN: flash.1 ~ RES.2 ~ mcu.10 —— after removing RES still 2 ends → keep
+        // CSN: flash.1 ~ RES.2 ~ mcu.10 — stays ≥2 ends either way.
         g.nets.push(VizNet::new(
             31,
             "CSN".into(),
@@ -907,19 +908,58 @@ mod tests {
                 EndpointRef::with_io(2, 21, "10", IoDirection::Passive),
             ],
         ));
+        // CAP: a bypass part whose both nets keep ≥2 ends without it — the
+        // droppable branch of C5.
+        let mut cap = mk_mod(4, "CAP");
+        cap.kind = BoxKind::TwoPin;
+        cap.symbol = Symbol::Capacitor;
+        cap.class_name = "CAP".into();
+        g.boxes.push(cap);
+        g.nets.push(VizNet::new(
+            32,
+            "VCC".into(),
+            NetKind::Signal,
+            NetRole::Signal,
+            vec![
+                EndpointRef::with_io(1, 14, "4", IoDirection::Passive),
+                EndpointRef::with_io(4, 41, "1", IoDirection::Passive),
+                EndpointRef::with_io(2, 22, "11", IoDirection::Passive),
+            ],
+        ));
+        g.nets.push(VizNet::new(
+            33,
+            "GND".into(),
+            NetKind::Signal,
+            NetRole::Signal,
+            vec![
+                EndpointRef::with_io(2, 23, "12", IoDirection::Passive),
+                EndpointRef::with_io(4, 42, "2", IoDirection::Passive),
+                EndpointRef::with_io(1, 15, "5", IoDirection::Passive),
+            ],
+        ));
         classify_rails(&mut g, /*is_top=*/ true);
+        // The series passive stays: deleting it would dangle _WP.
         assert!(
-            !g.boxes.iter().any(|b| b.id == 3),
-            "passive box should be deleted"
+            g.boxes.iter().any(|b| b.id == 3),
+            "a passive that carries a connection is kept"
         );
-        assert_eq!(
-            g.nets.len(),
-            1,
-            "_WP deleted, CSN kept: {:?}",
-            g.nets.iter().map(|n| &n.name).collect::<Vec<_>>()
+        assert!(g
+            .nets
+            .iter()
+            .any(|n| n.name == "_WP" && n.endpoints.len() == 2));
+        assert!(g
+            .nets
+            .iter()
+            .any(|n| n.name == "CSN" && n.endpoints.len() == 3));
+        // The parallel passive goes: both of its nets survive without it.
+        assert!(
+            !g.boxes.iter().any(|b| b.id == 4),
+            "a passive every net survives without is deleted"
         );
-        assert_eq!(g.nets[0].name, "CSN");
-        assert_eq!(g.nets[0].endpoints.len(), 2);
+        let vcc = g.nets.iter().find(|n| n.name == "VCC").unwrap();
+        let gnd = g.nets.iter().find(|n| n.name == "GND").unwrap();
+        assert_eq!(vcc.endpoints.len(), 2);
+        assert_eq!(gnd.endpoints.len(), 2);
     }
 
     #[test]

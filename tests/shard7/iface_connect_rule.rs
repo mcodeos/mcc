@@ -1699,4 +1699,3 @@ fn iface_attr__equal_declared_voltage_is_quiet() {
         "identical declared value sets are compatible; got {codes:?}"
     );
 }
-

@@ -558,17 +558,24 @@ fn msrc(doms: &str, body: &str) -> String {
 #[test]
 fn u79_r1__a_curly_module_port_receiver_equals_the_written_pair() {
     for (named_body, written_body, side) in [
-        ("    DVDD -> b1{p, m}", "    [VDD_3V3, GND] -> b1{p, m}", "source"),
-        ("    b1{p, m} -> DVDD", "    b1{p, m} -> [VDD_3V3, GND]", "target"),
+        (
+            "    DVDD -> b1{p, m}",
+            "    [VDD_3V3, GND] -> b1{p, m}",
+            "source",
+        ),
+        (
+            "    b1{p, m} -> DVDD",
+            "    b1{p, m} -> [VDD_3V3, GND]",
+            "target",
+        ),
     ] {
         let named = partition_of(&msrc(WDOM, named_body), "/mcc/u79-curly-named.mc");
         let written = partition_of(&msrc(WDOM, written_body), "/mcc/u79-curly-written.mc");
 
         // Anti-false-green: the written form lands the two rail faces on two
         // different nets, otherwise the equality below judges nothing.
-        let hot = net_holding(&written, "VDD_3V3").unwrap_or_else(|| {
-            panic!("the written pair must land VDD_3V3 ({side}): {written:?}")
-        });
+        let hot = net_holding(&written, "VDD_3V3")
+            .unwrap_or_else(|| panic!("the written pair must land VDD_3V3 ({side}): {written:?}"));
         let ret = net_holding(&written, "GND")
             .unwrap_or_else(|| panic!("the written pair must land GND ({side}): {written:?}"));
         assert_ne!(hot, ret, "the written pair must land two nets ({side})");

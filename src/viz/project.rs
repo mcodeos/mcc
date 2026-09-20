@@ -1381,9 +1381,18 @@ mod tests {
     /// carries its paired return, while the return net itself carries none.
     #[test]
     fn hbl1_root_net_ret_lineage() {
-        let root = std::path::PathBuf::from(
-            std::env::var("MCC_GOLDEN_PROJECT").unwrap_or_else(|_| "mcs/hbl1".into()),
-        );
+        // This test re-points the process-global system/project roots; the
+        // parse lock keeps sibling tests from reading the mutated globals.
+        let _guard = crate::db::infra::init::MCC_TEST_PARSE_LOCK.lock().unwrap();
+        // The golden board lives in the sibling `mcs` checkout; resolve it from
+        // the manifest dir so the test does not depend on the caller's cwd.
+        let default_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .map(|p| p.join("mcs/hbl1"));
+        let root = std::env::var_os("MCC_GOLDEN_PROJECT")
+            .map(std::path::PathBuf::from)
+            .or(default_root)
+            .expect("golden project: set MCC_GOLDEN_PROJECT or check out mcs/ beside mcc/");
         let project = root.as_path();
         mcc_set_system_root(project);
         mcc_set_project_root(project);

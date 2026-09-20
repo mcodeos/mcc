@@ -16,7 +16,6 @@
 
 use crate::common;
 
-
 /// Find a workspace component by its declared class name.
 fn component(name: &str) -> mcc::McComponent {
     mcc::definition_space()
