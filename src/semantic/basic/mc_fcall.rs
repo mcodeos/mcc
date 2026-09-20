@@ -1945,7 +1945,50 @@ impl McFuncCall {
         }
         if let Some(ret) = Self::lookup_func_returns(&self.caller, &self.func_name, scope) {
             self.resolve_return_shape(&ret);
+            self.expand_iface_port_return_face();
         }
+    }
+
+    /// U138: an interface-port return face (`return IF` on the receiver)
+    /// collapses to one member-less lane at parse time, while the same port
+    /// written as a statement-level face (`hb.IF`) expands memberwise — Pass1
+    /// then counts 1 row against the peer's N and rejects with E4007 before
+    /// the engine ever runs. The receiver component's own pins table is the
+    /// shape authority: when the collapsed lane names one of its interface
+    /// ports, expand to the port's declared members — exactly the expansion
+    /// `get_right_bus_from_phrase` applies to a written-out multi-member bus
+    /// (`return XTAL{X1,X2}`). Only the receiver's own declaration widens the
+    /// face; an unknown name keeps the collapsed lane.
+    fn expand_iface_port_return_face(&mut self) {
+        let Some(ReturnShape::Label { bus }) = self.resolved_return_shape.as_mut() else {
+            return;
+        };
+        if bus.len() != 1 || !bus[0].member.is_empty() {
+            return;
+        }
+        // The lane name carries the adoption spelling (`IF::P2P(Rx)`); the
+        // port is registered under its base name (`IF`).
+        let name = bus[0].name.split("::").next().unwrap_or("").to_string();
+        let root = self
+            .caller
+            .as_ref()
+            .and_then(|c| Self::root_receiver(c.as_ref()));
+        let Some(crate::McInstance::Component(comp)) = root else {
+            return;
+        };
+        let Some(crate::semantic::component::mc_pins::McPinPort::Interface(iface)) =
+            comp.base.pins.names_to_id.get(name.as_str())
+        else {
+            return;
+        };
+        let members = &iface.registered_pins;
+        if members.len() < 2 {
+            return;
+        }
+        *bus = members
+            .iter()
+            .map(|m| McBus::new(&format!("{name}.{m}")))
+            .collect();
     }
 
     /// Look up the `McFuncReturn` of a call. Mirrors the receiver-chain walk of

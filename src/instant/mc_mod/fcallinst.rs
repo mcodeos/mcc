@@ -1451,6 +1451,17 @@ impl InstantiationBuilder {
                 let port_name: Option<String> = match &substituted {
                     McPhrase::Endpoint(McEndpoint::Single(iref)) => match &iref.base {
                         McInstance::Bus(b) => Some(b.name.clone()),
+                        // U138: an interface port's reference spells its
+                        // adoption (`IF::P2P(Rx)`); the port registers on the
+                        // receiver under the base name (`IF`), same spelling
+                        // law the Pass1 shape expansion applies.
+                        McInstance::Interface(_) => Some(
+                            iref.to_string()
+                                .split("::")
+                                .next()
+                                .unwrap_or("")
+                                .to_string(),
+                        ),
                         _ => None,
                     },
                     _ => None,
