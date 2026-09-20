@@ -1043,6 +1043,29 @@ impl McPhrase {
                                         // the reading it had before R1 rather than being
                                         // silently turned into the pair.
                                         if !context.declared_endpoint_named(&name) {
+                                            // ── R3 member mode (intent-reference-
+                                            // layer §10.4): a word inside a
+                                            // `@bridge(domain, domain)`-licensed chain
+                                            // resolves to its *single* directed
+                                            // rail member — hot under `->`, ret
+                                            // under `<-` — not to the whole pair.
+                                            // The license lives with the
+                                            // statement, so the answer arrives
+                                            // keyed by this word's position (the
+                                            // pre-scan read `McOpd::new` off this
+                                            // same node). Exact-name first: the
+                                            // collision check above kept its
+                                            // reading, so a licensed word that is
+                                            // also an endpoint never reaches here.
+                                            if let Some(member) = context.licensed_domain_member_at(
+                                                subnode.get_pos() as usize,
+                                            ) {
+                                                return Some(
+                                                    context
+                                                        .add_label(member.clone())
+                                                        .unwrap_or_else(|| McPhrase::label(member)),
+                                                );
+                                            }
                                             let phrases: Vec<McPhrase> = [pair.hot, pair.ret]
                                                 .into_iter()
                                                 .map(|m| {
@@ -3119,6 +3142,14 @@ impl McPhrase {
                 }
 
                 let (opd1, opd2) = infer_shape_and_upgrade(opd1, opd2, context);
+                // R3 member mode lane stretch (§10.4): a licensed member word
+                // is one lane, but a chain whose element vector is W lanes
+                // wide needs W lanes at its ends — member mode duplicates the
+                // member where a written member column would (`[VDDA, VDDA] ->
+                // [R_bP, R_bN] -> …`). This operator is where both sides'
+                // widths first meet, so the stretch happens here.
+                let (opd1, opd2) =
+                    stretch_licensed_members(opd1, &opd1_node, opd2, &opd2_node, context);
 
                 // §4.3 series evaluation: opd1.right ↔ opd2.left (-> is LtoR, take op2).
                 // A transposed operand is first transposed to its full-width
@@ -3192,6 +3223,11 @@ impl McPhrase {
                 }
 
                 let (opd1, opd2) = infer_shape_and_upgrade(opd1, opd2, context);
+                // R3 member mode lane stretch (§10.4) — same as the `->` site
+                // above: the operator is where the licensed word's one lane
+                // first faces the chain's lane width.
+                let (opd1, opd2) =
+                    stretch_licensed_members(opd1, &opd1_node, opd2, &opd2_node, context);
 
                 // §4.4 series evaluation (leftward): `representative(RtoL)` is
                 // the **left** operand, so the check takes written order —
@@ -4732,6 +4768,65 @@ impl std::fmt::Display for McPhrase {
 }
 
 // Auxiliary functions
+
+/// R3 member mode lane stretch (intent-reference-layer-design.md §10.4): a
+/// licensed member word resolves to one lane, but a chain whose element vector
+/// is W lanes wide needs W lanes at its ends — `DVDD <- [FB, FB2] <- AVDD`
+/// under member mode *is* the written member column `[G, G] <- [FB, FB2] <-
+/// [GA, GA]` (the duplication the corpus spells out, e.g. pwrint
+/// `[VDDA, VDDA] -> [R_bP, R_bN] -> …`). The arrow operator is where the
+/// licensed word's one lane first faces the chain's lane width, so the stretch
+/// happens at the two arrow arms, keyed by the operand's exact position like
+/// the write point. A plain two-pin element (Row) is a series element one lane
+/// wide at its contacts and never triggers a stretch — only a column vector
+/// facing a licensed word does.
+fn stretch_licensed_members(
+    opd1: McPhrase,
+    opd1_node: &AstNode,
+    opd2: McPhrase,
+    opd2_node: &AstNode,
+    context: &mut dyn HasFindInst,
+) -> (McPhrase, McPhrase) {
+    let w1 = operand_lane_width(&opd1, context);
+    let w2 = operand_lane_width(&opd2, context);
+    if w1 == w2 {
+        return (opd1, opd2);
+    }
+    if w1 > w2 && operand_is_licensed_member(opd2_node, context) {
+        return (opd1, McPhrase::Multiple(vec![opd2; w1]));
+    }
+    if w2 > w1 && operand_is_licensed_member(opd1_node, context) {
+        return (McPhrase::Multiple(vec![opd1; w2]), opd2);
+    }
+    (opd1, opd2)
+}
+
+/// Is this operand AST node a licensed member word? Same funnel as the
+/// pre-scan and the write point: an `MCAST_OPD` wrapper answers for its
+/// subnode's position.
+fn operand_is_licensed_member(node: &AstNode, context: &dyn HasFindInst) -> bool {
+    let pos = if node.is_type(MCAST_OPD) {
+        match node.get_sub_node() {
+            Some(sub) => sub.get_pos() as usize,
+            None => return false,
+        }
+    } else {
+        node.get_pos() as usize
+    };
+    context.licensed_domain_member_at(pos).is_some()
+}
+
+/// Lane width of one chain operand for the member stretch: a column vector is
+/// its element count, an asymmetric node its wider side, everything else — a
+/// point, a plain two-pin series element (Row), an unresolved call — is one
+/// lane at its contacts.
+fn operand_lane_width(e: &McPhrase, context: &mut dyn HasFindInst) -> usize {
+    match OpdShape::of(e, context) {
+        OpdShape::Column(v) => v.len(),
+        OpdShape::Node(l, r) => l.len().max(r.len()),
+        _ => 1,
+    }
+}
 
 fn infer_shape_and_upgrade(
     opd1: McPhrase,

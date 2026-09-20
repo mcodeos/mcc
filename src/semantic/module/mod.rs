@@ -77,6 +77,17 @@ pub struct McModule {
     /// statement that uses it. Read-only: the peek builds its own list
     /// (`pi::peek_domain` / `pi::domain_pairs_of`) and never touches `pi`.
     pub(crate) domain_pairs_peek: Vec<pi::L1DomainPair>,
+    /// R3 member mode (intent-reference-layer-design.md §10.4): source
+    /// positions of the domain words that sit on a `@bridge(domain, domain)`-licensed
+    /// chain, mapped to the single rail member (`hot` under `->`, `ret` under
+    /// `<-`) the word resolves to. Filled by [`Self::scan_domain_bridges`]
+    /// before the body walk — same position-free visibility as
+    /// `domain_pairs_peek` — and consulted by the widening write point
+    /// (`McPhrase::new`'s bare-`McOpd::Id` arm) through
+    /// `HasFindInst::licensed_domain_member_at`. Keyed by word position in a
+    /// `BTreeMap`: the map is built in written order and read by exact key, so
+    /// no iteration order ever reaches a reading (build-design §3.7).
+    licensed_members: std::collections::BTreeMap<usize, String>,
 }
 
 impl McModule {
@@ -125,6 +136,7 @@ impl McModule {
                 floating_candidates: Vec::new(),
                 floating_pending: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
                 domain_pairs_peek: Vec::new(),
+                licensed_members: std::collections::BTreeMap::new(),
             };
 
             // 2. Parse parameters
@@ -182,6 +194,7 @@ impl McModule {
             floating_candidates: Vec::new(),
             floating_pending: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
             domain_pairs_peek: Vec::new(),
+            licensed_members: std::collections::BTreeMap::new(),
         }
     }
 
@@ -374,6 +387,164 @@ impl McModule {
         })
     }
 
+    /// R3 pre-scan (intent-reference-layer-design.md §10.4): one read-only walk
+    /// over the body's connection clauses, before the body walk below, that
+    /// (a) fills `licensed_members` — the domain-word positions whose
+    /// `@bridge(domain, domain)` license resolves them to a *single* directed rail
+    /// member instead of the whole `[hot, ret]` pair; (b) reports the family's
+    /// three static defects — 6046 mixed bridge identity, 6047 reversed
+    /// argument order, 6048 leg inconsistency; (c) reports 6049 for a named
+    /// pair no chain in the module witnesses.
+    ///
+    /// Everything here is judged off the AST (attributes through
+    /// `pi::collect_attrs`, words through the same `McOpd::new` funnel the
+    /// widening write point reads), so the scan's keys and the write point's
+    /// lookups cannot drift. A domain word written before its `domain` clause
+    /// licenses exactly as one written after — the pair table is the position
+    /// -free peek, like `domain_pairs_peek` above.
+    fn scan_domain_bridges(&mut self, clauses: &[AstNode]) {
+        if self.domain_pairs_peek.is_empty() {
+            return; // no whole-referenceable domain: nothing can license
+        }
+        let pairs = self.domain_pairs_peek.clone();
+        let uri = crate::current_uri::get();
+        let mut licensed: std::collections::BTreeMap<usize, String> =
+            std::collections::BTreeMap::new();
+        // Sorted (a, b) domain-pair key → (witnessed side, first naming span).
+        // `None` side = named but unwitnessed, 6049's object after the walk.
+        let mut named: std::collections::BTreeMap<(String, String), (Option<bool>, (u32, u32))> =
+            std::collections::BTreeMap::new();
+        for clause in clauses {
+            if !clause.is_type(MCAST_NET) {
+                continue;
+            }
+            let Some(head) = clause.get_sub_node() else {
+                continue;
+            };
+            for attr in pi::collect_attrs(&head).iter() {
+                if attr.id.to_string().as_str() != "bridge" {
+                    continue;
+                }
+                let texts = pi::value_texts(attr);
+                let Some((pa, pb)) = pi::domain_bridge_of(&texts, &pairs) else {
+                    // Not licensed. Exactly one side naming a whole-referenceable
+                    // domain is the mixed identity — reported, and the statement
+                    // keeps today's reading (the net-level pair of raw texts).
+                    if texts.len() == 2 {
+                        let mixed: Vec<&pi::L1DomainPair> = pairs
+                            .iter()
+                            .filter(|p| p.domain == texts[0] || p.domain == texts[1])
+                            .collect();
+                        if let [p] = mixed[..] {
+                            report_domain_bridge_code(
+                                crate::errcodes::DOMAIN_NET_MIXED_BRIDGE,
+                                clause,
+                                &[&p.domain, &p.hot, &p.ret],
+                            );
+                        }
+                    }
+                    continue;
+                };
+                let mut words: Vec<DomainBridgeWord> = Vec::new();
+                collect_domain_bridge_words(&head, None, &mut words);
+                words.sort_by_key(|w| w.pos);
+                // Member take (§10.4): each domain word resolves to the member
+                // its own arrow direction names — `->` takes the hot member,
+                // `<-` the return member. The resolution is per word, so it does
+                // not depend on the argument order; a reversed writing is
+                // reported (below) *and* stays licensed, because re-reading the
+                // chain from the other end to make the orders agree would be
+                // the silent rewrite this layer forbids.
+                for w in &words {
+                    if w.name != pa.domain && w.name != pb.domain {
+                        continue;
+                    }
+                    let Some(hot) = w.dir else { continue };
+                    let p = if w.name == pa.domain { &pa } else { &pb };
+                    licensed.insert(w.pos, if hot { p.hot.clone() } else { p.ret.clone() });
+                }
+                // 6047: the written left-to-right order of the two domain words
+                // must agree with the argument order — the mirrored writing of
+                // the same crossing is not silently re-read.
+                let first_at = |dom: &str| words.iter().find(|w| w.name == dom).map(|w| w.pos);
+                if let (Some(a_at), Some(b_at)) = (first_at(&pa.domain), first_at(&pb.domain)) {
+                    if a_at > b_at {
+                        report_domain_bridge_code(
+                            crate::errcodes::DOMAIN_BRIDGE_DIRECTION_REVERSED,
+                            clause,
+                            &[&pa.domain, &pb.domain],
+                        );
+                    }
+                }
+                // Witness (§10.4): a chain witnesses a leg when both its end
+                // words land on one side of the pair — a domain word takes its
+                // arrow's side; a literal end landing on a member name takes
+                // that member's side. Ends on opposite sides are the
+                // inconsistent chain (6048); an end on neither member
+                // witnesses nothing (silence, per §10.4's hot-vs-return
+                // criterion — a dangling pair is 6049's object, not this).
+                let side_of = |w: &DomainBridgeWord| -> Option<bool> {
+                    if w.name == pa.domain || w.name == pb.domain {
+                        return w.dir;
+                    }
+                    if w.name == pa.hot || w.name == pb.hot {
+                        return Some(true);
+                    }
+                    if w.name == pa.ret || w.name == pb.ret {
+                        return Some(false);
+                    }
+                    None
+                };
+                let witness = match (words.first(), words.last()) {
+                    (Some(f), Some(l)) if f.pos != l.pos => match (side_of(f), side_of(l)) {
+                        (Some(s), Some(t)) if s != t => {
+                            report_domain_bridge_code(
+                                crate::errcodes::DOMAIN_BRIDGE_LEG_INCONSISTENT,
+                                clause,
+                                &[&pa.domain, &pb.domain],
+                            );
+                            None
+                        }
+                        (Some(s), Some(_)) => Some(s),
+                        _ => None,
+                    },
+                    _ => None,
+                };
+                let mut key = (pa.domain.clone(), pb.domain.clone());
+                if key.0 > key.1 {
+                    std::mem::swap(&mut key.0, &mut key.1);
+                }
+                let entry = named
+                    .entry(key)
+                    .or_insert((None, (clause.get_pos(), clause.get_len())));
+                if witness.is_some() && entry.0.is_none() {
+                    entry.0 = witness;
+                }
+            }
+        }
+        // 6049: a named pair with zero witnessed legs anywhere in the module.
+        for ((a, b), (witness, (pos, len))) in &named {
+            if witness.is_some()
+                || crate::db::diagnostic::diagnostic::has_code_at(
+                    crate::errcodes::DOMAIN_BRIDGE_DANGLING,
+                    &uri,
+                    *pos,
+                )
+            {
+                continue;
+            }
+            crate::db::diagnostic::diagnostic::diagnostic_log(
+                crate::errcodes::DOMAIN_BRIDGE_DANGLING,
+                crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
+                *pos,
+                *len,
+                &crate::errcodes::format_msg(crate::errcodes::DOMAIN_BRIDGE_DANGLING, &[a, b]),
+                &[],
+            );
+        }
+        self.licensed_members = licensed;
+    }
+
     pub(crate) fn parse_body(&mut self, body: &AstNode) {
         // ★ LSP: Set scope for instance registration
         self.insts.scope = Some(self.name.to_string());
@@ -395,6 +566,13 @@ impl McModule {
                     .filter_map(|c| McPowerDecls::peek_domain(&c))
                     .collect::<Vec<_>>(),
             );
+            // ── R3 domain-level @bridge (intent-reference-layer-design.md
+            // §10.4) ── same position-free pre-read as the peek above: the
+            // license scan classifies every `@bridge(domain, domain)` statement and
+            // fills the word-position map the widening write point consults,
+            // so a statement means the same thing wherever its `domain`
+            // clauses were written.
+            self.scan_domain_bridges(&clauses);
             for clause in clauses {
                 let ct = clause.get_type();
                 match ct {
@@ -1407,6 +1585,67 @@ impl HasFindInst for McModule {
     fn scope_name(&self) -> Option<String> {
         Some(self.name.to_string())
     }
+
+    fn licensed_domain_member_at(&self, pos: usize) -> Option<String> {
+        self.licensed_members.get(&pos).cloned()
+    }
+}
+
+/// One bare identifier word of a connection statement's phrase tree, with the
+/// connection direction of the nearest enclosing arrow: `Some(true)` under
+/// `->` (hot take), `Some(false)` under `<-` (return take), `None` under a
+/// non-arrow chain (`-` / `+`) or no chain. The recorded position is the exact
+/// node the widening write point queries — `McPhrase::new`'s bare-`McOpd::Id`
+/// arm reads `McOpd::new` off the same subnode — so the pre-scan's keys and
+/// the write point's lookups cannot drift.
+struct DomainBridgeWord {
+    pos: usize,
+    name: String,
+    dir: Option<bool>,
+}
+
+/// Walk a phrase subtree collecting its bare identifier words (`R3` pre-scan
+/// input, [`McModule::scan_domain_bridges`]). Arrow nodes override the
+/// inherited direction for their whole subtree (a chain has one direction);
+/// every other node passes it through. Names render through `McIds`' `Display`
+/// — the whole written word — so a dotted / bracketed spelling simply never
+/// equals a domain name: §10.11.4 guard ① holds by word identity here too.
+fn collect_domain_bridge_words(node: &AstNode, dir: Option<bool>, out: &mut Vec<DomainBridgeWord>) {
+    let dir = match node.get_type() {
+        MCAST_OPD_RIGHTARROW => Some(true),
+        MCAST_OPD_LEFTARROW => Some(false),
+        _ => dir,
+    };
+    if node.is_type(MCAST_OPD) {
+        if let Some(sub) = node.get_sub_node() {
+            if let Some(crate::semantic::basic::mc_opd::McOpd::Id(ids)) =
+                crate::semantic::basic::mc_opd::McOpd::new(&sub)
+            {
+                out.push(DomainBridgeWord {
+                    pos: sub.get_pos() as usize,
+                    name: ids.to_string(),
+                    dir,
+                });
+            }
+        }
+    }
+    let mut kid = node.get_sub_node();
+    while let Some(k) = kid {
+        collect_domain_bridge_words(&k, dir, out);
+        kid = k.get_next();
+    }
+}
+
+/// Report one domain-bridge code at a statement, idempotent per position like
+/// every span-anchored fact in this tree (repeated parse runs must not
+/// multiply it).
+fn report_domain_bridge_code(code: u32, clause: &AstNode, args: &[&dyn std::fmt::Display]) {
+    let uri = crate::current_uri::get();
+    let pos = clause.get_pos();
+    if crate::db::diagnostic::diagnostic::has_code_at(code, &uri, pos) {
+        return;
+    }
+    dlog_error(code, clause, &crate::errcodes::format_msg(code, args));
 }
 
 impl McModule {

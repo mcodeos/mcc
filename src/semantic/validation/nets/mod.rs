@@ -3005,6 +3005,26 @@ pub(crate) fn check_return_leg_undeclared(table: &InstTable, results: &mut Vec<N
     // Declared DC edges per owning module — the shared read (PI-2 reads the
     // bridge subset of the same map).
     let declared = declared_dc_edges(table);
+    // Domain-level bridge clause spans per owning module (R3 §10.4) — the
+    // stand-down map for legs wired by licensed statements.
+    let mut domain_spans: std::collections::BTreeMap<u32, Vec<(usize, usize)>> =
+        std::collections::BTreeMap::new();
+    for (id, pi) in table.power_decls() {
+        let is_module = table
+            .get_entry(*id)
+            .is_some_and(|e| matches!(e.kind, InstKind::Module));
+        if !is_module {
+            continue;
+        }
+        let spans: Vec<(usize, usize)> = pi
+            .l1_domain_edges()
+            .into_iter()
+            .map(|d| (d.span.start, d.span.end))
+            .collect();
+        if !spans.is_empty() {
+            domain_spans.insert(*id, spans);
+        }
+    }
 
     for comp in table.get_components() {
         // A through leg is a real two-terminal part wired on both pads.
@@ -3078,6 +3098,21 @@ pub(crate) fn check_return_leg_undeclared(table: &InstTable, results: &mut Vec<N
         if self_declared {
             continue;
         }
+        // R3 (intent-reference-layer-design.md §10.4/§10.6): a leg wired by a
+        // statement licensed with `@bridge(domain, domain)` is the domain-bridge
+        // family's object (6046–6049 judge the license, the direction, the leg
+        // consistency and the collection completeness). This rule's object is
+        // the *net-level* relation — the endpoints its `DeclEdge` texts name —
+        // so it stands down on a leg whose wiring site sits inside a
+        // domain-bridge clause span, exactly as it does for `self_declared`.
+        if domain_edge_covers(
+            &domain_spans,
+            ma,
+            &sites,
+            mdef_uri.as_deref().unwrap_or_default(),
+        ) {
+            continue;
+        }
         let in_module = sites
             .iter()
             .any(|(_, uri)| uri == mdef_uri.as_deref().unwrap_or_default());
@@ -3112,6 +3147,24 @@ pub(crate) fn check_return_leg_undeclared(table: &InstTable, results: &mut Vec<N
             uri,
         });
     }
+}
+
+/// Does one domain-bridge clause span cover a leg's wiring site? The same
+/// site-in-span test `self_declared` uses for net-level edges, over the R3
+/// domain-edge spans collected above.
+fn domain_edge_covers(
+    domain_spans: &std::collections::BTreeMap<u32, Vec<(usize, usize)>>,
+    module_id: u32,
+    sites: &[(u32, String)],
+    mdef_uri: &str,
+) -> bool {
+    domain_spans.get(&module_id).is_some_and(|spans| {
+        spans.iter().any(|&(lo, hi)| {
+            sites
+                .iter()
+                .any(|(off, uri)| uri == mdef_uri && lo <= (*off as usize) && (*off as usize) < hi)
+        })
+    })
 }
 
 /// Owning module entry's definition-file URI — the file whose byte spans the

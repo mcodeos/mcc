@@ -30,6 +30,7 @@ mod rail_identity_declared;
 mod root_layer_anchor;
 mod single_port_representative;
 mod top_series_passive_kept;
+mod u79_r3_domain_bridge;
 mod u97_declared_member_port;
 mod vec_caret_reverse;
 mod vec_degenerate_side_face;

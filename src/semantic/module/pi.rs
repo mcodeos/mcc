@@ -319,6 +319,34 @@ impl McPowerDecls {
     pub fn l1_domain_pairs(&self) -> Vec<L1DomainPair> {
         domain_pairs_of(&self.domains)
     }
+
+    /// Project the module's **domain-level** bridges (design §10.4, R3): one row
+    /// per `@bridge` attribute whose two arguments both name whole-referenceable
+    /// domains ([`domain_bridge_of`]). Mixed arguments (one domain, one plain
+    /// endpoint) and net-level pairs stay out — they belong to 6046 and to the
+    /// unchanged net-level [`Self::l1_edges`] respectively. Ruling E (§10.4)
+    /// keeps this a separate table: [`L1Edge`] and its eleven consumers are
+    /// untouched.
+    pub fn l1_domain_edges(&self) -> Vec<L1DomainEdge> {
+        let mut out = Vec::new();
+        for e in &self.net_edges {
+            for a in e.attrs.iter() {
+                if a.id.to_string().as_str() != "bridge" {
+                    continue;
+                }
+                if let Some((pa, pb)) =
+                    domain_bridge_of(&value_texts(a), &domain_pairs_of(&self.domains))
+                {
+                    out.push(L1DomainEdge {
+                        a: pa.domain,
+                        b: pb.domain,
+                        span: e.span.clone(),
+                    });
+                }
+            }
+        }
+        out
+    }
 }
 
 /// [`McPowerDecls::l1_domain_pairs`] over a bare domain list — the same
@@ -344,6 +372,41 @@ pub fn domain_pairs_of(domains: &[McDomainDecl]) -> Vec<L1DomainPair> {
         });
     }
     out
+}
+
+/// One domain-level bridge — a `@bridge(X, Y)` whose **both** arguments name
+/// whole-referenceable domains of the owning module (intent-reference-layer
+/// design §10.4, R3; ruling E takes a separate table over upgrading
+/// [`L1Edge`]'s net-string endpoints, so every net-level consumer keeps its
+/// exact reading). Identity is the two domain names as written; the witnessed
+/// legs are the licensed chains' own face and live with the Pass1 scan
+/// (`McModule::scan_domain_bridges`), not in this store row.
+#[derive(Debug, Clone)]
+pub struct L1DomainEdge {
+    pub a: String,
+    pub b: String,
+    /// The statement clause's span — the same indexing the net-level
+    /// `DeclEdge` spans use, so a leg's wiring site can be tested against it.
+    pub span: Span,
+}
+
+/// The R3 license classifier over one `@bridge` attribute's endpoint texts:
+/// `Some((pair_a, pair_b))` iff exactly two texts, each naming a
+/// whole-referenceable domain of `pairs` ([`domain_pairs_of`]'s output, so a
+/// zero-rail / multi-rail / non-DC domain never licenses), any other shape —
+/// net-level bridge, mixed pair (6046's object, judged by the caller), wrong
+/// arity — is `None`. Argument order is preserved: the caller checks it
+/// against the chain's written order (6047).
+pub fn domain_bridge_of(
+    texts: &[String],
+    pairs: &[L1DomainPair],
+) -> Option<(L1DomainPair, L1DomainPair)> {
+    if texts.len() != 2 {
+        return None;
+    }
+    let a = pairs.iter().find(|p| p.domain == texts[0])?.clone();
+    let b = pairs.iter().find(|p| p.domain == texts[1])?.clone();
+    Some((a, b))
 }
 
 /// One decoded DC rail guarantee — the §4.1 window shape (`v±tol` →
@@ -897,7 +960,7 @@ fn has_attr(attrs: &McAttributes, key: &str) -> bool {
 /// Endpoint/value strings of one attribute: identifier operands (net / ref
 /// names, e.g. `@bridge(GND, GNDA)` → `["GND", "GNDA"]`) and literals; KVS /
 /// expression / nested-attribute values are not endpoints.
-fn value_texts(attr: &McAttribute) -> Vec<String> {
+pub(crate) fn value_texts(attr: &McAttribute) -> Vec<String> {
     attr.values
         .iter()
         .filter_map(|v| match v {
@@ -1342,7 +1405,7 @@ impl McRailParam {
 
 // helpers
 
-fn collect_attrs(head: &AstNode) -> McAttributes {
+pub(crate) fn collect_attrs(head: &AstNode) -> McAttributes {
     let mut attrs = McAttributes::new();
     for c in head.iter() {
         if c.is_type(MCAST_ATTRIBUTE) {
