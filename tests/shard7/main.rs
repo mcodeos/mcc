@@ -52,4 +52,5 @@ mod vec_group_expansion_equivalence;
 mod vec_lane_chain_width;
 mod vec_net_crossnet;
 mod vec_r0_operator_encoding;
+mod u131_named_func_args;
 mod vec_rule_discrimination;
