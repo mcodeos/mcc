@@ -361,6 +361,62 @@ module main {
     );
 }
 
+// [AUDIT u150-lane-order] A bare-name interface adoption list is a VECTOR:
+// its written element order is the lane order (position k binds lane k+1),
+// whatever the numeric order of the pin ids. `[1, 6, 2, 5] = SPI::SPI(Slave)`
+// must put pin 6 on lane 2 (SCLK) so the Master side lane 2 (SCLK) pairs with
+// pin 6, not pin 2. The pre-U150 scan sorted by numeric pid and mis-paired.
+#[test]
+fn audit_u150_adoption_list_is_vector() {
+    let p = probe(
+        r#"
+component F {
+    pins = [
+        1 = _CS
+        6 = SCLK
+        2 = SO
+        5 = SI
+        [1, 6, 2, 5] = SPI::SPI(Slave)
+    ]
+}
+component M {
+    pins = [
+        io [1, 2, 3, 4] = SPI::SPI(Master)
+    ]
+}
+module main {
+    F flash_i()
+    M inst_m()
+    flash_i.SPI + inst_m.SPI
+}
+"#,
+    );
+    report("u150-lane-order", &p);
+    // E5502 (pin-id gap lint) is expected here: F uses ids 1/2/5/6 and leaves
+    // 3/4 as gaps. Nothing else may fire.
+    let stray: Vec<u32> = codes(&p).into_iter().filter(|c| *c != 5502).collect();
+    assert!(
+        stray.is_empty(),
+        "written-order lane binding must be clean, got {stray:?}"
+    );
+    // Lane k of F pairs with lane k of M; F's lanes follow the WRITTEN list
+    // [1, 6, 2, 5], M's the ascending [1, 2, 3, 4].
+    let mut nets: Vec<Vec<String>> = p.nets.iter().map(|(_, pts)| pts.clone()).collect();
+    nets.sort();
+    let expected = vec![
+        vec!["flash_i.1".to_string(), "inst_m.1".to_string()], // CS
+        vec!["flash_i.6".to_string(), "inst_m.2".to_string()], // SCLK on lane 2
+        vec!["flash_i.2".to_string(), "inst_m.3".to_string()], // SO <-> MISO
+        vec!["flash_i.5".to_string(), "inst_m.4".to_string()], // SI <-> MOSI
+    ];
+    let mut expected_sorted = expected.clone();
+    expected_sorted.sort();
+    assert_eq!(
+        nets, expected_sorted,
+        "adoption list [1,6,2,5] must bind lanes in written order"
+    );
+}
+
 #[test]
 fn audit_s5_pins_index_range() {
     let p = probe(

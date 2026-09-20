@@ -64,7 +64,7 @@ range (threshold 40KB).
 | `db/` | 27 | 904 KB |
 | `eval/` | 2 | 48 KB |
 | `export/` | 6 | 44 KB |
-| `instant/` | 40 | 1532 KB |
+| `instant/` | 40 | 1534 KB |
 | `lsp/` | 7 | 66 KB |
 | `output/` | 7 | 107 KB |
 | `query/` | 9 | 157 KB |
@@ -2851,11 +2851,11 @@ instant/mc_comp.rs#L929  fn is_multi_pin
 instant/mc_comp.rs#L937  fn has_io_annotations
 instant/mc_comp.rs#L944  fn pin_count
 instant/mc_comp.rs#L986  fn find_bus_port_pin_ids
-instant/mc_comp.rs#L1193  fn pin_id_cmp
-instant/mc_comp.rs#L1209  fn natural_cmp
-instant/mc_comp.rs#L1250  fn numeric_str_cmp
-instant/mc_comp.rs#L1259  impl std::fmt::Display for McComponentInst
-instant/mc_comp.rs#L1260  fn fmt
+instant/mc_comp.rs#L1234  fn pin_id_cmp
+instant/mc_comp.rs#L1250  fn natural_cmp
+instant/mc_comp.rs#L1291  fn numeric_str_cmp
+instant/mc_comp.rs#L1300  impl std::fmt::Display for McComponentInst
+instant/mc_comp.rs#L1301  fn fmt
 instant/mc_mod/builder.rs#L71  struct InstantiationBuilder
 instant/mc_mod/builder.rs#L180  impl Deref for InstantiationBuilder
 instant/mc_mod/builder.rs#L181  type Target
