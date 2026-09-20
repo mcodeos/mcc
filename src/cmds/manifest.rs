@@ -229,7 +229,7 @@ pub fn collect_libs(project_root: Option<&Path>, cli_libs: &[String]) -> Vec<Str
     }
     // mcode standard library auto-loads by default unless disabled
     // (see LibsConfig::should_load_mcode / libs.disable_mcode).
-    if mcc::should_load_mcode(project_root) && !libs.iter().any(|l| l.to_lowercase() == "mcode") {
+    if mcc::should_load_mcode(project_root) && !libs.iter().any(|l| l == "mcode") {
         libs.push("mcode".to_string());
     }
     libs

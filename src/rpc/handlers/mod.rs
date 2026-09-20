@@ -1483,9 +1483,7 @@ pub(crate) fn resolve_libs_rpc(libs: &[String]) -> Vec<String> {
     } else {
         libs.to_vec()
     };
-    if crate::cli::config::should_load_mcode(None)
-        && !out.iter().any(|l| l.to_lowercase() == "mcode")
-    {
+    if crate::cli::config::should_load_mcode(None) && !out.iter().any(|l| l == "mcode") {
         out.push("mcode".to_string());
     }
     out
