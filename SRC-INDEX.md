@@ -33,14 +33,14 @@ range (threshold 40KB).
 | `db/infra/mc_code.rs` | 341 KB | 95 |
 | `viz/layout/equipotential_tree.rs` | 332 KB | 173 |
 | `semantic/basic/mc_phrase.rs` | 307 KB | 65 |
-| `semantic/component/mc_pins/mod.rs` | 226 KB | 105 |
+| `semantic/component/mc_pins/mod.rs` | 227 KB | 105 |
 | `instant/mc_mod/stmt.rs` | 194 KB | 76 |
 | `db/diagnostic/errcodes.rs` | 177 KB | 434 |
 | `semantic/validation/nets/mod.rs` | 176 KB | 115 |
 | `rules.rs` | 174 KB | 83 |
 | `instant/insttab.rs` | 153 KB | 110 |
 | `db/defregistry.rs` | 147 KB | 179 |
-| `instant/mc_mod/fcallinst.rs` | 144 KB | 26 |
+| `instant/mc_mod/fcallinst.rs` | 146 KB | 26 |
 | `cmds/show.rs` | 143 KB | 116 |
 | `viz/layout/equi_audit.rs` | 137 KB | 103 |
 | `rpc/handlers/mod.rs` | 126 KB | 103 |
@@ -64,13 +64,13 @@ range (threshold 40KB).
 | `db/` | 27 | 905 KB |
 | `eval/` | 2 | 48 KB |
 | `export/` | 6 | 44 KB |
-| `instant/` | 40 | 1534 KB |
+| `instant/` | 40 | 1538 KB |
 | `lsp/` | 7 | 66 KB |
 | `output/` | 7 | 107 KB |
 | `query/` | 9 | 157 KB |
 | `refdef/` | 7 | 118 KB |
 | `rpc/` | 16 | 293 KB |
-| `semantic/` | 89 | 2583 KB |
+| `semantic/` | 89 | 2584 KB |
 | `stages/` | 11 | 296 KB |
 | `vector/` | 25 | 462 KB |
 | `viz/` | 95 | 2289 KB |
@@ -2859,66 +2859,68 @@ instant/mc_comp.rs#L1291  fn numeric_str_cmp
 instant/mc_comp.rs#L1300  impl std::fmt::Display for McComponentInst
 instant/mc_comp.rs#L1301  fn fmt
 instant/mc_mod/builder.rs#L71  struct InstantiationBuilder
-instant/mc_mod/builder.rs#L180  impl Deref for InstantiationBuilder
-instant/mc_mod/builder.rs#L181  type Target
-instant/mc_mod/builder.rs#L183  fn deref
-instant/mc_mod/builder.rs#L188  impl DerefMut for InstantiationBuilder
-instant/mc_mod/builder.rs#L189  fn deref_mut
-instant/mc_mod/builder.rs#L194  impl InstantiationBuilder
-instant/mc_mod/builder.rs#L205  fn new
-instant/mc_mod/builder.rs#L222  fn with_registry
-instant/mc_mod/builder.rs#L271  fn with_identity
-instant/mc_mod/builder.rs#L285  fn assemble
-instant/mc_mod/builder.rs#L383  fn finish
-instant/mc_mod/builder.rs#L397  fn into_parts
-instant/mc_mod/builder.rs#L406  fn net_store
-instant/mc_mod/builder.rs#L417  fn freeze_fragment
-instant/mc_mod/builder.rs#L429  fn components_of
-instant/mc_mod/builder.rs#L447  fn modules_of
-instant/mc_mod/builder.rs#L469  fn find_component
-instant/mc_mod/builder.rs#L478  fn find_submodule
-instant/mc_mod/builder.rs#L489  fn component_in
-instant/mc_mod/builder.rs#L501  fn submodule_in
-instant/mc_mod/builder.rs#L516  fn components_view
-instant/mc_mod/builder.rs#L528  fn submodules_view
-instant/mc_mod/builder.rs#L542  fn component_port_members
-instant/mc_mod/builder.rs#L563  fn submodule_port_members
-instant/mc_mod/builder.rs#L579  fn instance_port_members
-instant/mc_mod/builder.rs#L616  fn peer_port_members
-instant/mc_mod/builder.rs#L638  fn add_component
-instant/mc_mod/builder.rs#L683  fn add_submodule
-instant/mc_mod/builder.rs#L734  fn append_port_arena
-instant/mc_mod/builder.rs#L760  fn append_vector_arena
-instant/mc_mod/builder.rs#L784  fn child_path
-instant/mc_mod/builder.rs#L790  fn identity_mut
-instant/mc_mod/builder.rs#L796  fn take_identity
-instant/mc_mod/builder.rs#L801  fn restore_identity
-instant/mc_mod/builder.rs#L806  fn add_connection
-instant/mc_mod/builder.rs#L839  fn current_call_site
-instant/mc_mod/builder.rs#L854  fn construction_site
-instant/mc_mod/builder.rs#L866  fn func_def_site
-instant/mc_mod/builder.rs#L891  fn instantiate
-instant/mc_mod/builder.rs#L958  fn auto_invoke_module_funcs
-instant/mc_mod/builder.rs#L1049  fn record_error
-instant/mc_mod/builder.rs#L1068  fn has_error_at_current_site
-instant/mc_mod/builder.rs#L1091  fn record_error_at
-instant/mc_mod/builder.rs#L1119  fn record_warning
-instant/mc_mod/builder.rs#L1143  fn log_global_diag
-instant/mc_mod/builder.rs#L1169  fn merge_diagnostics_from
-instant/mc_mod/builder.rs#L1178  fn ref_designator_prefix
-instant/mc_mod/builder.rs#L1211  fn auto_name
-instant/mc_mod/builder.rs#L1292  fn enter_func_stmt
-instant/mc_mod/builder.rs#L1318  fn with_func_stmt
-instant/mc_mod/builder.rs#L1335  fn with_func_scope
-instant/mc_mod/builder.rs#L1353  fn is_passthrough_formal
-instant/mc_mod/builder.rs#L1369  fn with_trunk
-instant/mc_mod/builder.rs#L1393  fn current_offset
-instant/mc_mod/builder.rs#L1402  fn next_conn_id
-instant/mc_mod/builder.rs#L1410  fn build_net_table
-instant/mc_mod/builder.rs#L1559  fn is_registered_class_name
-instant/mc_mod/builder.rs#L1596  fn resume_auto_inst_counter
-instant/mc_mod/builder.rs#L1626  fn resume_tree
-instant/mc_mod/builder.rs#L1674  fn boundary_return
+instant/mc_mod/builder.rs#L187  impl Deref for InstantiationBuilder
+instant/mc_mod/builder.rs#L188  type Target
+instant/mc_mod/builder.rs#L190  fn deref
+instant/mc_mod/builder.rs#L195  impl DerefMut for InstantiationBuilder
+instant/mc_mod/builder.rs#L196  fn deref_mut
+instant/mc_mod/builder.rs#L201  impl InstantiationBuilder
+instant/mc_mod/builder.rs#L212  fn new
+instant/mc_mod/builder.rs#L229  fn with_registry
+instant/mc_mod/builder.rs#L278  fn with_identity
+instant/mc_mod/builder.rs#L292  fn assemble
+instant/mc_mod/builder.rs#L391  fn finish
+instant/mc_mod/builder.rs#L405  fn into_parts
+instant/mc_mod/builder.rs#L414  fn net_store
+instant/mc_mod/builder.rs#L425  fn freeze_fragment
+instant/mc_mod/builder.rs#L437  fn components_of
+instant/mc_mod/builder.rs#L455  fn modules_of
+instant/mc_mod/builder.rs#L477  fn find_component
+instant/mc_mod/builder.rs#L486  fn find_submodule
+instant/mc_mod/builder.rs#L497  fn component_in
+instant/mc_mod/builder.rs#L509  fn submodule_in
+instant/mc_mod/builder.rs#L524  fn components_view
+instant/mc_mod/builder.rs#L536  fn submodules_view
+instant/mc_mod/builder.rs#L550  fn component_port_members
+instant/mc_mod/builder.rs#L571  fn submodule_port_members
+instant/mc_mod/builder.rs#L587  fn instance_port_members
+instant/mc_mod/builder.rs#L624  fn peer_port_members
+instant/mc_mod/builder.rs#L646  fn port_declares_anonymous_members
+instant/mc_mod/builder.rs#L663  fn add_component
+instant/mc_mod/builder.rs#L708  fn add_submodule
+instant/mc_mod/builder.rs#L759  fn append_port_arena
+instant/mc_mod/builder.rs#L785  fn append_vector_arena
+instant/mc_mod/builder.rs#L809  fn child_path
+instant/mc_mod/builder.rs#L815  fn identity_mut
+instant/mc_mod/builder.rs#L821  fn take_identity
+instant/mc_mod/builder.rs#L826  fn restore_identity
+instant/mc_mod/builder.rs#L831  fn add_connection
+instant/mc_mod/builder.rs#L864  fn current_call_site
+instant/mc_mod/builder.rs#L879  fn construction_site
+instant/mc_mod/builder.rs#L891  fn func_def_site
+instant/mc_mod/builder.rs#L916  fn instantiate
+instant/mc_mod/builder.rs#L983  fn auto_invoke_module_funcs
+instant/mc_mod/builder.rs#L1074  fn record_error
+instant/mc_mod/builder.rs#L1093  fn has_error_at_current_site
+instant/mc_mod/builder.rs#L1116  fn record_error_at
+instant/mc_mod/builder.rs#L1144  fn record_warning
+instant/mc_mod/builder.rs#L1168  fn log_global_diag
+instant/mc_mod/builder.rs#L1194  fn merge_diagnostics_from
+instant/mc_mod/builder.rs#L1203  fn ref_designator_prefix
+instant/mc_mod/builder.rs#L1236  fn auto_name
+instant/mc_mod/builder.rs#L1317  fn enter_func_stmt
+instant/mc_mod/builder.rs#L1343  fn with_func_stmt
+instant/mc_mod/builder.rs#L1360  fn with_func_scope
+instant/mc_mod/builder.rs#L1378  fn is_passthrough_formal
+instant/mc_mod/builder.rs#L1394  fn with_trunk
+instant/mc_mod/builder.rs#L1418  fn current_offset
+instant/mc_mod/builder.rs#L1427  fn next_conn_id
+instant/mc_mod/builder.rs#L1435  fn build_net_table
+instant/mc_mod/builder.rs#L1584  fn is_registered_class_name
+instant/mc_mod/builder.rs#L1621  fn resume_auto_inst_counter
+instant/mc_mod/builder.rs#L1651  fn resume_tree
+instant/mc_mod/builder.rs#L1699  fn boundary_return
+instant/mc_mod/builder.rs#L1724  fn is_anon_member
 instant/mc_mod/bus.rs#L19  impl InstantiationBuilder
 instant/mc_mod/bus.rs#L47  fn ensure_bus
 instant/mc_mod/bus.rs#L69  fn find_bus
@@ -3020,16 +3022,16 @@ instant/mc_mod/fcallinst.rs#L1086  fn materialize_vector_groups
 instant/mc_mod/fcallinst.rs#L1138  fn materialize_deferred_subinstances
 instant/mc_mod/fcallinst.rs#L1217  fn instantiate_instance_method
 instant/mc_mod/fcallinst.rs#L1512  fn run_submodule_method
-instant/mc_mod/fcallinst.rs#L1968  fn run_component_method
-instant/mc_mod/fcallinst.rs#L2300  fn strip_host_iface_phantoms
-instant/mc_mod/fcallinst.rs#L2331  fn expand_bus_labels
-instant/mc_mod/fcallinst.rs#L2405  fn instance_declares_port
-instant/mc_mod/fcallinst.rs#L2420  fn actual_is_parent_ref
-instant/mc_mod/fcallinst.rs#L2448  fn prefix_instance_stmt_with_skip
-instant/mc_mod/fcallinst.rs#L2458  fn prefix_instance_phrase_with_skip
-instant/mc_mod/fcallinst.rs#L2772  fn prefix_instance_node_element_with_skip
-instant/mc_mod/fcallinst.rs#L2888  fn prefix_param_value_with_skip
-instant/mc_mod/fcallinst.rs#L2937  fn validate_fcall_return_shape
+instant/mc_mod/fcallinst.rs#L1983  fn run_component_method
+instant/mc_mod/fcallinst.rs#L2335  fn strip_host_iface_phantoms
+instant/mc_mod/fcallinst.rs#L2366  fn expand_bus_labels
+instant/mc_mod/fcallinst.rs#L2440  fn instance_declares_port
+instant/mc_mod/fcallinst.rs#L2455  fn actual_is_parent_ref
+instant/mc_mod/fcallinst.rs#L2483  fn prefix_instance_stmt_with_skip
+instant/mc_mod/fcallinst.rs#L2493  fn prefix_instance_phrase_with_skip
+instant/mc_mod/fcallinst.rs#L2807  fn prefix_instance_node_element_with_skip
+instant/mc_mod/fcallinst.rs#L2923  fn prefix_param_value_with_skip
+instant/mc_mod/fcallinst.rs#L2972  fn validate_fcall_return_shape
 instant/mc_mod/funccall.rs#L40  enum FuncCallInst
 instant/mc_mod/funccall.rs#L57  enum FaceSide
 instant/mc_mod/funccall.rs#L62  impl FaceSide
@@ -5943,46 +5945,46 @@ semantic/component/mc_pins/mod.rs#L2850  fn pin_of_ref
 semantic/component/mc_pins/mod.rs#L2860  fn get_all_pins
 semantic/component/mc_pins/mod.rs#L2864  fn count
 semantic/component/mc_pins/mod.rs#L2868  fn get_pins_by_io
-semantic/component/mc_pins/mod.rs#L2886  fn get_pin_io
-semantic/component/mc_pins/mod.rs#L2895  fn build_interface_param_bindings
-semantic/component/mc_pins/mod.rs#L2933  fn leading_ident_span
-semantic/component/mc_pins/mod.rs#L2971  impl std::fmt::Display for McPins
-semantic/component/mc_pins/mod.rs#L2972  fn fmt
-semantic/component/mc_pins/mod.rs#L3107  struct McPinNames
-semantic/component/mc_pins/mod.rs#L3125  impl McPinNames
-semantic/component/mc_pins/mod.rs#L3130  fn push_option
-semantic/component/mc_pins/mod.rs#L3137  fn push_option_with_span
-semantic/component/mc_pins/mod.rs#L3148  fn has_param_ref
-semantic/component/mc_pins/mod.rs#L3167  fn new
-semantic/component/mc_pins/mod.rs#L3177  fn new_power_row
-semantic/component/mc_pins/mod.rs#L3181  fn new_inner
-semantic/component/mc_pins/mod.rs#L4091  fn derive_interface_subnames
-semantic/component/mc_pins/mod.rs#L4132  mod subname_tests
-semantic/component/mc_pins/mod.rs#L4138  fn ida
-semantic/component/mc_pins/mod.rs#L4145  fn bus_ids
-semantic/component/mc_pins/mod.rs#L4162  fn list_ids
-semantic/component/mc_pins/mod.rs#L4177  fn plain_ids
-semantic/component/mc_pins/mod.rs#L4189  fn sem_mcpins__bus_form_xtal_regression
-semantic/component/mc_pins/mod.rs#L4198  fn sem_mcpins__bus_form_dc2
-semantic/component/mc_pins/mod.rs#L4207  fn sem_mcpins__list_form_no_prefix
-semantic/component/mc_pins/mod.rs#L4216  fn sem_mcpins__plain_form_crosses_with_iface_pins
-semantic/component/mc_pins/mod.rs#L4225  fn sem_mcpins__plain_form_empty_iface_pins
-semantic/component/mc_pins/mod.rs#L4234  fn sem_mcpins__embedded_square_gpio_interface
-semantic/component/mc_pins/mod.rs#L4244  mod pwr_capture_tests
-semantic/component/mc_pins/mod.rs#L4251  fn parse_component_pins
-semantic/component/mc_pins/mod.rs#L4268  const LDO
-semantic/component/mc_pins/mod.rs#L4281  fn captures_psnk_sink_pair_with_nominal
-semantic/component/mc_pins/mod.rs#L4300  fn captures_psrc_source_with_tol_text
-semantic/component/mc_pins/mod.rs#L4318  fn plain_power_and_signal_pins_are_not_contracts
-semantic/component/mc_pins/mod.rs#L4319  const SRC
-semantic/component/mc_pins/mod.rs#L4347  fn captures_ac_row_beside_the_dc_axis
-semantic/component/mc_pins/mod.rs#L4348  const SRC
-semantic/component/mc_pins/mod.rs#L4380  fn generic_io_row_identity_attrs_carry_to_pins
-semantic/component/mc_pins/mod.rs#L4381  const SRC
-semantic/component/mc_pins/mod.rs#L4421  fn row_attrs_merge_into_reused_pin_without_duplicate_keys
-semantic/component/mc_pins/mod.rs#L4422  const SRC
-semantic/component/mc_pins/mod.rs#L4446  fn dynamic_pin_row_identity_attrs_carry_on_the_line
-semantic/component/mc_pins/mod.rs#L4447  const SRC
+semantic/component/mc_pins/mod.rs#L2897  fn get_pin_io
+semantic/component/mc_pins/mod.rs#L2906  fn build_interface_param_bindings
+semantic/component/mc_pins/mod.rs#L2944  fn leading_ident_span
+semantic/component/mc_pins/mod.rs#L2982  impl std::fmt::Display for McPins
+semantic/component/mc_pins/mod.rs#L2983  fn fmt
+semantic/component/mc_pins/mod.rs#L3118  struct McPinNames
+semantic/component/mc_pins/mod.rs#L3136  impl McPinNames
+semantic/component/mc_pins/mod.rs#L3141  fn push_option
+semantic/component/mc_pins/mod.rs#L3148  fn push_option_with_span
+semantic/component/mc_pins/mod.rs#L3159  fn has_param_ref
+semantic/component/mc_pins/mod.rs#L3178  fn new
+semantic/component/mc_pins/mod.rs#L3188  fn new_power_row
+semantic/component/mc_pins/mod.rs#L3192  fn new_inner
+semantic/component/mc_pins/mod.rs#L4102  fn derive_interface_subnames
+semantic/component/mc_pins/mod.rs#L4143  mod subname_tests
+semantic/component/mc_pins/mod.rs#L4149  fn ida
+semantic/component/mc_pins/mod.rs#L4156  fn bus_ids
+semantic/component/mc_pins/mod.rs#L4173  fn list_ids
+semantic/component/mc_pins/mod.rs#L4188  fn plain_ids
+semantic/component/mc_pins/mod.rs#L4200  fn sem_mcpins__bus_form_xtal_regression
+semantic/component/mc_pins/mod.rs#L4209  fn sem_mcpins__bus_form_dc2
+semantic/component/mc_pins/mod.rs#L4218  fn sem_mcpins__list_form_no_prefix
+semantic/component/mc_pins/mod.rs#L4227  fn sem_mcpins__plain_form_crosses_with_iface_pins
+semantic/component/mc_pins/mod.rs#L4236  fn sem_mcpins__plain_form_empty_iface_pins
+semantic/component/mc_pins/mod.rs#L4245  fn sem_mcpins__embedded_square_gpio_interface
+semantic/component/mc_pins/mod.rs#L4255  mod pwr_capture_tests
+semantic/component/mc_pins/mod.rs#L4262  fn parse_component_pins
+semantic/component/mc_pins/mod.rs#L4279  const LDO
+semantic/component/mc_pins/mod.rs#L4292  fn captures_psnk_sink_pair_with_nominal
+semantic/component/mc_pins/mod.rs#L4311  fn captures_psrc_source_with_tol_text
+semantic/component/mc_pins/mod.rs#L4329  fn plain_power_and_signal_pins_are_not_contracts
+semantic/component/mc_pins/mod.rs#L4330  const SRC
+semantic/component/mc_pins/mod.rs#L4358  fn captures_ac_row_beside_the_dc_axis
+semantic/component/mc_pins/mod.rs#L4359  const SRC
+semantic/component/mc_pins/mod.rs#L4391  fn generic_io_row_identity_attrs_carry_to_pins
+semantic/component/mc_pins/mod.rs#L4392  const SRC
+semantic/component/mc_pins/mod.rs#L4432  fn row_attrs_merge_into_reused_pin_without_duplicate_keys
+semantic/component/mc_pins/mod.rs#L4433  const SRC
+semantic/component/mc_pins/mod.rs#L4457  fn dynamic_pin_row_identity_attrs_carry_on_the_line
+semantic/component/mc_pins/mod.rs#L4458  const SRC
 semantic/component/mod.rs#L5  mod mc_attr
 semantic/component/mod.rs#L6  mod mc_attr_view
 semantic/component/mod.rs#L7  mod mc_layout
@@ -10736,4 +10738,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-398 files, 10656 declarations.
+398 files, 10658 declarations.
