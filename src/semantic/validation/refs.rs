@@ -129,8 +129,9 @@ fn check_spec_refs(acc: &mut CheckAccumulator) {
             // Structured segments decide whether the attr sits on the spec face;
             // the name is compared exactly.
             let segs = &attr.id.segments;
-            let is_table_spec = segs.len() == 1 && attr.id.to_string() == "spec";
-            let is_dotted_spec = segs.len() > 1 && segs[0].to_string() == "spec";
+            let spec_key = crate::semantic::basic::attr_keys::SPEC_TABLE_KEY;
+            let is_table_spec = segs.len() == 1 && attr.id.to_string() == spec_key;
+            let is_dotted_spec = segs.len() > 1 && segs[0].to_string() == spec_key;
             if is_table_spec {
                 for val in &attr.values {
                     if let crate::semantic::component::mc_attr::McAttrVal::Attributes(rows) = val {

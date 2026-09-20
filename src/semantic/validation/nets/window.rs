@@ -115,8 +115,9 @@ pub(crate) fn decode_component_spec(def: &McComponent) -> DecodedSpec {
     let mut out = DecodedSpec::default();
     for attr in def.attrs.iter() {
         let segs = &attr.id.segments;
-        let is_table = segs.len() == 1 && attr.id.to_string() == "spec";
-        let is_dotted = segs.len() > 1 && segs[0].to_string() == "spec";
+        let spec_key = crate::semantic::basic::attr_keys::SPEC_TABLE_KEY;
+        let is_table = segs.len() == 1 && attr.id.to_string() == spec_key;
+        let is_dotted = segs.len() > 1 && segs[0].to_string() == spec_key;
         if !is_table && !is_dotted {
             continue;
         }

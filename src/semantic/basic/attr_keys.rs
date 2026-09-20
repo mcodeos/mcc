@@ -667,6 +667,11 @@ pub(crate) fn vocab_of(key: &str) -> Option<AttrVocab> {
 /// dictionary holds path rows, so the [`AttrFace::Spec`] rows answer for `spec`
 /// without a column restating what their keys already say. A name nothing is
 /// registered under opens no table.
+/// The component spec-table attribute: `spec = [...]` holds the whole table,
+/// `spec.<key>` rows extend it. Consumers read this constant instead of
+/// spelling the key, so a rename is a one-line ledger edit.
+pub(crate) const SPEC_TABLE_KEY: &str = "spec";
+
 pub(crate) fn is_table_namespace(key: &str) -> bool {
     let prefix = format!("{key}.");
     ATTR_KEYS
