@@ -117,7 +117,10 @@ impl McPowerDecls {
     /// (intent-reference-layer-design.md §10.11.4 guard ③). A peeked list is
     /// read through [`domain_pairs_of`], never pushed into `self.domains`.
     pub fn peek_domain(node: &AstNode) -> Option<McDomainDecl> {
-        McDomainDecl::from_node(node)
+        // The peek runs beside the same clauses the real `parse_domain` walk
+        // will parse, so the declaration-side attr diagnostics fire exactly
+        // once — there; the peek's own decode stays quiet.
+        McDomainDecl::from_node_quiet(node)
     }
 
     pub fn parse_net(&mut self, node: &AstNode) {
@@ -1305,6 +1308,41 @@ impl McDomainDecl {
             span: clause_span(node),
         })
     }
+
+    /// The decode [`Self::from_node`] performs, with the declaration-side
+    /// attribute diagnostics suppressed — the shape [`McPowerDecls::peek_domain`]
+    /// must read through, since the real `parse_domain` walk parses the same
+    /// clauses again and the diagnostics fire exactly once, there.
+    fn from_node_quiet(node: &AstNode) -> Option<Self> {
+        let head = node.get_sub_node()?;
+        let name_node = head.iter().next()?;
+        if name_node.get_type() != MCAST_IDS {
+            return None;
+        }
+        let name = id_text(&name_node)?;
+
+        let attrs = collect_attrs_quiet(&head);
+
+        let rails = head
+            .iter()
+            .find(|c| c.is_type(MCAST_BODY))
+            .map(|body| body.clause_list())
+            .map(|first| {
+                first
+                    .iter()
+                    .filter(|c| c.is_type(MCAST_RAIL))
+                    .filter_map(|rail| McRailDecl::from_node(&rail))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        Some(Self {
+            name,
+            attrs,
+            rails,
+            span: clause_span(node),
+        })
+    }
 }
 
 /// One `rail [hot, ret]::iface(params)` line (the domain's power pair).
@@ -1410,6 +1448,22 @@ pub(crate) fn collect_attrs(head: &AstNode) -> McAttributes {
     for c in head.iter() {
         if c.is_type(MCAST_ATTRIBUTE) {
             attrs.parse(&c);
+        }
+    }
+    attrs
+}
+
+/// The same read with the declaration diagnostics suppressed. The peek and
+/// license-scan pre-reads (`peek_domain`, `scan_domain_bridges`) walk the same
+/// clauses the real `parse_domain` walk will parse again, so a noisy
+/// `collect_attrs` would report every declaration-side key defect twice.
+pub(crate) fn collect_attrs_quiet(head: &AstNode) -> McAttributes {
+    let mut attrs = McAttributes::new();
+    for c in head.iter() {
+        if c.is_type(MCAST_ATTRIBUTE) {
+            if let Some(attribute) = McAttribute::new(&c) {
+                attrs.push(attribute);
+            }
         }
     }
     attrs
