@@ -988,6 +988,16 @@ pub const IFACE_CROSS_FAMILY_CONNECT: u32 = 4120;
 /// in its `peer` attribute. Skipped when either side carries no role.
 pub const IFACE_ROLE_INCOMPATIBLE: u32 = 4121;
 
+/// An interface family whose definition declares `topology = "point to point"`
+/// has more than two of its endpoints on one net (interface connect rule
+/// §1.6 criterion 4).
+pub const IFACE_ENDPOINT_COUNT_TOPOLOGY: u32 = 4122;
+
+/// Both sides of an interface pair declare the same definition-level
+/// attribute and their declared value sets share nothing (interface connect
+/// rule §1.6 criterion 5 — judged only where both sides declare it).
+pub const IFACE_ATTR_INCOMPATIBLE: u32 = 4123;
+
 // Pass2: instantiation checks (4150-4199)
 
 /// A chain link was skipped because the method is not defined on the instance.
@@ -2354,6 +2364,8 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(IFACE_DIR_CONFLICT, "Both sides of an interface member connection declare the out direction.", "IFACE_DIR_CONFLICT: roles '{0}' and '{1}' of interface '{2}' are connected with the `out` direction word on both adoption rows — two push-pull outputs wired against each other is a drive fight; one side must read, not drive. The in-in and bidir cells of the compatibility matrix are other checks' territory (interface-member-config-design.md section 3, phase 1 covers out-out only)."),
     entry!(IFACE_DRIVE_CONFLICT, "The two sides of an interface member connection declare different electrical drive types.", "IFACE_DRIVE_CONFLICT: roles '{0}' and '{1}' of interface '{2}' are connected, but their member rows declare different drive types (`@drive`) — a push-pull output against an open-drain output on one line is a contention form; both sides must state the same drive type. A side without a `@drive` declaration skips the cell (no declaration, no inference; interface-member-config-design.md section 3)."),
     entry!(IFACE_OD_NO_PULL, "Both sides of an interface member connection drive open-drain and neither declares a pull.", "IFACE_OD_NO_PULL: roles '{0}' and '{1}' of interface '{2}' are connected with `@drive(od)` on both member rows and neither row declares `@pull` — an open-drain line with no pull-up floats when both sides release it. Declare `@pull(up)` (or `@pull(none)` where an external pull is guaranteed) on one member row."),
+    entry!(IFACE_ENDPOINT_COUNT_TOPOLOGY, "A point-to-point interface family has more than two endpoints on one net.", "IFACE_ENDPOINT_COUNT_TOPOLOGY: interface '{0}' declares `topology = \"point to point\"` but this net carries {1} of its endpoints — a point-to-point pair fits exactly two; split the net, or declare `topology = \"multi-point\"` on the interface if a shared bus is intended."),
+    entry!(IFACE_ATTR_INCOMPATIBLE, "Connected interface sides declare incompatible values for the same attribute.", "IFACE_ATTR_INCOMPATIBLE: the two '{0}' endpoints both declare `{1}` but their declared value sets share nothing ({2} vs {3}) — declared attributes are judged only where both sides declare them, and disjoint sets mean the two ends were specified for different operating points."),
     // section
     entry!(INST_CHAIN_LINK_SKIPPED, "A chain link was skipped because the method is not defined on the instance.", "Method '{0}' not defined in {1} '{2}'; chain link skipped, no body expanded."),
     entry!(INST_ARG_NO_FORMAL_PORT, "Instance argument has no formal port to bind.", "Instance '{0}' arg{1} '{2}' has no formal port to bind"),
