@@ -70,7 +70,7 @@ range (threshold 40KB).
 | `query/` | 9 | 157 KB |
 | `refdef/` | 7 | 118 KB |
 | `rpc/` | 16 | 293 KB |
-| `semantic/` | 88 | 2530 KB |
+| `semantic/` | 88 | 2532 KB |
 | `stages/` | 11 | 292 KB |
 | `vector/` | 25 | 462 KB |
 | `viz/` | 95 | 2282 KB |
@@ -6900,10 +6900,11 @@ semantic/validation/hw.rs#L45  fn check_power_pin_no_voltage
 semantic/validation/hw.rs#L209  fn check_pin_id_gaps
 semantic/validation/hw.rs#L282  fn check_pin_count_extremes
 semantic/validation/hw.rs#L340  fn check_role_peer_dangling
-semantic/validation/hw.rs#L409  fn check_role_peer_mutual_and_width
-semantic/validation/hw.rs#L490  fn peer_role_names
-semantic/validation/hw.rs#L519  fn check_single_ioc_type_component
-semantic/validation/hw.rs#L597  fn check_func_param_pin_shadow
+semantic/validation/hw.rs#L419  fn check_role_peer_mutual_and_width
+semantic/validation/hw.rs#L503  fn is_relay_peer_decl
+semantic/validation/hw.rs#L519  fn peer_role_names
+semantic/validation/hw.rs#L548  fn check_single_ioc_type_component
+semantic/validation/hw.rs#L626  fn check_func_param_pin_shadow
 semantic/validation/imports.rs#L17  struct ImportsCheck
 semantic/validation/imports.rs#L19  impl ValidationCheck for ImportsCheck
 semantic/validation/imports.rs#L20  fn name
@@ -10681,4 +10682,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-397 files, 10601 declarations.
+397 files, 10602 declarations.
