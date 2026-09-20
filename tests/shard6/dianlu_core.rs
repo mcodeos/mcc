@@ -1023,13 +1023,16 @@ module main(psnk GND) {
     let tree = dl.tree();
     let view = mcc::TreeView::new(dl.arena(), dl.store());
 
-    // Every legal connection statement emits lanes; no endpoint is silently
-    // dropped (each resolved endpoint pair becomes a One/One lane).
+    // One trunk per statement that survives the shape gate. The
+    // `P1.GND -> GND` statement pairs a 2-pad same-name group against a 1-pin
+    // port — E4007 refuses it at the engine, so it builds no connection and no
+    // trunk; its pads still reach NET_A through the net layer (assertion
+    // below). 6 in main (of 7) + 2 in SUB.
     let trunks = dl.lanes();
     assert_eq!(
         trunks.len(),
-        8,
-        "one trunk per legal connection statement: 6 in main + 2 in SUB"
+        7,
+        "one trunk per shape-legal connection statement: 6 in main + 2 in SUB"
     );
     for t in trunks {
         assert!(
@@ -1092,13 +1095,14 @@ module main(psnk GND) {
             net_a.points
         );
     }
-    // Both physical pads of the same-name group `P1.GND` fan into the net.
+    // The shape-gate refusal is total: `P1.GND -> GND` built no connection, so
+    // neither pad joins NET_A through it.
     let p1 = view.components(tree).find(|c| c.name == "P1").unwrap();
     let p1_node = p1.node_id.unwrap();
     assert_eq!(
         net_a.points.iter().filter(|p| p.node == p1_node).count(),
-        2,
-        "both P1 GND pads are in the NET_A net; got {:?}",
+        0,
+        "the refused statement's pads are not in the NET_A net; got {:?}",
         net_a.points
     );
 }

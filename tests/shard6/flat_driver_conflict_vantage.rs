@@ -13,8 +13,11 @@
 //!
 //! A port whose driver lives in a *different* module still counts: two out
 //! ports shorted on a parent net (`s1.Y -> s2.Y`) are two real drivers and
-//! keep firing. Same for two sibling out ports of one instance and for two
-//! buffers shorted inside a single module that feeds one out port.
+//! keep firing. Same for two sibling out ports of one instance shorted at the
+//! parent — the join fuses their nets into one, and each sibling's interior
+//! buffer is exempt only from its own port's count, so the fused net reads two
+//! exit ports = two real drivers (the interior buffers' short is real and must
+//! not be silent).
 
 // Family naming `{family}__{essence}` deliberately doubles the underscore to
 // keep the grep-able family token separate (matrix §1 taxonomy).
@@ -66,19 +69,19 @@ fn dlv_drvconf__two_submodule_outs_short_still_fires() {
     );
 }
 
-/// Two sibling out ports of one instance shorted at the parent: flatten does
-/// not materialize a parent net between two ports of the *same* instance —
-/// each internal net keeps its single driver plus its own exit port, so no net
-/// carries two drivers and E4101 stays silent (the short of the two interior
-/// buffers is a cross-net join the flat model does not fuse).
+/// Two sibling out ports of one instance shorted at the parent: the join fuses
+/// the two internal nets into one, and the sibling carve-out only exempts each
+/// port from its own interior driver — the fused net still reads two exit
+/// ports (each backed by its own interior buffer), so E4101 fires. A silent
+/// verdict here would swallow a real two-buffer short.
 #[test]
 fn dlv_drvconf__two_sibling_out_ports_join_is_not_one_net() {
     let src = format!(
         "{BUF}module SUB {{\n    out Y1\n    out Y2\n    BUF a\n    BUF b\n    a.Y -> Y1\n    b.Y -> Y2\n}}\nmodule main {{\n    SUB s1\n    s1.Y1 -> s1.Y2\n}}"
     );
-    assert!(
-        driver_conflict_msgs(&src).is_empty(),
-        "each sibling internal net carries one driver + its exit port"
+    assert_eq!(
+        driver_conflict_msgs(&src),
+        ["Net '_net0' has 2 drivers: main.s1.Y1, main.s1.Y2. Possible short circuit."]
     );
 }
 

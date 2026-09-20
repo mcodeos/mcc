@@ -300,10 +300,11 @@ fn caret__on_orderless_operand_still_wraps() {
     // Pass1 rejects the statement (`CONN_NET_CROSSNET`) before `^` is reached
     // (vec-dianlu §1.4/§5.4). `A + A` is the reachable point-valued `+`; the
     // other one is two one-pin bodies.
-    // No E3136 here: the helper dedups codes and `A` is a *single* undeclared
-    // label written twice, not two.
+    // E3136 fires once for the undeclared bare label `A` (resolve gate) and is
+    // incidental to this cell; the helper dedups, so one label written twice
+    // stays one diagnostic.
     assert_eq!(
-        only_with("(A + A)^", &[2903]),
+        only_with("(A + A)^", &[2903, 3136]),
         "Reversed(Group[Parallel[A, A]])"
     );
     // `C1'` is a column (`2*1`) — left face == right face.

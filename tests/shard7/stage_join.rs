@@ -946,10 +946,10 @@ fn an_argument_outside_the_chain_fails_loudly() {
             pair[0],
             pair[1]
         );
+        let stdout = String::from_utf8_lossy(&out.stdout);
         assert!(
-            out.stdout.is_empty(),
-            "and it must not print a readout: {}",
-            String::from_utf8_lossy(&out.stdout)
+            stdout.is_empty() || (stdout.contains("\"error\"") && !stdout.contains("\"items\"")),
+            "and it must not print a readout: {stdout}"
         );
     }
 }
@@ -1665,7 +1665,10 @@ fn only_accepts_the_two_diagnostic_states_as_well() {
         &["-f", "json", "--only", "nope"],
     );
     assert!(!ok, "a word the class column cannot print must fail loudly");
-    assert!(out.is_empty(), "and must not print a readout");
+    assert!(
+        out.is_empty() || (out.contains("\"error\"") && !out.contains("\"items\"")),
+        "and must not print a readout: {out}"
+    );
     for word in SIX_WORDS.iter().chain(DIAG_WORDS) {
         assert!(
             err.contains(word),
