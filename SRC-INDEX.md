@@ -70,7 +70,7 @@ range (threshold 40KB).
 | `query/` | 9 | 157 KB |
 | `refdef/` | 7 | 118 KB |
 | `rpc/` | 16 | 293 KB |
-| `semantic/` | 89 | 2564 KB |
+| `semantic/` | 89 | 2569 KB |
 | `stages/` | 11 | 296 KB |
 | `vector/` | 25 | 462 KB |
 | `viz/` | 95 | 2284 KB |
@@ -6940,14 +6940,14 @@ semantic/validation/hw.rs#L503  fn is_relay_peer_decl
 semantic/validation/hw.rs#L519  fn peer_role_names
 semantic/validation/hw.rs#L548  fn check_single_ioc_type_component
 semantic/validation/hw.rs#L626  fn check_func_param_pin_shadow
-semantic/validation/iface_role_arg.rs#L20  struct IfaceRoleArgCheck
-semantic/validation/iface_role_arg.rs#L22  impl ValidationCheck for IfaceRoleArgCheck
-semantic/validation/iface_role_arg.rs#L23  fn name
-semantic/validation/iface_role_arg.rs#L26  fn phase
-semantic/validation/iface_role_arg.rs#L29  fn default_severity
-semantic/validation/iface_role_arg.rs#L33  fn run_post_parse
-semantic/validation/iface_role_arg.rs#L41  fn role_bearing_ifaces
-semantic/validation/iface_role_arg.rs#L54  fn check_iface_role_arg_literal
+semantic/validation/iface_role_arg.rs#L27  struct IfaceRoleArgCheck
+semantic/validation/iface_role_arg.rs#L29  impl ValidationCheck for IfaceRoleArgCheck
+semantic/validation/iface_role_arg.rs#L30  fn name
+semantic/validation/iface_role_arg.rs#L33  fn phase
+semantic/validation/iface_role_arg.rs#L36  fn default_severity
+semantic/validation/iface_role_arg.rs#L40  fn run_post_parse
+semantic/validation/iface_role_arg.rs#L48  fn role_bearing_ifaces
+semantic/validation/iface_role_arg.rs#L61  fn check_iface_role_arg_literal
 semantic/validation/imports.rs#L17  struct ImportsCheck
 semantic/validation/imports.rs#L19  impl ValidationCheck for ImportsCheck
 semantic/validation/imports.rs#L20  fn name
