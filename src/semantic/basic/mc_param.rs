@@ -1144,12 +1144,24 @@ impl McParamBindings {
                 return Err(ParamBindError::UnknownParameter { name: name.clone() });
             }
             if let Some(declare) = formal {
+                // A bracket form (`[n1, n2]`) declares one formal whose
+                // members are nameable inside the body, not at the call
+                // site: a named argument supplies the *one* whole-formal
+                // value (spec/10-funcs.md §7 item 12), and a Multiple has
+                // no whole-formal name, so any name that reaches it here
+                // matched a member. Letting it through would bind a scalar
+                // to the whole vector (the width gate then fires E4180 plus
+                // a phantom-pin 3179 for the unbound member) — one honest
+                // code instead.
+                if matches!(declare.kind, McParamDeclareKind::Multiple(_)) {
+                    return Err(ParamBindError::VectorMemberNotArgName { name: name.clone() });
+                }
                 let di = declares
                     .iter()
                     .position(|d| std::ptr::eq(d, declare))
                     .expect("formal was found in declares");
                 if slot_claimed[di] {
-                    return Err(ParamBindError::UnknownParameter { name: name.clone() });
+                    return Err(ParamBindError::DuplicateParameter { name: name.clone() });
                 }
                 bindings[di] = Some(McParamBinding::new(
                     declare.clone(),
@@ -1173,7 +1185,7 @@ impl McParamBindings {
                         return Err(ParamBindError::UnknownParameter { name: name.clone() });
                     };
                     if slot_claimed[di] {
-                        return Err(ParamBindError::UnknownParameter { name: name.clone() });
+                        return Err(ParamBindError::DuplicateParameter { name: name.clone() });
                     }
                     bindings[di] = Some(McParamBinding::new(
                         declare.clone(),
@@ -1527,6 +1539,19 @@ pub enum ParamBindError {
     /// Named argument whose name is claimed by more than one name face — a
     /// formal parameter and a declared attribute key, or two keys.
     AmbiguousKeyName { name: String },
+
+    /// The same name is assigned twice at one call site (`f(b: 1, b: 2)`) —
+    /// the second assignment finds its formal slot already claimed. Spec
+    /// 10-funcs.md §7 item 10: a duplicate name is a hard error, and it must
+    /// not read as an *unknown* name.
+    DuplicateParameter { name: String },
+
+    /// A name that matches a *member* of a bracket vector formal
+    /// (`Pullup(n1: …)` against `func Pullup([n1, n2])`). Members are
+    /// nameable inside the body, not at the call site: a named argument
+    /// supplies the one whole-formal value (spec/10-funcs.md §7 item 12),
+    /// and a Multiple formal has no whole-formal name to write.
+    VectorMemberNotArgName { name: String },
 }
 
 impl std::fmt::Display for ParamBindError {
@@ -1558,6 +1583,18 @@ impl std::fmt::Display for ParamBindError {
                 write!(
                     f,
                     "Ambiguous name: '{name}' is claimed by more than one parameter or attribute key, so it refers to nothing"
+                )
+            }
+            ParamBindError::DuplicateParameter { name } => {
+                write!(
+                    f,
+                    "Duplicate parameter: '{name}' is assigned more than once at this call site"
+                )
+            }
+            ParamBindError::VectorMemberNotArgName { name } => {
+                write!(
+                    f,
+                    "Vector formal member '{name}' is not an argument name; name the whole formal or pass the bracket set positionally"
                 )
             }
         }
