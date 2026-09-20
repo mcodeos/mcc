@@ -12,6 +12,7 @@ mod auto_naming_lock;
 mod bitwise_cond;
 mod bom_nc_hbl;
 mod cond_duplicate;
+mod cond_judge_operand_dropped;
 mod curly_option;
 mod defspace_wiring;
 mod dotted_int_component_name;

@@ -19,6 +19,7 @@ mod failure_ledger;
 mod func_subinstance_pass1;
 mod gap1_member_set_alignment;
 mod ignore_warnings;
+mod kw_const_condition;
 mod lock_pp_interface;
 mod lock_pp_refs;
 mod module_port_role_free;
