@@ -754,6 +754,12 @@ pub const INSTANCE_REF_UNDECLARED: u32 = 3182;
 /// or reference the whole port as a scalar.
 pub const BUS_MEMBER_ON_SCALAR_PORT: u32 = 3183;
 
+/// A direction-less module member (a `label` row, or a bus declared without a
+/// direction word) accessed through an instance dot-path from outside its
+/// module. A direction word is the only boundary ticket: members without one
+/// are module-internal (name-space-global.md §3.2.3, U151).
+pub const LABEL_NOT_EXPORTABLE: u32 = 3184;
+
 // Pass2: connection / shape (4000-4049)
 
 /// Transposed connection size mismatch.
@@ -1116,6 +1122,17 @@ pub const MODULE_PORT_IFACE_ROLE: u32 = 4184;
 /// clean (ident-vs-literal ruling, U144 first slice; the check lives in
 /// `validation::iface_role_arg` and is an Error).
 pub const IFACE_ROLE_ARG_LITERAL: u32 = 4185;
+
+/// An interface's role table declares a different lane count than the
+/// interface's role-less conductor view (`conductor-view-design.md` R-CV2,
+/// the uniformity law). The interface-level `pins` table is the shape every
+/// role-less binding resolves from; a role table with its own `pins` list
+/// asserts the same wires, so its lane count must equal the view's — unequal
+/// counts mean the interface itself is ambiguous and the error lands at the
+/// definition, not at some distant instantiation point. A role without its
+/// own `pins` table inherits the view and is never judged here. Error; the
+/// check lives in `validation::interface`.
+pub const IFACE_VIEW_LANE_MISMATCH: u32 = 4186;
 
 // Pass2: AssemblyGate netlist health — R-series report rows (4200-4249)
 //
@@ -2310,6 +2327,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(BUS_MEMBER_UNDECLARED, "Referenced member is not defined on the declared bus.", "Definition exists for '{0}': {2}; referenced member '{1}' is not defined."),
     entry!(INSTANCE_REF_UNDECLARED, "A structured instance/member reference resolves to no declared instance in scope.", "The base name '{0}' of the structured reference '{1}' resolves to no declared instance in this component/module; declare it or fix the name."),
     entry!(BUS_MEMBER_ON_SCALAR_PORT, "Member/lane access on a module port declared without members (scalar io/out/in).", "Port '{0}' is declared scalar (no members); member/lane access '{1}' is not allowed. Declare its members or an interface type, or reference the whole port."),
+    entry!(LABEL_NOT_EXPORTABLE, "Module-internal label accessed from outside its module.", "'{0}' is module-internal in '{1}' (declared without a direction word) and cannot be accessed through an instance path. Declare it with a direction word ('in'/'out'/'io') to put it on the module boundary — 'io' is the neutral choice."),
     // section
     entry!(CONN_TRANSPOSE_SIZE_MISMATCH, "Transposed connection size mismatch.", "Transposed connection size mismatch"),
     entry!(CONN_LEFT_ARROW_SHAPE_MISMATCH, "Shape mismatch in a <- connection.", "Shape mismatch in a <- connection"),

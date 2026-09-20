@@ -31,6 +31,7 @@ impl ValidationCheck for InterfaceCheck {
         check_iface_role_exists(acc); // C4-ext
         check_module_port_role_free(acc); // R3 (replicated-binding-design)
         check_deprecated_cmie_usage(acc); // F3
+        check_iface_view_lane_match(acc); // R-CV2 (conductor-view-design.md)
     }
 }
 
@@ -397,4 +398,63 @@ fn has_deprecated_attr(attrs: &crate::semantic::component::mc_attr::McAttributes
         let key = a.id.to_string();
         key == "deprecated" || key == "obsolete" || key == "status"
     })
+}
+
+// R-CV2 (conductor-view-design.md, the uniformity law): an interface that
+// declares a role-less conductor view pins every role table with its own
+// `pins` list to the same lane count. The view is the shape all role-less
+// bindings resolve from (`iface_ordinal_member_names` falls back to it), and
+// a role table asserts the same wires seen from one side — so unequal lane
+// counts mean the interface itself is ambiguous. The error lands at the
+// definition (the role block's own source range) instead of a distant
+// instantiation point — the same refuse-early reasoning that bans deriving
+// the view from the role tables. A role without its own `pins` table
+// inherits the view (the GPIO precedent) and is never judged here; an
+// interface without a view is role-tables-only (the pre-R-CV1 shapes) and
+// stays out of scope until its view is declared.
+fn check_iface_view_lane_match(acc: &mut CheckAccumulator) {
+    let ifaces = crate::definition_space().workspace_interfaces();
+    for (sn, iface) in ifaces.iter() {
+        let uri = sn.uri.to_string();
+        if super::is_test_file(&uri) {
+            continue;
+        }
+        if iface.roles.is_empty() || iface.pins.decl_order.is_empty() {
+            continue;
+        }
+        let view_lanes = iface.pins.decl_order.len();
+        for role in &iface.roles {
+            if role.pins.decl_order.is_empty() {
+                continue; // inherits the view (R-CV2's inheritance arm)
+            }
+            let role_lanes = role.pins.decl_order.len();
+            if role_lanes == view_lanes {
+                continue;
+            }
+            // The role carries no span of its own; its body node is the role
+            // block's real source range.
+            let start = role.body.get_pos() as usize;
+            let span = start..start + role.body.get_len() as usize;
+            acc.push(CheckResult {
+                check_name: "interface",
+                severity: CheckSeverity::Error,
+                uri: Some(uri.clone()),
+                span: Some(span),
+                message: format!(
+                    "Interface '{}': role '{}' declares {} pin lane(s) but the \
+                     interface's role-less conductor view declares {} — every role \
+                     table must match the view's lane count, otherwise role-less \
+                     bindings and role bindings resolve different shapes from the \
+                     same interface. Give the role {} lane(s), or drop its `pins` \
+                     table to inherit the view.",
+                    iface.name,
+                    role.name,
+                    role_lanes,
+                    view_lanes,
+                    view_lanes
+                ),
+                code: crate::errcodes::IFACE_VIEW_LANE_MISMATCH,
+            });
+        }
+    }
 }
