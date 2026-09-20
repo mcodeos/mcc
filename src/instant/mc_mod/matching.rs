@@ -8,8 +8,9 @@
 //! decision in Pass2 (design: `matching-rules-design.md`):
 //!
 //! - vector-width checking (`check_vector_width`) — B3/B5 (P5/P6),
-//! - member<->lane positional pairing (`pair_members_to_lanes`) — B2 (P3),
-//! - equal-width checked zip (`zip_checked`) — Z1/Z2 (P2),
+//! - the one positional-pairing core (`positional_pairs`: ordinal k = ordinal
+//!   k) that both pairing faces cite — `pair_members_to_lanes` (B2/P3, here)
+//!   and `expand_match` (§11.3, in expand.rs),
 //! - ground / voltage / bracket-member name helpers.
 //!
 //! Rules enforced here: no implicit shape inference (P1); count mismatches are
@@ -55,6 +56,21 @@ pub fn check_vector_width(
     }
 }
 
+// The one positional-pairing core (§3.1 B2 / §4 Z1/Z2 / §11.3)
+
+/// Pair ordinal k on the two sides with ordinal k: the one executable form of
+/// the positional law (interface-connect rule, ruling of 2026-09-19; vec-dianlu
+/// §11.3). Names are each side's local view, never a matching criterion.
+///
+/// The core states the pairing only — `pairs[k] = (k, k)` for
+/// `k < min(lhs_len, rhs_len)`. The count guard (equal width, non-empty) and
+/// its error codes belong to each calling face: `pair_members_to_lanes` pads
+/// the shorter side, `expand_match` (in expand.rs) refuses a count mismatch.
+/// No implicit shape repair lives here (P1/P2).
+pub fn positional_pairs(lhs_len: usize, rhs_len: usize) -> Vec<(usize, usize)> {
+    (0..lhs_len.min(rhs_len)).map(|k| (k, k)).collect()
+}
+
 // Member <-> lane pairing (§3.1 B2 / §11.3)
 
 /// Pair a formal's member names (declaration order) with actual argument
@@ -65,14 +81,12 @@ pub fn check_vector_width(
 /// into `arg_lanes` paired with each member (`usize::MAX` when a member has
 /// no partner lane).
 pub fn pair_members_to_lanes(members: &[String], arg_lanes: &[NetPoint]) -> Vec<usize> {
-    members
-        .iter()
-        .enumerate()
-        .map(|(i, _)| if i < arg_lanes.len() { i } else { usize::MAX })
-        .collect()
+    let mut lanes = vec![usize::MAX; members.len()];
+    for (m, l) in positional_pairs(members.len(), arg_lanes.len()) {
+        lanes[m] = l;
+    }
+    lanes
 }
-
-// Checked zip (§4 Z1/Z2)
 
 // Name helpers
 
