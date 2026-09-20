@@ -131,7 +131,9 @@ fn collect_usages_recursive(param_name: &str, node: &AstNode, usages: &mut Vec<U
                 | MCAST_JUDGE_GREATERTHAN
                 | MCAST_JUDGE_LESSEQTHAN
                 | MCAST_JUDGE_GREATEREQTHAN
-                | MCAST_JUDGE_IN => {
+                | MCAST_JUDGE_IN
+                | MCAST_JUDGE_AND
+                | MCAST_JUDGE_OR => {
                     if node_contains_name(&n, param_name) {
                         usages.push(UsageSite {
                             kind: UsageKind::Conditional,

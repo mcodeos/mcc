@@ -9,6 +9,9 @@
 pub mod common;
 
 mod bundle_model;
+mod cond_arith_operand;
+mod cond_in_bare_members;
+mod cond_logical_composition;
 mod curly_dc_face_rows;
 mod dc_binding_arrow_dir;
 mod declared_diff_pair;

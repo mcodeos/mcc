@@ -72,12 +72,31 @@ pub enum McCondition {
         left: McCondOperand,
         values: Vec<String>,
     },
+    /// Logical composition of two judges (U145): `if (count == 5 && count > 3)`.
+    /// The doubled spellings are the logical operators; the single `&`/`|`
+    /// remain the bitwise judges above.
+    And {
+        left: Box<McCondition>,
+        right: Box<McCondition>,
+    },
+    Or {
+        left: Box<McCondition>,
+        right: Box<McCondition>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum McCondOperand {
     Ident(McIds),
     Literal(String),
+    /// Arithmetic expression operand (U147): `count == 2 + 3`. Leaves resolve
+    /// through the normal faces, then the value engine folds the operator —
+    /// so unit families and normalization behave exactly as at a call site.
+    Expr {
+        op: eval::Op,
+        left: Box<McCondOperand>,
+        right: Box<McCondOperand>,
+    },
 }
 
 impl std::fmt::Display for McCondOperand {
@@ -85,6 +104,9 @@ impl std::fmt::Display for McCondOperand {
         match self {
             McCondOperand::Ident(id) => write!(f, "{}", id),
             McCondOperand::Literal(s) => write!(f, "{}", s),
+            McCondOperand::Expr { op, left, right } => {
+                write!(f, "({} {} {})", left, op.symbol(), right)
+            }
         }
     }
 }
@@ -101,11 +123,30 @@ impl std::fmt::Display for McCondition {
             McCondition::BitAnd { left, right } => write!(f, "{} & {}", left, right),
             McCondition::BitOr { left, right } => write!(f, "{} | {}", left, right),
             McCondition::In { left, values } => write!(f, "{} in [{}]", left, values.join(", ")),
+            McCondition::And { left, right } => write!(f, "({}) && ({})", left, right),
+            McCondition::Or { left, right } => write!(f, "({}) || ({})", left, right),
         }
     }
 }
 
 impl McCondition {
+    /// Whether one operand reads one of `param_names` — see
+    /// [`McCondition::references_param`]. An arithmetic operand reads a param
+    /// when either leaf does.
+    fn operand_reads_param(op: &McCondOperand, param_names: &[String]) -> bool {
+        match op {
+            McCondOperand::Ident(ids) => {
+                let name = ids.to_string();
+                param_names.iter().any(|p| p == &name)
+            }
+            McCondOperand::Literal(_) => false,
+            McCondOperand::Expr { left, right, .. } => {
+                Self::operand_reads_param(left, param_names)
+                    || Self::operand_reads_param(right, param_names)
+            }
+        }
+    }
+
     /// Whether this condition reads one of `param_names`.
     ///
     /// A formal parameter is answered by the call site, so a condition that
@@ -113,16 +154,12 @@ impl McCondition {
     /// definition at once — the definition-time fold — is unsound for it
     /// (CIMP U54).
     pub fn references_param(&self, param_names: &[String]) -> bool {
-        let named = |op: &McCondOperand| match op {
-            McCondOperand::Ident(ids) => {
-                let name = ids.to_string();
-                param_names.iter().any(|p| p == &name)
-            }
-            McCondOperand::Literal(_) => false,
-        };
-
+        let named = |op: &McCondOperand| Self::operand_reads_param(op, param_names);
         match self {
             McCondition::In { left, .. } => named(left),
+            McCondition::And { left, right } | McCondition::Or { left, right } => {
+                left.references_param(param_names) || right.references_param(param_names)
+            }
             McCondition::Eq { left, right }
             | McCondition::NotEq { left, right }
             | McCondition::Lt { left, right }
@@ -240,6 +277,8 @@ impl McConds {
                 || node_type == MCAST_JUDGE_BITAND
                 || node_type == MCAST_JUDGE_BITOR
                 || node_type == MCAST_JUDGE_IN
+                || node_type == MCAST_JUDGE_AND
+                || node_type == MCAST_JUDGE_OR
             {
                 condition_node = Some(child);
                 has_condition = true;
@@ -309,6 +348,8 @@ impl McConds {
                 || child_type == MCAST_JUDGE_BITAND
                 || child_type == MCAST_JUDGE_BITOR
                 || child_type == MCAST_JUDGE_IN
+                || child_type == MCAST_JUDGE_AND
+                || child_type == MCAST_JUDGE_OR
             {
                 condition_node = Some(child);
             } else if child_type == MCAST_COND_BLOCK {
@@ -373,6 +414,20 @@ impl McConds {
         };
 
         let Some(op_type_str) = op_type else {
+            // Not a leaf judge — a logical composition (`&&`/`||`, U145) nests
+            // two whole judges, so parse both sides as conditions.
+            if node_type == MCAST_JUDGE_AND || node_type == MCAST_JUDGE_OR {
+                let subnodes = node.get_sub_node()?;
+                let mut parts = subnodes.iter();
+                let left = Self::parse_condition(&parts.next()?)?;
+                let right = Self::parse_condition(&parts.next()?)?;
+                let (left, right) = (Box::new(left), Box::new(right));
+                return Some(if node_type == MCAST_JUDGE_AND {
+                    McCondition::And { left, right }
+                } else {
+                    McCondition::Or { left, right }
+                });
+            }
             return None;
         };
 
@@ -385,66 +440,18 @@ impl McConds {
 
         if let Some(subnodes) = node.get_sub_node() {
             for child in subnodes.iter() {
-                match child.get_type() {
-                    MCAST_ID | MCAST_IDA => {
-                        if let Some(ids) = McIds::new(&child) {
-                            operands.push(McCondOperand::Ident(ids));
-                        }
+                // Array operand: `param in [A, B, C]` reaches this collector
+                // as `param == [A, B, C]` — the member list rides in as the
+                // second judge child (MCAST_OPD_SQUARE_VEC).
+                if child.get_type() == MCAST_OPD_SQUARE_VEC {
+                    if let Some(in_cond) = Self::parse_in_array_operand(&child, operands.first())
+                    {
+                        return Some(in_cond);
                     }
-                    MCAST_INT | MCAST_HEX => {
-                        let val = child.to_string().unwrap_or_default();
-                        operands.push(McCondOperand::Literal(val));
-                    }
-                    MCAST_FLOAT | MCAST_UVALUE => {
-                        let val = child.to_string().unwrap_or_default();
-                        operands.push(McCondOperand::Literal(val));
-                    }
-                    MCAST_STRING => {
-                        // Guarded accessor: the C parser can emit a NULL/small .data.
-                        if let Ok(str_value) = child.data_as_cstr()?.to_str() {
-                            let val = str_value.to_string();
-                            let clean_val = strip_string_quotes(&val).to_string();
-                            operands.push(McCondOperand::Literal(clean_val));
-                        }
-                    }
-                    MCAST_OPD => {
-                        // Read the whole `MCAST_IDS` node, not its first child:
-                        // a dotted operand (`A.desc`) carries its dot segments
-                        // as siblings under `MCAST_IDS`, so taking the first
-                        // child silently truncates it to `A`.
-                        if let Some(opd_subnode) = child.get_sub_node() {
-                            if let Some(ids) = McIds::new(&opd_subnode) {
-                                operands.push(McCondOperand::Ident(ids));
-                            }
-                        }
-                    }
-                    // Handle array operand: "param in [A, B, C]" parsed as "param == [A, B, C]"
-                    // by the C parser. Detect this and convert to In condition.
-                    MCAST_OPD_SQUARE_VEC => {
-                        let mut values = Vec::new();
-                        if let Some(vec_first) = child.get_sub_node() {
-                            let mut current = Some(vec_first);
-                            while let Some(item) = current {
-                                if item.get_type() == MCAST_STRING {
-                                    // Guarded accessor: the C parser can emit a NULL/small .data.
-                                    if let Ok(str_value) = item.data_as_cstr()?.to_str() {
-                                        let val = str_value.to_string();
-                                        let clean_val = strip_string_quotes(&val).to_string();
-                                        values.push(clean_val);
-                                    }
-                                }
-                                current = item.get_next();
-                            }
-                        }
-                        // If we have a left operand and values, this is an "in" condition
-                        if !operands.is_empty() && !values.is_empty() {
-                            return Some(McCondition::In {
-                                left: operands[0].clone(),
-                                values,
-                            });
-                        }
-                    }
-                    _ => {}
+                    continue;
+                }
+                if let Some(operand) = Self::parse_operand(&child) {
+                    operands.push(operand);
                 }
             }
         }
@@ -465,6 +472,115 @@ impl McConds {
             ">=" => Some(McCondition::GtEq { left, right }),
             "&" => Some(McCondition::BitAnd { left, right }),
             "|" => Some(McCondition::BitOr { left, right }),
+            _ => None,
+        }
+    }
+
+    /// The member-list side of `param in [A, B, C]` — the `MCAST_OPD_SQUARE_VEC`
+    /// judge child. Members take their text bare or quoted alike (U146):
+    /// `sel = B` matches both `B` and `"B"` members, same-face equality with
+    /// the bare default. `None` when no member yields a value — the caller
+    /// then keeps collecting, and the judge falls through unread.
+    fn parse_in_array_operand(
+        vec_node: &AstNode,
+        left: Option<&McCondOperand>,
+    ) -> Option<McCondition> {
+        let left = left?;
+        let mut values = Vec::new();
+        let vec_first = vec_node.get_sub_node()?;
+        let mut current = Some(vec_first);
+        while let Some(item) = current {
+            match item.get_type() {
+                MCAST_STRING => {
+                    // Guarded accessor: the C parser can emit a NULL/small .data.
+                    if let Some(val) = item.data_as_cstr().and_then(|c| c.to_str().ok()) {
+                        values.push(strip_string_quotes(val).to_string());
+                    }
+                }
+                // Bare member: the value is the identifier's own text.
+                MCAST_ID | MCAST_IDA | MCAST_IDS | MCAST_OPD | MCAST_EXPRESSION => {
+                    if let Some(ids) = Self::bare_member_ids(&item) {
+                        values.push(ids.to_string());
+                    }
+                }
+                _ => {}
+            }
+            current = item.get_next();
+        }
+        if values.is_empty() {
+            return None;
+        }
+        Some(McCondition::In {
+            left: left.clone(),
+            values,
+        })
+    }
+
+    /// The `McIds` a bare array member carries — directly as an ids node, or
+    /// wrapped one level down in an `opd`/`expression` node.
+    fn bare_member_ids(item: &AstNode) -> Option<McIds> {
+        match item.get_type() {
+            MCAST_OPD | MCAST_EXPRESSION => {
+                let inner = item.get_sub_node()?;
+                Self::bare_member_ids(&inner)
+            }
+            _ => McIds::new(item),
+        }
+    }
+
+    /// One judge operand face: literals and identifiers as before, keyword
+    /// constants by raw text, and arithmetic expression nodes (`2 + 3`, U147)
+    /// as `Expr` trees the value engine folds at evaluation time. `None` for
+    /// a node shape this face does not hold.
+    fn parse_operand(node: &AstNode) -> Option<McCondOperand> {
+        match node.get_type() {
+            MCAST_ID | MCAST_IDA => McIds::new(node).map(McCondOperand::Ident),
+            MCAST_INT | MCAST_HEX | MCAST_FLOAT | MCAST_UVALUE => {
+                Some(McCondOperand::Literal(node.to_string().unwrap_or_default()))
+            }
+            MCAST_STRING => {
+                // Guarded accessor: the C parser can emit a NULL/small .data.
+                let val = node.data_as_cstr()?.to_str().ok()?;
+                Some(McCondOperand::Literal(strip_string_quotes(val).to_string()))
+            }
+            MCAST_CONST => {
+                // Keyword constants (`HIGH`/`LOW`) carry their raw text as
+                // data — the same face the default-value extractor reads,
+                // so `sel == HIGH` compares against the same text that
+                // `sel = HIGH` binds. No arm here meant the operand was
+                // silently dropped and the whole condition parsed as
+                // `None` (if-branch discarded, else always taken).
+                let val = node.data_as_cstr()?.to_str().ok()?;
+                Some(McCondOperand::Literal(val.to_string()))
+            }
+            MCAST_OPD => {
+                // Read the whole `MCAST_IDS` node, not its first child:
+                // a dotted operand (`A.desc`) carries its dot segments
+                // as siblings under `MCAST_IDS`, so taking the first
+                // child silently truncates it to `A`.
+                let opd_subnode = node.get_sub_node()?;
+                let ids = McIds::new(&opd_subnode)?;
+                Some(McCondOperand::Ident(ids))
+            }
+            MCAST_EXPRESSION => {
+                // A phrase operand (`2 + 3` on a judge side) is wrapped in an
+                // EXPRESSION node; the arithmetic lives one level down.
+                let inner = node.get_sub_node()?;
+                Self::parse_operand(&inner)
+            }
+            MCAST_OPD_PLUS | MCAST_OPD_MINUS | MCAST_OPD_MULTI | MCAST_OPD_DIVID => {
+                let op = match node.get_type() {
+                    MCAST_OPD_PLUS => eval::Op::Add,
+                    MCAST_OPD_MINUS => eval::Op::Sub,
+                    MCAST_OPD_MULTI => eval::Op::Mul,
+                    _ => eval::Op::Div,
+                };
+                let subnodes = node.get_sub_node()?;
+                let mut parts = subnodes.iter();
+                let left = Box::new(Self::parse_operand(&parts.next()?)?);
+                let right = Box::new(Self::parse_operand(&parts.next()?)?);
+                Some(McCondOperand::Expr { op, left, right })
+            }
             _ => None,
         }
     }
@@ -506,6 +622,18 @@ impl McConds {
                             let val = str_value.to_string();
                             let clean_val = strip_string_quotes(&val).to_string();
                             values.push(clean_val);
+                        }
+                    } else if item.get_type() == MCAST_ID
+                        || item.get_type() == MCAST_IDA
+                        || item.get_type() == MCAST_IDS
+                        || item.get_type() == MCAST_OPD
+                        || item.get_type() == MCAST_EXPRESSION
+                    {
+                        // Bare member (U146): the value is the identifier's own
+                        // text — `sel = B` matches a `B` member, same-face
+                        // equality with the bare default.
+                        if let Some(ids) = Self::bare_member_ids(&item) {
+                            values.push(ids.to_string());
                         }
                     }
                     current = item.get_next();
@@ -571,7 +699,7 @@ impl McConds {
     ) -> Result<bool, eval::EvalError> {
         // Handle "in" condition separately (different structure)
         if let McCondition::In { left, values } = cond {
-            let left_val = Value::from_text(&Self::resolve_operand(left, params, def));
+            let left_val = Self::resolve_operand_value(left, params, def)?;
             for value in values {
                 if eval::satisfies(Compare::Eq, &left_val, &Value::from_text(value))? {
                     return Ok(true);
@@ -580,13 +708,24 @@ impl McConds {
             return Ok(false);
         }
 
+        // Logical composition (U145): `&&`/`||` between two judges,
+        // short-circuited the way the written form reads.
+        if let McCondition::And { left, right } | McCondition::Or { left, right } = cond {
+            let is_and = matches!(cond, McCondition::And { .. });
+            let left_val = Self::check_condition_result(left, params, def)?;
+            if left_val != is_and {
+                return Ok(left_val);
+            }
+            return Self::check_condition_result(right, params, def);
+        }
+
         // Bitwise conditions (`if (address & 0x01)` / `if (address | 0x01)`):
         // apply the operation to the two integers and treat a non-zero result
         // as true. A non-integer operand keeps its historical reading — the
         // condition is simply not satisfied.
         if let McCondition::BitAnd { left, right } | McCondition::BitOr { left, right } = cond {
-            let left_val = Value::from_text(&Self::resolve_operand(left, params, def));
-            let right_val = Value::from_text(&Self::resolve_operand(right, params, def));
+            let left_val = Self::resolve_operand_value(left, params, def)?;
+            let right_val = Self::resolve_operand_value(right, params, def)?;
             let (Value::Int(l), Value::Int(r)) = (left_val, right_val) else {
                 return Ok(false);
             };
@@ -605,14 +744,35 @@ impl McConds {
             McCondition::Gt { left, right } => (left, right, Compare::Gt),
             McCondition::LtEq { left, right } => (left, right, Compare::LtEq),
             McCondition::GtEq { left, right } => (left, right, Compare::GtEq),
-            McCondition::BitAnd { .. } | McCondition::BitOr { .. } | McCondition::In { .. } => {
-                unreachable!()
-            }
+            McCondition::BitAnd { .. }
+            | McCondition::BitOr { .. }
+            | McCondition::In { .. }
+            | McCondition::And { .. }
+            | McCondition::Or { .. } => unreachable!(),
         };
 
-        let left_val = Value::from_text(&Self::resolve_operand(left_op, params, def));
-        let right_val = Value::from_text(&Self::resolve_operand(right_op, params, def));
+        let left_val = Self::resolve_operand_value(left_op, params, def)?;
+        let right_val = Self::resolve_operand_value(right_op, params, def)?;
         eval::satisfies(cmp, &left_val, &right_val)
+    }
+
+    /// The value an operand stands for: the plain text face for leaves, and
+    /// for an arithmetic operand (`count == 2 + 3`, U147) the engine folds the
+    /// operator after both leaves resolve — so unit families and the
+    /// `1200mV`/`1.2V` normalization are the engine's, not the collector's.
+    fn resolve_operand_value(
+        op: &McCondOperand,
+        params: &[(McIds, String)],
+        def: Option<CondDefCtx<'_>>,
+    ) -> Result<Value, eval::EvalError> {
+        match op {
+            McCondOperand::Expr { op, left, right } => {
+                let lv = Self::resolve_operand_value(left, params, def)?;
+                let rv = Self::resolve_operand_value(right, params, def)?;
+                eval::apply(*op, &lv, &rv)
+            }
+            other => Ok(Value::from_text(&Self::resolve_operand(other, params, def))),
+        }
     }
 
     /// The text an operand stands for: the bound argument when the name is a
@@ -637,6 +797,11 @@ impl McConds {
                 name
             }
             McCondOperand::Literal(val) => val.clone(),
+            McCondOperand::Expr { .. } => {
+                // An expression is folded by the engine in
+                // `resolve_operand_value`; this text face only sees leaves.
+                unreachable!()
+            }
         }
     }
 
