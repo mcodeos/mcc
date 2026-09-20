@@ -751,7 +751,7 @@ pub const PIN_VALUE_KEY_NOT_FOUND: u32 = 4026;
 /// A box has a placeholder pin not mapped to any real component pin.
 pub const GHOST_PORT_BOX: u32 = 4050;
 
-/// Multiple points resolve to the same node — possible short circuit (E2003).
+/// Multiple points resolve to the same node — possible short circuit.
 pub const NET_MERGED_SHORT: u32 = 4051;
 
 /// Retired (design doc interface-connect-rule-design.md section 6.1 D3):
@@ -760,7 +760,8 @@ pub const NET_MERGED_SHORT: u32 = 4051;
 /// (same shape as CONN_TRANSPOSE_SIZE_MISMATCH 4001).
 pub const NET_BUS_ORDER_MISMATCH: u32 = 4052;
 
-/// Bus pin numbers are non-monotonic; member→pin mapping may be wrong after sorting.
+/// Bus pin numbers are non-monotonic; the member-to-pin binding follows
+/// declaration order, never numeric sorting - confirm the pairing is intended.
 pub const SORT_HAZARD: u32 = 4053;
 
 /// A '_' placeholder could not be bound to any pin.
@@ -1399,6 +1400,10 @@ pub const HW_IFACE_PEER_WIDTH_MISMATCH: u32 = 5509;
 
 /// Function parameter shadows a pin name.
 pub const HW_FUNC_PARAM_SHADOWS_PIN: u32 = 5510;
+
+/// U133 phase 1 — both sides of an interface member connection declare the
+/// `out` direction word at their adoption rows.
+pub const IFACE_DIR_CONFLICT: u32 = 5511;
 
 // Pass3: type / unit compatibility (5550-5599)
 
@@ -2222,9 +2227,9 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(PIN_VALUE_KEY_NOT_FOUND, "A pin value key was not found.", "'{0}' has no value key '{1}'; declared keys: [{2}]"),
     // section
     entry!(GHOST_PORT_BOX, "A box has a placeholder pin not mapped to any real component pin.", "GHOST_PORT: box '{0}' (id={1}) has placeholder pin '{2}' (id={3}) that is not mapped to any real component pin. The component declared only an estimated pin count (pins = N) without actual pin definitions."),
-    entry!(NET_MERGED_SHORT, "Multiple points resolve to the same node — possible short circuit (E2003).", "MERGED_SHORT: net '{0}' (module '{1}') has {2} point(s) resolving to the same node (id={3}). Paths: {4}. This may indicate a bracket expansion duplicate or a port declared without bit width causing signal merging."),
+    entry!(NET_MERGED_SHORT, "Multiple points resolve to the same node — possible short circuit.", "MERGED_SHORT: net '{0}' (module '{1}') has {2} point(s) resolving to the same node (id={3}). Paths: {4}. This may indicate a bracket expansion duplicate or a port declared without bit width causing signal merging."),
     entry!(NET_BUS_ORDER_MISMATCH, "Retired: bus member order mismatch (name-based, 2026-09-20).", "Retired - no producer. The name-based order judgment contradicted the positional pairing law; a crossed writing is legal and names are labels, never a pairing criterion (interface-connect-rule-design.md section 6.1 D3)."),
-    entry!(SORT_HAZARD, "Bus pin numbers are non-monotonic; member→pin mapping may be wrong after sorting.", "SORT_HAZARD: pin numbers in component '{0}' bus '{1}' are non-monotonic. Member→pin binding: [{2}]. Pin declaration order differs from member order, which may cause incorrect mapping after sorting."),
+    entry!(SORT_HAZARD, "Bus pin numbers are non-monotonic; the binding follows declaration order, never numeric sorting.", "SORT_HAZARD: pin numbers in component '{0}' bus '{1}' are non-monotonic. Member-to-pin binding: [{2}]. Binding follows declaration order and is never sorted numerically; if you expected numeric pairing, reorder the members or the pins."),
     entry!(FLOATING_PLACEHOLDER, "A '_' placeholder could not be bound to any pin.", "FLOATING_PLACEHOLDER: '_' placeholder in net '{0}' (module '{1}') could not be bound to any existing pin. The placeholder is floating."),
     entry!(LEAD_PREFIX_ID_AS_WIRE, "'_X' is a prefix identifier (member name), not the wire '_'.", "PREFIX_ID_AS_WIRE: '{0}' is a prefix identifier (member name) like '_OPEN', not the wire '_'. If you meant pass-through in a connection line, write '_' instead."),
     entry!(FUNC_PARAM_SHADOWS_PIN, "Func param shadows a same-named component pin in function body expansion; the param takes priority.", "FUNC_PARAM_SHADOWS_PIN: func param '{0}' shadows pin of component '{1}' in function body expansion - param takes priority."),
@@ -2276,6 +2281,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(NET_PIN_UNWIRED, "A component pad is absent from every net.", "A component pad is absent from every net."),
     entry!(IFACE_CROSS_FAMILY_CONNECT, "Endpoints of different interface families are connected.", "IFACE_CROSS_FAMILY_CONNECT: '{0}' and '{1}' are different interface families and cannot pair — the interface connect rule pairs only same-family interfaces (ordinal k on the two sides is the same wire). Renaming a member does not bridge families."),
     entry!(IFACE_ROLE_INCOMPATIBLE, "Connected interface roles are not mutual peers.", "IFACE_ROLE_INCOMPATIBLE: '{0}' and '{1}' of interface '{2}' are connected, but neither role names the other as its `peer` — declare `peer = {1}` on '{0}' and `peer = {0}` on '{1}', or connect a roleless side (which pairs positionally without the role check)."),
+    entry!(IFACE_DIR_CONFLICT, "Both sides of an interface member connection declare the out direction.", "IFACE_DIR_CONFLICT: roles '{0}' and '{1}' of interface '{2}' are connected with the `out` direction word on both adoption rows — two push-pull outputs wired against each other is a drive fight; one side must read, not drive. The in-in and bidir cells of the compatibility matrix are other checks' territory (interface-member-config-design.md section 3, phase 1 covers out-out only)."),
     // section
     entry!(INST_CHAIN_LINK_SKIPPED, "A chain link was skipped because the method is not defined on the instance.", "Method '{0}' not defined in {1} '{2}'; chain link skipped, no body expanded."),
     entry!(INST_ARG_NO_FORMAL_PORT, "Instance argument has no formal port to bind.", "Instance '{0}' arg{1} '{2}' has no formal port to bind"),
