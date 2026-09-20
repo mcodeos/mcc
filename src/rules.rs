@@ -1960,6 +1960,7 @@ mod tests {
         crate::errcodes::IFACE_PINS_NOT_ALL_BOUND,
         crate::errcodes::IFACE_ROLE_NOT_FOUND,
         crate::errcodes::IFACE_NOT_LOADED,
+        crate::errcodes::IFACE_ROLE_ARG_LITERAL,
         crate::errcodes::IFACE_DEPRECATED_CMIE,
         // naming
         crate::errcodes::NAME_COMPONENT_LOWERCASE,
@@ -2950,6 +2951,18 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         host = "interface",
         doc = "Interface referenced by a param is not loaded.",
         lock = "tests/lock_pp_interface.rs",
+    },
+    declare_post_parse_rule! {
+        code = crate::errcodes::IFACE_ROLE_ARG_LITERAL,
+        name = "iface-role-arg-literal",
+        title = "role-position constructor argument is a literal",
+        severity = Error,
+        domain = RefIntegrity,
+        host = "interface",
+        doc = "A role-bearing interface's constructor argument must be a bare identifier; \
+               a quoted or numeric literal classifies as a plain parameter and silently \
+               bypasses role validation (ident-vs-literal ruling, U144 first slice).",
+        lock = "tests/shard4/iface_role_arg_literal.rs",
     },
     declare_post_parse_rule! {
         code = crate::errcodes::IFACE_DEPRECATED_CMIE,
