@@ -291,7 +291,17 @@ pub fn handle_show_net(params: Option<Value>) -> RpcResult {
     let top_name = crate::mcb_get_first_module_name()
         .ok_or_else(|| JsonRpcError::custom(32112, "no module found"))?;
 
-    let uri = crate::McURI::from(top_name.as_str());
+    // Resolve the module's registered URI; the bare name is only a last
+    // resort. Pass2's entry match needs a real path (or a cwd-relative one) —
+    // "main" alone never matches "main.mc" and fails the build with
+    // "Target module not found" whenever the server's cwd is not the project
+    // root (the `show_net` agent tool's case).
+    let uri = crate::mcb_iter_modules()
+        .into_iter()
+        .find(|(name, _)| name == &top_name)
+        .map(|(_, u)| u)
+        .unwrap_or_else(|| top_name.clone());
+    let uri = crate::McURI::from(uri.as_str());
     let ident = crate::McIds::from(top_name.as_str());
 
     let inst = crate::mcc_build(&ident, &uri)
