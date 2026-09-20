@@ -147,6 +147,7 @@ fn check_iface_role_exists(acc: &mut CheckAccumulator) {
             if let McParamTypeKind::InterfaceWithRole {
                 ref class_name,
                 ref role_val,
+                ..
             } = d.param_type.kind
             {
                 // Look up the interface in the workspace (project definitions only)
@@ -246,6 +247,7 @@ fn check_module_port_role_free(acc: &mut CheckAccumulator) {
             if let McParamTypeKind::InterfaceWithRole {
                 ref class_name,
                 ref role_val,
+                ..
             } = d.param_type.kind
             {
                 let pname = d.get_primary_name().unwrap_or_default();

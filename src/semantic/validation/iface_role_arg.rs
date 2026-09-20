@@ -75,40 +75,50 @@ fn check_iface_role_arg_literal(acc: &mut CheckAccumulator) {
             continue;
         }
         for d in comp.params.iter() {
-            if let McParamTypeKind::Interface {
-                ref class_name,
-                ref params,
-            } = d.param_type.kind
-            {
-                if params.is_empty() || !role_ifaces.contains(class_name) {
-                    continue;
-                }
-                let pname = d.get_primary_name().unwrap_or_default();
-                let span = comp
-                    .params
-                    .get_def_span(&pname)
-                    .unwrap_or_else(|| comp.span.start..comp.span.end);
-                acc.push(CheckResult {
-                    check_name: "interface",
-                    severity: CheckSeverity::Error,
-                    uri: Some(uri.clone()),
-                    span: Some(span),
-                    message: format!(
-                        "Component '{}': param '{}' binds interface '{}' with literal \
-                         argument(s) [{}] — the role position takes a bare identifier; a \
-                         quoted or numeric literal is swallowed as a plain parameter and \
-                         silently bypasses role validation. Write the role name bare: \
-                         '{}::{}(Role)'",
-                        comp.name,
-                        pname,
-                        class_name,
-                        params.join(", "),
-                        pname,
-                        class_name
-                    ),
-                    code: crate::errcodes::IFACE_ROLE_ARG_LITERAL,
-                });
+            let (class_name, bad_args): (String, Vec<String>) = match &d.param_type.kind {
+                // A3 with no bare identifier: every arg classified as a plain
+                // parameter — the all-literal degrade.
+                McParamTypeKind::Interface {
+                    ref class_name,
+                    ref params,
+                } => (class_name.clone(), params.clone()),
+                // A4 mixed args (`GPIO(2, Controller)`): the classifier kept
+                // only the role; the literals it retained are the escape.
+                McParamTypeKind::InterfaceWithRole {
+                    ref class_name,
+                    ref literals,
+                    ..
+                } => (class_name.clone(), literals.clone()),
+                _ => continue,
+            };
+            if bad_args.is_empty() || !role_ifaces.contains(&class_name) {
+                continue;
             }
+            let pname = d.get_primary_name().unwrap_or_default();
+            let span = comp
+                .params
+                .get_def_span(&pname)
+                .unwrap_or_else(|| comp.span.start..comp.span.end);
+            acc.push(CheckResult {
+                check_name: "interface",
+                severity: CheckSeverity::Error,
+                uri: Some(uri.clone()),
+                span: Some(span),
+                message: format!(
+                    "Component '{}': param '{}' binds interface '{}' with literal \
+                     argument(s) [{}] — the role position takes a bare identifier; a \
+                     quoted or numeric literal is swallowed as a plain parameter and \
+                     silently bypasses role validation. Write the role name bare: \
+                     '{}::{}(Role)'",
+                    comp.name,
+                    pname,
+                    class_name,
+                    bad_args.join(", "),
+                    pname,
+                    class_name
+                ),
+                code: crate::errcodes::IFACE_ROLE_ARG_LITERAL,
+            });
         }
     }
 
@@ -122,38 +132,46 @@ fn check_iface_role_arg_literal(acc: &mut CheckAccumulator) {
             continue;
         }
         for d in module.params.iter() {
-            if let McParamTypeKind::Interface {
-                ref class_name,
-                ref params,
-            } = d.param_type.kind
-            {
-                if params.is_empty() || !role_ifaces.contains(class_name) {
-                    continue;
-                }
-                let pname = d.get_primary_name().unwrap_or_default();
-                let span = module
-                    .params
-                    .get_def_span(&pname)
-                    .unwrap_or_else(|| module.span.start..module.span.end);
-                acc.push(CheckResult {
-                    check_name: "interface",
-                    severity: CheckSeverity::Error,
-                    uri: Some(uri.clone()),
-                    span: Some(span),
-                    message: format!(
-                        "Module '{}': port '{}' binds interface '{}' with literal \
-                         argument(s) [{}] — module ports are role-less conduits; drop the \
-                         arguments entirely: '{}::{}()'",
-                        module.name,
-                        pname,
-                        class_name,
-                        params.join(", "),
-                        pname,
-                        class_name
-                    ),
-                    code: crate::errcodes::IFACE_ROLE_ARG_LITERAL,
-                });
+            let (class_name, bad_args): (String, Vec<String>) = match &d.param_type.kind {
+                McParamTypeKind::Interface {
+                    ref class_name,
+                    ref params,
+                } => (class_name.clone(), params.clone()),
+                // A4 mixed args: literals retained by the classifier (the
+                // former mixed-arg escape) are judged here too.
+                McParamTypeKind::InterfaceWithRole {
+                    ref class_name,
+                    ref literals,
+                    ..
+                } => (class_name.clone(), literals.clone()),
+                _ => continue,
+            };
+            if bad_args.is_empty() || !role_ifaces.contains(&class_name) {
+                continue;
             }
+            let pname = d.get_primary_name().unwrap_or_default();
+            let span = module
+                .params
+                .get_def_span(&pname)
+                .unwrap_or_else(|| module.span.start..module.span.end);
+            acc.push(CheckResult {
+                check_name: "interface",
+                severity: CheckSeverity::Error,
+                uri: Some(uri.clone()),
+                span: Some(span),
+                message: format!(
+                    "Module '{}': port '{}' binds interface '{}' with literal \
+                     argument(s) [{}] — module ports are role-less conduits; drop the \
+                     arguments entirely: '{}::{}()'",
+                    module.name,
+                    pname,
+                    class_name,
+                    bad_args.join(", "),
+                    pname,
+                    class_name
+                ),
+                code: crate::errcodes::IFACE_ROLE_ARG_LITERAL,
+            });
         }
     }
 

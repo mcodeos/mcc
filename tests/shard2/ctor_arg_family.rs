@@ -16,8 +16,12 @@
 //!   * bare number   → enum formal                      (`7` for `diel = E.X7R`)
 //!
 //! Not judged (locked as clean below): bare number → INT formal (the correct
-//! spelling), quoted string → STRING formal, bare identifier → STRING formal
-//! (a bare word as data may be legal; ruling pending, U144).
+//! spelling), quoted string → STRING formal.
+//!
+//! Ruled with the b3643 batch (U144): a bare identifier is an identity
+//! reference, never data — into a STRING formal it is a family mismatch and
+//! fires E4176 (locked as firing below). Bare identifiers into enum formals
+//! are the enum-claiming round's territory and stay untouched.
 
 #![allow(non_snake_case)]
 
@@ -132,7 +136,10 @@ fn ctor_arg_family__string_into_string_formal_stays_clean() {
 // and must not be rejected by this gate. The word must not be a known enum
 // member — a member like `X7R` is already refused by the enum-claiming round
 // (it cannot find an enum-class slot), which is a different, older gate.
+//
+// P5 ruled (b3643): a bare word is an identity reference, not data — the gate
+// refuses it with E4176.
 #[test]
-fn ctor_arg_family__bare_word_into_string_formal_unjudged() {
-    assert_no_4176(r#"CS(LEFT)"#);
+fn ctor_arg_family__bare_word_into_string_formal_4176_fires() {
+    assert_fires(r#"CS(LEFT)"#);
 }
