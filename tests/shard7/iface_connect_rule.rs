@@ -552,14 +552,12 @@ fn iface_conn__d8_master_slave_mutual_pair_is_quiet() {
     );
 }
 
-// ---------------------------------------------------------------------------
 // U133 phase 1 (interface-member-config-design.md §3): the direction word on
 // an adoption row (`out [1,2] = IF::DRX(Tx)`) is the carrier for per-member
 // direction. Phase 1 judges exactly one matrix cell — out↔out is a drive
 // fight (E5511). in↔in is E4103's territory (it fires in the flatten stage,
 // hence the `dir_flat` helper); the bidir cells are phase 2; a side without a
 // declared direction word skips the cell (the D9 discipline).
-// ---------------------------------------------------------------------------
 
 /// One family, six adoption shapes. Tx/Rx are mutual peers like LINK; the
 /// components differ only in the direction word (or its absence) on the pin
@@ -736,5 +734,264 @@ fn u133__one_side_undeclared_skips() {
     assert!(
         nets.contains(&vec!["n1.1".to_string(), "o1.1".to_string()]),
         "the connection itself is unaffected; got {nets:?}"
+    );
+}
+
+// ── U128 §6.2 step 4 residual: the three positive pairing cells ──
+//
+// The cells above lock the *diagnostic* face of the rule (which code fires,
+// which stays silent). The rule's actual claim is about *which pin lands on
+// which* — the design doc's step 4 asks for the three minimal examples whose
+// net partition IS the verdict (§1.5.1: "aligned by name" and "crossed" are
+// two outcomes written by the same kind of table, never two rules). Each
+// fixture mirrors a real library family table-for-table (T1 plus the role
+// tables, `mcode/ifs/uart.mc` / `spi.mc` grammar verbatim).
+
+/// The RS485 shape: both roles' tables agree in names *and* order, so pairing
+/// by position and pairing by name produce the same wires. Alone this cell
+/// cannot separate the two laws — its value is the aligned half of the trio
+/// and the positive result the diagnostic-only cells never asserted.
+const ALIGNED_FAMILY: &str = r#"
+interface ALGN(role)
+{
+    pins = [
+        1 = A, "Bus line A"
+        2 = B, "Bus line B"
+    ]
+    role Master {
+        name = "ALGN Master"
+        pins = [
+            1 = A, "Bus line A"
+            2 = B, "Bus line B"
+        ]
+        peer = Slave
+    }
+    role Slave {
+        name = "ALGN Slave"
+        pins = [
+            1 = A, "Bus line A"
+            2 = B, "Bus line B"
+        ]
+        peer = Master
+    }
+}
+
+component ALGA
+{
+    pins = [
+        [1,2] = IF::ALGN(Master)
+    ]
+}
+
+component ALGB
+{
+    pins = [
+        [1,2] = IF::ALGN(Slave)
+    ]
+}
+"#;
+
+/// The UART.TTL shape: the two roles' tables are name-swapped —
+/// `DCE{1=TX, 2=RX}` against `DTE{1=RX, 2=TX}` — so position and name
+/// disagree on **every** wire. The crossing is *declared*: DTE writes RX
+/// first, and that is why the wire crosses. A matcher that repaired by name
+/// would pair DCE pin 1 (TX) with DTE pin 2 (TX) and produce `{xa.1, xb.2}`;
+/// the positional law pairs pin 1 with pin 1. This is the cell that kills
+/// name-first at the interface-port surface.
+const CROSSED_FAMILY: &str = r#"
+interface XING(role)
+{
+    pins = [
+        1 = TX, "Transmit"
+        2 = RX, "Receive"
+    ]
+    role DCE {
+        name = "XING DCE"
+        pins = [
+            1 = TX, "Transmit"
+            2 = RX, "Receive"
+        ]
+        peer = DTE
+    }
+    role DTE {
+        name = "XING DTE"
+        pins = [
+            1 = RX, "Receive"
+            2 = TX, "Transmit"
+        ]
+        peer = DCE
+    }
+}
+
+component XA
+{
+    pins = [
+        [1,2] = IF::XING(DCE)
+    ]
+}
+
+component XB
+{
+    pins = [
+        [1,2] = IF::XING(DTE)
+    ]
+}
+"#;
+
+/// The SPI data shape: positions 1–2 agree by name (CS, SCLK), positions 3–4
+/// cross (MISO↔SO, MOSI↔SI) — one family carrying §1.5.1's both outcomes at
+/// once, so neither an always-align nor an always-cross reading can pass.
+const PARTIAL_FAMILY: &str = r#"
+interface PART(role)
+{
+    pins = [
+        1 = CS, "Chip Select"
+        2 = SCLK, "Serial Clock"
+        3 = MISO, "Master In Slave Out"
+        4 = MOSI, "Master Out Slave In"
+    ]
+    role Master {
+        name = "PART Master"
+        pins = [
+            1 = CS, "Chip Select"
+            2 = SCLK, "Serial Clock"
+            3 = MISO, "Master In Slave Out"
+            4 = MOSI, "Master Out Slave In"
+        ]
+        peer = Slave
+    }
+    role Slave {
+        name = "PART Slave"
+        pins = [
+            1 = CS, "Chip Select"
+            2 = SCLK, "Serial Clock"
+            3 = SO, "Slave Out"
+            4 = SI, "Slave In"
+        ]
+        peer = Master
+    }
+}
+
+component PM
+{
+    pins = [
+        [1,2,3,4] = IF::PART(Master)
+    ]
+}
+
+component PS
+{
+    pins = [
+        [1,2,3,4] = IF::PART(Slave)
+    ]
+}
+"#;
+
+/// Build `main` over the three pairing fixtures with all six devices
+/// instantiated; same normalization as `build`. The partition is path-only on
+/// purpose: at the device-pin face the wire truth *is* the pin pairing (the
+/// role tables put ordinal k on pin k, so a name-first repair would flip the
+/// crossed cells to `{xa.1, xb.2}`). The member-name face is a different,
+/// unresolved surface (probe 2026-09-20: module-port boundary points are
+/// labeled from the T1 table, never from the role-local names) and is not
+/// locked here.
+fn pairing_build(body: &str, uri: &str) -> (Vec<u32>, Vec<Vec<String>>) {
+    let _lock = common::lock();
+    common::reset();
+    let src = format!(
+        "{ALIGNED_FAMILY}{CROSSED_FAMILY}{PARTIAL_FAMILY}module main {{\n    \
+         ALGA ma\n    ALGB sb\n    XA xa\n    XB xb\n    PM pm\n    PS ps\n{body}\n}}\n"
+    );
+    let u = McURI::from(uri);
+    mcc::mcc_load_from_string(&u, &src);
+    let (_, _, _, net_store) = mcc::mcc_build_with_nets(&McIds::from("main"), &u).expect("build");
+    let mut codes: Vec<u32> = mcc::mcc_diagnose_all()
+        .iter()
+        .map(|d| d.code)
+        .filter(|c| !benign(*c))
+        .collect();
+    codes.sort_unstable();
+    let mut partition: Vec<Vec<String>> = net_store
+        .get("main")
+        .map(|t| {
+            t.iter()
+                .map(|(_, pts)| {
+                    let mut ps: Vec<String> = pts.iter().map(|p| p.path.clone()).collect();
+                    ps.sort();
+                    ps
+                })
+                .filter(|ps| !ps.is_empty())
+                .collect()
+        })
+        .unwrap_or_default();
+    partition.sort();
+    (codes, partition)
+}
+
+/// The RS485 cell: aligned tables pair positionally, and each wire stays on
+/// its own pin number — the positive result behind the quiet cells above.
+#[test]
+fn iface_pair__aligned_tables_land_pin_on_pin() {
+    let (codes, nets) = pairing_build("    ma.IF -> sb.IF", "/mcc/iface-pair-aligned.mc");
+    assert_eq!(
+        rule_codes(&codes),
+        Vec::<u32>::new(),
+        "mutual peers must be quiet; got {codes:?}"
+    );
+    assert_eq!(
+        nets,
+        vec![
+            vec!["ma.1".to_string(), "sb.1".to_string()],
+            vec!["ma.2".to_string(), "sb.2".to_string()],
+        ],
+        "aligned tables: ordinal k lands on ordinal k, pin k on pin k; got {nets:?}"
+    );
+}
+
+/// The UART cell: the name-swapped tables must cross the wires *because the
+/// tables say so* — pin 1 meets pin 1 even though the two members there carry
+/// different names (TX against RX). The name-repair counterfactual is
+/// `{xa.1, xb.2}` (TX meeting TX); if this partition ever grows it, a
+/// name-first path has returned.
+#[test]
+fn iface_pair__crossed_tables_cross_because_declared() {
+    let (codes, nets) = pairing_build("    xa.IF -> xb.IF", "/mcc/iface-pair-crossed.mc");
+    assert_eq!(
+        rule_codes(&codes),
+        Vec::<u32>::new(),
+        "crossing is declared by the tables, not an error; got {codes:?}"
+    );
+    assert_eq!(
+        nets,
+        vec![
+            vec!["xa.1".to_string(), "xb.1".to_string()],
+            vec!["xa.2".to_string(), "xb.2".to_string()],
+        ],
+        "DCE pin 1 (TX) meets DTE pin 1 (RX): ordinal k with ordinal k, never name with name. \
+         The name-repair counterfactual is {{xa.1, xb.2}} (TX meeting the DTE's TX on pin 2); \
+         got {nets:?}"
+    );
+}
+
+/// The SPI cell: positions 1–2 align by name while 3–4 cross — one connect
+/// statement producing §1.5.1's both outcomes, so the partition pins the
+/// whole table down member for member.
+#[test]
+fn iface_pair__partial_family_aligns_and_crosses_in_one_statement() {
+    let (codes, nets) = pairing_build("    pm.IF -> ps.IF", "/mcc/iface-pair-partial.mc");
+    assert_eq!(
+        rule_codes(&codes),
+        Vec::<u32>::new(),
+        "mutual peers must be quiet; got {codes:?}"
+    );
+    assert_eq!(
+        nets,
+        vec![
+            vec!["pm.1".to_string(), "ps.1".to_string()],
+            vec!["pm.2".to_string(), "ps.2".to_string()],
+            vec!["pm.3".to_string(), "ps.3".to_string()],
+            vec!["pm.4".to_string(), "ps.4".to_string()],
+        ],
+        "CS and SCLK align, MISO meets SO and MOSI meets SI — all by table order; got {nets:?}"
     );
 }
