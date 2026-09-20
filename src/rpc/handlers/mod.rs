@@ -2120,6 +2120,7 @@ pub(crate) fn pinport_json(v: &crate::McPinPort) -> Value {
             "registered_pins": iface.registered_pins,
         }),
         crate::McPinPort::NC => json!({ "kind": "NC" }),
+        crate::McPinPort::Anon => json!({ "kind": "Anon" }),
     }
 }
 

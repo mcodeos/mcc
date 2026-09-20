@@ -1179,13 +1179,8 @@ impl McPhrase {
                                                         &subnode,
                                                     );
                                                 }
-                                                let available: Vec<&str> = c
-                                                    .base
-                                                    .pins
-                                                    .names_to_id
-                                                    .keys()
-                                                    .map(|s| s.as_str())
-                                                    .collect();
+                                                let available =
+                                                    c.base.pins.addressable_members();
                                                 dlog_error(
                                                     crate::errcodes::COMPONENT_PIN_NOT_FOUND,
                                                     &subnode,
@@ -1423,13 +1418,8 @@ impl McPhrase {
                                                     node,
                                                 );
                                             }
-                                            let available: Vec<&str> = c
-                                                .base
-                                                .pins
-                                                .names_to_id
-                                                .keys()
-                                                .map(|s| s.as_str())
-                                                .collect();
+                                            let available =
+                                                c.base.pins.addressable_members();
                                             dlog_error(
                                                 crate::errcodes::COMPONENT_PIN_NOT_FOUND,
                                                 node,
@@ -2175,13 +2165,8 @@ impl McPhrase {
                                                 node,
                                             );
                                         }
-                                        let available: Vec<&str> = c
-                                            .base
-                                            .pins
-                                            .names_to_id
-                                            .keys()
-                                            .map(|s| s.as_str())
-                                            .collect();
+                                        let available =
+                                            c.base.pins.addressable_members();
                                         dlog_error(
                                             crate::errcodes::COMPONENT_PIN_NOT_FOUND,
                                             node,
@@ -2225,8 +2210,7 @@ impl McPhrase {
                                         node,
                                     );
                                 }
-                                let available: Vec<&str> =
-                                    c.base.pins.names_to_id.keys().map(|s| s.as_str()).collect();
+                                let available = c.base.pins.addressable_members();
                                 dlog_error(
                                     crate::errcodes::COMPONENT_PIN_NOT_FOUND,
                                     node,

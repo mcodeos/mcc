@@ -921,6 +921,10 @@ pub(crate) fn port_to_instance(port: &McPinPort) -> McInstance {
         }
         McPinPort::Bus(bus) => McInstance::Bus(bus.clone()),
         McPinPort::Interface(iface) => McInstance::Interface(iface.clone()),
+        // U148: anonymous pins never register in `names_to_id`, so this arm is
+        // unreachable from PinNamesScope; an empty list stays inert if a future
+        // caller ever passes one.
+        McPinPort::Anon => McInstance::List(McList::new_with_members("anon", Vec::new())),
     }
 }
 
