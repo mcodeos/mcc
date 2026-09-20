@@ -413,7 +413,12 @@ fn has_deprecated_attr(attrs: &crate::semantic::component::mc_attr::McAttributes
 // interface without a view is role-tables-only (the pre-R-CV1 shapes) and
 // stays out of scope until its view is declared.
 fn check_iface_view_lane_match(acc: &mut CheckAccumulator) {
-    let ifaces = crate::definition_space().workspace_interfaces();
+    // DomainFilter::Any, not Project: the conductor view's primary population
+    // lives in the system library (mcode ifs), and a Project-only enumeration
+    // lets every library interface bypass the law (measured: a 4-lane view
+    // with a 3-lane role table in the lib checked clean under the Project
+    // filter). The unified view carries project and system definitions.
+    let ifaces = crate::definition_space().all_interfaces();
     for (sn, iface) in ifaces.iter() {
         let uri = sn.uri.to_string();
         if super::is_test_file(&uri) {
