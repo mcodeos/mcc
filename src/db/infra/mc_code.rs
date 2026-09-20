@@ -1124,14 +1124,23 @@ impl McCode {
                             if !overlap.is_empty() {
                                 let names: Vec<String> =
                                     overlap.iter().map(|s| s.to_string()).collect();
-                                dlog_error_at(
+                                // The diagnostic belongs to the file whose use
+                                // list is being walked (`self.uri`) — the ambient
+                                // `current_uri` is whatever use probe ran last, so
+                                // attributing through it files the conflict under a
+                                // library file, where the next per-file diagnostic
+                                // clear destroys it.
+                                crate::db::diagnostic::diagnostic::diagnostic_log_at(
                                     crate::errcodes::USE_SYMBOL_CONFLICT,
+                                    crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
+                                    self.uri.clone(),
                                     mcuse.pos,
                                     mcuse.len,
                                     &crate::errcodes::format_msg(
                                         crate::errcodes::USE_SYMBOL_CONFLICT,
                                         &[&module_name, &names.join(", "), &prev_uri],
                                     ),
+                                    &[],
                                 );
                             }
                         }
@@ -1396,14 +1405,23 @@ impl McCode {
                             if !overlap.is_empty() {
                                 let names: Vec<String> =
                                     overlap.iter().map(|s| s.to_string()).collect();
-                                dlog_error_at(
+                                // The diagnostic belongs to the file whose use
+                                // list is being walked (`self.uri`) — the ambient
+                                // `current_uri` is whatever use probe ran last, so
+                                // attributing through it files the conflict under a
+                                // library file, where the next per-file diagnostic
+                                // clear destroys it.
+                                crate::db::diagnostic::diagnostic::diagnostic_log_at(
                                     crate::errcodes::USE_SYMBOL_CONFLICT,
+                                    crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
+                                    self.uri.clone(),
                                     mcuse.pos,
                                     mcuse.len,
                                     &crate::errcodes::format_msg(
                                         crate::errcodes::USE_SYMBOL_CONFLICT,
                                         &[&module_name, &names.join(", "), &prev_uri],
                                     ),
+                                    &[],
                                 );
                             }
                         }
