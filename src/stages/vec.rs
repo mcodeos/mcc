@@ -125,7 +125,10 @@ fn endpoint_homes(graph: &McVecGraph, table: &InstTable, parent: &str) -> BTreeM
             // smallest layer path keeps the pick deterministic.
             let home = match owner {
                 Some(o) if layers.iter().any(|l| *l == o) => o,
-                _ => layers.into_iter().min().expect("a claim list is never empty"),
+                _ => layers
+                    .into_iter()
+                    .min()
+                    .expect("a claim list is never empty"),
             };
             (pin, home)
         })

@@ -1879,12 +1879,10 @@ impl InstantiationBuilder {
                     let sub_id = sub
                         .node_id
                         .expect("Phase C1: a frozen sub-module carries a node_id");
-                    self.components_of(sub_id)
-                        .iter()
-                        .find_map(|comp| {
-                            comp.find_bus_port_pin_ids(&declared_port_name)
-                                .map(|pids| (comp.name.clone(), pids))
-                        })
+                    self.components_of(sub_id).iter().find_map(|comp| {
+                        comp.find_bus_port_pin_ids(&declared_port_name)
+                            .map(|pids| (comp.name.clone(), pids))
+                    })
                 });
             let right: Vec<NetPoint> = if let Some((comp_name, pids)) = &host_pins {
                 if pids.len() == left.len() && pids.len() >= 2 {
