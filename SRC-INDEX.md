@@ -37,7 +37,7 @@ range (threshold 40KB).
 | `instant/mc_mod/stmt.rs` | 186 KB | 74 |
 | `semantic/validation/nets/mod.rs` | 176 KB | 115 |
 | `rules.rs` | 173 KB | 83 |
-| `db/diagnostic/errcodes.rs` | 159 KB | 422 |
+| `db/diagnostic/errcodes.rs` | 164 KB | 426 |
 | `instant/insttab.rs` | 153 KB | 110 |
 | `db/defregistry.rs` | 147 KB | 179 |
 | `cmds/show.rs` | 143 KB | 116 |
@@ -61,7 +61,7 @@ range (threshold 40KB).
 | `builder/` | 1 | 0 KB |
 | `cli/` | 6 | 103 KB |
 | `cmds/` | 28 | 483 KB |
-| `db/` | 27 | 886 KB |
+| `db/` | 27 | 891 KB |
 | `eval/` | 2 | 48 KB |
 | `export/` | 6 | 44 KB |
 | `instant/` | 40 | 1519 KB |
@@ -70,7 +70,7 @@ range (threshold 40KB).
 | `query/` | 9 | 157 KB |
 | `refdef/` | 7 | 118 KB |
 | `rpc/` | 16 | 293 KB |
-| `semantic/` | 88 | 2528 KB |
+| `semantic/` | 88 | 2530 KB |
 | `stages/` | 11 | 292 KB |
 | `vector/` | 25 | 462 KB |
 | `viz/` | 95 | 2282 KB |
@@ -1942,7 +1942,11 @@ db/diagnostic/errcodes.rs#L1900  const SHARED_RETURN_BRIDGE
 db/diagnostic/errcodes.rs#L1934  const FILTER_SUBFACE_OVERREACH
 db/diagnostic/errcodes.rs#L1970  const EXPOSED_NET_DOWNSTREAM_UNPROTECTED
 db/diagnostic/errcodes.rs#L1984  const DOMAIN_ENDPOINT_NAME_COLLISION
-db/diagnostic/errcodes.rs#L1986  static ALL_CODES
+db/diagnostic/errcodes.rs#L1997  const DOMAIN_NET_MIXED_BRIDGE
+db/diagnostic/errcodes.rs#L2010  const DOMAIN_BRIDGE_DIRECTION_REVERSED
+db/diagnostic/errcodes.rs#L2022  const DOMAIN_BRIDGE_LEG_INCONSISTENT
+db/diagnostic/errcodes.rs#L2033  const DOMAIN_BRIDGE_DANGLING
+db/diagnostic/errcodes.rs#L2035  static ALL_CODES
 db/diagnostic/mod.rs#L2  mod diagnostic
 db/diagnostic/mod.rs#L3  mod errcodes
 db/diagnostic/mod.rs#L4  mod override_store
@@ -5216,40 +5220,40 @@ semantic/basic/mc_param.rs#L989  fn bind_component
 semantic/basic/mc_param.rs#L1003  fn bind_tolerant
 semantic/basic/mc_param.rs#L1011  fn bind_inner
 semantic/basic/mc_param.rs#L1021  fn bind_inner_opts
-semantic/basic/mc_param.rs#L1426  fn find
-semantic/basic/mc_param.rs#L1436  fn to_params_for_eval
-semantic/basic/mc_param.rs#L1452  fn iter
-semantic/basic/mc_param.rs#L1457  fn len
-semantic/basic/mc_param.rs#L1462  fn is_empty
-semantic/basic/mc_param.rs#L1467  fn find_by_index
-semantic/basic/mc_param.rs#L1477  fn find_member_value
-semantic/basic/mc_param.rs#L1490  fn subset_excluding
-semantic/basic/mc_param.rs#L1510  enum ParamBindError
-semantic/basic/mc_param.rs#L1532  impl std::fmt::Display for ParamBindError
-semantic/basic/mc_param.rs#L1533  fn fmt
-semantic/basic/mc_param.rs#L1570  mod tests
-semantic/basic/mc_param.rs#L1579  fn sem_mcparam__nc_stripped_from_instance_method_arity
-semantic/basic/mc_param.rs#L1613  fn sem_mcparam__nc_named_array_does_not_trigger_too_many_args
-semantic/basic/mc_param.rs#L1663  fn sem_mcparam__nc_anonymous_inline_same_as_named_array
-semantic/basic/mc_param.rs#L1706  fn single_declare
-semantic/basic/mc_param.rs#L1715  fn attr_int
-semantic/basic/mc_param.rs#L1726  fn dotted
-semantic/basic/mc_param.rs#L1745  fn sem_mcparam__named_args_bind_by_name_exact_case
-semantic/basic/mc_param.rs#L1765  fn sem_mcparam__named_arg_key_case_is_significant
-semantic/basic/mc_param.rs#L1779  fn sem_mcparam__named_args_out_of_order_bind_by_name
-semantic/basic/mc_param.rs#L1799  fn sem_mcparam__orphan_named_arg_is_error
-semantic/basic/mc_param.rs#L1813  fn sem_mcparam__named_arg_plus_positional_fill_remaining
-semantic/basic/mc_param.rs#L1834  fn sem_mcparam__named_claim_causing_positional_overflow
-semantic/basic/mc_param.rs#L1858  fn register_test_enum
-semantic/basic/mc_param.rs#L1891  fn sem_mcparam__bare_enum_member_claims_enum_class_slot
-semantic/basic/mc_param.rs#L1913  fn sem_mcparam__dotted_enum_member_opd_claims_enum_class_slot
-semantic/basic/mc_param.rs#L1935  fn sem_mcparam__enum_member_without_enum_slot_is_error
-semantic/basic/mc_param.rs#L1950  fn sem_mcparam__invalid_enum_member_value_is_error
-semantic/basic/mc_param.rs#L1973  fn sem_mcparam__interface_member_claims_interface_slot
-semantic/basic/mc_param.rs#L1997  fn sem_mcparam__dotted_net_ref_falls_through_to_positional
-semantic/basic/mc_param.rs#L2012  fn sem_mcparam__get_member_value_projects_set_member
-semantic/basic/mc_param.rs#L2046  fn sem_mcparam__get_member_value_projects_ids_square_member
-semantic/basic/mc_param.rs#L2079  impl std::error::Error for ParamBindError
+semantic/basic/mc_param.rs#L1438  fn find
+semantic/basic/mc_param.rs#L1448  fn to_params_for_eval
+semantic/basic/mc_param.rs#L1464  fn iter
+semantic/basic/mc_param.rs#L1469  fn len
+semantic/basic/mc_param.rs#L1474  fn is_empty
+semantic/basic/mc_param.rs#L1479  fn find_by_index
+semantic/basic/mc_param.rs#L1489  fn find_member_value
+semantic/basic/mc_param.rs#L1502  fn subset_excluding
+semantic/basic/mc_param.rs#L1522  enum ParamBindError
+semantic/basic/mc_param.rs#L1557  impl std::fmt::Display for ParamBindError
+semantic/basic/mc_param.rs#L1558  fn fmt
+semantic/basic/mc_param.rs#L1607  mod tests
+semantic/basic/mc_param.rs#L1616  fn sem_mcparam__nc_stripped_from_instance_method_arity
+semantic/basic/mc_param.rs#L1650  fn sem_mcparam__nc_named_array_does_not_trigger_too_many_args
+semantic/basic/mc_param.rs#L1700  fn sem_mcparam__nc_anonymous_inline_same_as_named_array
+semantic/basic/mc_param.rs#L1743  fn single_declare
+semantic/basic/mc_param.rs#L1752  fn attr_int
+semantic/basic/mc_param.rs#L1763  fn dotted
+semantic/basic/mc_param.rs#L1782  fn sem_mcparam__named_args_bind_by_name_exact_case
+semantic/basic/mc_param.rs#L1802  fn sem_mcparam__named_arg_key_case_is_significant
+semantic/basic/mc_param.rs#L1816  fn sem_mcparam__named_args_out_of_order_bind_by_name
+semantic/basic/mc_param.rs#L1836  fn sem_mcparam__orphan_named_arg_is_error
+semantic/basic/mc_param.rs#L1850  fn sem_mcparam__named_arg_plus_positional_fill_remaining
+semantic/basic/mc_param.rs#L1871  fn sem_mcparam__named_claim_causing_positional_overflow
+semantic/basic/mc_param.rs#L1895  fn register_test_enum
+semantic/basic/mc_param.rs#L1928  fn sem_mcparam__bare_enum_member_claims_enum_class_slot
+semantic/basic/mc_param.rs#L1950  fn sem_mcparam__dotted_enum_member_opd_claims_enum_class_slot
+semantic/basic/mc_param.rs#L1972  fn sem_mcparam__enum_member_without_enum_slot_is_error
+semantic/basic/mc_param.rs#L1987  fn sem_mcparam__invalid_enum_member_value_is_error
+semantic/basic/mc_param.rs#L2010  fn sem_mcparam__interface_member_claims_interface_slot
+semantic/basic/mc_param.rs#L2034  fn sem_mcparam__dotted_net_ref_falls_through_to_positional
+semantic/basic/mc_param.rs#L2049  fn sem_mcparam__get_member_value_projects_set_member
+semantic/basic/mc_param.rs#L2083  fn sem_mcparam__get_member_value_projects_ids_square_member
+semantic/basic/mc_param.rs#L2116  impl std::error::Error for ParamBindError
 semantic/basic/mc_param_infer.rs#L24  struct UsageSite
 semantic/basic/mc_param_infer.rs#L37  enum UsageKind
 semantic/basic/mc_param_infer.rs#L64  struct InferenceResult
@@ -10677,4 +10681,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-397 files, 10597 declarations.
+397 files, 10601 declarations.
