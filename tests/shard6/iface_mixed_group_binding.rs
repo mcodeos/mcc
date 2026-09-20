@@ -102,3 +102,41 @@ fn mat_ifacebind__group_then_scalar_preserves_source_order() {
         &[("5", "VBUS"), ("6", "VBUS"), ("7", "VBUS"), ("1", "GND")],
     );
 }
+
+/// A pin row's `::X` binding must resolve to an interface; a component name
+/// reports E5153 (NOT_AN_INTERFACE) instead of silently binding.
+#[test]
+fn mat_ifacebind__component_class_on_pin_row_reports_5153() {
+    let _lock = common::lock();
+    common::reset();
+
+    let source = r#"
+component RES
+{
+    pins = [
+        1 = A
+        2 = B
+    ]
+}
+
+component BAD
+{
+    pins = [
+        [1,2] = [P,Q]::RES()
+    ]
+}
+
+module main
+{
+    BAD b
+}
+"#;
+    let uri: McURI = "/mcc/iface-not-an-interface.mc".to_string();
+    mcc::mcc_load_from_string(&uri, source);
+    let _ = mcc::mcc_build_with_arena(&McIds::from("main"), &uri);
+    let codes: Vec<u32> = mcc::mcc_diagnose_all().iter().map(|d| d.code).collect();
+    assert!(
+        codes.contains(&5153),
+        "binding a pin row to a component class must report E5153; got {codes:?}"
+    );
+}
