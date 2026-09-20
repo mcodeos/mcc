@@ -338,7 +338,13 @@ fn check_pin_count_extremes(acc: &mut CheckAccumulator) {
 /// corresponding peer role defined in the same interface. A dangling peer
 /// reference indicates an incomplete interface definition.
 fn check_role_peer_dangling(acc: &mut CheckAccumulator) {
-    let ifaces = crate::definition_space().workspace_interfaces();
+    // D10 (interface-connect-rule-design.md section 6, ruled 2026-09-20): the
+    // definition-side self-checks scan the unified view — workspace plus the
+    // loaded system library. A library-side disease is exactly the
+    // "fix once, every project benefits" kind, so it must surface in every
+    // project build that loads the library, not only when the library file
+    // is fed as workspace input.
+    let ifaces = crate::definition_space().all_interfaces();
     for (sn, iface) in ifaces.iter() {
         let uri = sn.uri.to_string();
         if super::is_test_file(&uri) {
@@ -401,7 +407,9 @@ fn check_role_peer_dangling(acc: &mut CheckAccumulator) {
 /// Dangling peer names stay with HW5 above; absence of a member table is
 /// E3180's territory and is skipped here, not reported as a mismatch.
 fn check_role_peer_mutual_and_width(acc: &mut CheckAccumulator) {
-    let ifaces = crate::definition_space().workspace_interfaces();
+    // Same D10 scan scope as check_role_peer_dangling above: unified view,
+    // library interfaces included.
+    let ifaces = crate::definition_space().all_interfaces();
     for (sn, iface) in ifaces.iter() {
         let uri = sn.uri.to_string();
         if super::is_test_file(&uri) {
