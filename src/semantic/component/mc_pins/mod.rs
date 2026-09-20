@@ -3235,7 +3235,9 @@ impl McPinNames {
                     };
                     match opd_node.get_type() {
                         MCAST_IDS => {
-                            if let Some(pname) = McIds::new(&opd_node) {
+                            // `new_with_dot`: a numeric tail (`X::UART.RS232.3`) is a
+                            // sibling OPD_DOT of the ids node; plain `new` drops it.
+                            if let Some(pname) = McIds::new_with_dot(&opd_node) {
                                 // check if contains parameter reference (e.g. R[1:rows]C[1:cols])
                                 // if contains parameter reference, mark as dynamic pin, handle by
                                 // dynamic logic
@@ -3283,9 +3285,12 @@ impl McPinNames {
                                             err_node,
                                         );
                                     }
-                                } else if pname.segments.len() == 2
+                                } else if pname.segments.len() >= 2
                                     && matches!(pname.segments[0], IdsSegment::Ida(_))
                                     && matches!(pname.segments[1], IdsSegment::Ida(_))
+                                    && pname.segments[2..]
+                                        .iter()
+                                        .all(|s| matches!(s, IdsSegment::DotIda(_) | IdsSegment::DotInt(_)))
                                 {
                                     // INST::CLASS syntax (no brackets, e.g. `I0::I2C`)
                                     // segments[0] = inst name, segments[1] = class name.
@@ -3304,8 +3309,12 @@ impl McPinNames {
                                         IdsSegment::Ida(ida) => ida.clone(),
                                         _ => unreachable!(),
                                     };
+                                    // Class name = base (`I2C`) plus any dotted tail
+                                    // (`UART.RS232.3` → base `UART`, tail `.RS232.3`).
                                     let class_id = McIds {
-                                        segments: vec![IdsSegment::Ida(class_ida)],
+                                        segments: std::iter::once(IdsSegment::Ida(class_ida))
+                                            .chain(pname.segments[2..].iter().cloned())
+                                            .collect(),
                                     };
                                     let inst_id = McIds {
                                         segments: vec![IdsSegment::Ida(inst_ida)],
@@ -3613,7 +3622,11 @@ impl McPinNames {
                                         // Then traverse linked list inside CLASS to find
                                         // MCAST_PARAMS
                                         if let Some(class_id_node) = node.get_sub_node() {
-                                            class_name = McIds::new(&class_id_node);
+                                            // `new_with_dot`: the grammar links a numeric
+                                            // tail (`::UART.RS232.3`) to the ids node as a
+                                            // sibling OPD_DOT; plain `new` drops it and the
+                                            // binding silently resolves to the base name.
+                                            class_name = McIds::new_with_dot(&class_id_node);
                                             // Record interface name span for LSP goto-def.
                                             // class_id_node is MCAST_IDS, whose `len` may have
                                             // been extended by mc_value_link (C-side) to include
@@ -3884,7 +3897,11 @@ impl McPinNames {
                                 match node.get_type() {
                                     MCAST_NAME => {
                                         if let Some(class_id_node) = node.get_sub_node() {
-                                            class_name = McIds::new(&class_id_node);
+                                            // `new_with_dot`: the grammar links a numeric
+                                            // tail (`::UART.RS232.3`) to the ids node as a
+                                            // sibling OPD_DOT; plain `new` drops it and the
+                                            // binding silently resolves to the base name.
+                                            class_name = McIds::new_with_dot(&class_id_node);
                                             // Capture span for LSP goto-def registration
                                             let span = (class_id_node.get_pos() as usize)
                                                 ..((class_id_node.get_pos()

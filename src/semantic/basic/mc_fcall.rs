@@ -837,7 +837,8 @@ impl McFuncCall {
                             );
                             if let Some(cls) = class_node {
                                 if let Some(class_ids) =
-                                    cls.get_sub_node().and_then(|cid| McIds::new(&cid))
+                                    // Keep the numeric dotted tail (`::UART.RS232.3`).
+                                    cls.get_sub_node().and_then(|cid| McIds::new_with_dot(&cid))
                                 {
                                     // Def-driven: read the resolved class's real
                                     // pins. A class that doesn't resolve to a

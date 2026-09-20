@@ -1585,7 +1585,9 @@ impl McInstances {
             );
             return;
         };
-        let Some(class_ids) = McIds::new(&class_id_node) else {
+        // `new_with_dot`: keep the numeric dotted tail (`::UART.RS232.3`) that
+        // the grammar links as a sibling of the ids node.
+        let Some(class_ids) = McIds::new_with_dot(&class_id_node) else {
             dlog_error(
                 crate::errcodes::INST_CLASS_IDS_PARSE_FAILED,
                 node,
@@ -2085,7 +2087,8 @@ impl McInstances {
         for child in sub.iter() {
             if child.get_type() == MCAST_CLASS {
                 let class_id_node = child.get_sub_node()?;
-                return McIds::new(&class_id_node);
+                // Keep the numeric dotted tail (`::UART.RS232.3`).
+                return McIds::new_with_dot(&class_id_node);
             }
         }
         None

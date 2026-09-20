@@ -525,7 +525,8 @@ impl McParamType {
             for child in first_child.iter() {
                 if child.get_type() == MCAST_CLASS {
                     if let Some(name_node) = child.get_sub_node() {
-                        return McIds::new(&name_node).map(|ids| ids.to_string());
+                        // Keep the numeric dotted tail (`UART.RS232.3`).
+                        return McIds::new_with_dot(&name_node).map(|ids| ids.to_string());
                     }
                 }
             }
