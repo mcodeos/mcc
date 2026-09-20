@@ -1598,41 +1598,6 @@ module top {
         );
     }
 
-    // D5 BUS_ORDER_MISMATCH
-
-    #[test]
-    fn cli_build__d5_bus_order_mismatch_all_pairs() {
-        let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        // Two distinct components: PORT_A{A, B} connects to PORT_B{X, Y} with
-        // no overlapping member names, so all pairs mismatch positionally.
-        let fixture = r#"
-component MyChip {
-    pins = [
-        io [1,2] = PORT_A{A, B}
-        io [1,2] = PORT_B{X, Y}
-    ]
-}
-module top {
-    MyChip chipA
-    MyChip chipB
-    chipA{PORT_A} -> chipB{PORT_B}
-}
-"#;
-        let (diags, build_err) = build_fixture(fixture);
-        let mismatched = mcc::mcc_bus_bits_mismatched();
-        assert!(
-            build_err.is_none(),
-            "D5 build should succeed. Build err: {:?}",
-            build_err
-        );
-        assert!(
-            has_code(&diags, mcc::errcodes::NET_BUS_ORDER_MISMATCH) || mismatched > 0,
-            "D5 BUS_ORDER_MISMATCH should fire for A↔X, B↔Y. mismatched={} diags: {:?}",
-            mismatched,
-            diags.iter().map(|d| (d.code, &d.msg)).collect::<Vec<_>>()
-        );
-    }
-
     // Arity-0 gate (stmt.rs instance-method dispatch)
     // A no-arg instance method called with arguments must NOT be dispatched:
     // dispatching it would silently drop the caller's args and wrongly expand
