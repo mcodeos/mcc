@@ -1917,18 +1917,18 @@ impl McPins {
                                 self.register_pin(
                                     iotype.clone(),
                                     pid,
-                                    &[name],
+                                    &[name.clone()],
                                     &values,
                                     opt_span.clone(),
                                 );
-                                // Register the interface port under the same key
-                                // rule the Multi / MultiGroup arms use. Without
-                                // this entry the connect-point reader
-                                // (`iface_endpoint_of_point`) cannot resolve the
-                                // port to its family — the whole interface
-                                // connect rule (family / role / U133 direction
-                                // and drive cells) silently skipped every
-                                // single-pin-id adoption, GPIO included.
+                                // Keep the port resolvable under its own name:
+                                // `iface_endpoint_of_point` reads this entry to
+                                // resolve a single-pin-id adoption (`a.IFX`) to
+                                // its family — without it the whole interface
+                                // connect rule is blind on these adoptions,
+                                // GPIO included. (The `@drive`/`@pull` cells
+                                // this entry once fed are retired; the family,
+                                // role, and direction cells still read it.)
                                 let iface_name = if declare.name.is_bus() {
                                     declare
                                         .name
@@ -2701,54 +2701,13 @@ impl McPins {
     pub fn get_pin_io(&self, pin_id: &str) -> Option<IOType> {
         self.pins.get(pin_id).map(|pin| pin.iotype.clone())
     }
-
-    /// One attribute value of a single pin by pin id and attribute key — the
-    /// reader for the interface member row's line-configuration attrs
-    /// (`@drive`/`@pull`, interface-member-config-design.md §2 candidate A).
-    /// `None` when the pin does not exist or does not carry the key: an
-    /// undeclared attr skips the cell that reads it (the D9 discipline — no
-    /// declaration, no inference).
-    pub fn get_pin_attr(&self, pin_id: &str, key: &str) -> Option<String> {
-        let pin = self.pins.get(pin_id)?;
-        Self::attr_word(&pin.attrs, key)
-    }
-
-    /// One attribute's value word(s) from an attribute list — the single read
-    /// for the line-configuration keys (`@drive`/`@pull`).
-    pub(crate) fn attr_word(attrs: &McAttributes, key: &str) -> Option<String> {
-        attrs.find(&McIds::from(key)).map(|a| {
-            a.values
-                .iter()
-                .map(|v| v.to_string())
-                .collect::<Vec<_>>()
-                .join(",")
-        })
-    }
-
-    /// The dynamic member rows' attrs (`@drive`/`@pull` on a `1:count` bank)
-    /// keyed by the materialized member name. The banks materialize only per
-    /// adoption, so the def-level lines hold the attrs until a reader resolves
-    /// them with the adoption's own parameter bindings (`gpio.mc`'s
-    /// `1:count = 1:count @drive(pp)` reaches its pins through here).
-    pub(crate) fn dynamic_member_attrs(
-        &self,
-        bindings: &[(String, i64)],
-    ) -> Vec<(String, McAttributes)> {
-        let mut out = Vec::new();
-        for dp in &self.dynamic_pins {
-            for (_id, name) in dp.resolve(bindings) {
-                out.push((name, dp.attrs.clone()));
-            }
-        }
-        out
-    }
     /// Build (name, i64) bindings from an interface's constructor parameters
     /// for resolving dynamic pin ranges like `1:count`.
     ///
     /// Explicit integer arguments win; parameters omitted at the call site
     /// fall back to their declared default value (e.g. `count::INT = 1`), so
     /// a bare `IO::GPIO()` still resolves `1:count` with `count = 1`.
-    pub(crate) fn build_interface_param_bindings(declare: &Mc2Interface) -> Vec<(String, i64)> {
+    fn build_interface_param_bindings(declare: &Mc2Interface) -> Vec<(String, i64)> {
         // name -> default value string from the interface declaration
         let defaults: std::collections::HashMap<String, String> = declare
             .base

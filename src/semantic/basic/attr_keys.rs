@@ -231,8 +231,6 @@ pub(crate) const KEY_BIND_ROLE: &str = "bind_role";
 pub(crate) const KEY_RETURN: &str = "return";
 pub(crate) const KEY_STAR: &str = "star";
 pub(crate) const KEY_PROTECT: &str = "protect";
-pub(crate) const KEY_DRIVE: &str = "drive";
-pub(crate) const KEY_PULL: &str = "pull";
 
 /// The words of the closed sets the rows below register. `role` and `bind_role`
 /// share one set, which is what the canon says of them: `bind_role` takes the
@@ -255,11 +253,6 @@ pub(crate) const WORD_ESD_AIR: &str = "esd_air";
 pub(crate) const WORD_EFT: &str = "eft";
 pub(crate) const WORD_SURGE: &str = "surge";
 pub(crate) const WORD_LIGHTNING: &str = "lightning";
-pub(crate) const WORD_PP: &str = "pp";
-pub(crate) const WORD_OD: &str = "od";
-pub(crate) const WORD_UP: &str = "up";
-pub(crate) const WORD_DOWN: &str = "down";
-pub(crate) const WORD_NONE: &str = "none";
 
 const ROLE_WORDS: &[&str] = &[
     WORD_MAIN,
@@ -279,14 +272,6 @@ const EXPOSED_WORDS: &[&str] = &[
     WORD_LIGHTNING,
 ];
 const PROTECT_WORDS: &[&str] = &[WORD_SHUNT, WORD_SERIES];
-/// The electrical drive types of an interface member row (`@drive`): push-pull
-/// and open-drain (`interface-member-config-design.md` §2 candidate A — the
-/// device's own nature, not the adoption side's).
-const DRIVE_WORDS: &[&str] = &[WORD_PP, WORD_OD];
-/// The pull configurations of an interface member row (`@pull`). `none` is a
-/// declared absence — the word that says "this member drives open-drain and
-/// relies on the other side", distinct from no declaration at all.
-const PULL_WORDS: &[&str] = &[WORD_UP, WORD_DOWN, WORD_NONE];
 
 /// The dictionary. Rows are added when a consumer needs them; a key with no
 /// registered row is not yet known to the compiler, not rejected.
@@ -342,13 +327,6 @@ pub(crate) const ATTR_KEYS: &[AttrKeyDef] = &[
     vocab_row(KEY_BIND_ROLE, BODY, true, AttrVocab::Words(ROLE_WORDS)),
     vocab_row(KEY_STAR, BODY, true, AttrVocab::Flag),
     vocab_row(KEY_PROTECT, BODY, true, AttrVocab::Words(PROTECT_WORDS)),
-    // The interface member's electrical line configuration
-    // (`interface-member-config-design.md` §2 candidate A): the device's own
-    // drive type and pull, declared on the member row — as opposed to the
-    // adoption-side direction words (`in`/`out`/`io`), which are reserved
-    // grammar words above, not attribute keys.
-    vocab_row(KEY_DRIVE, BODY, true, AttrVocab::Words(DRIVE_WORDS)),
-    vocab_row(KEY_PULL, BODY, true, AttrVocab::Words(PULL_WORDS)),
     // Voltage words a component body may state its supply voltage with.
     voltage_row(
         "voltage",
@@ -918,10 +896,6 @@ mod tests {
         // `star` is the flag: presence is the declaration, so it registers no
         // word at all.
         assert_eq!(vocab_of(KEY_STAR), Some(AttrVocab::Flag));
-        // The interface member's line configuration words
-        // (`interface-member-config-design.md` §2 candidate A).
-        assert_eq!(vocab_of(KEY_DRIVE), Some(AttrVocab::Words(DRIVE_WORDS)));
-        assert_eq!(vocab_of(KEY_PULL), Some(AttrVocab::Words(PULL_WORDS)));
     }
 
     #[test]

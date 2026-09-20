@@ -1477,14 +1477,6 @@ pub const HW_FUNC_PARAM_SHADOWS_PIN: u32 = 5510;
 /// `out` direction word at their adoption rows.
 pub const IFACE_DIR_CONFLICT: u32 = 5511;
 
-/// U133 phase 2 — the two sides of an interface member connection declare
-/// different electrical drive types (`@drive`) on their member rows.
-pub const IFACE_DRIVE_CONFLICT: u32 = 5512;
-
-/// U133 phase 2 — both sides of an interface member connection drive
-/// open-drain and neither member row declares a `@pull`.
-pub const IFACE_OD_NO_PULL: u32 = 5513;
-
 // Pass3: type / unit compatibility (5550-5599)
 
 /// Incompatible types or unit types.
@@ -2362,8 +2354,6 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(IFACE_CROSS_FAMILY_CONNECT, "Endpoints of different interface families are connected.", "IFACE_CROSS_FAMILY_CONNECT: '{0}' and '{1}' are different interface families and cannot pair — the interface connect rule pairs only same-family interfaces (ordinal k on the two sides is the same wire). Renaming a member does not bridge families."),
     entry!(IFACE_ROLE_INCOMPATIBLE, "Connected interface roles are not mutual peers.", "IFACE_ROLE_INCOMPATIBLE: '{0}' and '{1}' of interface '{2}' are connected, but neither role names the other as its `peer` — declare `peer = {1}` on '{0}' and `peer = {0}` on '{1}', or connect a roleless side (which pairs positionally without the role check)."),
     entry!(IFACE_DIR_CONFLICT, "Both sides of an interface member connection declare the out direction.", "IFACE_DIR_CONFLICT: roles '{0}' and '{1}' of interface '{2}' are connected with the `out` direction word on both adoption rows — two push-pull outputs wired against each other is a drive fight; one side must read, not drive. The in-in and bidir cells of the compatibility matrix are other checks' territory (interface-member-config-design.md section 3, phase 1 covers out-out only)."),
-    entry!(IFACE_DRIVE_CONFLICT, "The two sides of an interface member connection declare different electrical drive types.", "IFACE_DRIVE_CONFLICT: roles '{0}' and '{1}' of interface '{2}' are connected, but their member rows declare different drive types (`@drive`) — a push-pull output against an open-drain output on one line is a contention form; both sides must state the same drive type. A side without a `@drive` declaration skips the cell (no declaration, no inference; interface-member-config-design.md section 3)."),
-    entry!(IFACE_OD_NO_PULL, "Both sides of an interface member connection drive open-drain and neither declares a pull.", "IFACE_OD_NO_PULL: roles '{0}' and '{1}' of interface '{2}' are connected with `@drive(od)` on both member rows and neither row declares `@pull` — an open-drain line with no pull-up floats when both sides release it. Declare `@pull(up)` (or `@pull(none)` where an external pull is guaranteed) on one member row."),
     entry!(IFACE_ENDPOINT_COUNT_TOPOLOGY, "A point-to-point interface family has more than two endpoints on one net.", "IFACE_ENDPOINT_COUNT_TOPOLOGY: interface '{0}' declares `topology = \"point to point\"` but this net carries {1} of its endpoints — a point-to-point pair fits exactly two; split the net, or declare `topology = \"multi-point\"` on the interface if a shared bus is intended."),
     entry!(IFACE_ATTR_INCOMPATIBLE, "Connected interface sides declare incompatible values for the same attribute.", "IFACE_ATTR_INCOMPATIBLE: the two '{0}' endpoints both declare `{1}` but their declared value sets share nothing ({2} vs {3}) — declared attributes are judged only where both sides declare them, and disjoint sets mean the two ends were specified for different operating points."),
     // section
