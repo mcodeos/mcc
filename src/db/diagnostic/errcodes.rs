@@ -268,85 +268,135 @@ pub const PARSER_CLAUSE_INVALID: u32 = 2082;
 /// Invalid pin declaration.
 pub const PARSER_PIN_INVALID: u32 = 2083;
 
-/// Pin ID must be a constant integer, not an expression.
+/// Retired: reserved for a per-production parser arm that was never
+/// written; the grammar's recovery arms (E1002/E1003/E1004/E1007/E1013)
+/// fire instead. Registration kept, no producer.
 pub const PARSER_PIN_ID_NOT_CONST: u32 = 2084;
 
-/// Pin name must be a constant identifier, not an expression.
+/// Retired: reserved for a per-production parser arm that was never
+/// written; the grammar's recovery arms (E1002/E1003/E1004/E1007/E1013)
+/// fire instead. Registration kept, no producer.
 pub const PARSER_PIN_NAME_NOT_CONST: u32 = 2085;
 
 /// Net endpoint must be a port/label, not a literal.
 pub const PARSER_NET_NOT_PORT: u32 = 2086;
 
-/// Invalid net/connection expression.
+/// Retired: reserved for a per-production parser arm that was never
+/// written; the grammar's recovery arms (E1002/E1003/E1004/E1007/E1013)
+/// fire instead. Registration kept, no producer.
 pub const PARSER_NET_INVALID: u32 = 2087;
 
-/// Invalid if/else condition block.
+/// Retired: reserved for a per-production parser arm that was never
+/// written; the grammar's recovery arms (E1002/E1003/E1004/E1007/E1013)
+/// fire instead. Registration kept, no producer.
 pub const PARSER_CONDS_INVALID: u32 = 2088;
 
-/// Invalid role block.
+/// Retired: reserved for a per-production parser arm that was never
+/// written; the grammar's recovery arms (E1002/E1003/E1004/E1007/E1013)
+/// fire instead. Registration kept, no producer.
 pub const PARSER_ROLE_INVALID: u32 = 2089;
 
-/// Invalid function definition.
+/// Retired: reserved for a per-production parser arm that was never
+/// written; the grammar's recovery arms (E1002/E1003/E1004/E1007/E1013)
+/// fire instead. Registration kept, no producer.
 pub const PARSER_FUNC_INVALID: u32 = 2090;
 
-/// Invalid pins declaration.
+/// Retired: reserved for a per-production parser arm that was never
+/// written; the grammar's recovery arms (E1002/E1003/E1004/E1007/E1013)
+/// fire instead. Registration kept, no producer.
 pub const PARSER_PINS_INVALID: u32 = 2091;
 
 /// Invalid import statement.
 pub const PARSER_USE_INVALID: u32 = 2092;
 
-/// Invalid condition body.
+/// Retired: reserved for a per-production parser arm that was never
+/// written; the grammar's recovery arms (E1002/E1003/E1004/E1007/E1013)
+/// fire instead. Registration kept, no producer.
 pub const PARSER_CONDBLOCK_INVALID: u32 = 2093;
 
-/// Invalid instance declaration (:: syntax).
+/// Retired: reserved for a per-production parser arm that was never
+/// written; the grammar's recovery arms (E1002/E1003/E1004/E1007/E1013)
+/// fire instead. Registration kept, no producer.
 pub const PARSER_DECLAREB_INVALID: u32 = 2094;
 
-/// Invalid body.
+/// Retired: reserved for a per-production parser arm that was never
+/// written; the grammar's recovery arms (E1002/E1003/E1004/E1007/E1013)
+/// fire instead. Registration kept, no producer.
 pub const PARSER_BODY_INVALID: u32 = 2095;
 
-/// Invalid condition expression.
+/// Retired: reserved for a per-production parser arm that was never
+/// written; the grammar's recovery arms (E1002/E1003/E1004/E1007/E1013)
+/// fire instead. Registration kept, no producer.
 pub const PARSER_JUDGE_INVALID: u32 = 2096;
 
-/// Invalid parameter declaration.
+/// Retired: reserved for a per-production parser arm that was never
+/// written; the grammar's recovery arms (E1002/E1003/E1004/E1007/E1013)
+/// fire instead. Registration kept, no producer.
 pub const PARSER_PARD_INVALID: u32 = 2097;
 
-/// Invalid import path.
+/// Retired: reserved for a per-production parser arm that was never
+/// written; the grammar's recovery arms (E1002/E1003/E1004/E1007/E1013)
+/// fire instead. Registration kept, no producer.
 pub const PARSER_URI_INVALID: u32 = 2098;
 
-/// Invalid expression list.
+/// Retired: reserved for a per-production parser arm that was never
+/// written; the grammar's recovery arms (E1002/E1003/E1004/E1007/E1013)
+/// fire instead. Registration kept, no producer.
 pub const PARSER_PHRASES_INVALID: u32 = 2099;
 
-/// Invalid operand list.
+/// Retired: reserved for a per-production parser arm that was never
+/// written; the grammar's recovery arms (E1002/E1003/E1004/E1007/E1013)
+/// fire instead. Registration kept, no producer.
 pub const PARSER_OPDS_INVALID: u32 = 2100;
 
-/// Invalid parameter list.
+/// Retired: reserved for a per-production parser arm that was never
+/// written; the grammar's recovery arms (E1002/E1003/E1004/E1007/E1013)
+/// fire instead. Registration kept, no producer.
 pub const PARSER_PARAMS_INVALID: u32 = 2101;
 
-/// Invalid parameter declaration list.
+/// Retired: reserved for a per-production parser arm that was never
+/// written; the grammar's recovery arms (E1002/E1003/E1004/E1007/E1013)
+/// fire instead. Registration kept, no producer.
 pub const PARSER_PARDS_INVALID: u32 = 2102;
 
-/// Invalid attribute value list.
+/// Retired: reserved for a per-production parser arm that was never
+/// written; the grammar's recovery arms (E1002/E1003/E1004/E1007/E1013)
+/// fire instead. Registration kept, no producer.
 pub const PARSER_ATTR_VALUES_INVALID: u32 = 2103;
 
-/// Invalid attribute line list.
+/// Retired: reserved for a per-production parser arm that was never
+/// written; the grammar's recovery arms (E1002/E1003/E1004/E1007/E1013)
+/// fire instead. Registration kept, no producer.
 pub const PARSER_ATTR_LINES_INVALID: u32 = 2104;
 
-/// Invalid pin name list.
+/// Retired: reserved for a per-production parser arm that was never
+/// written; the grammar's recovery arms (E1002/E1003/E1004/E1007/E1013)
+/// fire instead. Registration kept, no producer.
 pub const PARSER_PINS_NAMES_INVALID: u32 = 2105;
 
-/// Invalid instance list.
+/// Retired: reserved for a per-production parser arm that was never
+/// written; the grammar's recovery arms (E1002/E1003/E1004/E1007/E1013)
+/// fire instead. Registration kept, no producer.
 pub const PARSER_INSTS_INVALID: u32 = 2106;
 
-/// Invalid else-if chain.
+/// Retired: reserved for a per-production parser arm that was never
+/// written; the grammar's recovery arms (E1002/E1003/E1004/E1007/E1013)
+/// fire instead. Registration kept, no producer.
 pub const PARSER_CONDS_ELIFS_INVALID: u32 = 2107;
 
-/// Invalid identifier list.
+/// Retired: reserved for a per-production parser arm that was never
+/// written; the grammar's recovery arms (E1002/E1003/E1004/E1007/E1013)
+/// fire instead. Registration kept, no producer.
 pub const PARSER_IDSS_INVALID: u32 = 2108;
 
-/// Invalid path in import.
+/// Retired: reserved for a per-production parser arm that was never
+/// written; the grammar's recovery arms (E1002/E1003/E1004/E1007/E1013)
+/// fire instead. Registration kept, no producer.
 pub const PARSER_LEVELS_INVALID: u32 = 2109;
 
-/// Invalid expression.
+/// Retired: reserved for a per-production parser arm that was never
+/// written; the grammar's recovery arms (E1002/E1003/E1004/E1007/E1013)
+/// fire instead. Registration kept, no producer.
 pub const PARSER_PHRASE_INVALID: u32 = 2110;
 
 /// Single '|' used as a binary operator outside a pin context.
@@ -2103,33 +2153,33 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(PARSER_TOP_INVALID, "Invalid top-level declaration.", "Invalid top-level declaration."),
     entry!(PARSER_CLAUSE_INVALID, "Invalid clause in a body.", "Invalid clause in a body."),
     entry!(PARSER_PIN_INVALID, "Invalid pin declaration.", "Invalid pin declaration."),
-    entry!(PARSER_PIN_ID_NOT_CONST, "Pin ID must be a constant integer, not an expression.", "Pin ID must be a constant integer, not an expression."),
-    entry!(PARSER_PIN_NAME_NOT_CONST, "Pin name must be a constant identifier, not an expression.", "Pin name must be a constant identifier, not an expression."),
+    entry!(PARSER_PIN_ID_NOT_CONST, "Retired: no producer.", "Retired - no producer. Reserved for a per-production parser arm that was never written; the grammar fires its recovery codes instead."),
+    entry!(PARSER_PIN_NAME_NOT_CONST, "Retired: no producer.", "Retired - no producer. Reserved for a per-production parser arm that was never written; the grammar fires its recovery codes instead."),
     entry!(PARSER_NET_NOT_PORT, "Net endpoint must be a port/label, not a literal.", "Net endpoint must be a port/label, not a literal."),
-    entry!(PARSER_NET_INVALID, "Invalid net/connection expression.", "Invalid net/connection expression."),
-    entry!(PARSER_CONDS_INVALID, "Invalid if/else condition block.", "Invalid if/else condition block."),
-    entry!(PARSER_ROLE_INVALID, "Invalid role block.", "Invalid role block."),
-    entry!(PARSER_FUNC_INVALID, "Invalid function definition.", "Invalid function definition."),
-    entry!(PARSER_PINS_INVALID, "Invalid pins declaration.", "Invalid pins declaration."),
+    entry!(PARSER_NET_INVALID, "Retired: no producer.", "Retired - no producer. Reserved for a per-production parser arm that was never written; the grammar fires its recovery codes instead."),
+    entry!(PARSER_CONDS_INVALID, "Retired: no producer.", "Retired - no producer. Reserved for a per-production parser arm that was never written; the grammar fires its recovery codes instead."),
+    entry!(PARSER_ROLE_INVALID, "Retired: no producer.", "Retired - no producer. Reserved for a per-production parser arm that was never written; the grammar fires its recovery codes instead."),
+    entry!(PARSER_FUNC_INVALID, "Retired: no producer.", "Retired - no producer. Reserved for a per-production parser arm that was never written; the grammar fires its recovery codes instead."),
+    entry!(PARSER_PINS_INVALID, "Retired: no producer.", "Retired - no producer. Reserved for a per-production parser arm that was never written; the grammar fires its recovery codes instead."),
     entry!(PARSER_USE_INVALID, "Invalid import statement.", "Invalid import statement."),
-    entry!(PARSER_CONDBLOCK_INVALID, "Invalid condition body.", "Invalid condition body."),
-    entry!(PARSER_DECLAREB_INVALID, "Invalid instance declaration (:: syntax).", "Invalid instance declaration (:: syntax)."),
-    entry!(PARSER_BODY_INVALID, "Invalid body.", "Invalid body."),
-    entry!(PARSER_JUDGE_INVALID, "Invalid condition expression.", "Invalid condition expression."),
-    entry!(PARSER_PARD_INVALID, "Invalid parameter declaration.", "Invalid parameter declaration."),
-    entry!(PARSER_URI_INVALID, "Invalid import path.", "Invalid import path."),
-    entry!(PARSER_PHRASES_INVALID, "Invalid expression list.", "Invalid expression list."),
-    entry!(PARSER_OPDS_INVALID, "Invalid operand list.", "Invalid operand list."),
-    entry!(PARSER_PARAMS_INVALID, "Invalid parameter list.", "Invalid parameter list."),
-    entry!(PARSER_PARDS_INVALID, "Invalid parameter declaration list.", "Invalid parameter declaration list."),
-    entry!(PARSER_ATTR_VALUES_INVALID, "Invalid attribute value list.", "Invalid attribute value list."),
-    entry!(PARSER_ATTR_LINES_INVALID, "Invalid attribute line list.", "Invalid attribute line list."),
-    entry!(PARSER_PINS_NAMES_INVALID, "Invalid pin name list.", "Invalid pin name list."),
-    entry!(PARSER_INSTS_INVALID, "Invalid instance list.", "Invalid instance list."),
-    entry!(PARSER_CONDS_ELIFS_INVALID, "Invalid else-if chain.", "Invalid else-if chain."),
-    entry!(PARSER_IDSS_INVALID, "Invalid identifier list.", "Invalid identifier list."),
-    entry!(PARSER_LEVELS_INVALID, "Invalid path in import.", "Invalid path in import."),
-    entry!(PARSER_PHRASE_INVALID, "Invalid expression.", "Invalid expression."),
+    entry!(PARSER_CONDBLOCK_INVALID, "Retired: no producer.", "Retired - no producer. Reserved for a per-production parser arm that was never written; the grammar fires its recovery codes instead."),
+    entry!(PARSER_DECLAREB_INVALID, "Retired: no producer.", "Retired - no producer. Reserved for a per-production parser arm that was never written; the grammar fires its recovery codes instead."),
+    entry!(PARSER_BODY_INVALID, "Retired: no producer.", "Retired - no producer. Reserved for a per-production parser arm that was never written; the grammar fires its recovery codes instead."),
+    entry!(PARSER_JUDGE_INVALID, "Retired: no producer.", "Retired - no producer. Reserved for a per-production parser arm that was never written; the grammar fires its recovery codes instead."),
+    entry!(PARSER_PARD_INVALID, "Retired: no producer.", "Retired - no producer. Reserved for a per-production parser arm that was never written; the grammar fires its recovery codes instead."),
+    entry!(PARSER_URI_INVALID, "Retired: no producer.", "Retired - no producer. Reserved for a per-production parser arm that was never written; the grammar fires its recovery codes instead."),
+    entry!(PARSER_PHRASES_INVALID, "Retired: no producer.", "Retired - no producer. Reserved for a per-production parser arm that was never written; the grammar fires its recovery codes instead."),
+    entry!(PARSER_OPDS_INVALID, "Retired: no producer.", "Retired - no producer. Reserved for a per-production parser arm that was never written; the grammar fires its recovery codes instead."),
+    entry!(PARSER_PARAMS_INVALID, "Retired: no producer.", "Retired - no producer. Reserved for a per-production parser arm that was never written; the grammar fires its recovery codes instead."),
+    entry!(PARSER_PARDS_INVALID, "Retired: no producer.", "Retired - no producer. Reserved for a per-production parser arm that was never written; the grammar fires its recovery codes instead."),
+    entry!(PARSER_ATTR_VALUES_INVALID, "Retired: no producer.", "Retired - no producer. Reserved for a per-production parser arm that was never written; the grammar fires its recovery codes instead."),
+    entry!(PARSER_ATTR_LINES_INVALID, "Retired: no producer.", "Retired - no producer. Reserved for a per-production parser arm that was never written; the grammar fires its recovery codes instead."),
+    entry!(PARSER_PINS_NAMES_INVALID, "Retired: no producer.", "Retired - no producer. Reserved for a per-production parser arm that was never written; the grammar fires its recovery codes instead."),
+    entry!(PARSER_INSTS_INVALID, "Retired: no producer.", "Retired - no producer. Reserved for a per-production parser arm that was never written; the grammar fires its recovery codes instead."),
+    entry!(PARSER_CONDS_ELIFS_INVALID, "Retired: no producer.", "Retired - no producer. Reserved for a per-production parser arm that was never written; the grammar fires its recovery codes instead."),
+    entry!(PARSER_IDSS_INVALID, "Retired: no producer.", "Retired - no producer. Reserved for a per-production parser arm that was never written; the grammar fires its recovery codes instead."),
+    entry!(PARSER_LEVELS_INVALID, "Retired: no producer.", "Retired - no producer. Reserved for a per-production parser arm that was never written; the grammar fires its recovery codes instead."),
+    entry!(PARSER_PHRASE_INVALID, "Retired: no producer.", "Retired - no producer. Reserved for a per-production parser arm that was never written; the grammar fires its recovery codes instead."),
     entry!(PARSER_SINGLE_OR, "Single '|' used as a binary operator outside a pin context.", "Single '|' used as a binary operator outside a pin context."),
     entry!(PARSER_PLUSMINUS, "'±' used as a binary operator outside a tolerance context.", "'±' used as a binary operator outside a tolerance context."),
     entry!(PARSER_TRANSPOSE_ON_LITERAL, "Transpose (') on a literal has no effect.", "Transpose (') on a literal has no effect."),
