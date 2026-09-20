@@ -337,14 +337,14 @@ pub fn expand_match(lhs: &[NetPoint], rhs: &[NetPoint]) -> Option<ExpandMatch> {
         return None;
     }
 
-    // ── Count correspondence: positional zip in declaration order (§11.3).
-    // Member names are labels, never a pairing criterion (top-level rule) and
-    // never a misalignment signal - E4052 retired (design doc section 6.1 D3):
-    // under the positional law a crossed writing is legal.
-    let pairs: Vec<(NetPoint, NetPoint)> = lhs
-        .iter()
-        .zip(rhs.iter())
-        .map(|(l, r)| (l.clone(), r.clone()))
+    // ── Count correspondence: positional zip in declaration order (§11.3),
+    // stated by the one core both pairing faces cite (matching.rs
+    // `positional_pairs`). Member names are labels, never a pairing criterion
+    // (top-level rule) and never a misalignment signal - E4052 retired (design
+    // doc section 6.1 D3): under the positional law a crossed writing is legal.
+    let pairs: Vec<(NetPoint, NetPoint)> = super::matching::positional_pairs(lhs.len(), rhs.len())
+        .into_iter()
+        .map(|(l, r)| (lhs[l].clone(), rhs[r].clone()))
         .collect();
     Some(ExpandMatch { pairs })
 }
