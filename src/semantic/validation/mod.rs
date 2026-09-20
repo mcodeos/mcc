@@ -123,6 +123,7 @@ impl CheckRegistry {
         r.register(Box::new(defs::DefsCheck));
         r.register(Box::new(imports::ImportsCheck));
         r.register(Box::new(interface::InterfaceCheck));
+        r.register(Box::new(iface_role_arg::IfaceRoleArgCheck));
         r.register(Box::new(naming::NamingCheck));
         r.register(Box::new(ports::PortInstanceCheck));
         r.register(Box::new(refs::RefIntegrityCheck));
@@ -170,6 +171,7 @@ pub mod finding;
 pub mod floating;
 pub mod gate;
 pub mod hw;
+pub mod iface_role_arg;
 pub mod imports;
 pub mod insts;
 pub mod interface;
