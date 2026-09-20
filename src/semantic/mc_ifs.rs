@@ -303,6 +303,30 @@ impl Mc2Interface {
         }
     }
 
+    /// The member names of this interface instance in connection-ordinal
+    /// order (§11.1 / CIMP §1 U150): the declared role's own table when the
+    /// instantiation names a role, else the interface base pin table — both
+    /// read through `McPins::member_names` (declaration order; an anonymous
+    /// conductor-view pin reads as `_(<pinid>)` and still occupies its
+    /// sequence slot). Never the BTreeMap pinid key order. Written member
+    /// spellings (`SPI{CS,..}` / `[A,B]`) are the author's own local view and
+    /// are consumed by the callers before this fallback.
+    pub fn ordinal_member_names(&self) -> Vec<String> {
+        if let Some(McParamValue::Ids(role_ids)) = self.params.first() {
+            let role_name = role_ids.to_string();
+            for role in &self.base.roles {
+                if role.name.to_string() == role_name {
+                    let names = role.pins.member_names();
+                    if !names.is_empty() {
+                        return names;
+                    }
+                    break;
+                }
+            }
+        }
+        self.base.pins.member_names()
+    }
+
     /// `anchor` is the consumer's own syntax, used to position a condition that
     /// cannot be evaluated; see [`McConds::evaluate`]. It is used only when the
     /// arguments are literal-complete (see [`Self::args_are_literals`]).

@@ -32,7 +32,7 @@ range (threshold 40KB).
 |---|---|---|
 | `db/infra/mc_code.rs` | 341 KB | 95 |
 | `viz/layout/equipotential_tree.rs` | 332 KB | 173 |
-| `semantic/basic/mc_phrase.rs` | 311 KB | 68 |
+| `semantic/basic/mc_phrase.rs` | 312 KB | 68 |
 | `semantic/component/mc_pins/mod.rs` | 227 KB | 105 |
 | `instant/mc_mod/stmt.rs` | 194 KB | 76 |
 | `db/diagnostic/errcodes.rs` | 177 KB | 434 |
@@ -70,7 +70,7 @@ range (threshold 40KB).
 | `query/` | 9 | 157 KB |
 | `refdef/` | 7 | 118 KB |
 | `rpc/` | 16 | 293 KB |
-| `semantic/` | 89 | 2590 KB |
+| `semantic/` | 89 | 2591 KB |
 | `stages/` | 11 | 296 KB |
 | `vector/` | 25 | 462 KB |
 | `viz/` | 95 | 2289 KB |
@@ -6230,17 +6230,18 @@ semantic/mc_ifs.rs#L271  struct Mc2Interface
 semantic/mc_ifs.rs#L281  impl Mc2Interface
 semantic/mc_ifs.rs#L282  fn new
 semantic/mc_ifs.rs#L294  fn new_with_str
-semantic/mc_ifs.rs#L309  fn with_params
-semantic/mc_ifs.rs#L356  fn with_ids_and_params
-semantic/mc_ifs.rs#L415  fn args_are_literals
-semantic/mc_ifs.rs#L424  fn parse_pins_from_block
-semantic/mc_ifs.rs#L450  fn pin_count
-semantic/mc_ifs.rs#L455  fn base_name
-semantic/mc_ifs.rs#L460  fn get_all_pin_ids
-semantic/mc_ifs.rs#L469  fn merge_with
-semantic/mc_ifs.rs#L522  fn merge_pins_with
-semantic/mc_ifs.rs#L548  impl std::fmt::Debug for Mc2Interface
-semantic/mc_ifs.rs#L549  fn fmt
+semantic/mc_ifs.rs#L314  fn ordinal_member_names
+semantic/mc_ifs.rs#L333  fn with_params
+semantic/mc_ifs.rs#L380  fn with_ids_and_params
+semantic/mc_ifs.rs#L439  fn args_are_literals
+semantic/mc_ifs.rs#L448  fn parse_pins_from_block
+semantic/mc_ifs.rs#L474  fn pin_count
+semantic/mc_ifs.rs#L479  fn base_name
+semantic/mc_ifs.rs#L484  fn get_all_pin_ids
+semantic/mc_ifs.rs#L493  fn merge_with
+semantic/mc_ifs.rs#L546  fn merge_pins_with
+semantic/mc_ifs.rs#L572  impl std::fmt::Debug for Mc2Interface
+semantic/mc_ifs.rs#L573  fn fmt
 semantic/mc_inst.rs#L40  fn collect_ctor_params
 semantic/mc_inst.rs#L65  struct McInst
 semantic/mc_inst.rs#L72  enum LabelKind
@@ -10744,4 +10745,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-398 files, 10664 declarations.
+398 files, 10665 declarations.

@@ -417,6 +417,106 @@ module main {
     );
 }
 
+// [AUDIT u150-respell-merge] The re-spelled form
+// `[1, 2, 5, 6] = SPI{CS, SO, SI, SCLK}::SPI(Slave)` must survive the pass0
+// width check when merged with a plain role-table adoption: BOTH sides present
+// an honest 4-member width (the interface's ordinal tables — declared role
+// table, else the base pin table in declaration order), not a 1-element
+// `[SPI]` sentinel on the plain side (CIMP §1 U150, second half). Pre-fix the
+// plain side's anonymous conductor-view pins had no stored names, its width
+// degraded to 1, and the merge died with E4005 (shape 4 vs 1) before any net
+// was created.
+#[test]
+fn audit_u150_respell_merge_is_vector() {
+    let p = probe(
+        r#"
+component F {
+    pins = [
+        1 = _CS
+        6 = SCLK
+        2 = SO
+        5 = SI
+        [1, 2, 5, 6] = SPI{CS, SO, SI, SCLK}::SPI(Slave)
+    ]
+}
+component M {
+    pins = [
+        io [1, 2, 3, 4] = SPI::SPI(Master)
+    ]
+}
+module main {
+    F flash_i()
+    M inst_m()
+    flash_i.SPI + inst_m.SPI
+}
+"#,
+    );
+    report("u150-respell-merge", &p);
+    // E5502 (pin-id gap lint) is expected here: F uses ids 1/2/5/6 and leaves
+    // 3/4 as gaps. Nothing else may fire.
+    let stray: Vec<u32> = codes(&p).into_iter().filter(|c| *c != 5502).collect();
+    assert!(
+        stray.is_empty(),
+        "re-spelled adoption merge must be clean, got {stray:?}"
+    );
+    // Written order is the lane order on BOTH sides: F's lanes follow the
+    // written list [1, 2, 5, 6] (member names CS, SO, SI, SCLK in that
+    // order), M's the Master role table [CS, SCLK, MISO, MOSI] on [1, 2, 3, 4].
+    let mut nets: Vec<Vec<String>> = p.nets.iter().map(|(_, pts)| pts.clone()).collect();
+    nets.sort();
+    let expected = vec![
+        vec!["flash_i.1".to_string(), "inst_m.1".to_string()], // CS
+        vec!["flash_i.2".to_string(), "inst_m.2".to_string()], // F lane 2 (SO) <-> lane 2 (SCLK)
+        vec!["flash_i.5".to_string(), "inst_m.3".to_string()], // SI <-> MISO
+        vec!["flash_i.6".to_string(), "inst_m.4".to_string()], // SCLK <-> MOSI
+    ];
+    let mut expected_sorted = expected.clone();
+    expected_sorted.sort();
+    assert_eq!(
+        nets, expected_sorted,
+        "re-spelled adoption must bind lanes in written order"
+    );
+}
+
+// [AUDIT u150-respell-member-access] The written member names of a re-spelled
+// adoption resolve at the dot-access face: `flash_i.SPI.CS` is a real member
+// of the adopted port, not an unknown pin. Pre-fix the member face could fall
+// onto the anonymous conductor view `_(1..4)` and reject the role/written
+// name outright.
+#[test]
+fn audit_u150_respell_member_access() {
+    let p = probe(
+        r#"
+component F {
+    pins = [
+        [1, 2, 5, 6] = SPI{CS, SO, SI, SCLK}::SPI(Slave)
+    ]
+}
+component M {
+    pins = [
+        io [1, 2, 3, 4] = SPI::SPI(Master)
+    ]
+}
+module main {
+    F flash_i()
+    M inst_m()
+    flash_i.SPI.CS -> inst_m.SPI.CS
+}
+"#,
+    );
+    report("u150-respell-member-access", &p);
+    let stray: Vec<u32> = codes(&p).into_iter().filter(|c| *c != 5502).collect();
+    assert!(
+        stray.is_empty(),
+        "written member name must resolve on a re-spelled adoption, got {stray:?}"
+    );
+    assert!(
+        p.paths.contains("flash_i.1") && p.paths.contains("inst_m.1"),
+        "member access SPI.CS must reach the CS pin (pid 1), got {:?}",
+        p.paths
+    );
+}
+
 #[test]
 fn audit_s5_pins_index_range() {
     let p = probe(
