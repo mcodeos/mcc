@@ -2301,7 +2301,7 @@ impl InstantiationBuilder {
                     .map(|r| {
                         r.attrs
                             .iter()
-                            .filter(|a| a.id.to_string().to_lowercase() == "peer")
+                            .filter(|a| a.id.to_string() == "peer")
                             .flat_map(|a| Self::iface_peer_names(&a.values))
                             .collect()
                     })

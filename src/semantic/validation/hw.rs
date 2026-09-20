@@ -357,7 +357,7 @@ fn check_role_peer_dangling(acc: &mut CheckAccumulator) {
         for role in &iface.roles {
             // Check if role has a peer attr referencing another role
             for attr in &role.attrs {
-                let key = attr.id.to_string().to_lowercase();
+                let key = attr.id.to_string();
                 if key == "peer" {
                     for peer_name in peer_role_names(&attr.values) {
                         if !role_names.contains(&peer_name) {
@@ -432,7 +432,7 @@ fn check_role_peer_mutual_and_width(acc: &mut CheckAccumulator) {
 
         for role in &iface.roles {
             for attr in &role.attrs {
-                let key = attr.id.to_string().to_lowercase();
+                let key = attr.id.to_string();
                 if key != "peer" {
                     continue;
                 }
@@ -455,7 +455,7 @@ fn check_role_peer_mutual_and_width(acc: &mut CheckAccumulator) {
                     let is_named_back = peer_role
                         .attrs
                         .iter()
-                        .filter(|a| a.id.to_string().to_lowercase() == "peer")
+                        .filter(|a| a.id.to_string() == "peer")
                         .flat_map(|a| peer_role_names(&a.values))
                         .any(|n| n == role.name.to_string());
                     if !is_named_back {
