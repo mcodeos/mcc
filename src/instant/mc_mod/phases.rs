@@ -2045,9 +2045,12 @@ impl InstantiationBuilder {
 /// Written members (`U{A,B}::FAM(...)`, `[A,B]::FAM(...)`) are the author's
 /// own spellings and are consumed by the callers before this fallback.
 ///
-/// `parsed_pins` is deliberately not consulted here: at this boundary the
-/// parameterized renaming (e.g. `DC(3.3V)` renaming VCC to VCC3V3) renames
-/// members behind the parent's back and splits the net merge (CIMP U140).
+/// `parsed_pins` is deliberately not consulted here (CIMP §1 U141, ruled
+/// 2026-09-20): the parameterized pin tables are attach-face wiring
+/// spellings — the ordinal is the identity carrier across the boundary, and
+/// the per-parameter names vary per instantiation, so labeling from them
+/// splits the name-based net merge (real boards hbl1/hs: +1 net, +5 errors).
+/// Locked by `tests/shard7/u141_parsed_pins_boundary.rs`.
 fn iface_ordinal_member_names(iface: &Mc2Interface) -> Vec<String> {
     if let Some(McParamValue::Ids(role_ids)) = iface.params.first() {
         let role_name = role_ids.to_string();
