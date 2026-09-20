@@ -30,7 +30,7 @@ range (threshold 40KB).
 
 | File | Size | Declarations |
 |---|---|---|
-| `db/infra/mc_code.rs` | 340 KB | 95 |
+| `db/infra/mc_code.rs` | 341 KB | 95 |
 | `viz/layout/equipotential_tree.rs` | 332 KB | 173 |
 | `semantic/basic/mc_phrase.rs` | 308 KB | 65 |
 | `semantic/component/mc_pins/mod.rs` | 217 KB | 104 |
@@ -61,7 +61,7 @@ range (threshold 40KB).
 | `builder/` | 1 | 0 KB |
 | `cli/` | 6 | 103 KB |
 | `cmds/` | 28 | 483 KB |
-| `db/` | 27 | 901 KB |
+| `db/` | 27 | 903 KB |
 | `eval/` | 2 | 48 KB |
 | `export/` | 6 | 44 KB |
 | `instant/` | 40 | 1536 KB |
@@ -2108,74 +2108,74 @@ db/infra/mc_code.rs#L712  fn extract_inline_comments
 db/infra/mc_code.rs#L816  fn find_comment_start
 db/infra/mc_code.rs#L838  fn parse_ast_from_string
 db/infra/mc_code.rs#L1014  fn parse_nsp
-db/infra/mc_code.rs#L1291  fn sync_visibility
-db/infra/mc_code.rs#L1312  fn parse_nsp_from_deps
-db/infra/mc_code.rs#L1488  fn parse_cmie_names
-db/infra/mc_code.rs#L1547  fn is_enum_decl
-db/infra/mc_code.rs#L1554  fn parse_pass1_types
-db/infra/mc_code.rs#L1815  fn extract_func_param_spans
-db/infra/mc_code.rs#L1851  fn collect_declare_instance_spans
-db/infra/mc_code.rs#L1885  fn collect_square_vec_member_spans
-db/infra/mc_code.rs#L1920  fn collect_square_vec_members_in_subtree
-db/infra/mc_code.rs#L1940  fn extract_pin_name_spans
-db/infra/mc_code.rs#L1954  fn extract_pin_id_spans
-db/infra/mc_code.rs#L1967  fn extract_pin_iface_spans
-db/infra/mc_code.rs#L1981  fn extract_spec_key_spans
-db/infra/mc_code.rs#L1996  fn parse_pass1_modules
-db/infra/mc_code.rs#L2021  fn parse_pass1_modules_full
-db/infra/mc_code.rs#L2108  fn parse_pass1
-db/infra/mc_code.rs#L2116  fn add_global_class
-db/infra/mc_code.rs#L2156  fn add_enum_class
-db/infra/mc_code.rs#L2184  fn add_enum_value
-db/infra/mc_code.rs#L2207  fn scope_path_from_scope_str_public
-db/infra/mc_code.rs#L2211  fn param_def_kind
-db/infra/mc_code.rs#L2227  fn resolve_net_ref_kind
-db/infra/mc_code.rs#L2304  fn chain_ref_kind
-db/infra/mc_code.rs#L2330  fn resolve_func_chain_own_pin
-db/infra/mc_code.rs#L2392  fn def_name_for
-db/infra/mc_code.rs#L2416  fn with_def_file_gt
-db/infra/mc_code.rs#L2454  fn class_def_name
-db/infra/mc_code.rs#L2474  fn enum_value_def_name
-db/infra/mc_code.rs#L2505  fn consolidate_ref_def_map
-db/infra/mc_code.rs#L3065  fn uris_same_file
-db/infra/mc_code.rs#L3094  fn create_lapper
-db/infra/mc_code.rs#L3276  fn upgrade_unknown_defs
-db/infra/mc_code.rs#L3410  fn resolve_class_ref_at_span
-db/infra/mc_code.rs#L3478  fn lapper_global_classes
-db/infra/mc_code.rs#L3774  fn lapper_instance_decls_and_refs
-db/infra/mc_code.rs#L3923  fn lapper_interfaces
-db/infra/mc_code.rs#L4090  fn lapper_module_ports
-db/infra/mc_code.rs#L4453  fn register_chain_base_ref
-db/infra/mc_code.rs#L4504  fn lapper_function_params
-db/infra/mc_code.rs#L4646  fn lapper_component_defs_register
-db/infra/mc_code.rs#L4782  fn lapper_component_defs
-db/infra/mc_code.rs#L5067  fn lapper_component_func_pin_refs
-db/infra/mc_code.rs#L5199  fn find_enum_class_cross_file
-db/infra/mc_code.rs#L5275  fn lapper_enum_refs
-db/infra/mc_code.rs#L5472  fn lapper_scoped_enum_bare_refs
-db/infra/mc_code.rs#L5631  fn lapper_func_define_role
-db/infra/mc_code.rs#L6069  fn extract_class_name
-db/infra/mc_code.rs#L6103  fn extract_chain_base_instance
-db/infra/mc_code.rs#L6155  fn find_instance_class_name
-db/infra/mc_code.rs#L6180  fn dlog_parser_message
-db/infra/mc_code.rs#L6225  fn extract_dot_pair
-db/infra/mc_code.rs#L6268  mod tests
-db/infra/mc_code.rs#L6286  fn def_mccode__func_entries_mirror_host_funcs_across_reload
-db/infra/mc_code.rs#L6499  fn def_mccode__declareb_inline_inst_registers_lsp_declaration
-db/infra/mc_code.rs#L6594  fn def_mccode__module_member_chain_refs_resolve_in_lapper
-db/infra/mc_code.rs#L6691  fn def_mccode__fcall_chain_member_resolves_to_instance_pin
-db/infra/mc_code.rs#L6779  fn def_mccode__position_hover_resolves_same_name_enum_and_component
-db/infra/mc_code.rs#L6786  enum CAP
-db/infra/mc_code.rs#L6850  fn def_mccode__position_goto_def_resolves_same_name_enum_and_component
-db/infra/mc_code.rs#L6857  enum CAP
-db/infra/mc_code.rs#L6906  fn def_mccode__completion_keeps_same_name_enum_and_component_candidates
-db/infra/mc_code.rs#L6913  enum CAP
-db/infra/mc_code.rs#L6974  fn def_mccode__ref_def_map_entries_carry_ast_def_names
-db/infra/mc_code.rs#L7085  fn def_mccode__visibility_table_matches_import_forms
-db/infra/mc_code.rs#L7205  fn def_mccode__refgraph_records_cross_file_resolution_edges
-db/infra/mc_code.rs#L7291  fn def_mccode__parse_level_reparse_diff_reports_edited_def_only
-db/infra/mc_code.rs#L7370  fn def_mccode__module_port_ledger_stable_across_mid_insert_reparse
-db/infra/mc_code.rs#L7443  fn def_mccode__alias_p4_name_index_and_gotodef_agree_with_phase6
+db/infra/mc_code.rs#L1300  fn sync_visibility
+db/infra/mc_code.rs#L1321  fn parse_nsp_from_deps
+db/infra/mc_code.rs#L1506  fn parse_cmie_names
+db/infra/mc_code.rs#L1565  fn is_enum_decl
+db/infra/mc_code.rs#L1572  fn parse_pass1_types
+db/infra/mc_code.rs#L1833  fn extract_func_param_spans
+db/infra/mc_code.rs#L1869  fn collect_declare_instance_spans
+db/infra/mc_code.rs#L1903  fn collect_square_vec_member_spans
+db/infra/mc_code.rs#L1938  fn collect_square_vec_members_in_subtree
+db/infra/mc_code.rs#L1958  fn extract_pin_name_spans
+db/infra/mc_code.rs#L1972  fn extract_pin_id_spans
+db/infra/mc_code.rs#L1985  fn extract_pin_iface_spans
+db/infra/mc_code.rs#L1999  fn extract_spec_key_spans
+db/infra/mc_code.rs#L2014  fn parse_pass1_modules
+db/infra/mc_code.rs#L2039  fn parse_pass1_modules_full
+db/infra/mc_code.rs#L2126  fn parse_pass1
+db/infra/mc_code.rs#L2134  fn add_global_class
+db/infra/mc_code.rs#L2174  fn add_enum_class
+db/infra/mc_code.rs#L2202  fn add_enum_value
+db/infra/mc_code.rs#L2225  fn scope_path_from_scope_str_public
+db/infra/mc_code.rs#L2229  fn param_def_kind
+db/infra/mc_code.rs#L2245  fn resolve_net_ref_kind
+db/infra/mc_code.rs#L2322  fn chain_ref_kind
+db/infra/mc_code.rs#L2348  fn resolve_func_chain_own_pin
+db/infra/mc_code.rs#L2410  fn def_name_for
+db/infra/mc_code.rs#L2434  fn with_def_file_gt
+db/infra/mc_code.rs#L2472  fn class_def_name
+db/infra/mc_code.rs#L2492  fn enum_value_def_name
+db/infra/mc_code.rs#L2523  fn consolidate_ref_def_map
+db/infra/mc_code.rs#L3083  fn uris_same_file
+db/infra/mc_code.rs#L3112  fn create_lapper
+db/infra/mc_code.rs#L3294  fn upgrade_unknown_defs
+db/infra/mc_code.rs#L3428  fn resolve_class_ref_at_span
+db/infra/mc_code.rs#L3496  fn lapper_global_classes
+db/infra/mc_code.rs#L3792  fn lapper_instance_decls_and_refs
+db/infra/mc_code.rs#L3941  fn lapper_interfaces
+db/infra/mc_code.rs#L4108  fn lapper_module_ports
+db/infra/mc_code.rs#L4471  fn register_chain_base_ref
+db/infra/mc_code.rs#L4522  fn lapper_function_params
+db/infra/mc_code.rs#L4664  fn lapper_component_defs_register
+db/infra/mc_code.rs#L4800  fn lapper_component_defs
+db/infra/mc_code.rs#L5085  fn lapper_component_func_pin_refs
+db/infra/mc_code.rs#L5217  fn find_enum_class_cross_file
+db/infra/mc_code.rs#L5293  fn lapper_enum_refs
+db/infra/mc_code.rs#L5490  fn lapper_scoped_enum_bare_refs
+db/infra/mc_code.rs#L5649  fn lapper_func_define_role
+db/infra/mc_code.rs#L6087  fn extract_class_name
+db/infra/mc_code.rs#L6121  fn extract_chain_base_instance
+db/infra/mc_code.rs#L6173  fn find_instance_class_name
+db/infra/mc_code.rs#L6198  fn dlog_parser_message
+db/infra/mc_code.rs#L6243  fn extract_dot_pair
+db/infra/mc_code.rs#L6286  mod tests
+db/infra/mc_code.rs#L6304  fn def_mccode__func_entries_mirror_host_funcs_across_reload
+db/infra/mc_code.rs#L6517  fn def_mccode__declareb_inline_inst_registers_lsp_declaration
+db/infra/mc_code.rs#L6612  fn def_mccode__module_member_chain_refs_resolve_in_lapper
+db/infra/mc_code.rs#L6709  fn def_mccode__fcall_chain_member_resolves_to_instance_pin
+db/infra/mc_code.rs#L6797  fn def_mccode__position_hover_resolves_same_name_enum_and_component
+db/infra/mc_code.rs#L6804  enum CAP
+db/infra/mc_code.rs#L6868  fn def_mccode__position_goto_def_resolves_same_name_enum_and_component
+db/infra/mc_code.rs#L6875  enum CAP
+db/infra/mc_code.rs#L6924  fn def_mccode__completion_keeps_same_name_enum_and_component_candidates
+db/infra/mc_code.rs#L6931  enum CAP
+db/infra/mc_code.rs#L6992  fn def_mccode__ref_def_map_entries_carry_ast_def_names
+db/infra/mc_code.rs#L7103  fn def_mccode__visibility_table_matches_import_forms
+db/infra/mc_code.rs#L7223  fn def_mccode__refgraph_records_cross_file_resolution_edges
+db/infra/mc_code.rs#L7309  fn def_mccode__parse_level_reparse_diff_reports_edited_def_only
+db/infra/mc_code.rs#L7388  fn def_mccode__module_port_ledger_stable_across_mid_insert_reparse
+db/infra/mc_code.rs#L7461  fn def_mccode__alias_p4_name_index_and_gotodef_agree_with_phase6
 db/infra/mc_use.rs#L15  enum McUsePrefix
 db/infra/mc_use.rs#L22  impl std::fmt::Display for McUsePrefix
 db/infra/mc_use.rs#L23  fn fmt
