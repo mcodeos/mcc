@@ -500,9 +500,10 @@ pub struct PortInst {
     ///   `[VDD_3V3,GND]::DC(3.3V)` port     → bus_members = ["VDD_3V3","GND"]
     ///   Scalar port `out DAC_OUT`            → bus_members = []
     ///
-    /// (* Note: Members of system library interfaces like UART need to be
-    ///   extracted from the base interface's pins table; the current implementation
-    ///   only covers the directly-written syntax form; see
+    /// (* Note: For a port carrying a role (`UART.TTL(DCE)`) the members are
+    ///   that role's own table, in its declaration order — the label rides the
+    ///   same table that supplies the ordinal (CIMP §1 U137). A roleless port
+    ///   falls back to the base interface's pins table. See
     ///   `phases.rs::extract_port_bus_members` for details.)
     ///
     /// `points.rs::expand_port_lanes` uses this field at endpoint resolution to
