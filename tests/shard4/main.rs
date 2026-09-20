@@ -15,6 +15,7 @@ mod error_codes;
 mod gap2_materialization;
 mod gap3_materialization;
 mod iface_role_arg_literal;
+mod iface_view_lane_mismatch;
 mod inst_list;
 mod lock_pp_attrs_insts;
 mod param_prefix_instance_receiver;
