@@ -2893,21 +2893,35 @@ impl InstantiationBuilder {
                          GND (§11.6)",
                         fc.func_name
                     );
-                    crate::db::diagnostic::diagnostic::diagnostic_log(
+                    let msg = crate::errcodes::format_msg(
                         crate::errcodes::INST_PARAM_BIND_FAILED,
-                        crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
-                        0,
-                        0,
-                        &crate::errcodes::format_msg(
-                            crate::errcodes::INST_PARAM_BIND_FAILED,
-                            &[
-                                &fc.func_name.to_string(),
-                                &fc.func_name.to_string(),
-                                &reason,
-                            ],
-                        ),
-                        &[],
+                        &[
+                            &fc.func_name.to_string(),
+                            &fc.func_name.to_string(),
+                            &reason,
+                        ],
                     );
+                    match &self.current_call_site() {
+                        Some(spos) => {
+                            crate::db::diagnostic::diagnostic::diagnostic_log_at(
+                                crate::errcodes::INST_PARAM_BIND_FAILED,
+                                crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
+                                spos.uri.clone(),
+                                spos.offset,
+                                0,
+                                &msg,
+                                &[],
+                            );
+                        }
+                        None => crate::db::diagnostic::diagnostic::diagnostic_log(
+                            crate::errcodes::INST_PARAM_BIND_FAILED,
+                            crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
+                            0,
+                            0,
+                            &msg,
+                            &[],
+                        ),
+                    }
                     return Ok(());
                 }
 
