@@ -2229,15 +2229,16 @@ impl InstantiationBuilder {
     pub(super) fn check_iface_connect_points(&mut self, left: &[NetPoint], right: &[NetPoint]) {
         // Cross-side only: each slice is one FACE (all rows of one side), so
         // rows of the same face must never be compared against each other.
-        let Some((base0, role0)) = left.iter().find_map(|p| self.iface_endpoint_of_point(p)) else {
+        let Some((base0, role0, dir0)) = left.iter().find_map(|p| self.iface_endpoint_of_point(p))
+        else {
             return;
         };
         let rights: Vec<_> = right
             .iter()
             .filter_map(|p| self.iface_endpoint_of_point(p))
             .collect();
-        for (base, role) in &rights {
-            if self.iface_pair_diag(&base0, &role0, base, role) {
+        for (base, role, dir) in &rights {
+            if self.iface_pair_diag(&base0, &role0, &dir0, base, role, dir) {
                 return;
             }
         }
@@ -2250,15 +2251,16 @@ impl InstantiationBuilder {
         let eps: Vec<(
             std::sync::Arc<crate::semantic::mc_ifs::McInterface>,
             Option<String>,
+            IOType,
         )> = points
             .iter()
             .filter_map(|p| self.iface_endpoint_of_point(p))
             .collect();
-        let Some((base0, role0)) = eps.first() else {
+        let Some((base0, role0, dir0)) = eps.first() else {
             return;
         };
-        for (base, role) in &eps[1..] {
-            if self.iface_pair_diag(base0, role0, base, role) {
+        for (base, role, dir) in &eps[1..] {
+            if self.iface_pair_diag(base0, role0, dir0, base, role, dir) {
                 return;
             }
         }
@@ -2271,8 +2273,10 @@ impl InstantiationBuilder {
         &mut self,
         base0: &std::sync::Arc<crate::semantic::mc_ifs::McInterface>,
         role0: &Option<String>,
+        dir0: &IOType,
         base: &std::sync::Arc<crate::semantic::mc_ifs::McInterface>,
         role: &Option<String>,
+        dir: &IOType,
     ) -> bool {
         // Step 1: family equality — `UART.TTL` and `UART.RS232` are
         // different families even though both are dotted `UART`.
@@ -2322,12 +2326,36 @@ impl InstantiationBuilder {
                 return true;
             }
         }
+        // Step 3 (U133 phase 1, interface-member-config-design.md §3): the
+        // direction words come from the two adoption rows themselves
+        // (`comp.def.pins` — the def-side reading is authoritative). Only the
+        // out↔out cell has a code of its own: two declared outputs wired
+        // against each other is a drive fight. in↔in belongs to the net-level
+        // no-driver check (E4103) reading the same data downstream; the bidir
+        // cells are phase 2 (od/pull deferred); a side without a declared
+        // direction word skips the cell entirely — no declaration, no
+        // inference (the D9 discipline).
+        if matches!(dir0, IOType::Out) && matches!(dir, IOType::Out) {
+            let lr = role0.as_deref().unwrap_or("-");
+            let rr = role.as_deref().unwrap_or("-");
+            let msg = crate::errcodes::format_msg(
+                crate::errcodes::IFACE_DIR_CONFLICT,
+                &[&lr as &dyn std::fmt::Display, &rr, &fam0],
+            );
+            self.log_global_diag(
+                crate::errcodes::IFACE_DIR_CONFLICT,
+                crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
+                msg,
+            );
+            return true;
+        }
         false
     }
 
     /// Interface endpoint behind one reduced connection point: resolve the
     /// owner instance, the point's pin, and the pin's port; an interface port
-    /// yields its definition plus the instance's selected role. The role comes
+    /// yields its definition, the instance's selected role, and the pin's
+    /// declared direction word (the adoption-row carrier, U133). The role comes
     /// from the port's interface params — the same source `mc_pins` reads for
     /// role member tables.
     fn iface_endpoint_of_point(
@@ -2336,6 +2364,7 @@ impl InstantiationBuilder {
     ) -> Option<(
         std::sync::Arc<crate::semantic::mc_ifs::McInterface>,
         Option<String>,
+        IOType,
     )> {
         let owner = pt.owner.as_ref()?;
         let comp = self.find_component(owner)?;
@@ -2349,6 +2378,7 @@ impl InstantiationBuilder {
             Some(McPinPort::Interface(iface)) => Some((
                 iface.base.clone(),
                 Self::role_of(&iface.base, &iface.params),
+                comp.def.pins.get_pin_io(pin).unwrap_or(IOType::None),
             )),
             _ => None,
         }
