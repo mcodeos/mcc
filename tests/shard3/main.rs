@@ -21,6 +21,7 @@ mod gap1_member_set_alignment;
 mod ignore_warnings;
 mod lock_pp_interface;
 mod lock_pp_refs;
+mod module_port_role_free;
 mod netcheck_rules;
 mod param_inline_attrs_e3112;
 mod param_paren_list;

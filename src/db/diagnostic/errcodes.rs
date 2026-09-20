@@ -1098,6 +1098,15 @@ pub const CONN_LEAD_CROSSNET: u32 = 4182;
 /// potentials have no legal merge.
 pub const CONN_NET_CROSSNET: u32 = 4183;
 
+/// A module port binding carries a role argument (`io bus[1:4]::GPIO(Controller)`).
+/// Role (Controller / Peripheral / Master / Slave / …) is the *link identity of
+/// an endpoint terminal pin* — the answer to "at what position does THIS device
+/// join the chain". A module port is a role-less conduit: identity comes from
+/// whatever terminal the port is wired to on each side, so the port itself
+/// carries none. Replicated-binding-design R3; the check lives in
+/// `validation::interface` and is an Error.
+pub const MODULE_PORT_IFACE_ROLE: u32 = 4184;
+
 /// A role-bearing interface's constructor argument is a literal
 /// (`SPI::SPI("Slave")`, `PJ(123)`): the position takes a bare identifier —
 /// the role name, which must resolve in the definition space. A literal there
@@ -2398,6 +2407,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(VECTOR_ZIP_WIDTH_MISMATCH, "Vector member-set mismatch in a connection; the two ends of a lane must zip positionally at equal width (no flattening, no member dropping).", "Vector pairing width mismatch: left side provides {0} member(s), right side provides {1}; one-to-one member correspondence requires equal widths. Scalar args apply per-member (the func per-member dispatch layer, vec-dianlu §7.6); a vector-slice arg must be written at the receiver's member count — no broadcast."),
     entry!(CONN_LEAD_CROSSNET, "A '_' lead joins two different nets: an ideal wire (a body, vec-dianlu §5.4) crossing nets shorts them at zero impedance.", "Lead '_' joins two different nets: '{0}' and '{1}'. A lead is an ideal wire (vec-dianlu §5.4) — its two ends are meant to be the same net; joining distinct nets shorts them at zero impedance."),
     entry!(CONN_NET_CROSSNET, "Parallel '+' between two bodiless operands (labels/rails) joins two different nets: merging two distinct potentials shorts them at zero impedance.", "Parallel '+' joins two different nets: '{0}' and '{1}'. Neither operand is a body (vec-dianlu §1.4/§5.4) — a label or rail names an existing equipotential region, so its potential is carried by its name and two different names are two different potentials. With nothing to stack, '+' can only merge the two regions: a dead short."),
+    entry!(MODULE_PORT_IFACE_ROLE, "Module port binding carries a role argument; role belongs to endpoint terminal pins only (replicated-binding-design R3).", "Module '{0}': port '{1}' binds interface '{2}' with role '{3}' — role is the link identity of endpoint terminal pins; module ports are role-less conduits. Drop the role argument: '{1}::{2}()'."),
     entry!(IFACE_ROLE_ARG_LITERAL, "Role-position constructor argument is a quoted or numeric literal; the role position takes a bare identifier (ident-vs-literal ruling, U144).", "Interface '{2}' takes a bare identifier in its role position, but '{0}::{1}' carries literal argument(s) [{3}] — the role is never recorded and role validation is silently bypassed. Write the role name bare: '{0}::{1}(Role)'."),
     entry!(COMPONENT_PARAM_FUNC_CONFLICT, "Component-level parameter shares a name with the same-name constructor func parameter.", "Component '{0}' declares parameter '{1}' that also appears in constructor func '{2}' params. Class params define class behavior and constructor params declare the construction arity; they must not reuse the same name. Rename one of them."),
     // section

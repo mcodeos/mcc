@@ -7,6 +7,7 @@
 //! Checks:
 //!   I4-ext — all interface pins are bound to physical pins in the component
 //!   C4-ext — interface roles referenced in component must exist in the interface definition
+//!   R3 — module ports are role-less: a port binding may not carry a role argument
 //!   F3 — deprecated CMIE usage (component extends deprecated interface/component)
 
 use super::{CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, ValidationCheck};
@@ -28,6 +29,7 @@ impl ValidationCheck for InterfaceCheck {
     fn run_post_parse(&self, acc: &mut CheckAccumulator) {
         check_iface_pin_completeness(acc); // I4-ext
         check_iface_role_exists(acc); // C4-ext
+        check_module_port_role_free(acc); // R3 (replicated-binding-design)
         check_deprecated_cmie_usage(acc); // F3
     }
 }
@@ -215,6 +217,57 @@ fn check_iface_role_exists(acc: &mut CheckAccumulator) {
                         });
                     }
                 }
+            }
+        }
+    }
+}
+
+// R3 (replicated-binding-design): role belongs to the terminal; a mediator passes it through.
+
+/// A module port binding may not carry a role argument.
+///
+/// Role (Controller / Peripheral / Master / …) is the link identity of an
+/// endpoint terminal pin — the answer to "at what position does this device
+/// join the chain". A module port is a role-less conductor: its identity is
+/// decided by whatever terminal it is wired to on each side, so the port
+/// itself carries none. `io bus[1:4]::GPIO(Controller)` is an error; write
+/// `io bus[1:4]::GPIO()` (see replicated-binding-design.md R3).
+fn check_module_port_role_free(acc: &mut CheckAccumulator) {
+    use crate::semantic::basic::mc_param_type::McParamTypeKind;
+
+    let modules = crate::definition_space().workspace_modules();
+    for (sn, module) in modules.iter() {
+        let uri = sn.uri.to_string();
+        if super::is_test_file(&uri) {
+            continue;
+        }
+
+        for d in module.params.iter() {
+            if let McParamTypeKind::InterfaceWithRole {
+                ref class_name,
+                ref role_val,
+            } = d.param_type.kind
+            {
+                let pname = d.get_primary_name().unwrap_or_default();
+                // Point at the port name itself where the def span was
+                // recorded; fall back to the module header span.
+                let span = module
+                    .params
+                    .get_def_span(&pname)
+                    .unwrap_or_else(|| module.span.start..module.span.end);
+                acc.push(CheckResult {
+                    check_name: "interface",
+                    severity: CheckSeverity::Error,
+                    uri: Some(uri.clone()),
+                    span: Some(span),
+                    message: format!(
+                        "Module '{}': port '{}' binds interface '{}' with role '{}' — role is \
+                         the link identity of endpoint terminal pins; module ports are \
+                         role-less conduits. Drop the role argument: '{}::{}()'",
+                        module.name, pname, class_name, role_val, pname, class_name
+                    ),
+                    code: crate::errcodes::MODULE_PORT_IFACE_ROLE,
+                });
             }
         }
     }
