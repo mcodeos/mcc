@@ -64,7 +64,7 @@ range (threshold 40KB).
 | `db/` | 27 | 899 KB |
 | `eval/` | 2 | 48 KB |
 | `export/` | 6 | 44 KB |
-| `instant/` | 40 | 1522 KB |
+| `instant/` | 40 | 1523 KB |
 | `lsp/` | 7 | 66 KB |
 | `output/` | 7 | 107 KB |
 | `query/` | 9 | 157 KB |
@@ -3044,10 +3044,11 @@ instant/mc_mod/iterated.rs#L347  fn zip_slice_member
 instant/mc_mod/iterated.rs#L365  fn emit_gap1_member_set_mismatch
 instant/mc_mod/iterated.rs#L409  fn gap1_collect_slices
 instant/mc_mod/iterated.rs#L436  fn iterated_item_inst_name
-instant/mc_mod/matching.rs#L25  enum WidthCheck
-instant/mc_mod/matching.rs#L41  fn check_vector_width
-instant/mc_mod/matching.rs#L67  fn pair_members_to_lanes
-instant/mc_mod/matching.rs#L80  fn parse_bracket_members
+instant/mc_mod/matching.rs#L26  enum WidthCheck
+instant/mc_mod/matching.rs#L42  fn check_vector_width
+instant/mc_mod/matching.rs#L70  fn positional_pairs
+instant/mc_mod/matching.rs#L83  fn pair_members_to_lanes
+instant/mc_mod/matching.rs#L94  fn parse_bracket_members
 instant/mc_mod/mod.rs#L25  mod builder
 instant/mc_mod/mod.rs#L26  mod bus
 instant/mc_mod/mod.rs#L27  mod dump
@@ -10686,4 +10687,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-397 files, 10606 declarations.
+397 files, 10607 declarations.
