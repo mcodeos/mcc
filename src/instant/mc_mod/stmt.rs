@@ -18,23 +18,18 @@ use crate::semantic::basic::mc_opd::McOpd;
 use crate::semantic::basic::mc_param::McParamValue;
 use crate::semantic::basic::mc_phrase::McPhrase;
 use crate::semantic::common::{ConnDir, IOType};
-use crate::semantic::component::mc_pins::{McPinPort, McPins, PwrDir};
+use crate::semantic::component::mc_pins::{McPinPort, PwrDir};
 use crate::semantic::mc_inst::McInstance;
 use crate::vector::model::trunk::TrunkKind;
 use std::collections::HashSet;
 
 /// One interface endpoint of a junction: the family definition, the
-/// adopted role, the adoption row's direction word, and the member row's
-/// electrical line configuration (`@drive`/`@pull`, U133 phase 2). The
-/// config options are `None` when the member row does not declare them —
-/// an undeclared axis skips the cells that read it (the D9 discipline).
+/// adopted role, and the adoption row's declared direction word (U133).
 #[derive(Clone)]
 struct IfaceEndpoint {
     base: std::sync::Arc<crate::semantic::mc_ifs::McInterface>,
     role: Option<String>,
     dir: IOType,
-    drive: Option<String>,
-    pull: Option<String>,
 }
 
 // ── M11.4: lane item for position-aware bridge pin collection ──
@@ -2307,7 +2302,8 @@ impl InstantiationBuilder {
                 .iter()
                 .find(|ep| ep.base.name.to_string() == *fam)
                 .and_then(|ep| {
-                    ep.base.attrs
+                    ep.base
+                        .attrs
                         .iter()
                         .find(|a| a.id.to_string() == "topology")
                         .map(|a| Self::iface_attr_value_set(&a.values))
@@ -2410,49 +2406,6 @@ impl InstantiationBuilder {
             );
             return true;
         }
-        // Step 4 (U133 phase 2): the electrical drive type — `@drive` on the
-        // interface member rows (candidate A, the device's own nature). Both
-        // sides declared and different is the contention form: a push-pull
-        // output against an open-drain output on one line. One side undeclared
-        // skips the cell (D9); matching declarations are the normal connect.
-        if let (Some(d0), Some(d1)) = (&ep0.drive, &ep.drive) {
-            if d0 != d1 {
-                let lr = role0.as_deref().unwrap_or("-");
-                let rr = role.as_deref().unwrap_or("-");
-                let msg = crate::errcodes::format_msg(
-                    crate::errcodes::IFACE_DRIVE_CONFLICT,
-                    &[&lr as &dyn std::fmt::Display, &rr, &fam0],
-                );
-                self.log_global_diag(
-                    crate::errcodes::IFACE_DRIVE_CONFLICT,
-                    crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
-                    msg,
-                );
-                return true;
-            }
-        }
-        // Step 5 (U133 phase 2): the pull of an open-drain line — both sides
-        // declared `@drive(od)` and neither row carrying a `@pull` leaves the
-        // line floating whenever both sides release it. A warning, not an
-        // error: an external pull can be guaranteed outside the model, which
-        // is exactly what an explicit `@pull(none)` states.
-        if let (Some(d0), Some(d1)) = (&ep0.drive, &ep.drive) {
-            if d0.as_str() == "od" && d1.as_str() == "od" && ep0.pull.is_none() && ep.pull.is_none()
-            {
-                let lr = role0.as_deref().unwrap_or("-");
-                let rr = role.as_deref().unwrap_or("-");
-                let msg = crate::errcodes::format_msg(
-                    crate::errcodes::IFACE_OD_NO_PULL,
-                    &[&lr as &dyn std::fmt::Display, &rr, &fam0],
-                );
-                self.log_global_diag(
-                    crate::errcodes::IFACE_OD_NO_PULL,
-                    crate::db::diagnostic::diagnostic::DiagnosticLevel::Warning,
-                    msg,
-                );
-                return true;
-            }
-        }
         // Step 6 (criterion 5, E4123): attribute compatibility — judged only
         // where BOTH sides declare the same attribute id, and the per-endpoint
         // attribute face in the connect judgment is the selected role's own
@@ -2506,11 +2459,9 @@ impl InstantiationBuilder {
     /// Interface endpoint behind one reduced connection point: resolve the
     /// owner instance, the point's pin, and the pin's port; an interface port
     /// yields its definition, the instance's selected role, the pin's
-    /// declared direction word (the adoption-row carrier, U133), and the
-    /// pin's electrical configuration (`@drive`/`@pull` — candidate A: the
-    /// adoption row's trailing attrs, falling back to the interface member
-    /// row's lib-side default). The role comes from the port's interface
-    /// params — the same source `mc_pins` reads for role member tables.
+    /// declared direction word (the adoption-row carrier, U133). The role
+    /// comes from the port's interface params — the same source `mc_pins`
+    /// reads for role member tables.
     fn iface_endpoint_of_point(&self, pt: &NetPoint) -> Option<IfaceEndpoint> {
         let owner = pt.owner.as_ref()?;
         let comp = self.find_component(owner)?;
@@ -2531,46 +2482,10 @@ impl InstantiationBuilder {
         };
         match comp.def.pins.names_to_id.get(port_name.as_str()) {
             Some(McPinPort::Interface(iface)) => {
-                // The electrical configuration rides the pin's own attrs: the
-                // adoption row's trailing `@drive`/`@pull` (attach_row_attrs
-                // merged them), falling back to the interface definition's
-                // member row — the lib-side default for the device's nature
-                // (`gpio.mc` states `@drive(pp)` there). A dynamic member
-                // bank (`1:count`) holds its attrs on the def-level line, so
-                // the third read resolves it with the adoption's parameter
-                // bindings and matches the materialized member by name. The
-                // adoption-side declaration wins: it is the closer statement
-                // about this pin.
-                let member_name = comp
-                    .def
-                    .pins
-                    .pin_id_to_names
-                    .get(pin.as_str())
-                    .and_then(|ns| ns.first())
-                    .map(|n| n.rsplit('.').next().unwrap_or(n).to_string());
-                let pin_attr = |key: &str| {
-                    comp.def
-                        .pins
-                        .get_pin_attr(&pin, key)
-                        .or_else(|| iface.base.pins.get_pin_attr(&pin, key))
-                        .or_else(|| {
-                            let member = member_name.as_deref()?;
-                            let bindings = McPins::build_interface_param_bindings(iface);
-                            iface
-                                .base
-                                .pins
-                                .dynamic_member_attrs(&bindings)
-                                .into_iter()
-                                .find(|(n, _)| n == member)
-                                .and_then(|(_, attrs)| McPins::attr_word(&attrs, key))
-                        })
-                };
                 Some(IfaceEndpoint {
                     base: iface.base.clone(),
                     role: Self::role_of(&iface.base, &iface.params),
                     dir: comp.def.pins.get_pin_io(&pin).unwrap_or(IOType::None),
-                    drive: pin_attr(crate::semantic::basic::attr_keys::KEY_DRIVE),
-                    pull: pin_attr(crate::semantic::basic::attr_keys::KEY_PULL),
                 })
             }
             _ => None,
