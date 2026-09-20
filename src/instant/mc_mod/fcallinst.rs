@@ -824,25 +824,38 @@ impl InstantiationBuilder {
                 Ok(FuncCallInst::PassThrough)
             }
 
-            // Endpoint(phrase): non-chainable, returns a label/bus
-            // Bridge fc.right (the parser-supplied placeholder) to the
-            // resolved endpoint NetPoints. Union-find then merges the two
-            // sides so that "func() -> X" effectively becomes "endpoint -> X".
+            // Endpoint(phrase): non-chainable, returns a label/bus.
             //
-            // NB: This handles bare calls (`f() -> X`) only. For instance
-            // methods (`uC.method() -> X`), fc.right is the receiver's full
-            // output port set, so a per-element bridge would short receiver
-            // outputs to the single endpoint. That case is currently left
-            // as PassThrough until `resolve_funccall_right_points` is taught
-            // to detect Endpoint returns directly. (See iteration A note.)
-            McFuncReturn::Endpoint(endpoint_phrase) => Self::emit_endpoint_return_bridges(
-                self,
-                &func_def,
-                &bindings,
-                endpoint_phrase,
-                right,
-                caller_inst_name,
-            ),
+            // U130 ③ (ruled 2026-09-20): publish the SUBSTITUTED return face
+            // through the same LAST_RETURN_ENDPOINT side channel the
+            // instance-method path uses below (fcallinst.rs, Endpoint arm of
+            // instantiate_instance_method); the PassThrough handler in
+            // stmt.rs registers it into auto_inst_map, and the connection
+            // operation itself happens only at the final connection
+            // statement, through the unified engine (R8). The former
+            // emit_endpoint_return_bridges — a hand-built
+            // make_conn_with_provenance pair-by-min bridge outside the
+            // engine's law, plus a common-prefix silent truncation — is
+            // retired outright.
+            McFuncReturn::Endpoint(endpoint_phrase) => {
+                let substituted = if bindings.is_empty() && caller_inst_name.is_none() {
+                    endpoint_phrase.clone()
+                } else {
+                    Self::substitute_stmt(endpoint_phrase, &bindings, None)
+                };
+                let names: Vec<String> = substituted
+                    .get_right()
+                    .iter()
+                    .map(|b| b.name.clone())
+                    .collect();
+                if names.is_empty() {
+                    LAST_RETURN_ENDPOINT.with(|cell| cell.replace(None));
+                } else {
+                    LAST_RETURN_ENDPOINT
+                        .with(|cell| cell.replace(Some(AutoInst::ReturnNets(names))));
+                }
+                Ok(FuncCallInst::PassThrough)
+            }
         }
     }
 
@@ -967,60 +980,6 @@ impl InstantiationBuilder {
             }
         }
         McParamBindings::from_bindings(out).with_key_overrides_of(bindings)
-    }
-
-    /// Build bridge `ConnectionInst`s linking the parser-supplied right-side
-    /// placeholders (`right`) to the function's actual return endpoint.
-    ///
-    /// Used by [`instantiate_user_func`] when `func_def.returns` is
-    /// `McFuncReturn::Endpoint(_)`. The strategy is:
-    ///
-    /// 1. Substitute formal params in the endpoint phrase.
-    /// 2. Get the McBus list via `phrase.get_right()` (for a label/bus this
-    ///    is just the same endpoint; for richer expressions it is the value
-    ///    side of the phrase).
-    /// 3. Pair-up `right[i]` with `endpoint_buses[i]` and emit one
-    ///    `ConnectionInst` per pair.
-    ///
-    /// On shape mismatch we wire the common prefix and warn — this is more
-    /// useful than failing outright while the user is still iterating.
-    fn emit_endpoint_return_bridges(
-        this: &mut Self,
-        _func_def: &McFunction,
-        bindings: &McParamBindings,
-        endpoint_phrase: &McPhrase,
-        right: &[McBus],
-        this_name: Option<&str>,
-    ) -> Result<FuncCallInst, InstError> {
-        // 1. Param substitution (including 'this' substitution)
-        let substituted = if bindings.is_empty() && this_name.is_none() {
-            endpoint_phrase.clone()
-        } else {
-            Self::substitute_stmt(endpoint_phrase, bindings, None)
-        };
-
-        // 2. Resolve to McBus list
-        let endpoint_buses = substituted.get_right();
-
-        // 3. Pair-up and emit bridges
-        let pair_count = right.len().min(endpoint_buses.len());
-        let mut new_connections = Vec::with_capacity(pair_count);
-        for i in 0..pair_count {
-            let ext_pt = this.node_to_netpoint(&right[i]);
-            let ep_pt = this.node_to_netpoint(&endpoint_buses[i]);
-            let cid = this.next_conn_id();
-            new_connections.push(this.make_conn_with_provenance(
-                cid,
-                vec![ext_pt, ep_pt],
-                ConnDir::Undirected,
-                None,
-            ));
-        }
-
-        Ok(FuncCallInst::Components {
-            new_components: Vec::new(),
-            new_connections,
-        })
     }
 
     // 3.5 §3.3/§3.4 — materialize func-local sub-instances in pass2

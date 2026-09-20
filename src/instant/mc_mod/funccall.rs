@@ -348,6 +348,29 @@ impl InstantiationBuilder {
             if let Some(fc) = self.try_resolve_instance_method(&name_str, params, left, right)? {
                 return Ok(fc);
             }
+            // ★ U130 ① (ruled 2026-09-20): consult the user-func table BEFORE
+            // the failed-class early return below. A bare func call
+            // (`loadFlash(...)`) is not a class name, so the CMIE lookup
+            // misses, and the early return made the func-table lookup
+            // unreachable for exactly that form — dead-ending the whole
+            // Endpoint-return bridge face with it. Instance methods keep
+            // their precedence (tried above); only names that are neither a
+            // method nor a user func count as failed classes.
+            if let Some(func_def) = self.find_user_func(&name_str) {
+                // Try to infer the caller instance name from the left endpoint
+                // (for 'this' replacement) — same inference as the fall-through
+                // lookup below.
+                let caller_inst_name = left
+                    .first()
+                    .and_then(|elem| elem.name.split('.').next().map(|s| s.to_string()));
+                return self.instantiate_user_func(
+                    func_def,
+                    params,
+                    left,
+                    right,
+                    caller_inst_name.as_deref(),
+                );
+            }
             // ★ P0.5-2: CMIE not found → class not loaded.
             // Record as failed so that resolve_funccall_left/right_points
             // return empty and prevent class-name fragments from entering nets.
