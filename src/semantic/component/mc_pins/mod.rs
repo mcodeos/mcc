@@ -46,6 +46,10 @@ pub enum McPinPort {
     Multi(Vec<String>),           // multiple pinids, e.g. [1,2] after GPIO[1,2] expansion
     MultiGroup(Vec<Vec<String>>), // multi-group multi-pinids
     List(String, Vec<String>),    // List, e.g. PDM[CLK, DATA], stores complete name and members
+    /// U148: `_` in the pin-name slot — the covered pinids register nameless
+    /// ("no name here") and are addressable only by pin id. Never enters
+    /// `names_to_id`, so no name lookup can reach an anonymous pin.
+    Anon,
     Bus(McBus),                   // Bus, e.g. DC{VDD, GND}, members have structural relationship
     Interface(Arc<Mc2Interface>), // interface
 }
@@ -734,9 +738,26 @@ impl McPins {
     /// key order, whose numeric sort would silently reorder lanes for
     /// multi-digit or non-monotonic pin IDs.
     pub fn member_names(&self) -> Vec<String> {
+        self.member_entries().into_iter().map(|(n, _)| n).collect()
+    }
+
+    /// The member sequence as (name, pin id) pairs, parallel to
+    /// [`McPins::member_names`]. An anonymous pin (U148: `_` in the name
+    /// slot) reads as `_(<pinid>)` — the display spelling of rule ③ — and
+    /// still occupies its sequence slot, so positional binding never shifts.
+    pub fn member_entries(&self) -> Vec<(String, String)> {
         self.decl_order
             .iter()
-            .filter_map(|id| self.pins.get(id).and_then(|p| p.names.first().cloned()))
+            .filter_map(|id| {
+                self.pins.get(id).map(|p| {
+                    let name = p
+                        .names
+                        .first()
+                        .cloned()
+                        .unwrap_or_else(|| format!("_({id})"));
+                    (name, id.clone())
+                })
+            })
             .collect()
     }
 
@@ -1267,6 +1288,51 @@ impl McPins {
                         };
                     }
 
+                    McPinPort::Anon => {
+                        // U148: anonymous pins — register each covered pinid with
+                        // NO name (empty `names` slice keeps them out of
+                        // `names_to_id` / `pin_id_to_names` / name spans), so the
+                        // pin is reachable only through its id.
+                        match &pinids {
+                            McPinPort::Single(s) => {
+                                self.register_pin(iotype.clone(), s, &[], &values, opt_span.clone());
+                            }
+                            McPinPort::Multi(pids) => {
+                                for pid in pids {
+                                    self.register_pin(
+                                        iotype.clone(),
+                                        pid,
+                                        &[],
+                                        &values,
+                                        opt_span.clone(),
+                                    );
+                                }
+                            }
+                            McPinPort::MultiGroup(groups) => {
+                                for grp in groups.iter() {
+                                    for pid in grp.iter() {
+                                        self.register_pin(
+                                            iotype.clone(),
+                                            pid,
+                                            &[],
+                                            &values,
+                                            opt_span.clone(),
+                                        );
+                                    }
+                                }
+                            }
+                            _ => {
+                                dlog_trace(
+                                    crate::errcodes::PIN_ID_NAME_MISMATCH,
+                                    &crate::errcodes::format_msg(
+                                        crate::errcodes::PIN_ID_NAME_MISMATCH,
+                                        &[],
+                                    ),
+                                );
+                            }
+                        };
+                    }
+
                     McPinPort::Single(name) => {
                         if let Some((bus_name, member_name)) = name.split_once('.') {
                             // Handle dot-separated pin names like "IN.P" -> create Bus "IN" with
@@ -1699,6 +1765,19 @@ impl McPins {
 
                         let _expanded_inst_names: Vec<String> = declare.name.expand();
 
+                        // Interface's own id → first-member-name table, the
+                        // named-member source for the U148 id-spelling aliases
+                        // (`register_member_id_alias`) in every binding arm below.
+                        let iface_pin_names: std::collections::BTreeMap<String, String> = declare
+                            .base
+                            .pins
+                            .pins
+                            .iter()
+                            .map(|(id, p)| {
+                                (id.clone(), p.names.first().cloned().unwrap_or_default())
+                            })
+                            .collect();
+
                         match &pinids {
                             // n pids vs n interface pins, pinid and interface member count 1:1,
                             // register 1:1
@@ -1736,19 +1815,6 @@ impl McPins {
                                 // fallback misaligns interfaces whose pins are
                                 // declared out of numeric order (USB.MINIB: GND
                                 // would land on physical pin 2 instead of pin 5).
-                                let iface_pin_names: std::collections::BTreeMap<String, String> =
-                                    declare
-                                        .base
-                                        .pins
-                                        .pins
-                                        .iter()
-                                        .map(|(id, p)| {
-                                            (
-                                                id.clone(),
-                                                p.names.first().cloned().unwrap_or_default(),
-                                            )
-                                        })
-                                        .collect();
                                 for (pi, pid) in pids.iter().enumerate() {
                                     if slot[pi].is_some() {
                                         continue;
@@ -1787,6 +1853,18 @@ impl McPins {
                                         &values,
                                         opt_span.clone(),
                                     );
+                                    if let Some(iface_id) = Self::iface_member_pin_id(
+                                        &subname[mi],
+                                        &declare.base.pins,
+                                        &iface_pin_names,
+                                    ) {
+                                        Self::register_member_id_alias(
+                                            &mut self.names_to_id,
+                                            &subname[mi],
+                                            &iface_id,
+                                            pid,
+                                        );
+                                    }
                                 }
 
                                 // check if need to merge same-type single-pin interfaces
@@ -1906,6 +1984,18 @@ impl McPins {
                                                 &values,
                                                 opt_span.clone(),
                                             );
+                                            if let Some(iface_id) = Self::iface_member_pin_id(
+                                                &name,
+                                                &declare.base.pins,
+                                                &iface_pin_names,
+                                            ) {
+                                                Self::register_member_id_alias(
+                                                    &mut self.names_to_id,
+                                                    &name,
+                                                    &iface_id,
+                                                    &pid,
+                                                );
+                                            }
                                         }
                                     }
                                     let iface_name = if declare.name.is_bus() {
@@ -1938,6 +2028,20 @@ impl McPins {
                                     &values,
                                     opt_span.clone(),
                                 );
+                                // U148 ②: collapsed member by id — `u1.GPIO3.1`
+                                // resolves to the same pin as `u1.GPIO3`.
+                                if let Some(iface_id) = Self::iface_member_pin_id(
+                                    &name,
+                                    &declare.base.pins,
+                                    &iface_pin_names,
+                                ) {
+                                    Self::register_member_id_alias(
+                                        &mut self.names_to_id,
+                                        &name,
+                                        &iface_id,
+                                        &pid,
+                                    );
+                                }
                                 // Keep the port resolvable under its own name:
                                 // `iface_endpoint_of_point` reads this entry to
                                 // resolve a single-pin-id adoption (`a.IFX`) to
@@ -2675,6 +2779,70 @@ impl McPins {
         }
     }
 
+    /// Every member text that can address a pin of this component (U148):
+    /// registered names (`names_to_id` keys) plus every pin id (`pins` keys —
+    /// sub-addressing is name-or-id dual). Sorted, deduped. This is the hint
+    /// list behind E3179, so anonymous pins (which register no name) still
+    /// show up by their id.
+    pub fn addressable_members(&self) -> Vec<String> {
+        let mut all: Vec<String> = self.names_to_id.keys().cloned().collect();
+        all.extend(self.pins.keys().cloned());
+        all.sort();
+        all.dedup();
+        all
+    }
+
+    /// U148 ②: sub-address dual recognition — beside the member-name spelling
+    /// (`u1.B0.CLK`) an interface member is also reachable by its interface
+    /// pin id (`u1.B0.1`); for a collapsed single-pin member this turns
+    /// `u1.GPIO3.1` from a dead path into the same pin as `u1.GPIO3`. The
+    /// alias lives only in `names_to_id`, never in [`McPin::names`], so
+    /// readouts stay name-shaped; an existing entry wins (a real name is
+    /// never shadowed by a synthesized id spelling).
+    ///
+    /// `iface_id` is the bound member's interface pin id (caller-resolved:
+    /// the interface's only pin, the anonymous `_(<id>)` spelling, or the
+    /// interface's id → member-name table). Dotted spelling (`B0.CLK`)
+    /// replaces the member segment with the id; prefix-only spelling
+    /// (replicated `GPIO7`, no member segment) appends it.
+    fn register_member_id_alias(
+        names_to_id: &mut BTreeMap<String, McPinPort>,
+        member_name: &str,
+        iface_id: &str,
+        pid: &String,
+    ) {
+        let alias = match member_name.rfind('.') {
+            Some(dot) => format!("{}.{}", &member_name[..dot], iface_id),
+            None => format!("{member_name}.{iface_id}"),
+        };
+        names_to_id
+            .entry(alias)
+            .or_insert_with(|| McPinPort::Single(pid.clone()));
+    }
+
+    /// The interface pin id a bound member answers to, for
+    /// [`McPins::register_member_id_alias`]: a single-member interface pins
+    /// every binding to its only id; an anonymous member carries its id in
+    /// the `_(<id>)` spelling (U148 ③); otherwise the interface's own
+    /// id → first-member-name table decides.
+    fn iface_member_pin_id(
+        member_name: &str,
+        iface: &McPins,
+        iface_pin_names: &std::collections::BTreeMap<String, String>,
+    ) -> Option<String> {
+        if iface.pins.len() == 1 {
+            return iface.pins.keys().next().cloned();
+        }
+        let last = member_name.rsplit('.').next().unwrap_or(member_name);
+        if last.len() > 3 && last.starts_with("_(") && last.ends_with(')') {
+            return Some(last[2..last.len() - 1].to_string());
+        }
+        iface_pin_names
+            .iter()
+            .find(|(_, n)| n.as_str() == last)
+            .map(|(id, _)| id.clone())
+    }
+
     /// The pin a reference addresses, by pin id or by declared name (U42).
     ///
     /// `None` for a group name (bus / list / interface) and for a name several
@@ -3313,6 +3481,13 @@ impl McPinNames {
                                 }
                                 cur = child.get_next();
                             }
+                        }
+                        MCAST_OPD_USCORE => {
+                            // U148: `_` in the pin-name slot — anonymous pin
+                            // ("no name here"). No count limit: every pinid the row's
+                            // id side carries registers with NO name, so
+                            // sub-addressing only ever sees the pin id.
+                            myself.push_option(McPinPort::Anon, err_node);
                         }
                         _ => {
                             dlog_error(

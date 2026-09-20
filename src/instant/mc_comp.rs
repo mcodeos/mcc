@@ -1099,6 +1099,7 @@ impl McComponentInst {
                             McPinPort::List(_, _) => "List",
                             McPinPort::MultiGroup(_) => "MultiGroup",
                             McPinPort::NC => "NC",
+                            McPinPort::Anon => "Anon",
                         };
                         entries.push(format!("{key}:{type_str}"));
                     }

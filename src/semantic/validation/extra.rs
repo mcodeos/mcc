@@ -280,7 +280,13 @@ fn check_interface_structure(acc: &mut CheckAccumulator) {
         if super::is_test_file(&uri) {
             continue;
         }
-        if iface.pins.names_to_id.is_empty() && iface.roles.is_empty() {
+        // U148: a fully anonymous interface registers its pins in the pin
+        // table but never in `names_to_id` — "has pins" must read the pin
+        // table, not the name table.
+        if iface.pins.names_to_id.is_empty()
+            && iface.pins.pins.is_empty()
+            && iface.roles.is_empty()
+        {
             acc.push(CheckResult {
                 check_name: "extra",
                 severity: CheckSeverity::Warning,
