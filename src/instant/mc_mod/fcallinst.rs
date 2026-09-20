@@ -1640,6 +1640,21 @@ impl InstantiationBuilder {
                     .find(|p| p.name == *formal)
                     .map(|p| p.name.clone())
                     .unwrap_or_else(|| formal.clone());
+                // ── U153: an anonymous declared member set is positional ──
+                // A port declared `io SPI::SPI()` takes its members from the
+                // interface's role-less conductor table (`_(<pinid>)`
+                // spellings, U148 ③). By canon (conductor-view-design.md
+                // R-CV1: ordinal k is the wire) that set is positional, so
+                // grafting the paired peer's member NAMES onto the same bus
+                // name creates a second, name-valued alias space the port
+                // cannot answer: every `SPI.<peer-name>` element then fails
+                // the declared-set check (E3181 ×2N) and the fold sees two
+                // unequal member spaces (E4005). The port's own anonymous
+                // lanes are the identity — skip the registration; the fold
+                // zips lane k to lane k.
+                if b.port_declares_anonymous_members(&resolved_port) {
+                    continue;
+                }
                 // The members come from the port this formal is paired with in the
                 // body — a component bus port or a sub-module port, one rule for
                 // both (CIMP §1 U107 ③). Member names, never pin numbers, or
@@ -2141,6 +2156,26 @@ impl InstantiationBuilder {
             }
         };
         for (iface_name, member_names) in &buses_to_register {
+            // ── U153: a declared module port owns its bare name ──
+            // The bare-name slot below is this module's scope: when the module
+            // itself declares a port of the same name **with its own member
+            // set**, that set is the bare name's identity. Merging the
+            // component's member names onto it unions two alias spaces for one
+            // name — measured on the anonymous-port probe: the port's
+            // positional lanes `_(1).._(4)` (U148 ③) merged with the
+            // component's `CSN..MOSI` into one 8-lane bus, and every fold
+            // expansion of the port then walks 8 members (4 of them failing
+            // the declared-set check, E3181 ×N). The component's port stays
+            // reachable under its prefixed name — registered right below —
+            // which is also the form the component method's own body reads
+            // (P2-7-XTAL: bare refs are prefixed before resolution).
+            let module_port_claims_name = self
+                .ports
+                .iter()
+                .any(|p| p.name == *iface_name && !p.bus_members.is_empty());
+            if module_port_claims_name {
+                continue;
+            }
             let _ = self.ensure_bus(iface_name, member_names);
             // ── P2-7-XTAL: also register prefixed bus name ──
             // When the function body references a component interface (e.g. XTAL),
