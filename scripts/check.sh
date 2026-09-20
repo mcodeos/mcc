@@ -84,4 +84,7 @@ python3 scripts/check-attr-keys.py
 echo "===== 14. errcode scan (spec-cited codes are declared and emitted) ====="
 python3 scripts/check-errcodes.py
 
+echo "===== 15. test-code-coverage ratchet (declared codes stay cited by tests) ====="
+python3 scripts/check-test-code-coverage.py
+
 echo "all checks passed"
