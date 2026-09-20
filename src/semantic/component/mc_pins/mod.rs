@@ -1693,49 +1693,24 @@ impl McPins {
                                 if subname.is_empty() || subname.len() < pids.len() {
                                     continue;
                                 }
-                                // ★ P-ROT (Root cause B): bind interface members to pins by NAME
-                                // first.
-                                // A pin already registered with a member-matching name (flash pin6
-                                // =
-                                // "SCLK" ↔ SPI.SCLK, pin1 = "_CS" ↔ SPI.CS) wins over the
-                                // interface's
-                                // canonical order; unmatched pins fall back to the canonical order.
-                                // Pure positional binding would rotate the data/clock lanes against
-                                // the
-                                // device's own pinout: `[1,2,5,6] = SPI("Slave")` → pin2=SCLK,
-                                // pin5=MISO,
-                                // pin6=MOSI, while the device declares pin2=SO (MISO), pin5=SI
-                                // (MOSI),
-                                // pin6=SCLK. Name matching keeps SCLK on pin6 and only the unnamed
-                                // data
-                                // lanes fall back positionally → the golden flash.2=MISO / 5=MOSI /
-                                // 6=SCLK.
+                                // ★ D6 (ruled 2026-09-20): binding is positional.
+                                // The retired name-first branch (interface member
+                                // leaf vs the device's own registered pin names,
+                                // case/type/`_`/`!`-normalized) was the A1-violating
+                                // leaf-name heuristic — identity-design.md §8.2 R10.
+                                // What governs now:
+                                //   1. interface pin-number alignment — a member
+                                //      declared at interface pin k binds the physical
+                                //      pin k (the "interface's own definition", D6
+                                //      form 1);
+                                //   2. positional fallback — written pid order vs the
+                                //      member declaration order.
+                                // A board whose written pid order encodes the device
+                                // pinout instead of the member order now binds by the
+                                // law and the misalignment surfaces in the readouts
+                                // (same exposure principle as the hbl loadFlash
+                                // E4052 case, user-confirmed).
                                 let mut slot: Vec<Option<usize>> = vec![None; pids.len()];
-                                for (mi, member) in subname.iter().enumerate() {
-                                    let member_leaf = member.rsplit('.').next().unwrap_or(member);
-                                    let member_up = member_leaf.to_uppercase();
-                                    for (pi, pid) in pids.iter().enumerate() {
-                                        if slot[pi].is_some() {
-                                            continue;
-                                        }
-                                        let matches = self
-                                            .pin_id_to_names
-                                            .get(pid.as_str())
-                                            .map_or(false, |names| {
-                                                names.iter().any(|n| {
-                                                    let n2 = n
-                                                        .trim_start_matches('_')
-                                                        .trim_start_matches('!')
-                                                        .to_uppercase();
-                                                    n2 == member_up
-                                                })
-                                            });
-                                        if matches {
-                                            slot[pi] = Some(mi);
-                                            break;
-                                        }
-                                    }
-                                }
                                 // Pin-number alignment: when an interface member is
                                 // declared on an interface pin id that equals a
                                 // physical pin id (e.g. GND on pin 5 in
