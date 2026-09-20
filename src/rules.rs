@@ -1914,7 +1914,7 @@ mod tests {
     /// first-emission source order. This is the lock that keeps
     /// `POSTPARSE_RULES` byte-identical to the `validation/*` emission set;
     /// the object hosts stay the executor, so this anchors the catalog copy.
-    const POSTPARSE_ORDER: [u32; 95] = [
+    const POSTPARSE_ORDER: [u32; 96] = [
         // duplicate
         crate::errcodes::DUP_CMIE_CROSS_FILE,
         // dupwithin
@@ -2432,7 +2432,7 @@ mod tests {
         // The 63 PostParse codes that once shared the validation-module doc
         // placeholder now carry concrete tests/lock_pp_*.rs anchors, so the
         // doc partition is empty and every one of them counts as strong.
-        assert_eq!((strong, doc, note), (162, 0, 3));
+        assert_eq!((strong, doc, note), (163, 0, 3));
         assert_eq!(strong + doc + note, rule_count());
     }
 
