@@ -1427,6 +1427,69 @@ impl McParamBindings {
             }
         }
 
+        // Call-arg lexical-family validation (ident-vs-literal-semantics §5,
+        // CIMP U144). Round 3's positional fallback binds any leftover value
+        // family into any unclaimed slot, and the enum member check above only
+        // inspects plain-Ids values — so a quoted string or a bare number used
+        // to silently degrade into a typed formal. The U143 probe matrix
+        // (log/9.20.u143-ref-position-literal-audit.md P2–P4) measured all
+        // three at 0 diagnostics: `CAP(.., "X5R", ..)` and `CAP(.., 7, ..)`
+        // into an enum formal, `CAP("100nF", ..)` into a unit-value formal,
+        // `WTB.BASIC("3")` into an ::INT formal. The gate mirrors the declare
+        // face (E5202 / E5204): a quoted string into an enum / INT / HEX /
+        // unit-typed formal and a bare number into an enum formal are hard
+        // errors. A bare number into an INT/HEX formal is the correct spelling
+        // and is not judged; a bare number into a unit-typed formal (the
+        // declare face's E5204 Warning family) has no warning channel here and
+        // stays unjudged; bare identifiers stay unjudged everywhere (a bare
+        // word as data may be legal for a STRING formal; ruling pending,
+        // U144).
+        for binding in &final_bindings {
+            if binding.is_default {
+                continue;
+            }
+            let (got_family, quoted): (&str, bool) = match binding.value.as_ref() {
+                Some(McParamValue::String(_)) => ("a quoted string", true),
+                Some(McParamValue::Int(_) | McParamValue::Hex(_) | McParamValue::Float(_)) => {
+                    ("a bare number", false)
+                }
+                _ => continue,
+            };
+            let expected: Option<String> = match &binding.declare.param_type.kind {
+                crate::semantic::basic::mc_param_type::McParamTypeKind::EnumClass { class_name }
+                | crate::semantic::basic::mc_param_type::McParamTypeKind::EnumClassDefault {
+                    class_name,
+                    ..
+                } => Some(format!("an unquoted member of enum {class_name}")),
+                crate::semantic::basic::mc_param_type::McParamTypeKind::BasicInt { .. }
+                | crate::semantic::basic::mc_param_type::McParamTypeKind::BasicHex { .. }
+                    if quoted =>
+                {
+                    Some("an integer literal".to_string())
+                }
+                crate::semantic::basic::mc_param_type::McParamTypeKind::UnitValue { .. }
+                | crate::semantic::basic::mc_param_type::McParamTypeKind::UnitValueDefault {
+                    ..
+                }
+                | crate::semantic::basic::mc_param_type::McParamTypeKind::CompoundUnit { .. }
+                    if quoted =>
+                {
+                    Some("a value with a unit suffix (e.g. 5V)".to_string())
+                }
+                _ => None,
+            };
+            if let Some(expected) = expected {
+                return Err(ParamBindError::TypeMismatch {
+                    param_name: binding.declare.get_primary_name().unwrap_or_default(),
+                    expected,
+                    got: format!(
+                        "{got_family} `{}`",
+                        binding.value.as_ref().expect("matched above")
+                    ),
+                });
+            }
+        }
+
         Ok(Self {
             bindings: final_bindings,
             key_overrides,
