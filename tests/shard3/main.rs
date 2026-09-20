@@ -25,6 +25,7 @@ mod project_svg_symbols;
 mod rail_rules;
 mod system_lib_reload;
 mod u12_value_pairing;
+mod u130_func_dispatch_engine;
 mod u66_literal_default;
 mod vec_p29_idempotence;
 mod vec_parallel_pairing;
