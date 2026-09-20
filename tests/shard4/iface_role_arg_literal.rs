@@ -276,3 +276,103 @@ fn lock_pp_interface__pins_row_role_less_value_arg_clean() {
         );
     }
 }
+
+// Module-body instance face (U144 fourth slice): a body row `io T0::TAG(arg)`
+// lands as an McInstance::Interface in McModule.insts — it reaches neither
+// classify_declare nor a pins block, so the earlier slices could not see it.
+// Same judging rule as the pins face.
+
+// Quoted role arg on a module-body instance: E4185 fires.
+#[test]
+fn lock_pp_interface__module_inst_role_arg_quoted_4185_fires() {
+    let source = format!(
+        "{IFACE}\nmodule main\n{{\n    io T0::TAG(\"Master\")\n}}\n"
+    );
+    let result = parse(&source);
+    let hits = codes_with(&result, 4185);
+    assert!(
+        hits.len() == 1,
+        "expected exactly one E4185; diagnostics: {}",
+        result["result"]["pass0"]["diagnostics"]
+    );
+    assert!(
+        hits[0].contains("T0") && hits[0].contains("TAG") && hits[0].contains("Master"),
+        "E4185 must name the instance, the interface and the literal: {}",
+        hits[0]
+    );
+}
+
+// Numeric role arg is the same literal family.
+#[test]
+fn lock_pp_interface__module_inst_role_arg_number_4185_fires() {
+    let source = format!("{IFACE}\nmodule main\n{{\n    io T0::TAG(123)\n}}\n");
+    let result = parse(&source);
+    let hits = codes_with(&result, 4185);
+    assert!(
+        hits.len() == 1,
+        "expected exactly one E4185; diagnostics: {}",
+        result["result"]["pass0"]["diagnostics"]
+    );
+}
+
+// A bare name matching no role is E4104's miss — the module-body face never
+// checked it before this gate.
+#[test]
+fn lock_pp_interface__module_inst_misspelled_role_4104_fires() {
+    let source = format!("{IFACE}\nmodule main\n{{\n    io T0::TAG(Mastr)\n}}\n");
+    let result = parse(&source);
+    let hits = codes_with(&result, 4104);
+    assert!(
+        hits.len() == 1,
+        "expected exactly one E4104; diagnostics: {}",
+        result["result"]["pass0"]["diagnostics"]
+    );
+    assert!(
+        hits[0].contains("Mastr") && hits[0].contains("TAG"),
+        "E4104 must name the misspelled role and the interface: {}",
+        hits[0]
+    );
+}
+
+// The bare spelling with a valid role is the fixed form: clean on both codes.
+#[test]
+fn lock_pp_interface__module_inst_bare_valid_role_clean() {
+    let source = format!("{IFACE}\nmodule main\n{{\n    io T0::TAG(Master)\n}}\n");
+    let result = parse(&source);
+    for code in [4185, 4104] {
+        assert!(
+            codes_with(&result, code).is_empty(),
+            "E{code} must not fire on a valid bare role; diagnostics: {}",
+            result["result"]["pass0"]["diagnostics"]
+        );
+    }
+}
+
+// An empty argument list stays unjudged (E4104/E4184 territory).
+#[test]
+fn lock_pp_interface__module_inst_empty_args_clean() {
+    let source = format!("{IFACE}\nmodule main\n{{\n    io T0::TAG()\n}}\n");
+    let result = parse(&source);
+    for code in [4185, 4104] {
+        assert!(
+            codes_with(&result, code).is_empty(),
+            "E{code} must not fire on an empty argument list; diagnostics: {}",
+            result["result"]["pass0"]["diagnostics"]
+        );
+    }
+}
+
+// Bracket members are port labels, not constructor args — the anon-bus form
+// `[VDD,GND]::DC(3.3V)` must sail past (insts.rs precedent).
+#[test]
+fn lock_pp_interface__module_inst_anon_bracket_clean() {
+    let source = "interface VDC()\n{\n    pins = [\n        1 = P, \"pin\"\n    ]\n}\n\nmodule main\n{\n    io [VDD,GND]::DC(3.3V)\n}\n";
+    let result = parse(source);
+    for code in [4185, 4104] {
+        assert!(
+            codes_with(&result, code).is_empty(),
+            "E{code} must not fire on a bracket-member bind; diagnostics: {}",
+            result["result"]["pass0"]["diagnostics"]
+        );
+    }
+}
