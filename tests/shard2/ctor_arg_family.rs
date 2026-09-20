@@ -143,3 +143,24 @@ fn ctor_arg_family__string_into_string_formal_stays_clean() {
 fn ctor_arg_family__bare_word_into_string_formal_4176_fires() {
     assert_fires(r#"CS(LEFT)"#);
 }
+
+// The two-readings seam (U144 residual ⑥): the member check judges the
+// member segment of a dotted spelling (`CAP.X5R` judges `X5R`); the class
+// half was matched by the claiming round. The corpus-canonical dotted
+// spelling stays legal; a misspelled member and a wrong-class dotted value
+// both refuse.
+
+#[test]
+fn ctor_arg_family__dotted_member_stays_clean() {
+    assert_no_4176(r#"CD(100nF, E_DIEL.X5R, 3)"#);
+}
+
+#[test]
+fn ctor_arg_family__misspelled_dotted_member_4176_fires() {
+    assert_fires(r#"CD(100nF, E_DIEL.Y9R, 3)"#);
+}
+
+#[test]
+fn ctor_arg_family__wrong_class_dotted_member_4176_fires() {
+    assert_fires(r#"CD(100nF, CAP.X5R, 3)"#);
+}

@@ -1398,20 +1398,32 @@ impl McParamBindings {
 
         // Enum value validation
         // Verify that enum-class parameter values are valid enum members.
-        // Only plain-Ids values are checked: dotted / Opd-wrapped values in a
-        // chain expression may legitimately be positional fallback arguments
-        // (e.g. a package value `PKG.R0402`) and are not member-checked here.
+        // Dotted spellings validate their member segment (`CAP.X5R` →
+        // `X5R`): the class half was already matched by the claiming round,
+        // and comparing the full dotted string against bare member names
+        // used to refuse the canonical spelling (U144 residual ⑥, the
+        // two-readings seam). Plain and Opd-wrapped Ids are checked alike —
+        // an Opd value on an enum-typed slot is an enum claim, not a chain
+        // expression, and skipping it let misspelled members through
+        // silently.
         for binding in &final_bindings {
             if let McParamDeclareKind::EnumClass(ec) = &binding.declare.kind {
-                let ids_primary: Option<String> = match &binding.value {
-                    Some(McParamValue::Ids(ids)) => ids.get_primary_name(),
+                let member_name: Option<String> = match &binding.value {
+                    Some(McParamValue::Ids(ids)) | Some(McParamValue::Opd(McOpd::Id(ids))) => {
+                        match ids.dot_chain_parts() {
+                            Some(parts) if parts.len() > 1 => {
+                                parts.last().cloned()
+                            }
+                            _ => ids.get_primary_name().map(|s| s.to_string()),
+                        }
+                    }
                     _ => None,
                 };
-                let val_name: Option<&str> = match &binding.value {
-                    Some(McParamValue::Ids(_)) => ids_primary.as_deref(),
-                    Some(_) => None,
-                    None if binding.is_default => ec.default_val.as_deref(),
-                    None => None,
+                let val_name: Option<&str> = match (&binding.value, member_name.as_deref()) {
+                    (_, Some(vn)) => Some(vn),
+                    (Some(_), None) => None,
+                    (None, _) if binding.is_default => ec.default_val.as_deref(),
+                    (None, _) => None,
                 };
                 if let Some(vn) = val_name {
                     if !ec.is_valid_value(vn) {
