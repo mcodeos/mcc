@@ -126,3 +126,127 @@ fn mat_ifacebind__device_pin_names_do_not_win__interface_pin_number_governs() {
         "SCLK member must NOT be attracted by the device's own pin-6 name, got endpoints: {paths:#?}"
     );
 }
+
+// D6 follow-up lock (found during the b3601 A/B attribution): for an
+// interface whose pins live ONLY in role blocks (no base-level `pins =`
+// table), neither the pin-number alignment nor the retired name-first
+// machinery applies — the attach binds purely positionally (written pid
+// order x role member declaration order). Every live-board attach (hbl
+// SPI) takes this path, yet no lock covered it. Device pins here are
+// deliberately NAMED exactly like role members on scrambled pids: the
+// names must not attract members.
+const ROLE_PIN_TABLE_SOURCE: &str = r#"
+interface SPX(role)
+{
+    role Master { name = "Master"
+        pins = [
+            1 = CS
+            2 = SCLK
+            3 = COPI
+            4 = CIPO
+        ]
+        peer = Slave
+    }
+    role Slave { name = "Slave"
+        pins = [
+            1 = CS
+            2 = SCLK
+            3 = SO
+            4 = SI
+        ]
+        peer = Master
+    }
+}
+
+component DEV
+{
+    pins = [
+        1 = SCLK
+        2 = SI
+        5 = SO
+        6 = CS
+        [1, 2, 5, 6] = SPX::SPX(Slave)
+    ]
+}
+
+module main(psnk GND)
+{
+    DEV d
+    d.SPX.SCLK -> GND
+}
+"#;
+
+// Same role-pin-table interface, attach written in scrambled pid order:
+// member k takes the k-th WRITTEN pid, so declaration order of the pid
+// list — not its numeric order — is what pairs.
+const ROLE_PIN_TABLE_SCRAMBLED_SOURCE: &str = r#"
+interface SPX(role)
+{
+    role Master { name = "Master"
+        pins = [
+            1 = CS
+            2 = SCLK
+            3 = COPI
+            4 = CIPO
+        ]
+        peer = Slave
+    }
+    role Slave { name = "Slave"
+        pins = [
+            1 = CS
+            2 = SCLK
+            3 = SO
+            4 = SI
+        ]
+        peer = Master
+    }
+}
+
+component DEV
+{
+    pins = [
+        1 = SCLK
+        2 = SI
+        5 = SO
+        6 = CS
+        [6, 5, 2, 1] = SPX::SPX(Slave)
+    ]
+}
+
+module main(psnk GND)
+{
+    DEV d
+    d.SPX.SCLK -> GND
+}
+"#;
+
+#[test]
+fn mat_ifacebind__role_pin_tables_bind_purely_positionally() {
+    // Slave members in declaration order [CS, SCLK, SO, SI] x pids
+    // [1, 2, 5, 6] => SCLK (member 2) lands on physical pin 2 — even
+    // though the device names pin 1 "SCLK" and pin 6 "CS".
+    let paths = net_endpoint_paths(ROLE_PIN_TABLE_SOURCE);
+    assert!(
+        paths.iter().any(|p| p.ends_with("d.2")),
+        "SCLK must bind positionally to the 2nd written pid, got endpoints: {paths:#?}"
+    );
+    assert!(
+        !paths.iter().any(|p| p.ends_with("d.1")),
+        "SCLK must NOT be attracted by the device's own pin-1 name, got endpoints: {paths:#?}"
+    );
+}
+
+#[test]
+fn mat_ifacebind__role_pin_tables_scrambled_pid_order_pairs_by_writing_order() {
+    // pids written [6, 5, 2, 1] => CS=6, SCLK=5, SO=2, SI=1: the written
+    // order pairs, not the numeric order.
+    let paths = net_endpoint_paths(ROLE_PIN_TABLE_SCRAMBLED_SOURCE);
+    assert!(
+        paths.iter().any(|p| p.ends_with("d.5")),
+        "SCLK must bind to the 2nd written pid (5), got endpoints: {paths:#?}"
+    );
+    assert!(
+        !paths.iter().any(|p| p.ends_with("d.1")),
+        "SCLK must NOT fall to the numerically-first pid (1), got endpoints: {paths:#?}"
+    );
+}
