@@ -11,7 +11,7 @@ component MCU.US513_20_F
 
     pins = [
         io [1,2] =  I2C0::I2C(Master)
-                    | GPIO[3, 4]::GPIO(2, Controller)
+                    | GPIO[3, 4]::GPIO(Controller)
 
         in [3,4] =  XTAL::XTAL(32kHz)
 
@@ -19,19 +19,19 @@ component MCU.US513_20_F
 
         io [6,7] =  UART0::UART.TTL(DCE)
                     | I2C1::I2C(Master)
-                    | GPIO[5, 6]::GPIO(2, Controller)
+                    | GPIO[5, 6]::GPIO(Controller)
 
         io [8,9] =  PDM[CLK, DATA] 
                     | PBus{CLK, DATA} 
-                    | GPIO[7, 8]::GPIO(2, Controller)
+                    | GPIO[7, 8]::GPIO(Controller)
         
-        io [10,11] = I2C1::I2C(Master) | GPIO[9, 10]::GPIO(2, Controller),
+        io [10,11] = I2C1::I2C(Master) | GPIO[9, 10]::GPIO(Controller),
                     ["I2C", "GPIO"], volt:1.2V, amp:100mA
 
         io [8:11] = SPI{SCLK, MOSI, CSN, MISO}::SPI(Master)
 
         io [12,13] = UART1::UART.TTL(DCE)
-                    | GPIO[5, 6]::GPIO(2, Controller)
+                    | GPIO[5, 6]::GPIO(Controller)
 
         psnk [14,21] = [VDD_CORE,GND]::DC(1.2V)
 
@@ -40,7 +40,7 @@ component MCU.US513_20_F
         io [16, 17] = ADC::ADC.DIFF(Receiver)
 
         io [18,19] = JTAG::DBG.JTAG.2WIRE(TAP)
-                    | GPIO[0,1]::GPIO(2, Controller)
+                    | GPIO[0,1]::GPIO(Controller)
 
         io 20 = GPIO[2] | EXT_CLK_IN
     ]
