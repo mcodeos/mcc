@@ -205,7 +205,8 @@ fn u131_bracket_formal_member_is_not_an_argument_name() {
     // argument supplies the one whole-formal value, and a Multiple formal
     // has no whole-formal name. One honest E4176 — not the E4180 +
     // phantom-pin 3179 cascade a scalar bound to the whole vector produced.
-    let named = format!("{RES_CLASS}\nmodule main {{\n    RES(1k) r1\n    r1.Pullup(n2: N2, n1: N1)\n}}\n");
+    let named =
+        format!("{RES_CLASS}\nmodule main {{\n    RES(1k) r1\n    r1.Pullup(n2: N2, n1: N1)\n}}\n");
     let errs = bind_errors(&named);
     assert_eq!(errs.len(), 1, "{errs:?}");
     assert!(errs[0].contains("Vector formal member"), "{errs:?}");
@@ -232,7 +233,8 @@ fn u131_single_formal_named_set_is_one_bracket_argument() {
     // diagnostic multiset and the net partition (the toy body's 4007 shape
     // mismatch is shared by both twins, so it is evidence of equality, not
     // noise to hide).
-    let named = format!("{SINGLE_CLASS}\nmodule main {{\n    S s1\n    s1.pull(net: [N1, N2])\n}}\n");
+    let named =
+        format!("{SINGLE_CLASS}\nmodule main {{\n    S s1\n    s1.pull(net: [N1, N2])\n}}\n");
     let pos = format!("{SINGLE_CLASS}\nmodule main {{\n    S s1\n    s1.pull([N1, N2])\n}}\n");
     assert_eq!(diags(&named), diags(&pos));
     assert_eq!(nets(&named), nets(&pos));
@@ -252,5 +254,8 @@ fn u131_receiver_this_is_not_nameable() {
     let src = board("c1.link(this: N1, N2)");
     let errs = bind_errors(&src);
     assert_eq!(errs.len(), 1, "{errs:?}");
-    assert!(errs[0].contains("Missing required parameter: b"), "{errs:?}");
+    assert!(
+        errs[0].contains("Missing required parameter: b"),
+        "{errs:?}"
+    );
 }
