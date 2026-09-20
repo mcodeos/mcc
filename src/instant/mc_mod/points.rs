@@ -21,6 +21,7 @@ use crate::semantic::basic::mc_phrase::McPhrase;
 use crate::semantic::basic::opd_shape::OpdShape;
 use crate::semantic::common::IOType;
 use crate::semantic::mc_inst::McInstance;
+use crate::semantic::validation::ledger::{self, LedgerAction, LedgerEntry, LedgerKind};
 
 // Iter-1.1: member string IDA expansion
 //
@@ -250,6 +251,7 @@ impl InstantiationBuilder {
                         if let Some(lanes) = self.expand_port_lanes(&path) {
                             points.extend(lanes);
                         } else if is_owned {
+                            self.note_internal_member_ref(&path);
                             points.push(
                                 NetPoint::with_owner(
                                     &path,
@@ -603,6 +605,7 @@ impl InstantiationBuilder {
                         if let Some(lanes) = self.expand_port_lanes(&path) {
                             points.extend(lanes);
                         } else if is_owned {
+                            self.note_internal_member_ref(&path);
                             points.push(
                                 NetPoint::with_owner(&path, &bus.name, IOType::None, site.clone())
                                     .with_member_name(m),
@@ -766,6 +769,7 @@ impl InstantiationBuilder {
                             if let Some(lanes) = self.expand_port_lanes(&path) {
                                 points.extend(lanes);
                             } else if is_owned {
+                                self.note_internal_member_ref(&path);
                                 points.push(
                                     NetPoint::with_owner(
                                         &path,
@@ -971,6 +975,7 @@ impl InstantiationBuilder {
                         if let Some(lanes) = self.expand_port_lanes(&path) {
                             points.extend(lanes);
                         } else if is_owned {
+                            self.note_internal_member_ref(&path);
                             points.push(
                                 NetPoint::with_owner(
                                     &path,
@@ -1238,6 +1243,7 @@ impl InstantiationBuilder {
                         if let Some(lanes) = self.expand_port_lanes(&path) {
                             points.extend(lanes);
                         } else if is_owned {
+                            self.note_internal_member_ref(&path);
                             points.push(
                                 NetPoint::with_owner(&path, &bus.name, IOType::None, site.clone())
                                     .with_member_name(m),
@@ -1691,6 +1697,11 @@ impl InstantiationBuilder {
             }
             // 2.2 submodule port access
             if self.find_submodule(first_part).is_some() {
+                // U151: if the member names a module-internal declaration (no
+                // direction word), reaching it through an instance path from
+                // the parent body is E3184 — report-only, the mint itself is
+                // unchanged (label-boundary-gate-design.md).
+                self.note_internal_member_ref(&element.name);
                 let path = canonicalize_path(&element.name);
                 return NetPoint::with_owner(&path, first_part, IOType::None, site.clone());
             }
@@ -2238,6 +2249,56 @@ impl InstantiationBuilder {
     ///
     /// `None` when `owner` is not a declared component/submodule of this module,
     /// so callers keep their own fallbacks for ports / labels / plain buses.
+    /// U151: report an `owner.member` reference that names a module-internal
+    /// declaration. A direction word is the only boundary ticket, so a member
+    /// that exists in the submodule's definition store without one (`label`
+    /// rows, direction-less buses, `nc`/return faces) cannot be reached
+    /// through an instance path from the parent body — E3184, report-only
+    /// (label-boundary-gate-design.md). No-op for component owners and for
+    /// names that are not module members at all (those stay on the E3175
+    /// face).
+    fn note_internal_member_ref(&mut self, path: &str) {
+        let Some((owner, member)) = path.split_once('.') else {
+            return;
+        };
+        let Some(sub) = self.find_submodule(owner) else {
+            return;
+        };
+        if !Self::is_internal_member(&sub, member) {
+            return;
+        }
+        let (uri, pos) = match (&self.current_func_span, &self.current_stmt_span) {
+            (Some(sp), _) => (sp.uri.clone(), sp.offset),
+            (None, Some(s)) => (s.uri.clone(), s.offset),
+            (None, None) => (self.def_uri.clone(), 0),
+        };
+        // One violation at one anchor is one diagnostic: the same access
+        // reaches this site once per mint face (left/right extraction), and
+        // the validation face skips anchors already reported here.
+        if !self.internal_member_reported.insert(format!("{uri}:{pos}")) {
+            return;
+        }
+        crate::db::diagnostic::diagnostic::diagnostic_log_at(
+            crate::errcodes::LABEL_NOT_EXPORTABLE,
+            crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
+            uri.clone(),
+            pos,
+            path.len() as u32,
+            &crate::errcodes::format_msg(crate::errcodes::LABEL_NOT_EXPORTABLE, &[&member, &owner]),
+            &[],
+        );
+        ledger::record(
+            LedgerEntry::new(
+                LedgerKind::UnresolvedRef,
+                path.to_string(),
+                "points.rs:submodule member is module-internal",
+            )
+            .with_action(LedgerAction::Error)
+            .with_uri(uri)
+            .with_span(pos, path.len() as u32),
+        );
+    }
+
     pub(super) fn resolve_child_points(
         &mut self,
         owner: &str,
@@ -2269,7 +2330,14 @@ impl InstantiationBuilder {
             let declared = sub.ports.iter().find(|p| {
                 let pbase = super::phases::port_base_name(&p.name);
                 !pbase.is_empty() && pbase == base
-            })?;
+            });
+            let Some(declared) = declared else {
+                // U151: the member names a real declaration inside `sub` but
+                // carries no direction word — report E3184; the caller's
+                // no-point → E4007 face is unchanged.
+                self.note_internal_member_ref(&path);
+                return None;
+            };
             let pbase = super::phases::port_base_name(&declared.name);
             let canonical = format!("{owner}.{pbase}{rest}");
             return Some(vec![NetPoint::with_owner(

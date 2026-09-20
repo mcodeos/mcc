@@ -324,13 +324,48 @@ fn validate_module_port_ref(
     let valid_port_names: Vec<&String> = port_names.iter().collect();
     let mut valid_members: Vec<String> = Vec::new();
     let mut invalid_members: Vec<String> = Vec::new();
+    // U151: members that exist in the module store but carry no direction word
+    // (`label` rows, direction-less buses, nc/return faces). A direction word
+    // is the only boundary ticket, so these are module-internal: access
+    // through an instance dot-path is E3184 and the connection does not form.
+    let mut internal_members: Vec<String> = Vec::new();
 
     for member in members {
-        if valid_port_names.contains(&member) {
+        let exportable = module
+            .base
+            .insts
+            .get_with_iotype(member)
+            .is_some_and(|(io, _)| {
+                matches!(
+                    io,
+                    crate::semantic::common::IOType::In
+                        | crate::semantic::common::IOType::Out
+                        | crate::semantic::common::IOType::InOut
+                        | crate::semantic::common::IOType::Power
+                        | crate::semantic::common::IOType::Analog
+                )
+            });
+        if exportable {
             valid_members.push(member.clone());
+        } else if valid_port_names.contains(&member) {
+            internal_members.push(member.clone());
         } else {
             invalid_members.push(member.clone());
         }
+    }
+
+    if !internal_members.is_empty() {
+        dlog_error(
+            crate::errcodes::LABEL_NOT_EXPORTABLE,
+            node,
+            &crate::errcodes::format_msg(
+                crate::errcodes::LABEL_NOT_EXPORTABLE,
+                &[
+                    &internal_members.join(", ") as &dyn std::fmt::Display,
+                    &base_name as &dyn std::fmt::Display,
+                ],
+            ),
+        );
     }
 
     if !invalid_members.is_empty() {
@@ -351,9 +386,11 @@ fn validate_module_port_ref(
                 ],
             ),
         );
-        if valid_members.is_empty() {
-            return None;
-        }
+    }
+    if valid_members.is_empty() {
+        // Nothing on the boundary to resolve to (all members not found or
+        // internal): the member reference fails after the reports above.
+        return None;
     }
 
     if valid_members.len() == 1 {
