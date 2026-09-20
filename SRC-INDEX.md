@@ -71,7 +71,7 @@ range (threshold 40KB).
 | `refdef/` | 7 | 118 KB |
 | `rpc/` | 16 | 293 KB |
 | `semantic/` | 88 | 2538 KB |
-| `stages/` | 11 | 292 KB |
+| `stages/` | 11 | 296 KB |
 | `vector/` | 25 | 462 KB |
 | `viz/` | 95 | 2282 KB |
 
@@ -7653,16 +7653,19 @@ stages/trace.rs#L855  fn form_line
 stages/trace.rs#L868  fn key_cell
 stages/trace.rs#L880  fn detail_cell
 stages/trace.rs#L894  fn source_line
-stages/vec.rs#L45  fn build_vec
-stages/vec.rs#L108  fn walk
-stages/vec.rs#L187  fn layer_path
-stages/vec.rs#L202  fn box_item
-stages/vec.rs#L226  fn endpoint_item
-stages/vec.rs#L244  fn trunk_item
-stages/vec.rs#L285  fn endpoint_canon
-stages/vec.rs#L293  fn endpoint_path
-stages/vec.rs#L297  fn pin_path
-stages/vec.rs#L312  fn render_vec_text
+stages/vec.rs#L46  fn build_vec
+stages/vec.rs#L118  fn endpoint_homes
+stages/vec.rs#L138  fn collect_claims
+stages/vec.rs#L167  fn pin_owner_scope
+stages/vec.rs#L176  fn walk
+stages/vec.rs#L262  fn layer_path
+stages/vec.rs#L277  fn box_item
+stages/vec.rs#L301  fn endpoint_item
+stages/vec.rs#L319  fn trunk_item
+stages/vec.rs#L360  fn endpoint_canon
+stages/vec.rs#L368  fn endpoint_path
+stages/vec.rs#L372  fn pin_path
+stages/vec.rs#L387  fn render_vec_text
 stages/viz.rs#L146  fn build_viz
 stages/viz.rs#L269  fn group_items
 stages/viz.rs#L305  const POWER_INTENT
@@ -10706,4 +10709,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-397 files, 10626 declarations.
+397 files, 10629 declarations.
