@@ -679,7 +679,11 @@ module main
     );
     let value: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("show pins JSON output");
-    let pins = value["pins"].as_array().expect("pins array");
+    // The readout rides the stage envelope (`{"jsonrpc","result":{"show":..}}`),
+    // so the pin list is read through `result.show`.
+    let pins = value["result"]["show"]["pins"]
+        .as_array()
+        .expect("pins array");
     let with: Vec<&serde_json::Value> = pins.iter().filter(|p| p["id"] == "1").collect();
     let without: Vec<&serde_json::Value> = pins.iter().filter(|p| p["id"] == "2").collect();
     assert_eq!(with.len(), 1, "pin 1 must be in the dump: {value}");

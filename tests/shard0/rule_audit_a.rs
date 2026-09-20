@@ -828,7 +828,10 @@ module main {
     );
 }
 
-/// Sec 4.3: named binding inside PARENS `(cap = 1uF)` is NOT valid syntax.
+/// Sec 4.3 / U131: a bare call-site `k = v` is a named binding like the brace
+/// form — both spellings bind by formal name, so no parse error and no
+/// unknown-parameter complaint. (The fixture's params go unused by the body,
+/// so the only diagnostics are the two never-used 5641s.)
 #[test]
 fn audit_s4_named_binding_paren_form() {
     let p = probe(
@@ -846,13 +849,16 @@ module main {
     );
     report("s4-named-binding-paren", &p);
     assert!(
-        has(&p, 2082),
-        "paren-form named binding must be a clause parse error, got {:?}",
+        !has(&p, 4176) && !has(&p, 2082),
+        "paren-form named binding must bind quietly (only the 5641s), got {:?}",
         codes(&p)
     );
 }
 
-/// Sec 4.3: unknown named binding (brace form) => hard error.
+/// Sec 4.3 / U131: a named binding to a nonexistent param name is a hard
+/// error. The call-site key assignment spelling is the bare `k = v` argument;
+/// a brace-wrapped `{k = v; ...}` block does not parse as an instance
+/// argument at all (E2082), so the orphan-name verdict rides the paren form.
 #[test]
 fn audit_s4_unknown_named_binding() {
     let p = probe(
@@ -864,7 +870,7 @@ component C1(a::UV.VOLT, b::UV.VOLT) {
     ]
 }
 module main {
-    C1 c1({nope = 5V})
+    C1 c1(nope = 5V)
 }
 "#,
     );
