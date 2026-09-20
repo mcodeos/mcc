@@ -1441,31 +1441,49 @@ impl McParamBindings {
         // errors. A bare number into an INT/HEX formal is the correct spelling
         // and is not judged; a bare number into a unit-typed formal (the
         // declare face's E5204 Warning family) has no warning channel here and
-        // stays unjudged; bare identifiers stay unjudged everywhere (a bare
-        // word as data may be legal for a STRING formal; ruling pending,
-        // U144).
+        // stays unjudged. A bare identifier is an identity reference, never
+        // data (the ident-vs-literal ruling): into a STRING formal it is a
+        // family mismatch and is refused (P5, ruled with the b3643 batch);
+        // const references travel in other value variants and are not
+        // touched.
         for binding in &final_bindings {
             if binding.is_default {
                 continue;
             }
-            let (got_family, quoted): (&str, bool) = match binding.value.as_ref() {
-                Some(McParamValue::String(_)) => ("a quoted string", true),
-                Some(McParamValue::Int(_) | McParamValue::Hex(_) | McParamValue::Float(_)) => {
-                    ("a bare number", false)
-                }
-                _ => continue,
-            };
+            let (got_family, quoted, bare_id): (&str, bool, bool) =
+                match binding.value.as_ref() {
+                    Some(McParamValue::String(_)) => ("a quoted string", true, false),
+                    Some(McParamValue::Int(_) | McParamValue::Hex(_) | McParamValue::Float(_)) => {
+                        ("a bare number", false, false)
+                    }
+                    // A bare identifier reaching the loop unclaimed is a
+                    // reference, not data — legal only into interface formals
+                    // (never reaches here) and illegal into STRING.
+                    Some(McParamValue::Ids(_)) => ("a bare identifier", false, true),
+                    _ => continue,
+                };
             let expected: Option<String> = match &binding.declare.param_type.kind {
                 crate::semantic::basic::mc_param_type::McParamTypeKind::EnumClass { class_name }
                 | crate::semantic::basic::mc_param_type::McParamTypeKind::EnumClassDefault {
                     class_name,
                     ..
-                } => Some(format!("an unquoted member of enum {class_name}")),
+                } if !bare_id =>
+                {
+                    // Bare identifiers into enum formals are the enum member
+                    // check's territory (Round 2.5, earlier in this function):
+                    // members are the legal spelling and stay Ids here.
+                    Some(format!("an unquoted member of enum {class_name}"))
+                }
                 crate::semantic::basic::mc_param_type::McParamTypeKind::BasicInt { .. }
                 | crate::semantic::basic::mc_param_type::McParamTypeKind::BasicHex { .. }
                     if quoted =>
                 {
                     Some("an integer literal".to_string())
+                }
+                crate::semantic::basic::mc_param_type::McParamTypeKind::BasicString { .. }
+                    if bare_id =>
+                {
+                    Some("a quoted string".to_string())
                 }
                 crate::semantic::basic::mc_param_type::McParamTypeKind::UnitValue { .. }
                 | crate::semantic::basic::mc_param_type::McParamTypeKind::UnitValueDefault {

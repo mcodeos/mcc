@@ -125,6 +125,10 @@ pub enum McParamTypeKind {
     InterfaceWithRole {
         class_name: String,
         role_val: String,
+        /// Non-identifier constructor args, retained verbatim so the
+        /// E4185 gate can flag them (`GPIO(2, Controller)` used to drop
+        /// the `2` here — the mixed-arg escape, U144).
+        literals: Vec<String>,
     },
     /// A5: component-instance typed with inline attributes
     ComponentInstance { class_name: String },
@@ -381,6 +385,7 @@ impl McParamType {
         let mut class_name = String::new();
         let mut has_role_arg = false;
         let mut role_val = String::new();
+        let mut literals: Vec<String> = Vec::new();
         let mut params: Vec<String> = Vec::new();
         let mut has_inline_attrs = false;
 
@@ -436,8 +441,16 @@ impl McParamType {
                                             } else {
                                                 // Non-identifier constructor args (units,
                                                 // numbers, strings) — e.g. `DC(3.3V)`.
-                                                iface_params
-                                                    .push(param.to_string().unwrap_or_default());
+                                                let lit =
+                                                    param.to_string().unwrap_or_default();
+                                                iface_params.push(lit.clone());
+                                                // Collected unconditionally: the role
+                                                // arg may come later (`TAG(123,
+                                                // Master)`), so role-ness is only
+                                                // known after the loop. A4 keeps
+                                                // these for the E4185 gate; A3
+                                                // already carries them in `params`.
+                                                literals.push(lit);
                                             }
                                         }
                                         params = iface_params;
@@ -470,6 +483,7 @@ impl McParamType {
                 kind: McParamTypeKind::InterfaceWithRole {
                     class_name,
                     role_val,
+                    literals,
                 },
                 direction: None,
             }

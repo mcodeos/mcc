@@ -376,3 +376,63 @@ fn lock_pp_interface__module_inst_anon_bracket_clean() {
         );
     }
 }
+
+// Mixed-arg A4 escape (U144, ruled b3643): `TAG(123, Master)` used to lose
+// the literal — InterfaceWithRole kept only the role value. The classifier
+// now retains the literals and the gate judges them, in either order.
+#[test]
+fn lock_pp_interface__component_mixed_arg_literal_first_4185_fires() {
+    let source = format!(
+        "{IFACE}\ncomponent C(u::TAG(123, Master))\n{{\n    name = \"C\"\n    pins = [\n        1 = X, \"x\"\n    ]\n}}\n\nmodule main\n{{\n    io VDD\n}}\n"
+    );
+    let result = parse(&source);
+    let hits = codes_with(&result, 4185);
+    assert!(
+        hits.len() == 1 && hits[0].contains("123"),
+        "expected one E4185 naming the literal; diagnostics: {}",
+        result["result"]["pass0"]["diagnostics"]
+    );
+}
+
+#[test]
+fn lock_pp_interface__component_mixed_arg_literal_last_4185_fires() {
+    let source = format!(
+        "{IFACE}\ncomponent C(u::TAG(Master, 123))\n{{\n    name = \"C\"\n    pins = [\n        1 = X, \"x\"\n    ]\n}}\n\nmodule main\n{{\n    io VDD\n}}\n"
+    );
+    let result = parse(&source);
+    let hits = codes_with(&result, 4185);
+    assert!(
+        hits.len() == 1 && hits[0].contains("123"),
+        "expected one E4185 naming the literal; diagnostics: {}",
+        result["result"]["pass0"]["diagnostics"]
+    );
+}
+
+// The module-port face judges the same A4 literals (role-less conduits).
+#[test]
+fn lock_pp_interface__module_port_mixed_arg_4185_fires() {
+    let source = format!(
+        "{IFACE}\nmodule main(io bus::TAG(Master, 123))\n{{\n    bus - bus\n}}\n"
+    );
+    let result = parse(&source);
+    let hits = codes_with(&result, 4185);
+    assert!(
+        hits.len() == 1 && hits[0].contains("123"),
+        "expected one E4185 naming the literal; diagnostics: {}",
+        result["result"]["pass0"]["diagnostics"]
+    );
+}
+
+// A bare role arg plus nothing else stays the legal spelling: no fire.
+#[test]
+fn lock_pp_interface__component_mixed_arg_bare_only_clean() {
+    let source = format!(
+        "{IFACE}\ncomponent C(u::TAG(Master))\n{{\n    name = \"C\"\n    pins = [\n        1 = X, \"x\"\n    ]\n}}\n\nmodule main\n{{\n    io VDD\n}}\n"
+    );
+    let result = parse(&source);
+    assert!(
+        codes_with(&result, 4185).is_empty(),
+        "a single bare role arg must stay legal; diagnostics: {}",
+        result["result"]["pass0"]["diagnostics"]
+    );
+}

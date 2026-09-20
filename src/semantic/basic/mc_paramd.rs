@@ -1097,6 +1097,7 @@ impl McParamDeclare {
             crate::semantic::basic::mc_param_type::McParamTypeKind::InterfaceWithRole {
                 class_name,
                 role_val,
+                ..
             } => Some((class_name.clone(), vec![role_val.clone()])),
             _ => None,
         }
