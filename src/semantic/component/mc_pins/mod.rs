@@ -2867,16 +2867,27 @@ impl McPins {
 
     pub fn get_pins_by_io(&self, io_type: &IOType) -> Vec<String> {
         // IOType doesn't implement `PartialEq`, so compare by discriminant.
-        self.pins
+        let same_kind =
+            |rec: &McPin| std::mem::discriminant(&rec.iotype) == std::mem::discriminant(io_type);
+        // U152 ②: read the recorded declaration order, never the BTreeMap key
+        // order. Key order is dictionary order ("1", "10", "11", "2", …), and
+        // these vectors feed positional lane pairing (vexpr body faces,
+        // MultiPort chain/fold expansion), so the declared sequence is the
+        // lane order (R0 source-order law). `register_pin` records every pin
+        // id exactly once on first registration, so `decl_order` covers all
+        // of `pins`.
+        let mut pin_ids: Vec<String> = self
+            .decl_order
             .iter()
-            .filter_map(|(pin_id, rec)| {
-                if std::mem::discriminant(&rec.iotype) == std::mem::discriminant(io_type) {
-                    Some(pin_id.clone())
-                } else {
-                    None
-                }
-            })
-            .collect()
+            .filter(|id| self.pins.get(id.as_str()).is_some_and(|rec| same_kind(rec)))
+            .cloned()
+            .collect();
+        for (pin_id, rec) in &self.pins {
+            if same_kind(rec) && !self.decl_order.contains(pin_id) {
+                pin_ids.push(pin_id.clone());
+            }
+        }
+        pin_ids
     }
 
     /// Get single pin's IO type by pin_id (Step 1)
