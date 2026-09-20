@@ -431,6 +431,21 @@ pub trait HasFindInst {
         false
     }
 
+    /// R3 **member mode** (`intent-reference-layer-design.md` §10.4): the
+    /// single directed rail member (`hot` under `->`, `ret` under `<-`) that
+    /// the word at this source position resolves to because its statement
+    /// carries a `@bridge(domain, domain)` license — as opposed to the whole `[hot,
+    /// ret]` pair [`Self::domain_pair_named`] delivers. Keyed by word position:
+    /// the license is a fact of the *statement* a word sits in, and only the
+    /// pre-scan that sees the whole statement can name its words.
+    ///
+    /// The default `None` keeps every scope without a domain-bridge scan at
+    /// today's reading — only `McModule` (module bodies are the only place a
+    /// `@bridge` statement can be licensed; a func cannot write one) answers.
+    fn licensed_domain_member_at(&self, _pos: usize) -> Option<String> {
+        None
+    }
+
     /// Return the enclosing scope name (module/component/function name),
     /// or None for file-level scope.
     fn scope_name(&self) -> Option<String> {
