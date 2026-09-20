@@ -155,7 +155,8 @@ pub struct NetPoint {
     pub src_pos: crate::semantic::common::SourcePosSet,
 
     /// P2-1: bus member name (e.g. "CS", "SCLK", "MISO", "MOSI" for SPI).
-    /// Used for name-based matching in create_connection.
+    /// Records the written-side qualifier for display and diagnostics; member
+    /// pairing is positional zip and never reads this name (U128 2a).
     pub member_name: Option<String>,
 
     /// Same-name multi-pin group pads (same-name-pin-group.md §2/§6): a
