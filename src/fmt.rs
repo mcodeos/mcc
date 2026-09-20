@@ -10,6 +10,8 @@
 //! invariants; this module implements them. The C lexer is process-global, so
 //! this is a single-threaded API like every other parse path in the crate.
 
+use std::collections::HashMap;
+
 use crate::ast::bindings;
 use crate::ast::token::McLexTokenFFI;
 
@@ -118,12 +120,12 @@ pub fn format_text(content: &str) -> Result<String, String> {
 
 fn format_once(body: &str) -> Result<String, String> {
     let mut lines = build_lines(body)?;
-    // R5/R12, R6 and R11 each read a line structure another one writes -- a
+    // R5/R12/R13, R6 and R11 each read a line structure another one writes -- a
     // folded group decides which line carries a declaration keyword for R12, and
     // a deleted blank decides whether R11 sees the next line at all -- so the
-    // three run to a fixed point. Every pass that reports a change has merged or
-    // dropped a line, so the loop terminates, and stopping when nothing changes
-    // is what makes the whole rewrite its own fixed point (I3).
+    // three run to a fixed point. Every pass that reports a change has merged,
+    // dropped or inserted a line, so the loop terminates, and stopping when
+    // nothing changes is what makes the whole rewrite its own fixed point (I3).
     loop {
         let mut changed = normalize_blank_lines(&mut lines);
         changed |= join_open_braces(&mut lines);
@@ -463,9 +465,21 @@ fn ends_with_opener(line: &Line) -> bool {
         .is_some_and(|t| ends_in(&t.text, "{[("))
 }
 
+/// R13: true when the line opens a `pins = [` value list -- the component pin
+/// block, which the blank-line rule fences off from the members above it. A
+/// one-line list (`pins = [1, 2]`) is not a block and gets no fence.
+fn opens_pin_block(line: &Line) -> bool {
+    let code = code_toks(&line.toks);
+    code.first().is_some_and(|t| t.kind == Kind::Other && t.text == "pins")
+        && code.last().is_some_and(|t| t.text == "[")
+}
+
 /// R5: fold blank runs to one, drop the ones a block delimiter already fences
 /// off, drop leading/trailing ones, and drop the ones R12 reads as a break the
-/// author did not mean (design §4 R12). Returns true when it dropped a line.
+/// author did not mean (design §4 R12). R13 reads the same structure the other
+/// way: the blank before a `pins = [` block is not a break the author may omit
+/// -- one is inserted where it is missing, and a run of them folds to one.
+/// Returns true when it dropped or inserted a line.
 fn normalize_blank_lines(lines: &mut Vec<Line>) -> bool {
     let mut src: Vec<Line> = std::mem::take(lines);
     let decl: Vec<bool> = src.iter().map(is_declaration).collect();
@@ -480,7 +494,8 @@ fn normalize_blank_lines(lines: &mut Vec<Line>) -> bool {
             let joins_the_run = (i + 1..src.len())
                 .find(|&j| !src[j].toks.is_empty())
                 .is_some_and(|j| {
-                    decl[prev]
+                    !opens_pin_block(&src[j])
+                        && decl[prev]
                         && decl[j]
                         && ((keyword[prev] && keyword[j]) || (head[prev] && head[j]))
                 });
@@ -502,6 +517,14 @@ fn normalize_blank_lines(lines: &mut Vec<Line>) -> bool {
         let fenced = first.is_some_and(|t| starts_in(t, "}]){"));
         if fenced && out.last().is_some_and(|l| l.toks.is_empty()) {
             out.pop();
+        }
+        // R13: the pin block is fenced off from the members above it. Right
+        // after the block's own `{` there is nothing to fence off, so the
+        // fence starts at the first member.
+        if opens_pin_block(&line)
+            && out.last().is_some_and(|l| !l.toks.is_empty() && !ends_with_opener(l))
+        {
+            out.push(Line::default());
         }
         out.push(line);
     }
@@ -949,16 +972,59 @@ fn group_closes_at_end(code: &[Tok], open: usize) -> bool {
     true
 }
 
+/// Per-line scope id: the innermost bracket scope the line leaves us in. A line
+/// opening a block is that block's header, one closing a block belongs to the
+/// scope it closes back into.
+///
+/// One exception (R8, 2026-09-20 ruling): a line carrying a trailing comment
+/// and followed by a lone `{` counts as that block's opener. R6 cannot glue
+/// the brace onto a commented header (the comment would swallow it), so
+/// without this the header's comment would line up with the sibling
+/// definitions of the enclosing file instead of with the body it introduces.
+fn line_scopes(lines: &[Line]) -> Vec<u32> {
+    let mut out = Vec::with_capacity(lines.len());
+    let mut stack = vec![0u32];
+    let mut next = 1u32;
+    // Index of the `{` line whose brace was already scanned as part of its
+    // commented header; it takes the scope without a second push.
+    let mut consumed: Option<usize> = None;
+    for (i, line) in lines.iter().enumerate() {
+        if consumed == Some(i) {
+            consumed = None;
+        } else {
+            for t in code_toks(&line.toks) {
+                scan_scopes(&t.text, &mut stack, &mut next);
+            }
+            let opens_next_block = trailing_comment_count(&line.toks) == 1
+                && !code_toks(&line.toks).is_empty()
+                && (i + 1..lines.len())
+                    .find(|&k| !lines[k].toks.is_empty())
+                    .is_some_and(|k| {
+                        let code = code_toks(&lines[k].toks);
+                        code.len() == 1 && code[0].text == "{"
+                    });
+            if opens_next_block {
+                let k = (i + 1..lines.len())
+                    .find(|&k| !lines[k].toks.is_empty())
+                    .expect("checked above");
+                scan_scopes("{", &mut stack, &mut next);
+                consumed = Some(k);
+            }
+        }
+        out.push(*stack.last().expect("the base scope is never popped"));
+    }
+    out
+}
+
 fn render(lines: &[Line]) -> Result<String, String> {
+    let scopes = line_scopes(lines);
     let mut out: Vec<RLine> = Vec::with_capacity(lines.len());
     let mut depth = 0usize;
     let mut prev_control = false;
-    let mut scopes: Vec<u32> = vec![0];
-    let mut next_scope = 1u32;
     // RHS column and scope of the last assignment written at its own indent:
     // R10 hangs that expression's continuation lines there.
     let mut anchor: Option<(usize, u32)> = None;
-    for line in lines {
+    for (k, line) in lines.iter().enumerate() {
         if line.toks.is_empty() {
             anchor = None;
             out.push(RLine {
@@ -968,13 +1034,7 @@ fn render(lines: &[Line]) -> Result<String, String> {
             continue;
         }
         let code = code_toks(&line.toks);
-        for t in code {
-            scan_scopes(&t.text, &mut scopes, &mut next_scope);
-        }
-        // The scope the line *leaves* us in: a line opening a block is that
-        // block's header, one closing a block belongs to the scope it closes
-        // back into.
-        let scope = *scopes.last().expect("the base scope is never popped");
+        let scope = scopes[k];
         let leading = code.iter().take_while(|t| is_closer(&t.text)).count();
         let extra = usize::from(prev_control && leading == 0);
         let hangs = anchor.is_some_and(|(_, a)| a == scope) && starts_continuation(code);
@@ -1146,27 +1206,78 @@ fn alignable(r: &RLine) -> bool {
 /// scope. Blank lines and uncommented lines inside the scope do not break the
 /// run -- only leaving the scope does -- so an entry list reads as one column
 /// however its author spaced it.
+///
+/// Two refinements share one column across a scope boundary (2026-09-20
+/// ruling: within a definition, the lines that sit close together read as one
+/// table). A commented header followed by a lone `{` already belongs to the
+/// block it opens ([`line_scopes`]); and two commented lines with only blank
+/// lines and block openers between them merge their scopes into one column --
+/// a component's header, its `partno`/`package` members and its `pins` list
+/// align on one line. A closing bracket or a line of ordinary code between two
+/// comments means the second belongs to another paragraph, and its scope keeps
+/// its own column.
 fn align_comments(lines: &mut [RLine]) {
+    let mut scope_group: HashMap<u32, usize> = HashMap::new();
     let mut groups: Vec<Vec<usize>> = Vec::new();
-    for i in 0..lines.len() {
-        if !commented(&lines[i]) {
+    let mut member = vec![usize::MAX; lines.len()];
+    for (i, line) in lines.iter().enumerate() {
+        if !commented(line) {
             continue;
         }
-        match groups
-            .iter_mut()
-            .find(|g| lines[g[0]].scope == lines[i].scope)
-        {
-            Some(g) => g.push(i),
-            None => groups.push(vec![i]),
+        let g = *scope_group.entry(line.scope).or_insert_with(|| {
+            groups.push(Vec::new());
+            groups.len() - 1
+        });
+        groups[g].push(i);
+        member[i] = g;
+    }
+    let mut parent: Vec<usize> = (0..groups.len()).collect();
+    let commented: Vec<usize> = (0..lines.len())
+        .filter(|&i| commented(&lines[i]))
+        .collect();
+    for pair in commented.windows(2) {
+        let (a, b) = (pair[0], pair[1]);
+        if bridged(&lines[a + 1..b]) {
+            let (x, y) = (find_group(&parent, member[a]), find_group(&parent, member[b]));
+            if x != y {
+                parent[x] = y;
+            }
         }
     }
-    for group in groups {
-        let target = group.iter().map(|&k| width(&lines[k])).max().unwrap_or(0);
-        for &k in &group {
+    let mut merged: Vec<Option<Vec<usize>>> = vec![None; groups.len()];
+    for (g, members) in groups.iter().enumerate() {
+        let root = find_group(&parent, g);
+        merged[root].get_or_insert_with(Vec::new).extend_from_slice(members);
+    }
+    for members in merged.into_iter().flatten() {
+        let target = members.iter().map(|&k| width(&lines[k])).max().unwrap_or(0);
+        for &k in &members {
             let pad = target.saturating_sub(width(&lines[k]));
             lines[k].code.push_str(&" ".repeat(pad));
         }
     }
+}
+
+/// True when the lines between two commented lines are only blank lines and
+/// block openers: the two comments sit close enough to read as one list. A
+/// closing bracket or a line of ordinary code between them is a paragraph the
+/// columns of which stay apart.
+fn bridged(between: &[RLine]) -> bool {
+    between.iter().all(|l| {
+        l.blank
+            || (!l.code.is_empty()
+                && l.comment.is_none()
+                && l.code.chars().next_back().is_some_and(|c| "{[(".contains(c)))
+    })
+}
+
+/// Union-find root of a scope group. Groups are tiny, so the walk needs no
+/// path compression.
+fn find_group(parent: &[usize], mut x: usize) -> usize {
+    while parent[x] != x {
+        x = parent[x];
+    }
+    x
 }
 
 fn commented(r: &RLine) -> bool {
@@ -1279,12 +1390,43 @@ mod tests {
         assert_eq!(fmt(src), want);
     }
 
-    /// A nested scope is a group of its own: its lines do not join the outer
-    /// column, and the outer lines still align across it.
+    /// A nested list the enclosing members sit right next to joins their
+    /// column (2026-09-20 ruling): the commented line above the opener bridges
+    /// the two scopes, so `a`, the list and `ccc` read as one table. The `]`
+    /// between the list and `ccc` does not split them -- they share a scope.
     #[test]
-    fn fmt__comment_alignment_is_per_scope() {
+    fn fmt__a_nested_list_joins_the_enclosing_column_when_close() {
         let src = "component A {\n    a = 1 // one\n    sub = [\n        bbbbb = 2 // two\n    ]\n    ccc = 333 // three\n}\n";
-        let want = "component A {\n    a = 1      // one\n    sub = [\n        bbbbb = 2  // two\n    ]\n    ccc = 333  // three\n}\n";
+        let want = "component A {\n    a = 1          // one\n    sub = [\n        bbbbb = 2  // two\n    ]\n    ccc = 333      // three\n}\n";
+        assert_eq!(fmt(src), want);
+    }
+
+    /// A closing bracket between two commented lines is a paragraph the
+    /// columns of which stay apart: each list keeps its own.
+    #[test]
+    fn fmt__a_closer_between_two_lists_keeps_their_columns_apart() {
+        let src = "component A {\n    p = [ // one\n        aaaaaaaaa = 1 // two\n    ]\n    q = [ // three\n        b = 2 // four\n    ]\n}\n";
+        let want = "component A {\n    p = [              // one\n        aaaaaaaaa = 1  // two\n    ]\n    q = [      // three\n        b = 2  // four\n    ]\n}\n";
+        assert_eq!(fmt(src), want);
+    }
+
+    /// A line of ordinary code between two comments is a paragraph too: the
+    /// list below it keeps its own column, and the header above still joins
+    /// its own scope.
+    #[test]
+    fn fmt__ordinary_code_between_comments_keeps_the_columns_apart() {
+        let src = "module m {  // head\n    a = 1 // one\n    helper x\n    sub = [\n        bbbb = 2 // two\n    ]\n}\n";
+        let want = "module m {  // head\n    a = 1   // one\n    helper x\n    sub = [\n        bbbb = 2  // two\n    ]\n}\n";
+        assert_eq!(fmt(src), want);
+    }
+
+    /// A commented header followed by a lone `{` belongs to the block it
+    /// opens, not to the sibling headers of the enclosing file: R6 cannot glue
+    /// the brace on behind the comment, so the scope is reassigned instead.
+    #[test]
+    fn fmt__a_commented_header_joins_its_own_body_column() {
+        let src = "component LPA  // chip\n{\n    partno = \"L\"  // model\n\n    pins = [ // pin def\n        1 = EN // enable\n    ]\n}\n\ncomponent B  // other\n{\n    x = 1 // one\n}\n";
+        let want = "component LPA     // chip\n{\n    partno = \"L\"  // model\n\n    pins = [      // pin def\n        1 = EN    // enable\n    ]\n}\n\ncomponent B  // other\n{\n    x = 1    // one\n}\n";
         assert_eq!(fmt(src), want);
     }
 
@@ -1467,6 +1609,39 @@ mod tests {
     #[test]
     fn fmt__keeps_a_blank_between_statements() {
         let src = "module m {\n    a.x -> b.x\n\n    b.y -> c.y\n}\n";
+        assert_eq!(fmt(src), src);
+    }
+
+    /// R13: the pin block is fenced off from the members above it -- one
+    /// blank, inserted where the author wrote none.
+    #[test]
+    fn fmt__inserts_one_blank_before_a_pins_block() {
+        let src = "component A {\n    package = PKG.X\n    pins = [\n        1 = A\n    ]\n}\n";
+        let want = "component A {\n    package = PKG.X\n\n    pins = [\n        1 = A\n    ]\n}\n";
+        assert_eq!(fmt(src), want);
+    }
+
+    /// A run of blanks before the pin block folds to the one fence.
+    #[test]
+    fn fmt__folds_a_blank_run_before_a_pins_block_to_one() {
+        let src = "component A {\n    package = PKG.X\n\n\n    pins = [\n        1 = A\n    ]\n}\n";
+        let want = "component A {\n    package = PKG.X\n\n    pins = [\n        1 = A\n    ]\n}\n";
+        assert_eq!(fmt(src), want);
+    }
+
+    /// The fence the author already wrote is R12-exempt: `voltage` and `pins`
+    /// are both declarations the run would otherwise fold together.
+    #[test]
+    fn fmt__keeps_the_blank_before_a_pins_block() {
+        let src = "component A {\n    voltage = \"3.3V\"\n\n    pins = [\n        1 = A\n    ]\n}\n";
+        assert_eq!(fmt(src), src);
+    }
+
+    /// Right after the block's own `{` there is nothing to fence the pin
+    /// block off from, so no blank is inserted there.
+    #[test]
+    fn fmt__no_fence_right_after_the_block_opens() {
+        let src = "component A {\n    pins = [\n        1 = A\n    ]\n}\n";
         assert_eq!(fmt(src), src);
     }
 
