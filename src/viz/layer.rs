@@ -35,6 +35,10 @@ pub struct VizLayer {
     ///
     /// On click, the frontend uses `bid` to look up the next layer in `VizDocument.layers`.
     pub clickable_subs: Vec<i64>,
+    /// P3 (opt-in): the supply-bundle model of a Block layer as a JSON string
+    /// (`MCC_VIZ_SUPPLY_BUNDLES=1`); `None` for device layers and by default, so
+    /// the JSON document stays byte-identical unless the gate is on.
+    pub supply_bundles: Option<String>,
 }
 
 impl VizLayer {
@@ -46,6 +50,7 @@ impl VizLayer {
             canvas: (0.0, 0.0),
             svg: String::new(),
             clickable_subs: Vec::new(),
+            supply_bundles: None,
         }
     }
 

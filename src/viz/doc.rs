@@ -173,7 +173,14 @@ impl VizDocument {
                 }
                 out.push_str(&sub.to_string());
             }
-            out.push_str("],\"svg\":\"");
+            out.push(']');
+            // P3 (opt-in): the supply-bundle model rides the layer JSON only
+            // when the export gate attached it; otherwise the bytes never change.
+            if let Some(bundles) = &layer.supply_bundles {
+                out.push_str(",\"supply_bundles\":");
+                out.push_str(bundles);
+            }
+            out.push_str(",\"svg\":\"");
             out.push_str(&json_escape(&layer.svg));
             out.push_str("\"}");
             if i + 1 < bids.len() {

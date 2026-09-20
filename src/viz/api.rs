@@ -641,6 +641,14 @@ fn render_layer_recursive(
     layer.canvas = canvas;
     layer.svg = svg;
     layer.clickable_subs = clickable_subs;
+    // P3 (opt-in): attach the supply-bundle model of a Block layer to the JSON
+    // document. The default output stays byte-identical — the model is computed
+    // and exported only under the gate.
+    if graph.layer_style == crate::vector::graph::LayerStyle::Block
+        && std::env::var("MCC_VIZ_SUPPLY_BUNDLES").map_or(false, |v| v == "1")
+    {
+        layer.supply_bundles = Some(crate::viz::layout::supply_bundle::export_json(&graph));
+    }
     doc.add_layer(layer);
 
     // Last use of `graph` is behind us (render, connectivity, renderdiff all
