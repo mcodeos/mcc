@@ -23,7 +23,7 @@ use crate::semantic::basic::mc_uval::McUnit;
 use crate::semantic::common::{ConnDir, ConnOp, IOType};
 use crate::semantic::component::mc_attr::McAttrVal;
 use crate::semantic::component::McComponent;
-use crate::semantic::mc_ifs::McInterface;
+use crate::semantic::mc_ifs::{Mc2Interface, McInterface};
 use crate::semantic::mc_inst::McInstance;
 use crate::semantic::module::McModule;
 use crate::semantic::nc_pin::{NcPinKind, NcPinSpec};
@@ -266,10 +266,10 @@ impl InstantiationBuilder {
                         }
                         None => {
                             // Scalar `x::DC(v)`: not written, so the pair comes
-                            // from the interface's own declared pin order — the
-                            // same source `extract_port_bus_members` expands the
-                            // members from, hence the same order.
-                            let faces = iface.base.pins.member_names();
+                            // from `iface_ordinal_member_names` — the same source
+                            // `extract_port_bus_members` expands the members
+                            // from, hence the same order.
+                            let faces = iface_ordinal_member_names(iface);
                             if faces.len() == 2 {
                                 Some((faces[0].clone(), faces[1].clone()))
                             } else {
@@ -519,10 +519,11 @@ impl InstantiationBuilder {
                     (members.clone(), Some(prefix), members)
                 } else {
                     // Scalar-named interface (e.g. V3V3::DC(3.3V), vin::DC(5V)):
-                    // extract members from interface type's pins in source
-                    // declaration order (§11.1), register prefix bus
-                    // with dotted labels (e.g. V3V3.VCC, V3V3.GND).
-                    let pin_names: Vec<String> = iface.base.pins.member_names();
+                    // extract members in connection-ordinal order — the declared
+                    // role's table when present, else the interface base table
+                    // (§11.1, U137) — register prefix bus with dotted labels
+                    // (e.g. V3V3.VCC, V3V3.GND).
+                    let pin_names: Vec<String> = iface_ordinal_member_names(iface);
                     if pin_names.len() >= 2 {
                         let port_name = iface.name.to_string();
                         (pin_names.clone(), Some(port_name), pin_names)
@@ -2032,6 +2033,37 @@ impl InstantiationBuilder {
 // order). No alphabetical normalization — downstream lane pairing aligns by
 // member name and falls back to positional zip, so declaration order is the
 // single source of truth.
+/// The member names of an interface-typed instance, in connection-ordinal
+/// order (§11.1 — declaration order, never the BTreeMap pinid key order).
+///
+/// The label rides the same table that supplies the ordinal (interface-connect
+/// rule §1.5.1: a member name is that role's local term for ordinal k —
+/// CIMP §1 U137): the declared role's own table > the interface base table
+/// (T1). Mirrors the role half of the mc_pins attach chain
+/// (`components/mc_pins`), so every face that expands an interface instance —
+/// port lanes, DC pair decode, in-body label injection — reads one source.
+/// Written members (`U{A,B}::FAM(...)`, `[A,B]::FAM(...)`) are the author's
+/// own spellings and are consumed by the callers before this fallback.
+///
+/// `parsed_pins` is deliberately not consulted here: at this boundary the
+/// parameterized renaming (e.g. `DC(3.3V)` renaming VCC to VCC3V3) renames
+/// members behind the parent's back and splits the net merge (CIMP U140).
+fn iface_ordinal_member_names(iface: &Mc2Interface) -> Vec<String> {
+    if let Some(McParamValue::Ids(role_ids)) = iface.params.first() {
+        let role_name = role_ids.to_string();
+        for role in &iface.base.roles {
+            if role.name.to_string() == role_name {
+                let names = role.pins.member_names();
+                if !names.is_empty() {
+                    return names;
+                }
+                break;
+            }
+        }
+    }
+    iface.base.pins.member_names()
+}
+
 fn extract_port_bus_members(inst: &McInstance, _port_name: &str) -> Vec<String> {
     match inst {
         // List: `[A, B]` or `GPIO[1:2]`
@@ -2076,15 +2108,17 @@ fn extract_port_bus_members(inst: &McInstance, _port_name: &str) -> Vec<String> 
                     return members;
                 }
             }
-            // Fallback: take member names from base McInterface.pins in source
-            // declaration order (§11.1 — the member vector order never comes
-            // from the BTreeMap pinid key order; `member_names()` reads the
-            // recorded declaration order).
+            // Fallback: take member names in connection-ordinal order — the
+            // declared role's own table when the port carries a role, else the
+            // base interface's pins table (§11.1 — the member vector order never
+            // comes from the BTreeMap pinid key order; `member_names()` reads the
+            // recorded declaration order). The label rides the same table that
+            // supplies the ordinal (U137), mirroring the mc_pins attach chain.
             // Applies to BOTH bare interface ports (e.g. `io SPI`) and scalar named
             // ports with interface annotation (e.g. `V3V3::DC(3.3V)`, `in vin::DC(5V)`).
             // The interface type defines the members (e.g. DC → VCC, GND), and the port
             // name is just a label — the electrical members come from the interface type.
-            let pin_names: Vec<String> = iface.base.pins.member_names();
+            let pin_names: Vec<String> = iface_ordinal_member_names(iface);
             if pin_names.len() >= 2 {
                 return pin_names;
             }

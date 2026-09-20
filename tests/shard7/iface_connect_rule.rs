@@ -1381,3 +1381,139 @@ module main {
         "the adoption-row trailing @drive must ride a parameter-carrying single-pin row; got {codes:?}"
     );
 }
+
+// ── U137: the boundary member label rides the table that supplies the
+// ordinal. The family table (T1) below spells third-party names M1/M2 on
+// purpose: a boundary labeled from T1 surfaces `U.M1` even though both ports
+// declare roles whose tables spell TX/RX differently — the probe of
+// 2026-09-20 (log/9.20.u128-trio-locks.md §3) caught exactly that. The law
+// after the fix (interface-connect rule §1.5.1): a member name is that role's
+// local term for ordinal k, so each boundary point is spelled by its own
+// side's table — the wires stay ordinal-paired, names are labels. ──
+
+const BNDLBL_FAMILY: &str = r#"
+interface XNG(role)
+{
+    pins = [
+        1 = M1, "third-party label"
+        2 = M2, "third-party label"
+    ]
+    role DCE {
+        name = "XNG DCE"
+        pins = [
+            1 = TX, "Transmit"
+            2 = RX, "Receive"
+        ]
+        peer = DTE
+    }
+    role DTE {
+        name = "XNG DTE"
+        pins = [
+            1 = RX, "Receive"
+            2 = TX, "Transmit"
+        ]
+        peer = DCE
+    }
+}
+
+module MA
+{
+    io U::XNG(DCE)
+}
+
+module MB
+{
+    io U::XNG(DTE)
+}
+
+module MC
+{
+    io W::XNG()
+}
+
+module MD
+{
+    io W::XNG()
+}
+"#;
+
+/// Build `main` over the boundary-label fixture; same normalization as
+/// `build`. Here the path partition IS the member-name face: module-port
+/// boundary points carry their member segment in the path, so the crossed
+/// names are directly observable.
+fn bndlbl_build(body: &str, uri: &str) -> (Vec<u32>, Vec<Vec<String>>) {
+    let _lock = common::lock();
+    common::reset();
+    let src = format!(
+        "{BNDLBL_FAMILY}module main {{\n    \
+         MA xa\n    MB xb\n    MC mc\n    MD md\n{body}\n}}\n"
+    );
+    let u = McURI::from(uri);
+    mcc::mcc_load_from_string(&u, &src);
+    let (_, _, _, net_store) = mcc::mcc_build_with_nets(&McIds::from("main"), &u).expect("build");
+    let mut codes: Vec<u32> = mcc::mcc_diagnose_all()
+        .iter()
+        .map(|d| d.code)
+        .filter(|c| !benign(*c))
+        .collect();
+    codes.sort_unstable();
+    let mut partition: Vec<Vec<String>> = net_store
+        .get("main")
+        .map(|t| {
+            t.iter()
+                .map(|(_, pts)| {
+                    let mut ps: Vec<String> = pts.iter().map(|p| p.path.clone()).collect();
+                    ps.sort();
+                    ps
+                })
+                .filter(|ps| !ps.is_empty())
+                .collect()
+        })
+        .unwrap_or_default();
+    partition.sort();
+    (codes, partition)
+}
+
+/// Each side spells its own lane: xa's boundary is DCE-local (TX, RX), xb's is
+/// DTE-local (RX, TX), and ordinal k still meets ordinal k — so the partition
+/// shows crossed names on purpose (TX meeting RX is the declared crossing).
+/// The T1 repair counterfactual is any `U.M1`/`U.M2` path: a boundary spelled
+/// from the family table means the role tables stopped supplying the labels.
+#[test]
+fn iface_lbl__boundary_members_follow_the_role_table_not_t1() {
+    let (codes, nets) = bndlbl_build("    xa.U -> xb.U", "/mcc/iface-bndlbl-roles.mc");
+    assert_eq!(
+        rule_codes(&codes),
+        Vec::<u32>::new(),
+        "mutual peers must be quiet; got {codes:?}"
+    );
+    assert_eq!(
+        nets,
+        vec![
+            vec!["xa.U.RX".to_string(), "xb.U.TX".to_string()],
+            vec!["xa.U.TX".to_string(), "xb.U.RX".to_string()],
+        ],
+        "each boundary spells its own role's local names; the T1 counterfactual \
+         is any xa.U.M1 / xb.U.M2 path; got {nets:?}"
+    );
+}
+
+/// The control: a port that declares no role has no local table to ride, so
+/// the label falls back to the family table (T1) — on both sides alike.
+#[test]
+fn iface_lbl__roleless_port_falls_back_to_the_family_table() {
+    let (codes, nets) = bndlbl_build("    mc.W -> md.W", "/mcc/iface-bndlbl-roleless.mc");
+    assert_eq!(
+        rule_codes(&codes),
+        Vec::<u32>::new(),
+        "roleless connects skip the role check silently; got {codes:?}"
+    );
+    assert_eq!(
+        nets,
+        vec![
+            vec!["mc.W.M1".to_string(), "md.W.M1".to_string()],
+            vec!["mc.W.M2".to_string(), "md.W.M2".to_string()],
+        ],
+        "no role declared: the family table labels both boundaries; got {nets:?}"
+    );
+}
