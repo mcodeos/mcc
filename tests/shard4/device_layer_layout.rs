@@ -10,17 +10,17 @@
 
 use std::path::PathBuf;
 
+use crate::common;
 use mcc::vector::graph::{EntrySide, LayerStyle, McVecBox, McVecGraph};
-
-/// The mcc_* workspace is global state; rendering must be serialized.
-static RENDER_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 fn project_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/layout_dev")
 }
 
 fn build_graph() -> McVecGraph {
-    let _guard = RENDER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    // The mcc_* workspace is global state; the shard-wide `common::lock` is
+    // the one mutex that also excludes the other in-process tests (U136).
+    let _guard = common::lock();
     let project_root = project_dir();
     let entry_path = project_root.join("src/main.mc");
     let entry_uri: String = entry_path.to_string_lossy().into_owned();

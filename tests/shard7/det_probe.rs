@@ -15,16 +15,15 @@
 
 use std::path::PathBuf;
 
+use crate::common;
 use mcc::McIds;
 
 fn hbl_project_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/hbl")
 }
 
-static BUILD_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
 fn build_once() -> (String, String, String, String) {
-    let _guard = BUILD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = common::lock();
     let project_root = hbl_project_dir();
     let entry_uri = project_root
         .join("src/hbl.mc")

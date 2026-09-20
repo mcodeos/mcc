@@ -23,14 +23,12 @@ use std::path::PathBuf;
 
 use mcc::vector::graph::{McVecGraph, NetKind};
 use mcc::vector::model::{AttrRole, NetAttrMirror, RailClass};
+use crate::common;
 use mcc::McIds;
 
 fn hbl_project_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/hbl")
 }
-
-/// The mcc_* workspace is global state; tests must be serialized (same as tests/rail_rules.rs).
-static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 fn build_graph() -> McVecGraph {
     let project_root = hbl_project_dir();
@@ -78,7 +76,7 @@ fn net<'a>(g: &'a McVecGraph, name: &str) -> &'a mcc::vector::graph::VizNet {
 /// contract written `[VCC, GND]::DC(3.3V)` declares the same two faces.
 #[test]
 fn scalar_dc_header_faces_are_declared_not_name_guessed() {
-    let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = common::lock();
     let graph = build_graph();
     let ldo = find_layer(&graph, "LDO").expect("hbl has an LDO sub-layer");
 
@@ -134,7 +132,7 @@ fn scalar_dc_header_faces_are_declared_not_name_guessed() {
 /// `copper`. NetKind must follow the declared role.
 #[test]
 fn declared_rails_kind_follows_attr_role() {
-    let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = common::lock();
     let graph = build_graph();
 
     // Declared ground side -> NetKind::Ground, attr role Ret. Every return in
@@ -180,7 +178,7 @@ fn declared_rails_kind_follows_attr_role() {
 /// attr may claim a role the net's kind contradicts.
 #[test]
 fn kind_is_pure_function_of_declared_attr() {
-    let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = common::lock();
     let graph = build_graph();
 
     let mut layers = Vec::new();
@@ -247,7 +245,7 @@ fn kind_is_pure_function_of_declared_attr() {
 /// each side of the class rather than on one.
 #[test]
 fn every_rail_classified_net_holds_a_declared_supply_face() {
-    let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = common::lock();
     let graph = build_graph();
 
     let mut layers = Vec::new();

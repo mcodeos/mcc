@@ -15,6 +15,7 @@ use std::path::PathBuf;
 
 use mcc::vector::graph::{McVecGraph, NetKind};
 use mcc::viz::api::{render_with_metrics, RenderOpts};
+use crate::common;
 use mcc::McIds;
 
 fn hbl_project_dir() -> PathBuf {
@@ -22,11 +23,11 @@ fn hbl_project_dir() -> PathBuf {
 }
 
 /// The mcc_* workspace is global state; rendering must be serialized (parallel
-/// runs stomp on each other → SIGABRT).
-static RENDER_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
+/// runs stomp on each other → SIGABRT). `common::lock` is the one shard-wide
+/// mutex: a file-private one does not exclude tests holding `common::lock`
+/// elsewhere in the same binary (U136).
 fn build_hbl_graph() -> McVecGraph {
-    let _guard = RENDER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = common::lock();
     let project_root = hbl_project_dir();
     let entry_path = project_root.join("src/hbl.mc");
     let entry_uri: String = entry_path.to_string_lossy().into_owned();

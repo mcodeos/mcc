@@ -40,6 +40,7 @@
 
 use std::path::PathBuf;
 
+use crate::common;
 use mcc::stages::{read, StageSeg};
 
 fn fixture_dir() -> PathBuf {
@@ -60,6 +61,9 @@ struct Item {
 
 /// Read the drawing face for one top module of the fixture.
 fn root_layer(top: &str) -> Vec<Item> {
+    // The mcc_* workspace is global state; hold the shard-wide lock for the
+    // whole init+load+build (U136).
+    let _guard = common::lock();
     let root = fixture_dir();
     let entry = root.join("src/main.mc");
     let entry_uri = entry.to_string_lossy().into_owned();
