@@ -1854,21 +1854,33 @@ impl InstantiationBuilder {
             // Pin IDs are placed directly under the instance name (e.g. "mcu.10")
             // to align with the golden netlist format.
             let boundary_name = format!("{inst_name}.{declared_port_name}");
-            let pin_ids: Option<Vec<(String, String)>> =
+            // U127: the port is carried by a component INSIDE the sub-module,
+            // so the boundary point must spell the full instance path
+            // (`{inst}.{comp}.{pin}`) — the same spelling the body statement
+            // produces via `resolve_child_points`. The former `{inst}.{pin}`
+            // dropped the component segment: one pin, two paths, and the
+            // boundary half never met the body half on a net (four disjoint
+            // lanes on the probe board, log/9.20.u127-post-b3569-reading.md).
+            // The owner is the component instance name — the same value the
+            // body half writes.
+            let host_pins: Option<(String, Vec<(String, String)>)> =
                 self.find_submodule(inst_name).and_then(|sub| {
                     let sub_id = sub
                         .node_id
                         .expect("Phase C1: a frozen sub-module carries a node_id");
                     self.components_of(sub_id)
                         .iter()
-                        .find_map(|comp| comp.find_bus_port_pin_ids(&declared_port_name))
+                        .find_map(|comp| {
+                            comp.find_bus_port_pin_ids(&declared_port_name)
+                                .map(|pids| (comp.name.clone(), pids))
+                        })
                 });
-            let right: Vec<NetPoint> = if let Some(ref pids) = pin_ids {
+            let right: Vec<NetPoint> = if let Some((comp_name, pids)) = &host_pins {
                 if pids.len() == left.len() && pids.len() >= 2 {
                     pids.iter()
                         .map(|(member_name, pin_id)| {
-                            let path = format!("{inst_name}.{pin_id}");
-                            NetPoint::with_owner(&path, inst_name, IOType::None, site.clone())
+                            let path = format!("{inst_name}.{comp_name}.{pin_id}");
+                            NetPoint::with_owner(&path, comp_name, IOType::None, site.clone())
                                 .with_member_name(member_name)
                         })
                         .collect()
@@ -1901,7 +1913,7 @@ impl InstantiationBuilder {
             // The boundary connection creates pins like mcu.10, which need to be
             // registered as port entries in the InstTable for flatten_nets to resolve
             // them. Without this, the pins are silently dropped from the actual nets.
-            if let Some(ref pids) = pin_ids {
+            if let Some((_, pids)) = &host_pins {
                 if pids.len() >= 2 {
                     let store = self.store.clone();
                     if let Some(mut sub) = self.find_submodule(inst_name) {

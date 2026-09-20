@@ -29,6 +29,7 @@ mod u120_org_directory;
 mod u121_reverse_index;
 mod u122_partition_block;
 mod u124_offset_alignment;
+mod u127_boundary_point_naming;
 mod u31_positional_fallback;
 mod use_statement_diagnostics;
 mod use_symbol_conflict;
