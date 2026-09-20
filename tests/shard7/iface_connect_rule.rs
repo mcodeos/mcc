@@ -3,7 +3,7 @@
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
 //! Locks the interface connect rule (U128 §1.2 steps 1–2, design doc
-//! `mcd/doc/net/interface-connect-rule-design.md` v0.2, landed in step ②b):
+//! `interface-connect-rule-design.md` v0.2, landed in step ②b):
 //!
 //! * E4120 `IFACE_CROSS_FAMILY_CONNECT` — two endpoints of *different*
 //!   interface families are connected.
