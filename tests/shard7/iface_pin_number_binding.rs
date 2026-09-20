@@ -40,9 +40,12 @@ module main(psnk GND)
 }
 "#;
 
-/// Name matching must still win over pin-number alignment: a physical pin that
-/// is already named like an interface member (flash pin 6 = SCLK, pin 1 = _CS)
-/// keeps its name; only unnamed data lanes fall back to position.
+/// D6 (ruled 2026-09-20): device-side pin names do NOT win — the name-first
+/// branch was the leaf-name heuristic (identity-design.md §8.2 R10) and is
+/// retired. A device pin already named like an interface member (flash pin 6
+/// = SCLK, pin 1 = _CS) does not attract the member; the interface's own pin
+/// number governs (SCLK is interface pin 2 → physical pin 2, whose device
+/// name is SO — the two names coexist on the pin).
 const NAMED_PIN_WINS_SOURCE: &str = r#"
 interface SPI4(role)
 {
@@ -112,14 +115,14 @@ fn mat_ifacebind__out_of_order_pins_bind_by_pin_number() {
 }
 
 #[test]
-fn mat_ifacebind__named_pin_wins_over_pin_number_alignment() {
+fn mat_ifacebind__device_pin_names_do_not_win__interface_pin_number_governs() {
     let paths = net_endpoint_paths(NAMED_PIN_WINS_SOURCE);
     assert!(
-        paths.iter().any(|p| p.ends_with("f.6")),
-        "SCLK member must bind to the already-named pin 6, got endpoints: {paths:#?}"
+        paths.iter().any(|p| p.ends_with("f.2")),
+        "SCLK member must bind by its interface pin number (2), got endpoints: {paths:#?}"
     );
     assert!(
-        !paths.iter().any(|p| p.ends_with("f.2")),
-        "SCLK member must NOT grab pin 2 by interface pin number, got endpoints: {paths:#?}"
+        !paths.iter().any(|p| p.ends_with("f.6")),
+        "SCLK member must NOT be attracted by the device's own pin-6 name, got endpoints: {paths:#?}"
     );
 }
