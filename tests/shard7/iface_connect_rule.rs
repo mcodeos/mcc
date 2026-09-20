@@ -1517,3 +1517,186 @@ fn iface_lbl__roleless_port_falls_back_to_the_family_table() {
         "no role declared: the family table labels both boundaries; got {nets:?}"
     );
 }
+
+// U139 — the two §3.2 rows the landing batches never reached: criterion 4
+// (E4122, endpoint count vs the declared `topology`) and criterion 5 (E4123,
+// attribute compatibility, judged only where both sides declare it).
+//
+// E4122 reads the family definition's `topology` attribute: a family that
+// declares `point to point` fits exactly two endpoints on one net. E4123
+// reads the per-endpoint attribute face of the connect judgment — the
+// selected role's own attribute table (family equality already pins both
+// definitions to one object, so definition-level attributes cannot disagree;
+// `peer` is the pairing mechanism and `name` is display text, so neither is
+// an operating-point declaration). Severity follows the §3.2 table: E4122
+// Error, E4123 Warning (declared-then-judged).
+
+const TOPO_IFACE: &str = r#"
+interface P2P(role)
+{
+    topology = "point to point"
+    pins = [
+        [1,2] = [A, B]
+    ]
+    role Tx { peer = Rx }
+    role Rx { peer = Tx }
+}
+
+interface MANY(role)
+{
+    topology = "multi-point"
+    pins = [
+        [1,2] = [A, B]
+    ]
+    role Tx { peer = Rx }
+    role Rx { peer = Tx }
+}
+
+interface VLT(role)
+{
+    pins = [
+        [1,2] = [A, B]
+    ]
+    role Lo
+    {
+        peer = Hi
+        voltage = [1.8V]
+    }
+    role Hi
+    {
+        peer = Lo
+        voltage = [5V]
+    }
+}
+
+interface VEQ(role)
+{
+    pins = [
+        [1,2] = [A, B]
+    ]
+    role A5
+    {
+        peer = B5
+        voltage = [5V]
+    }
+    role B5
+    {
+        peer = A5
+        voltage = [5V]
+    }
+}
+
+component PDEV { pins = [ [1,2] = IF::P2P(Tx) ] }
+component QDEV { pins = [ [1,2] = IF::P2P(Rx) ] }
+component RDEV { pins = [ [1,2] = IF::P2P(Rx) ] }
+component MDEV { pins = [ [1,2] = IF::MANY(Tx) ] }
+component NDEV { pins = [ [1,2] = IF::MANY(Rx) ] }
+component ODEV { pins = [ [1,2] = IF::MANY(Rx) ] }
+component LODEV { pins = [ [1,2] = IF::VLT(Lo) ] }
+component HIDEV { pins = [ [1,2] = IF::VLT(Hi) ] }
+component LADEV { pins = [ [1,2] = IF::VEQ(A5) ] }
+component LBDEV { pins = [ [1,2] = IF::VEQ(B5) ] }
+"#;
+
+/// Only the two codes this section locks.
+fn rule139_codes(codes: &[u32]) -> Vec<u32> {
+    codes
+        .iter()
+        .filter(|c| **c == 4122 || **c == 4123)
+        .copied()
+        .collect()
+}
+
+/// Build `main` with the TOPO_IFACE fixture and `body`. Same normalization as
+/// `build`.
+fn build_topo(body: &str, uri: &str) -> (Vec<u32>, Vec<Vec<String>>) {
+    let _lock = common::lock();
+    common::reset();
+    let src = format!(
+        "{TOPO_IFACE}module main {{\n    PDEV p1\n    QDEV q1\n    RDEV r1\n    MDEV m1\n    NDEV n1\n    ODEV o1\n    LODEV lo\n    HIDEV hi\n    LADEV la\n    LBDEV lb\n{body}\n}}\n"
+    );
+    let u = McURI::from(uri);
+    mcc::mcc_load_from_string(&u, &src);
+    let (_, _, _, net_store) = mcc::mcc_build_with_nets(&McIds::from("main"), &u).expect("build");
+    let mut codes: Vec<u32> = mcc::mcc_diagnose_all()
+        .iter()
+        .map(|d| d.code)
+        .filter(|c| !benign(*c))
+        .collect();
+    codes.sort_unstable();
+    let mut partition: Vec<Vec<String>> = net_store
+        .get("main")
+        .map(|t| {
+            t.iter()
+                .map(|(_, pts)| {
+                    let mut ps: Vec<String> = pts.iter().map(|p| p.path.clone()).collect();
+                    ps.sort();
+                    ps
+                })
+                .filter(|ps| !ps.is_empty())
+                .collect()
+        })
+        .unwrap_or_default();
+    partition.sort();
+    (codes, partition)
+}
+
+/// Criterion 4: three `P2P` endpoints on one `+` net — the family declares
+/// `point to point`, so the third endpoint is one too many. E4122, once.
+#[test]
+fn iface_topo__point_to_point_family_rejects_a_third_endpoint() {
+    let (codes, _nets) = build_topo("    p1.IF + q1.IF + r1.IF", "/mcc/iface-topo-three.mc");
+    assert_eq!(
+        rule139_codes(&codes),
+        vec![4122],
+        "a point-to-point family with three endpoints on one net must raise E4122 exactly once; got {codes:?}"
+    );
+}
+
+/// Control: two endpoints fit the declared topology — quiet.
+#[test]
+fn iface_topo__two_endpoints_fit_point_to_point() {
+    let (codes, _nets) = build_topo("    p1.IF + q1.IF", "/mcc/iface-topo-two.mc");
+    assert_eq!(
+        rule139_codes(&codes),
+        Vec::<u32>::new(),
+        "two endpoints are exactly what point to point declares; got {codes:?}"
+    );
+}
+
+/// Control: `multi-point` families take n endpoints — the attribute is judged
+/// only where declared, and a declared `multi-point` never fires E4122.
+#[test]
+fn iface_topo__multi_point_family_takes_three_endpoints_quietly() {
+    let (codes, _nets) = build_topo("    m1.IF + n1.IF + o1.IF", "/mcc/iface-topo-multi.mc");
+    assert_eq!(
+        rule139_codes(&codes),
+        Vec::<u32>::new(),
+        "a multi-point family fits any endpoint count; got {codes:?}"
+    );
+}
+
+/// Criterion 5: both selected roles declare `voltage` and the declared value
+/// sets share nothing — E4123 (Warning severity per the §3.2 table).
+#[test]
+fn iface_attr__disjoint_declared_voltage_sets_warn_e4123() {
+    let (codes, _nets) = build_topo("    lo.IF -> hi.IF", "/mcc/iface-attr-disjoint.mc");
+    assert_eq!(
+        rule139_codes(&codes),
+        vec![4123],
+        "roles declaring the same attribute with disjoint value sets must raise E4123; got {codes:?}"
+    );
+}
+
+/// Control: both roles declare `voltage` with the same value — the sets share
+/// a member, the pair is compatible, quiet.
+#[test]
+fn iface_attr__equal_declared_voltage_is_quiet() {
+    let (codes, _nets) = build_topo("    la.IF -> lb.IF", "/mcc/iface-attr-equal.mc");
+    assert_eq!(
+        rule139_codes(&codes),
+        Vec::<u32>::new(),
+        "identical declared value sets are compatible; got {codes:?}"
+    );
+}
+

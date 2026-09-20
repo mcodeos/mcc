@@ -28,6 +28,7 @@ use std::collections::HashSet;
 /// electrical line configuration (`@drive`/`@pull`, U133 phase 2). The
 /// config options are `None` when the member row does not declare them —
 /// an undeclared axis skips the cells that read it (the D9 discipline).
+#[derive(Clone)]
 struct IfaceEndpoint {
     base: std::sync::Arc<crate::semantic::mc_ifs::McInterface>,
     role: Option<String>,
@@ -2242,13 +2243,21 @@ impl InstantiationBuilder {
     pub(super) fn check_iface_connect_points(&mut self, left: &[NetPoint], right: &[NetPoint]) {
         // Cross-side only: each slice is one FACE (all rows of one side), so
         // rows of the same face must never be compared against each other.
-        let Some(ep0) = left.iter().find_map(|p| self.iface_endpoint_of_point(p)) else {
+        let left_eps: Vec<IfaceEndpoint> = left
+            .iter()
+            .filter_map(|p| self.iface_endpoint_of_point(p))
+            .collect();
+        let Some(ep0) = left_eps.first().cloned() else {
             return;
         };
         let rights: Vec<_> = right
             .iter()
             .filter_map(|p| self.iface_endpoint_of_point(p))
             .collect();
+        // Criterion 4 counts the whole junction, both faces included.
+        let mut eps = left_eps;
+        eps.extend(rights.iter().cloned());
+        self.check_iface_topology(&eps);
         for ep in &rights {
             if self.iface_pair_diag(&ep0, ep) {
                 return;
@@ -2264,6 +2273,7 @@ impl InstantiationBuilder {
             .iter()
             .filter_map(|p| self.iface_endpoint_of_point(p))
             .collect();
+        self.check_iface_topology(&eps);
         let Some(ep0) = eps.first() else {
             return;
         };
@@ -2271,6 +2281,50 @@ impl InstantiationBuilder {
             if self.iface_pair_diag(ep0, ep) {
                 return;
             }
+        }
+    }
+
+    /// §1.6 criterion 4 (E4122): an interface family whose definition
+    /// declares `topology = "point to point"` fits exactly two endpoints on
+    /// one net — more report once per family. Families without the attribute
+    /// (or declaring `multi-point`) skip: the attribute is judged only where
+    /// declared. Junction-local by design — nets merged across separate
+    /// statements are the flatten stage's reading, not this sweep's.
+    fn check_iface_topology(&mut self, eps: &[IfaceEndpoint]) {
+        let mut fams: Vec<(String, usize)> = Vec::new();
+        for ep in eps {
+            let fam = ep.base.name.to_string();
+            match fams.iter_mut().find(|(f, _)| *f == fam) {
+                Some((_, count)) => *count += 1,
+                None => fams.push((fam, 1)),
+            }
+        }
+        for (fam, count) in &fams {
+            if *count <= 2 {
+                continue;
+            }
+            let point_to_point = eps
+                .iter()
+                .find(|ep| ep.base.name.to_string() == *fam)
+                .and_then(|ep| {
+                    ep.base.attrs
+                        .iter()
+                        .find(|a| a.id.to_string() == "topology")
+                        .map(|a| Self::iface_attr_value_set(&a.values))
+                })
+                .is_some_and(|set| set.len() == 1 && set[0] == "point to point");
+            if !point_to_point {
+                continue;
+            }
+            let msg = crate::errcodes::format_msg(
+                crate::errcodes::IFACE_ENDPOINT_COUNT_TOPOLOGY,
+                &[fam as &dyn std::fmt::Display, count],
+            );
+            self.log_global_diag(
+                crate::errcodes::IFACE_ENDPOINT_COUNT_TOPOLOGY,
+                crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
+                msg,
+            );
         }
     }
 
@@ -2312,7 +2366,7 @@ impl InstantiationBuilder {
                         r.attrs
                             .iter()
                             .filter(|a| a.id.to_string() == "peer")
-                            .flat_map(|a| Self::iface_peer_names(&a.values))
+                            .flat_map(|a| Self::iface_attr_value_set(&a.values))
                             .collect()
                     })
                     .unwrap_or_default()
@@ -2397,6 +2451,53 @@ impl InstantiationBuilder {
                     msg,
                 );
                 return true;
+            }
+        }
+        // Step 6 (criterion 5, E4123): attribute compatibility — judged only
+        // where BOTH sides declare the same attribute id, and the per-endpoint
+        // attribute face in the connect judgment is the selected role's own
+        // attribute table: family equality (step 1) pins both definitions to
+        // the same object, so definition-level attributes cannot disagree by
+        // construction. `peer` is the pairing mechanism itself (step 2's
+        // data) and `name` is display text (N4: names never judge) — neither
+        // is an operating-point declaration. Disjoint declared value sets
+        // warn (Warning by the design's criteria table: declared-then-judged,
+        // an operating-point review matter, not a hard shape failure).
+        if let (Some(lr), Some(rr)) = (role0.as_deref(), role.as_deref()) {
+            let mut picked: [Option<&crate::semantic::basic::mc_role::McRole>; 2] = [None, None];
+            for (i, (b, nm)) in [(base0, lr), (base, rr)].iter().enumerate() {
+                picked[i] = b.roles.iter().find(|r| r.name.to_string() == *nm);
+            }
+            if let (Some(r0), Some(r)) = (picked[0], picked[1]) {
+                for a0 in r0.attrs.iter() {
+                    let key = a0.id.to_string();
+                    if key == "peer" || key == "name" {
+                        continue;
+                    }
+                    let Some(a) = r.attrs.iter().find(|a| a.id.to_string() == key) else {
+                        continue;
+                    };
+                    let set0 = Self::iface_attr_value_set(&a0.values);
+                    let set = Self::iface_attr_value_set(&a.values);
+                    if set0.is_empty() || set.is_empty() {
+                        continue;
+                    }
+                    if set0.iter().any(|v| set.contains(v)) {
+                        continue;
+                    }
+                    let lvals = set0.join(", ");
+                    let rvals = set.join(", ");
+                    let msg = crate::errcodes::format_msg(
+                        crate::errcodes::IFACE_ATTR_INCOMPATIBLE,
+                        &[&fam0 as &dyn std::fmt::Display, &key, &lvals, &rvals],
+                    );
+                    self.log_global_diag(
+                        crate::errcodes::IFACE_ATTR_INCOMPATIBLE,
+                        crate::db::diagnostic::diagnostic::DiagnosticLevel::Warning,
+                        msg,
+                    );
+                    return true;
+                }
             }
         }
         false
@@ -2500,7 +2601,13 @@ impl InstantiationBuilder {
 
     /// Role names named by one `peer` attribute's values (U128 §1.2 step 2).
     /// Mirrors the reader in `validation/hw.rs` so both stay in step.
-    fn iface_peer_names(values: &[crate::McAttrVal]) -> Vec<String> {
+    /// The declared value set of one attribute occurrence: a `Set` expression
+    /// flattens to its items, anything else reads as written. The single
+    /// reader behind the `peer` check and the E4122/E4123 criteria — one
+    /// spelling of "what did the definition declare". A matching surrounding
+    /// quote pair is stripped, so `topology = "point to point"` compares as
+    /// the written words, not as a quoted token.
+    fn iface_attr_value_set(values: &[crate::McAttrVal]) -> Vec<String> {
         let mut out = Vec::new();
         for val in values {
             if let crate::McAttrVal::AttrExpr(crate::semantic::basic::mc_expr::McExpression::Set(
@@ -2510,11 +2617,21 @@ impl InstantiationBuilder {
                 out.extend(
                     items
                         .iter()
-                        .map(|e| e.to_string().trim().to_string())
+                        .map(|e| {
+                            crate::semantic::basic::mc_literal::strip_string_quotes(
+                                e.to_string().trim(),
+                            )
+                            .trim()
+                            .to_string()
+                        })
                         .filter(|s| !s.is_empty()),
                 );
             } else {
-                let s = format!("{}", val).trim().to_string();
+                let s = crate::semantic::basic::mc_literal::strip_string_quotes(
+                    format!("{}", val).trim(),
+                )
+                .trim()
+                .to_string();
                 if !s.is_empty() {
                     out.push(s);
                 }
