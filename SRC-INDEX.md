@@ -33,7 +33,7 @@ range (threshold 40KB).
 | `db/infra/mc_code.rs` | 341 KB | 95 |
 | `viz/layout/equipotential_tree.rs` | 332 KB | 173 |
 | `semantic/basic/mc_phrase.rs` | 308 KB | 65 |
-| `semantic/component/mc_pins/mod.rs` | 215 KB | 101 |
+| `semantic/component/mc_pins/mod.rs` | 216 KB | 101 |
 | `instant/mc_mod/stmt.rs` | 194 KB | 76 |
 | `semantic/validation/nets/mod.rs` | 176 KB | 115 |
 | `db/diagnostic/errcodes.rs` | 175 KB | 431 |
@@ -70,7 +70,7 @@ range (threshold 40KB).
 | `query/` | 9 | 157 KB |
 | `refdef/` | 7 | 118 KB |
 | `rpc/` | 16 | 293 KB |
-| `semantic/` | 89 | 2552 KB |
+| `semantic/` | 89 | 2553 KB |
 | `stages/` | 11 | 296 KB |
 | `vector/` | 25 | 462 KB |
 | `viz/` | 95 | 2284 KB |
@@ -5922,60 +5922,60 @@ semantic/component/mc_pins/mod.rs#L845  fn get_bus_members
 semantic/component/mc_pins/mod.rs#L859  fn get_bus_members_for_port
 semantic/component/mc_pins/mod.rs#L904  fn power_pair_member_refs
 semantic/component/mc_pins/mod.rs#L928  fn parse
-semantic/component/mc_pins/mod.rs#L1974  fn parse_pinid
-semantic/component/mc_pins/mod.rs#L2183  enum PinPart
-semantic/component/mc_pins/mod.rs#L2434  fn insert_values
-semantic/component/mc_pins/mod.rs#L2444  fn attach_row_attrs
-semantic/component/mc_pins/mod.rs#L2468  fn group_entry
-semantic/component/mc_pins/mod.rs#L2485  fn note_group_member
-semantic/component/mc_pins/mod.rs#L2496  fn register_pin
-semantic/component/mc_pins/mod.rs#L2599  fn merge_into_base
-semantic/component/mc_pins/mod.rs#L2632  fn extract_common_base
-semantic/component/mc_pins/mod.rs#L2649  fn find_pin
-semantic/component/mc_pins/mod.rs#L2665  fn pin_of_ref
-semantic/component/mc_pins/mod.rs#L2675  fn get_all_pins
-semantic/component/mc_pins/mod.rs#L2679  fn count
-semantic/component/mc_pins/mod.rs#L2683  fn get_pins_by_io
-semantic/component/mc_pins/mod.rs#L2701  fn get_pin_io
-semantic/component/mc_pins/mod.rs#L2710  fn build_interface_param_bindings
-semantic/component/mc_pins/mod.rs#L2748  fn leading_ident_span
-semantic/component/mc_pins/mod.rs#L2786  impl std::fmt::Display for McPins
-semantic/component/mc_pins/mod.rs#L2787  fn fmt
-semantic/component/mc_pins/mod.rs#L2922  struct McPinNames
-semantic/component/mc_pins/mod.rs#L2940  impl McPinNames
-semantic/component/mc_pins/mod.rs#L2945  fn push_option
-semantic/component/mc_pins/mod.rs#L2952  fn push_option_with_span
-semantic/component/mc_pins/mod.rs#L2963  fn has_param_ref
-semantic/component/mc_pins/mod.rs#L2982  fn new
-semantic/component/mc_pins/mod.rs#L2992  fn new_power_row
-semantic/component/mc_pins/mod.rs#L2996  fn new_inner
-semantic/component/mc_pins/mod.rs#L3882  fn derive_interface_subnames
-semantic/component/mc_pins/mod.rs#L3923  mod subname_tests
-semantic/component/mc_pins/mod.rs#L3929  fn ida
-semantic/component/mc_pins/mod.rs#L3936  fn bus_ids
-semantic/component/mc_pins/mod.rs#L3953  fn list_ids
-semantic/component/mc_pins/mod.rs#L3968  fn plain_ids
-semantic/component/mc_pins/mod.rs#L3980  fn sem_mcpins__bus_form_xtal_regression
-semantic/component/mc_pins/mod.rs#L3989  fn sem_mcpins__bus_form_dc2
-semantic/component/mc_pins/mod.rs#L3998  fn sem_mcpins__list_form_no_prefix
-semantic/component/mc_pins/mod.rs#L4007  fn sem_mcpins__plain_form_crosses_with_iface_pins
-semantic/component/mc_pins/mod.rs#L4016  fn sem_mcpins__plain_form_empty_iface_pins
-semantic/component/mc_pins/mod.rs#L4025  fn sem_mcpins__embedded_square_gpio_interface
-semantic/component/mc_pins/mod.rs#L4035  mod pwr_capture_tests
-semantic/component/mc_pins/mod.rs#L4042  fn parse_component_pins
-semantic/component/mc_pins/mod.rs#L4059  const LDO
-semantic/component/mc_pins/mod.rs#L4072  fn captures_psnk_sink_pair_with_nominal
-semantic/component/mc_pins/mod.rs#L4091  fn captures_psrc_source_with_tol_text
-semantic/component/mc_pins/mod.rs#L4109  fn plain_power_and_signal_pins_are_not_contracts
-semantic/component/mc_pins/mod.rs#L4110  const SRC
-semantic/component/mc_pins/mod.rs#L4138  fn captures_ac_row_beside_the_dc_axis
-semantic/component/mc_pins/mod.rs#L4139  const SRC
-semantic/component/mc_pins/mod.rs#L4171  fn generic_io_row_identity_attrs_carry_to_pins
-semantic/component/mc_pins/mod.rs#L4172  const SRC
-semantic/component/mc_pins/mod.rs#L4212  fn row_attrs_merge_into_reused_pin_without_duplicate_keys
-semantic/component/mc_pins/mod.rs#L4213  const SRC
-semantic/component/mc_pins/mod.rs#L4237  fn dynamic_pin_row_identity_attrs_carry_on_the_line
-semantic/component/mc_pins/mod.rs#L4238  const SRC
+semantic/component/mc_pins/mod.rs#L1991  fn parse_pinid
+semantic/component/mc_pins/mod.rs#L2200  enum PinPart
+semantic/component/mc_pins/mod.rs#L2451  fn insert_values
+semantic/component/mc_pins/mod.rs#L2461  fn attach_row_attrs
+semantic/component/mc_pins/mod.rs#L2485  fn group_entry
+semantic/component/mc_pins/mod.rs#L2502  fn note_group_member
+semantic/component/mc_pins/mod.rs#L2513  fn register_pin
+semantic/component/mc_pins/mod.rs#L2616  fn merge_into_base
+semantic/component/mc_pins/mod.rs#L2649  fn extract_common_base
+semantic/component/mc_pins/mod.rs#L2666  fn find_pin
+semantic/component/mc_pins/mod.rs#L2682  fn pin_of_ref
+semantic/component/mc_pins/mod.rs#L2692  fn get_all_pins
+semantic/component/mc_pins/mod.rs#L2696  fn count
+semantic/component/mc_pins/mod.rs#L2700  fn get_pins_by_io
+semantic/component/mc_pins/mod.rs#L2718  fn get_pin_io
+semantic/component/mc_pins/mod.rs#L2727  fn build_interface_param_bindings
+semantic/component/mc_pins/mod.rs#L2765  fn leading_ident_span
+semantic/component/mc_pins/mod.rs#L2803  impl std::fmt::Display for McPins
+semantic/component/mc_pins/mod.rs#L2804  fn fmt
+semantic/component/mc_pins/mod.rs#L2939  struct McPinNames
+semantic/component/mc_pins/mod.rs#L2957  impl McPinNames
+semantic/component/mc_pins/mod.rs#L2962  fn push_option
+semantic/component/mc_pins/mod.rs#L2969  fn push_option_with_span
+semantic/component/mc_pins/mod.rs#L2980  fn has_param_ref
+semantic/component/mc_pins/mod.rs#L2999  fn new
+semantic/component/mc_pins/mod.rs#L3009  fn new_power_row
+semantic/component/mc_pins/mod.rs#L3013  fn new_inner
+semantic/component/mc_pins/mod.rs#L3899  fn derive_interface_subnames
+semantic/component/mc_pins/mod.rs#L3940  mod subname_tests
+semantic/component/mc_pins/mod.rs#L3946  fn ida
+semantic/component/mc_pins/mod.rs#L3953  fn bus_ids
+semantic/component/mc_pins/mod.rs#L3970  fn list_ids
+semantic/component/mc_pins/mod.rs#L3985  fn plain_ids
+semantic/component/mc_pins/mod.rs#L3997  fn sem_mcpins__bus_form_xtal_regression
+semantic/component/mc_pins/mod.rs#L4006  fn sem_mcpins__bus_form_dc2
+semantic/component/mc_pins/mod.rs#L4015  fn sem_mcpins__list_form_no_prefix
+semantic/component/mc_pins/mod.rs#L4024  fn sem_mcpins__plain_form_crosses_with_iface_pins
+semantic/component/mc_pins/mod.rs#L4033  fn sem_mcpins__plain_form_empty_iface_pins
+semantic/component/mc_pins/mod.rs#L4042  fn sem_mcpins__embedded_square_gpio_interface
+semantic/component/mc_pins/mod.rs#L4052  mod pwr_capture_tests
+semantic/component/mc_pins/mod.rs#L4059  fn parse_component_pins
+semantic/component/mc_pins/mod.rs#L4076  const LDO
+semantic/component/mc_pins/mod.rs#L4089  fn captures_psnk_sink_pair_with_nominal
+semantic/component/mc_pins/mod.rs#L4108  fn captures_psrc_source_with_tol_text
+semantic/component/mc_pins/mod.rs#L4126  fn plain_power_and_signal_pins_are_not_contracts
+semantic/component/mc_pins/mod.rs#L4127  const SRC
+semantic/component/mc_pins/mod.rs#L4155  fn captures_ac_row_beside_the_dc_axis
+semantic/component/mc_pins/mod.rs#L4156  const SRC
+semantic/component/mc_pins/mod.rs#L4188  fn generic_io_row_identity_attrs_carry_to_pins
+semantic/component/mc_pins/mod.rs#L4189  const SRC
+semantic/component/mc_pins/mod.rs#L4229  fn row_attrs_merge_into_reused_pin_without_duplicate_keys
+semantic/component/mc_pins/mod.rs#L4230  const SRC
+semantic/component/mc_pins/mod.rs#L4254  fn dynamic_pin_row_identity_attrs_carry_on_the_line
+semantic/component/mc_pins/mod.rs#L4255  const SRC
 semantic/component/mod.rs#L5  mod mc_attr
 semantic/component/mod.rs#L6  mod mc_attr_view
 semantic/component/mod.rs#L7  mod mc_layout
