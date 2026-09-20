@@ -5031,16 +5031,16 @@ fn interface_elems(iface: &Mc2Interface) -> Vec<McBus> {
                 .collect();
         }
     }
-    let pin_names: Vec<String> = iface
-        .base
-        .pins
-        .pins
-        .values()
-        .filter_map(|p| p.names.first().cloned())
-        .collect();
-    if pin_names.len() >= 2 {
+    // U150: the no-written-members fallback reads the ordinal tables (declared
+    // role table, else the base pin table in declaration order) — not
+    // `pins.values()` + `names.first()`, which yields nothing for anonymous
+    // conductor-view pins (`1 = _`) and silently degrades the width to 1, so a
+    // re-spelled peer presents N members against a 1-element `[SPI]` sentinel
+    // and pass0 rejects the merge with E4005 before Pass2 ever pairs lanes.
+    let member_names = iface.ordinal_member_names();
+    if member_names.len() >= 2 {
         let port_name = iface.name.to_string();
-        return pin_names
+        return member_names
             .into_iter()
             .map(|m| McBus::new(&format!("{port_name}.{m}")))
             .collect();
