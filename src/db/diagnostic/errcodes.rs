@@ -1467,6 +1467,14 @@ pub const HW_FUNC_PARAM_SHADOWS_PIN: u32 = 5510;
 /// `out` direction word at their adoption rows.
 pub const IFACE_DIR_CONFLICT: u32 = 5511;
 
+/// U133 phase 2 — the two sides of an interface member connection declare
+/// different electrical drive types (`@drive`) on their member rows.
+pub const IFACE_DRIVE_CONFLICT: u32 = 5512;
+
+/// U133 phase 2 — both sides of an interface member connection drive
+/// open-drain and neither member row declares a `@pull`.
+pub const IFACE_OD_NO_PULL: u32 = 5513;
+
 // Pass3: type / unit compatibility (5550-5599)
 
 /// Incompatible types or unit types.
@@ -2344,6 +2352,8 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(IFACE_CROSS_FAMILY_CONNECT, "Endpoints of different interface families are connected.", "IFACE_CROSS_FAMILY_CONNECT: '{0}' and '{1}' are different interface families and cannot pair — the interface connect rule pairs only same-family interfaces (ordinal k on the two sides is the same wire). Renaming a member does not bridge families."),
     entry!(IFACE_ROLE_INCOMPATIBLE, "Connected interface roles are not mutual peers.", "IFACE_ROLE_INCOMPATIBLE: '{0}' and '{1}' of interface '{2}' are connected, but neither role names the other as its `peer` — declare `peer = {1}` on '{0}' and `peer = {0}` on '{1}', or connect a roleless side (which pairs positionally without the role check)."),
     entry!(IFACE_DIR_CONFLICT, "Both sides of an interface member connection declare the out direction.", "IFACE_DIR_CONFLICT: roles '{0}' and '{1}' of interface '{2}' are connected with the `out` direction word on both adoption rows — two push-pull outputs wired against each other is a drive fight; one side must read, not drive. The in-in and bidir cells of the compatibility matrix are other checks' territory (interface-member-config-design.md section 3, phase 1 covers out-out only)."),
+    entry!(IFACE_DRIVE_CONFLICT, "The two sides of an interface member connection declare different electrical drive types.", "IFACE_DRIVE_CONFLICT: roles '{0}' and '{1}' of interface '{2}' are connected, but their member rows declare different drive types (`@drive`) — a push-pull output against an open-drain output on one line is a contention form; both sides must state the same drive type. A side without a `@drive` declaration skips the cell (no declaration, no inference; interface-member-config-design.md section 3)."),
+    entry!(IFACE_OD_NO_PULL, "Both sides of an interface member connection drive open-drain and neither declares a pull.", "IFACE_OD_NO_PULL: roles '{0}' and '{1}' of interface '{2}' are connected with `@drive(od)` on both member rows and neither row declares `@pull` — an open-drain line with no pull-up floats when both sides release it. Declare `@pull(up)` (or `@pull(none)` where an external pull is guaranteed) on one member row."),
     // section
     entry!(INST_CHAIN_LINK_SKIPPED, "A chain link was skipped because the method is not defined on the instance.", "Method '{0}' not defined in {1} '{2}'; chain link skipped, no body expanded."),
     entry!(INST_ARG_NO_FORMAL_PORT, "Instance argument has no formal port to bind.", "Instance '{0}' arg{1} '{2}' has no formal port to bind"),

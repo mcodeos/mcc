@@ -676,7 +676,11 @@ fn dir_flat(body: &str) -> Vec<u32> {
 #[test]
 fn u133__out_out_is_e5511_and_still_connects() {
     let (codes, nets) = build_dir("    o1.IF -> o2.IF", "/mcc/iface-dir-out-out.mc");
-    assert_eq!(codes, vec![5511], "exactly the drive-fight code; got {codes:?}");
+    assert_eq!(
+        codes,
+        vec![5511],
+        "exactly the drive-fight code; got {codes:?}"
+    );
     assert!(
         nets.contains(&vec!["o1.1".to_string(), "o2.1".to_string()]),
         "the connection must still merge pin 1 of both sides; got {nets:?}"
@@ -993,5 +997,387 @@ fn iface_pair__partial_family_aligns_and_crosses_in_one_statement() {
             vec!["pm.4".to_string(), "ps.4".to_string()],
         ],
         "CS and SCLK align, MISO meets SO and MOSI meets SI — all by table order; got {nets:?}"
+    );
+}
+
+// U133 phase 2 (interface-member-config-design.md §3, the 2026-09-20 rulings):
+// the electrical line configuration rides `@drive(pp|od)` / `@pull(up|down|none)`
+// on the pin rows — the adoption row's trailing attrs (attach_row_attrs), with
+// the interface member row as the lib-side default. The cells: both sides
+// declared and different is a contention form (E5512); both `od` with neither
+// side declaring a pull leaves the line floating (E5513, a warning — an
+// external pull can be guaranteed outside the model, which an explicit
+// `@pull(none)` states); every undeclared axis skips its cell (D9); the bidir
+// direction cells are quiet (bidir is the neutral direction).
+
+/// One family, two roles like DRX; the components differ in the trailing
+/// `@drive`/`@pull` attrs on their adoption rows (or their absence). The
+/// direction word stays off all rows — these cells are the electrical axis,
+/// independent of the direction axis phase 1 locked.
+const CFG_IFACE: &str = r#"
+interface CRX(role)
+{
+    pins = [
+        [1,2] = [A, B]
+    ]
+    role P { peer = Q }
+    role Q { peer = P }
+}
+
+component PPDEV
+{
+    pins = [
+        [1,2] = IF::CRX(P) @drive(pp)
+    ]
+}
+
+component PPDEV2
+{
+    pins = [
+        [1,2] = IF::CRX(Q) @drive(pp)
+    ]
+}
+
+component ODDEV
+{
+    pins = [
+        [1,2] = IF::CRX(Q) @drive(od)
+    ]
+}
+
+component ODDEV2
+{
+    pins = [
+        [1,2] = IF::CRX(P) @drive(od)
+    ]
+}
+
+component ODPULL
+{
+    pins = [
+        [1,2] = IF::CRX(Q) @drive(od) @pull(up)
+    ]
+}
+
+component ODNOPULL
+{
+    pins = [
+        [1,2] = IF::CRX(P) @drive(od) @pull(none)
+    ]
+}
+
+component NODEV
+{
+    pins = [
+        [1,2] = IF::CRX(Q)
+    ]
+}
+"#;
+
+/// Build `main` with the CFG_IFACE fixture and `body`, keeping only codes
+/// outside the benign set (same normalization as `build_dir`).
+fn build_cfg(body: &str, uri: &str) -> (Vec<u32>, Vec<Vec<String>>) {
+    let _lock = common::lock();
+    common::reset();
+    let src = format!(
+        "{CFG_IFACE}module main {{\n    PPDEV p1\n    PPDEV2 p2\n    ODDEV d1\n    ODDEV2 d2\n    ODPULL u1\n    ODNOPULL n1\n    NODEV x1\n{body}\n}}\n"
+    );
+    let u = McURI::from(uri);
+    mcc::mcc_load_from_string(&u, &src);
+    let (_, _, _, net_store) = mcc::mcc_build_with_nets(&McIds::from("main"), &u).expect("build");
+    let mut codes: Vec<u32> = mcc::mcc_diagnose_all()
+        .iter()
+        .map(|d| d.code)
+        .filter(|c| !benign(*c))
+        .collect();
+    codes.sort_unstable();
+    let mut partition: Vec<Vec<String>> = net_store
+        .get("main")
+        .map(|t| {
+            t.iter()
+                .map(|(_, pts)| {
+                    let mut ps: Vec<String> = pts.iter().map(|p| p.path.clone()).collect();
+                    ps.sort();
+                    ps
+                })
+                .filter(|ps| !ps.is_empty())
+                .collect()
+        })
+        .unwrap_or_default();
+    partition.sort();
+    (codes, partition)
+}
+
+/// pp↔od: a push-pull output against an open-drain output on one line —
+/// E5512, and per the build-so-it's-findable principle the connection itself
+/// is still made.
+#[test]
+fn u133p2__pp_od_is_e5512_and_still_connects() {
+    let (codes, nets) = build_cfg("    p1.IF -> d1.IF", "/mcc/iface-cfg-pp-od.mc");
+    assert_eq!(
+        codes,
+        vec![5512],
+        "exactly the drive-contention code; got {codes:?}"
+    );
+    assert!(
+        nets.contains(&vec!["d1.1".to_string(), "p1.1".to_string()]),
+        "the contended connect must actually merge pin 1 of both sides; got {nets:?}"
+    );
+}
+
+/// pp↔pp: matching drive types are the normal connect — quiet.
+#[test]
+fn u133p2__pp_pp_is_quiet() {
+    let (codes, _) = build_cfg("    p1.IF -> p2.IF", "/mcc/iface-cfg-pp-pp.mc");
+    assert_eq!(
+        rule_codes(&codes),
+        Vec::<u32>::new(),
+        "matching @drive must stay quiet; got {codes:?}"
+    );
+}
+
+/// od↔od with neither row declaring a `@pull`: the line floats when both
+/// sides release — E5513, a warning.
+#[test]
+fn u133p2__od_od_without_pull_is_e5513() {
+    let (codes, _) = build_cfg("    d1.IF -> d2.IF", "/mcc/iface-cfg-od-od.mc");
+    assert_eq!(
+        codes,
+        vec![5513],
+        "exactly the floating open-drain code; got {codes:?}"
+    );
+}
+
+/// od↔od with one side declaring `@pull(up)`: the pull is stated, the cell is
+/// satisfied — quiet.
+#[test]
+fn u133p2__od_od_with_pull_is_quiet() {
+    let (codes, _) = build_cfg("    u1.IF -> d2.IF", "/mcc/iface-cfg-od-pull.mc");
+    assert_eq!(
+        rule_codes(&codes),
+        Vec::<u32>::new(),
+        "a declared @pull must stay quiet; got {codes:?}"
+    );
+}
+
+/// od↔od where the other side states `@pull(none)`: a declared absence (an
+/// external pull guaranteed outside the model) satisfies the cell — quiet.
+#[test]
+fn u133p2__od_od_with_declared_none_pull_is_quiet() {
+    let (codes, _) = build_cfg("    n1.IF -> d1.IF", "/mcc/iface-cfg-od-none.mc");
+    assert_eq!(
+        rule_codes(&codes),
+        Vec::<u32>::new(),
+        "@pull(none) is a declaration, not an absence; got {codes:?}"
+    );
+}
+
+/// One side declared, one not: the cell skips (D9 — no declaration, no
+/// inference).
+#[test]
+fn u133p2__one_side_undeclared_skips_the_cell() {
+    let (codes, _) = build_cfg("    p1.IF -> x1.IF", "/mcc/iface-cfg-one-side.mc");
+    assert!(
+        !codes.contains(&5512) && !codes.contains(&5513),
+        "a side without @drive/@pull skips the cell; got {codes:?}"
+    );
+}
+
+/// The direction axis and the electrical axis stay out of each other's way:
+/// the adoption-row direction word off, the electrical cells judged on their
+/// own — io↔io (the bidir↔bidir cell) is quiet on direction, od↔od without a
+/// pull still warns on the electrical axis.
+#[test]
+fn u133p2__direction_word_absent_electrical_axis_still_judged() {
+    let (codes, _) = build_cfg("    d1.IF -> d2.IF", "/mcc/iface-cfg-axes.mc");
+    assert_eq!(
+        codes,
+        vec![5513],
+        "no direction word was declared anywhere, yet the od cell reports; got {codes:?}"
+    );
+}
+
+/// The definition-side branch of the carrier: the interface member row states
+/// the device's nature (`@drive(od)`), the adoption rows carry nothing — the
+/// default reaches both endpoints and the od cell judges on it. This is the
+/// shape a lib-side `gpio.mc` rewrite rides.
+const DEF_CFG_IFACE: &str = r#"
+interface DRX2(role)
+{
+    pins = [
+        [1,2] = [A, B] @drive(od)
+    ]
+    role P { peer = Q }
+    role Q { peer = P }
+}
+
+component PLAINDEV
+{
+    pins = [
+        [1,2] = IF::DRX2(P)
+    ]
+}
+
+component PLAINDEV2
+{
+    pins = [
+        [1,2] = IF::DRX2(Q)
+    ]
+}
+
+component ADOPTPULL
+{
+    pins = [
+        [1,2] = IF::DRX2(Q) @pull(up)
+    ]
+}
+"#;
+
+/// Build `main` with the DEF_CFG_IFACE fixture and `body`.
+fn build_def_cfg(body: &str, uri: &str) -> Vec<u32> {
+    let _lock = common::lock();
+    common::reset();
+    let src = format!(
+        "{DEF_CFG_IFACE}module main {{\n    PLAINDEV q1\n    PLAINDEV2 q2\n    ADOPTPULL q3\n{body}\n}}\n"
+    );
+    let u = McURI::from(uri);
+    mcc::mcc_load_from_string(&u, &src);
+    let _ = mcc::mcc_build_with_nets(&McIds::from("main"), &u).expect("build");
+    let mut codes: Vec<u32> = mcc::mcc_diagnose_all()
+        .iter()
+        .map(|d| d.code)
+        .filter(|c| !benign(*c))
+        .collect();
+    codes.sort_unstable();
+    codes
+}
+
+/// Definition-side `@drive(od)` on the member row, no `@pull` anywhere: both
+/// endpoints read the od default and the floating-line cell reports.
+#[test]
+fn u133p2__definition_side_drive_reaches_both_endpoints() {
+    let codes = build_def_cfg("    q1.IF -> q2.IF", "/mcc/iface-defcfg-od-od.mc");
+    assert_eq!(
+        codes,
+        vec![5513],
+        "the member row's od default must feed the cell; got {codes:?}"
+    );
+}
+
+/// The adoption row's `@pull` overrides the silence of the definition side —
+/// the two carriers compose, adoption first.
+#[test]
+fn u133p2__adoption_side_pull_satisfies_definition_side_od() {
+    let codes = build_def_cfg("    q1.IF -> q3.IF", "/mcc/iface-defcfg-pull.mc");
+    assert_eq!(
+        codes,
+        Vec::<u32>::new(),
+        "adoption-side @pull(up) must satisfy the od default; got {codes:?}"
+    );
+}
+
+// The single-pin-id adoption shapes: the point is port-level (`a.IFX`, no pin
+// segment) and the single-pin interface arm registered no Interface port
+// before this batch — the whole rule was blind on them (GPIO included). Both
+// carriers lock here: the interface member row's default and the adoption
+// row's declaration.
+
+/// Definition-side `@drive(od)` on a single-member interface; adoption rows
+/// carry nothing. The floating-line cell must see both endpoints.
+#[test]
+fn u133p2__single_pin_adoption_def_side_od_reports() {
+    let _lock = common::lock();
+    common::reset();
+    let src = r#"
+interface ONE(role)
+{
+    pins = [
+        [1] = [A] @drive(od)
+    ]
+    role P { peer = Q }
+    role Q { peer = P }
+}
+component SA
+{
+    pins = [
+        [1] = IFX::ONE(P)
+    ]
+}
+component SB
+{
+    pins = [
+        [1] = IFX::ONE(Q)
+    ]
+}
+module main {
+    SA dev1
+    SB dev2
+    dev1.IFX -> dev2.IFX
+}
+"#;
+    let u = McURI::from("/mcc/iface-single-def.mc");
+    mcc::mcc_load_from_string(&u, src);
+    mcc::mcc_build_flat(&McIds::from("main"), &u, 1000).expect("build");
+    let mut codes: Vec<u32> = mcc::mcc_diagnose_all()
+        .iter()
+        .map(|d| d.code)
+        .filter(|c| !benign(*c))
+        .collect();
+    codes.sort_unstable();
+    codes.retain(|c| *c == 5513);
+    assert_eq!(
+        codes,
+        vec![5513],
+        "the single-pin adoption must reach the od cell via the member row default; got {codes:?}"
+    );
+}
+
+/// Adoption-side `@drive(od)` on both single-pin rows — the trailing attrs
+/// must survive a row whose name side carries interface parameters.
+#[test]
+fn u133p2__single_pin_adoption_adopt_side_od_reports() {
+    let _lock = common::lock();
+    common::reset();
+    let src = r#"
+interface TWO(count::INT = 1, role)
+{
+    pins = [
+        1:count = 1:count
+    ]
+    role P { peer = Q }
+    role Q { peer = P }
+}
+component SC
+{
+    pins = [
+        [1] = IFX::TWO(1, P) @drive(od)
+    ]
+}
+component SD
+{
+    pins = [
+        [1] = IFX::TWO(1, Q) @drive(od)
+    ]
+}
+module main {
+    SC dev3
+    SD dev4
+    dev3.IFX -> dev4.IFX
+}
+"#;
+    let u = McURI::from("/mcc/iface-single-adopt.mc");
+    mcc::mcc_load_from_string(&u, src);
+    mcc::mcc_build_flat(&McIds::from("main"), &u, 1000).expect("build");
+    let mut codes: Vec<u32> = mcc::mcc_diagnose_all()
+        .iter()
+        .map(|d| d.code)
+        .filter(|c| !benign(*c))
+        .collect();
+    codes.sort_unstable();
+    codes.retain(|c| *c == 5513);
+    assert_eq!(
+        codes,
+        vec![5513],
+        "the adoption-row trailing @drive must ride a parameter-carrying single-pin row; got {codes:?}"
     );
 }

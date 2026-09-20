@@ -18,10 +18,23 @@ use crate::semantic::basic::mc_opd::McOpd;
 use crate::semantic::basic::mc_param::McParamValue;
 use crate::semantic::basic::mc_phrase::McPhrase;
 use crate::semantic::common::{ConnDir, IOType};
-use crate::semantic::component::mc_pins::{McPinPort, PwrDir};
+use crate::semantic::component::mc_pins::{McPinPort, McPins, PwrDir};
 use crate::semantic::mc_inst::McInstance;
 use crate::vector::model::trunk::TrunkKind;
 use std::collections::HashSet;
+
+/// One interface endpoint of a junction: the family definition, the
+/// adopted role, the adoption row's direction word, and the member row's
+/// electrical line configuration (`@drive`/`@pull`, U133 phase 2). The
+/// config options are `None` when the member row does not declare them —
+/// an undeclared axis skips the cells that read it (the D9 discipline).
+struct IfaceEndpoint {
+    base: std::sync::Arc<crate::semantic::mc_ifs::McInterface>,
+    role: Option<String>,
+    dir: IOType,
+    drive: Option<String>,
+    pull: Option<String>,
+}
 
 // ── M11.4: lane item for position-aware bridge pin collection ──
 pub(super) enum LaneItem<'a> {
@@ -2229,16 +2242,15 @@ impl InstantiationBuilder {
     pub(super) fn check_iface_connect_points(&mut self, left: &[NetPoint], right: &[NetPoint]) {
         // Cross-side only: each slice is one FACE (all rows of one side), so
         // rows of the same face must never be compared against each other.
-        let Some((base0, role0, dir0)) = left.iter().find_map(|p| self.iface_endpoint_of_point(p))
-        else {
+        let Some(ep0) = left.iter().find_map(|p| self.iface_endpoint_of_point(p)) else {
             return;
         };
         let rights: Vec<_> = right
             .iter()
             .filter_map(|p| self.iface_endpoint_of_point(p))
             .collect();
-        for (base, role, dir) in &rights {
-            if self.iface_pair_diag(&base0, &role0, &dir0, base, role, dir) {
+        for ep in &rights {
+            if self.iface_pair_diag(&ep0, ep) {
                 return;
             }
         }
@@ -2248,19 +2260,15 @@ impl InstantiationBuilder {
     /// (`ha.IF + da.IF + hb.IF` lands all three endpoints on one net), where
     /// every pair on the net is a genuine junction.
     pub(super) fn check_iface_connect_net(&mut self, points: &[NetPoint]) {
-        let eps: Vec<(
-            std::sync::Arc<crate::semantic::mc_ifs::McInterface>,
-            Option<String>,
-            IOType,
-        )> = points
+        let eps: Vec<IfaceEndpoint> = points
             .iter()
             .filter_map(|p| self.iface_endpoint_of_point(p))
             .collect();
-        let Some((base0, role0, dir0)) = eps.first() else {
+        let Some(ep0) = eps.first() else {
             return;
         };
-        for (base, role, dir) in &eps[1..] {
-            if self.iface_pair_diag(base0, role0, dir0, base, role, dir) {
+        for ep in &eps[1..] {
+            if self.iface_pair_diag(ep0, ep) {
                 return;
             }
         }
@@ -2269,15 +2277,13 @@ impl InstantiationBuilder {
     /// §1.2 steps 1–2 for one endpoint pair. Emits at most one diagnostic and
     /// returns true when the sweep should stop (one report per junction —
     /// `log_global_diag` dedupes the per-row repeats anyway).
-    fn iface_pair_diag(
-        &mut self,
-        base0: &std::sync::Arc<crate::semantic::mc_ifs::McInterface>,
-        role0: &Option<String>,
-        dir0: &IOType,
-        base: &std::sync::Arc<crate::semantic::mc_ifs::McInterface>,
-        role: &Option<String>,
-        dir: &IOType,
-    ) -> bool {
+    fn iface_pair_diag(&mut self, ep0: &IfaceEndpoint, ep: &IfaceEndpoint) -> bool {
+        let base0 = &ep0.base;
+        let role0 = &ep0.role;
+        let dir0 = &ep0.dir;
+        let base = &ep.base;
+        let role = &ep.role;
+        let dir = &ep.dir;
         // Step 1: family equality — `UART.TTL` and `UART.RS232` are
         // different families even though both are dotted `UART`.
         let fam0 = base0.name.to_string();
@@ -2331,10 +2337,11 @@ impl InstantiationBuilder {
         // (`comp.def.pins` — the def-side reading is authoritative). Only the
         // out↔out cell has a code of its own: two declared outputs wired
         // against each other is a drive fight. in↔in belongs to the net-level
-        // no-driver check (E4103) reading the same data downstream; the bidir
-        // cells are phase 2 (od/pull deferred); a side without a declared
-        // direction word skips the cell entirely — no declaration, no
-        // inference (the D9 discipline).
+        // no-driver check (E4103) reading the same data downstream; a side
+        // without a declared direction word skips the cell entirely — no
+        // declaration, no inference (the D9 discipline). The bidir cells are
+        // quiet (ruling, 2026-09-20): bidir is the neutral direction —
+        // out↔bidir accepts the driver, bidir↔bidir is the I2C shape.
         if matches!(dir0, IOType::Out) && matches!(dir, IOType::Out) {
             let lr = role0.as_deref().unwrap_or("-");
             let rr = role.as_deref().unwrap_or("-");
@@ -2349,51 +2356,138 @@ impl InstantiationBuilder {
             );
             return true;
         }
+        // Step 4 (U133 phase 2): the electrical drive type — `@drive` on the
+        // interface member rows (candidate A, the device's own nature). Both
+        // sides declared and different is the contention form: a push-pull
+        // output against an open-drain output on one line. One side undeclared
+        // skips the cell (D9); matching declarations are the normal connect.
+        if let (Some(d0), Some(d1)) = (&ep0.drive, &ep.drive) {
+            if d0 != d1 {
+                let lr = role0.as_deref().unwrap_or("-");
+                let rr = role.as_deref().unwrap_or("-");
+                let msg = crate::errcodes::format_msg(
+                    crate::errcodes::IFACE_DRIVE_CONFLICT,
+                    &[&lr as &dyn std::fmt::Display, &rr, &fam0],
+                );
+                self.log_global_diag(
+                    crate::errcodes::IFACE_DRIVE_CONFLICT,
+                    crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
+                    msg,
+                );
+                return true;
+            }
+        }
+        // Step 5 (U133 phase 2): the pull of an open-drain line — both sides
+        // declared `@drive(od)` and neither row carrying a `@pull` leaves the
+        // line floating whenever both sides release it. A warning, not an
+        // error: an external pull can be guaranteed outside the model, which
+        // is exactly what an explicit `@pull(none)` states.
+        if let (Some(d0), Some(d1)) = (&ep0.drive, &ep.drive) {
+            if d0.as_str() == "od" && d1.as_str() == "od" && ep0.pull.is_none() && ep.pull.is_none()
+            {
+                let lr = role0.as_deref().unwrap_or("-");
+                let rr = role.as_deref().unwrap_or("-");
+                let msg = crate::errcodes::format_msg(
+                    crate::errcodes::IFACE_OD_NO_PULL,
+                    &[&lr as &dyn std::fmt::Display, &rr, &fam0],
+                );
+                self.log_global_diag(
+                    crate::errcodes::IFACE_OD_NO_PULL,
+                    crate::db::diagnostic::diagnostic::DiagnosticLevel::Warning,
+                    msg,
+                );
+                return true;
+            }
+        }
         false
     }
 
     /// Interface endpoint behind one reduced connection point: resolve the
     /// owner instance, the point's pin, and the pin's port; an interface port
-    /// yields its definition, the instance's selected role, and the pin's
-    /// declared direction word (the adoption-row carrier, U133). The role comes
-    /// from the port's interface params — the same source `mc_pins` reads for
-    /// role member tables.
-    fn iface_endpoint_of_point(
-        &self,
-        pt: &NetPoint,
-    ) -> Option<(
-        std::sync::Arc<crate::semantic::mc_ifs::McInterface>,
-        Option<String>,
-        IOType,
-    )> {
+    /// yields its definition, the instance's selected role, the pin's
+    /// declared direction word (the adoption-row carrier, U133), and the
+    /// pin's electrical configuration (`@drive`/`@pull` — candidate A: the
+    /// adoption row's trailing attrs, falling back to the interface member
+    /// row's lib-side default). The role comes from the port's interface
+    /// params — the same source `mc_pins` reads for role member tables.
+    fn iface_endpoint_of_point(&self, pt: &NetPoint) -> Option<IfaceEndpoint> {
         let owner = pt.owner.as_ref()?;
         let comp = self.find_component(owner)?;
-        let pin = pt.path.rsplit('.').next()?;
-        let names = comp.def.pins.pin_id_to_names.get(pin)?;
-        let port_name = names.first()?.split('.').next()?;
-        if port_name.is_empty() {
+        // A point names either a pin (`a.IF.1`) or, for a single-pin-id
+        // adoption, the port itself (`a.IFX` — the whole port is one
+        // connectable). Resolve both shapes to (pin id, port name).
+        let last = pt.path.rsplit('.').next()?;
+        let (pin, port_name) = if let Some(names) = comp.def.pins.pin_id_to_names.get(last) {
+            let port = names.first()?.split('.').next()?;
+            if port.is_empty() {
+                return None;
+            }
+            (last.to_string(), port.to_string())
+        } else if let Some(McPinPort::Interface(iface)) = comp.def.pins.names_to_id.get(last) {
+            (iface.registered_pins.first()?.clone(), last.to_string())
+        } else {
             return None;
-        }
-        match comp.def.pins.names_to_id.get(port_name) {
-            Some(McPinPort::Interface(iface)) => Some((
-                iface.base.clone(),
-                Self::role_of(&iface.base, &iface.params),
-                comp.def.pins.get_pin_io(pin).unwrap_or(IOType::None),
-            )),
+        };
+        match comp.def.pins.names_to_id.get(port_name.as_str()) {
+            Some(McPinPort::Interface(iface)) => {
+                // The electrical configuration rides the pin's own attrs: the
+                // adoption row's trailing `@drive`/`@pull` (attach_row_attrs
+                // merged them), falling back to the interface definition's
+                // member row — the lib-side default for the device's nature
+                // (`gpio.mc` states `@drive(pp)` there). A dynamic member
+                // bank (`1:count`) holds its attrs on the def-level line, so
+                // the third read resolves it with the adoption's parameter
+                // bindings and matches the materialized member by name. The
+                // adoption-side declaration wins: it is the closer statement
+                // about this pin.
+                let member_name = comp
+                    .def
+                    .pins
+                    .pin_id_to_names
+                    .get(pin.as_str())
+                    .and_then(|ns| ns.first())
+                    .map(|n| n.rsplit('.').next().unwrap_or(n).to_string());
+                let pin_attr = |key: &str| {
+                    comp.def
+                        .pins
+                        .get_pin_attr(&pin, key)
+                        .or_else(|| iface.base.pins.get_pin_attr(&pin, key))
+                        .or_else(|| {
+                            let member = member_name.as_deref()?;
+                            let bindings = McPins::build_interface_param_bindings(iface);
+                            iface
+                                .base
+                                .pins
+                                .dynamic_member_attrs(&bindings)
+                                .into_iter()
+                                .find(|(n, _)| n == member)
+                                .and_then(|(_, attrs)| McPins::attr_word(&attrs, key))
+                        })
+                };
+                Some(IfaceEndpoint {
+                    base: iface.base.clone(),
+                    role: Self::role_of(&iface.base, &iface.params),
+                    dir: comp.def.pins.get_pin_io(&pin).unwrap_or(IOType::None),
+                    drive: pin_attr(crate::semantic::basic::attr_keys::KEY_DRIVE),
+                    pull: pin_attr(crate::semantic::basic::attr_keys::KEY_PULL),
+                })
+            }
             _ => None,
         }
     }
 
-    /// The role selected by an interface instance's params: the single `Ids`
-    /// argument (`::SPI(Master)` → `Master`), verified against the
-    /// definition's role table — an unknown role name counts as roleless here
-    /// (flagged at declaration side by E4104).
+    /// The role selected by an interface instance's params: the `Ids`
+    /// argument that names a declared role (`::SPI(Master)` → `Master`),
+    /// verified against the definition's role table — an unknown role name
+    /// counts as roleless here (flagged at declaration side by E4104). The
+    /// scan covers every param, not just the first: `GPIO(count, role)`
+    /// carries the role in the second position.
     fn role_of(
         base: &crate::semantic::mc_ifs::McInterface,
         params: &[McParamValue],
     ) -> Option<String> {
-        match params.first() {
-            Some(McParamValue::Ids(ids)) => {
+        params.iter().find_map(|p| match p {
+            McParamValue::Ids(ids) => {
                 let name = ids.to_string();
                 base.roles
                     .iter()
@@ -2401,7 +2495,7 @@ impl InstantiationBuilder {
                     .find(|rn| *rn == name)
             }
             _ => None,
-        }
+        })
     }
 
     /// Role names named by one `peer` attribute's values (U128 §1.2 step 2).
