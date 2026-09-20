@@ -18,9 +18,11 @@ Two things never need an entry:
   - a call outside `src/`: this gate guards the library, and tests are free to
     compare whatever they like.
 
-Scope is git-tracked `src/**/*.rs`. The gate is a net, not a proof: a comparison
-written by hand (`a.to_lowercase() == b.to_lowercase()`) passes, and so does a
-call reached through a helper that is itself registered.
+Scope is git-tracked `src/**/*.rs`. The gate is a net, not a proof: a fold
+reached through a helper that is itself registered passes, and a fold written
+in a shape the comparison regex does not recognize slips through — but the
+plain hand-written forms (`a.to_lowercase() == b`, `x.eq_ignore_ascii_case(y)`)
+are caught.
 
 Usage:
   python3 scripts/check-name-case.py             # scan git-tracked src *.rs
@@ -35,6 +37,13 @@ import sys
 
 TOKEN = "eq_ignore_ascii_case"
 
+# Comparison-shaped case folds: `a.to_lowercase() == b`, `== a.to_uppercase()`.
+# Display-only folds (formatting, sort keys) are not comparisons and pass.
+FOLD_RE = re.compile(
+    r"\.to_lowercase\(\)\s*==|==\s*\w+\.to_lowercase\(\)"
+    r"|\.to_uppercase\(\)\s*==|==\s*\w+\.to_uppercase\(\)"
+)
+
 RUST_FILE_RE = re.compile(r"\.rs$")
 SRC_PREFIX = "src/"
 
@@ -47,6 +56,14 @@ REGISTERED = {
     "src/rpc/handlers/show.rs": 2,
     "src/rpc/handlers/mod.rs": 1,
     "src/cmds/build.rs": 2,
+}
+
+# Registered case-fold faces (01-lexical.md §2.2): relative path -> allowed
+# occurrences of a comparison-shaped FOLD_RE match. These are filesystem-name
+# matches (entry lookup over file names), not language names.
+REGISTERED_FOLDED = {
+    "src/bin/mcviz.rs": 1,
+    "src/viz/project.rs": 1,
 }
 
 COMMENT_PREFIXES = ("//", "/*", "*")
@@ -71,6 +88,7 @@ def scan(paths, full):
     silently grow dead rows.
     """
     counts = {}
+    folds = {}
     read = []
     unreadable = []
     for p in paths:
@@ -79,12 +97,18 @@ def scan(paths, full):
         read.append(p)
         try:
             with open(p, encoding="utf-8", errors="replace") as f:
-                n = sum(1 for line in f if not is_comment(line) and TOKEN in line)
+                lines = f.readlines()
         except OSError as e:
             unreadable.append((p, e))
             continue
+        n = sum(1 for line in lines if not is_comment(line) and TOKEN in line)
         if n:
             counts[p] = n
+        f = sum(
+            1 for line in lines if not is_comment(line) and FOLD_RE.search(line)
+        )
+        if f:
+            folds[p] = f
 
     bad = []
     for p in sorted(set(read)):
@@ -92,11 +116,18 @@ def scan(paths, full):
         registered = REGISTERED.get(p, 0)
         if found != registered:
             bad.append((p, found, registered))
+        found_f = folds.get(p, 0)
+        registered_f = REGISTERED_FOLDED.get(p, 0)
+        if found_f != registered_f:
+            bad.append((p, f"fold {found_f}", f"fold {registered_f}"))
     if full:
         live = set(read)
         for p in sorted(REGISTERED):
             if p not in live:
                 bad.append((p, 0, REGISTERED[p]))
+        for p in sorted(REGISTERED_FOLDED):
+            if p not in live:
+                bad.append((p, 0, REGISTERED_FOLDED[p]))
     return bad, unreadable
 
 
