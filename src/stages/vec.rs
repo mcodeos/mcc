@@ -23,6 +23,7 @@
 //! explicit that a stage view compares structure, not drawing (§11.1, M5).
 
 use serde_json::{json, Value};
+use std::collections::BTreeMap;
 
 use crate::instant::insttab::InstTable;
 use crate::vector::graph::boxdef::McVecBox;
@@ -51,7 +52,8 @@ pub fn build_vec(
 ) -> StageView {
     let mut sources = SourceText::new();
     let mut items: Vec<Value> = Vec::new();
-    walk(graph, table, "", &mut sources, &mut items);
+    let homes = endpoint_homes(graph, table, "");
+    walk(graph, table, "", &mut sources, &mut items, &homes);
 
     // The projection's own account: one row per layer, then one per action.
     // `before` / `after` are the only place the *net count change* is visible —
@@ -102,15 +104,82 @@ pub fn build_vec(
     StageView::new(StageSeg::Vec, top, items, diagnostics)
 }
 
+/// One endpoint row per pin, and the layer that emits it.
+///
+/// §2.4: an endpoint *is* the pin, so the segment holds one endpoint object per
+/// pin. A conductor that crosses a module boundary is claimed by both scopes'
+/// nets — the boundary anchors on the pin itself (CIMP §1 U127: one pin one id,
+/// the junction runs both segments) — and emitting a row per claim would key
+/// two objects on one pin. So the row is emitted in the pin's own module layer
+/// (`endpoint_homes`), and a foreign scope carries the pin through its net
+/// row's member list, which is the member set that keys the net anyway. A pin
+/// claimed twice at the same layer is left alone: two same-key rows there is a
+/// real defect, and the diff's duplicate-key mark is how it surfaces.
+fn endpoint_homes(graph: &McVecGraph, table: &InstTable, parent: &str) -> BTreeMap<i64, String> {
+    let mut claims: BTreeMap<i64, (Option<String>, Vec<String>)> = BTreeMap::new();
+    collect_claims(graph, table, parent, &mut claims);
+    claims
+        .into_iter()
+        .map(|(pin, (owner, layers))| {
+            // The pin's own scope wins when it claims the pin; otherwise the
+            // smallest layer path keeps the pick deterministic.
+            let home = match owner {
+                Some(o) if layers.iter().any(|l| *l == o) => o,
+                _ => layers.into_iter().min().expect("a claim list is never empty"),
+            };
+            (pin, home)
+        })
+        .collect()
+}
+
+/// The layer paths that claim each pin — with the pin's own module scope, read
+/// off its canonical path (`scope.pin` minus the pin and its component) — walked
+/// in the same order `walk` uses.
+fn collect_claims(
+    graph: &McVecGraph,
+    table: &InstTable,
+    parent: &str,
+    claims: &mut BTreeMap<i64, (Option<String>, Vec<String>)>,
+) {
+    let path = layer_path(graph, table, parent);
+    for net in &graph.nets {
+        for e in &net.endpoints {
+            if e.pin_id < 0 {
+                continue;
+            }
+            let entry = claims.entry(e.pin_id).or_default();
+            if entry.0.is_none() {
+                entry.0 = endpoint_path(e, table)
+                    .as_deref()
+                    .and_then(pin_owner_scope)
+                    .map(str::to_string);
+            }
+            entry.1.push(path.clone());
+        }
+    }
+    for sub in &graph.sub_graphs {
+        collect_claims(sub, table, &path, claims);
+    }
+}
+
+/// The scope a pin lives in: its canonical path minus the pin and the
+/// component that owns it — `main.MCU513.UC.8` lives in `main.MCU513`.
+fn pin_owner_scope(path: &str) -> Option<&str> {
+    let without_pin = path.rsplit_once('.')?.0;
+    without_pin.rsplit_once('.').map(|(scope, _)| scope)
+}
+
 /// Walk one layer: emit its row and its objects, then recurse into its
 /// sub-graphs. `parent` is the enclosing layer's canonical path, used only as
-/// the fallback when a layer's `bid` names no `InstTable` row.
+/// the fallback when a layer's `bid` names no `InstTable` row. `homes` decides
+/// which layer emits each pin's endpoint row (see [`endpoint_homes`]).
 fn walk(
     graph: &McVecGraph,
     table: &InstTable,
     parent: &str,
     sources: &mut SourceText,
     items: &mut Vec<Value>,
+    homes: &BTreeMap<i64, String>,
 ) {
     let path = layer_path(graph, table, parent);
     let has_row = graph.bid >= 0 && table.get_entry(graph.bid as u32).is_some();
@@ -173,12 +242,18 @@ fn walk(
         }));
 
         for e in &net.endpoints {
+            // A foreign scope's claim on this pin yields to the pin's own
+            // layer's row (see `endpoint_homes`); its net row still carries
+            // the pin in `members`.
+            if e.pin_id >= 0 && homes.get(&e.pin_id).is_some_and(|h| *h != path) {
+                continue;
+            }
             items.push(endpoint_item(e, table, &path, &net.name));
         }
     }
 
     for sub in &graph.sub_graphs {
-        walk(sub, table, &path, sources, items);
+        walk(sub, table, &path, sources, items, homes);
     }
 }
 
