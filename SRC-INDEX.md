@@ -33,10 +33,10 @@ range (threshold 40KB).
 | `db/infra/mc_code.rs` | 341 KB | 95 |
 | `viz/layout/equipotential_tree.rs` | 332 KB | 173 |
 | `semantic/basic/mc_phrase.rs` | 307 KB | 65 |
-| `semantic/component/mc_pins/mod.rs` | 224 KB | 105 |
+| `semantic/component/mc_pins/mod.rs` | 226 KB | 105 |
 | `instant/mc_mod/stmt.rs` | 194 KB | 76 |
+| `db/diagnostic/errcodes.rs` | 176 KB | 432 |
 | `semantic/validation/nets/mod.rs` | 176 KB | 115 |
-| `db/diagnostic/errcodes.rs` | 175 KB | 431 |
 | `rules.rs` | 174 KB | 83 |
 | `instant/insttab.rs` | 153 KB | 110 |
 | `db/defregistry.rs` | 147 KB | 179 |
@@ -47,8 +47,8 @@ range (threshold 40KB).
 | `semantic/mc_inst.rs` | 122 KB | 88 |
 | `instant/mc_mod/phases.rs` | 115 KB | 26 |
 | `instant/mc_mod/points.rs` | 114 KB | 19 |
+| `semantic/basic/mc_fcall.rs` | 114 KB | 22 |
 | `semantic/module/mod.rs` | 114 KB | 80 |
-| `semantic/basic/mc_fcall.rs` | 113 KB | 22 |
 
 ## Modules
 
@@ -61,7 +61,7 @@ range (threshold 40KB).
 | `builder/` | 1 | 0 KB |
 | `cli/` | 6 | 103 KB |
 | `cmds/` | 28 | 483 KB |
-| `db/` | 27 | 903 KB |
+| `db/` | 27 | 904 KB |
 | `eval/` | 2 | 48 KB |
 | `export/` | 6 | 44 KB |
 | `instant/` | 40 | 1532 KB |
@@ -70,10 +70,10 @@ range (threshold 40KB).
 | `query/` | 9 | 157 KB |
 | `refdef/` | 7 | 118 KB |
 | `rpc/` | 16 | 293 KB |
-| `semantic/` | 89 | 2577 KB |
+| `semantic/` | 89 | 2580 KB |
 | `stages/` | 11 | 296 KB |
 | `vector/` | 25 | 462 KB |
-| `viz/` | 95 | 2284 KB |
+| `viz/` | 95 | 2289 KB |
 
 ## Declaration index
 
@@ -1896,64 +1896,65 @@ db/diagnostic/errcodes.rs#L1457  const PIN_IO_MIX_ANALOG_POWER
 db/diagnostic/errcodes.rs#L1460  const PARAM_PIN_NAME_SHADOW
 db/diagnostic/errcodes.rs#L1463  const MODULE_STUB
 db/diagnostic/errcodes.rs#L1467  const COND_DUPLICATE
-db/diagnostic/errcodes.rs#L1472  const HW_PIN_NUMBER_GAP
-db/diagnostic/errcodes.rs#L1475  const HW_PIN_COUNT_HIGH
-db/diagnostic/errcodes.rs#L1478  const HW_ZERO_PINS_WITH_PARAMS
-db/diagnostic/errcodes.rs#L1481  const HW_IFACE_PEER_DANGLING
-db/diagnostic/errcodes.rs#L1484  const HW_ALL_SAME_IO_TYPE
-db/diagnostic/errcodes.rs#L1487  const HW_IFACE_PEER_NOT_MUTUAL
-db/diagnostic/errcodes.rs#L1490  const HW_IFACE_PEER_WIDTH_MISMATCH
-db/diagnostic/errcodes.rs#L1493  const HW_FUNC_PARAM_SHADOWS_PIN
-db/diagnostic/errcodes.rs#L1497  const IFACE_DIR_CONFLICT
-db/diagnostic/errcodes.rs#L1502  const TYPE_INCOMPATIBLE
-db/diagnostic/errcodes.rs#L1507  const UNUSED_PARAM_OR_PORT
-db/diagnostic/errcodes.rs#L1510  const PORT_NEVER_USED
-db/diagnostic/errcodes.rs#L1513  const UNTYPED_PARAM
-db/diagnostic/errcodes.rs#L1518  const ABSTRACT_PART_UNSELECTED
-db/diagnostic/errcodes.rs#L1529  const VARIANT_SPEC_UNSET
-db/diagnostic/errcodes.rs#L1533  const POWER_BRIDGE_LOOP
-db/diagnostic/errcodes.rs#L1537  const CLAMP_REF_NOT_PROTECTIVE
-db/diagnostic/errcodes.rs#L1543  const POWER_RAIL_DECODE
-db/diagnostic/errcodes.rs#L1548  const POWER_RAIL_TWO_ROOTS
-db/diagnostic/errcodes.rs#L1558  const POWER_SINK_NOMINAL_MISMATCH
-db/diagnostic/errcodes.rs#L1567  const POWER_PIN_DECODE
-db/diagnostic/errcodes.rs#L1577  const POWER_SOURCE_CONTENTION
-db/diagnostic/errcodes.rs#L1589  const ISOLATED_DC_BRIDGE
-db/diagnostic/errcodes.rs#L1598  const PROTECTIVE_MULTI_BRIDGE
-db/diagnostic/errcodes.rs#L1608  const EARTH_DC_LEAK
-db/diagnostic/errcodes.rs#L1620  const REFERENCE_ISLAND_ROOT
-db/diagnostic/errcodes.rs#L1630  const ROLE_REF_MISSING_BRIDGE
-db/diagnostic/errcodes.rs#L1641  const SINK_NET_NO_SOURCE
-db/diagnostic/errcodes.rs#L1649  const COMBINE_OUTPUT_TOL
-db/diagnostic/errcodes.rs#L1658  const NET_BUDGET_EXCEEDED
-db/diagnostic/errcodes.rs#L1671  const RETURN_LEG_UNDECLARED
-db/diagnostic/errcodes.rs#L1681  const POWER_CONVERTER_GATE
-db/diagnostic/errcodes.rs#L1690  const POWER_SINK_WINDOW_MISMATCH
-db/diagnostic/errcodes.rs#L1702  const POWER_CONVERTER_SPEC_INCOMPLETE
-db/diagnostic/errcodes.rs#L1713  const POWER_CONVERTER_OUTPUT_RAIL_WINDOW
-db/diagnostic/errcodes.rs#L1731  const DEVICE_RETURN_SPAN_UNDECLARED
-db/diagnostic/errcodes.rs#L1743  const DC_BINDING_DIR_MISMATCH
-db/diagnostic/errcodes.rs#L1747  const PORT_BIND_ROLE_MISMATCH
-db/diagnostic/errcodes.rs#L1760  const POWER_PIN_RETURN_MISSING
-db/diagnostic/errcodes.rs#L1772  const EXPOSED_NET_NO_CLAMP
-db/diagnostic/errcodes.rs#L1783  const PROTECT_SHUNT_NO_REFERENCE
-db/diagnostic/errcodes.rs#L1796  const PROTECT_SERIES_NOT_IN_PATH
-db/diagnostic/errcodes.rs#L1808  const RAIL_NATURE_MISMATCH
-db/diagnostic/errcodes.rs#L1843  const BRIDGE_LOAD_DECOUPLING_MISSING
-db/diagnostic/errcodes.rs#L1862  const SHUNT_DISSIPATION_OVER_RATING
-db/diagnostic/errcodes.rs#L1887  const DECOUPLING_RETURN_MISMATCH
-db/diagnostic/errcodes.rs#L1914  const SINK_PIN_NO_DECOUPLING
-db/diagnostic/errcodes.rs#L1939  const SENSITIVE_RETURN_ON_NOISY
-db/diagnostic/errcodes.rs#L1962  const ANALOG_RETURN_MISMATCH
-db/diagnostic/errcodes.rs#L1996  const SHARED_RETURN_BRIDGE
-db/diagnostic/errcodes.rs#L2030  const FILTER_SUBFACE_OVERREACH
-db/diagnostic/errcodes.rs#L2066  const EXPOSED_NET_DOWNSTREAM_UNPROTECTED
-db/diagnostic/errcodes.rs#L2080  const DOMAIN_ENDPOINT_NAME_COLLISION
-db/diagnostic/errcodes.rs#L2093  const DOMAIN_NET_MIXED_BRIDGE
-db/diagnostic/errcodes.rs#L2106  const DOMAIN_BRIDGE_DIRECTION_REVERSED
-db/diagnostic/errcodes.rs#L2118  const DOMAIN_BRIDGE_LEG_INCONSISTENT
-db/diagnostic/errcodes.rs#L2129  const DOMAIN_BRIDGE_DANGLING
-db/diagnostic/errcodes.rs#L2131  static ALL_CODES
+db/diagnostic/errcodes.rs#L1473  const COND_JUDGE_OPERAND_DROPPED
+db/diagnostic/errcodes.rs#L1478  const HW_PIN_NUMBER_GAP
+db/diagnostic/errcodes.rs#L1481  const HW_PIN_COUNT_HIGH
+db/diagnostic/errcodes.rs#L1484  const HW_ZERO_PINS_WITH_PARAMS
+db/diagnostic/errcodes.rs#L1487  const HW_IFACE_PEER_DANGLING
+db/diagnostic/errcodes.rs#L1490  const HW_ALL_SAME_IO_TYPE
+db/diagnostic/errcodes.rs#L1493  const HW_IFACE_PEER_NOT_MUTUAL
+db/diagnostic/errcodes.rs#L1496  const HW_IFACE_PEER_WIDTH_MISMATCH
+db/diagnostic/errcodes.rs#L1499  const HW_FUNC_PARAM_SHADOWS_PIN
+db/diagnostic/errcodes.rs#L1503  const IFACE_DIR_CONFLICT
+db/diagnostic/errcodes.rs#L1508  const TYPE_INCOMPATIBLE
+db/diagnostic/errcodes.rs#L1513  const UNUSED_PARAM_OR_PORT
+db/diagnostic/errcodes.rs#L1516  const PORT_NEVER_USED
+db/diagnostic/errcodes.rs#L1519  const UNTYPED_PARAM
+db/diagnostic/errcodes.rs#L1524  const ABSTRACT_PART_UNSELECTED
+db/diagnostic/errcodes.rs#L1535  const VARIANT_SPEC_UNSET
+db/diagnostic/errcodes.rs#L1539  const POWER_BRIDGE_LOOP
+db/diagnostic/errcodes.rs#L1543  const CLAMP_REF_NOT_PROTECTIVE
+db/diagnostic/errcodes.rs#L1549  const POWER_RAIL_DECODE
+db/diagnostic/errcodes.rs#L1554  const POWER_RAIL_TWO_ROOTS
+db/diagnostic/errcodes.rs#L1564  const POWER_SINK_NOMINAL_MISMATCH
+db/diagnostic/errcodes.rs#L1573  const POWER_PIN_DECODE
+db/diagnostic/errcodes.rs#L1583  const POWER_SOURCE_CONTENTION
+db/diagnostic/errcodes.rs#L1595  const ISOLATED_DC_BRIDGE
+db/diagnostic/errcodes.rs#L1604  const PROTECTIVE_MULTI_BRIDGE
+db/diagnostic/errcodes.rs#L1614  const EARTH_DC_LEAK
+db/diagnostic/errcodes.rs#L1626  const REFERENCE_ISLAND_ROOT
+db/diagnostic/errcodes.rs#L1636  const ROLE_REF_MISSING_BRIDGE
+db/diagnostic/errcodes.rs#L1647  const SINK_NET_NO_SOURCE
+db/diagnostic/errcodes.rs#L1655  const COMBINE_OUTPUT_TOL
+db/diagnostic/errcodes.rs#L1664  const NET_BUDGET_EXCEEDED
+db/diagnostic/errcodes.rs#L1677  const RETURN_LEG_UNDECLARED
+db/diagnostic/errcodes.rs#L1687  const POWER_CONVERTER_GATE
+db/diagnostic/errcodes.rs#L1696  const POWER_SINK_WINDOW_MISMATCH
+db/diagnostic/errcodes.rs#L1708  const POWER_CONVERTER_SPEC_INCOMPLETE
+db/diagnostic/errcodes.rs#L1719  const POWER_CONVERTER_OUTPUT_RAIL_WINDOW
+db/diagnostic/errcodes.rs#L1737  const DEVICE_RETURN_SPAN_UNDECLARED
+db/diagnostic/errcodes.rs#L1749  const DC_BINDING_DIR_MISMATCH
+db/diagnostic/errcodes.rs#L1753  const PORT_BIND_ROLE_MISMATCH
+db/diagnostic/errcodes.rs#L1766  const POWER_PIN_RETURN_MISSING
+db/diagnostic/errcodes.rs#L1778  const EXPOSED_NET_NO_CLAMP
+db/diagnostic/errcodes.rs#L1789  const PROTECT_SHUNT_NO_REFERENCE
+db/diagnostic/errcodes.rs#L1802  const PROTECT_SERIES_NOT_IN_PATH
+db/diagnostic/errcodes.rs#L1814  const RAIL_NATURE_MISMATCH
+db/diagnostic/errcodes.rs#L1849  const BRIDGE_LOAD_DECOUPLING_MISSING
+db/diagnostic/errcodes.rs#L1868  const SHUNT_DISSIPATION_OVER_RATING
+db/diagnostic/errcodes.rs#L1893  const DECOUPLING_RETURN_MISMATCH
+db/diagnostic/errcodes.rs#L1920  const SINK_PIN_NO_DECOUPLING
+db/diagnostic/errcodes.rs#L1945  const SENSITIVE_RETURN_ON_NOISY
+db/diagnostic/errcodes.rs#L1968  const ANALOG_RETURN_MISMATCH
+db/diagnostic/errcodes.rs#L2002  const SHARED_RETURN_BRIDGE
+db/diagnostic/errcodes.rs#L2036  const FILTER_SUBFACE_OVERREACH
+db/diagnostic/errcodes.rs#L2072  const EXPOSED_NET_DOWNSTREAM_UNPROTECTED
+db/diagnostic/errcodes.rs#L2086  const DOMAIN_ENDPOINT_NAME_COLLISION
+db/diagnostic/errcodes.rs#L2099  const DOMAIN_NET_MIXED_BRIDGE
+db/diagnostic/errcodes.rs#L2112  const DOMAIN_BRIDGE_DIRECTION_REVERSED
+db/diagnostic/errcodes.rs#L2124  const DOMAIN_BRIDGE_LEG_INCONSISTENT
+db/diagnostic/errcodes.rs#L2135  const DOMAIN_BRIDGE_DANGLING
+db/diagnostic/errcodes.rs#L2137  static ALL_CODES
 db/diagnostic/mod.rs#L2  mod diagnostic
 db/diagnostic/mod.rs#L3  mod errcodes
 db/diagnostic/mod.rs#L4  mod override_store
@@ -4544,27 +4545,27 @@ rpc/handlers/show.rs#L160  fn handle_show_component
 rpc/handlers/show.rs#L204  fn handle_show_module
 rpc/handlers/show.rs#L251  fn handle_show_interface
 rpc/handlers/show.rs#L288  fn handle_show_net
-rpc/handlers/show.rs#L348  fn handle_show_all
-rpc/handlers/show.rs#L378  fn handle_show_org_units
-rpc/handlers/show.rs#L389  fn handle_show_file
-rpc/handlers/show.rs#L432  fn handle_show_files
-rpc/handlers/show.rs#L436  struct FileInfo
-rpc/handlers/show.rs#L475  fn handle_show_enum_list
-rpc/handlers/show.rs#L492  fn handle_show_enum
-rpc/handlers/show.rs#L521  fn handle_show_pins
-rpc/handlers/show.rs#L550  fn component_funcs_json
-rpc/handlers/show.rs#L565  fn handle_show_ports
-rpc/handlers/show.rs#L594  fn handle_show_ports_list
-rpc/handlers/show.rs#L606  fn handle_show_labels
-rpc/handlers/show.rs#L636  fn handle_show_instances
-rpc/handlers/show.rs#L721  fn handle_show_nets
-rpc/handlers/show.rs#L788  fn handle_show_attrs
-rpc/handlers/show.rs#L820  fn handle_show_funcs
-rpc/handlers/show.rs#L849  fn handle_show_params
-rpc/handlers/show.rs#L908  fn handle_show_roles
-rpc/handlers/show.rs#L959  fn handle_show_values
-rpc/handlers/show.rs#L984  fn handle_show_dump
-rpc/handlers/show.rs#L1011  fn handle_show_dump_all
+rpc/handlers/show.rs#L358  fn handle_show_all
+rpc/handlers/show.rs#L388  fn handle_show_org_units
+rpc/handlers/show.rs#L399  fn handle_show_file
+rpc/handlers/show.rs#L442  fn handle_show_files
+rpc/handlers/show.rs#L446  struct FileInfo
+rpc/handlers/show.rs#L485  fn handle_show_enum_list
+rpc/handlers/show.rs#L502  fn handle_show_enum
+rpc/handlers/show.rs#L531  fn handle_show_pins
+rpc/handlers/show.rs#L560  fn component_funcs_json
+rpc/handlers/show.rs#L575  fn handle_show_ports
+rpc/handlers/show.rs#L604  fn handle_show_ports_list
+rpc/handlers/show.rs#L616  fn handle_show_labels
+rpc/handlers/show.rs#L646  fn handle_show_instances
+rpc/handlers/show.rs#L731  fn handle_show_nets
+rpc/handlers/show.rs#L798  fn handle_show_attrs
+rpc/handlers/show.rs#L830  fn handle_show_funcs
+rpc/handlers/show.rs#L859  fn handle_show_params
+rpc/handlers/show.rs#L918  fn handle_show_roles
+rpc/handlers/show.rs#L969  fn handle_show_values
+rpc/handlers/show.rs#L994  fn handle_show_dump
+rpc/handlers/show.rs#L1021  fn handle_show_dump_all
 rpc/mod.rs#L9  mod handlers
 rpc/mod.rs#L10  mod protocol
 rpc/mod.rs#L11  mod server
@@ -4872,42 +4873,42 @@ semantic/basic/mc_bus.rs#L353  fn provenance_survives_the_hand_offs
 semantic/basic/mc_closure.rs#L14  struct McClosure
 semantic/basic/mc_closure.rs#L23  impl McClosure
 semantic/basic/mc_closure.rs#L25  fn parse
-semantic/basic/mc_conds.rs#L19  struct CondDefCtx
-semantic/basic/mc_conds.rs#L25  struct McCond
-semantic/basic/mc_conds.rs#L34  enum McCondition
-semantic/basic/mc_conds.rs#L89  enum McCondOperand
-semantic/basic/mc_conds.rs#L102  impl std::fmt::Display for McCondOperand
-semantic/basic/mc_conds.rs#L103  fn fmt
-semantic/basic/mc_conds.rs#L114  impl std::fmt::Display for McCondition
-semantic/basic/mc_conds.rs#L115  fn fmt
-semantic/basic/mc_conds.rs#L132  impl McCondition
-semantic/basic/mc_conds.rs#L136  fn operand_reads_param
-semantic/basic/mc_conds.rs#L156  fn references_param
-semantic/basic/mc_conds.rs#L176  struct McConds
-semantic/basic/mc_conds.rs#L181  impl McConds
-semantic/basic/mc_conds.rs#L182  fn new
-semantic/basic/mc_conds.rs#L214  fn references_param
-semantic/basic/mc_conds.rs#L220  fn collect_nested_branches
-semantic/basic/mc_conds.rs#L245  fn collect_else_branch
-semantic/basic/mc_conds.rs#L260  fn parse_cond_if
-semantic/basic/mc_conds.rs#L331  fn parse_cond_else_with_cond
-semantic/basic/mc_conds.rs#L400  fn parse_condition
-semantic/basic/mc_conds.rs#L484  fn parse_in_array_operand
-semantic/basic/mc_conds.rs#L521  fn bare_member_ids
-semantic/basic/mc_conds.rs#L535  fn parse_operand
-semantic/basic/mc_conds.rs#L589  fn parse_in_condition
-semantic/basic/mc_conds.rs#L654  fn evaluate
-semantic/basic/mc_conds.rs#L679  fn check_condition
-semantic/basic/mc_conds.rs#L695  fn check_condition_result
-semantic/basic/mc_conds.rs#L763  fn resolve_operand_value
-semantic/basic/mc_conds.rs#L781  fn resolve_operand
-semantic/basic/mc_conds.rs#L812  fn read_def_value
-semantic/basic/mc_conds.rs#L829  struct McCondBlock
-semantic/basic/mc_conds.rs#L836  struct McFuncConds
-semantic/basic/mc_conds.rs#L841  impl McFuncConds
-semantic/basic/mc_conds.rs#L843  fn from_conds
-semantic/basic/mc_conds.rs#L871  fn parse_block_stmts
-semantic/basic/mc_conds.rs#L936  fn evaluate
+semantic/basic/mc_conds.rs#L20  struct CondDefCtx
+semantic/basic/mc_conds.rs#L26  struct McCond
+semantic/basic/mc_conds.rs#L35  enum McCondition
+semantic/basic/mc_conds.rs#L90  enum McCondOperand
+semantic/basic/mc_conds.rs#L103  impl std::fmt::Display for McCondOperand
+semantic/basic/mc_conds.rs#L104  fn fmt
+semantic/basic/mc_conds.rs#L115  impl std::fmt::Display for McCondition
+semantic/basic/mc_conds.rs#L116  fn fmt
+semantic/basic/mc_conds.rs#L133  impl McCondition
+semantic/basic/mc_conds.rs#L137  fn operand_reads_param
+semantic/basic/mc_conds.rs#L157  fn references_param
+semantic/basic/mc_conds.rs#L177  struct McConds
+semantic/basic/mc_conds.rs#L182  impl McConds
+semantic/basic/mc_conds.rs#L183  fn new
+semantic/basic/mc_conds.rs#L215  fn references_param
+semantic/basic/mc_conds.rs#L221  fn collect_nested_branches
+semantic/basic/mc_conds.rs#L246  fn collect_else_branch
+semantic/basic/mc_conds.rs#L261  fn parse_cond_if
+semantic/basic/mc_conds.rs#L332  fn parse_cond_else_with_cond
+semantic/basic/mc_conds.rs#L401  fn parse_condition
+semantic/basic/mc_conds.rs#L501  fn parse_in_array_operand
+semantic/basic/mc_conds.rs#L538  fn bare_member_ids
+semantic/basic/mc_conds.rs#L552  fn parse_operand
+semantic/basic/mc_conds.rs#L606  fn parse_in_condition
+semantic/basic/mc_conds.rs#L671  fn evaluate
+semantic/basic/mc_conds.rs#L696  fn check_condition
+semantic/basic/mc_conds.rs#L712  fn check_condition_result
+semantic/basic/mc_conds.rs#L780  fn resolve_operand_value
+semantic/basic/mc_conds.rs#L798  fn resolve_operand
+semantic/basic/mc_conds.rs#L829  fn read_def_value
+semantic/basic/mc_conds.rs#L846  struct McCondBlock
+semantic/basic/mc_conds.rs#L853  struct McFuncConds
+semantic/basic/mc_conds.rs#L858  impl McFuncConds
+semantic/basic/mc_conds.rs#L860  fn from_conds
+semantic/basic/mc_conds.rs#L888  fn parse_block_stmts
+semantic/basic/mc_conds.rs#L953  fn evaluate
 semantic/basic/mc_endpoint.rs#L13  enum McMember
 semantic/basic/mc_endpoint.rs#L18  impl McMember
 semantic/basic/mc_endpoint.rs#L19  fn expand
@@ -4980,15 +4981,15 @@ semantic/basic/mc_fcall.rs#L282  fn parse
 semantic/basic/mc_fcall.rs#L404  fn is_construction
 semantic/basic/mc_fcall.rs#L415  fn caller_is_construction
 semantic/basic/mc_fcall.rs#L422  fn parse_internal
-semantic/basic/mc_fcall.rs#L1908  fn resolve_return_shape
-semantic/basic/mc_fcall.rs#L1942  fn fill_return_shape
-semantic/basic/mc_fcall.rs#L1962  fn expand_iface_port_return_face
-semantic/basic/mc_fcall.rs#L1997  fn lookup_func_returns
-semantic/basic/mc_fcall.rs#L2023  fn fill_return_shapes
-semantic/basic/mc_fcall.rs#L2074  fn check_chain_validity
-semantic/basic/mc_fcall.rs#L2116  fn root_receiver
-semantic/basic/mc_fcall.rs#L2128  fn extract_method_name
-semantic/basic/mc_fcall.rs#L2168  fn try_parse_inner_fcall
+semantic/basic/mc_fcall.rs#L1909  fn resolve_return_shape
+semantic/basic/mc_fcall.rs#L1943  fn fill_return_shape
+semantic/basic/mc_fcall.rs#L1963  fn expand_iface_port_return_face
+semantic/basic/mc_fcall.rs#L1998  fn lookup_func_returns
+semantic/basic/mc_fcall.rs#L2024  fn fill_return_shapes
+semantic/basic/mc_fcall.rs#L2075  fn check_chain_validity
+semantic/basic/mc_fcall.rs#L2117  fn root_receiver
+semantic/basic/mc_fcall.rs#L2129  fn extract_method_name
+semantic/basic/mc_fcall.rs#L2169  fn try_parse_inner_fcall
 semantic/basic/mc_group.rs#L16  struct McGroup
 semantic/basic/mc_group.rs#L22  impl McGroup
 semantic/basic/mc_group.rs#L24  fn parse
@@ -5326,28 +5327,28 @@ semantic/basic/mc_param_type.rs#L373  fn classify_compound_unit
 semantic/basic/mc_param_type.rs#L384  fn classify_declare
 semantic/basic/mc_param_type.rs#L499  fn extract_default_from_declare_uv
 semantic/basic/mc_param_type.rs#L523  fn extract_class_name_from_declare
-semantic/basic/mc_param_type.rs#L539  fn extract_default_from_declare
-semantic/basic/mc_param_type.rs#L574  fn reclassify_if_enum_class
-semantic/basic/mc_param_type.rs#L600  fn is_port
-semantic/basic/mc_param_type.rs#L613  fn is_explicitly_typed
-semantic/basic/mc_param_type.rs#L625  fn category_name
-semantic/basic/mc_param_type.rs#L649  fn default_value
-semantic/basic/mc_param_type.rs#L664  fn interface_params
-semantic/basic/mc_param_type.rs#L672  fn has_default
-semantic/basic/mc_param_type.rs#L676  fn unknown
-semantic/basic/mc_param_type.rs#L681  impl std::fmt::Display for McParamType
-semantic/basic/mc_param_type.rs#L682  fn fmt
-semantic/basic/mc_param_type.rs#L694  struct McParamArity
-semantic/basic/mc_param_type.rs#L700  impl McParamArity
-semantic/basic/mc_param_type.rs#L701  fn from_declares
-semantic/basic/mc_param_type.rs#L713  fn validate
-semantic/basic/mc_param_type.rs#L731  enum ArityError
-semantic/basic/mc_param_type.rs#L736  impl std::fmt::Display for ArityError
-semantic/basic/mc_param_type.rs#L737  fn fmt
-semantic/basic/mc_param_type.rs#L750  mod tests
-semantic/basic/mc_param_type.rs#L754  fn sem_paramtype__port_classification
-semantic/basic/mc_param_type.rs#L814  fn sem_paramtype__has_default
-semantic/basic/mc_param_type.rs#L838  fn sem_paramtype__arity_validation
+semantic/basic/mc_param_type.rs#L540  fn extract_default_from_declare
+semantic/basic/mc_param_type.rs#L575  fn reclassify_if_enum_class
+semantic/basic/mc_param_type.rs#L601  fn is_port
+semantic/basic/mc_param_type.rs#L614  fn is_explicitly_typed
+semantic/basic/mc_param_type.rs#L626  fn category_name
+semantic/basic/mc_param_type.rs#L650  fn default_value
+semantic/basic/mc_param_type.rs#L665  fn interface_params
+semantic/basic/mc_param_type.rs#L673  fn has_default
+semantic/basic/mc_param_type.rs#L677  fn unknown
+semantic/basic/mc_param_type.rs#L682  impl std::fmt::Display for McParamType
+semantic/basic/mc_param_type.rs#L683  fn fmt
+semantic/basic/mc_param_type.rs#L695  struct McParamArity
+semantic/basic/mc_param_type.rs#L701  impl McParamArity
+semantic/basic/mc_param_type.rs#L702  fn from_declares
+semantic/basic/mc_param_type.rs#L714  fn validate
+semantic/basic/mc_param_type.rs#L732  enum ArityError
+semantic/basic/mc_param_type.rs#L737  impl std::fmt::Display for ArityError
+semantic/basic/mc_param_type.rs#L738  fn fmt
+semantic/basic/mc_param_type.rs#L751  mod tests
+semantic/basic/mc_param_type.rs#L755  fn sem_paramtype__port_classification
+semantic/basic/mc_param_type.rs#L815  fn sem_paramtype__has_default
+semantic/basic/mc_param_type.rs#L839  fn sem_paramtype__arity_validation
 semantic/basic/mc_paramd.rs#L16  struct McParamDeclares
 semantic/basic/mc_paramd.rs#L31  impl McParamDeclares
 semantic/basic/mc_paramd.rs#L32  fn new
@@ -5953,33 +5954,33 @@ semantic/component/mc_pins/mod.rs#L3148  fn has_param_ref
 semantic/component/mc_pins/mod.rs#L3167  fn new
 semantic/component/mc_pins/mod.rs#L3177  fn new_power_row
 semantic/component/mc_pins/mod.rs#L3181  fn new_inner
-semantic/component/mc_pins/mod.rs#L4074  fn derive_interface_subnames
-semantic/component/mc_pins/mod.rs#L4115  mod subname_tests
-semantic/component/mc_pins/mod.rs#L4121  fn ida
-semantic/component/mc_pins/mod.rs#L4128  fn bus_ids
-semantic/component/mc_pins/mod.rs#L4145  fn list_ids
-semantic/component/mc_pins/mod.rs#L4160  fn plain_ids
-semantic/component/mc_pins/mod.rs#L4172  fn sem_mcpins__bus_form_xtal_regression
-semantic/component/mc_pins/mod.rs#L4181  fn sem_mcpins__bus_form_dc2
-semantic/component/mc_pins/mod.rs#L4190  fn sem_mcpins__list_form_no_prefix
-semantic/component/mc_pins/mod.rs#L4199  fn sem_mcpins__plain_form_crosses_with_iface_pins
-semantic/component/mc_pins/mod.rs#L4208  fn sem_mcpins__plain_form_empty_iface_pins
-semantic/component/mc_pins/mod.rs#L4217  fn sem_mcpins__embedded_square_gpio_interface
-semantic/component/mc_pins/mod.rs#L4227  mod pwr_capture_tests
-semantic/component/mc_pins/mod.rs#L4234  fn parse_component_pins
-semantic/component/mc_pins/mod.rs#L4251  const LDO
-semantic/component/mc_pins/mod.rs#L4264  fn captures_psnk_sink_pair_with_nominal
-semantic/component/mc_pins/mod.rs#L4283  fn captures_psrc_source_with_tol_text
-semantic/component/mc_pins/mod.rs#L4301  fn plain_power_and_signal_pins_are_not_contracts
-semantic/component/mc_pins/mod.rs#L4302  const SRC
-semantic/component/mc_pins/mod.rs#L4330  fn captures_ac_row_beside_the_dc_axis
-semantic/component/mc_pins/mod.rs#L4331  const SRC
-semantic/component/mc_pins/mod.rs#L4363  fn generic_io_row_identity_attrs_carry_to_pins
-semantic/component/mc_pins/mod.rs#L4364  const SRC
-semantic/component/mc_pins/mod.rs#L4404  fn row_attrs_merge_into_reused_pin_without_duplicate_keys
-semantic/component/mc_pins/mod.rs#L4405  const SRC
-semantic/component/mc_pins/mod.rs#L4429  fn dynamic_pin_row_identity_attrs_carry_on_the_line
-semantic/component/mc_pins/mod.rs#L4430  const SRC
+semantic/component/mc_pins/mod.rs#L4091  fn derive_interface_subnames
+semantic/component/mc_pins/mod.rs#L4132  mod subname_tests
+semantic/component/mc_pins/mod.rs#L4138  fn ida
+semantic/component/mc_pins/mod.rs#L4145  fn bus_ids
+semantic/component/mc_pins/mod.rs#L4162  fn list_ids
+semantic/component/mc_pins/mod.rs#L4177  fn plain_ids
+semantic/component/mc_pins/mod.rs#L4189  fn sem_mcpins__bus_form_xtal_regression
+semantic/component/mc_pins/mod.rs#L4198  fn sem_mcpins__bus_form_dc2
+semantic/component/mc_pins/mod.rs#L4207  fn sem_mcpins__list_form_no_prefix
+semantic/component/mc_pins/mod.rs#L4216  fn sem_mcpins__plain_form_crosses_with_iface_pins
+semantic/component/mc_pins/mod.rs#L4225  fn sem_mcpins__plain_form_empty_iface_pins
+semantic/component/mc_pins/mod.rs#L4234  fn sem_mcpins__embedded_square_gpio_interface
+semantic/component/mc_pins/mod.rs#L4244  mod pwr_capture_tests
+semantic/component/mc_pins/mod.rs#L4251  fn parse_component_pins
+semantic/component/mc_pins/mod.rs#L4268  const LDO
+semantic/component/mc_pins/mod.rs#L4281  fn captures_psnk_sink_pair_with_nominal
+semantic/component/mc_pins/mod.rs#L4300  fn captures_psrc_source_with_tol_text
+semantic/component/mc_pins/mod.rs#L4318  fn plain_power_and_signal_pins_are_not_contracts
+semantic/component/mc_pins/mod.rs#L4319  const SRC
+semantic/component/mc_pins/mod.rs#L4347  fn captures_ac_row_beside_the_dc_axis
+semantic/component/mc_pins/mod.rs#L4348  const SRC
+semantic/component/mc_pins/mod.rs#L4380  fn generic_io_row_identity_attrs_carry_to_pins
+semantic/component/mc_pins/mod.rs#L4381  const SRC
+semantic/component/mc_pins/mod.rs#L4421  fn row_attrs_merge_into_reused_pin_without_duplicate_keys
+semantic/component/mc_pins/mod.rs#L4422  const SRC
+semantic/component/mc_pins/mod.rs#L4446  fn dynamic_pin_row_identity_attrs_carry_on_the_line
+semantic/component/mc_pins/mod.rs#L4447  const SRC
 semantic/component/mod.rs#L5  mod mc_attr
 semantic/component/mod.rs#L6  mod mc_attr_view
 semantic/component/mod.rs#L7  mod mc_layout
@@ -6287,37 +6288,37 @@ semantic/mc_inst.rs#L747  fn find_name_in_text
 semantic/mc_inst.rs#L782  fn parse
 semantic/mc_inst.rs#L1503  fn strip_trailing_digits
 semantic/mc_inst.rs#L1512  fn parse_declare
-semantic/mc_inst.rs#L2036  fn register_nested_iface_declare_args
-semantic/mc_inst.rs#L2083  fn declare_class_ids
-semantic/mc_inst.rs#L2095  fn parse_opd
-semantic/mc_inst.rs#L2250  fn parse_opd_square_vec
-semantic/mc_inst.rs#L2352  fn get
-semantic/mc_inst.rs#L2356  fn get_mut
-semantic/mc_inst.rs#L2360  fn get_with_iotype
-semantic/mc_inst.rs#L2364  fn iter
-semantic/mc_inst.rs#L2368  fn iter_with_iotype
-semantic/mc_inst.rs#L2372  fn create
-semantic/mc_inst.rs#L2379  fn create_inst
-semantic/mc_inst.rs#L2385  fn find_port
-semantic/mc_inst.rs#L2390  fn inputs
-semantic/mc_inst.rs#L2399  fn outputs
-semantic/mc_inst.rs#L2408  fn bidirs
-semantic/mc_inst.rs#L2417  fn get_all_inputs
-semantic/mc_inst.rs#L2426  fn get_all_outputs
-semantic/mc_inst.rs#L2435  fn get_all_ports
-semantic/mc_inst.rs#L2440  fn is_empty
-semantic/mc_inst.rs#L2445  fn inputs_with_name
-semantic/mc_inst.rs#L2454  fn outputs_with_name
-semantic/mc_inst.rs#L2463  fn bidirs_with_name
-semantic/mc_inst.rs#L2472  fn powers_with_name
-semantic/mc_inst.rs#L2481  fn get_iotype
-semantic/mc_inst.rs#L2486  fn get_all_names
-semantic/mc_inst.rs#L2491  impl From<McInstance> for McPhrase
-semantic/mc_inst.rs#L2492  fn from
-semantic/mc_inst.rs#L2499  impl std::fmt::Display for McInstance
-semantic/mc_inst.rs#L2500  fn fmt
-semantic/mc_inst.rs#L2537  impl std::fmt::Display for McInstances
-semantic/mc_inst.rs#L2538  fn fmt
+semantic/mc_inst.rs#L2038  fn register_nested_iface_declare_args
+semantic/mc_inst.rs#L2085  fn declare_class_ids
+semantic/mc_inst.rs#L2098  fn parse_opd
+semantic/mc_inst.rs#L2253  fn parse_opd_square_vec
+semantic/mc_inst.rs#L2355  fn get
+semantic/mc_inst.rs#L2359  fn get_mut
+semantic/mc_inst.rs#L2363  fn get_with_iotype
+semantic/mc_inst.rs#L2367  fn iter
+semantic/mc_inst.rs#L2371  fn iter_with_iotype
+semantic/mc_inst.rs#L2375  fn create
+semantic/mc_inst.rs#L2382  fn create_inst
+semantic/mc_inst.rs#L2388  fn find_port
+semantic/mc_inst.rs#L2393  fn inputs
+semantic/mc_inst.rs#L2402  fn outputs
+semantic/mc_inst.rs#L2411  fn bidirs
+semantic/mc_inst.rs#L2420  fn get_all_inputs
+semantic/mc_inst.rs#L2429  fn get_all_outputs
+semantic/mc_inst.rs#L2438  fn get_all_ports
+semantic/mc_inst.rs#L2443  fn is_empty
+semantic/mc_inst.rs#L2448  fn inputs_with_name
+semantic/mc_inst.rs#L2457  fn outputs_with_name
+semantic/mc_inst.rs#L2466  fn bidirs_with_name
+semantic/mc_inst.rs#L2475  fn powers_with_name
+semantic/mc_inst.rs#L2484  fn get_iotype
+semantic/mc_inst.rs#L2489  fn get_all_names
+semantic/mc_inst.rs#L2494  impl From<McInstance> for McPhrase
+semantic/mc_inst.rs#L2495  fn from
+semantic/mc_inst.rs#L2502  impl std::fmt::Display for McInstance
+semantic/mc_inst.rs#L2503  fn fmt
+semantic/mc_inst.rs#L2540  impl std::fmt::Display for McInstances
+semantic/mc_inst.rs#L2541  fn fmt
 semantic/mod.rs#L5  mod basic
 semantic/mod.rs#L6  mod capability
 semantic/mod.rs#L7  mod common
@@ -8278,7 +8279,7 @@ viz/api.rs#L100  fn render_with_metrics
 viz/api.rs#L113  fn render_with_metrics_and_sink
 viz/api.rs#L185  fn renderdiff_report
 viz/api.rs#L241  fn render_layer_recursive
-viz/api.rs#L676  fn render_to_html
+viz/api.rs#L684  fn render_to_html
 viz/connectivity/geometry.rs#L16  const TOUCH_EPSILON
 viz/connectivity/geometry.rs#L19  const NEAR_MISS_EPSILON
 viz/connectivity/geometry.rs#L24  fn point_to_segment_distance
@@ -8348,11 +8349,11 @@ viz/doc.rs#L45  fn total_svg_bytes
 viz/doc.rs#L49  fn path_to
 viz/doc.rs#L69  fn validate
 viz/doc.rs#L120  fn to_json
-viz/doc.rs#L189  mod tests
-viz/doc.rs#L192  fn mk_layer
-viz/doc.rs#L200  fn test_validate_ok
-viz/doc.rs#L208  fn test_validate_missing_root
-viz/doc.rs#L218  fn test_validate_missing_parent
+viz/doc.rs#L196  mod tests
+viz/doc.rs#L199  fn mk_layer
+viz/doc.rs#L207  fn test_validate_ok
+viz/doc.rs#L215  fn test_validate_missing_root
+viz/doc.rs#L225  fn test_validate_missing_parent
 viz/idiom/mod.rs#L18  mod model
 viz/idiom/mod.rs#L19  mod place
 viz/idiom/mod.rs#L20  mod report
@@ -8480,10 +8481,10 @@ viz/labels/mod.rs#L1045  fn rects_overlap_correct
 viz/labels/mod.rs#L1071  fn segment_hits_rect_correct
 viz/labels/mod.rs#L1093  fn off_canvas_detection
 viz/layer.rs#L19  struct VizLayer
-viz/layer.rs#L40  impl VizLayer
-viz/layer.rs#L41  fn new
-viz/layer.rs#L53  fn is_root
-viz/layer.rs#L58  fn svg_size
+viz/layer.rs#L44  impl VizLayer
+viz/layer.rs#L45  fn new
+viz/layer.rs#L58  fn is_root
+viz/layer.rs#L63  fn svg_size
 viz/layout/audit_registry.rs#L40  struct VizAuditRule
 viz/layout/audit_registry.rs#L72  static VIZ_AUDIT_RULES
 viz/layout/audit_registry.rs#L293  fn viz_audit_rules
@@ -9495,18 +9496,20 @@ viz/layout/supply_bundle.rs#L382  struct IndividualDraw
 viz/layout/supply_bundle.rs#L401  struct SupplyBundlePlan
 viz/layout/supply_bundle.rs#L409  fn build_plan
 viz/layout/supply_bundle.rs#L415  fn build_plan_for
-viz/layout/supply_bundle.rs#L652  mod tests
-viz/layout/supply_bundle.rs#L656  fn edge
-viz/layout/supply_bundle.rs#L676  fn small_bundles_are_demoted_behind_the_individual_edges
-viz/layout/supply_bundle.rs#L696  fn group_order_does_not_follow_the_hash_map
-viz/layout/supply_bundle.rs#L729  fn source_position_outranks_box_ids
-viz/layout/supply_bundle.rs#L754  fn box_at
-viz/layout/supply_bundle.rs#L774  fn box_with_lead
-viz/layout/supply_bundle.rs#L801  fn trunk_taps_approach_each_lead_along_its_axis
-viz/layout/supply_bundle.rs#L862  fn point_to_point_power_edge_carries_ret_lane
-viz/layout/supply_bundle.rs#L887  fn individual_edge_leaves_each_lead_along_its_axis
-viz/layout/supply_bundle.rs#L935  fn individual_edge_meets_a_leadless_end_square_on_its_border
-viz/layout/supply_bundle.rs#L991  fn fan_out_trunk_carries_driver_return_stub
+viz/layout/supply_bundle.rs#L660  fn export_json
+viz/layout/supply_bundle.rs#L724  mod tests
+viz/layout/supply_bundle.rs#L728  fn edge
+viz/layout/supply_bundle.rs#L748  fn small_bundles_are_demoted_behind_the_individual_edges
+viz/layout/supply_bundle.rs#L768  fn group_order_does_not_follow_the_hash_map
+viz/layout/supply_bundle.rs#L801  fn source_position_outranks_box_ids
+viz/layout/supply_bundle.rs#L826  fn box_at
+viz/layout/supply_bundle.rs#L846  fn box_with_lead
+viz/layout/supply_bundle.rs#L873  fn trunk_taps_approach_each_lead_along_its_axis
+viz/layout/supply_bundle.rs#L934  fn point_to_point_power_edge_carries_ret_lane
+viz/layout/supply_bundle.rs#L959  fn individual_edge_leaves_each_lead_along_its_axis
+viz/layout/supply_bundle.rs#L1007  fn individual_edge_meets_a_leadless_end_square_on_its_border
+viz/layout/supply_bundle.rs#L1063  fn fan_out_trunk_carries_driver_return_stub
+viz/layout/supply_bundle.rs#L1100  fn export_json_names_trunk_driver_members
 viz/layout/two_lane_ladder.rs#L35  const MARGIN
 viz/layout/two_lane_ladder.rs#L37  const SLOT
 viz/layout/two_lane_ladder.rs#L39  const LANE_SEP
@@ -10730,4 +10733,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-398 files, 10650 declarations.
+398 files, 10653 declarations.
