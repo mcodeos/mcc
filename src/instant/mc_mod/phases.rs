@@ -1194,6 +1194,65 @@ impl InstantiationBuilder {
     /// pattern), else the connection's source span, else the file start — not
     /// the (1,1) file start that hid these warnings' true location.
     /// Called before `build_net_table()`.
+    /// Anchor for a submodule-member diagnostic: the net point's own source
+    /// position when available, else the connection's source span, else the
+    /// current file start (same chain the E3175 branch uses).
+    fn member_anchor(
+        pt: &crate::instant::mc_net::NetPoint,
+        conn: &crate::instant::mc_net::ConnectionInst,
+    ) -> (crate::semantic::common::McURI, u32) {
+        pt.src_pos
+            .first()
+            .map(|s| (s.uri.clone(), s.offset))
+            .or_else(|| conn.source_span.as_ref().map(|s| (s.uri.clone(), s.offset)))
+            .unwrap_or_else(|| (crate::current_uri::get(), 0))
+    }
+
+    /// U151 boundary ticket check: does this submodule member carry a direction
+    /// word on the module *boundary*? Only `In`/`Out`/`InOut`/`Power`/`Analog`
+    /// rows are boundary members; `label` rows, direction-less buses, `nc`/
+    /// return faces are module-internal (label-boundary-gate-design.md).
+    ///
+    /// The authoritative face is the instance's own [`McModuleInst::ports`]:
+    /// a member of an aggregate port (`in [VDD, GND]::DC(…)`) has no port row
+    /// of its own (its def-store entry is an implicit label), so the *owning*
+    /// port's direction decides for it via `bus_members`.
+    pub(super) fn is_internal_member(sub: &McModuleInst, port_name: &str) -> bool {
+        use crate::semantic::common::IOType;
+        let exportable = |io: &IOType| {
+            matches!(
+                io,
+                IOType::In | IOType::Out | IOType::InOut | IOType::Power | IOType::Analog
+            )
+        };
+        let base = port_name.split('.').next().unwrap_or(port_name);
+        if base.is_empty() || base.chars().all(|c: char| c.is_ascii_digit()) {
+            return false;
+        }
+        // 1. Boundary face: a port row (direct, or as a member of an aggregate
+        //    port) — the port's direction is the ticket.
+        for p in &sub.ports {
+            if port_base_name(&p.name) == base || p.bus_members.iter().any(|m| m == base) {
+                return !exportable(&p.iotype);
+            }
+        }
+        // 2. Def-store fallback: a bare `label X` row (or a direction-less bus
+        //    row) that never became a port. Class instances (component /
+        //    submodule rows) are not declaration members — reaching *them*
+        //    keeps its not-a-port verdict (E3175), which is what the
+        //    pins-through-boundary audit locks.
+        match sub.def.insts.get_with_iotype(base) {
+            Some((io, inst)) => {
+                matches!(
+                    inst,
+                    McInstance::Label(_) | McInstance::Bus(_) | McInstance::List(_)
+                ) && !exportable(io)
+            }
+            // Not a store name at all — leave the verdict to the E3175 face.
+            None => false,
+        }
+    }
+
     pub(super) fn validate_expanded_net_points(&self) {
         for conn in &self.connections {
             for pt in &conn.points {
@@ -1260,7 +1319,52 @@ impl InstantiationBuilder {
                             .path
                             .strip_prefix(&format!("{owner}."))
                             .unwrap_or(&pt.path);
-                        if !port_name.is_empty() && !sub.is_valid_port_ref(port_name) {
+                        // U151 first: a member that EXISTS but carries no
+                        // direction word is a boundary violation (E3184), not
+                        // a port miss — the internal verdict outranks the
+                        // not-found one.
+                        if !port_name.is_empty() && Self::is_internal_member(&sub, port_name) {
+                            // U151: the member resolves structurally but carries no
+                            // direction word — `label` rows and direction-less
+                            // declarations are module-internal. A direction word is
+                            // the only boundary ticket, so reaching it through an
+                            // instance dot-path is E3184 (label-boundary-gate-design.md).
+                            let (uri, pos) = Self::member_anchor(pt, conn);
+                            // Anchors already reported at the mint face
+                            // (`points.rs::note_internal_member_ref`) stay
+                            // reported once — this face adds only violations
+                            // the minter never saw (chain expansions).
+                            if self
+                                .internal_member_reported
+                                .contains(&format!("{uri}:{pos}"))
+                            {
+                                continue;
+                            }
+                            crate::db::diagnostic::diagnostic::diagnostic_log_at(
+                                crate::errcodes::LABEL_NOT_EXPORTABLE,
+                                crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
+                                uri.clone(),
+                                pos,
+                                pt.path.len() as u32,
+                                &crate::errcodes::format_msg(
+                                    crate::errcodes::LABEL_NOT_EXPORTABLE,
+                                    &[&port_name, owner],
+                                ),
+                                &[],
+                            );
+                            // ★ Ledger: boundary violation on a resolved sub-module
+                            // → UnresolvedRef (the connection does not form).
+                            ledger::record(
+                                LedgerEntry::new(
+                                    LedgerKind::UnresolvedRef,
+                                    pt.path.clone(),
+                                    "phases.rs:pass2 submodule member not exportable",
+                                )
+                                .with_action(LedgerAction::Error)
+                                .with_uri(uri)
+                                .with_span(pos, pt.path.len() as u32),
+                            );
+                        } else if !port_name.is_empty() && !sub.is_valid_port_ref(port_name) {
                             let available: Vec<&str> =
                                 sub.ports.iter().map(|p| p.name.as_str()).collect();
                             // Anchor at the offending reference: the net point's
@@ -1268,14 +1372,7 @@ impl InstantiationBuilder {
                             // connection's source span, else the current file
                             // start — group.rs pattern, so the Problems entry
                             // points near the actual source instead of (1,1).
-                            let (uri, pos) = pt
-                                .src_pos
-                                .first()
-                                .map(|s| (s.uri.clone(), s.offset))
-                                .or_else(|| {
-                                    conn.source_span.as_ref().map(|s| (s.uri.clone(), s.offset))
-                                })
-                                .unwrap_or_else(|| (crate::current_uri::get(), 0));
+                            let (uri, pos) = Self::member_anchor(pt, conn);
                             crate::db::diagnostic::diagnostic::diagnostic_log_at(
                                 crate::errcodes::MODULE_PORT_NOT_FOUND,
                                 crate::db::diagnostic::diagnostic::DiagnosticLevel::Warning,

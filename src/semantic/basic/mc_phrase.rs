@@ -2971,6 +2971,7 @@ impl McPhrase {
                     &opd1_shape,
                     &opd2_shape,
                 ) {
+                    report_internal_member_access(&opd1, &opd2, node, context);
                     dlog_error(
                         crate::errcodes::CONN_PARALLEL_SHAPE_MISMATCH,
                         node,
@@ -3079,6 +3080,7 @@ impl McPhrase {
                     &opd1_shape,
                     &opd2_shape,
                 ) {
+                    report_internal_member_access(&opd1, &opd2, node, context);
                     dlog_error(
                         crate::errcodes::CONN_SERIES_SHAPE_MISMATCH,
                         node,
@@ -3145,6 +3147,7 @@ impl McPhrase {
                     return None;
                 }
                 if !is_connectable(ConnOp::Series, ConnDir::LtoR, &opd1_shape, &opd2_shape) {
+                    report_internal_member_access(&opd1, &opd2, node, context);
                     dlog_error(
                         crate::errcodes::CONN_SERIES_SHAPE_MISMATCH,
                         node,
@@ -3225,6 +3228,7 @@ impl McPhrase {
                     return None;
                 }
                 if !is_connectable(ConnOp::Series, ConnDir::RtoL, &opd1_shape, &opd2_shape) {
+                    report_internal_member_access(&opd1, &opd2, node, context);
                     dlog_error(
                         crate::errcodes::CONN_LEFT_ARROW_SHAPE_MISMATCH,
                         node,
@@ -5183,6 +5187,112 @@ fn module_port_elems(
 /// expansion in `mc_mod/points.rs`) — so the shape fed to `opcheck` is the
 /// transposed result, not the pre-transpose single port. There is no
 /// pair-by-min / lane-hang carve-out for transposed operands. Non-transposed
+/// U151: extract `base.member` from a connection operand when it names a
+/// member through an instance path — the dotted Label form (`modldo.test_tp`)
+/// and the single-member Bus forms (`modldo{test_tp}`, combined
+/// `modldo.test_tp`). `None` for every other shape (bare labels, lists,
+/// operators), which are not instance member accesses.
+fn operand_base_member(opd: &McPhrase) -> Option<(String, String)> {
+    let (name, members): (&str, &[String]) = match opd {
+        McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+            base: McInstance::Label(l),
+            ..
+        })) => (l.as_str(), &[],
+        ),
+        McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+            base: McInstance::Bus(b),
+            ..
+        })) if b.member.len() <= 1 => (b.name.as_str(), &b.member),
+        _ => return None,
+    };
+    if let Some(m0) = members.first() {
+        // `Bus("modldo", ["test_tp"])`: the display base strips a curly
+        // suffix, the single written member is the member.
+        let (base, _) = crate::semantic::basic::mc_ids::display_base_members(name);
+        Some((base, m0.clone()))
+    } else {
+        let (base, member) = name.split_once('.')?;
+        Some((base.to_string(), member.to_string()))
+    }
+}
+
+/// U151 boundary-ticket judgment over a module definition store (the Pass1
+/// mirror of the Pass2 port check in `mc_mod/points.rs`): does `member`
+/// carry a direction word? A member of an aggregate port inherits the
+/// owning port's direction; a direct store entry without one (`label`
+/// rows, direction-less buses, internal instances) is module-internal; a
+/// name that is no module member at all stays silent here — it belongs to
+/// the not-found faces.
+fn module_member_is_internal(module: &McInstance, member: &str) -> bool {
+    let McInstance::Module(m) = module else {
+        return false;
+    };
+    let exportable = |io: &IOType| {
+        matches!(
+            io,
+            IOType::In | IOType::Out | IOType::InOut | IOType::Power | IOType::Analog
+        )
+    };
+    // 1. Owning group port: a bus/list/interface port whose declared member
+    //    set contains `member` — its direction is the member's ticket.
+    for (name, (io, inst)) in m.base.insts.iter_with_iotype() {
+        let (_, display_members) = crate::semantic::basic::mc_ids::display_base_members(name);
+        let members: Vec<String> = match inst {
+            McInstance::Bus(b) if !b.member.is_empty() => b.member.clone(),
+            McInstance::List(l) if !l.member.is_empty() => l.member.clone(),
+            // An anonymous aggregate port stores its members in the display
+            // name (`[VDD_3V3, GND]`), not in a member field.
+            McInstance::Interface(_) => display_members,
+            _ => continue,
+        };
+        if members.iter().any(|x| x == member) {
+            return !exportable(io);
+        }
+    }
+    // 2. Direct entry: a bare `label X` row (or a direction-less row).
+    // Class instances (component / submodule rows) are not declaration
+    // members — reaching *them* keeps its not-a-port verdict (E3175).
+    match m.base.insts.get_with_iotype(member) {
+        Some((io, inst)) => matches!(
+            inst,
+            McInstance::Label(_) | McInstance::Bus(_) | McInstance::List(_)
+        ) && !exportable(io),
+        None => false,
+    }
+}
+
+/// U151: when the §5 shape gate rejects a connection leg, an operand naming
+/// a module-internal member through an instance path is the *reason* the
+/// module never exposed a matching width — report E3184 anchored at the
+/// same operator node (report-only; the shape verdict stands). Called at
+/// every `CONN_*_SHAPE_MISMATCH` emission site.
+fn report_internal_member_access(
+    opd1: &McPhrase,
+    opd2: &McPhrase,
+    node: &AstNode,
+    context: &mut dyn HasFindInst,
+) {
+    for opd in [opd1, opd2] {
+        let Some((base, member)) = operand_base_member(opd) else {
+            continue;
+        };
+        let Some(module_inst) = context.find_inst(&base) else {
+            continue;
+        };
+        if !module_member_is_internal(&module_inst, &member) {
+            continue;
+        }
+        dlog_error(
+            crate::errcodes::LABEL_NOT_EXPORTABLE,
+            node,
+            &crate::errcodes::format_msg(
+                crate::errcodes::LABEL_NOT_EXPORTABLE,
+                &[&member, &base],
+            ),
+        );
+    }
+}
+
 /// operands delegate to `get_left()` / `get_right()`, except that multi-member
 /// interfaces and component port references present their full member count so
 /// the Pass1 check sees the same width Pass2 will expand.
