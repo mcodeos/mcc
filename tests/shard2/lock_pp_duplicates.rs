@@ -47,6 +47,8 @@
 // keep the grep-able family token separate (matrix §1 taxonomy).
 #![allow(non_snake_case)]
 
+use crate::common;
+
 use serde_json::Value;
 use std::process::Command;
 
@@ -87,6 +89,7 @@ fn has_code(value: &Value, code: u64) -> bool {
 
 #[test]
 fn ppdup__cmie_cross_file_duplicate_emits_5001() {
+    let _lock = common::lock();
     mcc::mcc_init_no_lib();
     mcc::mcc_set_system_root(std::path::Path::new(""));
     mcc::mcc_clear_workspace();
@@ -142,6 +145,7 @@ fn ppdup__cmie_cross_file_duplicate_emits_5001() {
 
 #[test]
 fn ppdup__dup_enum_value_emits_5003() {
+    let _lock = common::lock();
     let source = r#"enum COLOR
 {
     RED,
@@ -163,6 +167,7 @@ module main
 
 #[test]
 fn ppdup__enum_duplicate_value_emits_5401() {
+    let _lock = common::lock();
     let source = r#"enum COLOR
 {
     RED,
@@ -186,6 +191,7 @@ module main
 
 #[test]
 fn ppdup__attr_self_referential_emits_5412() {
+    let _lock = common::lock();
     let source = r#"component DUP_ATTR
 {
     grade = grade
@@ -214,6 +220,7 @@ module main
 
 #[test]
 fn ppdup__attr_key_duplicate_reaches_cli_pass0() {
+    let _lock = common::lock();
     let source = r#"component DUP_ATTRKEY
 {
     name = "first"

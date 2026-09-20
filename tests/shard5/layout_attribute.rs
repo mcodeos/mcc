@@ -16,9 +16,6 @@
 
 use crate::common;
 
-use std::sync::{Mutex, OnceLock};
-
-static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 /// Find a workspace component by its declared class name.
 fn component(name: &str) -> mcc::McComponent {
@@ -55,7 +52,7 @@ fn load_codes(src: &str, tag: &str) -> Vec<(u32, String)> {
 /// empty edge all parse into the matching `McLayout` edge lists.
 #[test]
 fn comp_layout_edges_ranges_and_names() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    let _lock = common::lock();
     common::reset();
     load_codes(
         r#"
@@ -84,7 +81,7 @@ component CHIP9
 /// edge aliases `up` / `down` map to `top` / `bottom`.
 #[test]
 fn mod_layout_accepted_with_up_down_aliases() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    let _lock = common::lock();
     common::reset();
     let diags = load_codes(
         r#"
@@ -117,7 +114,7 @@ module PMOD
 /// `bottom = [6:9]`; the members must survive into the semantic layout.
 #[test]
 fn comp_layout_real_content_shape() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    let _lock = common::lock();
     common::reset();
     load_codes(
         r#"
@@ -142,7 +139,7 @@ component USB_MINI_B
 /// the layout still parses and the declaration is not rejected.
 #[test]
 fn comp_layout_unknown_edge_warns_only() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    let _lock = common::lock();
     common::reset();
     let diags = load_codes(
         r#"
