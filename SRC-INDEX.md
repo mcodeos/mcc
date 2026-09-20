@@ -40,7 +40,7 @@ range (threshold 40KB).
 | `rules.rs` | 173 KB | 83 |
 | `instant/insttab.rs` | 153 KB | 110 |
 | `db/defregistry.rs` | 147 KB | 179 |
-| `instant/mc_mod/fcallinst.rs` | 143 KB | 26 |
+| `instant/mc_mod/fcallinst.rs` | 144 KB | 26 |
 | `cmds/show.rs` | 143 KB | 116 |
 | `viz/layout/equi_audit.rs` | 137 KB | 103 |
 | `rpc/handlers/mod.rs` | 126 KB | 103 |
@@ -48,7 +48,7 @@ range (threshold 40KB).
 | `instant/mc_mod/phases.rs` | 115 KB | 26 |
 | `instant/mc_mod/points.rs` | 114 KB | 19 |
 | `semantic/module/mod.rs` | 114 KB | 80 |
-| `semantic/basic/mc_fcall.rs` | 112 KB | 21 |
+| `semantic/basic/mc_fcall.rs` | 113 KB | 22 |
 
 ## Modules
 
@@ -70,7 +70,7 @@ range (threshold 40KB).
 | `query/` | 9 | 157 KB |
 | `refdef/` | 7 | 118 KB |
 | `rpc/` | 16 | 293 KB |
-| `semantic/` | 88 | 2538 KB |
+| `semantic/` | 88 | 2539 KB |
 | `stages/` | 11 | 296 KB |
 | `vector/` | 25 | 462 KB |
 | `viz/` | 95 | 2282 KB |
@@ -3003,17 +3003,17 @@ instant/mc_mod/fcallinst.rs#L1042  fn materialize_declared_subinstances
 instant/mc_mod/fcallinst.rs#L1086  fn materialize_vector_groups
 instant/mc_mod/fcallinst.rs#L1138  fn materialize_deferred_subinstances
 instant/mc_mod/fcallinst.rs#L1217  fn instantiate_instance_method
-instant/mc_mod/fcallinst.rs#L1501  fn run_submodule_method
-instant/mc_mod/fcallinst.rs#L1959  fn run_component_method
-instant/mc_mod/fcallinst.rs#L2291  fn strip_host_iface_phantoms
-instant/mc_mod/fcallinst.rs#L2322  fn expand_bus_labels
-instant/mc_mod/fcallinst.rs#L2396  fn instance_declares_port
-instant/mc_mod/fcallinst.rs#L2411  fn actual_is_parent_ref
-instant/mc_mod/fcallinst.rs#L2439  fn prefix_instance_stmt_with_skip
-instant/mc_mod/fcallinst.rs#L2449  fn prefix_instance_phrase_with_skip
-instant/mc_mod/fcallinst.rs#L2763  fn prefix_instance_node_element_with_skip
-instant/mc_mod/fcallinst.rs#L2879  fn prefix_param_value_with_skip
-instant/mc_mod/fcallinst.rs#L2928  fn validate_fcall_return_shape
+instant/mc_mod/fcallinst.rs#L1512  fn run_submodule_method
+instant/mc_mod/fcallinst.rs#L1970  fn run_component_method
+instant/mc_mod/fcallinst.rs#L2302  fn strip_host_iface_phantoms
+instant/mc_mod/fcallinst.rs#L2333  fn expand_bus_labels
+instant/mc_mod/fcallinst.rs#L2407  fn instance_declares_port
+instant/mc_mod/fcallinst.rs#L2422  fn actual_is_parent_ref
+instant/mc_mod/fcallinst.rs#L2450  fn prefix_instance_stmt_with_skip
+instant/mc_mod/fcallinst.rs#L2460  fn prefix_instance_phrase_with_skip
+instant/mc_mod/fcallinst.rs#L2774  fn prefix_instance_node_element_with_skip
+instant/mc_mod/fcallinst.rs#L2890  fn prefix_param_value_with_skip
+instant/mc_mod/fcallinst.rs#L2939  fn validate_fcall_return_shape
 instant/mc_mod/funccall.rs#L40  enum FuncCallInst
 instant/mc_mod/funccall.rs#L57  enum FaceSide
 instant/mc_mod/funccall.rs#L62  impl FaceSide
@@ -4973,12 +4973,13 @@ semantic/basic/mc_fcall.rs#L415  fn caller_is_construction
 semantic/basic/mc_fcall.rs#L422  fn parse_internal
 semantic/basic/mc_fcall.rs#L1908  fn resolve_return_shape
 semantic/basic/mc_fcall.rs#L1942  fn fill_return_shape
-semantic/basic/mc_fcall.rs#L1954  fn lookup_func_returns
-semantic/basic/mc_fcall.rs#L1980  fn fill_return_shapes
-semantic/basic/mc_fcall.rs#L2031  fn check_chain_validity
-semantic/basic/mc_fcall.rs#L2073  fn root_receiver
-semantic/basic/mc_fcall.rs#L2085  fn extract_method_name
-semantic/basic/mc_fcall.rs#L2125  fn try_parse_inner_fcall
+semantic/basic/mc_fcall.rs#L1962  fn expand_iface_port_return_face
+semantic/basic/mc_fcall.rs#L1997  fn lookup_func_returns
+semantic/basic/mc_fcall.rs#L2023  fn fill_return_shapes
+semantic/basic/mc_fcall.rs#L2074  fn check_chain_validity
+semantic/basic/mc_fcall.rs#L2116  fn root_receiver
+semantic/basic/mc_fcall.rs#L2128  fn extract_method_name
+semantic/basic/mc_fcall.rs#L2168  fn try_parse_inner_fcall
 semantic/basic/mc_group.rs#L16  struct McGroup
 semantic/basic/mc_group.rs#L22  impl McGroup
 semantic/basic/mc_group.rs#L24  fn parse
@@ -10709,4 +10710,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-397 files, 10629 declarations.
+397 files, 10630 declarations.
