@@ -2,6 +2,7 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
+use crate::db::diagnostic::diagnostic::dlog_error;
 use crate::eval::{self, Compare, Value};
 use crate::semantic::basic::mc_literal::strip_string_quotes;
 use crate::semantic::component::mc_attr::{attr_values_text, McAttributes};
@@ -450,8 +451,24 @@ impl McConds {
                     }
                     continue;
                 }
-                if let Some(operand) = Self::parse_operand(&child) {
-                    operands.push(operand);
+                match Self::parse_operand(&child) {
+                    Some(operand) => operands.push(operand),
+                    None => {
+                        // A judge operand the collector cannot name (a call,
+                        // a form with no reading) used to vanish silently:
+                        // with fewer than two operands the whole judge was
+                        // discarded and the if-branch never selected, with
+                        // no diagnostic explaining why. The condition still
+                        // reads as absent — the arm is not interpretable —
+                        // but the drop is now audible (U144 condition face).
+                        dlog_error(
+                            crate::errcodes::COND_JUDGE_OPERAND_DROPPED,
+                            &child,
+                            "condition operand has a form the collector does \
+                             not recognize; the whole judge is discarded, so \
+                             this branch never selects",
+                        );
+                    }
                 }
             }
         }

@@ -1466,6 +1466,12 @@ pub const MODULE_STUB: u32 = 5459;
 /// the later branch can never be selected.
 pub const COND_DUPLICATE: u32 = 5460;
 
+/// A judge operand has a form the condition collector does not recognize
+/// (a call, an unpowered operator form); the operand is dropped, the whole
+/// judge cannot be built, and the condition reads as absent — the if-branch
+/// never selects and no other diagnostic explains why.
+pub const COND_JUDGE_OPERAND_DROPPED: u32 = 5461;
+
 // Pass3: hardware checks (5500-5549)
 
 /// Pin numbers have gaps.
@@ -2508,6 +2514,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(PARAM_PIN_NAME_SHADOW, "Parameter shares its name with a pin.", "Parameter shares its name with a pin."),
     entry!(MODULE_STUB, "Module is a stub.", "Module is a stub."),
     entry!(COND_DUPLICATE, "Duplicate condition in if/else-if chain.", "A later if/else-if branch duplicates an earlier branch's condition, so it can never be selected."),
+    entry!(COND_JUDGE_OPERAND_DROPPED, "Condition operand was not recognized.", "A judge operand has a form the condition collector does not recognize (for example a call), so the whole judge is discarded and the branch never selects. Rewrite the operand as a parameter reference or a literal."),
     // section
     entry!(HW_PIN_NUMBER_GAP, "Pin numbers have gaps.", "Pin numbers have gaps."),
     entry!(HW_PIN_COUNT_HIGH, "Pin count is unusually high.", "Pin count is unusually high."),
