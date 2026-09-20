@@ -252,12 +252,13 @@ fn iface_conn__func_body_mutual_pair_is_quiet() {
 }
 
 /// U128 step ④ — definition-side self-check cells. The fixture below
-/// replicates the *real* library disease shape (D8: `UART.RS485`'s Repeater
-/// role, mcode/ifs/uart.mc): the repeater names its peers (`peer =
-/// [Master, Slave]`) but neither peer names it back, and its member table is
-/// 6 members against the peers' 3. The rule must flag the non-mutual pair on
-/// the real shape — proving the check catches library-borne diseases, not
-/// only the two-role toy fixtures above. Family naming keeps the
+/// replicates the *real* library shape (D8: `UART.RS485`'s Repeater role,
+/// mcode/ifs/uart.mc): the repeater names its peers (`peer = [Master,
+/// Slave]`) but neither peer names it back, and its member table is 6
+/// members against the peers' 3. D8 (ruled 2026-09-20) settled this shape as
+/// **legal one-to-many relay semantics**, so the definition-side self-check
+/// must stay quiet on it — the multi-peer set exempts the pair from both the
+/// mutuality and the width sub-check. Family naming keeps the
 /// `{family}__{essence}` discipline.
 const D8_RS485: &str = r#"
 interface RS485D8(role)
@@ -313,14 +314,12 @@ component D8REP
 }
 "#;
 
-/// Build `main` from the D8 fixture with the body statement `body`. Same
-/// return shape as [`build`].
-fn build_d8(body: &str, uri: &str) -> (Vec<u32>, Vec<Vec<String>>) {
+/// Build `main` from `fixture` (interface definitions) plus `main_body`
+/// (statements inside `module main`). Same return shape as [`build`].
+fn build_iface(fixture: &str, main_body: &str, uri: &str) -> (Vec<u32>, Vec<Vec<String>>) {
     let _lock = common::lock();
     common::reset();
-    let src = format!(
-        "{D8_RS485}module main {{\n    D8TERM dm\n    D8TRM ds\n    D8REP rp\n{body}\n}}\n"
-    );
+    let src = format!("{fixture}module main {{\n{main_body}\n}}\n");
     let u = McURI::from(uri);
     mcc::mcc_load_from_string(&u, &src);
     let (_, _, _, net_store) = mcc::mcc_build_with_nets(&McIds::from("main"), &u).expect("build");
@@ -348,32 +347,75 @@ fn build_d8(body: &str, uri: &str) -> (Vec<u32>, Vec<Vec<String>>) {
     (codes, partition)
 }
 
-/// Definition-side self-check (the actual step-④ deliverable): the D8
-/// fixture's interface definition is diseased all by itself, with no
-/// connection statement anywhere. Loading it must raise E5508 (Repeater's
-/// peers never name it back) and E5509 (6 members against the peers' 3) —
-/// reported once each per non-mutual / mismatched declared pair, at
-/// definition load, exactly as `interface-connect-rule-design.md` §3.3 A/B
-/// prescribe. The measured reality this cell pins: on the *whole-port*
-/// statement the 6-vs-3 width rejection (E4007, shape family per §3.2 row 3)
-/// precedes the join, so the join-site role check never runs for the true
-/// shape — the definition-side check is the layer that actually names the
-/// peer disease.
+/// The D8 fixture with its three components instantiated, plus optional
+/// statements `body`.
+fn build_d8(body: &str, uri: &str) -> (Vec<u32>, Vec<Vec<String>>) {
+    build_iface(
+        D8_RS485,
+        &format!("    D8TERM dm\n    D8TRM ds\n    D8REP rp\n{body}"),
+        uri,
+    )
+}
+
+/// Definition-side self-check, D8 cell (ruled 2026-09-20): the Repeater
+/// shape is **legal one-to-many relay semantics** — `peer = [Master, Slave]`
+/// is a multi-peer set, so the pair is exempt from both the mutuality
+/// (E5508) and the width (E5509) sub-check, and the definition loads quiet.
+/// Before the ruling this same fixture raised both codes as a "peer
+/// disease"; the real `UART.RS485` library shape is the authority that it
+/// is authoring intent, not a defect.
 #[test]
-fn iface_def__d8_repeater_peer_disease_fires_at_definition_load() {
-    let (codes, _nets) = build_d8("", "/mcc/iface-def-d8-disease.mc");
+fn iface_def__d8_repeater_relay_semantics_is_quiet_at_definition_load() {
+    let (codes, _nets) = build_d8("", "/mcc/iface-def-d8-relay.mc");
     assert!(
-        codes.contains(&5508),
-        "the D8 role table must raise the not-mutual self-check at load; got {codes:?}"
+        !codes.contains(&5508),
+        "a relay declaration must not raise the not-mutual self-check; got {codes:?}"
     );
     assert!(
-        codes.contains(&5509),
-        "the D8 6-vs-3 role tables must raise the peer-width self-check at load; got {codes:?}"
+        !codes.contains(&5509),
+        "a relay declaration must not raise the peer-width self-check; got {codes:?}"
     );
     assert_eq!(
         rule_codes(&codes),
         Vec::<u32>::new(),
         "no connection statement exists, so no join-site code may fire; got {codes:?}"
+    );
+}
+
+/// Negative controls for the D8 exemption: with no relay side in sight, the
+/// self-check keeps firing. `Alpha.peer = Beta` while `Beta` declares no
+/// `peer` attribute at all — not named back (E5508) — and 3 members against
+/// 2 (E5509). Single-peer pairs are judged exactly as before the ruling.
+const PEER_NEG: &str = r#"
+interface PeerNeg(role)
+{
+    role Alpha {
+        pins = [
+            1 = A
+            2 = B
+            3 = GND
+        ]
+        peer = Beta
+    }
+    role Beta {
+        pins = [
+            1 = A
+            2 = B
+        ]
+    }
+}
+"#;
+
+#[test]
+fn iface_def__single_peer_non_mutual_and_width_still_fire() {
+    let (codes, _nets) = build_iface(PEER_NEG, "", "/mcc/iface-def-peer-neg.mc");
+    assert!(
+        codes.contains(&5508),
+        "a single-peer pair with no named-back peer must still raise E5508; got {codes:?}"
+    );
+    assert!(
+        codes.contains(&5509),
+        "a single-peer pair with unequal widths must still raise E5509; got {codes:?}"
     );
 }
 

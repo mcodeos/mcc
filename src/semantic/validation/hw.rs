@@ -397,15 +397,25 @@ fn check_role_peer_dangling(acc: &mut CheckAccumulator) {
 /// §3.3 A/B — the interface definition itself is diseased, so it is reported
 /// where it is declared, not where it is connected):
 ///
-///   * peer pairs must be **mutual** (E5508): `Repeater.peer = [Master,
-///     Slave]` while `Master.peer` / `Slave.peer` never name the repeater
-///     back is exactly the real `UART.RS485` library shape.
+///   * peer pairs must be **mutual** (E5508): a role names a peer that never
+///     names it back.
 ///   * declared peers should declare **equal member widths** (E5509):
-///     Repeater's 6 members against Master's 3 can never pair positionally.
+///     unequal member tables can never pair positionally.
 ///
-/// Both are definition-space facts — no connection statement is involved.
-/// Dangling peer names stay with HW5 above; absence of a member table is
-/// E3180's territory and is skipped here, not reported as a mismatch.
+/// D8 exemption (ruled 2026-09-20, one-to-many relay semantics): a declared
+/// pair with a **relay side** — a `peer` attribute holding two or more role
+/// names (`peer = [Master, Slave]`) — is exempt from both sub-checks. A
+/// relay's member table is the union of its sides, so no wholesale width
+/// comparison against it is meaningful; and an attach-side role need not
+/// name the relay back, because the relay sits transparently on the bus (a
+/// Master's peer is a Slave; the repeater in between is not part of their
+/// pair law). The real `UART.RS485` Repeater shape is exactly this legal
+/// form, not a disease.
+///
+/// Both sub-checks are definition-space facts — no connection statement is
+/// involved. Dangling peer names stay with HW5 above; absence of a member
+/// table is E3180's territory and is skipped here, not reported as a
+/// mismatch.
 fn check_role_peer_mutual_and_width(acc: &mut CheckAccumulator) {
     // Same D10 scan scope as check_role_peer_dangling above: unified view,
     // library interfaces included.
@@ -434,6 +444,12 @@ fn check_role_peer_mutual_and_width(acc: &mut CheckAccumulator) {
                     else {
                         continue;
                     };
+                    // D8 exemption first: a pair with a relay side (either
+                    // this role or its peer declaring a multi-peer set) is
+                    // legal one-to-many authoring — see the function comment.
+                    if is_relay_peer_decl(role) || is_relay_peer_decl(peer_role) {
+                        continue;
+                    }
                     // A: mutuality. The peer's own `peer` attribute must name
                     // this role back.
                     let is_named_back = peer_role
@@ -478,6 +494,19 @@ fn check_role_peer_mutual_and_width(acc: &mut CheckAccumulator) {
             }
         }
     }
+}
+
+/// Whether `role` declares **relay** peer semantics: its `peer` attribute(s)
+/// name two or more roles in total (`peer = [Master, Slave]`). Structural —
+/// the count of declared peer names, never their spellings (world-axioms §1
+/// A1). A single peer, bare or as a one-element set, stays an ordinary pair.
+fn is_relay_peer_decl(role: &crate::semantic::basic::mc_role::McRole) -> bool {
+    role.attrs
+        .iter()
+        .filter(|a| a.id.to_string() == "peer")
+        .flat_map(|a| peer_role_names(&a.values))
+        .count()
+        >= 2
 }
 
 /// The role name(s) a `peer` attribute references.
