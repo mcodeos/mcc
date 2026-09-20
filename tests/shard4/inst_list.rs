@@ -496,12 +496,18 @@ fn frozen_hbl() -> mcc::InstTable {
 // minting a key nobody declared, so the four such rows hbl used to invent are
 // gone (299 → 295 rows, 231 → 227 point-class rows, 42 → 38 of them naming no
 // physical point). The point-carrying count, 189, is unchanged.
+//
+// Re-measured for the replicated-binding batch (b3638): the fixture's
+// `GPIO[n,n]::GPIO(Controller)` rows now expand into real named members
+// (GPIO3, GPIO4, …) under the R2 member-pool binding, so four aggregate
+// bus-member spellings fold onto declared points (point-carrying 189 → 193,
+// point-less 38 → 34; total rows and point-class rows unchanged).
 const HBL_ROWS: usize = 295;
 const HBL_INSTANCES: usize = 68;
 const HBL_POINTS: usize = 227;
 /// Point-class rows that name no physical point: a port's aggregate / bus-member
 /// spellings (`main.V1V2.VCC`, `main.DCDC.GND`, …).
-const HBL_POINTLESS: usize = 38;
+const HBL_POINTLESS: usize = 34;
 
 /// The two blocks on a real board, and the promise that no row invents a key it
 /// does not have.

@@ -1633,20 +1633,38 @@ impl McPins {
                         // but LHS only gives m pin IDs, should error instead of silently
                         // misaligning/losing members.
                         //      exception: iface_pins empty (pins in role, e.g. UART.X) skip check.
+                        // ★ R2 (replicated-binding-design §4 check 2): the binding
+                        // pool is the member-expanded subname list — `GPIO[3,
+                        // 4]::GPIO()` carries TWO single-pin members (GPIO3,
+                        // GPIO4), not the interface's one declared pin name.
+                        // The LHS count compares against the pool; a plain
+                        // non-replicated name expands to exactly the interface
+                        // pin list, so its behavior is unchanged.
+                        let subname = derive_interface_subnames(&declare.name, &iface_pins);
+                        let pool: &[String] = if subname.is_empty() {
+                            &iface_pins
+                        } else {
+                            &subname
+                        };
+                        let expected_count = if matches!(pinids, McPinPort::MultiGroup(_)) {
+                            // Nested groups bind group↔member positionally
+                            // (group i ↔ member i, broadcast within group), so the
+                            // count constraint stays group count == interface
+                            // member count. See pin_mapping_design.md §7/§8.
+                            iface_pins.len()
+                        } else {
+                            pool.len()
+                        };
                         let declared_count: Option<usize> = match &pinids {
                             McPinPort::Single(_) => Some(1),
                             McPinPort::Multi(pids) => Some(pids.len()),
                             McPinPort::MultiGroup(groups) => {
-                                // Nested groups bind group↔member positionally
-                                // (group i ↔ member i, broadcast within group), so the
-                                // count constraint is group count == member count, not the
-                                // flattened pin total. See pin_mapping_design.md §7/§8.
                                 Some(groups.len())
                             }
                             _ => None,
                         };
                         if let Some(dc) = declared_count {
-                            if !iface_pins.is_empty() && dc != iface_pins.len() {
+                            if !iface_pins.is_empty() && dc != expected_count {
                                 // Use per-option node for precise error location
                                 let err_node = names
                                     .option_nodes
@@ -1669,8 +1687,8 @@ impl McPins {
                                         crate::errcodes::PARAM_DECLARE_IFACE_PINS,
                                         &[
                                             &declare.name,
-                                            &iface_pins.len() as &dyn std::fmt::Display,
-                                            &format!("{:?}", iface_pins),
+                                            &expected_count as &dyn std::fmt::Display,
+                                            &format!("{:?}", pool),
                                             &dc as &dyn std::fmt::Display,
                                             &unit as &dyn std::fmt::Display,
                                         ],
@@ -1680,7 +1698,6 @@ impl McPins {
                         }
 
                         let _expanded_inst_names: Vec<String> = declare.name.expand();
-                        let subname = derive_interface_subnames(&declare.name, &iface_pins);
 
                         match &pinids {
                             // n pids vs n interface pins, pinid and interface member count 1:1,
