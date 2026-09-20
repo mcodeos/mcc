@@ -2,7 +2,7 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! Role-position constructor args must be bare identifiers (U144, first slice).
+//! Role-position constructor args must be bare identifiers (U144 slices 1+3).
 //!
 //! A role-bearing interface's constructor argument position IS the role
 //! position: `SPI::SPI(Master)` selects the role by name, so the name must
@@ -13,8 +13,15 @@
 //! silently bypassed, and a misspelling passes clean (the ident-vs-literal
 //! ruling; evidence matrix in mcd log/9.20.u143-ref-position-literal-audit.md).
 //! This check turns that silent degrade into an explicit error.
+//!
+//! Faces covered: component formal params (A3, first slice), module port head
+//! formals (A3, first slice; the bare twin is E4184's), and component
+//! `pins`-block rows (third slice — those bind through McPins and never reach
+//! `classify_declare`; there the check also enforces E4104 on bare names,
+//! which the pins face never had).
 
 use super::{CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, ValidationCheck};
+use crate::semantic::basic::mc_param::McParamValue;
 use std::collections::HashSet;
 
 pub struct IfaceRoleArgCheck;
@@ -144,6 +151,91 @@ fn check_iface_role_arg_literal(acc: &mut CheckAccumulator) {
                     ),
                     code: crate::errcodes::IFACE_ROLE_ARG_LITERAL,
                 });
+            }
+        }
+    }
+
+    // Pins-row face (U144 third slice): `io [1,2] = I2C0::I2C(Master)` inside a
+    // component `pins` block binds through McPins, never through
+    // `classify_declare`, so the two loops above cannot see it (the U143 audit
+    // noted exactly this bypass). The `McPinPort::Interface` port retains the
+    // raw constructor args, so judge them here. Against a role-bearing
+    // interface every constructor argument is a role reference: a quoted or
+    // numeric literal is the E4185 degrade, and a bare name that matches no
+    // role is E4104's miss — the same rule the param face enforces, which the
+    // pins face never had (probe: a misspelled bare role checked clean). An
+    // empty argument list (`GPIO()`) stays unjudged: whether a role is
+    // required there is E4104/E4184's business, already settled on their own
+    // faces.
+    let comps = crate::definition_space().workspace_components();
+    for (sn, comp) in comps.iter() {
+        let uri = sn.uri.to_string();
+        if super::is_test_file(&uri) {
+            continue;
+        }
+        for (member, port) in comp.pins.names_to_id.iter() {
+            let crate::McPinPort::Interface(mc2) = port else {
+                continue;
+            };
+            if mc2.params.is_empty() || mc2.base.roles.is_empty() {
+                continue;
+            }
+            let role_names: HashSet<String> =
+                mc2.base.roles.iter().map(|r| r.name.to_string()).collect();
+            let class_name = mc2.base.name.to_string();
+            let span = comp
+                .pins
+                .pin_name_spans
+                .get(member)
+                .cloned()
+                .unwrap_or_else(|| comp.span.start..comp.span.end);
+            for p in mc2.params.iter() {
+                match p {
+                    McParamValue::Ids(ids) => {
+                        let role_val = ids.to_string();
+                        if role_names.contains(&role_val) {
+                            continue;
+                        }
+                        acc.push(CheckResult {
+                            check_name: "interface",
+                            severity: CheckSeverity::Warning,
+                            uri: Some(uri.clone()),
+                            span: Some(span.clone()),
+                            message: format!(
+                                "Component '{}': pins member '{}' references role '{}' in \
+                                 interface '{}', but that role is not defined in the \
+                                 interface. Available roles: {}",
+                                comp.name,
+                                member,
+                                role_val,
+                                class_name,
+                                role_names
+                                    .iter()
+                                    .map(|r| r.as_str())
+                                    .collect::<Vec<_>>()
+                                    .join(", "),
+                            ),
+                            code: crate::errcodes::IFACE_ROLE_NOT_FOUND,
+                        });
+                    }
+                    other => {
+                        acc.push(CheckResult {
+                            check_name: "interface",
+                            severity: CheckSeverity::Error,
+                            uri: Some(uri.clone()),
+                            span: Some(span.clone()),
+                            message: format!(
+                                "Component '{}': pins member '{}' binds interface '{}' with \
+                                 literal argument '{}' — the role position takes a bare \
+                                 identifier; a quoted or numeric literal is swallowed and \
+                                 silently bypasses role validation. Write the role name \
+                                 bare: '{}::{}(Role)'",
+                                comp.name, member, class_name, other, member, class_name
+                            ),
+                            code: crate::errcodes::IFACE_ROLE_ARG_LITERAL,
+                        });
+                    }
+                }
             }
         }
     }
