@@ -100,7 +100,7 @@ component FLASH.GD25Q32E
         7 = _HOLD | IO3
         [8,4] = [VCC,VSS]::DC(3.3V)
         
-        [1, 2, 5, 6] = SPI::SPI("Slave")
+        [1, 2, 5, 6] = SPI::SPI(Slave)
     ]
         
     func GD25Q32E([V3V3, GND]::DC(3.3V))
