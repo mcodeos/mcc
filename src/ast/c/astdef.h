@@ -165,6 +165,9 @@
 #define MCAST_JUDGE_BITAND              90
 #define MCAST_JUDGE_BITOR               91
 #define MCAST_JUDGE_IN                  92
+#define MCAST_JUDGE_AND                 93
+// 94-96 are MCAST_ABSTRACT/VARIANT/ADOPTS, so the logical-or judge lands at 97.
+#define MCAST_JUDGE_OR                  97
 
 //4. use
 #define MCAST_URI_PREFIX                101
@@ -333,8 +336,22 @@ typedef struct mc_dlog_entry {
 #define MCD_E1002_TOP_SKIPPED           2081  // mc_top: error — invalid top-level declaration
 #define MCD_E1003_CLAUSE_SKIPPED        2082  // mc_clause: error — invalid clause in body
 #define MCD_E1004_PIN_SKIPPED           2083  // mc_pins_line: error — invalid pin declaration
+#define MCD_E1005_PIN_ID_NOT_CONST      2084  // pin ID must be a constant integer
+#define MCD_E1006_PIN_NAME_NOT_CONST    2085  // pin name must be a constant identifier
 #define MCD_E1007_NET_NOT_PORT          2086  // net endpoint must be a port/label, not a literal
+#define MCD_E1008_NET_ERROR             2087  // mc_net: error — invalid net/connection expression
+#define MCD_E1009_CONDS_ERROR           2088  // mc_conds: error — invalid if/else condition block
+#define MCD_E1010_ROLE_ERROR            2089  // mc_role: error — invalid role block
+#define MCD_E1011_FUNC_ERROR            2090  // mc_function: error — invalid function definition
+#define MCD_E1012_PINS_ERROR            2091  // mc_attribute_pin: error — invalid pins declaration
 #define MCD_E1013_USE_ERROR             2092  // mc_use: error — invalid import statement
+#define MCD_E1014_CONDBLOCK_ERROR        2093  // mc_cond_block: error — invalid condition body
+#define MCD_E1015_DECLAREB_ERROR         2094  // mc_declare_b: error — invalid instance declaration (:: syntax)
+#define MCD_E1016_BODY_ERROR             2095  // mc_body: error — invalid body
+#define MCD_E1017_JUDGE_ERROR            2096  // mc_judge: error — invalid condition expression
+#define MCD_E1018_PARD_ERROR             2097  // mc_pard: error — invalid parameter declaration
+#define MCD_E1019_URI_ERROR              2098  // mc_uri: error — invalid import path
+#define MCD_E1020_PHRASES_ERROR          2099  // mc_phrases: error — invalid expression list
 #define MCD_E1021_OPDS_ERROR             2100  // mc_opds: error — invalid operand list
 #define MCD_E1022_PARAMS_ERROR           2101  // mc_params: error — invalid parameter list
 #define MCD_E1023_PARDS_ERROR            2102  // mc_pards: error — invalid parameter declaration list
