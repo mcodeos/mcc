@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use crate::common;
 use mcc::{McIds, McURI};
 
 fn fixture_root() -> PathBuf {
@@ -8,6 +9,7 @@ fn fixture_root() -> PathBuf {
 
 #[test]
 fn project_manifest_symbol_reaches_rendered_svg() {
+    let _lock = common::lock();
     let project_root = fixture_root();
     let entry_path = project_root.join("src/main.mc");
     let entry_uri: McURI = entry_path.to_string_lossy().into_owned();

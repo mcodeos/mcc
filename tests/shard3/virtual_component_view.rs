@@ -8,11 +8,9 @@
 // "no top module found"; each unit is wrapped in a synthetic module so the
 // standard build + viz pipeline can render it standalone.
 
+use crate::common;
 use mcc::McURI;
 use std::fs;
-use std::sync::{Mutex, OnceLock};
-
-static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 fn fixture(name: &str, content: &str) -> (std::path::PathBuf, McURI) {
     let dir = std::env::temp_dir().join(format!("mcc-virtual-{}-{}", name, std::process::id()));
@@ -48,7 +46,7 @@ component HUM011D_5_S
 
 #[test]
 fn component_only_file_resolves_and_builds() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    let _lock = common::lock();
     let (path, uri) = fixture("comp", COMPONENT_ONLY);
     setup(&uri);
 
@@ -82,7 +80,7 @@ fn component_only_file_resolves_and_builds() {
 
 #[test]
 fn component_view_renders_box() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    let _lock = common::lock();
     let (path, uri) = fixture("comp-viz", COMPONENT_ONLY);
     setup(&uri);
 
@@ -110,7 +108,7 @@ fn component_view_renders_box() {
 
 #[test]
 fn component_view_renders_pin_name_and_id() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    let _lock = common::lock();
     let (path, uri) = fixture("comp-pins", COMPONENT_ONLY);
     setup(&uri);
 
@@ -157,7 +155,7 @@ module BUZZER { }
 
 #[test]
 fn multi_module_file_resolves_all_modules() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    let _lock = common::lock();
     let (path, uri) = fixture("multi", MULTI_MODULE);
     setup(&uri);
 
@@ -181,7 +179,7 @@ interface I2C(role)
 
 #[test]
 fn interface_only_file_resolves_and_builds() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    let _lock = common::lock();
     let (path, uri) = fixture("iface", INTERFACE_ONLY);
     setup(&uri);
 
@@ -196,7 +194,7 @@ fn interface_only_file_resolves_and_builds() {
 
 #[test]
 fn component_view_default_pin_order_is_counterclockwise() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    let _lock = common::lock();
     let (path, uri) = fixture(
         "ccw",
         r#"
@@ -289,7 +287,7 @@ fn component_view_layout_places_pins_on_edges_ccw() {
     // A component `layout = [...]` must drive the virtual view: each listed
     // member lands on its edge, in counterclockwise order (right list reads
     // bottom→top → descending offsets, left reads top→bottom → ascending).
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    let _lock = common::lock();
     let (path, uri) = fixture(
         "layout",
         r#"
@@ -362,7 +360,7 @@ fn group_range_bus_pins_all_register() {
     // Regression: `io [4:11] = IO0{0:7}` must register 8 pins (IO00..IO07).
     // as_bus() used to ignore the numeric range inside curly braces, so the
     // RHS bus had zero members and the whole slice registered no pins.
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    let _lock = common::lock();
     let (path, uri) = fixture(
         "busrange",
         r#"
@@ -410,7 +408,7 @@ fn component_view_box_w_fits_left_plus_right_pin_names() {
     // right edge inward — `pin_render.rs` `label_positions`), so the box must
     // be at least `left_longest + right_longest` wide. A single-widest-label
     // width lets `PRIMARY+` collide with `SECONDARY+` mid-box.
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    let _lock = common::lock();
     let (path, uri) = fixture(
         "wide-pins",
         r#"
@@ -487,7 +485,7 @@ fn virtual_view_skips_unwired_pin_diagnostics() {
     // false positives on a virtually-instantiated standalone component view —
     // an unwired box is exactly what such a view IS. The fabricated wrapper is
     // flagged `synthetic` at build time, and both checks must skip it.
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    let _lock = common::lock();
     let (path, uri) = fixture(
         "xtal-view",
         r#"
@@ -528,7 +526,7 @@ fn virtual_view_skips_floating_and_boundary_port_diagnostics() {
     // wrapper, the instance AND every pin under the path prefix), and every net
     // check that fires on unwired pins must skip it. Fixture mirrors
     // mcpub/clock/mcp7940m.mc (psnk / in / io / out / nc pin shape).
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    let _lock = common::lock();
     let (path, uri) = fixture(
         "rtc-view",
         r#"
@@ -571,7 +569,7 @@ fn virtual_targets_follow_source_declaration_order() {
     // DashMap (hash order). Targets must follow the .mc source declaration
     // order, not hash order and not alphabetical order (the names here are
     // deliberately non-alphabetical: DELTA before ALPHA before CHARLIE).
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    let _lock = common::lock();
     let (path, uri) = fixture(
         "decl-order",
         r#"

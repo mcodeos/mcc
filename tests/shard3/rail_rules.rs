@@ -18,13 +18,13 @@ use std::path::PathBuf;
 use mcc::viz::api::{render_with_metrics, RenderOpts};
 use mcc::McIds;
 
+use crate::common;
+
 fn hbl_project_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/hbl")
 }
 
 /// The mcc_* workspace is global state; tests must be serialized (same as tests/renderdiff.rs)
-static RENDER_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
 fn build_graph() -> mcc::vector::graph::McVecGraph {
     let project_root = hbl_project_dir();
     let entry_path = project_root.join("src/hbl.mc");
@@ -46,7 +46,7 @@ fn build_graph() -> mcc::vector::graph::McVecGraph {
 fn main_layer_isolated_set_is_empty() {
     // Acceptance: driver stage edges bring USB/LDO/DCDC into the main flow;
     // compute_isolated_ids(main, hub) must return the empty set.
-    let _guard = RENDER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _lock = common::lock();
     let mut graph = build_graph();
     mcc::vector::graph::apply_promote_recursive(&mut graph);
     // Mirror pipeline: classify_rails runs before island computation (flow.rs phase_prepare →
@@ -122,7 +122,7 @@ fn sub_layers_s1_s2_decoration_counts() {
     // Pre-F2, sub-layers ran the FlowLayouter's classify_rails, which placed
     // one symbol per rail ENDPOINT into rail_decorations; those per-endpoint
     // counts (MCU513 GND=8, etc.) are obsolete.
-    let _guard = RENDER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _lock = common::lock();
     let graph = build_graph();
     let (_doc, metrics) = render_with_metrics(graph, RenderOpts::default());
 
