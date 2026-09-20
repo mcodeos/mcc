@@ -70,7 +70,7 @@ range (threshold 40KB).
 | `query/` | 9 | 157 KB |
 | `refdef/` | 7 | 118 KB |
 | `rpc/` | 16 | 293 KB |
-| `semantic/` | 89 | 2573 KB |
+| `semantic/` | 89 | 2576 KB |
 | `stages/` | 11 | 296 KB |
 | `vector/` | 25 | 462 KB |
 | `viz/` | 95 | 2284 KB |
@@ -5249,40 +5249,40 @@ semantic/basic/mc_param.rs#L989  fn bind_component
 semantic/basic/mc_param.rs#L1003  fn bind_tolerant
 semantic/basic/mc_param.rs#L1011  fn bind_inner
 semantic/basic/mc_param.rs#L1021  fn bind_inner_opts
-semantic/basic/mc_param.rs#L1501  fn find
-semantic/basic/mc_param.rs#L1511  fn to_params_for_eval
-semantic/basic/mc_param.rs#L1527  fn iter
-semantic/basic/mc_param.rs#L1532  fn len
-semantic/basic/mc_param.rs#L1537  fn is_empty
-semantic/basic/mc_param.rs#L1542  fn find_by_index
-semantic/basic/mc_param.rs#L1552  fn find_member_value
-semantic/basic/mc_param.rs#L1565  fn subset_excluding
-semantic/basic/mc_param.rs#L1585  enum ParamBindError
-semantic/basic/mc_param.rs#L1620  impl std::fmt::Display for ParamBindError
-semantic/basic/mc_param.rs#L1621  fn fmt
-semantic/basic/mc_param.rs#L1670  mod tests
-semantic/basic/mc_param.rs#L1679  fn sem_mcparam__nc_stripped_from_instance_method_arity
-semantic/basic/mc_param.rs#L1713  fn sem_mcparam__nc_named_array_does_not_trigger_too_many_args
-semantic/basic/mc_param.rs#L1763  fn sem_mcparam__nc_anonymous_inline_same_as_named_array
-semantic/basic/mc_param.rs#L1806  fn single_declare
-semantic/basic/mc_param.rs#L1815  fn attr_int
-semantic/basic/mc_param.rs#L1826  fn dotted
-semantic/basic/mc_param.rs#L1845  fn sem_mcparam__named_args_bind_by_name_exact_case
-semantic/basic/mc_param.rs#L1865  fn sem_mcparam__named_arg_key_case_is_significant
-semantic/basic/mc_param.rs#L1879  fn sem_mcparam__named_args_out_of_order_bind_by_name
-semantic/basic/mc_param.rs#L1899  fn sem_mcparam__orphan_named_arg_is_error
-semantic/basic/mc_param.rs#L1913  fn sem_mcparam__named_arg_plus_positional_fill_remaining
-semantic/basic/mc_param.rs#L1934  fn sem_mcparam__named_claim_causing_positional_overflow
-semantic/basic/mc_param.rs#L1958  fn register_test_enum
-semantic/basic/mc_param.rs#L1991  fn sem_mcparam__bare_enum_member_claims_enum_class_slot
-semantic/basic/mc_param.rs#L2013  fn sem_mcparam__dotted_enum_member_opd_claims_enum_class_slot
-semantic/basic/mc_param.rs#L2035  fn sem_mcparam__enum_member_without_enum_slot_is_error
-semantic/basic/mc_param.rs#L2050  fn sem_mcparam__invalid_enum_member_value_is_error
-semantic/basic/mc_param.rs#L2073  fn sem_mcparam__interface_member_claims_interface_slot
-semantic/basic/mc_param.rs#L2097  fn sem_mcparam__dotted_net_ref_falls_through_to_positional
-semantic/basic/mc_param.rs#L2112  fn sem_mcparam__get_member_value_projects_set_member
-semantic/basic/mc_param.rs#L2146  fn sem_mcparam__get_member_value_projects_ids_square_member
-semantic/basic/mc_param.rs#L2179  impl std::error::Error for ParamBindError
+semantic/basic/mc_param.rs#L1519  fn find
+semantic/basic/mc_param.rs#L1529  fn to_params_for_eval
+semantic/basic/mc_param.rs#L1545  fn iter
+semantic/basic/mc_param.rs#L1550  fn len
+semantic/basic/mc_param.rs#L1555  fn is_empty
+semantic/basic/mc_param.rs#L1560  fn find_by_index
+semantic/basic/mc_param.rs#L1570  fn find_member_value
+semantic/basic/mc_param.rs#L1583  fn subset_excluding
+semantic/basic/mc_param.rs#L1603  enum ParamBindError
+semantic/basic/mc_param.rs#L1638  impl std::fmt::Display for ParamBindError
+semantic/basic/mc_param.rs#L1639  fn fmt
+semantic/basic/mc_param.rs#L1688  mod tests
+semantic/basic/mc_param.rs#L1697  fn sem_mcparam__nc_stripped_from_instance_method_arity
+semantic/basic/mc_param.rs#L1731  fn sem_mcparam__nc_named_array_does_not_trigger_too_many_args
+semantic/basic/mc_param.rs#L1781  fn sem_mcparam__nc_anonymous_inline_same_as_named_array
+semantic/basic/mc_param.rs#L1824  fn single_declare
+semantic/basic/mc_param.rs#L1833  fn attr_int
+semantic/basic/mc_param.rs#L1844  fn dotted
+semantic/basic/mc_param.rs#L1863  fn sem_mcparam__named_args_bind_by_name_exact_case
+semantic/basic/mc_param.rs#L1883  fn sem_mcparam__named_arg_key_case_is_significant
+semantic/basic/mc_param.rs#L1897  fn sem_mcparam__named_args_out_of_order_bind_by_name
+semantic/basic/mc_param.rs#L1917  fn sem_mcparam__orphan_named_arg_is_error
+semantic/basic/mc_param.rs#L1931  fn sem_mcparam__named_arg_plus_positional_fill_remaining
+semantic/basic/mc_param.rs#L1952  fn sem_mcparam__named_claim_causing_positional_overflow
+semantic/basic/mc_param.rs#L1976  fn register_test_enum
+semantic/basic/mc_param.rs#L2009  fn sem_mcparam__bare_enum_member_claims_enum_class_slot
+semantic/basic/mc_param.rs#L2031  fn sem_mcparam__dotted_enum_member_opd_claims_enum_class_slot
+semantic/basic/mc_param.rs#L2053  fn sem_mcparam__enum_member_without_enum_slot_is_error
+semantic/basic/mc_param.rs#L2068  fn sem_mcparam__invalid_enum_member_value_is_error
+semantic/basic/mc_param.rs#L2091  fn sem_mcparam__interface_member_claims_interface_slot
+semantic/basic/mc_param.rs#L2115  fn sem_mcparam__dotted_net_ref_falls_through_to_positional
+semantic/basic/mc_param.rs#L2130  fn sem_mcparam__get_member_value_projects_set_member
+semantic/basic/mc_param.rs#L2164  fn sem_mcparam__get_member_value_projects_ids_square_member
+semantic/basic/mc_param.rs#L2197  impl std::error::Error for ParamBindError
 semantic/basic/mc_param_infer.rs#L24  struct UsageSite
 semantic/basic/mc_param_infer.rs#L37  enum UsageKind
 semantic/basic/mc_param_infer.rs#L64  struct InferenceResult
@@ -5315,39 +5315,39 @@ semantic/basic/mc_param_type.rs#L90  fn head_unit
 semantic/basic/mc_param_type.rs#L99  impl std::fmt::Display for McUnitType
 semantic/basic/mc_param_type.rs#L100  fn fmt
 semantic/basic/mc_param_type.rs#L110  enum McParamTypeKind
-semantic/basic/mc_param_type.rs#L184  enum McIoTy
-semantic/basic/mc_param_type.rs#L193  impl McIoTy
-semantic/basic/mc_param_type.rs#L195  fn from_ast
-semantic/basic/mc_param_type.rs#L208  fn as_str
-semantic/basic/mc_param_type.rs#L222  impl McParamType
-semantic/basic/mc_param_type.rs#L228  fn from_ast
-semantic/basic/mc_param_type.rs#L302  fn classify_unit_type
-semantic/basic/mc_param_type.rs#L369  fn classify_compound_unit
-semantic/basic/mc_param_type.rs#L380  fn classify_declare
-semantic/basic/mc_param_type.rs#L485  fn extract_default_from_declare_uv
-semantic/basic/mc_param_type.rs#L509  fn extract_class_name_from_declare
-semantic/basic/mc_param_type.rs#L525  fn extract_default_from_declare
-semantic/basic/mc_param_type.rs#L560  fn reclassify_if_enum_class
-semantic/basic/mc_param_type.rs#L586  fn is_port
-semantic/basic/mc_param_type.rs#L599  fn is_explicitly_typed
-semantic/basic/mc_param_type.rs#L611  fn category_name
-semantic/basic/mc_param_type.rs#L635  fn default_value
-semantic/basic/mc_param_type.rs#L650  fn interface_params
-semantic/basic/mc_param_type.rs#L658  fn has_default
-semantic/basic/mc_param_type.rs#L662  fn unknown
-semantic/basic/mc_param_type.rs#L667  impl std::fmt::Display for McParamType
-semantic/basic/mc_param_type.rs#L668  fn fmt
-semantic/basic/mc_param_type.rs#L680  struct McParamArity
-semantic/basic/mc_param_type.rs#L686  impl McParamArity
-semantic/basic/mc_param_type.rs#L687  fn from_declares
-semantic/basic/mc_param_type.rs#L699  fn validate
-semantic/basic/mc_param_type.rs#L717  enum ArityError
-semantic/basic/mc_param_type.rs#L722  impl std::fmt::Display for ArityError
-semantic/basic/mc_param_type.rs#L723  fn fmt
-semantic/basic/mc_param_type.rs#L736  mod tests
-semantic/basic/mc_param_type.rs#L740  fn sem_paramtype__port_classification
-semantic/basic/mc_param_type.rs#L800  fn sem_paramtype__has_default
-semantic/basic/mc_param_type.rs#L824  fn sem_paramtype__arity_validation
+semantic/basic/mc_param_type.rs#L188  enum McIoTy
+semantic/basic/mc_param_type.rs#L197  impl McIoTy
+semantic/basic/mc_param_type.rs#L199  fn from_ast
+semantic/basic/mc_param_type.rs#L212  fn as_str
+semantic/basic/mc_param_type.rs#L226  impl McParamType
+semantic/basic/mc_param_type.rs#L232  fn from_ast
+semantic/basic/mc_param_type.rs#L306  fn classify_unit_type
+semantic/basic/mc_param_type.rs#L373  fn classify_compound_unit
+semantic/basic/mc_param_type.rs#L384  fn classify_declare
+semantic/basic/mc_param_type.rs#L499  fn extract_default_from_declare_uv
+semantic/basic/mc_param_type.rs#L523  fn extract_class_name_from_declare
+semantic/basic/mc_param_type.rs#L539  fn extract_default_from_declare
+semantic/basic/mc_param_type.rs#L574  fn reclassify_if_enum_class
+semantic/basic/mc_param_type.rs#L600  fn is_port
+semantic/basic/mc_param_type.rs#L613  fn is_explicitly_typed
+semantic/basic/mc_param_type.rs#L625  fn category_name
+semantic/basic/mc_param_type.rs#L649  fn default_value
+semantic/basic/mc_param_type.rs#L664  fn interface_params
+semantic/basic/mc_param_type.rs#L672  fn has_default
+semantic/basic/mc_param_type.rs#L676  fn unknown
+semantic/basic/mc_param_type.rs#L681  impl std::fmt::Display for McParamType
+semantic/basic/mc_param_type.rs#L682  fn fmt
+semantic/basic/mc_param_type.rs#L694  struct McParamArity
+semantic/basic/mc_param_type.rs#L700  impl McParamArity
+semantic/basic/mc_param_type.rs#L701  fn from_declares
+semantic/basic/mc_param_type.rs#L713  fn validate
+semantic/basic/mc_param_type.rs#L731  enum ArityError
+semantic/basic/mc_param_type.rs#L736  impl std::fmt::Display for ArityError
+semantic/basic/mc_param_type.rs#L737  fn fmt
+semantic/basic/mc_param_type.rs#L750  mod tests
+semantic/basic/mc_param_type.rs#L754  fn sem_paramtype__port_classification
+semantic/basic/mc_param_type.rs#L814  fn sem_paramtype__has_default
+semantic/basic/mc_param_type.rs#L838  fn sem_paramtype__arity_validation
 semantic/basic/mc_paramd.rs#L16  struct McParamDeclares
 semantic/basic/mc_paramd.rs#L31  impl McParamDeclares
 semantic/basic/mc_paramd.rs#L32  fn new
@@ -5401,28 +5401,28 @@ semantic/basic/mc_paramd.rs#L1050  fn match_name
 semantic/basic/mc_paramd.rs#L1066  fn get_primary_name
 semantic/basic/mc_paramd.rs#L1078  fn display_name
 semantic/basic/mc_paramd.rs#L1091  fn interface_annotation
-semantic/basic/mc_paramd.rs#L1108  fn has_type_constraint
-semantic/basic/mc_paramd.rs#L1114  fn has_unit_type
-semantic/basic/mc_paramd.rs#L1124  fn has_enum_class
-semantic/basic/mc_paramd.rs#L1133  fn get_enum_class
-semantic/basic/mc_paramd.rs#L1141  fn get_declared_unit
-semantic/basic/mc_paramd.rs#L1157  fn get_unit_type
-semantic/basic/mc_paramd.rs#L1168  fn get_class_name
-semantic/basic/mc_paramd.rs#L1191  fn has_class_params
-semantic/basic/mc_paramd.rs#L1198  fn is_port
-semantic/basic/mc_paramd.rs#L1203  fn set_param_type
-semantic/basic/mc_paramd.rs#L1210  fn has_default_value
-semantic/basic/mc_paramd.rs#L1221  fn recorded
-semantic/basic/mc_paramd.rs#L1238  fn name_and_default
-semantic/basic/mc_paramd.rs#L1263  fn expand
-semantic/basic/mc_paramd.rs#L1278  fn all_name_forms
-semantic/basic/mc_paramd.rs#L1291  fn get_name_with_default
-semantic/basic/mc_paramd.rs#L1312  fn to_port_name_and_members
-semantic/basic/mc_paramd.rs#L1331  impl std::fmt::Display for McParamDeclare
-semantic/basic/mc_paramd.rs#L1332  fn fmt
-semantic/basic/mc_paramd.rs#L1356  mod tests
-semantic/basic/mc_paramd.rs#L1360  fn sem_paramd__def_spans_persist_after_port_filter
-semantic/basic/mc_paramd.rs#L1406  fn sem_paramd__record_net_ref_uses_def_spans
+semantic/basic/mc_paramd.rs#L1109  fn has_type_constraint
+semantic/basic/mc_paramd.rs#L1115  fn has_unit_type
+semantic/basic/mc_paramd.rs#L1125  fn has_enum_class
+semantic/basic/mc_paramd.rs#L1134  fn get_enum_class
+semantic/basic/mc_paramd.rs#L1142  fn get_declared_unit
+semantic/basic/mc_paramd.rs#L1158  fn get_unit_type
+semantic/basic/mc_paramd.rs#L1169  fn get_class_name
+semantic/basic/mc_paramd.rs#L1192  fn has_class_params
+semantic/basic/mc_paramd.rs#L1199  fn is_port
+semantic/basic/mc_paramd.rs#L1204  fn set_param_type
+semantic/basic/mc_paramd.rs#L1211  fn has_default_value
+semantic/basic/mc_paramd.rs#L1222  fn recorded
+semantic/basic/mc_paramd.rs#L1239  fn name_and_default
+semantic/basic/mc_paramd.rs#L1264  fn expand
+semantic/basic/mc_paramd.rs#L1279  fn all_name_forms
+semantic/basic/mc_paramd.rs#L1292  fn get_name_with_default
+semantic/basic/mc_paramd.rs#L1313  fn to_port_name_and_members
+semantic/basic/mc_paramd.rs#L1332  impl std::fmt::Display for McParamDeclare
+semantic/basic/mc_paramd.rs#L1333  fn fmt
+semantic/basic/mc_paramd.rs#L1357  mod tests
+semantic/basic/mc_paramd.rs#L1361  fn sem_paramd__def_spans_persist_after_port_filter
+semantic/basic/mc_paramd.rs#L1407  fn sem_paramd__record_net_ref_uses_def_spans
 semantic/basic/mc_phrase.rs#L45  fn warn_prefix_id_as_wire
 semantic/basic/mc_phrase.rs#L67  fn report_domain_endpoint_collision
 semantic/basic/mc_phrase.rs#L100  fn report_subscribed_reserved_word
@@ -6976,9 +6976,9 @@ semantic/validation/interface.rs#L25  fn default_severity
 semantic/validation/interface.rs#L29  fn run_post_parse
 semantic/validation/interface.rs#L42  fn check_iface_pin_completeness
 semantic/validation/interface.rs#L135  fn check_iface_role_exists
-semantic/validation/interface.rs#L235  fn check_module_port_role_free
-semantic/validation/interface.rs#L280  fn check_deprecated_cmie_usage
-semantic/validation/interface.rs#L393  fn has_deprecated_attr
+semantic/validation/interface.rs#L236  fn check_module_port_role_free
+semantic/validation/interface.rs#L282  fn check_deprecated_cmie_usage
+semantic/validation/interface.rs#L395  fn has_deprecated_attr
 semantic/validation/ledger.rs#L36  enum LedgerKind
 semantic/validation/ledger.rs#L52  impl LedgerKind
 semantic/validation/ledger.rs#L53  fn as_str
