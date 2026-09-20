@@ -73,7 +73,7 @@ range (threshold 40KB).
 | `semantic/` | 88 | 2539 KB |
 | `stages/` | 11 | 296 KB |
 | `vector/` | 25 | 462 KB |
-| `viz/` | 95 | 2282 KB |
+| `viz/` | 95 | 2284 KB |
 
 ## Declaration index
 
@@ -3004,16 +3004,16 @@ instant/mc_mod/fcallinst.rs#L1086  fn materialize_vector_groups
 instant/mc_mod/fcallinst.rs#L1138  fn materialize_deferred_subinstances
 instant/mc_mod/fcallinst.rs#L1217  fn instantiate_instance_method
 instant/mc_mod/fcallinst.rs#L1512  fn run_submodule_method
-instant/mc_mod/fcallinst.rs#L1970  fn run_component_method
-instant/mc_mod/fcallinst.rs#L2302  fn strip_host_iface_phantoms
-instant/mc_mod/fcallinst.rs#L2333  fn expand_bus_labels
-instant/mc_mod/fcallinst.rs#L2407  fn instance_declares_port
-instant/mc_mod/fcallinst.rs#L2422  fn actual_is_parent_ref
-instant/mc_mod/fcallinst.rs#L2450  fn prefix_instance_stmt_with_skip
-instant/mc_mod/fcallinst.rs#L2460  fn prefix_instance_phrase_with_skip
-instant/mc_mod/fcallinst.rs#L2774  fn prefix_instance_node_element_with_skip
-instant/mc_mod/fcallinst.rs#L2890  fn prefix_param_value_with_skip
-instant/mc_mod/fcallinst.rs#L2939  fn validate_fcall_return_shape
+instant/mc_mod/fcallinst.rs#L1968  fn run_component_method
+instant/mc_mod/fcallinst.rs#L2300  fn strip_host_iface_phantoms
+instant/mc_mod/fcallinst.rs#L2331  fn expand_bus_labels
+instant/mc_mod/fcallinst.rs#L2405  fn instance_declares_port
+instant/mc_mod/fcallinst.rs#L2420  fn actual_is_parent_ref
+instant/mc_mod/fcallinst.rs#L2448  fn prefix_instance_stmt_with_skip
+instant/mc_mod/fcallinst.rs#L2458  fn prefix_instance_phrase_with_skip
+instant/mc_mod/fcallinst.rs#L2772  fn prefix_instance_node_element_with_skip
+instant/mc_mod/fcallinst.rs#L2888  fn prefix_param_value_with_skip
+instant/mc_mod/fcallinst.rs#L2937  fn validate_fcall_return_shape
 instant/mc_mod/funccall.rs#L40  enum FuncCallInst
 instant/mc_mod/funccall.rs#L57  enum FaceSide
 instant/mc_mod/funccall.rs#L62  impl FaceSide
@@ -4655,28 +4655,28 @@ rules.rs#L1843  const FLAT_ERC_ORDER
 rules.rs#L1902  const GATE_ORDER
 rules.rs#L1910  const DECL_ORDER
 rules.rs#L1917  const POSTPARSE_ORDER
-rules.rs#L2036  fn flat_erc_first_rule_is_e4101_pilot
-rules.rs#L2048  fn declaration_order_is_execution_order
-rules.rs#L2056  fn owner_is_a_typed_fn_pointer_to_the_host_check
-rules.rs#L2068  fn catalog_queries_work
-rules.rs#L2112  fn declaration_rules_reproduce_the_pin_check_sequence
-rules.rs#L2143  fn flat_erc_governance_defaults_match_severity
-rules.rs#L2156  fn gate_rules_reproduce_the_report_row_set
-rules.rs#L2175  fn gate_report_levels_match_the_preregistry_levels
-rules.rs#L2210  fn assembly_gate_blocking_set_is_the_error_rows
-rules.rs#L2226  fn gate_tag_lookup_and_severity_query_work
-rules.rs#L2242  fn codes_and_names_unique_across_every_scope
-rules.rs#L2259  fn post_parse_rules_reproduce_the_registration_order
-rules.rs#L2273  fn post_parse_governance_defaults_match_the_semantic_layer
-rules.rs#L2299  fn every_rule_names_its_owner_severity_and_family_consistently
-rules.rs#L2313  const VIZ_LAYOUT_ORDER
-rules.rs#L2320  fn viz_layout_rows_are_aggregated_read_only
-rules.rs#L2343  fn viz_layout_governance_defaults_are_locked
-rules.rs#L2379  fn lock_ledger_projects_every_numeric_code_exactly_once
-rules.rs#L2408  fn lock_ledger_anchors_are_strong_or_documented_and_pinned
-rules.rs#L2437  fn query_rules_filters_axes_and_preserves_table_order
-rules.rs#L2512  struct PostParseRule
-rules.rs#L2573  static POSTPARSE_RULES
+rules.rs#L2038  fn flat_erc_first_rule_is_e4101_pilot
+rules.rs#L2050  fn declaration_order_is_execution_order
+rules.rs#L2058  fn owner_is_a_typed_fn_pointer_to_the_host_check
+rules.rs#L2070  fn catalog_queries_work
+rules.rs#L2114  fn declaration_rules_reproduce_the_pin_check_sequence
+rules.rs#L2145  fn flat_erc_governance_defaults_match_severity
+rules.rs#L2158  fn gate_rules_reproduce_the_report_row_set
+rules.rs#L2177  fn gate_report_levels_match_the_preregistry_levels
+rules.rs#L2212  fn assembly_gate_blocking_set_is_the_error_rows
+rules.rs#L2228  fn gate_tag_lookup_and_severity_query_work
+rules.rs#L2244  fn codes_and_names_unique_across_every_scope
+rules.rs#L2261  fn post_parse_rules_reproduce_the_registration_order
+rules.rs#L2275  fn post_parse_governance_defaults_match_the_semantic_layer
+rules.rs#L2301  fn every_rule_names_its_owner_severity_and_family_consistently
+rules.rs#L2315  const VIZ_LAYOUT_ORDER
+rules.rs#L2322  fn viz_layout_rows_are_aggregated_read_only
+rules.rs#L2345  fn viz_layout_governance_defaults_are_locked
+rules.rs#L2381  fn lock_ledger_projects_every_numeric_code_exactly_once
+rules.rs#L2410  fn lock_ledger_anchors_are_strong_or_documented_and_pinned
+rules.rs#L2439  fn query_rules_filters_axes_and_preserves_table_order
+rules.rs#L2514  struct PostParseRule
+rules.rs#L2575  static POSTPARSE_RULES
 semantic/basic/attr_keys.rs#L48  enum AttrFace
 semantic/basic/attr_keys.rs#L62  enum AttrValueKind
 semantic/basic/attr_keys.rs#L93  enum ElementClass
@@ -7656,17 +7656,17 @@ stages/trace.rs#L880  fn detail_cell
 stages/trace.rs#L894  fn source_line
 stages/vec.rs#L46  fn build_vec
 stages/vec.rs#L118  fn endpoint_homes
-stages/vec.rs#L138  fn collect_claims
-stages/vec.rs#L167  fn pin_owner_scope
-stages/vec.rs#L176  fn walk
-stages/vec.rs#L262  fn layer_path
-stages/vec.rs#L277  fn box_item
-stages/vec.rs#L301  fn endpoint_item
-stages/vec.rs#L319  fn trunk_item
-stages/vec.rs#L360  fn endpoint_canon
-stages/vec.rs#L368  fn endpoint_path
-stages/vec.rs#L372  fn pin_path
-stages/vec.rs#L387  fn render_vec_text
+stages/vec.rs#L141  fn collect_claims
+stages/vec.rs#L170  fn pin_owner_scope
+stages/vec.rs#L179  fn walk
+stages/vec.rs#L265  fn layer_path
+stages/vec.rs#L280  fn box_item
+stages/vec.rs#L304  fn endpoint_item
+stages/vec.rs#L322  fn trunk_item
+stages/vec.rs#L363  fn endpoint_canon
+stages/vec.rs#L371  fn endpoint_path
+stages/vec.rs#L375  fn pin_path
+stages/vec.rs#L390  fn render_vec_text
 stages/viz.rs#L146  fn build_viz
 stages/viz.rs#L269  fn group_items
 stages/viz.rs#L305  const POWER_INTENT
@@ -9320,8 +9320,8 @@ viz/layout/rails.rs#L669  fn r1_ground_symbols_per_pin_at_sub_layer
 viz/layout/rails.rs#L701  fn r2_top_keeps_shared_power_rail
 viz/layout/rails.rs#L768  fn r2_sub_edges_only_to_power_domain_and_hub
 viz/layout/rails.rs#L845  fn r3_sub_layer_consumers_get_rail_terminals
-viz/layout/rails.rs#L877  fn c5_top_layer_drops_two_pin_passives
-viz/layout/rails.rs#L926  fn is_rail_box_is_kind_based_not_name_based
+viz/layout/rails.rs#L877  fn c5_top_layer_keeps_series_passives_drops_parallel_ones
+viz/layout/rails.rs#L966  fn is_rail_box_is_kind_based_not_name_based
 viz/layout/select.rs#L49  fn layout_best
 viz/layout/select.rs#L59  fn run_single
 viz/layout/select.rs#L171  static RENDER_GATE_FAILED
