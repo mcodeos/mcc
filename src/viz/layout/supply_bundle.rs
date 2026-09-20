@@ -23,7 +23,7 @@
 
 use std::collections::HashMap;
 
-use crate::vector::graph::{EntrySide, McVecBox, McVecGraph};
+use crate::vector::graph::{json_escape, EntrySide, McVecBox, McVecGraph};
 use crate::viz::layout::edge_decide::{BlockEdge, EdgeKind};
 use crate::viz::render::pin_render::LEAD_STUB_LEN;
 
@@ -362,7 +362,7 @@ pub struct TrunkDraw {
     pub taps: Vec<LeadEnd>,
     /// P2: stroke width of the rail and its taps (bundle presence decides it).
     pub stroke_width: f64,
-    /// ★ P3 (ret lineage, opt-in): the end of the single return lead drawn at
+    /// P3 (ret lineage, opt-in): the end of the single return lead drawn at
     /// the driver end of a fan-out (the design draws one return lead, not one
     /// per load). `Some` when the bundle's members carry a declared DC-pair
     /// return and a driver anchor exists; `None` otherwise. The renderer only
@@ -388,7 +388,7 @@ pub struct IndividualDraw {
     pub points: Vec<(f64, f64)>,
     /// P2: stroke width, decided here with the edge (bus / power / signal).
     pub stroke_width: f64,
-    /// ★ P3 (ret lineage, opt-in): for a point-to-point power edge whose net
+    /// P3 (ret lineage, opt-in): for a point-to-point power edge whose net
     /// carries a declared DC-pair return, the parallel second lane along the
     /// same spine (design §6). `None` for every other edge. Drawn only under
     /// the ret-lane opt-in flag.
@@ -646,6 +646,78 @@ pub fn build_plan_for(graph: &McVecGraph, edges: &[BlockEdge]) -> SupplyBundlePl
     }
 
     SupplyBundlePlan { trunks, individual }
+}
+
+/// The supply-bundle model of a Block layer as JSON, for consumers that read
+/// the document without re-deriving the model: which trunks exist, who drives
+/// each, which loads it feeds, and where the opt-in ret geometry rides.
+/// (P3: optional layer JSON export, attached under `MCC_VIZ_SUPPLY_BUNDLES=1`.)
+///
+/// Trunk members are the consumer box names in edge order; the driver is the
+/// declared `driver_box` (the same identity `build_plan_for` draws from), and
+/// the geometry flags come from the plan itself, so the export and the drawing
+/// can never disagree about what exists.
+pub fn export_json(graph: &McVecGraph) -> String {
+    let groups = plan_groups(&graph.block_edges);
+    let plan = build_plan_for(graph, &graph.block_edges);
+    let name_of = |id: i64| -> String {
+        graph
+            .boxes
+            .iter()
+            .find(|b| b.id == id)
+            .map(|b| b.name.clone())
+            .unwrap_or_else(|| format!("#{id}"))
+    };
+
+    let mut out = String::from("{\"trunks\":[");
+    for (i, group) in groups.trunks.iter().enumerate() {
+        if i > 0 {
+            out.push(',');
+        }
+        // `build_plan_for` emits one TrunkDraw per group, in group order.
+        let trunk = &plan.trunks[i];
+        let driver_box_id = group
+            .members
+            .iter()
+            .find_map(|&idx| graph.block_edges[idx].driver_box)
+            .or_else(|| group.members.first().map(|&idx| graph.block_edges[idx].from_box));
+        let driver = driver_box_id.map(name_of).unwrap_or_default();
+        let members = group
+            .members
+            .iter()
+            .map(|&idx| format!("\"{}\"", json_escape(&name_of(graph.block_edges[idx].to_box))))
+            .collect::<Vec<_>>()
+            .join(",");
+        out.push_str(&format!(
+            r#"{{"label":"{}","driver":"{}","members":[{}],"taps":{},"ret_stub":{}}}"#,
+            json_escape(&trunk.label),
+            json_escape(&driver),
+            members,
+            trunk.taps.len(),
+            trunk.ret_stub.is_some(),
+        ));
+    }
+    out.push_str("],\"individual\":[");
+    let mut first = true;
+    for &idx in &groups.individual {
+        let edge = &graph.block_edges[idx];
+        if edge.kind != EdgeKind::Power {
+            continue;
+        }
+        if !first {
+            out.push(',');
+        }
+        first = false;
+        out.push_str(&format!(
+            r#"{{"label":"{}","from":"{}","to":"{}","ret_lane":{}}}"#,
+            json_escape(&edge.label),
+            json_escape(&name_of(edge.from_box)),
+            json_escape(&name_of(edge.to_box)),
+            edge.ret.is_some(),
+        ));
+    }
+    out.push_str("]}");
+    out
 }
 
 #[cfg(test)]
@@ -1019,5 +1091,33 @@ mod tests {
             .collect();
         let plan = build_plan_for(&g, &plain);
         assert!(plan.trunks[0].ret_stub.is_none());
+    }
+
+    /// P3: the JSON export names the trunk, its declared driver and its members
+    /// (consumer box names in edge order), carries the plan's own geometry flags,
+    /// and keeps non-power edges out of the bundle model.
+    #[test]
+    fn export_json_names_trunk_driver_members() {
+        let mut g = crate::vector::graph::McVecGraph::new(0, "test".into());
+        g.boxes.push(box_at(1, "src", 0.0, 0.0));
+        g.boxes.push(box_at(2, "a", 300.0, 0.0));
+        g.boxes.push(box_at(3, "b", 300.0, 200.0));
+        g.boxes.push(box_at(4, "c", 300.0, 400.0));
+        let mk = |to: i64, ret: bool| {
+            let mut e = edge(1, to, "V5V", EdgeKind::Power);
+            e.driver_box = Some(1);
+            if ret {
+                e.ret = Some("GND".into());
+            }
+            e
+        };
+        g.block_edges = vec![mk(2, true), mk(3, true), mk(4, true), edge(2, 3, "sig", EdgeKind::Signal)];
+        let j = export_json(&g);
+        assert!(j.contains("\"label\":\"V5V\""), "{j}");
+        assert!(j.contains("\"driver\":\"src\""), "{j}");
+        assert!(j.contains("\"members\":[\"a\",\"b\",\"c\"]"), "{j}");
+        assert!(j.contains("\"taps\":3"), "{j}");
+        assert!(j.contains("\"ret_stub\":true"), "{j}");
+        assert!(!j.contains("\"sig\""), "{j}");
     }
 }
