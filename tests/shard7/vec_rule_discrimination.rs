@@ -27,9 +27,10 @@
 //! by pos  : first<->first second<->second => u1.1<->u2.1  u1.2<->u2.2
 //! ```
 //!
-//! Under the positional law the reversed written order is itself a declared
-//! misalignment, so each divergent cell also asserts the D5 signal
-//! (E4052 `NET_BUS_ORDER_MISMATCH`); the aligned-order cell stays quiet.
+//! Under the positional law the reversed written order is a legal crossing:
+//! names are labels, never a pairing criterion. E4052 is retired (design doc
+//! section 6.1 D3, 2026-09-20 ruling), so the divergent cells assert quiet +
+//! the positional partition itself - the partition is the lock.
 //!
 //! The three series operators (`-`, `->`, `<-`) share the pairing and differ
 //! only in the internal connection direction (§5.2), so each arm gets its own
@@ -127,8 +128,8 @@ fn build(body: &str, uri: &str) -> (Vec<u32>, Vec<Vec<String>>) {
 // one cell per series arm: written position decides, names never realign
 
 /// `->` (series, left to right): the pairing is a positional zip in written
-/// order; the reversed member names must not realign it, and the all-differ
-/// zip raises the D5 hint (E4052).
+/// order; the reversed member names must not realign it, and the crossing is
+/// legal (quiet - E4052 retired).
 #[test]
 fn pair__arrow_series_zip_by_written_position() {
     let (codes, nets) = build(
@@ -137,8 +138,8 @@ fn pair__arrow_series_zip_by_written_position() {
     );
     assert_eq!(
         codes,
-        vec![4052],
-        "reversed written order is a declared misalignment: E4052; got {codes:?}"
+        Vec::<u32>::new(),
+        "a crossed writing is legal under the positional law; got {codes:?}"
     );
     assert_eq!(
         nets,
@@ -155,7 +156,11 @@ fn pair__dash_series_zip_by_written_position() {
         "    u1.SPI{SCLK, MOSI} - u2.SPI{MOSI, SCLK}",
         "/mcc/rd-pair-dash.mc",
     );
-    assert_eq!(codes, vec![4052], "E4052 expected; got {codes:?}");
+    assert_eq!(
+        codes,
+        Vec::<u32>::new(),
+        "a crossed writing is legal under the positional law; got {codes:?}"
+    );
     assert_eq!(
         nets,
         positional_partition(),
@@ -172,7 +177,11 @@ fn pair__back_arrow_series_zip_by_written_position() {
         "    u1.SPI{SCLK, MOSI} <- u2.SPI{MOSI, SCLK}",
         "/mcc/rd-pair-back.mc",
     );
-    assert_eq!(codes, vec![4052], "E4052 expected; got {codes:?}");
+    assert_eq!(
+        codes,
+        Vec::<u32>::new(),
+        "a crossed writing is legal under the positional law; got {codes:?}"
+    );
     assert_eq!(
         nets,
         positional_partition(),
@@ -191,7 +200,11 @@ fn pair__aligned_written_order_is_quiet() {
         "    u1.SPI{SCLK, MOSI} -> u2.SPI{SCLK, MOSI}",
         "/mcc/rd-pair-aligned.mc",
     );
-    assert_eq!(codes, Vec::<u32>::new(), "aligned order is quiet; got {codes:?}");
+    assert_eq!(
+        codes,
+        Vec::<u32>::new(),
+        "aligned order is quiet; got {codes:?}"
+    );
     assert_eq!(
         nets,
         vec![

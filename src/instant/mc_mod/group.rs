@@ -18,13 +18,6 @@ use crate::instant::mc_net::{ConnectionInst, InstError, NetPoint};
 use crate::semantic::common::{ConnDir, ConnOp};
 use crate::vector::model::trunk::{TrunkCtx, TrunkKind};
 
-/// D5 BUS_ORDER_MISMATCH: process-level count of mismatched bus bits.
-/// When all pairs in a bus connection have mismatched member names, D5 fires and
-/// sets this to the bus width. The metrics module uses this to compute
-/// `bus_bits_paired_ok = bus_bits_total - BUS_BITS_MISMATCHED`.
-pub(crate) static BUS_BITS_MISMATCHED: std::sync::atomic::AtomicUsize =
-    std::sync::atomic::AtomicUsize::new(0);
-
 impl InstantiationBuilder {
     // Generic connection generation
 
@@ -352,70 +345,9 @@ impl InstantiationBuilder {
             mcc_dbg!(
                 "inst::mod",
                 "[P4.2-CONN] create_connection: left_size={left_size}, right_size={right_size}, \
-                 expand pairs={}, all_members_mismatched={}",
+                 expand pairs={}",
                 m.pairs.len(),
-                m.all_members_mismatched,
             );
-
-            // D5: BUS_ORDER_MISMATCH
-            // Multi-point 1:1 connection on both sides, and after the sorted
-            // zip all pair member names are mutually different → the bus member
-            // order may be misaligned (e.g. SPI SCLK↔MOSI). Not reported for a
-            // single pair: for a scalar connection (e.g. VCC→VDD) differing
-            // names are normal, not a bus misalignment. Same-name group slots
-            // (`spk{GND, GND}`) are not a bus — pairing one against distinct
-            // peer members is the §5 short case (NET_SHORT_REF), classified by
-            // the repeated-net check above, never a bus-order mismatch.
-            if m.pairs.len() >= 2
-                && m.all_members_mismatched
-                && !m
-                    .pairs
-                    .iter()
-                    .any(|(l, r)| !l.same_name_pads.is_empty() || !r.same_name_pads.is_empty())
-            {
-                BUS_BITS_MISMATCHED.store(m.pairs.len(), std::sync::atomic::Ordering::Relaxed);
-                let mismatches: Vec<String> = m
-                    .pairs
-                    .iter()
-                    .enumerate()
-                    .map(|(i, (l, r))| {
-                        format!(
-                            "#{i}: {}↔{}",
-                            l.member_name.as_deref().unwrap_or(&l.path),
-                            r.member_name.as_deref().unwrap_or(&r.path),
-                        )
-                    })
-                    .collect();
-                // Use the first left point's src_pos for error location;
-                // fall back to the current line's span, then the module's.
-                let fallback = self
-                    .current_stmt_span
-                    .as_ref()
-                    .map(|s| s.offset as i32)
-                    .unwrap_or(self.def.span.start as i32);
-                let pos = left_points
-                    .first()
-                    .and_then(|p| p.src_pos.first().map(|s| s.offset))
-                    .unwrap_or(fallback as u32);
-                let len = left_points
-                    .first()
-                    .map(|p| p.path.len() as u32)
-                    .unwrap_or(0);
-                let msg = format!(
-                    "BUS_ORDER_MISMATCH: all {} pairs have mismatched member names: [{}]. \
-                     This may indicate bus member order misalignment between the two sides.",
-                    m.pairs.len(),
-                    mismatches.join(", "),
-                );
-                diagnostic_log(
-                    crate::errcodes::NET_BUS_ORDER_MISMATCH,
-                    DiagnosticLevel::Info,
-                    pos,
-                    len,
-                    &msg,
-                    &[],
-                );
-            }
 
             for (l, r) in m.pairs {
                 let conn = mk_conn(self.next_conn_id(), vec![l, r], dir, lane);

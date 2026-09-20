@@ -303,10 +303,6 @@ impl InstantiationBuilder {
 pub struct ExpandMatch {
     /// The pairs, kept in **lhs vector order** (§11.2 invariant 4).
     pub pairs: Vec<(NetPoint, NetPoint)>,
-    /// True when, after pairing, every pair's two member names differ
-    /// (signals D5 BUS_ORDER_MISMATCH). Possible only when both sides carry
-    /// non-empty member names and no name matched during pairing.
-    pub all_members_mismatched: bool,
 }
 
 /// §11.3 Vector expansion matching (eval.md §11.3): pairs the two expanded
@@ -341,29 +337,16 @@ pub fn expand_match(lhs: &[NetPoint], rhs: &[NetPoint]) -> Option<ExpandMatch> {
         return None;
     }
 
-    let lhs_all_named = lhs
-        .iter()
-        .all(|p| p.member_name.as_deref().is_some_and(|n| !n.is_empty()));
-    let rhs_all_named = rhs
-        .iter()
-        .all(|p| p.member_name.as_deref().is_some_and(|n| !n.is_empty()));
-
-    // ── Count correspondence: positional zip in declaration order (§11.3);
-    // feeds the D5 check when both sides are named but no name matches.
+    // ── Count correspondence: positional zip in declaration order (§11.3).
+    // Member names are labels, never a pairing criterion (top-level rule) and
+    // never a misalignment signal - E4052 retired (design doc section 6.1 D3):
+    // under the positional law a crossed writing is legal.
     let pairs: Vec<(NetPoint, NetPoint)> = lhs
         .iter()
         .zip(rhs.iter())
         .map(|(l, r)| (l.clone(), r.clone()))
         .collect();
-    let all_members_mismatched = lhs_all_named
-        && rhs_all_named
-        && pairs
-            .iter()
-            .all(|(l, r)| l.member_name.as_deref() != r.member_name.as_deref());
-    Some(ExpandMatch {
-        pairs,
-        all_members_mismatched,
-    })
+    Some(ExpandMatch { pairs })
 }
 
 #[cfg(test)]
