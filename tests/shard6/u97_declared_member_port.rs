@@ -270,35 +270,64 @@ fn u97__hbl_lands_on_the_declared_member_and_invents_no_key() {
         );
     }
 
-    // And the information the coarse fallback destroyed is back: the four
-    // members lie in four *distinct* nets, each reaching a different flash pin
-    // (before the fold all four collapsed onto one endpoint and two of the nets
-    // lost their third member).
-    let nets = table.get_nets();
-    let net_of = |id: u32| -> usize {
-        let hits: Vec<usize> = nets
-            .iter()
-            .enumerate()
-            .filter(|(_, n)| n.points.contains(&id))
-            .map(|(i, _)| i)
-            .collect();
-        assert_eq!(hits.len(), 1, "a point sits in exactly one net: {hits:?}");
-        hits[0]
+    // And the information the coarse fallback destroyed is back, one layer
+    // over: since the boundary pin point carries its component segment
+    // (CIMP §1 U127, batch b3616), the four *pins* lie in four distinct nets —
+    // one pin, one identity, and the junction runs both of its segments on it.
+    // The declared member ports above stay what the fold made them: labels.
+    let pin_of = |k: &str| -> u32 {
+        let path = format!("main.MCU513.UC.{k}");
+        table
+            .get_id_by_path(&path)
+            .unwrap_or_else(|| panic!("the board spells the boundary pin {path}"))
     };
-    let landed: HashSet<usize> = declared.iter().map(|id| net_of(*id)).collect();
+    let nets = table.get_nets();
+    let nets_of = |id: &u32| -> Vec<usize> {
+        nets.iter()
+            .enumerate()
+            .filter(|(_, n)| n.points.contains(id))
+            .map(|(i, _)| i)
+            .collect()
+    };
+    let pins: Vec<u32> = ["8", "9", "10", "11"].iter().map(|k| pin_of(k)).collect();
+    // A boundary pin is a junction: the inner segment's net and the outer
+    // segment's net both claim it, so each pin sits in exactly two nets.
+    let mut landed: HashSet<usize> = HashSet::new();
+    for id in &pins {
+        let hits = nets_of(id);
+        assert_eq!(
+            hits.len(),
+            2,
+            "a boundary pin joins its two segments: {hits:?}"
+        );
+        landed.extend(hits);
+    }
+    // And no two pins share either segment — that distinctness is exactly
+    // what the old coarse fallback destroyed (four lanes, one shorted net).
     assert_eq!(
         landed.len(),
-        declared.len(),
-        "the four SPI members must not share a net"
+        2 * pins.len(),
+        "the four SPI pins must not share a net on either segment"
     );
-    for id in &declared {
-        let net = &nets[net_of(*id)];
+    for i in landed {
+        let net = &nets[i];
         assert!(
             net.points.len() >= 2,
             "net '{}' carries {} point(s): {:?}",
             net.name,
             net.points.len(),
             net.points
+        );
+    }
+
+    // The member rows carry the label, not the connection: the boundary
+    // junction anchors the component pin, so a declared member port sits in no
+    // net at all — the pin row above is the one the net reads.
+    for id in &declared {
+        let hits = nets.iter().filter(|n| n.points.contains(id)).count();
+        assert_eq!(
+            hits, 0,
+            "a declared boundary member carries no net claim: {hits} rows"
         );
     }
 }

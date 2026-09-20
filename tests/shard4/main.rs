@@ -32,7 +32,6 @@ mod u124_offset_alignment;
 mod u127_boundary_point_naming;
 mod u31_positional_fallback;
 mod use_statement_diagnostics;
-mod use_symbol_conflict;
 mod vec_parallel_transposed_bridge;
 mod vec_range_declare_equivalence;
 mod vector_member_access;

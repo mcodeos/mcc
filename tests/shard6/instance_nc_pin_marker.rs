@@ -288,33 +288,32 @@ fn sem_instncpin__module_group_spelling_expands() {
     assert!(b.reports(NET_MODULE_PORT_UNCONNECTED, "main.m1.VIN"));
 }
 
-/// **The bracket-port gap, locked as a loud failure.** An anonymous list port
-/// (`io [VDD_3V3, GND]`) registers only its synthetic header (`@3`) — its
-/// members are dropped at instantiation (`extract_port_bus_members` returns
-/// empty for an anonymous list), and the connection face cannot spell it
-/// either. So no marker operand can address it, and both the member name and
-/// the bracket spelling must therefore report, with the available list.
+/// An anonymous list port (`io [VDD_3V3, GND]`) registers its members as flat
+/// rows (`main.m1.VDD_3V3`) — the written list IS the member list, prefix or
+/// no prefix, so the members survive instantiation instead of collapsing into
+/// the synthetic header. A member name therefore addresses exactly that
+/// member and silences its unconnected report; the sibling member stays
+/// reported. The list spelling is the Set form: it marks every member it
+/// names. The header itself still has no writable spelling — the sibling lock
+/// below.
 #[test]
-fn sem_instncpin__bracket_port_is_loudly_unmarkable() {
-    for operand in ["VDD_3V3", "GND", "[VDD_3V3,GND]"] {
-        let b = build(LEAF, &format!("    Leaf m1 @ncpin({operand})"));
-        assert!(
-            b.marked.is_empty(),
-            "operand `{operand}` must mark nothing, got {:?}",
-            b.marked
-        );
-        let msg = b.only(MODULE_PORT_NOT_FOUND);
-        // Written order, same as the sibling lock below (CIMP §1 U119). This
-        // case is a separately known red (the bracket operand marks a member it
-        // should not); the expected list is corrected here so the two reasons
-        // do not stack.
-        assert!(
-            msg.contains("Available ports: [VIN, VOUT, MIC, @3]"),
-            "the miss must name the ports that do exist: {msg}"
-        );
-        // Loud, not silent: the port still reports as unconnected.
-        assert!(b.reports(NET_MODULE_PORT_UNCONNECTED, "main.m1.@3"));
-    }
+fn sem_instncpin__bracket_port_member_addressing() {
+    // A bare member name marks that member only.
+    let b = build(LEAF, "    Leaf m1 @ncpin(VDD_3V3)");
+    assert_eq!(b.marked_paths(), ["main.m1.VDD_3V3"]);
+    assert!(!b.reports(NET_MODULE_PORT_UNCONNECTED, "main.m1.VDD_3V3"));
+    assert!(b.reports(NET_MODULE_PORT_UNCONNECTED, "main.m1.GND"));
+
+    // ... and the same by the other member.
+    let b = build(LEAF, "    Leaf m1 @ncpin(GND)");
+    assert_eq!(b.marked_paths(), ["main.m1.GND"]);
+    assert!(!b.reports(NET_MODULE_PORT_UNCONNECTED, "main.m1.GND"));
+    assert!(b.reports(NET_MODULE_PORT_UNCONNECTED, "main.m1.VDD_3V3"));
+
+    let b = build(LEAF, "    Leaf m1 @ncpin([VDD_3V3,GND])");
+    assert_eq!(b.marked_paths(), ["main.m1.GND", "main.m1.VDD_3V3"]);
+    assert!(!b.reports(NET_MODULE_PORT_UNCONNECTED, "main.m1.VDD_3V3"));
+    assert!(!b.reports(NET_MODULE_PORT_UNCONNECTED, "main.m1.GND"));
 }
 
 /// Even the synthetic header is out of reach: `@3` is not an operand the

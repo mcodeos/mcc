@@ -150,10 +150,15 @@ fn bom_nc_hbl__fitted_rows_keep_their_parts() {
         ]
     );
 
-    // The `_` class is where the per-module names pile up: 38 auto-named parts
-    // survive as 38 entries, none of them from the two not-fitted owners above.
+    // The `_` class is where the per-module names pile up: 34 auto-named parts
+    // survive as 34 entries. The other four auto-named parts the board holds —
+    // the mic's own cap and resistor (`main.MIC._C1`, `main.MIC._R1`) and the
+    // crystal's bypass pair (`main.MCU513._C4`, `main.MCU513._C5`) — live in
+    // the not-fitted row the sibling test above locks; the ban below keeps
+    // them out of this row for good, so the two rows cannot drift apart
+    // silently.
     let fitted_underscore = row_of(&items, "_", false);
-    assert_eq!(refdes(fitted_underscore).len(), 38);
+    assert_eq!(refdes(fitted_underscore).len(), 34);
     assert!(
         !refdes(fitted_underscore)
             .iter()
