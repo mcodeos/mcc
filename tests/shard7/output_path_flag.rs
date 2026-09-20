@@ -70,26 +70,37 @@ fn run_mcc(cwd: &Path, args: &[&str]) -> (String, String, bool) {
 /// The one field that is not derived from the input, normalised away.
 ///
 /// It is not part of what this file locks; it would otherwise make every
-/// comparison fail for a reason the test is not about. The export products used
-/// to need the same treatment for their generation-time line, which CIMP §1 U92
-/// ruled out — they are now compared whole, stamps included, because there are
-/// none.
+/// comparison fail for a reason the test is not about. **Every** occurrence of
+/// the clock is zeroed, whatever face carries it and wherever the value sits:
+/// the structured faces print one compact line, so `"elapsed_ms": 3` lands
+/// **mid-line** (a line-start match misses it — that is exactly the red one
+/// verification round caught), and the yaml face spells it `elapsed_ms: 3`
+/// unquoted. The export products used to need the same treatment for their
+/// generation-time line, which CIMP §1 U92 ruled out — they are now compared
+/// whole, stamps included, because there are none.
 fn normalize(s: &str) -> String {
-    s.lines()
-        .map(|l| match l.find("\"elapsed_ms\"") {
-            // `"elapsed_ms": 3` -> `"elapsed_ms": 0`: the envelope's wall clock.
-            Some(_) => match (l.find(": "), l.trim_end().ends_with(',')) {
-                (Some(i), _) => format!(
-                    "{}: 0{}",
-                    &l[..i],
-                    if l.trim_end().ends_with(',') { "," } else { "" }
-                ),
-                _ => l.to_string(),
-            },
-            None => l.to_string(),
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
+    let mut out = String::with_capacity(s.len());
+    let mut pos = 0;
+    while let Some(i) = s[pos..].find("elapsed_ms") {
+        let start = pos + i;
+        out.push_str(&s[pos..start]);
+        let tail = &s[start..];
+        // The key up to and including its colon: quoted on the JSON faces,
+        // bare on the yaml face — copied verbatim either way.
+        let colon = tail.find(':').expect("elapsed_ms is always a key");
+        out.push_str(&tail[..=colon]);
+        let after = tail[colon + 1..].trim_start();
+        let digits = after
+            .len()
+            - after
+                .trim_start_matches(|c: char| c.is_ascii_digit())
+                .len();
+        assert!(digits > 0, "elapsed_ms carries no number: {after}");
+        out.push('0');
+        pos = start + colon + 1 + (tail[colon + 1..].len() - after.len()) + digits;
+    }
+    out.push_str(&s[pos..]);
+    out
 }
 
 /// One command's `-o` contract: the flag redirects the product, it does not

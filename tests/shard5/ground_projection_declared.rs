@@ -34,17 +34,15 @@
 use std::path::PathBuf;
 
 use mcc::vector::model::{AttrRole, McVecBlock};
+use crate::common;
 use mcc::McIds;
 
 fn hbl_project_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/hbl")
 }
 
-/// The mcc_* workspace is global state; tests must be serialized (same as tests/rail_rules.rs).
-static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
 fn build_projected() -> (McVecBlock, mcc::InstTable) {
-    let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = common::lock();
     let project_root = hbl_project_dir();
     let entry_path = project_root.join("src/hbl.mc");
     let entry_uri: String = entry_path.to_string_lossy().into_owned();

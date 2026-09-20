@@ -45,6 +45,7 @@
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
+use crate::common;
 use mcc::McIds;
 
 fn hbl_project_dir() -> PathBuf {
@@ -54,10 +55,6 @@ fn hbl_project_dir() -> PathBuf {
 fn anchor_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/golden/root_layer_anchor.txt")
 }
-
-/// The mcc_* workspace is global state; tests must be serialized (same as
-/// tests/renderdiff.rs and tests/rail_rules.rs).
-static RENDER_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// Build + lay out + render the hbl fixture into the whole document.
 fn full_document() -> mcc::viz::doc::VizDocument {
@@ -269,7 +266,7 @@ fn mcc_root_anchor_dump_regen() {
     if std::env::var("MCC_ROOT_ANCHOR_DUMP").is_err() {
         return;
     }
-    let _guard = RENDER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = common::lock();
     let svg = root_layer_svg();
     let (geometry, text) = measure(&svg);
     let path = anchor_path();
@@ -284,7 +281,7 @@ fn mcc_root_anchor_dump_regen() {
 
 #[test]
 fn root_layer_drawing_matches_anchor() {
-    let _guard = RENDER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = common::lock();
     let raw = std::fs::read_to_string(anchor_path()).expect("read root layer anchor");
     let (exp_geometry, exp_text) = parse_anchor(&raw);
 
@@ -375,7 +372,7 @@ fn advertised_ids(svg: &str) -> Vec<i64> {
 /// components standing on the root layer).
 #[test]
 fn viz_drill_down__every_advertised_id_opens_a_layer() {
-    let _guard = RENDER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = common::lock();
     let doc = full_document();
 
     let mut links = 0usize;
@@ -483,7 +480,7 @@ fn viz_drill_down__every_advertised_id_opens_a_layer() {
 ///    port name next to its pin number.
 #[test]
 fn anchor_covers_the_port_naming_change_class() {
-    let _guard = RENDER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = common::lock();
     let raw = std::fs::read_to_string(anchor_path()).expect("read root layer anchor");
     let (geometry, text) = parse_anchor(&raw);
 

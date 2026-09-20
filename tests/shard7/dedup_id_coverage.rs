@@ -29,13 +29,8 @@
 //! The fixture is copied to a scratch directory first — the workspace is global
 //! state and these tests edit source files.
 
+use crate::common;
 use std::path::PathBuf;
-use std::sync::Mutex;
-
-/// The `mcc_*` workspace is global state, so tests in this file are serialized
-/// (same discipline as `root_layer_anchor.rs`). The shard runs with
-/// `--test-threads=1` besides.
-static LOCK: Mutex<()> = Mutex::new(());
 
 fn hbl_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/hbl")
@@ -135,7 +130,7 @@ fn loaded_fixture(name: &str) -> (PathBuf, String, Vec<(String, String)>) {
 /// before this change, and the latter two left the map id fixed as well.
 #[test]
 fn an_equal_length_rename_moves_the_dedup_ids() {
-    let _guard = LOCK.lock().unwrap();
+    let _guard = common::lock();
     let (_proj, entry, pristine) = loaded_fixture("rename");
 
     let baseline = mcc::rpc::handlers::try_lookup_sem(&[entry.clone()]).expect("sem payload");
@@ -182,7 +177,7 @@ fn an_equal_length_rename_moves_the_dedup_ids() {
 /// actually asking about when it reads the id.
 #[test]
 fn a_reload_without_edits_keeps_the_dedup_ids() {
-    let _guard = LOCK.lock().unwrap();
+    let _guard = common::lock();
     let (_proj, entry, pristine) = loaded_fixture("reload");
 
     let first = mcc::rpc::handlers::try_lookup_sem(&[entry.clone()]).expect("sem payload");
