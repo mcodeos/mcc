@@ -9,4 +9,5 @@
 pub mod common;
 
 mod rule_audit_a;
+mod u153_anon_port_func_formal;
 mod u152_body_face_decl_order;

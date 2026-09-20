@@ -114,6 +114,13 @@ pub(crate) struct InstantiationBuilder {
     /// `Trunk.kind` does not have to be re-derived.
     pub(super) current_trunk_kind: Option<TrunkKind>,
 
+    /// U151: `uri:pos` anchors already reported as E3184 (label boundary
+    /// violation) by this builder. The same access reaches the report site
+    /// once per mint face (left/right point extraction, validation), so the
+    /// set keeps one violation at one anchor to one diagnostic
+    /// (label-boundary-gate-design.md).
+    pub(super) internal_member_reported: HashSet<String>,
+
     /// ★ §8.9.4: standardized interface class of `current_trunk` (e.g.
     /// `UART.TTL`) when the port is an interface binding.
     pub(super) current_trunk_iface: Option<String>,
@@ -360,6 +367,7 @@ impl InstantiationBuilder {
             current_func_span: None,
             current_trunk: None,
             current_trunk_kind: None,
+            internal_member_reported: HashSet::new(),
             current_trunk_iface: None,
             func_scope: Vec::new(),
             identity,
@@ -626,6 +634,23 @@ impl InstantiationBuilder {
                 })
             })
             .unwrap_or_default()
+    }
+
+    /// Whether the declared module port `name` carries the **anonymous
+    /// role-less member view** — every member in the `_(<pinid>)` spelling
+    /// (U148 ③) of a port declared `io P::Iface()` and shaped by the
+    /// interface's conductor table. Such a set is positional by canon
+    /// (conductor-view-design.md R-CV1: ordinal k is the wire), never a name
+    /// space; `false` for a port that is not declared here, declares nothing
+    /// (bare — usage still shapes it), or declares at least one named member.
+    pub(super) fn port_declares_anonymous_members(&self, port_name: &str) -> bool {
+        self.ports
+            .iter()
+            .find(|p| p.name == port_name)
+            .map(|p| {
+                !p.bus_members.is_empty() && p.bus_members.iter().all(|m| is_anon_member(m))
+            })
+            .unwrap_or(false)
     }
 
     // Unified product factories (expansion provenance tagging, §7.11)
@@ -1690,4 +1715,12 @@ fn boundary_return(
         || inst_faces
             .iter()
             .any(|(name, faces)| name == owner && faces.declares_ret(member))
+}
+
+/// The U148 ③ display spelling of an anonymous member: `_(<pinid>)`. This is
+/// the same spelling [`crate::semantic::component::mc_pins::McPins`]
+/// produces for a `_` name slot and parses in
+/// `iface_member_pin_id` — one spelling, two readers, neither re-deriving it.
+fn is_anon_member(member: &str) -> bool {
+    member.len() > 3 && member.starts_with("_(") && member.ends_with(')')
 }
