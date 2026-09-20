@@ -54,4 +54,5 @@ mod vec_net_crossnet;
 mod vec_r0_operator_encoding;
 mod u131_named_func_args;
 mod u141_parsed_pins_boundary;
+mod u138_iface_return_face;
 mod vec_rule_discrimination;
