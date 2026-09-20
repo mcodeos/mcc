@@ -1983,6 +1983,55 @@ pub const EXPOSED_NET_DOWNSTREAM_UNPROTECTED: u32 = 6044;
 /// carries a domain name as a prefix or element is out of this code's object.
 pub const DOMAIN_ENDPOINT_NAME_COLLISION: u32 = 6050;
 
+/// R3 **mixed bridge identity** (intent-reference-layer-design.md §10.4 bridge
+/// identity three-state): a `@bridge(X, Y)` whose two arguments disagree on
+/// kind — one names a whole-referenceable domain of the owning module, the
+/// other names a plain net/copper endpoint. A domain half reads as a directed
+/// rail member, an endpoint half as one conductor, so the pair states no single
+/// crossing. **Report, never choose**: the statement keeps today's reading (the
+/// attribute text pair is consumed verbatim by the net-level bridge rules),
+/// only the domain-level license is withheld.
+///
+/// Two domain arguments (the licensed shape) and two non-domain arguments
+/// (today's net-level bridge, unchanged) are both out of this code's object.
+pub const DOMAIN_NET_MIXED_BRIDGE: u32 = 6046;
+
+/// R3 **direction reversal** (intent-reference-layer-design.md §10.4 member
+/// take, the mirrored writing is not re-read): the `@bridge(A, B)` argument order disagrees with
+/// the written left-to-right order of the two domain words on the licensed
+/// chain. The same crossing can be written mirrored, and re-reading the chain
+/// from the other end to make the orders agree would be a silent rewrite —
+/// so the reversed writing is reported, not reinterpreted.
+///
+/// Member resolution itself is unaffected: each domain word takes its member
+/// from its own arrow direction (`->` hot / `<-` ret), which does not depend on
+/// the argument order, so the statement stays licensed and this code is the
+/// batch's only effect.
+pub const DOMAIN_BRIDGE_DIRECTION_REVERSED: u32 = 6047;
+
+/// R3 **leg inconsistency** (intent-reference-layer-design.md §10.4 witness):
+/// on a statement licensed by `@bridge(A, B)`, the chain's two end words land
+/// on opposite sides of the named pair — one on a hot member (a domain word
+/// under a `->` chain, or a literal naming `A.hot`/`B.hot`) and the other on a
+/// return member. A hot leg carrying a return-copper pin (or vice versa) is a
+/// chain that does not state one crossing, so the member chain is inconsistent.
+///
+/// An end word that names neither member of the pair is *not* this code's
+/// object — it simply witnesses nothing (§10.4 judges only hot-vs-return
+/// placement); a pair left with no witness at all is 6049's object.
+pub const DOMAIN_BRIDGE_LEG_INCONSISTENT: u32 = 6048;
+
+/// R3 **dangling bridge** (intent-reference-layer-design.md §10.4 collection
+/// completeness): a `(A, B)` domain pair named by a licensed `@bridge` across
+/// the whole module body, but no licensed chain anywhere witnesses a leg of it
+/// — every chain it names lands on words outside the pair's members. A named
+/// crossing with zero witnessed legs declares a relation nothing realizes.
+///
+/// Per pair, not per statement: one witnessed leg (hot or return, §10.4 "at
+/// least one leg") covers every statement naming the same pair; a single-sided
+/// bridge is the undecided one-way question (§8 open 2) and is not judged here.
+pub const DOMAIN_BRIDGE_DANGLING: u32 = 6049;
+
 static ALL_CODES: &[ErrorCodeInfo] = &[
     // section
     entry!(DUP_INTERFACE, "An interface with the same name already exists in this file.", "Duplicate interface"),
@@ -2414,6 +2463,10 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(SHARED_RETURN_BRIDGE, "A DC ground bridge joins a noisy face's return to a quiet/sensitive face's return with no filtering element on the leg.", "the ground bridge {0} puts the noisy face {1} and the quiet/sensitive face {2} on one copper, {3} — a filter is what lets a quiet face keep its own reference while the two coppers meet, so without one the plane the protected parts are measured against sits straight on the noise source's return: carry this leg with a ferrite/inductor (a declared filter, whose completeness PI-2 then judges — 6037), or keep the two returns apart and tie them only where the design declares the crossing (power-quality-design.md §3.2, SN-2)"),
     entry!(FILTER_SUBFACE_OVERREACH, "A sink drawing from a declared filter leg's load-side subface declares a supply pair other than the quiet domain's own.", "sink '{0}' declares the supply pair {1}, and that pair draws from the load side of the declared filter leg {3} — but the subface that leg protects is {4}, the {2} domain's own pair, so only a part declaring {4} is inside the domain the filter was declared for: declare this terminal's pair as {4}, or feed it from the rail its own domain declares and leave this filter's load side to the domain it protects (power-quality-design.md §2.4, PI-4)"),
     entry!(DOMAIN_ENDPOINT_NAME_COLLISION, "A name in a chain word position is both a whole-referenceable domain and an already-declared endpoint.", "'{0}' is declared as a domain whose one ::DC rail states the pair [{1}, {2}], and the same name is already an endpoint in this scope — the two readings name different nets, so this word has no single meaning: rename the domain (or the endpoint), or write the pair out as [{1}, {2}] at the word positions that meant the domain's pair (intent-reference-layer-design.md §10.5, R4)"),
+    entry!(DOMAIN_NET_MIXED_BRIDGE, "A @bridge names a whole-referenceable domain on one side and a plain endpoint on the other.", "'{0}' names a domain whose one ::DC rail states the pair [{1}, {2}], but the other @bridge argument names a plain endpoint — one half reads as a directed rail member and the other as one conductor, so the pair states no single crossing: name domains on both sides for a domain-level bridge, or endpoint names on both sides for a net-level one (intent-reference-layer-design.md §10.4, R3)"),
+    entry!(DOMAIN_BRIDGE_DIRECTION_REVERSED, "A licensed domain @bridge's argument order is reversed against the written order of the domain words on its chain.", "the @bridge names {0} first and {1} second, but on this chain the word for {1} is written left of the word for {0} — the same crossing written mirrored is one reading, and re-reading the chain from the other end to match the arguments would silently rewrite it: order the arguments as the domain words are written (intent-reference-layer-design.md §10.4, R3)"),
+    entry!(DOMAIN_BRIDGE_LEG_INCONSISTENT, "A licensed domain bridge chain's two end words land on opposite sides of the named pair.", "this chain is licensed by @bridge({0}, {1}), but one end lands on a hot member and the other on a return member of the pair — a hot leg carrying a return-copper pin (or the reverse) does not state one crossing: point both ends at the side the chain's arrow direction takes, or split the legs into one hot chain and one return chain (intent-reference-layer-design.md §10.4, R3)"),
+    entry!(DOMAIN_BRIDGE_DANGLING, "A named domain bridge pair has no witnessed leg anywhere in the module.", "the crossing @bridge({0}, {1}) names is witnessed by no chain in this module — every statement naming the pair lands its ends on words outside the pair's members, so the declared relation is realized by nothing: wire at least one leg between the two domains' members, or drop the @bridge when no crossing was meant (intent-reference-layer-design.md §10.4, R3)"),
     entry!(EXPOSED_NET_DOWNSTREAM_UNPROTECTED, "The clamp on a declared @exposed endpoint leaves an unprotected quiet/sensitive face downstream.", "'{0}' declares @exposed({1}) and is clamped, but net '{2}' — the quiet/sensitive face {3} — is reachable from it through transparent copper without crossing a declared series gate, and '{2}' carries no declared clamp of its own: a clamp covers its own side of every branch, so the transient the @exposed declares still pours into the quiet face. Clamp '{2}' as well, put a declared gate on this branch (protect = series on the fuse/ferrite it should pass), or drop the @exposed when this endpoint is not the boundary the threat enters from (exposed-protection-design.md §3.1, PWR-6)"),
     // section
     entry!(GATE_LITERAL_POINT, "R01 — a vector reference reached the netlist unexpanded (literal braces).", "unexpanded vector reference: {0}"),
