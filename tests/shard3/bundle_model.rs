@@ -72,8 +72,15 @@ fn entry_uri(project_root: &Path, module_name: &str) -> String {
 /// same order the render path does (edge decision first, then the grouping and
 /// the plan — the renderer never re-derives any of it).
 fn hbl1_plan() -> (McVecGraph, SupplyGroups, SupplyBundlePlan) {
-    let root =
-        PathBuf::from(std::env::var("MCC_GOLDEN_PROJECT").unwrap_or_else(|_| "mcs/hbl1".into()));
+    // The golden board lives in the sibling `mcs` checkout; resolve it from the
+    // manifest dir so the test does not depend on the caller's cwd.
+    let default_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .map(|p| p.join("mcs/hbl1"));
+    let root = std::env::var_os("MCC_GOLDEN_PROJECT")
+        .map(PathBuf::from)
+        .or(default_root)
+        .expect("golden project: set MCC_GOLDEN_PROJECT or check out mcs/ beside mcc/");
     let project = root.as_path();
     mcc_set_system_root(project);
     mcc_set_project_root(project);
