@@ -312,6 +312,10 @@ fn render_layer_recursive(
     } else if graph.layer_style == crate::vector::graph::LayerStyle::Device {
         // ── ★ F2: Device pipeline — equipotential tree layout only ──
         crate::viz::layout::equipotential_tree::layout_device_layer(&mut graph);
+        // Members of different nets can land on one slot; an engineer reads
+        // coincident parts as a drawing error, and every output face inherits
+        // the drawing — separate them before canvas fit re-derives the trees.
+        crate::viz::layout::overlap::separate_overlaps_x(&mut graph);
         // ★ Content-adaptive canvas: fit every box + tree segment + symbol
         // (including negative-x West trunks and upward-reading vertical labels)
         // into the SVG viewBox, starting at the TRUE content top.
