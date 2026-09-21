@@ -109,6 +109,10 @@ impl SvgRenderer {
                 svg.push_str(&shape::render_box(b, true, &graph.clickable_subs));
             }
         } else {
+            // ── ★ U168: block-partition frames, painted first so every tree,
+            // box and label reads on top of them ──
+            svg.push_str(&render_block_frames(graph));
+
             // ── ★ Device: equipotential tree rendering for sub-layers ──
             // Each net is rendered as ONE connected orthogonal tree, not n-1 edges.
             let trees = crate::viz::layout::equipotential_tree::build_all_trees(graph);
@@ -148,6 +152,39 @@ impl SvgRenderer {
         svg.push_str("</svg>\n");
         svg
     }
+}
+
+/// Draw the block-partition frames (★ U168): one dashed rect per source
+/// `block` that owns boxes on this layer, named by the partition.
+///
+/// A block frame is a **region**, not a boundary with terminals — unlike the
+/// module frame it carries no ports: a wire that crosses it is drawn whole by
+/// its own net, and nothing is recomputed here. The layout pass emits frames
+/// parents-first, so a nested partition's rect paints above its parent's.
+fn render_block_frames(graph: &crate::vector::graph::McVecGraph) -> String {
+    let mut svg = String::new();
+    for bf in &graph.block_frames {
+        svg.push_str(&format!(
+            r##"  <g class="block-frame" data-block="{name}">
+    <rect x="{x:.1}" y="{y:.1}" width="{w:.1}" height="{h:.1}" rx="6" ry="6"
+          fill="none" stroke="#9e9e9e" stroke-width="1.0" stroke-dasharray="6,4"/>
+    <text x="{tx:.1}" y="{ty:.1}" font-size="11" font-weight="600" fill="#9e9e9e"
+          dominant-baseline="hanging">{title}</text>
+  </g>
+"##,
+            name = escape_xml(&bf.title),
+            x = bf.x,
+            y = bf.y,
+            w = bf.w,
+            h = bf.h,
+            // Title inside the rect's top-left corner: a block frame never
+            // grows the canvas, so its label must stay in the region it names.
+            tx = bf.x + 8.0,
+            ty = bf.y + 6.0,
+            title = escape_xml(&bf.title),
+        ));
+    }
+    svg
 }
 
 /// Draw a module's boundary frame: the dashed rect, its title, and the ports on
