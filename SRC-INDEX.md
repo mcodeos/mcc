@@ -74,7 +74,7 @@ range (threshold 40KB).
 | `semantic/` | 89 | 2603 KB |
 | `stages/` | 11 | 297 KB |
 | `vector/` | 25 | 475 KB |
-| `viz/` | 96 | 2346 KB |
+| `viz/` | 96 | 2355 KB |
 
 ## Declaration index
 
@@ -8458,7 +8458,7 @@ viz/api.rs#L100  fn render_with_metrics
 viz/api.rs#L113  fn render_with_metrics_and_sink
 viz/api.rs#L185  fn renderdiff_report
 viz/api.rs#L243  fn render_layer_recursive
-viz/api.rs#L694  fn render_to_html
+viz/api.rs#L698  fn render_to_html
 viz/connectivity/geometry.rs#L16  const TOUCH_EPSILON
 viz/connectivity/geometry.rs#L19  const NEAR_MISS_EPSILON
 viz/connectivity/geometry.rs#L24  fn point_to_segment_distance
@@ -8673,9 +8673,17 @@ viz/layout/audit_registry.rs#L319  fn ids_are_unique_and_names_are_unique
 viz/layout/audit_registry.rs#L329  fn a5_a6_are_declared_but_not_computable
 viz/layout/audit_registry.rs#L339  fn fidelity_tiers_carry_the_gate_levels
 viz/layout/block_frame.rs#L26  const BLOCK_FRAME_PAD
-viz/layout/block_frame.rs#L29  struct BoxRect
-viz/layout/block_frame.rs#L45  fn layout_block_frames
-viz/layout/block_frame.rs#L100  fn frame_for
+viz/layout/block_frame.rs#L32  const BLOCK_SEP_GAP
+viz/layout/block_frame.rs#L35  const BLOCK_SEP_SWEEPS
+viz/layout/block_frame.rs#L38  struct BoxRect
+viz/layout/block_frame.rs#L54  fn layout_block_frames
+viz/layout/block_frame.rs#L109  fn frame_for
+viz/layout/block_frame.rs#L179  fn separate_block_frames_x
+viz/layout/block_frame.rs#L273  fn separable
+viz/layout/block_frame.rs#L278  fn collect_subtree
+viz/layout/block_frame.rs#L291  fn flatten_parts
+viz/layout/block_frame.rs#L301  fn cluster_rect
+viz/layout/block_frame.rs#L324  fn sep_siblings
 viz/layout/chain.rs#L12  fn try_linearize_chain
 viz/layout/chain.rs#L47  fn layout_chain_horizontal
 viz/layout/chain.rs#L53  const CHAIN_GAP
@@ -10957,4 +10965,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-401 files, 10876 declarations.
+401 files, 10884 declarations.
