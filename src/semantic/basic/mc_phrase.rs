@@ -3385,6 +3385,15 @@ impl McPhrase {
             // fresh anonymous instantiations, one per lane. A count below 2
             // is its own diagnostic (CONN_REPLICATION_COUNT); any other
             // right operand keeps the operator-unsupported diagnostic below.
+            //
+            // Shape law (ruled 2026-09-21, see mcd
+            // doc/grammar/replication-operator-design.md §4): P*N stacks N
+            // copies of P in the y direction — rows multiply by N, columns
+            // unchanged (1×1→N×1, 1×2→N×2, M×1→MN×1 block order, `P'*N` =
+            // 2N×1). No shape arithmetic lives here on purpose: the copies
+            // keep the `[P,…,P]` node shape and splice at the lane-table
+            // stage per the nested-Multiple law (spec/08), so square-vector
+            // semantics remain the single rule source.
             MCAST_OPD_MULTI => {
                 let subs: Vec<AstNode> = node
                     .get_sub_node()
