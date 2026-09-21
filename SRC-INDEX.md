@@ -61,7 +61,7 @@ range (threshold 40KB).
 | `build/` | 5 | 74 KB |
 | `builder/` | 1 | 0 KB |
 | `cli/` | 6 | 103 KB |
-| `cmds/` | 28 | 486 KB |
+| `cmds/` | 28 | 487 KB |
 | `db/` | 27 | 906 KB |
 | `eval/` | 2 | 48 KB |
 | `export/` | 6 | 44 KB |
@@ -70,11 +70,11 @@ range (threshold 40KB).
 | `output/` | 7 | 107 KB |
 | `query/` | 9 | 157 KB |
 | `refdef/` | 7 | 118 KB |
-| `rpc/` | 16 | 293 KB |
+| `rpc/` | 16 | 297 KB |
 | `semantic/` | 89 | 2591 KB |
 | `stages/` | 11 | 296 KB |
 | `vector/` | 25 | 463 KB |
-| `viz/` | 95 | 2292 KB |
+| `viz/` | 95 | 2290 KB |
 
 ## Declaration index
 
@@ -636,19 +636,19 @@ cli/datadir.rs#L100  fn pid_file
 cli/datadir.rs#L108  const DEFAULT_MCC_YAML
 cli/datadir.rs#L112  fn ensure_dirs
 cli/datadir.rs#L140  fn rebuild_index
-cli/datadir.rs#L199  struct IndexFile
-cli/datadir.rs#L206  fn read_index_if_present
-cli/datadir.rs#L229  fn read_index
-cli/datadir.rs#L262  fn parse_name_version
-cli/datadir.rs#L274  mod tests
-cli/datadir.rs#L278  static ENV_LOCK
-cli/datadir.rs#L284  fn scratch_dir
-cli/datadir.rs#L289  fn cli_datadir__env_override_absolute
-cli/datadir.rs#L302  fn cli_datadir__pid_default_root_stays_global
-cli/datadir.rs#L322  fn cli_datadir__pid_follows_isolated_override_root
-cli/datadir.rs#L343  fn cli_datadir__parse_name_version_ok
-cli/datadir.rs#L349  fn cli_datadir__parse_name_version_invalid
-cli/datadir.rs#L356  fn cli_datadir__sub_dirs_under_data_root
+cli/datadir.rs#L205  struct IndexFile
+cli/datadir.rs#L212  fn read_index_if_present
+cli/datadir.rs#L235  fn read_index
+cli/datadir.rs#L268  fn parse_name_version
+cli/datadir.rs#L280  mod tests
+cli/datadir.rs#L284  static ENV_LOCK
+cli/datadir.rs#L290  fn scratch_dir
+cli/datadir.rs#L295  fn cli_datadir__env_override_absolute
+cli/datadir.rs#L308  fn cli_datadir__pid_default_root_stays_global
+cli/datadir.rs#L328  fn cli_datadir__pid_follows_isolated_override_root
+cli/datadir.rs#L349  fn cli_datadir__parse_name_version_ok
+cli/datadir.rs#L355  fn cli_datadir__parse_name_version_invalid
+cli/datadir.rs#L362  fn cli_datadir__sub_dirs_under_data_root
 cli/manifest.rs#L33  struct Manifest
 cli/manifest.rs#L40  struct ProjectSection
 cli/manifest.rs#L51  fn default_version
@@ -769,40 +769,40 @@ cmds/build.rs#L152  fn resolve_project_root
 cmds/build.rs#L192  fn viz_output_path
 cmds/build.rs#L201  fn ensure_viz_parent
 cmds/build.rs#L211  fn run_rpc
-cmds/build.rs#L259  fn write_delegated_viz
-cmds/build.rs#L296  fn emit_build_result
-cmds/build.rs#L328  fn run_local
-cmds/build.rs#L763  fn build_failure_diag
-cmds/build.rs#L799  fn build_browse_dir
-cmds/build.rs#L1172  fn emit_gate_envelope
-cmds/build.rs#L1178  fn emit_err
-cmds/build.rs#L1187  fn build_viz_opts
-cmds/build.rs#L1205  mod phase0_golden
-cmds/build.rs#L1215  fn hbl_project
-cmds/build.rs#L1225  fn build_graph
-cmds/build.rs#L1246  fn render_signature
-cmds/build.rs#L1255  fn cli_build__determinism_render_twice
-cmds/build.rs#L1275  fn cli_build__determinism_two_builds
-cmds/build.rs#L1290  fn cli_build__golden_roundtrip_hbl
-cmds/build.rs#L1311  fn cli_build__metrics_hbl_smoke
-cmds/build.rs#L1332  mod d_detectors
-cmds/build.rs#L1337  static TEST_LOCK
-cmds/build.rs#L1341  fn build_fixture
-cmds/build.rs#L1361  fn build_fixture_or_panic
-cmds/build.rs#L1372  fn build_fixture_with_graph
-cmds/build.rs#L1392  fn has_code
-cmds/build.rs#L1399  fn cli_build__d1_sort_hazard_non_monotonic_pins
-cmds/build.rs#L1431  fn cli_build__d2_floating_placeholder_unbound_lead
-cmds/build.rs#L1449  fn cli_build__d3_merged_short_same_physical_pin
-cmds/build.rs#L1471  fn cli_build__d3_no_fire_for_legit_fanout
-cmds/build.rs#L1512  fn cli_build__d5_same_name_group_redundant_ref_warns
-cmds/build.rs#L1551  fn cli_build__d5_same_name_group_short_ref_warns
-cmds/build.rs#L1586  fn cli_build__d5_same_name_group_single_ref_no_warn
-cmds/build.rs#L1618  fn cli_build__d5_same_name_group_single_side_fan_in_connects_pads
-cmds/build.rs#L1676  fn cli_build__arity_gate_noarg_method_with_args_not_dispatched
-cmds/build.rs#L1735  fn cli_build__d6_dropped_statement_indexed_alias
-cmds/build.rs#L1757  fn cli_build__d7_pullup_degenerate_signal_bridge
-cmds/build.rs#L1791  fn cli_build__d8_array_instance_bracket_reference_relinks
+cmds/build.rs#L256  fn write_delegated_viz
+cmds/build.rs#L293  fn emit_build_result
+cmds/build.rs#L325  fn run_local
+cmds/build.rs#L765  fn build_failure_diag
+cmds/build.rs#L801  fn build_browse_dir
+cmds/build.rs#L1175  fn emit_gate_envelope
+cmds/build.rs#L1181  fn emit_err
+cmds/build.rs#L1190  fn build_viz_opts
+cmds/build.rs#L1208  mod phase0_golden
+cmds/build.rs#L1218  fn hbl_project
+cmds/build.rs#L1228  fn build_graph
+cmds/build.rs#L1249  fn render_signature
+cmds/build.rs#L1258  fn cli_build__determinism_render_twice
+cmds/build.rs#L1278  fn cli_build__determinism_two_builds
+cmds/build.rs#L1293  fn cli_build__golden_roundtrip_hbl
+cmds/build.rs#L1314  fn cli_build__metrics_hbl_smoke
+cmds/build.rs#L1335  mod d_detectors
+cmds/build.rs#L1340  static TEST_LOCK
+cmds/build.rs#L1344  fn build_fixture
+cmds/build.rs#L1364  fn build_fixture_or_panic
+cmds/build.rs#L1375  fn build_fixture_with_graph
+cmds/build.rs#L1395  fn has_code
+cmds/build.rs#L1402  fn cli_build__d1_sort_hazard_non_monotonic_pins
+cmds/build.rs#L1434  fn cli_build__d2_floating_placeholder_unbound_lead
+cmds/build.rs#L1452  fn cli_build__d3_merged_short_same_physical_pin
+cmds/build.rs#L1474  fn cli_build__d3_no_fire_for_legit_fanout
+cmds/build.rs#L1515  fn cli_build__d5_same_name_group_redundant_ref_warns
+cmds/build.rs#L1554  fn cli_build__d5_same_name_group_short_ref_warns
+cmds/build.rs#L1589  fn cli_build__d5_same_name_group_single_ref_no_warn
+cmds/build.rs#L1621  fn cli_build__d5_same_name_group_single_side_fan_in_connects_pads
+cmds/build.rs#L1679  fn cli_build__arity_gate_noarg_method_with_args_not_dispatched
+cmds/build.rs#L1738  fn cli_build__d6_dropped_statement_indexed_alias
+cmds/build.rs#L1760  fn cli_build__d7_pullup_degenerate_signal_bridge
+cmds/build.rs#L1794  fn cli_build__d8_array_instance_bracket_reference_relinks
 cmds/check.rs#L26  struct CheckOutcome
 cmds/check.rs#L34  struct CheckBatch
 cmds/check.rs#L44  fn check_one_world
@@ -978,14 +978,14 @@ cmds/parse.rs#L916  fn combine_svgs
 cmds/parse.rs#L981  fn extract_viewbox
 cmds/parse.rs#L1000  fn extract_svg_inner
 cmds/parse.rs#L1013  fn escape_xml_viz
-cmds/parse.rs#L1027  fn viz_default_path
-cmds/parse.rs#L1036  fn run_viz
-cmds/parse.rs#L1145  fn phrase_to_tree_json
-cmds/parse.rs#L1233  fn endpoint_label
-cmds/parse.rs#L1255  fn emit_error
-cmds/parse.rs#L1280  fn param_cls
-cmds/parse.rs#L1299  fn param_default
-cmds/parse.rs#L1309  fn cmie_to_tree_json
+cmds/parse.rs#L1031  fn viz_default_path
+cmds/parse.rs#L1057  fn run_viz
+cmds/parse.rs#L1162  fn phrase_to_tree_json
+cmds/parse.rs#L1250  fn endpoint_label
+cmds/parse.rs#L1272  fn emit_error
+cmds/parse.rs#L1297  fn param_cls
+cmds/parse.rs#L1316  fn param_default
+cmds/parse.rs#L1326  fn cmie_to_tree_json
 cmds/print.rs#L31  fn print_phrase_members
 cmds/print.rs#L154  fn print_module_inst
 cmds/print.rs#L336  fn print_connections
@@ -4331,19 +4331,20 @@ rpc/handlers/aicontract.rs#L88  fn handle_explain
 rpc/handlers/aicontract.rs#L90  struct ExplainParams
 rpc/handlers/buildcmd.rs#L9  fn handle_build_full
 rpc/handlers/buildcmd.rs#L68  fn handle_build_viz
-rpc/handlers/buildcmd.rs#L214  fn build_viz_render_opts
-rpc/handlers/buildcmd.rs#L225  mod tests
-rpc/handlers/buildcmd.rs#L232  fn parse_lock
-rpc/handlers/buildcmd.rs#L238  fn tmp_file
-rpc/handlers/buildcmd.rs#L251  fn cli_buildcmd__build_viz_component_only_file
-rpc/handlers/buildcmd.rs#L289  fn cli_buildcmd__build_viz_two_pin_passive_hides_u1
-rpc/handlers/buildcmd.rs#L323  fn cli_buildcmd__build_viz_multi_module_file
-rpc/handlers/buildcmd.rs#L344  fn cli_buildcmd__build_full_directory_batch
-rpc/handlers/buildcmd.rs#L410  fn cli_buildcmd__build_full_directory_batch_reports_net_erc_truth
-rpc/handlers/buildcmd.rs#L482  fn cli_buildcmd__build_full_component_only_file
-rpc/handlers/buildcmd.rs#L520  fn cli_buildcmd__build_full_reports_net_erc_truth
-rpc/handlers/buildcmd.rs#L580  fn cli_buildcmd__build_viz_module_contains_component_shows_pin_labels
-rpc/handlers/buildcmd.rs#L629  fn cli_buildcmd__build_viz_tc275_style_constructs
+rpc/handlers/buildcmd.rs#L238  fn build_viz_render_opts
+rpc/handlers/buildcmd.rs#L249  mod tests
+rpc/handlers/buildcmd.rs#L256  fn parse_lock
+rpc/handlers/buildcmd.rs#L262  fn tmp_file
+rpc/handlers/buildcmd.rs#L275  fn cli_buildcmd__build_viz_component_only_file
+rpc/handlers/buildcmd.rs#L313  fn cli_buildcmd__build_viz_two_pin_passive_hides_u1
+rpc/handlers/buildcmd.rs#L347  fn cli_buildcmd__build_viz_multi_module_file
+rpc/handlers/buildcmd.rs#L371  fn cli_buildcmd__build_viz_standalone_stamps_source_links
+rpc/handlers/buildcmd.rs#L419  fn cli_buildcmd__build_full_directory_batch
+rpc/handlers/buildcmd.rs#L485  fn cli_buildcmd__build_full_directory_batch_reports_net_erc_truth
+rpc/handlers/buildcmd.rs#L557  fn cli_buildcmd__build_full_component_only_file
+rpc/handlers/buildcmd.rs#L595  fn cli_buildcmd__build_full_reports_net_erc_truth
+rpc/handlers/buildcmd.rs#L655  fn cli_buildcmd__build_viz_module_contains_component_shows_pin_labels
+rpc/handlers/buildcmd.rs#L704  fn cli_buildcmd__build_viz_tc275_style_constructs
 rpc/handlers/defs.rs#L9  fn handle_defs_search
 rpc/handlers/defs.rs#L66  fn handle_defs_query
 rpc/handlers/defs.rs#L110  fn handle_defs_reverse
@@ -4533,11 +4534,11 @@ rpc/handlers/params.rs#L83  struct ExportRpcParams
 rpc/handlers/params.rs#L101  struct TraceSetParams
 rpc/handlers/params.rs#L121  struct BuildFullParams
 rpc/handlers/params.rs#L146  struct BuildVizParams
-rpc/handlers/params.rs#L164  struct FileEntry
-rpc/handlers/params.rs#L174  struct CheckRpcParams
-rpc/handlers/params.rs#L198  struct ParseParams
-rpc/handlers/params.rs#L214  struct ShowParams
-rpc/handlers/params.rs#L223  struct SemParams
+rpc/handlers/params.rs#L170  struct FileEntry
+rpc/handlers/params.rs#L180  struct CheckRpcParams
+rpc/handlers/params.rs#L204  struct ParseParams
+rpc/handlers/params.rs#L220  struct ShowParams
+rpc/handlers/params.rs#L229  struct SemParams
 rpc/handlers/rulescmd.rs#L15  fn rule_code_param
 rpc/handlers/rulescmd.rs#L48  fn handle_rules_list
 rpc/handlers/rulescmd.rs#L55  fn handle_rule_detail
@@ -10514,24 +10515,21 @@ viz/semantic/mod.rs#L1375  fn submodule_io_net_role_is_module_io
 viz/semantic/mod.rs#L1389  fn isolated_net_role
 viz/sourcelink.rs#L51  type FileCache
 viz/sourcelink.rs#L61  fn wrap_standalone
-viz/sourcelink.rs#L74  fn stamp_wrapped
-viz/sourcelink.rs#L83  fn stamp_vscode_links
-viz/sourcelink.rs#L98  const URI_ATTR
-viz/sourcelink.rs#L99  const OFF_ATTR
-viz/sourcelink.rs#L101  fn linkify
-viz/sourcelink.rs#L146  fn vscode_link
-viz/sourcelink.rs#L192  fn percent_encode_path
-viz/sourcelink.rs#L208  fn unescape_attr
-viz/sourcelink.rs#L215  fn escape_attr
-viz/sourcelink.rs#L225  mod tests
-viz/sourcelink.rs#L228  fn tmpdir
-viz/sourcelink.rs#L249  fn link_carries_line_and_utf16_column
-viz/sourcelink.rs#L269  fn stamping_adds_the_link_and_leaves_the_offset_alone
-viz/sourcelink.rs#L289  fn unreadable_uri_gets_no_link
-viz/sourcelink.rs#L307  fn offset_past_eof_clamps_and_relative_uris_resolve
-viz/sourcelink.rs#L324  fn unrelated_svg_is_untouched
-viz/sourcelink.rs#L335  fn stamp_wrapped_stamps_a_wrapped_document
-viz/sourcelink.rs#L360  fn stamp_wrapped_without_pairs_is_untouched
+viz/sourcelink.rs#L71  fn stamp_vscode_links
+viz/sourcelink.rs#L86  const URI_ATTR
+viz/sourcelink.rs#L87  const OFF_ATTR
+viz/sourcelink.rs#L89  fn linkify
+viz/sourcelink.rs#L134  fn vscode_link
+viz/sourcelink.rs#L180  fn percent_encode_path
+viz/sourcelink.rs#L196  fn unescape_attr
+viz/sourcelink.rs#L203  fn escape_attr
+viz/sourcelink.rs#L213  mod tests
+viz/sourcelink.rs#L216  fn tmpdir
+viz/sourcelink.rs#L237  fn link_carries_line_and_utf16_column
+viz/sourcelink.rs#L257  fn stamping_adds_the_link_and_leaves_the_offset_alone
+viz/sourcelink.rs#L277  fn unreadable_uri_gets_no_link
+viz/sourcelink.rs#L295  fn offset_past_eof_clamps_and_relative_uris_resolve
+viz/sourcelink.rs#L312  fn unrelated_svg_is_untouched
 viz/special/mod.rs#L26  struct PowerGroundBusModel
 viz/special/mod.rs#L40  struct SpecialEndpointKey
 viz/special/mod.rs#L49  struct PowerGroundNetIntent
@@ -10751,4 +10749,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-398 files, 10670 declarations.
+398 files, 10668 declarations.
