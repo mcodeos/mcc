@@ -245,7 +245,7 @@ Options: `--filter EXPR` (component/module/interface/enum), `-F/--file`,
 | command                   | output                                                   |
 | ------------------------- | -------------------------------------------------------- |
 | `mcc show lapper -F FILE` | LSP symbol intervals + RefDefMap (goto-def debug, local) |
-| `mcc show ast -F FILE`    | AST tree (parser debug)                                  |
+| `mcc show ast -F FILE`    | AST tree (parser debug); `-f json` adds per-node source spans (see §2.4b) |
 
 **Pass2 circuit tree** (`--top`):
 
@@ -331,6 +331,60 @@ NAME`; internals → drill-down (`pins`, `instances`, ...); file contents →
 `mcc show all -F FILE`; module netlist → `mcc show nets MODULE -F file.mc --top MODULE`; parser/semantic debug → `lapper` / `ast`.
 
 ***
+
+### 2.4b Stage comparison — `join` / `trace` / `diff` / `show stage`
+
+Cross-segment audit of the compile pipeline: `src → p2 (Pass2 circuit) →
+vec → viz`. Semantics and acceptance language live in
+`mcd/doc/pipeline/stage-readout-design.md` §5.3 (② join / ③ trace / ④ diff).
+
+```bash
+# Join two ADJACENT segments by key; reports every mismatch with its
+# cardinality, in six classes:
+#   carry (passed through) | expand | merge | drop | synth | skip
+# drop = the segment lost it, synth = the segment invented it — the two
+# suspect classes for lost/extra objects.
+mcc join src p2  -F hbl.mc        # source -> Pass2 circuit
+mcc join p2  vec -F hbl.mc        # Pass2 -> vec space
+mcc join vec viz -F hbl.mc        # vec -> viz objects
+mcc join src p2 -F hbl.mc --only drop   # one class only
+
+# Follow ONE key along the whole chain and print what it is at each stage.
+# Key forms are read off the key itself (four shapes):
+mcc trace top.u1.vin -F hbl.mc    # instance port canonical path
+mcc trace dc.VDD_3V3 -F hbl.mc    # net name
+mcc trace mcu.mc:23 -F hbl.mc     # source position
+mcc trace N12:3 -F hbl.mc         # in-domain handle
+
+# Stage readouts (the segments themselves):
+mcc show stage p2 -F hbl.mc             # text
+mcc show stage viz -F hbl.mc -f json    # structured, saveable
+
+# Diff two readings of one view (a source path read now, or a saved
+# `show stage ... -o FILE` reading):
+mcc show stage viz -F hbl.mc -f json -o /tmp/viz_now.json
+mcc diff hbl.mc /tmp/viz_now.json --view stage.viz
+```
+
+AST faces (feeds of the whole chain):
+
+```bash
+mcc show ast -F hbl.mc -f json          # CST face: every node span:{start,end}
+mcc parse hbl.mc --ast -f json          # phrase face: statement roots + stmt spans
+```
+
+`scripts/check-ast-roundtrip.py` gates both faces against the source
+(gap = a non-trivia byte no node span covers; invented / overlap = leaf
+evidence). rc 0 clean / 1 error / 2 findings:
+
+```bash
+python3 scripts/check-ast-roundtrip.py --mcc target-slots/b/debug/mcc \
+    /path/to/project/src/*.mc
+```
+
+***
+
+
 
 ### 2.5 `search` & `query` — Find Definitions
 
