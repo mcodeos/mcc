@@ -134,6 +134,44 @@ fn lock_u153__anon_port_func_formal_zips_lanes() {
     }
 }
 
+/// The U153 grammar slot: the interface declare rides in a **mixed** port row
+/// (`io SPI10::SPI10(), UART0, I2C1`) instead of a row of its own. The parser
+/// emits one flat MCAST_NET_PORTS child list (OPD / DECLARE siblings) and the
+/// semantic layer dispatches by child type, so pairing stays lane-correct and
+/// the graft gates still hold (pre-U153 this row died E2082 at the `::`).
+#[test]
+fn lock_u153__mixed_port_row_parses_and_zips_lanes() {
+    let src = format!(
+        "{}\nmodule DEV()\n{{\n    io SPI10::SPI10(), UART0, I2C1\n    UCM uc\n\n    func loadFlash(SPI10)\n    {{\n        SPI10 + uc.SPI10\n    }}\n}}\n\nmodule main()\n{{\n    DEV dev\n    FLH flh\n    dev.loadFlash(flh.SPI10)\n}}\n",
+        components()
+    );
+    let p = probe(&src);
+    let fatal: Vec<_> = p
+        .diags
+        .iter()
+        .filter(|(c, _)| {
+            *c == 3181 || *c == 4005 || *c == 2082
+        })
+        .collect();
+    assert!(
+        fatal.is_empty(),
+        "mixed port row must parse and pair silently, got {fatal:?}"
+    );
+    for k in 0..10 {
+        let mut want = vec![
+            format!("dev.uc.{}", M_PINS[k]),
+            format!("flh.{}", S_PINS[k]),
+        ];
+        want.sort();
+        assert!(
+            p.nets.contains(&want),
+            "wire {} missing: expected net {want:?} in {:?}",
+            k + 1,
+            p.nets
+        );
+    }
+}
+
 /// A hand-written named member access on the anonymous port stays an error:
 /// the positional set is the port's only member identity, and the U153 gates
 /// must not open a name-valued side door.
