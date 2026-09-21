@@ -1686,81 +1686,19 @@ impl McFuncCall {
         // ── P2-12: For known two-pin classes (CAP/RES/IND/...), do NOT create
         // anonymous components at parse time. Instead, preserve as FuncCall so that
         // the instantiation phase can properly auto-name and wire them.
-        if caller.is_none() {
-            // Two-pin classes (real pins read from the resolved def) keep the
-            // FuncCall form so Pass2 can auto-name/wire them; non-two-pin
-            // classes try the eager anonymous endpoint path below. A class that
-            // doesn't resolve to a component def is *not* treated as two-pin by
-            // name.
-            let is_twopin = crate::vector::graph::naming::two_pin_class_from_def(
-                &DB,
-                &func_name,
-                context.uri(),
-            )
-            .unwrap_or(false);
-            if !is_twopin {
-                if let Some(cmie) = resolve_cmie(&DB, &func_name, context.uri()) {
-                    match cmie {
-                        McCMIE::Component(comp_def) => {
-                            let inst_name = context.gen_anon_name(&func_name.to_string());
-                            // Iter-3.E fix
-                            // When context is McComponent, gen_anon_name returns "",
-                            // and add_component is also an empty implementation. If we wrap a
-                            // component
-                            // with name "" into Endpoint as-is, pass2 processing would produce
-                            // ghost pins (empty owner) like `.1 : X ~ .1`.
-                            //
-                            // Correct approach: when inst_name is empty, **do not** take the
-                            // Endpoint branch;
-                            // fall through to the FuncCall construction below, letting pass2's
-                            // auto_name
-                            // in `instantiate_component_construction` generate the actual
-                            // @RES1/@CAP1 names.
-                            if !inst_name.is_empty() {
-                                // Store the source span for diagnostics on this anonymous instance.
-                                let inst_span = (node.get_pos() as usize)
-                                    ..((node.get_pos() + node.get_len()) as usize);
-                                context.store_inst_span(&inst_name, inst_span);
-                                // NC is an instance modifier: with_params keeps
-                                // every argument (NC included), sets nc=true and
-                                // binds the rest at instantiation time.
-                                check_ctor_bind(&inst_name, &comp_def, &params, node);
-                                let mc2_comp = Mc2Component::with_params(
-                                    &inst_name,
-                                    comp_def.clone(),
-                                    params.clone(),
-                                );
-                                context.add_component(inst_name.clone(), mc2_comp.clone());
-                                return Some(McPhrase::Endpoint(McEndpoint::Single(
-                                    McInstanceRef::new(McInstance::Component(Arc::new(mc2_comp))),
-                                )));
-                            }
-                            // else: fall through to FuncCall construction below
-                        }
-                        McCMIE::Module(mod_def) => {
-                            let inst_name = context.gen_anon_name(&func_name.to_string());
-                            // Same as Iter-3.E: only take the Endpoint branch when inst_name is
-                            // non-empty
-                            if !inst_name.is_empty() {
-                                // Store the source span for diagnostics on this anonymous instance.
-                                let inst_span = (node.get_pos() as usize)
-                                    ..((node.get_pos() + node.get_len()) as usize);
-                                context.store_inst_span(&inst_name, inst_span);
-                                let mc2_mod = Mc2Module::new(&inst_name, mod_def.clone());
-                                context.add_module(inst_name.clone(), mc2_mod);
-                                return Some(McPhrase::Endpoint(McEndpoint::Single(
-                                    McInstanceRef::new(McInstance::Module(Arc::new(
-                                        Mc2Module::new(&inst_name, mod_def),
-                                    ))),
-                                )));
-                            }
-                            // else: fall through to FuncCall construction below
-                        }
-                        _ => {}
-                    }
-                }
-            }
-        }
+        //
+        // Every bare construction falls through to the FuncCall form below —
+        // the same contract the two-pin classes have (P2-12 above) and the
+        // named inline constructions have (mc_phrase.rs MCAST_DECLARE). Pass2
+        // is the sole instantiation site: `instantiate_funccall` auto-names
+        // (`AutoNameKind::Normal`) and wires pins
+        // (`instantiate_component_construction`; a single-pin component
+        // resolves both sides to its only pin via
+        // `McComponentInst::get_right_pin`). Never return a parse-time
+        // `Endpoint` for a construction here — `add_component` keeps
+        // `@`-anonymous names out of `insts` (semantic/module/mod.rs, P2-10),
+        // so an Endpoint phrase would have no instantiation site and the
+        // class would silently produce zero instances (U170).
 
         // eprintln!("[FC-PARSE] returning FuncCall: func_name='{}' caller_is_some={}",
         //       func_name, caller.is_some());
