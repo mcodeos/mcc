@@ -225,6 +225,11 @@ body.nav-armed #canvas [data-src-uri] {
   outline-offset: -2px;
   cursor: pointer;
 }
+/* S4: the host commits a viewframe onto one instance (`viz:highlight`) —
+   the amber halo marks which box the workbench is looking at. */
+#canvas g.inst-focused {
+  filter: drop-shadow(0 0 6px #f59e0b);
+}
 /* Hint sits at the far end of the status row, opposite the layer stats. */
 #stats .hint {
   margin-left: auto;
