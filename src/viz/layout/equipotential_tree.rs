@@ -419,6 +419,13 @@ pub(crate) fn single_group_net_renders_stub(net: &VizNet) -> bool {
             .rail
             .as_ref()
             .is_some_and(|r| r.class == RailClass::Power)
+        // ★ expansion-provenance §3.4 stage 2: a net the projection marked as
+        // crossing this layer's own boundary renders its stub even when
+        // anonymous — the crossing is certified by the marker, not by the
+        // name, and the frame port anchors on the stub's terminal. This is
+        // the comp inner layer's pullup shape: pin to pull-up resistor, one
+        // real box on the net.
+        || net.boundary.is_some()
         || (net.kind == NetKind::SubModuleIO
             && !net.name.is_empty()
             && !crate::instant::mc_net::is_anon_net_name(&net.name))
@@ -521,6 +528,18 @@ fn build_one_topology(net: &VizNet, graph: &McVecGraph) -> Option<NetTopology> {
     let trunk_axis = trunk_axis_from_anchor(anchor, &real_groups[&anchor], graph);
 
     // Add net-kind-based terminals (only if not already added from PowerLabel)
+    // ★ expansion-provenance §3.4 stage 2: a boundary-crossing single-group net
+    // terminates at the frame port. The marker's port name is the
+    // projection-certified label; the net's own name may be an anonymous
+    // engine name (the comp inner layer's pullup shape: pin to pull-up
+    // resistor). No marker, no name ⇒ no terminal, exactly as before.
+    if terminals.is_empty() {
+        if let Some(bi) = &net.boundary {
+            terminals.push(Terminal::Port {
+                name: bi.port_name.clone(),
+            });
+        }
+    }
     if is_power_rail_net {
         // ★ Power rail: bus label stripped of the port prefix
         // ("vin.POWER_SYS" -> "POWER_SYS", "V3V3.VCC" -> "VCC")

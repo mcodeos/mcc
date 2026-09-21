@@ -898,6 +898,15 @@ fn build_mc_vec_graph_inner(
                         continue;
                     }
 
+                    // ★ expansion-provenance §3.4 stage 2: an own-boundary
+                    // endpoint (the component's own pin, in the component's
+                    // own layer) is painted on the dashed frame — Case A's
+                    // "visit.rs missed this" synthesis must not re-materialize
+                    // the component as a box inside its own boundary.
+                    if is_own_boundary_port(table, block.bid, u as i64) {
+                        continue;
+                    }
+
                     // ★ S3.5 Fix C: parent is a Component but not in box_ids_set
                     // -> visit.rs didn't include it in insts. Synthesize Component box here.
                     if let Some(parent_entry) = table.get_entry(parent_id) {
@@ -1310,11 +1319,31 @@ fn build_mc_vec_graph_inner(
     // projected real nets.
 
     // ── M0-2: populate module_ports from port declarations ──
+    // ★ expansion-provenance §3.4 stage 2: a component's own layer is framed
+    // like a module's, so a component's pins fill this same slot — the frame
+    // gate reads this list, and the ruling makes the pin set the comp's ports.
     {
-        let ports = table.get_ports_of(block.bid as u32);
+        let is_component = table
+            .get_entry(block.bid as u32)
+            .is_some_and(|e| e.kind == InstKind::Component);
+        let ports = if is_component {
+            table.get_pins_of(block.bid as u32)
+        } else {
+            table.get_ports_of(block.bid as u32)
+        };
         let mut module_ports = Vec::with_capacity(ports.len());
         for p in &ports {
-            let port_name = extract_last_segment(&p.path);
+            // A pin's path names the outer pin number; its function name
+            // (`pin _CS = 1`) rides in class_name. The frame labels the
+            // crossing the way the box labels the pin: the function name when
+            // there is one, the pin number otherwise. Module ports have no
+            // class_name, so their naming is untouched.
+            let raw_name = p.class_name.trim();
+            let port_name = if raw_name.is_empty() {
+                extract_last_segment(&p.path)
+            } else {
+                raw_name.to_string()
+            };
             let port_dir = translate_io_to_port_dir(&p.io_type);
             let role = match &p.member_info {
                 Some(mi) => match mi.role {
@@ -1410,6 +1439,12 @@ fn is_own_boundary_port(table: &InstTable, bid: i64, pid: i64) -> bool {
     loop {
         if cur.kind == InstKind::Port {
             return cur.parent_id == Some(bid as u32);
+        }
+        if cur.kind == InstKind::Pin && cur.parent_id == Some(bid as u32) {
+            // ★ expansion-provenance §3.4 stage 2: a component's own pin, in
+            // the component's own layer — the boundary face. Painted on the
+            // dashed frame (module_frame), never in a box.
+            return true;
         }
         match cur.parent_id.and_then(|p| table.get_entry(p)) {
             Some(parent) => cur = parent,
