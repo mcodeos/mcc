@@ -345,6 +345,10 @@ window.addEventListener('resize', function () { applyZoom(zoomLevel); });
 // — an older artifact, or a source file that has since moved — shows and copies
 // the raw coordinate rather than doing nothing at all (design §3.4).
 const mcodeHost = (typeof acquireVsCodeApi === 'function') ? acquireVsCodeApi() : null;
+// S4: inside a plain <iframe> (the mcide workbench) the host is the parent
+// window — same postMessage contract, no VS Code API. Standalone (no parent)
+// stays hostless: the click falls back to link/copy.
+const hostTarget = mcodeHost || ((window.parent && window.parent !== window) ? window.parent : null);
 
 // Discoverability (design §4 D5). Holding the modifier is the whole gesture and
 // nothing announces it, so the status line states it, and the wording follows
@@ -355,7 +359,7 @@ const MOD_LABEL = IS_MAC ? '⌘' : 'Ctrl';
 
 function hintText() {
     const gesture = MOD_LABEL + ' + click a box or pin: ';
-    if (mcodeHost) return gesture + 'open its source';
+    if (hostTarget) return gesture + 'open its source';
     if (document.querySelector('#canvas [data-src-vscode]')) {
         return gesture + 'open its source in VS Code';
     }
@@ -417,8 +421,8 @@ document.getElementById('canvas').addEventListener('click', function (ev) {
     if (!coord) return;
     ev.preventDefault();
     ev.stopPropagation();
-    if (mcodeHost) {
-        mcodeHost.postMessage({ type: 'openSource', uri: coord.uri, offset: coord.offset });
+    if (hostTarget) {
+        hostTarget.postMessage({ type: 'openSource', uri: coord.uri, offset: coord.offset }, '*');
     } else if (coord.link) {
         // Hand the URI to the OS. Only ever on this modifier-click, so merely
         // opening the file never launches anything.
@@ -428,11 +432,74 @@ document.getElementById('canvas').addEventListener('click', function (ev) {
     }
 }, true);
 
+// S4: double-click a named box = the drill gesture. The artifact stays a
+// read-only projection — it only *reports* the box; the host decides what the
+// committed viewframe is (workbench: focus `inst:<name>` + highlight).
+document.getElementById('canvas').addEventListener('dblclick', function (ev) {
+    const g = ev.target.closest ? ev.target.closest('#canvas g[data-name]') : null;
+    if (!g) return;
+    const name = g.getAttribute('data-name');
+    if (!name || !hostTarget) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    hostTarget.postMessage({
+        type: 'viz:drill',
+        name: name,
+        uri: g.getAttribute('data-src-uri') || '',
+        offset: parseInt(g.getAttribute('data-src-offset') || '0', 10) || 0,
+    }, '*');
+    setInstFocus(name);
+}, true);
+
+// S4: the host can mark the box the current viewframe looks at (replay of a
+// committed `inst:` frame). One focused box at a time; an empty name clears.
+window.addEventListener('message', function (e) {
+    const m = e.data;
+    if (!m || m.type !== 'viz:highlight') return;
+    setInstFocus(m.name || '');
+});
+
+function setInstFocus(name) {
+    document.querySelectorAll('#canvas g.inst-focused').forEach(function (g) {
+        g.classList.remove('inst-focused');
+    });
+    if (name) {
+        const g = document.querySelector('#canvas g[data-name="' + name + '"]');
+        if (g) g.classList.add('inst-focused');
+    }
+    // Echo back (also on clear): the frame is sandboxed (opaque origin), so
+    // the host cannot read the DOM — it learns the highlight state through
+    // this message.
+    const host = mcodeHost || ((window.parent && window.parent !== window) ? window.parent : null);
+    host && host.postMessage({ type: 'viz:highlighted', name: name }, '*');
+}
+
 // Startup
+function announceReady() {
+    const host = mcodeHost || ((window.parent && window.parent !== window) ? window.parent : null);
+    host && host.postMessage({ type: 'viz:ready' }, '*');
+}
+
+// Keeper protocol (mcide iframe-keeper): the workbench frame persists across
+// reparent/reload and asks the artifact for its zoom state (viz:save →
+// viz:state), restores it (viz:restore), and learns when the artifact is
+// listening (viz:ready) so committed-frame highlights survive the load race.
+window.addEventListener('message', function (e) {
+    const m = e.data;
+    if (!m) return;
+    if (m.type === 'viz:save') {
+        const host = mcodeHost || ((window.parent && window.parent !== window) ? window.parent : null);
+        host && host.postMessage({ type: 'viz:state', state: { zoomLevel: zoomLevel } }, '*');
+    } else if (m.type === 'viz:restore' && m.state && Number(m.state.zoomLevel) > 0) {
+        applyZoom(Number(m.state.zoomLevel));
+    }
+});
+
 if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
+    document.addEventListener('DOMContentLoaded', function () { init(); announceReady(); });
 } else {
     init();
+    announceReady();
 }
 "##
 }
@@ -475,7 +542,7 @@ mod tests {
         let handler = &js[js
             .find("addEventListener('click', function (ev)")
             .expect("click handler")..];
-        let host = handler.find("mcodeHost.postMessage").expect("host rung");
+        let host = handler.find("hostTarget.postMessage").expect("host rung");
         let link = handler.find("coord.link").expect("vscode:// rung");
         let copy = handler.find("copySourceCoord(coord)").expect("copy rung");
         assert!(
