@@ -627,12 +627,20 @@ fn emit_flat_sheet(
         }
     }
 
-    // Tile the drawings and collect the shared lib_symbols.
+    // Phase 1 - measure every tile at origin and collect the shared
+    // lib_symbols. A tile is one module's device drawing (or the root's own
+    // component cluster).
     let mut libs: BTreeMap<String, String> = BTreeMap::new();
     let mut with_power = false;
-    let mut tiling: Vec<(usize, Xform, HashMap<i64, String>)> = Vec::new();
-    let mut cursor = 0.0f64;
-    const FLAT_GAP_MM: f64 = 40.0;
+    struct FlatTile {
+        idx: usize,
+        w: f64,
+        h: f64,
+        x: f64,
+        y: f64,
+        lib_of_box: HashMap<i64, String>,
+    }
+    let mut tiles: Vec<FlatTile> = Vec::new();
     for &i in &included {
         let layer = &layers[i];
         let is_device = layer.graph.layer_style == LayerStyle::Device;
@@ -641,15 +649,147 @@ fn emit_flat_sheet(
         } else {
             Vec::new()
         };
-        let xf = Xform::with_offset(&layer.graph, &trees, cursor, 0.0);
-        cursor += xf.max_x + FLAT_GAP_MM;
+        let xf0 = Xform::new(&layer.graph, &trees);
         let prefix = format!("L{}_", layer.graph.bid);
         let (lib_of_box, bodies, pw) = collect_layer_libs(&layer.graph, &trees, &prefix);
         for (n, b) in bodies {
             libs.insert(format!("{prefix}{n}"), b);
         }
         with_power |= pw;
-        tiling.push((i, xf, lib_of_box));
+        tiles.push(FlatTile {
+            idx: i,
+            w: xf0.max_x,
+            h: xf0.max_y,
+            x: 0.0,
+            y: 0.0,
+            lib_of_box,
+        });
+    }
+
+    // Phase 2 - seed each tile where its module sits in the main-mode block
+    // diagram. That diagram is laid out centre-outward, so the flat sheet
+    // inherits the arrangement an engineer already reads: modules right of
+    // centre stay right, above stay above - all four directions in use, and
+    // no strip that would invite long wires.
+    let root_graph = &layers[0].graph;
+    let root_xf = Xform::new(root_graph, &[]);
+    let mut rmin = (f64::MAX, f64::MAX);
+    let mut rmax = (f64::MIN, f64::MIN);
+    for b in &root_graph.boxes {
+        rmin.0 = rmin.0.min(b.x);
+        rmin.1 = rmin.1.min(b.y);
+        rmax.0 = rmax.0.max(b.x + b.w);
+        rmax.1 = rmax.1.max(b.y + b.h);
+    }
+    let root_center = if rmin.0.is_finite() {
+        (
+            root_xf.x((rmin.0 + rmax.0) / 2.0),
+            root_xf.y((rmin.1 + rmax.1) / 2.0),
+        )
+    } else {
+        (0.0, 0.0)
+    };
+    for t in &mut tiles {
+        let layer = &layers[t.idx];
+        let anchor = if layer.parent.is_none() {
+            root_center
+        } else {
+            root_graph
+                .boxes
+                .iter()
+                .find(|b| b.kind == BoxKind::SubModule && b.name == layer.graph.name)
+                .map(|b| (root_xf.x(b.x + b.w / 2.0), root_xf.y(b.y + b.h / 2.0)))
+                .unwrap_or(root_center)
+        };
+        t.x = anchor.0 - t.w / 2.0;
+        t.y = anchor.1 - t.h / 2.0;
+    }
+
+    // Phase 3 - device drawings are far larger than their block boxes, so
+    // seeded tiles overlap. Separate them outward: of an overlapping pair,
+    // the tile farther from the root centre yields along the thinner axis.
+    // Bounded sweeps; the arrangement still reads as the block diagram's.
+    const FLAT_GAP_MM: f64 = 30.0;
+    for _ in 0..200 {
+        let mut moved = 0.0f64;
+        for i in 0..tiles.len() {
+            for j in i + 1..tiles.len() {
+                let (ox, oy) = {
+                    let (a, b) = (&tiles[i], &tiles[j]);
+                    let pen_x = a.x.min(b.x) + a.w.max(b.w) + FLAT_GAP_MM
+                        - a.x.max(b.x);
+                    let pen_y = a.y.min(b.y) + a.h.max(b.h) + FLAT_GAP_MM
+                        - a.y.max(b.y);
+                    (pen_x, pen_y)
+                };
+                let (a, b) = (&tiles[i], &tiles[j]);
+                let overlap_x = a.x < b.x + b.w + FLAT_GAP_MM
+                    && b.x < a.x + a.w + FLAT_GAP_MM;
+                let overlap_y = a.y < b.y + b.h + FLAT_GAP_MM
+                    && b.y < a.y + a.h + FLAT_GAP_MM;
+                if !(overlap_x && overlap_y) {
+                    continue;
+                }
+                let da = (a.x + a.w / 2.0 - root_center.0).powi(2)
+                    + (a.y + a.h / 2.0 - root_center.1).powi(2);
+                let db = (b.x + b.w / 2.0 - root_center.0).powi(2)
+                    + (b.y + b.h / 2.0 - root_center.1).powi(2);
+                let (push_idx, dx, dy) = if da >= db {
+                    let (ax, ay) = (a.x + a.w / 2.0, a.y + a.h / 2.0);
+                    let (bx, by) = (b.x + b.w / 2.0, b.y + b.h / 2.0);
+                    (
+                        i,
+                        (ax - bx).abs() * ox,
+                        (ay - by).abs() * oy,
+                    )
+                } else {
+                    let (ax, ay) = (a.x + a.w / 2.0, a.y + a.h / 2.0);
+                    let (bx, by) = (b.x + b.w / 2.0, b.y + b.h / 2.0);
+                    (
+                        j,
+                        (bx - ax).abs() * ox,
+                        (by - ay).abs() * oy,
+                    )
+                };
+                // Normalize: move along the dominant axis by the full gap.
+                let t = &mut tiles[push_idx];
+                if ox <= oy {
+                    t.x += if dx >= 0.0 { ox } else { -ox };
+                } else {
+                    t.y += if dy >= 0.0 { oy } else { -oy };
+                }
+                moved += 1.0;
+            }
+        }
+        if moved == 0.0 {
+            break;
+        }
+    }
+    // Fit: shift everything so the sheet starts at one margin.
+    let min_x = tiles.iter().map(|t| t.x).fold(f64::MAX, f64::min);
+    let min_y = tiles.iter().map(|t| t.y).fold(f64::MAX, f64::min);
+    let (shift_x, shift_y) = if min_x.is_finite() {
+        (30.0 - min_x, 30.0 - min_y)
+    } else {
+        (0.0, 0.0)
+    };
+    for t in &mut tiles {
+        t.x += shift_x;
+        t.y += shift_y;
+    }
+
+    // Phase 4 - final transforms and emit.
+    let mut tiling: Vec<(usize, Xform, HashMap<i64, String>)> = Vec::new();
+    for t in &tiles {
+        let layer = &layers[t.idx];
+        let is_device = layer.graph.layer_style == LayerStyle::Device;
+        let trees: Vec<EquiTree> = if is_device {
+            build_all_trees(&layer.graph)
+        } else {
+            Vec::new()
+        };
+        let xf = Xform::with_offset(&layer.graph, &trees, t.x, t.y);
+        tiling.push((t.idx, xf, t.lib_of_box.clone()));
     }
 
     let mut e = Emit::new();
@@ -658,12 +798,14 @@ fn emit_flat_sheet(
     line!(e, "(generator \"mcc\")");
     line!(e, "(generator_version \"9.0\")");
     line!(e, "(uuid \"{}\")", set.root_uuid);
-    let sheet_w = cursor.max(297.0);
-    let sheet_h = tiling
+    let sheet_w = tiles
         .iter()
-        .map(|(_, xf, _)| xf.max_y)
-        .fold(210.0f64, f64::max)
-        .max(210.0);
+        .map(|t| t.x + t.w)
+        .fold(297.0f64, f64::max);
+    let sheet_h = tiles
+        .iter()
+        .map(|t| t.y + t.h)
+        .fold(210.0f64, f64::max);
     line!(e, "(paper \"User\" {} {})", sheet_w.ceil() as i64 + 20, sheet_h.ceil() as i64 + 20);
     e.open("title_block");
     line!(e, "(title \"{}\")", escape(top));
@@ -832,6 +974,7 @@ fn emit_tree_nets_opt(
             e.close();
         }
         let mut has_text_symbol = false;
+        let flat_mode = !net_names.is_empty();
         for s in &t.symbols {
             match s.kind {
                 TreeSymbolKind::Ground => {
@@ -890,9 +1033,11 @@ fn emit_tree_nets_opt(
                 }
                 TreeSymbolKind::NetLabel | TreeSymbolKind::BusLabel | TreeSymbolKind::PortLabel => {
                     has_text_symbol = true;
-                    // A boundary net names itself by its port through the
-                    // hierarchical label; a second label would only fight it.
-                    if !is_anon(&t.net_name) && !is_boundary {
+                    // Hierarchical mode: a boundary net names itself by its
+                    // port through the hierarchical label, so a second label
+                    // would only fight it. Flat mode: the renamed label IS
+                    // the cross-module join, boundary or not.
+                    if !is_anon(&t.net_name) && (!is_boundary || flat_mode) {
                         let shown = display_of(&t.net_name);
                         text_label(graph.bid, &shown, xf.x(s.x), xf.y(s.y), e);
                     }
@@ -904,7 +1049,7 @@ fn emit_tree_nets_opt(
         // sheet the label is unconditional — the net-name rename (to the
         // copper island's board-wide name) only joins the modules if it lands
         // on copper, whatever the tree's own terminal style is.
-        if (!has_text_symbol || !net_names.is_empty()) && !is_anon(&t.net_name) && !is_boundary {
+        if (!has_text_symbol || flat_mode) && !is_anon(&t.net_name) && (!is_boundary || flat_mode) {
             if let Some((x, y)) =
                 longest_midpoint(t.segments.iter().map(|s| ((s.x1, s.y1), (s.x2, s.y2))))
             {
@@ -2620,6 +2765,76 @@ mod tests {
         // differs from the sheet element uuid.
         assert!(root_s.contains("top_ldo.kicad_sch"), "{root_s}");
         assert!(child_s.contains("(uuid \""));
+    }
+
+    #[test]
+    fn flat_sheet_has_no_hierarchy() {
+        // The flat face is the whole board on one sheet: no sheet instances,
+        // no hierarchical labels, no top block diagram — just parts joined by
+        // net name.
+        let g = block_graph();
+        let mut root = McVecGraph::new(1, "top".into());
+        root.is_root = true;
+        root.layer_style = LayerStyle::Block;
+        let mut sub = McVecBox::new_v2(
+            20,
+            "ldo".into(),
+            "LDO".into(),
+            BoxKind::SubModule,
+            Symbol::Module,
+            Some("ldo".into()),
+            None,
+            0,
+            IoSummary::new(),
+            "top.ldo".into(),
+            Vec::new(),
+        );
+        sub.provenance = BoxProvenance::Declared;
+        sub.x = 10.0;
+        sub.y = 10.0;
+        sub.w = 40.0;
+        sub.h = 30.0;
+        root.boxes.push(sub);
+        root.clickable_subs.push(20);
+        let mut child = McVecGraph::new(20, "ldo".into());
+        child.layer_style = LayerStyle::Device;
+        let mut dev = McVecBox::new_v2(
+            30,
+            "U1".into(),
+            "LDO".into(),
+            BoxKind::MultiPin,
+            Symbol::Unknown,
+            Some("U1".into()),
+            None,
+            0,
+            IoSummary::new(),
+            "top.ldo.U1".into(),
+            Vec::new(),
+        );
+        dev.provenance = BoxProvenance::Declared;
+        dev.x = 10.0;
+        dev.y = 10.0;
+        dev.w = 40.0;
+        dev.h = 30.0;
+        child.boxes.push(dev);
+        let layers = vec![
+            RenderedLayer { graph: root, parent: None, canvas: (200.0, 100.0), audited: true },
+            RenderedLayer { graph: child, parent: Some(1), canvas: (200.0, 100.0), audited: false },
+        ];
+        let files = emit_sheets(&layers, "top");
+        assert_eq!(files.len(), 2, "hierarchical mode keeps both sheets");
+
+        // flat mode: build via the same path the CLI takes
+        let flat = super::emit_flat_sheet(&layers, &dummy_table(), "top");
+        assert_eq!(flat.len(), 1);
+        let s = &flat[0].content;
+        assert!(!s.contains("(sheet\n"), "no sheet instances: {s}");
+        assert!(!s.contains("hierarchical_label"), "no hierarchical labels: {s}");
+        assert!(s.contains("(lib_id \"mcc:L20_"), "device content present: {s}");
+    }
+
+    fn dummy_table() -> crate::InstTable {
+        crate::InstTable::new(1)
     }
 
     #[test]
