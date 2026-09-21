@@ -898,15 +898,6 @@ fn build_mc_vec_graph_inner(
                         continue;
                     }
 
-                    // ★ expansion-provenance §3.4 stage 2: an own-boundary
-                    // endpoint (the component's own pin, in the component's
-                    // own layer) is painted on the dashed frame — Case A's
-                    // "visit.rs missed this" synthesis must not re-materialize
-                    // the component as a box inside its own boundary.
-                    if is_own_boundary_port(table, block.bid, u as i64) {
-                        continue;
-                    }
-
                     // ★ S3.5 Fix C: parent is a Component but not in box_ids_set
                     // -> visit.rs didn't include it in insts. Synthesize Component box here.
                     if let Some(parent_entry) = table.get_entry(parent_id) {
@@ -1440,12 +1431,11 @@ fn is_own_boundary_port(table: &InstTable, bid: i64, pid: i64) -> bool {
         if cur.kind == InstKind::Port {
             return cur.parent_id == Some(bid as u32);
         }
-        if cur.kind == InstKind::Pin && cur.parent_id == Some(bid as u32) {
-            // ★ expansion-provenance §3.4 stage 2: a component's own pin, in
-            // the component's own layer — the boundary face. Painted on the
-            // dashed frame (module_frame), never in a box.
-            return true;
-        }
+        // A component's own pin is NOT a boundary in this sense: the chip is
+        // drawn as a box in its own layer, so its pins are ordinary endpoints
+        // (wires reach the chip). The frame face of the same pin is carried
+        // separately by the projection's BoundaryInfo marker, which is how the
+        // comp layer gets its dashed frame ports without unboxing the chip.
         match cur.parent_id.and_then(|p| table.get_entry(p)) {
             Some(parent) => cur = parent,
             None => return false,
