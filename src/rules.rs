@@ -66,6 +66,7 @@ use crate::semantic::validation::nets::{
     check_exposed_clamp_downstream, check_filter_subface_overreach, check_floating_inputs,
     check_floating_outputs, check_isolated_dc_bridge, check_nc_connected, check_net_budget,
     check_pin_contract_decode, check_pin_contract_return_member, check_pin_count_mismatch,
+    check_pin_copper_expectation,
     check_port_bind_role, check_port_io_mismatch, check_power_bridge_loop, check_power_nets,
     check_power_rail_contract, check_power_rail_two_roots, check_power_source_contention,
     check_protect_series_path, check_protect_shunt_reference, check_protective_multi_bridge,
@@ -1267,6 +1268,20 @@ pub static FLAT_ERC_RULES: &[FlatErcRule] = &[
         overridable = false,
         owner = check_exposed_clamp_downstream,
     },
+    // Pin copper expectation (pin-expectation-design.md §3, v0.1, ruled
+    // 2026-09-22); table tail, tracking the FLAT_ERC_ORDER append (§5-5).
+    declare_flat_erc_rule! {
+        code = crate::errcodes::PIN_COPPER_EXPECTATION_MISMATCH,
+        name = "pin-copper-expectation",
+        title = "a pin row's copper-identity expectation is not anchored by the net it lands on",
+        severity = Warning,
+        domain = Power,
+        family = None,
+        doc = "§3 pin copper expectation (v0.1): a component pin row carrying @role(<word>) states the copper identity the pin expects to land on. The component layer cannot name a conduit (conduit does not cross layers), so the word is an expectation and the module layer's binding is the witness: the landed net's potential class must anchor the expected identity — through a declared domain face (the §1.4 read shared with SN-1/SN-2/SN-3/PI) or through the copper conduit's own @role word. v0.1 judges quiet only, the one role word with a net-side reading; the other words pass the write-site vocabulary (5360) and carry no verdict yet. A class anchoring neither is a Warning; a net with no class at all is the unanchored half and fires the info code (PIN_COPPER_EXPECTATION_UNANCHORED) — unmet by absence, not contradicted. An unwired pin is the unwired-pin rule's object, never this one's.",
+        lock = "tests/power_intent_l1.rs",
+        overridable = false,
+        owner = check_pin_copper_expectation,
+    },
 ];
 
 // Declaration scope (pins / declaration semantics)
@@ -1831,6 +1846,7 @@ mod tests {
         POWER_CONVERTER_OUTPUT_RAIL_WINDOW, POWER_CONVERTER_SPEC_INCOMPLETE, POWER_PIN_DECODE,
         POWER_PIN_RETURN_MISSING, POWER_RAIL_DECODE, POWER_RAIL_TWO_ROOTS,
         POWER_SINK_NOMINAL_MISMATCH, POWER_SINK_WINDOW_MISMATCH, POWER_SOURCE_CONTENTION,
+        PIN_COPPER_EXPECTATION_MISMATCH,
         PROTECTIVE_MULTI_BRIDGE, PROTECT_SERIES_NOT_IN_PATH, PROTECT_SHUNT_NO_REFERENCE,
         PULLUP_DEGENERATE, RAIL_NATURE_MISMATCH, REFERENCE_ISLAND_ROOT, RETURN_LEG_UNDECLARED,
         ROLE_REF_MISSING_BRIDGE, SENSITIVE_RETURN_ON_NOISY, SHARED_RETURN_BRIDGE,
@@ -1840,7 +1856,7 @@ mod tests {
     /// The execution order of the migrated `nets::run_net_checks` call table.
     /// This is the lock that keeps catalog declaration order byte-identical to
     /// the pre-registry runner sequence.
-    const FLAT_ERC_ORDER: [u32; 53] = [
+    const FLAT_ERC_ORDER: [u32; 54] = [
         NET_MULTI_DRIVE,                    // P1
         NET_NO_DRIVER,                      // P2
         NET_INPUT_UNCONNECTED,              // P5
@@ -1894,6 +1910,7 @@ mod tests {
         FILTER_SUBFACE_OVERREACH, // PI-4 sink pair vs the filter leg's load-side subface
         NET_PIN_UNWIRED,      // P10 every component pad on no net (tail append)
         EXPOSED_NET_DOWNSTREAM_UNPROTECTED, // PWR-6 downstream chain (tail append)
+        PIN_COPPER_EXPECTATION_MISMATCH, // pin expectation vs landed copper (tail append)
     ];
 
     /// The report-row tags of the netcheck R-series. This is the lock that

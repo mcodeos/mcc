@@ -3149,6 +3149,139 @@ pub(crate) fn check_return_leg_undeclared(table: &InstTable, results: &mut Vec<N
     }
 }
 
+/// Pin copper expectation (pin-expectation-design.md §3, v0.1): a component
+/// pin row carrying `@role(<word>)` states the copper identity the pin
+/// expects to land on. The component layer cannot name a conduit (conduit
+/// does not cross layers), so the word is an expectation, and the module
+/// layer's binding is the witness: the landed net's potential class
+/// ([`eff_class`]) must anchor the expected identity — through a declared
+/// domain face (the §1.4 read, [`faces::DomainFaces`]) or through the copper
+/// conduit's own `@role` word. v0.1 judges `quiet` only: it is the one role
+/// word with a net-side reading. The other words pass the write-site
+/// vocabulary (5360) and carry no verdict yet — a branch with no reading is
+/// silence, never a guess. An unwired pin is the unwired-pin rule's object;
+/// a net with no class at all is the unanchored half (info), not a mismatch.
+pub(crate) fn check_pin_copper_expectation(
+    table: &InstTable,
+    results: &mut Vec<NetCheckResult>,
+) {
+    let idx = crate::instant::island::NetIslandIndex::build(table);
+    let faces = faces::DomainFaces::read(table);
+    // Conduit role words per (owning scope, copper name) — the identity a
+    // pure conduit reference carries when no domain world anchors it.
+    let mut conduit_role: std::collections::HashMap<(u32, String), String> =
+        std::collections::HashMap::new();
+    for (id, pi) in table.power_decls() {
+        for r in pi.l1_refs() {
+            if let Some(w) = r.role {
+                conduit_role.insert((*id, r.name), w);
+            }
+        }
+    }
+    let workspace: std::collections::HashMap<String, std::sync::Arc<McComponent>> =
+        crate::definition_space()
+            .workspace_components()
+            .into_iter()
+            .map(|(sn, c)| (sn.ident.to_string(), c))
+            .collect();
+    for comp in table.get_components() {
+        if comp.synthetic || comp.unselected || comp.class_name.is_empty() {
+            continue;
+        }
+        let Some(def) = workspace.get(&comp.class_name) else {
+            continue;
+        };
+        for pin in table.get_pins_of(comp.id) {
+            let Some(mp) = def_pin_of(def, &comp.path, pin) else {
+                continue;
+            };
+            let Some(word) = crate::semantic::module::pi::attr_texts(&mp.attrs, crate::semantic::basic::attr_keys::KEY_ROLE)
+                .into_iter()
+                .next()
+            else {
+                continue;
+            };
+            if word != crate::semantic::basic::attr_keys::WORD_QUIET {
+                continue; // v0.1: only `quiet` has a net-side reading
+            }
+            let Some(net) = table.get_net_of(pin.id) else {
+                continue;
+            };
+            let Some(attr) = idx.get(net.id) else {
+                continue;
+            };
+            match eff_class(table, &idx, attr, &mut Vec::new()) {
+                None => {
+                    let (pos, uri) = entry_pos(comp);
+                    results.push(NetCheckResult {
+                        check: "pin-copper-expectation",
+                        severity: "info",
+                        message: crate::errcodes::format_msg(
+                            crate::errcodes::PIN_COPPER_EXPECTATION_UNANCHORED,
+                            &[&pin.path, &word],
+                        ),
+                        net_name: net.name.clone(),
+                        code: crate::errcodes::PIN_COPPER_EXPECTATION_UNANCHORED,
+                        pos,
+                        uri,
+                    });
+                }
+                Some(cls) => {
+                    // The identity is judged at the class's owning scope: the
+                    // face read walks that scope's chain, and the conduit's
+                    // role word lives in its own body's declarations.
+                    let Some(scope) = attr.module else {
+                        continue;
+                    };
+                    let anchored = faces.quiet_world(table, scope, &cls.worlds).is_some()
+                        || conduit_role
+                            .get(&(scope, cls.id.clone()))
+                            .is_some_and(|w| w == &word);
+                    if anchored {
+                        continue;
+                    }
+                    let (pos, uri) = entry_pos(comp);
+                    results.push(NetCheckResult {
+                        check: "pin-copper-expectation",
+                        severity: "warning",
+                        message: crate::errcodes::format_msg(
+                            crate::errcodes::PIN_COPPER_EXPECTATION_MISMATCH,
+                            &[&pin.path, &word, &cls.id],
+                        ),
+                        net_name: net.name.clone(),
+                        code: crate::errcodes::PIN_COPPER_EXPECTATION_MISMATCH,
+                        pos,
+                        uri,
+                    });
+                }
+            }
+        }
+    }
+}
+
+/// Def-side [`McPin`] of a flat pin: resolved by (1) exact physical-id path
+/// tail, (2) exact leaf, (3) a def pin whose registered `names` carry the
+/// tail or its leaf — the shared pwrflow resolution, returning the whole pin
+/// so the row's trailing attrs are reachable.
+fn def_pin_of<'a>(
+    def: &'a McComponent,
+    comp_path: &str,
+    pin: &InstEntry,
+) -> Option<&'a crate::semantic::component::mc_pins::McPin> {
+    let tail = pin.path.strip_prefix(comp_path)?.strip_prefix('.')?;
+    let leaf = tail.rsplit('.').next().unwrap_or(tail);
+    if let Some(mp) = def.pins.pins.get(tail) {
+        return Some(mp);
+    }
+    if let Some(mp) = def.pins.pins.get(leaf) {
+        return Some(mp);
+    }
+    def.pins
+        .pins
+        .values()
+        .find(|mp| mp.names.iter().any(|n| n == tail || n == leaf))
+}
+
 /// Does one domain-bridge clause span cover a leg's wiring site? The same
 /// site-in-span test `self_declared` uses for net-level edges, over the R3
 /// domain-edge spans collected above.
