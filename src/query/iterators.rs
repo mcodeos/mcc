@@ -235,7 +235,6 @@ pub fn mcb_iter_ports() -> Vec<(String, String, String, String)> {
                 IOType::In => "input".to_string(),
                 IOType::Out => "output".to_string(),
                 IOType::InOut => "inout".to_string(),
-                IOType::Analog => "analog".to_string(),
                 IOType::Label => "label".to_string(),
                 IOType::Return | IOType::NonCon | IOType::None => continue, // Skip non-port declarations
             };

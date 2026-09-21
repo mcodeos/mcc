@@ -2,7 +2,7 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! Locks six PostParse semantic rules implemented in
+//! Locks five PostParse semantic rules implemented in
 //! `src/semantic/validation/conds.rs` by asserting that each rule fires on a
 //! minimal MCode snippet. Each test only asserts the presence of its target
 //! diagnostic code; extra diagnostics are tolerated as long as the snippet
@@ -126,26 +126,10 @@ module main
     assert_fires(5456, source);
 }
 
-// E5457 PIN_IO_MIX_ANALOG_POWER (conds.rs check_pin_alt_roles): a shared pin
-// name maps to one Analog pin and one Power pin (unusual combination). Pin 1
-// is `anl` and pin 2 is `psnk`, both named PWR.
-#[test]
-fn lock_pp_conds__pin_io_mix_analog_power_5457_fires() {
-    let source = r#"component ANL_PWR
-{
-    name = "Analog power"
-    pins = [
-        anl 1 = PWR
-        psnk 2 = PWR, voltage:3.3V
-    ]
-}
-module main
-{
-    ANL_PWR U1
-}
-"#;
-    assert_fires(5457, source);
-}
+// E5457 (PIN_IO_MIX_ANALOG_POWER) retired with the `anl` direction word:
+// without the keyword no pin can carry an Analog IO type, so the rule had no
+// trigger left. Writing `anl` is now a parse error (see
+// `def_ercode__parser_errors_reachable` in tests/shard4/error_codes.rs).
 
 // E5458 PARAM_PIN_NAME_SHADOW (conds.rs check_param_pin_name_collision): a
 // component parameter shares its name with a pin. The parameter `mode`

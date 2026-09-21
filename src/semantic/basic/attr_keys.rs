@@ -296,7 +296,6 @@ pub(crate) const ATTR_KEYS: &[AttrKeyDef] = &[
     row("psrc", BODY, false),
     row("psnk", BODY, false),
     row("psbi", BODY, false),
-    row("anl", BODY, false),
     row("nc", BODY, false),
     row("if", BODY, false),
     row("else", BODY, false),

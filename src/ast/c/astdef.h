@@ -64,7 +64,8 @@
 #define MCAST_IOTYPE_OUT               40
 #define MCAST_IOTYPE_IO                41
 #define MCAST_IOTYPE_RETURN            42
-#define MCAST_IOTYPE_ANL               44
+// 44 retired: the `anl` direction word was removed (analog-signal-design.md);
+// sibling ids stay stable, so the gap is permanent.
 #define MCAST_IOTYPE_NC                45
 #define MCAST_IOTYPE_LABEL             93 // 46+ already taken; 93 is the next free id in section 3
 #define MCAST_IOTYPE_PSRC              97 // power-source direction word (psrc) — pin/rail source side

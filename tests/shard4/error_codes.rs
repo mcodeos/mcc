@@ -545,6 +545,14 @@ fn def_ercode__parser_errors_reachable() {
             "component C { pins = [ 1 ] }\nmodule main { io VDD }",
             mcc::errcodes::PARSER_PIN_INVALID,
         ),
+        // mc_pins_line error arm, `anl` direction word retired (U167): the
+        // word is no longer a keyword, so `anl 1 = PWR` is a bare-ID pin line
+        // and lands in the same recovery arm.
+        (
+            "anl-pin",
+            "component C { pins = [ anl 1 = PWR ] }\nmodule main { io VDD }",
+            mcc::errcodes::PARSER_PIN_INVALID,
+        ),
         // mc_attribute_pin empty-list arm: an empty pin list is an error.
         (
             "empty-pins",

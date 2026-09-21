@@ -89,7 +89,6 @@ fn check_invalid_enum_member_names(acc: &mut CheckAccumulator) {
         "psrc",
         "psnk",
         "psbi",
-        "anl",
         "nc",
         "if",
         "else",

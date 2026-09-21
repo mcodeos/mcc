@@ -540,8 +540,8 @@ fn normalize_blank_lines(lines: &mut Vec<Line>) -> bool {
 /// XTAL`), a conductor (`conduit GNDA @role(quiet)`), a rail, a domain, or the
 /// pin block. A closed list of grammar terminals, not a list of user names.
 const DECL_KEYWORDS: &[&str] = &[
-    "anl", "conduit", "domain", "in", "io", "label", "nc", "out", "pins", "psbi", "psnk", "psrc",
-    "rail", "ref",
+    "conduit", "domain", "in", "io", "label", "nc", "out", "pins", "psbi", "psnk", "psrc", "rail",
+    "ref",
 ];
 
 /// R12: a line that declares something rather than stating a connection. A

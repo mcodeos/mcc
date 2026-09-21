@@ -1914,7 +1914,7 @@ mod tests {
     /// first-emission source order. This is the lock that keeps
     /// `POSTPARSE_RULES` byte-identical to the `validation/*` emission set;
     /// the object hosts stay the executor, so this anchors the catalog copy.
-    const POSTPARSE_ORDER: [u32; 96] = [
+    const POSTPARSE_ORDER: [u32; 95] = [
         // duplicate
         crate::errcodes::DUP_CMIE_CROSS_FILE,
         // dupwithin
@@ -1942,7 +1942,6 @@ mod tests {
         crate::errcodes::PIN_NC_COMPONENT_LEVEL,
         crate::errcodes::PIN_IO_MIX_IN_OUT,
         crate::errcodes::PIN_IO_MIX_OUTPUT_POWER,
-        crate::errcodes::PIN_IO_MIX_ANALOG_POWER,
         crate::errcodes::PARAM_PIN_NAME_SHADOW,
         crate::errcodes::MODULE_STUB,
         // defs
@@ -2792,16 +2791,6 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = IO,
         host = "conds",
         doc = "Pin mixes Output and Power IO types.",
-        lock = "tests/lock_pp_conds.rs",
-    },
-    declare_post_parse_rule! {
-        code = crate::errcodes::PIN_IO_MIX_ANALOG_POWER,
-        name = "pin-io-mix-analog-power",
-        title = "pin mixes Analog and Power IO types",
-        severity = Info,
-        domain = IO,
-        host = "conds",
-        doc = "Pin mixes Analog and Power IO types.",
         lock = "tests/lock_pp_conds.rs",
     },
     declare_post_parse_rule! {

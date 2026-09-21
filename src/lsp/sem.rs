@@ -70,7 +70,6 @@ pub fn classify_token_by_symbol(
 /// type/unit words `hex` and the uppercase physical units (VOLT/AMP/...) are
 /// NOT included, while `bool`/`true`/`false` ARE (matching the plugin).
 const LANGUAGE_KEYWORDS: &[&str] = &[
-    "anl",
     "as",
     "bool",
     "component",

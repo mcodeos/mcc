@@ -1373,7 +1373,6 @@ pub(crate) fn iotype_str(io: &crate::IOType) -> &'static str {
         Out => "out",
         InOut => "inout",
         Power => "power",
-        Analog => "analog",
         Return => "return",
         NonCon => "noncon",
         Label => "label",

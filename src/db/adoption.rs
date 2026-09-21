@@ -409,7 +409,6 @@ fn io_label(io: &IOType) -> &'static str {
         IOType::Out => "out",
         IOType::InOut => "io",
         IOType::Power => "pwr",
-        IOType::Analog => "analog",
         IOType::Return => "return",
         IOType::NonCon => "nc",
         IOType::Label => "label",

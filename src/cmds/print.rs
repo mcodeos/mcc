@@ -172,7 +172,6 @@ pub fn print_module_inst(
     let mut outputs = Vec::new();
     let mut bidirs = Vec::new();
     let mut powers = Vec::new();
-    let mut analogs = Vec::new();
     let mut labels = Vec::new();
 
     for p in inst.ports.iter() {
@@ -181,7 +180,6 @@ pub fn print_module_inst(
             IOType::Out => outputs.push(p),
             IOType::InOut => bidirs.push(p),
             IOType::Power => powers.push(p),
-            IOType::Analog => analogs.push(p),
             IOType::Label => labels.push(p),
             IOType::None | IOType::NonCon | IOType::Return => { /* skip */ }
         }
@@ -191,7 +189,6 @@ pub fn print_module_inst(
         || !outputs.is_empty()
         || !bidirs.is_empty()
         || !powers.is_empty()
-        || !analogs.is_empty()
         || !labels.is_empty();
 
     if has_any {
@@ -207,9 +204,6 @@ pub fn print_module_inst(
         }
         for port in &powers {
             println!("{}     ~~ power: {}", indent, port.name);
-        }
-        for port in &analogs {
-            println!("{}     -- anlg:  {}", indent, port.name);
         }
         for port in &labels {
             println!("{}     ## label: {}", indent, port.name);

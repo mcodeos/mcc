@@ -406,7 +406,7 @@ impl McInstances {
     }
 
     /// Whether `name` is a declared port / label: header ports and `label`
-    /// statements carry a real IOType (In/Out/InOut/Power/Analog/Return/
+    /// statements carry a real IOType (In/Out/InOut/Power/Return/
     /// Label), while names created inline by a connection phrase have
     /// IOType::None. `show dianlu` and the hierarchy use this to tell the
     /// declared origin
@@ -419,7 +419,6 @@ impl McInstances {
                     | IOType::Out
                     | IOType::InOut
                     | IOType::Power
-                    | IOType::Analog
                     | IOType::Return
                     | IOType::Label
             )
