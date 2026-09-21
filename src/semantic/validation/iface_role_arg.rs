@@ -46,10 +46,13 @@ impl ValidationCheck for IfaceRoleArgCheck {
 
 /// Every interface whose name resolves to a role-bearing definition — keyed by
 /// the same `ident` comparison `check_iface_role_exists` (E4104) uses, so the
-/// two checks see the same name set.
+/// two checks see the same name set. DomainFilter::Any, not Project: the
+/// role-bearing population lives mostly in the system library, and a
+/// Project-only set lets a literal role arg against a lib interface (e.g.
+/// `::DBG.UARTBOOT("DCE")`) bypass the literal-role error entirely.
 fn role_bearing_ifaces() -> HashSet<String> {
     crate::definition_space()
-        .workspace_interfaces()
+        .all_interfaces()
         .iter()
         .filter(|(_, iface)| !iface.roles.is_empty())
         .map(|(sn, _)| sn.ident.to_string())

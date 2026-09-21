@@ -134,6 +134,14 @@ fn check_iface_pin_completeness(acc: &mut CheckAccumulator) {
 /// When a component's param selects an interface role (e.g. `role=DCE`),
 /// verify that the role actually exists in the interface definition.
 fn check_iface_role_exists(acc: &mut CheckAccumulator) {
+    // Lookup face is DomainFilter::Any, not Project: most role-bearing
+    // interfaces live in the system library, and a Project-only lookup turns
+    // every lib-interface role reference into a false IFACE_NOT_LOADED —
+    // both the valid role (spurious "not loaded", measured on
+    // `DBG.UARTBOOT(DCE)`) and the invalid one (wrong code: E4106 instead of
+    // E4104, hiding the available-roles list). The judgment face below stays
+    // Project: only workspace components are accused.
+    let ifaces = crate::definition_space().all_interfaces();
     let comps = crate::definition_space().workspace_components();
     for (sn, comp) in comps.iter() {
         let uri = sn.uri.to_string();
@@ -151,8 +159,8 @@ fn check_iface_role_exists(acc: &mut CheckAccumulator) {
                 ..
             } = d.param_type.kind
             {
-                // Look up the interface in the workspace (project definitions only)
-                let ifaces = crate::definition_space().workspace_interfaces();
+                // Look up the interface in the unified view (see the comment
+                // at the top of this function for why not the workspace).
                 let mut found_role = false;
                 let mut found_iface = false;
 
