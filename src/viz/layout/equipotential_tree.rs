@@ -2536,17 +2536,6 @@ fn dump_layer(graph: &McVecGraph, topos: &[NetTopology], layer_anchor: i64) {
                 crate::vlog!("[equi-dump]     group#{} box{} MISSING", gi, g.box_id);
                 continue;
             };
-            crate::vlog!(
-                "[u164s] box{} '{}' locked={} slots={}",
-                b.id,
-                b.name,
-                b.geom_locked,
-                b.slots
-                    .iter()
-                    .map(|s| format!("{}/{:?}/{:.3}", s.pin_id, s.side, s.offset))
-                    .collect::<Vec<_>>()
-                    .join(",")
-            );
             let role = if b.pins.len() == 2 && gi > 0 {
                 format!(
                     "{:?}",
