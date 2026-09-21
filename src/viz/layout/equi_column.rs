@@ -202,6 +202,12 @@ pub struct SideMember {
     /// a tooth hung there would run through the foreign glyph instead of
     /// reaching the row. Mirrors the carve's `foreign`/`must_deflect` set.
     pub blocked: Vec<(f64, f64)>,
+    /// ★ M21 (U162①): the member's box position in its OWN net's endpoint
+    /// list — the R0 reading order the signal_flow metric judges by. Members
+    /// of one net sharing a tap origin are handed to the greedy in this
+    /// order, so the part the author named first sits further west (east on
+    /// a West side). `usize::MAX` = unknown (keep the old input order).
+    pub read_rank: usize,
 }
 
 /// Half-width of the tooth strip the allocator reserves for a vertical tooth.
@@ -234,7 +240,7 @@ fn side_priority(role: &TapRole) -> u8 {
 /// Returns `Vec<(idx, x)>` — the absolute centreline x for each member.
 pub fn allocate_columns_for_side(members: &[SideMember], dir: f64) -> Vec<(usize, usize, f64)> {
     let dir = if dir < 0.0 { -1.0 } else { 1.0 };
-    // Greedy order: priority, then anchor x (stable).
+    // Greedy order: priority, then anchor x, then R0 reading rank (stable).
     let mut order: Vec<usize> = (0..members.len()).collect();
     order.sort_by(|&a, &b| {
         side_priority(&members[a].role)
@@ -245,6 +251,7 @@ pub fn allocate_columns_for_side(members: &[SideMember], dir: f64) -> Vec<(usize
                     .partial_cmp(&members[b].anchor_pin_x)
                     .unwrap_or(std::cmp::Ordering::Equal),
             )
+            .then(members[a].read_rank.cmp(&members[b].read_rank))
             .then(a.cmp(&b))
     });
     // occupancy entry: (member_idx, x_lo, x_hi, y_lo, y_hi) — the member idx is
@@ -441,6 +448,7 @@ mod tests {
                 anchor_pin_x: 100.0,
                 partner_y: None,
                 blocked: vec![],
+                read_rank: usize::MAX,
             },
             SideMember {
                 idx: Some((1, 0)),
@@ -451,6 +459,7 @@ mod tests {
                 anchor_pin_x: 100.0,
                 partner_y: None,
                 blocked: vec![],
+                read_rank: usize::MAX,
             },
         ];
         let out = allocate_columns_for_side(&members, -1.0);
@@ -546,6 +555,7 @@ mod tests {
                 anchor_pin_x: 100.0,
                 partner_y: None,
                 blocked: vec![],
+                read_rank: usize::MAX,
             },
             SideMember {
                 idx: Some((0, 1)),
@@ -556,6 +566,7 @@ mod tests {
                 anchor_pin_x: 200.0,
                 partner_y: None,
                 blocked: vec![],
+                read_rank: usize::MAX,
             },
         ];
         // Simulate the inverted greedy result: a(100) out at 300, b(200) in at 200.
@@ -604,6 +615,7 @@ mod tests {
                 anchor_pin_x: 100.0,
                 partner_y: None,
                 blocked: vec![],
+                read_rank: usize::MAX,
             },
             SideMember {
                 idx: Some((0, 1)),
@@ -614,6 +626,7 @@ mod tests {
                 anchor_pin_x: 200.0,
                 partner_y: None,
                 blocked: vec![],
+                read_rank: usize::MAX,
             },
         ];
         let mut result = vec![194.0, 244.0]; // already in anchor order
@@ -636,5 +649,95 @@ mod tests {
         reduce_crossings(&members, 1.0, &mut result, &mut occupied);
         assert_eq!(result[0], 194.0);
         assert_eq!(result[1], 244.0);
+    }
+
+    /// M21 (U162①): members of one net sharing a tap origin are placed in
+    /// the net's R0 reading order — the greedy tiebreak is `read_rank`, so
+    /// the endpoint the author stated first sits further west on an East
+    /// side even when the input order came out reversed.
+    #[test]
+    fn same_anchor_members_follow_reading_rank() {
+        // Input order reversed vs reading order: rank 1 arrives first.
+        let members = vec![
+            SideMember {
+                idx: Some((0, 0)),
+                role: TapRole::Drop { dir: 1.0 },
+                w: 40.0,
+                h: 60.0,
+                row_y: 100.0,
+                anchor_pin_x: 100.0,
+                partner_y: None,
+                blocked: vec![],
+                read_rank: 1,
+            },
+            SideMember {
+                idx: Some((0, 1)),
+                role: TapRole::Drop { dir: 1.0 },
+                w: 40.0,
+                h: 60.0,
+                row_y: 200.0,
+                anchor_pin_x: 100.0,
+                partner_y: None,
+                blocked: vec![],
+                read_rank: 0,
+            },
+        ];
+        let out = allocate_columns_for_side(&members, 1.0);
+        let x_of = |id: (usize, usize)| {
+            out.iter()
+                .find(|o| (o.0, o.1) == id)
+                .map(|o| o.2)
+                .unwrap()
+        };
+        let x_first = x_of((0, 1)); // rank 0: stated first
+        let x_second = x_of((0, 0)); // rank 1: stated second
+        assert!(
+            x_first < x_second,
+            "reading order not respected on East side: rank0 x={x_first}, rank1 x={x_second}"
+        );
+    }
+
+    /// M21 (guard): an unknown rank (`usize::MAX`) ties with another unknown
+    /// rank and keeps the input order — the stable fallback for members whose
+    /// net's endpoint list is unavailable.
+    #[test]
+    fn unknown_ranks_keep_input_order() {
+        let members = vec![
+            SideMember {
+                idx: Some((0, 0)),
+                role: TapRole::Drop { dir: 1.0 },
+                w: 40.0,
+                h: 60.0,
+                row_y: 100.0,
+                anchor_pin_x: 100.0,
+                partner_y: None,
+                blocked: vec![],
+                read_rank: usize::MAX,
+            },
+            SideMember {
+                idx: Some((0, 1)),
+                role: TapRole::Drop { dir: 1.0 },
+                w: 40.0,
+                h: 60.0,
+                row_y: 200.0,
+                anchor_pin_x: 100.0,
+                partner_y: None,
+                blocked: vec![],
+                read_rank: usize::MAX,
+            },
+        ];
+        let out = allocate_columns_for_side(&members, 1.0);
+        let x_of = |id: (usize, usize)| {
+            out.iter()
+                .find(|o| (o.0, o.1) == id)
+                .map(|o| o.2)
+                .unwrap()
+        };
+        assert!(
+            x_of((0, 0)) < x_of((0, 1)),
+            "unknown ranks must keep input order: first-input x={}, second-input x={}",
+            x_of((0, 0)),
+            x_of((0, 1))
+        );
     }
 }
