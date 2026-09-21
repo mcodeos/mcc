@@ -850,6 +850,12 @@ pub struct InstTable {
     /// PWR-7) consume this; the edges never merge L0 copper.
     power_decls: BTreeMap<u32, McPowerDecls>,
 
+    /// ★ U168: display-only partition table per module entry id — the owning
+    /// def's `block` groupings ([`BlockPartitions`]), cloned at flatten time
+    /// beside `power_decls`. Consumed by the viz block-frame projection; no
+    /// semantic rule reads it and no id is issued for a partition.
+    block_parts: BTreeMap<u32, crate::semantic::common::BlockPartitions>,
+
     /// Module-scope net origin offsets, keyed by module entry id: net name →
     /// byte offset of that net's **defining token** in the module's file.
     /// "Defining" = declaration (conduit `ref` decl / declared port bus-member
@@ -912,6 +918,7 @@ impl InstTable {
             bridge_passive_paths: HashSet::new(),
             net_table: Rc::new(RefCell::new(NetTableStore::new())),
             power_decls: BTreeMap::new(),
+            block_parts: BTreeMap::new(),
             net_origin: BTreeMap::new(),
             root_span: None,
             member_pin_sem: HashMap::new(),
@@ -940,6 +947,16 @@ impl InstTable {
     /// resolves, so a check can recover the module's `path`/`def_uri`.
     pub(crate) fn power_decls(&self) -> &BTreeMap<u32, McPowerDecls> {
         &self.power_decls
+    }
+
+    /// ★ U168: the display-only partition table of one module entry (see
+    /// [`Self::block_parts`]). `None` when the entry is not a module with a
+    /// parsed body (components, pins, synthetic wrappers).
+    pub fn block_parts_of(
+        &self,
+        id: u32,
+    ) -> Option<&crate::semantic::common::BlockPartitions> {
+        self.block_parts.get(&id)
     }
 
     /// Module-scope net origin offsets (see [`Self::net_origin`]).
@@ -1677,6 +1694,15 @@ impl InstTable {
         // instance. Cloned per instance (defs are shared across instances);
         // the L1 checks dedupe by def below.
         self.power_decls.insert(my_id, inst.def.pi.clone());
+        // ★ U168: same threading shape — the def's partition table rides to
+        // every instance so the viz layer can attribute boxes by source region.
+        self.block_parts.insert(
+            my_id,
+            crate::semantic::common::BlockPartitions {
+                uri: inst.def.uri.clone(),
+                roots: inst.def.blocks.roots.clone(),
+            },
+        );
 
         // Module-scope net origin map (decl-or-first-ref), store-only
         // threading for GHOST_PORT(4055) anchoring. Definition wins over

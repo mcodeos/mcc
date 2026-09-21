@@ -87,6 +87,23 @@ impl AstNode {
         unsafe { (*self.ptr).len.try_into().unwrap_or(0) }
     }
 
+    /// The rule's coverage span start (U159 `rpos/rlen` face): the whole text
+    /// the rule reduced from, not just its name anchor. 0 when the parser
+    /// recorded no rule span (`rlen == 0` means "no rule span recorded").
+    pub fn get_rpos(&self) -> u32 {
+        if self.is_null() {
+            return 0;
+        }
+        unsafe { (*self.ptr).rpos.try_into().unwrap_or(0) }
+    }
+
+    pub fn get_rlen(&self) -> u32 {
+        if self.is_null() {
+            return 0;
+        }
+        unsafe { (*self.ptr).rlen.try_into().unwrap_or(0) }
+    }
+
     pub fn is_null(&self) -> bool {
         // Validate pointer: reject null OR < 0x1000 (user-space never reachable)
         // Make is_null() actually a safe check: all methods that walk

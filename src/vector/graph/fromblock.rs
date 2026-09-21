@@ -1351,6 +1351,17 @@ fn build_mc_vec_graph_inner(
         graph.module_ports = module_ports;
     }
 
+    // ── ★ U168: carry this layer module's display-only partition table ──
+    // Same threading shape as `port_trunks`: the def-side data rides the graph
+    // so the post-layout `block_frame` pass can attribute boxes by source
+    // region without reaching back into the flat table.
+    {
+        graph.block_partitions = table
+            .block_parts_of(block.bid as u32)
+            .cloned()
+            .unwrap_or_default();
+    }
+
     // ── M0-B-D/E: log summary of not_fitted / origin ──
     {
         let not_fitted_count = graph.boxes.iter().filter(|b| b.not_fitted).count();

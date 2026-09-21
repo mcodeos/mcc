@@ -29,6 +29,7 @@
 pub const LAYOUT_VERSION: &str = "1";
 
 pub mod audit_registry;
+pub mod block_frame;
 pub mod chain;
 pub mod coalesce;
 pub mod components;

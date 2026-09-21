@@ -9,8 +9,9 @@ use crate::semantic::mc_enum::McEnumDef;
 use crate::semantic::mc_ifs::McInterface;
 use crate::semantic::module::McModule;
 use crate::{
-    McIds, MCAST_IOTYPE, MCAST_IOTYPE_IN, MCAST_IOTYPE_IO, MCAST_IOTYPE_LABEL, MCAST_IOTYPE_NC,
-    MCAST_IOTYPE_OUT, MCAST_IOTYPE_PSBI, MCAST_IOTYPE_PSNK, MCAST_IOTYPE_PSRC, MCAST_IOTYPE_RETURN,
+    McIds, MCAST_BODY, MCAST_IOTYPE, MCAST_IOTYPE_IN, MCAST_IOTYPE_IO, MCAST_IOTYPE_LABEL,
+    MCAST_IOTYPE_NC, MCAST_IOTYPE_OUT, MCAST_IOTYPE_PSBI, MCAST_IOTYPE_PSNK, MCAST_IOTYPE_PSRC,
+    MCAST_IOTYPE_RETURN, MCAST_PARTITION,
 };
 use std::collections::HashMap;
 use std::ops::Range;
@@ -107,6 +108,138 @@ impl std::fmt::Display for ConnDir {
             ConnDir::Undirected => write!(f, "--"),
         }
     }
+}
+
+/// One in-body partition (`block <name> { ... }`) as written, with its
+/// nested children (CIMP §1 U168).
+///
+/// The partition stays group-only on the semantic face (spec/03 §8: no scope,
+/// no id, paths carry no segment for it) — this record is the **display-only**
+/// group table: what the source wrote, where, under what name. It is rebuilt
+/// from the AST every build, issues no id, and no semantic rule reads it; the
+/// consumer is the viz block-frame projection, which attributes drawn boxes to
+/// the source region that declared them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BlockPartition {
+    /// The name as written (`pwr` in `block pwr { ... }`).
+    pub name: String,
+    /// The level word as written (`block`; `sheet` / `subsystem` reduce through
+    /// the same node). Carried, never consulted: the family is a grammar choice.
+    pub level: String,
+    /// Coverage span of the whole clause in the owning file's byte offsets.
+    /// Attribution is containment: a position inside here was written inside
+    /// this partition.
+    pub span: crate::ast::sem::Span,
+    /// Partitions nested in this one's body, in source order.
+    pub children: Vec<BlockPartition>,
+}
+
+impl BlockPartition {
+    /// The innermost partition (recursively) whose span contains `offset`.
+    ///
+    /// Children are asked before `self`, so a nested partition wins over its
+    /// parent — a statement in `block a { block b { ... } }` belongs to `b`.
+    pub fn innermost(&self, offset: usize) -> Option<&BlockPartition> {
+        for child in &self.children {
+            if let Some(found) = child.innermost(offset) {
+                return Some(found);
+            }
+        }
+        if self.span.start <= offset && offset < self.span.end {
+            Some(self)
+        } else {
+            None
+        }
+    }
+
+    /// Whether this partition, or any descendant, contains `offset`.
+    pub fn contains(&self, offset: usize) -> bool {
+        self.innermost(offset).is_some()
+    }
+}
+
+/// The partition table of one definition body: the roots in source order plus
+/// the file the spans point into.
+///
+/// Threading mirrors `power_decls` ([`McPowerDecls`], keyed by module entry id
+/// in the flat table): captured from the shared definition at flatten time, so
+/// every instance of a module carries its def's table. Spans only mean
+/// something in `uri`; a consumer must match it against its own source
+/// position's uri before any containment test.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct BlockPartitions {
+    /// The file every span below is a byte range of.
+    pub uri: McURI,
+    /// Top-level partitions of the body, in source order.
+    pub roots: Vec<BlockPartition>,
+}
+
+impl BlockPartitions {
+    /// The innermost partition containing `offset`, asked root by root in
+    /// source order. `None` when the position sits outside every partition.
+    pub fn innermost(&self, offset: usize) -> Option<&BlockPartition> {
+        self.roots.iter().find_map(|r| r.innermost(offset))
+    }
+}
+
+/// Collect the partition tree of a body from its AST.
+///
+/// Walks the raw body node — *not* [`AstNode::clause_list`], which makes
+/// partitions transparent precisely by discarding them. The coverage span is
+/// the clause's own `rpos/rlen` (U159): the whole `block <name> { ... }` text.
+///
+/// Bodyless or nameless nodes are skipped defensively; the grammar cannot
+/// produce them (an unnamed partition is E2082 with the clause recovered).
+pub fn collect_block_partitions(body: &AstNode) -> Vec<BlockPartition> {
+    fn partition_of(node: &AstNode) -> Option<BlockPartition> {
+        let sub = node.get_sub_node()?;
+        let children: Vec<AstNode> = sub.iter().collect();
+        let level = children.first()?;
+        let name_node = children.get(1)?;
+        let body_node = children.get(2)?;
+
+        let name = McIds::new_with_dot(name_node)
+            .map(|ids| ids.to_string())
+            .unwrap_or_default();
+        if name.is_empty() {
+            return None;
+        }
+        let level_word = level
+            .data_as_cstr()
+            .and_then(|c| c.to_str().ok())
+            .unwrap_or("block")
+            .to_string();
+
+        // Coverage face (U159): the clause's own rpos/rlen, so the span covers
+        // the whole `block <name> { ... }` text. The pos/len face is the name
+        // anchor and must not be read here (measured: a body's pos/len is not
+        // coverage — a nested body's would equal its parent's).
+        let rpos = node.get_rpos() as usize;
+        let rlen = node.get_rlen() as usize;
+        if rlen == 0 {
+            return None;
+        }
+        let start = rpos;
+        let end = start + rlen;
+        Some(BlockPartition {
+            name,
+            level: level_word,
+            span: crate::ast::sem::Span { start, end },
+            children: body_node
+                .is_type(MCAST_BODY)
+                .then(|| collect_block_partitions(body_node))
+                .unwrap_or_default(),
+        })
+    }
+
+    let Some(first) = body.get_sub_node() else {
+        return Vec::new();
+    };
+    first
+        .iter()
+        .filter(|c| c.is_type(MCAST_PARTITION))
+        .filter_map(|c| partition_of(&c))
+        .collect()
 }
 
 pub enum McCMIE {

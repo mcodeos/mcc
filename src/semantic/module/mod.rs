@@ -21,6 +21,7 @@ use crate::semantic::mc_func::McFuncReturn;
 use crate::{
     ast::{macros::*, node::AstNode},
     semantic::basic::mc_param::McParamDeclares,
+    semantic::common::BlockPartitions,
     IOType, McCMIE, McIds, McParamValue, McURI,
 };
 use std::sync::Arc;
@@ -47,6 +48,10 @@ pub struct McModule {
     /// Power-intent declarations declared in this module body
     /// (`ref` identities + `domain`/`rail` sources; intent-design.md §5).
     pub(crate) pi: McPowerDecls,
+    /// ★ U168: display-only partition table of this body (`block` groupings,
+    /// [`BlockPartitions`]) — rebuilt from the AST at parse time, no id issued,
+    /// no semantic rule reads it. The viz block-frame projection consumes it.
+    pub blocks: BlockPartitions,
     pub uri: McURI,
     /// Source span for LSP goto-definition (byte range in `uri`).
     pub span: crate::ast::sem::Span,
@@ -125,6 +130,10 @@ impl McModule {
                 layout: McLayout::default(),
                 funcs: McFunctions::new(),
                 pi: McPowerDecls::new(),
+                blocks: BlockPartitions {
+                    uri: uri.clone(),
+                    roots: Vec::new(),
+                },
                 insts: McInstances::new(),
                 stmts: Vec::new(),
                 stmt_spans: Vec::new(),
@@ -183,6 +192,7 @@ impl McModule {
             stmt_spans: Vec::new(),
             funcs: McFunctions::new(),
             pi: McPowerDecls::new(),
+            blocks: BlockPartitions::default(),
             uri: McURI::default(),
             span: crate::ast::sem::Span {
                 start: 0,
@@ -548,6 +558,11 @@ impl McModule {
     pub(crate) fn parse_body(&mut self, body: &AstNode) {
         // ★ LSP: Set scope for instance registration
         self.insts.scope = Some(self.name.to_string());
+        // ★ U168: record the body's partition tree before the transparent walk
+        // below. `clause_list` flattens partitions away — that is the semantic
+        // ruling (group-only) and stays untouched; this side table is the
+        // display-only projection of what was written.
+        self.blocks.roots = crate::semantic::common::collect_block_partitions(body);
         // `clause_list` makes an in-body partition transparent: a `block`'s
         // clauses are dispatched exactly as if they had been written here.
         let clauses = body.clause_list();

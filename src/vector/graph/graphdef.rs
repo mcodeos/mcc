@@ -82,6 +82,17 @@ pub struct McVecGraph {
     /// is not a module's own schematic. Filled by the post-layout `module_frame`
     /// pass; the renderer draws it verbatim.
     pub module_frame: Option<ModuleFrame>,
+    /// ★ U168: this layer module's display-only `block` partition table
+    /// (carried from the flat table by fromblock — the `port_trunks` threading
+    /// shape). Read by the `block_frame` layout pass; spans point into the
+    /// definition file named in the struct.
+    pub block_partitions: crate::semantic::common::BlockPartitions,
+    /// ★ U168: one dashed frame per source `block` partition that owns drawn
+    /// boxes on this layer. Filled by the post-layout `block_frame` pass;
+    /// `ports` stays empty (a block frame is a region, not a boundary with
+    /// terminals — crossing wires are drawn by their own nets). The renderer
+    /// draws them verbatim, parents before children.
+    pub block_frames: Vec<ModuleFrame>,
     /// ★ P1-c: this layer's block-diagram edges, decided once at the end of the
     /// layout phase and carried here so the renderer is a pure consumer (it no
     /// longer re-runs `decide_edges`). Populated for Block layers only; Device
@@ -184,6 +195,8 @@ impl McVecGraph {
             islands_total: 0,
             module_ports: vec![],
             module_frame: None,
+            block_partitions: Default::default(),
+            block_frames: vec![],
             rail_decorations: vec![],
             geom_double_writes: vec![],
             pin_parent: HashMap::new(),

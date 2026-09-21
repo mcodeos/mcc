@@ -327,6 +327,10 @@ fn render_layer_recursive(
             &mut graph,
             (cv.0, cv.1, cv.2, cv.3),
         );
+        // ★ U168: dashed frames around the module's in-body `block` partitions
+        // — a box belongs to the partition whose source span declares it. Runs
+        // last: it only reads final geometry and never grows the viewBox.
+        crate::viz::layout::block_frame::layout_block_frames(&mut graph);
         crate::vlog!(
             "[viz::api] layer {} '{}' device canvas={}x{} origin=({},{})",
             bid,
