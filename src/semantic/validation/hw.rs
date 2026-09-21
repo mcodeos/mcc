@@ -409,8 +409,8 @@ fn check_role_peer_dangling(acc: &mut CheckAccumulator) {
 /// comparison against it is meaningful; and an attach-side role need not
 /// name the relay back, because the relay sits transparently on the bus (a
 /// Master's peer is a Slave; the repeater in between is not part of their
-/// pair law). The real `UART.RS485` Repeater shape is exactly this legal
-/// form, not a disease.
+/// pair law). The former `UART.RS485` Repeater shape (deleted from the
+/// library 2026-09-21) was exactly this legal form, not a disease.
 ///
 /// Both sub-checks are definition-space facts — no connection statement is
 /// involved. Dangling peer names stay with HW5 above; absence of a member

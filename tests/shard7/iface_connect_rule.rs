@@ -252,8 +252,9 @@ fn iface_conn__func_body_mutual_pair_is_quiet() {
 }
 
 /// U128 step ④ — definition-side self-check cells. The fixture below
-/// replicates the *real* library shape (D8: `UART.RS485`'s Repeater role,
-/// mcode/ifs/uart.mc): the repeater names its peers (`peer = [Master,
+/// replicates the *former* library shape (D8: `UART.RS485`'s Repeater
+/// role, deleted from mcode/ifs/uart.mc 2026-09-21): the repeater names
+/// its peers (`peer = [Master,
 /// Slave]`) but neither peer names it back, and its member table is 6
 /// members against the peers' 3. D8 (ruled 2026-09-20) settled this shape as
 /// **legal one-to-many relay semantics**, so the definition-side self-check
@@ -362,8 +363,8 @@ fn build_d8(body: &str, uri: &str) -> (Vec<u32>, Vec<Vec<String>>) {
 /// is a multi-peer set, so the pair is exempt from both the mutuality
 /// (E5508) and the width (E5509) sub-check, and the definition loads quiet.
 /// Before the ruling this same fixture raised both codes as a "peer
-/// disease"; the real `UART.RS485` library shape is the authority that it
-/// is authoring intent, not a defect.
+/// disease"; the former `UART.RS485` library shape (deleted 2026-09-21)
+/// is the authority that it is authoring intent, not a defect.
 #[test]
 fn iface_def__d8_repeater_relay_semantics_is_quiet_at_definition_load() {
     let (codes, _nets) = build_d8("", "/mcc/iface-def-d8-relay.mc");
