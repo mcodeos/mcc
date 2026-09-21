@@ -10,7 +10,7 @@
 //!   Category C: Basic Data Types (STRING, INT, HEX, FLOAT, ENUM)
 //!   Keyword: role (container expansion, independent of A/B/C)
 //!
-//! Direction (in/out/io/psrc/psnk/psbi/anl/nc/label) is an orthogonal modifier stored as
+//! Direction (in/out/io/psrc/psnk/psbi/nc/label) is an orthogonal modifier stored as
 //! `direction: Option<McIoTy>`, not a separate variant.
 
 use super::mc_uval::McUnit;
@@ -189,7 +189,6 @@ pub enum McIoTy {
     Input,
     Output,
     InOut,
-    Analog,
     NotConnected,
     Label,
 }
@@ -202,7 +201,6 @@ impl McIoTy {
             MCAST_IOTYPE_IN => Some(Self::Input),
             MCAST_IOTYPE_OUT => Some(Self::Output),
             MCAST_IOTYPE_IO => Some(Self::InOut),
-            MCAST_IOTYPE_ANL => Some(Self::Analog),
             MCAST_IOTYPE_NC => Some(Self::NotConnected),
             MCAST_IOTYPE_LABEL => Some(Self::Label),
             _ => None,
@@ -214,7 +212,6 @@ impl McIoTy {
             Self::Input => "in",
             Self::Output => "out",
             Self::InOut => "io",
-            Self::Analog => "anl",
             Self::NotConnected => "nc",
             Self::Label => "label",
         }

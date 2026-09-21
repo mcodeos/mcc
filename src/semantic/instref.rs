@@ -342,7 +342,6 @@ fn validate_module_port_ref(
                         | crate::semantic::common::IOType::Out
                         | crate::semantic::common::IOType::InOut
                         | crate::semantic::common::IOType::Power
-                        | crate::semantic::common::IOType::Analog
                 )
             });
         if exportable {

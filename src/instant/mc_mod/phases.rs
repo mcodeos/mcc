@@ -358,7 +358,6 @@ impl InstantiationBuilder {
                 Some(McIoTy::Input) => IOType::In,
                 Some(McIoTy::Output) => IOType::Out,
                 Some(McIoTy::InOut) => IOType::InOut,
-                Some(McIoTy::Analog) => IOType::Analog,
                 Some(McIoTy::NotConnected) => IOType::NonCon,
                 Some(McIoTy::Label) => IOType::Label,
                 None => IOType::InOut,
@@ -1209,8 +1208,8 @@ impl InstantiationBuilder {
     }
 
     /// U151 boundary ticket check: does this submodule member carry a direction
-    /// word on the module *boundary*? Only `In`/`Out`/`InOut`/`Power`/`Analog`
-    /// rows are boundary members; `label` rows, direction-less buses, `nc`/
+    /// word on the module *boundary*? Only `In`/`Out`/`InOut`/`Power` rows are
+    /// boundary members; `label` rows, direction-less buses, `nc`/
     /// return faces are module-internal (label-boundary-gate-design.md).
     ///
     /// The authoritative face is the instance's own [`McModuleInst::ports`]:
@@ -1222,7 +1221,7 @@ impl InstantiationBuilder {
         let exportable = |io: &IOType| {
             matches!(
                 io,
-                IOType::In | IOType::Out | IOType::InOut | IOType::Power | IOType::Analog
+                IOType::In | IOType::Out | IOType::InOut | IOType::Power
             )
         };
         let base = port_name.split('.').next().unwrap_or(port_name);

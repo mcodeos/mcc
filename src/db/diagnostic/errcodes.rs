@@ -1474,8 +1474,8 @@ pub const PIN_IO_MIX_IN_OUT: u32 = 5455;
 /// Pin mixes Output and Power IO types.
 pub const PIN_IO_MIX_OUTPUT_POWER: u32 = 5456;
 
-/// Pin mixes Analog and Power IO types.
-pub const PIN_IO_MIX_ANALOG_POWER: u32 = 5457;
+// 5457 retired with the `anl` direction word (PIN_IO_MIX_ANALOG_POWER);
+// the numeric gap is permanent.
 
 /// Parameter shares its name with a pin.
 pub const PARAM_PIN_NAME_SHADOW: u32 = 5458;
@@ -2533,7 +2533,6 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(POWER_PIN_NO_VOLTAGE, "Power pin has no voltage attribute.", "Power pin has no voltage attribute."),
     entry!(PIN_IO_MIX_IN_OUT, "Pin mixes In and Out IO types.", "Pin mixes In and Out IO types."),
     entry!(PIN_IO_MIX_OUTPUT_POWER, "Pin mixes Output and Power IO types.", "Pin mixes Output and Power IO types."),
-    entry!(PIN_IO_MIX_ANALOG_POWER, "Pin mixes Analog and Power IO types.", "Pin mixes Analog and Power IO types."),
     entry!(PARAM_PIN_NAME_SHADOW, "Parameter shares its name with a pin.", "Parameter shares its name with a pin."),
     entry!(MODULE_STUB, "Module is a stub.", "Module is a stub."),
     entry!(COND_DUPLICATE, "Duplicate condition in if/else-if chain.", "A later if/else-if branch duplicates an earlier branch's condition, so it can never be selected."),

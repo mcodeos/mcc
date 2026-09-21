@@ -185,13 +185,13 @@ module main { C_INT_NEG u1 }
 
 // E5251 PARAM_RESERVED_KEYWORD (extra.rs:539 check_reserved_names) is
 // currently UNREACHABLE. The check iterates component parameters whose primary
-// name is one of the fifteen reserved words {"this", "pins", "role", "func",
-// "return", "in", "out", "io", "psrc", "psnk", "psbi", "anl", "nc", "if",
+// name is one of the fourteen reserved words {"this", "pins", "role", "func",
+// "return", "in", "out", "io", "psrc", "psnk", "psbi", "nc", "if",
 // "else"}, but the
 // grammar treats every one of those words as a hard keyword: using any of them
 // as a component parameter name (typed `nc::STRING` or bare `nc`) fails to
 // parse with E2081 "Invalid top-level declaration" before the semantic model
-// exists, so no such parameter ever reaches check_reserved_names. All fifteen
+// exists, so no such parameter ever reaches check_reserved_names. All fourteen
 // spellings were probed against the CLI and each yields E2081. This guard
 // locks today's behavior: the canonical reserved-word parameter snippet
 // reports E2081 (proving the keyword-as-param path is exercised) but never

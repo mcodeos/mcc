@@ -52,7 +52,7 @@ static const char* type_names[] = {
 
     [38] = "iotype",    [39] = "iotype_in",      [40] = "iotype_out",
     [41] = "iotype_io", [42] = "iotype_return",  [43] = "iotype_ps",
-    [44] = "iotype_anl",[45] = "iotype_nc",
+    [45] = "iotype_nc",
 
     [46] = "att_id",    [47] = "att_values",
     [48] = "pin_line",  [49] = "pin_id",    [50] = "pin_names",

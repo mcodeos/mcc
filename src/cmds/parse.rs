@@ -799,7 +799,6 @@ fn iotype_str(io: &IOType) -> &'static str {
         IOType::Out => "out",
         IOType::InOut => "inout",
         IOType::Power => "power",
-        IOType::Analog => "analog",
         IOType::Return => "return",
         IOType::NonCon => "noncon",
         IOType::Label => "label",

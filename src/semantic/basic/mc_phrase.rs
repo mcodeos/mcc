@@ -5292,7 +5292,7 @@ fn module_member_is_internal(module: &McInstance, member: &str) -> bool {
     let exportable = |io: &IOType| {
         matches!(
             io,
-            IOType::In | IOType::Out | IOType::InOut | IOType::Power | IOType::Analog
+            IOType::In | IOType::Out | IOType::InOut | IOType::Power
         )
     };
     // 1. Owning group port: a bus/list/interface port whose declared member

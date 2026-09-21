@@ -226,7 +226,7 @@ pub fn compute_io(entries: &[&InstEntry]) -> super::boxdef::IoSummary {
         match &e.io_type {
             IOType::In => s.inputs += 1,
             IOType::Out => s.outputs += 1,
-            IOType::Power | IOType::Analog => s.power += 1,
+            IOType::Power => s.power += 1,
             _ => s.other += 1,
         }
     }
@@ -327,7 +327,7 @@ pub fn parse_pin_number(name: &str) -> Option<u32> {
 
 /// Translate pass2 `IOType` to viz layer `IoDirection`
 ///
-/// pass2's IOType may have In / Out / Power / Analog / other enum values,
+/// pass2's IOType may have In / Out / Power / other enum values,
 /// we map to the 7 categories needed for drawing. Unknown value -> `Unknown`.
 pub fn translate_io_type(t: &IOType) -> IoDirection {
     match t {
@@ -336,8 +336,6 @@ pub fn translate_io_type(t: &IOType) -> IoDirection {
         // mc `io` -> bidirectional pin (transistor B/C/E, SPI data lines, etc.)
         IOType::InOut => IoDirection::Bidir,
         IOType::Power => IoDirection::Power,
-        // pass2's Analog is mostly passive components like resistors / capacitors
-        IOType::Analog => IoDirection::Passive,
         // mc `psnk`/ground return (GND rail, shield, substrate) -> Ground
         IOType::Return => IoDirection::Ground,
         // Other cases (pass2 IOType may later extend etc.) -> fallback Unknown
@@ -407,7 +405,6 @@ mod tests {
         assert_eq!(translate_io_type(&IOType::In), IoDirection::Input);
         assert_eq!(translate_io_type(&IOType::Out), IoDirection::Output);
         assert_eq!(translate_io_type(&IOType::Power), IoDirection::Power);
-        assert_eq!(translate_io_type(&IOType::Analog), IoDirection::Passive);
     }
 
     // ── M0: compute_scope_chain ──

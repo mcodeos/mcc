@@ -562,7 +562,6 @@ fn check_single_ioc_type_component(acc: &mut CheckAccumulator) {
         let mut has_in = false;
         let mut has_out = false;
         let mut has_ps = false;
-        let mut has_anl = false;
         let mut has_nc = false;
         let mut has_io = false;
 
@@ -571,14 +570,13 @@ fn check_single_ioc_type_component(acc: &mut CheckAccumulator) {
                 IOType::In => has_in = true,
                 IOType::Out => has_out = true,
                 IOType::Power => has_ps = true,
-                IOType::Analog => has_anl = true,
                 IOType::NonCon => has_nc = true,
                 IOType::InOut => has_io = true,
                 IOType::Return | IOType::None | IOType::Label => {} // these don't indicate direction
             }
         }
 
-        let active_types = [has_in, has_out, has_ps, has_anl, has_nc, has_io]
+        let active_types = [has_in, has_out, has_ps, has_nc, has_io]
             .iter()
             .filter(|&&x| x)
             .count();
@@ -595,8 +593,6 @@ fn check_single_ioc_type_component(acc: &mut CheckAccumulator) {
                 "Input"
             } else if has_out {
                 "Output"
-            } else if has_anl {
-                "Analog"
             } else {
                 return; // NC-only or passive-only, skip
             };

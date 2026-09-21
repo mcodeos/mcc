@@ -271,7 +271,6 @@ impl fmt::Display for NetPoint {
             IOType::Out => write!(f, "(out)"),
             IOType::InOut => write!(f, "(io)"),
             IOType::Power => write!(f, "(pwr)"),
-            IOType::Analog => write!(f, "(anl)"),
             IOType::Return => write!(f, "(return)"),
             IOType::NonCon => write!(f, "(nc)"),
             IOType::Label => write!(f, "(label)"),

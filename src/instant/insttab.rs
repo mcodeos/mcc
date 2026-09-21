@@ -2929,7 +2929,6 @@ impl InstTable {
                 IOType::Out => "out",
                 IOType::InOut => "io",
                 IOType::Power => "power",
-                IOType::Analog => "analog",
                 IOType::Return => "return",
                 IOType::NonCon => "nc",
                 IOType::Label => "label",

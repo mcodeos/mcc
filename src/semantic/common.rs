@@ -9,9 +9,8 @@ use crate::semantic::mc_enum::McEnumDef;
 use crate::semantic::mc_ifs::McInterface;
 use crate::semantic::module::McModule;
 use crate::{
-    McIds, MCAST_IOTYPE, MCAST_IOTYPE_ANL, MCAST_IOTYPE_IN, MCAST_IOTYPE_IO, MCAST_IOTYPE_LABEL,
-    MCAST_IOTYPE_NC, MCAST_IOTYPE_OUT, MCAST_IOTYPE_PSBI, MCAST_IOTYPE_PSNK, MCAST_IOTYPE_PSRC,
-    MCAST_IOTYPE_RETURN,
+    McIds, MCAST_IOTYPE, MCAST_IOTYPE_IN, MCAST_IOTYPE_IO, MCAST_IOTYPE_LABEL, MCAST_IOTYPE_NC,
+    MCAST_IOTYPE_OUT, MCAST_IOTYPE_PSBI, MCAST_IOTYPE_PSNK, MCAST_IOTYPE_PSRC, MCAST_IOTYPE_RETURN,
 };
 use std::collections::HashMap;
 use std::ops::Range;
@@ -23,7 +22,6 @@ pub enum IOType {
     Out,
     InOut,
     Power,
-    Analog,
     Return,
     NonCon,
     Label,
@@ -48,7 +46,6 @@ impl IOType {
                     // it cannot ride on the single IOType value.
                     return Some(IOType::Power);
                 }
-                MCAST_IOTYPE_ANL => return Some(IOType::Analog),
                 MCAST_IOTYPE_RETURN => return Some(IOType::Return),
                 MCAST_IOTYPE_NC => return Some(IOType::NonCon),
                 MCAST_IOTYPE_LABEL => return Some(IOType::Label),

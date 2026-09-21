@@ -284,7 +284,7 @@ fn pin_definition_span(
     }
     if let Ok(content) = std::fs::read_to_string(comp.uri.as_str()) {
         for keyword in &[
-            "psrc ", "psnk ", "psbi ", "in ", "io ", "out ", "anl ", "nc ",
+            "psrc ", "psnk ", "psbi ", "in ", "io ", "out ", "nc ",
         ] {
             let mut search_from = 0;
             while let Some(kw_pos) = content[search_from..].find(keyword) {
@@ -417,7 +417,6 @@ fn check_pin_alt_roles(acc: &mut CheckAccumulator) {
             let has_in = io_types.iter().any(|t| matches!(t, IOType::In));
             let has_out = io_types.iter().any(|t| matches!(t, IOType::Out));
             let has_ps = io_types.iter().any(|t| matches!(t, IOType::Power));
-            let has_anl = io_types.iter().any(|t| matches!(t, IOType::Analog));
 
             // in + out → consider using InOut
             if has_in && has_out {
@@ -448,22 +447,6 @@ fn check_pin_alt_roles(acc: &mut CheckAccumulator) {
                         comp.name, pin_name
                     ),
                     code: crate::errcodes::PIN_IO_MIX_OUTPUT_POWER,
-                });
-            }
-
-            // anl + psnk → unusual combination
-            if has_anl && has_ps {
-                acc.push(CheckResult {
-                    check_name: "conds",
-                    severity: CheckSeverity::Info,
-                    uri: Some(uri.clone()),
-                    span: Some(comp.span.start..comp.span.end),
-                    message: format!(
-                        "Component '{}': pin name '{}' maps to pins with both Analog and Power \
-                         IO types. Verify this is the intended behavior.",
-                        comp.name, pin_name
-                    ),
-                    code: crate::errcodes::PIN_IO_MIX_ANALOG_POWER,
                 });
             }
         }
