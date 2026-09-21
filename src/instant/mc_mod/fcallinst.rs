@@ -778,11 +778,17 @@ impl InstantiationBuilder {
                         })
                         .collect();
                     for conds in &func_def.conds {
-                        let matched_stmts = conds.evaluate(&params);
-                        for stmt in matched_stmts {
-                            // Conditional-block stmts carry no per-stmt offset; fall
-                            // back to the func's definition stmt. RAII §7.11(2).
-                            this.with_func_stmt(&func_def, None, |this| -> Result<(), _> {
+                        let (matched_stmts, matched_offsets) = conds.evaluate(&params);
+                        for (mi, stmt) in matched_stmts.iter().enumerate() {
+                            // Attribute the cond stmt's products to the stmt's
+                            // own position (CIMP U166 ruling B); a missing
+                            // offset falls back to the func header. RAII §7.11(2).
+                            let site = func_def.source_uri().cloned().and_then(|u| {
+                                matched_offsets.get(mi).map(|o| {
+                                    crate::semantic::common::SourcePos::new(u, *o)
+                                })
+                            });
+                            this.with_func_site(&func_def, site, |this| -> Result<(), _> {
                                 let substituted =
                                     if bindings.is_empty() && caller_inst_name.is_none() {
                                         stmt.clone()
@@ -1753,11 +1759,17 @@ impl InstantiationBuilder {
                 sub_tree, identity, sub_path, net_store, arena, store,
             );
             for conds in &func_def.conds {
-                let matched_stmts = conds.evaluate(&params);
-                for stmt in matched_stmts {
-                    // Conditional-block stmts carry no per-stmt offset; fall
-                    // back to the func's definition stmt. RAII §7.11(2).
-                    b.with_func_stmt(func_def, None, |this| {
+                let (matched_stmts, matched_offsets) = conds.evaluate(&params);
+                for (mi, stmt) in matched_stmts.iter().enumerate() {
+                    // Attribute the cond stmt's products to the stmt's own
+                    // position (CIMP U166 ruling B); a missing offset falls
+                    // back to the func header. RAII §7.11(2).
+                    let site = func_def.source_uri().cloned().and_then(|u| {
+                        matched_offsets
+                            .get(mi)
+                            .map(|o| crate::semantic::common::SourcePos::new(u, *o))
+                    });
+                    b.with_func_site(func_def, site, |this| {
                         let substituted = if value_bindings.is_empty() {
                             stmt.clone()
                         } else {
@@ -2278,11 +2290,17 @@ impl InstantiationBuilder {
             let cond_conn_start = self.connections.len();
 
             for (_ci, conds) in func_def.conds.iter().enumerate() {
-                let matched_stmts = conds.evaluate(&params);
-                for (_li, stmt) in matched_stmts.iter().enumerate() {
-                    // Conditional-block stmts carry no per-stmt offset; fall
-                    // back to the func's definition stmt. RAII §7.11(2).
-                    self.with_func_stmt(func_def, None, |this| -> Result<(), _> {
+                let (matched_stmts, matched_offsets) = conds.evaluate(&params);
+                for (mi, stmt) in matched_stmts.iter().enumerate() {
+                    // Attribute the cond stmt's products to the stmt's own
+                    // position (CIMP U166 ruling B); a missing offset falls
+                    // back to the func header. RAII §7.11(2).
+                    let site = func_def.source_uri().cloned().and_then(|u| {
+                        matched_offsets
+                            .get(mi)
+                            .map(|o| crate::semantic::common::SourcePos::new(u, *o))
+                    });
+                    self.with_func_site(func_def, site, |this| -> Result<(), _> {
                         let comp_opt = this.find_component(inst_name);
                         let expansion_ctx =
                             comp_opt.as_ref().map(|comp| ExpansionContext::new(comp));

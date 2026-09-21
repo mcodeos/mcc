@@ -1101,6 +1101,12 @@ impl InstantiationBuilder {
                 crate::semantic::common::SourcePos::new(self.def_uri.clone(), s.start as u32)
             });
             self.current_stmt_span = stmt_span.clone();
+            // A new statement also retires the previous one's func-body
+            // anchor: `last_func_stmt` must never outlive the top-level
+            // statement whose func expansion set it, or a library chain in a
+            // later, func-free statement would attribute to a body that is
+            // no longer executing.
+            self.last_func_stmt = None;
             // The next stmt's start bounds this one; the last stmt is bounded
             // by the file end, which `u32::MAX` stands in for.
             let stmt_end = stmt_spans.get(idx + 1).map_or(u32::MAX, |s| s.start as u32);

@@ -846,6 +846,10 @@ impl McConds {
 pub struct McCondBlock {
     pub condition: McCondition,
     pub stmts: Vec<McPhrase>,
+    /// Source byte offset of each stmt in `stmts`, parallel by index
+    /// (CIMP U166 ruling B): a cond stmt's products anchor at the stmt's own
+    /// position, not the func header. Missing entries fall back to the header.
+    pub stmt_offsets: Vec<u32>,
 }
 
 /// A parsed collection of conditional blocks (if/else if/else)
@@ -853,6 +857,8 @@ pub struct McCondBlock {
 pub struct McFuncConds {
     pub if_blocks: Vec<McCondBlock>,
     pub else_stmts: Vec<McPhrase>,
+    /// Parallel to `else_stmts`, same discipline as [`McCondBlock::stmt_offsets`].
+    pub else_stmt_offsets: Vec<u32>,
 }
 
 impl McFuncConds {
@@ -866,21 +872,25 @@ impl McFuncConds {
 
         for cond in &conds.if_blocks {
             let mut stmts = Vec::new();
+            let mut offsets = Vec::new();
             // The block is an AstNode; parse its content into McPhrase stmts
-            Self::parse_block_stmts(&cond.block, context, &mut stmts);
+            Self::parse_block_stmts(&cond.block, context, &mut stmts, &mut offsets);
             if_blocks.push(McCondBlock {
                 condition: cond.condition.clone(),
                 stmts,
+                stmt_offsets: offsets,
             });
         }
 
+        let mut else_offsets = Vec::new();
         if let Some(else_block) = &conds.else_block {
-            Self::parse_block_stmts(else_block, context, &mut else_stmts);
+            Self::parse_block_stmts(else_block, context, &mut else_stmts, &mut else_offsets);
         }
 
         McFuncConds {
             if_blocks,
             else_stmts,
+            else_stmt_offsets: else_offsets,
         }
     }
 
@@ -889,6 +899,7 @@ impl McFuncConds {
         block: &AstNode,
         context: &mut dyn crate::semantic::mc_func::HasFindInst,
         stmts: &mut Vec<McPhrase>,
+        offsets: &mut Vec<u32>,
     ) {
         // The block can be:
         // - MCAST_COND_BLOCK: has subnodes, parse each child as a phrase
@@ -910,6 +921,7 @@ impl McFuncConds {
                                 continue; // skip declarations in cond blocks
                             }
                             if let Some(phrase) = McPhrase::new(&net_sub, context) {
+                                offsets.push(net_sub.get_pos() as u32);
                                 stmts.push(phrase);
                             }
                         }
@@ -919,6 +931,7 @@ impl McFuncConds {
                     {
                         // Single stmt attribute
                         if let Some(phrase) = McPhrase::new(&child, context) {
+                            offsets.push(child.get_pos() as u32);
                             stmts.push(phrase);
                         }
                     }
@@ -927,18 +940,21 @@ impl McFuncConds {
             MCAST_NET => {
                 if let Some(net_sub) = block.get_sub_node() {
                     if let Some(phrase) = McPhrase::new(&net_sub, context) {
+                        offsets.push(net_sub.get_pos() as u32);
                         stmts.push(phrase);
                     }
                 }
             }
             MCAST_ATTRIBUTE_PIN | MCAST_ATTRIBUTE_PINADD | MCAST_ATTRIBUTE => {
                 if let Some(phrase) = McPhrase::new(block, context) {
+                    offsets.push(block.get_pos() as u32);
                     stmts.push(phrase);
                 }
             }
             _ => {
                 // Try to parse the block directly as a phrase
                 if let Some(phrase) = McPhrase::new(block, context) {
+                    offsets.push(block.get_pos() as u32);
                     stmts.push(phrase);
                 }
             }
@@ -950,12 +966,12 @@ impl McFuncConds {
     /// No expansion caller holds the call site's node, so a condition that
     /// cannot be evaluated is dropped here rather than reported; see
     /// [`McConds::check_condition`].
-    pub fn evaluate(&self, params: &[(McIds, String)]) -> &[McPhrase] {
+    pub fn evaluate(&self, params: &[(McIds, String)]) -> (&[McPhrase], &[u32]) {
         for cond_block in &self.if_blocks {
             if McConds::check_condition(&cond_block.condition, params, None) {
-                return &cond_block.stmts;
+                return (&cond_block.stmts, &cond_block.stmt_offsets);
             }
         }
-        &self.else_stmts
+        (&self.else_stmts, &self.else_stmt_offsets)
     }
 }

@@ -23,15 +23,19 @@
 //! two-endpoint statement as lost (§5.3 source-side item 1).
 //!
 //! The item set spans **every loaded source file** — each file's top-level `use`
-//! clauses plus the clauses of every module and component body. Two exclusions,
+//! clauses plus the clauses of every module and component body **and of every
+//! `func` body** (§1 U166 ruling A: a `func` body's statements are real source
+//! statements, they hold Pass-1 records, and their rows anchor at the
+//! definition site, so they are items like any other). Two exclusions remain,
 //! both structural:
 //!
-//! - **`func` bodies are not walked.** A `func` is a wiring macro: the rows it
-//!   produces carry the *call* site's position, so its own statements own no row
-//!   of their own and counting them would report one false `drop` per library
-//!   `func`.
-//! - **A `func` clause is not an item either** — a definition is not a
-//!   statement on the chain, however it is spelled in the body.
+//! - **A `func` clause is not an item** — the definition line is not a
+//!   statement on the chain, however it is spelled in the body. Its span is
+//!   still recorded: the expansion edges read it to hand a callee's rows to the
+//!   calling statement.
+//! - Nothing else. The old "func bodies are not walked" exclusion is what made
+//!   a call site read `drop` while its expansion products existed (U166 ①) and
+//!   left the definition-side rows in an unattributed side bucket (U166 ②).
 //!
 //! A third exclusion is a property of the object rather than of the walk: a
 //! **bus member owns no physical point** (§2.4), so it is not a chain object at
@@ -51,7 +55,7 @@
 //!
 //! §5.2 hard constraint 3 requires a key's defect to be reported apart from a generated
 //! object, so these three are counted in the header rather than dressed up as a
-//! class — each is a category error the six words would otherwise absorb:
+//! class — each is a category error the class words would otherwise absorb:
 //!
 //! - **A row with no anchor at all** — neither `src_pos` nor `fallback_pos`.
 //!   These are overwhelmingly the auto-named devices (`_C1`, `_R1`), whose
@@ -62,10 +66,11 @@
 //!   branch registers the instance without a Pass-1 statement record, and no
 //!   declaration site reaches the row. Its clause therefore owns nothing to
 //!   match, and reporting `drop` would cry wolf at every declaration.
-//! - **A row anchored inside a `func` body** — an excluded template, not an
-//!   object with no upstream. The statement that wrote it is the call site's,
-//!   which is in the item set; the row's own position just points into the
-//!   macro. `synth` would call that a generated object.
+//! - **A row inside a `func` span that no statement of that body claims** —
+//!   expected zero (the body's clauses tile it), but if expansion ever anchors
+//!   a row onto a `func` signature line there is no honest class for it:
+//!   `synth` would call a macro's product a generated object. Counted apart as
+//!   `func_unattributed` rather than absorbed.
 //!
 //! ## Classification is per item, not per connected component
 //!
@@ -79,6 +84,7 @@
 //! |---|---|---|
 //! | clause, 1 row | `carry` | one statement reaches exactly one row |
 //! | clause, N rows | `expand` | a declaration plus its pins; a two-endpoint `Cap` |
+//! | call clause, 0 own rows, N expansion rows | `call` | a `func` call: the rows it produced were written in the callee's body |
 //! | row, N clauses | `merge` | N statements wired into one net |
 //! | clause, 0 rows | `drop` | suspicious (a statement) |
 //! | any cardinality | `skip` | as-designed (a kind, not a shape) |
@@ -106,12 +112,16 @@ use serde_json::{json, Value};
 
 use crate::ast::macros::{
     MCAST_ATTRIBUTE, MCAST_ATTRIBUTE_PIN, MCAST_ATTRIBUTE_PINADD, MCAST_BODY, MCAST_COMPONENT,
-    MCAST_DECLARE, MCAST_DOMAIN, MCAST_FUNCTION, MCAST_MODULE, MCAST_NET, MCAST_NET_PORTS,
+    MCAST_DECLARE, MCAST_DOMAIN, MCAST_FUNCTION, MCAST_IOTYPE_RETURN, MCAST_MODULE, MCAST_NET,
+    MCAST_NET_PORTS,
     MCAST_RAIL, MCAST_REF, MCAST_USE, MCAST_USE_PUB,
 };
 use crate::ast::node::AstNode;
 use crate::db::cmie::tables::WORKSPACE;
+use crate::instant::inststore::TreeView;
 use crate::instant::insttab::{InstEntry, InstKind, InstTable};
+use crate::instant::mc_mod::McModuleInst;
+use crate::instant::provenance::ExpansionKind;
 use crate::instant::world::member_overlap;
 use crate::semantic::common::SourcePos;
 use crate::vector::graph::graphdef::McVecGraph;
@@ -132,23 +142,26 @@ pub const SRC_P2_VIEW: &str = "join.src->p2";
 pub const P2_VEC_VIEW: &str = "join.p2->vec";
 pub const VEC_VIZ_VIEW: &str = "join.vec->viz";
 
-/// The six class words of the summary line, in print order. Fixed, so two runs
+/// The class words of the summary line, in print order. Fixed, so two runs
 /// cannot differ by which words appear, and printed even at zero, so an absent
-/// word cannot read as "not implemented" (§5.3).
-pub const SIX_WORDS: &[&str] = &["carry", "expand", "merge", "drop", "synth", "skip"];
+/// word cannot read as "not implemented" (§5.3). Seven since §1 U166: `call`
+/// reads a call-site statement whose products are the expansion rows written
+/// inside the callee's body — the word replaces the false `drop` those
+/// statements used to read.
+pub const CLASS_WORDS: &[&str] = &["carry", "expand", "call", "merge", "drop", "synth", "skip"];
 
 /// The two states the class column prints that are **not** classes: the ways
 /// this readout declines to classify. §5.3 puts them in the class column and
-/// the summary line counts only the six, so they are counted apart, printed
-/// after the six groups, and — being statements about *this join* rather than
+/// the summary line counts only the classes, so they are counted apart, printed
+/// after the class groups, and — being statements about *this join* rather than
 /// about the object — never written back into a `stage.*` item (O9 / O10).
 pub const DIAG_WORDS: &[&str] = &["branch", "ambiguous"];
 
-/// Whether a word may be passed to `--only`: the six classes and the two
+/// Whether a word may be passed to `--only`: the class words and the two
 /// diagnostic states. A filtered readout cannot ask for a word the class column
 /// can never print.
 pub fn is_class_word(word: &str) -> bool {
-    SIX_WORDS.contains(&word) || DIAG_WORDS.contains(&word)
+    CLASS_WORDS.contains(&word) || DIAG_WORDS.contains(&word)
 }
 
 /// The annotations the text face prints, and the two labels of its sub-hop line.
@@ -169,6 +182,9 @@ const DROP_NOTE: &str =
     "\u{65e0} p2 \u{884c}\u{951a}\u{5728}\u{672c}\u{8bed}\u{53e5}\u{8de8}\u{5ea6}\u{5185}";
 /// Appended to the member count, so a `merge` row always shows how many
 /// statements it merged and not merely that it merged some.
+/// A call site's products were written in the callee's body; the edge hands
+/// them to the calling statement.
+const CALL_NOTE: &str = "\u{5c55}\u{5f00}\u{4ea7}\u{7269}\u{5199}\u{5728}\u{88ab}\u{8c03}\u{4f53}\u{5185}";
 const MERGE_NOTE: &str = "\u{9879}\u{5e76} 1";
 const SYNTH_NOTE: &str = "\u{4e0b}\u{6e38}\u{6709}\u{3001}\u{4e0a}\u{6e38}\u{786e}\u{5b9e}\u{65e0}";
 const SUBHOP_LABEL: &str = "\u{5b50}\u{8df3}";
@@ -206,7 +222,7 @@ const BRANCH_NOTE: &str = "\u{4e24}\u{7aef}\u{4e0d}\u{5168}\u{6709}\u{952e}";
 /// debug entry point (§5.3 ②), then `synth` (the other flagged class), then the
 /// rest in count-word order. Also the sort order of the JSON `items`, so the two
 /// faces present the same sequence and not merely the same set.
-const GROUP_ORDER: &[&str] = &["drop", "synth", "carry", "expand", "merge", "skip"];
+const GROUP_ORDER: &[&str] = &["drop", "synth", "carry", "expand", "call", "merge", "skip"];
 
 /// Every class the class column can print, in print order: the six classes and
 /// then the two diagnostic states. One list, so the sort order of the items and
@@ -337,9 +353,58 @@ struct DRow {
 
 /// Build `join src->p2`: the source statements of the loaded world against the
 /// flat instance table, class by class.
-pub fn build_join_src_p2(table: &InstTable, top: &str, diagnostics: usize) -> StageView {
-    let (clauses, func_spans, header_spans) = in_scope_clauses();
+pub fn build_join_src_p2(
+    table: &InstTable,
+    tree: &McModuleInst,
+    view: &TreeView,
+    top: &str,
+    diagnostics: usize,
+) -> StageView {
+    let (mut clauses, func_spans, header_spans) = in_scope_clauses();
     let (rows, bus_rows) = downstream_rows(table);
+
+    // The static expansion edges (§1 U166 ruling B; SOT design §2.3): a call
+    // site statement, and the callee body its products were written in. Read
+    // off the runtime expansion logs of every module instance — the two faces
+    // reconcile on `(uri, offset)`, no record moves — but only the
+    // statement-level body expansions become edges: `InstanceMethod` and
+    // `UserFunc` (plus `AutoInvoke`, whose call-site end is the container and
+    // which therefore owns no statement item — counted, not classified). The
+    // leaf kinds expand no body, so they have no definition-site rows to hand
+    // over.
+    let mut call_edges: Vec<(SourcePos, SourcePos)> = Vec::new();
+    let mut auto_invoked = 0usize;
+    let mut ds_sites: Vec<SourcePos> = Vec::new();
+    collect_expansion_edges(
+        tree,
+        view,
+        &mut call_edges,
+        &mut auto_invoked,
+        &mut ds_sites,
+    );
+    call_edges.sort();
+    call_edges.dedup();
+
+    // A func body is listed only when the func ran (§1 U166 ruling A): a body
+    // this build never expanded holds no rows and no record, and listing its
+    // statements would read `drop` on a statement that was never reached — the
+    // very category error `drop` exists to name. The definition sites the
+    // expansion logs touched are exactly the bodies that ran.
+    let executed: Vec<(String, usize, usize)> = func_spans
+        .iter()
+        .filter(|(uri, start, end)| {
+            ds_sites
+                .iter()
+                .any(|d| d.uri == *uri && *start <= d.offset as usize && (d.offset as usize) < *end)
+        })
+        .cloned()
+        .collect();
+    clauses.retain(|c| {
+        !in_func_span(&func_spans, &SourcePos::new(c.uri.clone(), c.start as u32))
+            || executed
+                .iter()
+                .any(|(uri, start, end)| c.uri == *uri && *start <= c.start && c.start < *end)
+    });
 
     // A row's clause set. Anchor first, so a net can never be why a point row
     // acquired a clause. **Every** wiring site is asked, not just the first:
@@ -404,14 +469,88 @@ pub fn build_join_src_p2(table: &InstTable, top: &str, diagnostics: usize) -> St
         }
     }
 
+    // Expansion attribution, a second map beside `reached` (§1 U166 ruling B).
+    // A row is handed to the call-site clause when one of its own attribution
+    // positions sits in the callee body the edge points at. The row's
+    // own-span attribution is untouched — `merge` keeps reading that relation
+    // alone, because the 1-definition-N-calls multiplicity lives on the edge,
+    // not as N merge rows — and a clause's class reads the union of the two.
+    let mut edge_spans: BTreeMap<usize, Vec<(String, usize, usize)>> = BTreeMap::new();
+    for (cs, ds) in &call_edges {
+        let Some(ci) = containing_clause(&clauses, &cs.uri, cs.offset as usize) else {
+            continue;
+        };
+        let Some(span) = func_spans.iter().find(|(uri, start, end)| {
+            ds.uri == *uri && *start <= ds.offset as usize && (ds.offset as usize) < *end
+        }) else {
+            continue;
+        };
+        let list = edge_spans.entry(ci).or_default();
+        if !list.contains(&span) {
+            list.push(span.clone());
+        }
+    }
+    // Reach is transitive: a call site's expansion does not stop at the
+    // callee's own body. Its body statements call further bodies (`Cap` from
+    // a board's `power`), and Pass-2 may attribute the deep rows to the
+    // library file they were written in — the outer call site still reached
+    // them, through its own expansion edge. So from each edge span the walk
+    // follows every edge whose source clause sits inside it, collecting the
+    // rows of the whole subtree. `seen` breaks the cycle a (mis-typed)
+    // recursive func would otherwise make.
+    let mut edge_reach: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+    for (ci, spans) in &edge_spans {
+        let mut seen: std::collections::BTreeSet<(String, usize, usize)> = spans
+            .iter()
+            .cloned()
+            .collect();
+        let mut stack: Vec<(String, usize, usize)> = spans.clone();
+        let mut hit: Vec<usize> = Vec::new();
+        while let Some(span) = stack.pop() {
+            for (ri, row) in rows.iter().enumerate() {
+                let in_body = row.anchor.as_ref().is_some_and(|a| {
+                    a.attribution().any(|at| {
+                        at.uri == span.0
+                            && span.1 <= at.offset as usize
+                            && (at.offset as usize) < span.2
+                    })
+                });
+                if in_body && !hit.contains(&ri) {
+                    hit.push(ri);
+                }
+            }
+            for (cj, inner) in &edge_spans {
+                let cj_clause = &clauses[*cj];
+                if cj_clause.uri == span.0
+                    && span.1 <= cj_clause.start
+                    && cj_clause.start < span.2
+                {
+                    for s2 in inner {
+                        if seen.insert(s2.clone()) {
+                            stack.push(s2.clone());
+                        }
+                    }
+                }
+            }
+        }
+        hit.sort_unstable();
+        edge_reach.insert(*ci, hit);
+    }
+
     let mut sources = SourceText::new();
     let mut items: Vec<(u8, String, Value)> = Vec::new();
     let mut counts: BTreeMap<&'static str, usize> =
-        SIX_WORDS.iter().map(|w| (*w, 0usize)).collect();
+        CLASS_WORDS.iter().map(|w| (*w, 0usize)).collect();
     let mut unanchored = 0usize;
     let mut unanchored_by_class: BTreeMap<&'static str, usize> = BTreeMap::new();
     let mut declarations_unmatched = 0usize;
-    let mut func_scoped = 0usize;
+    // Rows inside a `func` span that no statement of that body claims.
+    // Expected zero: the body's clauses tile the span. Kept as its own number
+    // so an expansion that ever anchors onto a signature line is visible
+    // instead of absorbed (U166 retired the old `func_scoped` bucket, which
+    // counted *every* row inside a `func` body — the definition-side rows the
+    // walk now attributes).
+    let mut func_unattributed = 0usize;
     let mut header_scoped = 0usize;
     // A `skip` clause may still own rows: its kind takes no part in modelling,
     // but the construct can declare rows all the same (a `pins = [...]` block).
@@ -458,17 +597,30 @@ pub fn build_join_src_p2(table: &InstTable, top: &str, diagnostics: usize) -> St
         if !clause.pass1 || !claimed.contains(&(clause.uri.clone(), at)) {
             continue;
         }
-        if reached.get(&ci).map(Vec::is_empty).unwrap_or(true) {
+        let covered = reached.get(&ci).is_some_and(|v| !v.is_empty())
+            || edge_reach.get(&ci).is_some_and(|v| !v.is_empty());
+        if !covered {
             ast_p2_mismatch += 1;
         }
     }
 
     for (ci, clause) in clauses.iter().enumerate() {
-        let hit = reached.get(&ci).cloned().unwrap_or_default();
+        let own = reached.get(&ci).cloned().unwrap_or_default();
+        let edge = edge_reach.get(&ci).cloned().unwrap_or_default();
+        let mut hit = own.clone();
+        for ri in &edge {
+            if !hit.contains(ri) {
+                hit.push(*ri);
+            }
+        }
+        hit.sort_unstable();
         // The class states **how many rows the statement reaches**: none, one,
         // or more. The count is of rows, never of exclusively-owned rows, and
         // never of layer members — how many nets the statement produced is
         // published beside it as `layer`, a parallel reading, not the criterion.
+        // A statement whose rows came in **only through the expansion edge**
+        // reads `call`, not `carry`: every row it reaches was written in the
+        // callee's body, and that is the fact a reader of the chain needs.
         let class = if clause.skip {
             "skip"
         } else if hit.is_empty() {
@@ -477,6 +629,8 @@ pub fn build_join_src_p2(table: &InstTable, top: &str, diagnostics: usize) -> St
                 continue;
             }
             "drop"
+        } else if own.is_empty() {
+            "call"
         } else if hit.len() == 1 {
             "carry"
         } else {
@@ -492,6 +646,7 @@ pub fn build_join_src_p2(table: &InstTable, top: &str, diagnostics: usize) -> St
             skip_with_downstream += 1;
         }
         let why = match class {
+            "call" => CALL_NOTE,
             "skip" => SKIP_NOTE,
             // What was measured, and no more. "Downstream truly has none" would
             // over-claim: this build holds rows with no anchor at all, and a
@@ -559,12 +714,15 @@ pub fn build_join_src_p2(table: &InstTable, top: &str, diagnostics: usize) -> St
                 unanchored += 1;
                 *unanchored_by_class.entry(row.class).or_default() += 1;
             } else if in_func_span(&func_spans, anchored_at.unwrap()) {
-                // Positioned inside a `func` body, which this hop does not walk.
-                // The row was written by the call site's statement, so there is
-                // an upstream for it — just not one of these items. Reporting it
-                // as `synth` would claim a generated object where the truth is
-                // an excluded template (§5.2 hard constraint 3).
-                func_scoped += 1;
+                // Inside a `func` span but claimed by no statement of that
+                // body — the walk covers it, so this is a defect readout, not
+                // a class. `synth` would call a macro's product a generated
+                // object (§5.2 hard constraint 3). A row the expansion
+                // closure reached is accounted in its call-site clause and
+                // not a defect: a cond stmt inside the body keeps no clause
+                // of its own (branch choice is a runtime fact), so its
+                // products land exactly here.
+                func_unattributed += 1;
             } else if in_func_span(&header_spans, anchored_at.unwrap()) {
                 // Declared on a module header: a port, not a generated object.
                 header_scoped += 1;
@@ -592,7 +750,7 @@ pub fn build_join_src_p2(table: &InstTable, top: &str, diagnostics: usize) -> St
     items.sort_by(|a, b| (a.0, &a.1).cmp(&(b.0, &b.1)));
 
     let mut counts_value = serde_json::Map::new();
-    for w in SIX_WORDS {
+    for w in CLASS_WORDS {
         counts_value.insert((*w).into(), json!(counts[w]));
     }
     counts_value.insert("sub_hop_src_ast".into(), json!(src_ast_mismatch));
@@ -612,8 +770,9 @@ pub fn build_join_src_p2(table: &InstTable, top: &str, diagnostics: usize) -> St
         "declarations_unmatched".into(),
         json!(declarations_unmatched),
     );
-    counts_value.insert("func_scoped".into(), json!(func_scoped));
+    counts_value.insert("func_unattributed".into(), json!(func_unattributed));
     counts_value.insert("header_scoped".into(), json!(header_scoped));
+    counts_value.insert("auto_invoked".into(), json!(auto_invoked));
     counts_value.insert("bus_rows".into(), json!(bus_rows));
     counts_value.insert("diagnostics".into(), json!(diagnostics));
     counts_value.insert("rows_total".into(), json!(rows.len()));
@@ -636,8 +795,10 @@ fn rank_of(class: &str) -> u8 {
 /// The `(uri, offset)` of every Pass-1 statement record in the loaded world.
 ///
 /// `stmt_spans[i]` is parallel to `stmts[i]` (both pushed by `parse_body`), and
-/// `start` is the offset that identifies the statement. Only module bodies have
-/// such a record — a component body keeps no `stmts`.
+/// `start` is the offset that identifies the statement. Module bodies keep the
+/// record on the module; a `func` body keeps it on the function
+/// (`McFunction.stmt_offsets`, §1 U166 ruling A) — and a `func` may be a member
+/// of a component as well as of a module, so both tables are read.
 fn pass1_records() -> BTreeSet<(String, usize)> {
     let mut out = BTreeSet::new();
     for entry in WORKSPACE.modules.iter() {
@@ -645,8 +806,92 @@ fn pass1_records() -> BTreeSet<(String, usize)> {
         for sp in &m.stmt_spans {
             out.insert((m.uri.clone(), sp.start));
         }
+        func_records(&m.funcs, &mut out);
+    }
+    for entry in WORKSPACE.components.iter() {
+        func_records(&entry.value().funcs, &mut out);
+    }
+    // The system library is not in the workspace tables: its components live
+    // in the definition registry, and a library `func` body's statements hold
+    // Pass-1 records exactly as a workspace one does (U166 — the readout owes
+    // `cap.mc:106` its item, and sub-hop 1 its record).
+    for (_, comp) in crate::db::defregistry::system_components() {
+        func_records(&comp.funcs, &mut out);
+    }
+    for (_, module) in crate::db::defregistry::system_modules() {
+        func_records(&module.funcs, &mut out);
     }
     out
+}
+
+/// One container's `func` body statement records. `parse_body` pushes the
+/// *sub-node's* position — the same offset the clause walk reads as `stmt_at` —
+/// so the two faces meet on the exact key.
+/// Walk the instance tree for the static expansion edges: an
+/// `InstanceMethod`/`UserFunc` record gives one (call-site, definition-site)
+/// pair each, `AutoInvoke` counts itself (its call-site end is the container
+/// node, which is no clause item). Instances of the same module duplicate the
+/// same pair; the caller dedups.
+///
+/// A method call written **inside a component chain** (`CAP(...).Cap([a, b])`)
+/// records the method under the chain's own record, and the recorded
+/// call-site of such a nested record is unreliable — it is `None`, or the
+/// outer statement that started the whole expansion. The chain's
+/// `ComponentCtor` record is where the statement lives, so a nested method
+/// borrows the call site of the nearest preceding constructor in its own
+/// parent group. The top-level records keep their own call site. `ds_sites`
+/// gathers every definition site seen — the bodies the logs touched, which is
+/// what separates a func that ran from library code this build never reached.
+fn collect_expansion_edges(
+    tree: &McModuleInst,
+    view: &TreeView,
+    edges: &mut Vec<(SourcePos, SourcePos)>,
+    auto_invoked: &mut usize,
+    ds_sites: &mut Vec<SourcePos>,
+) {
+    let records = &tree.expansion.records;
+    for (i, r) in records.iter().enumerate() {
+        if let Some(ds) = &r.def_site {
+            ds_sites.push(ds.clone());
+        }
+        match r.kind {
+            ExpansionKind::InstanceMethod | ExpansionKind::UserFunc => {
+                // A top-level record carries its own statement; a nested one
+                // borrows the chain constructor's (see above).
+                let cs = if r.parent.is_none() {
+                    r.call_site.clone()
+                } else {
+                    records[..i]
+                        .iter()
+                        .rev()
+                        .find(|p| {
+                            p.parent == r.parent && p.kind == ExpansionKind::ComponentCtor
+                        })
+                        .and_then(|p| p.call_site.clone())
+                        .or_else(|| r.call_site.clone())
+                };
+                if let (Some(cs), Some(ds)) = (cs, &r.def_site) {
+                    edges.push((cs, ds.clone()));
+                }
+            }
+            ExpansionKind::AutoInvoke if r.parent.is_none() => *auto_invoked += 1,
+            _ => {}
+        }
+    }
+    for sub in view.sub_modules(tree) {
+        collect_expansion_edges(sub, view, edges, auto_invoked, ds_sites);
+    }
+}
+
+fn func_records(funcs: &crate::semantic::mc_func::McFunctions, out: &mut BTreeSet<(String, usize)>) {
+    for f in funcs.iter() {
+        let Some(uri) = f.source_uri() else {
+            continue;
+        };
+        for off in &f.stmt_offsets {
+            out.insert((uri.to_string(), *off as usize));
+        }
+    }
 }
 
 /// The clauses of every loaded source file, sorted by `(uri, offset)`.
@@ -728,11 +973,31 @@ fn in_scope_clauses() -> (
                 for (j, cl) in list.iter().enumerate() {
                     let end = next_bound(&list, j, &text, limit);
                     if cl.is_type(MCAST_FUNCTION) {
-                        // Not walked: a `func` is a wiring macro whose rows are
-                        // produced at the call site. Recorded so that a row
-                        // positioned inside one can be told apart from a row
-                        // nothing upstream wrote.
+                        // The definition line is not a statement; its span is
+                        // kept because the expansion edges read it to hand a
+                        // callee's rows to the calling statement.
                         func_spans.push((uri.clone(), cl.get_pos() as usize, end));
+                        // But the body IS walked (§1 U166 ruling A): its
+                        // statements hold Pass-1 records, their rows anchor at
+                        // the definition site, and the readout owes them their
+                        // items. `pass1` is unconditional — a `func` on a
+                        // component keeps records too (`McComponent.funcs`).
+                        if let Some(fsub) = cl.get_sub_node() {
+                            if let Some(fbody) = fsub.iter().find(|c| c.is_type(MCAST_BODY)) {
+                                if fbody.get_sub_node().is_some() {
+                                    let fnodes: Vec<AstNode> = fbody.clause_list();
+                                    let flimit = (fbody.get_pos() as usize
+                                        + fbody.get_len() as usize)
+                                        .min(text.len());
+                                    for (k, fcl) in fnodes.iter().enumerate() {
+                                        let fend = next_bound(&fnodes, k, &text, flimit);
+                                        collect_body_clause(
+                                            &mut out, &uri, &text, fcl, fend, true,
+                                        );
+                                    }
+                                }
+                            }
+                        }
                         continue;
                     }
                     collect_body_clause(&mut out, &uri, &text, cl, end, in_module);
@@ -868,14 +1133,20 @@ fn collect_body_clause(
                 .get_sub_node()
                 .map(|s| s.is_type(MCAST_DECLARE))
                 .unwrap_or(false);
-        let (stmt_at, pass1) = if declare {
+        let ret = cl
+            .get_sub_node()
+            .map(|s| s.is_type(MCAST_IOTYPE_RETURN))
+            .unwrap_or(false);
+        let (stmt_at, pass1) = if declare || ret {
+            // A `return` holds no Pass-1 statement record (the parser routes
+            // it to `handle_return`, not the statement table) and owns no
+            // row — its value is consumed at the call site. A kind that takes
+            // no part in modelling reads `skip`, never `drop`.
             (None, false)
         } else {
             (cl.get_sub_node().map(|s| s.get_pos() as usize), in_module)
         };
-        out.push(clause_of(
-            uri, text, cl, end, stmt_at, declare, pass1, false,
-        ));
+        out.push(clause_of(uri, text, cl, end, stmt_at, declare, pass1, ret));
     } else if is_skip_kind(t) {
         out.push(clause_of(uri, text, cl, end, None, false, false, true));
     }
@@ -1196,7 +1467,7 @@ fn second_line(view: &StageView) -> String {
 /// The third line: six words, always all of them, always with a cardinality —
 /// so `merge` cannot be misread as N-1 losses (§5.3 ②).
 fn six_word_line(view: &StageView) -> String {
-    let words: Vec<String> = SIX_WORDS
+    let words: Vec<String> = CLASS_WORDS
         .iter()
         .map(|w| format!("{w} {}", view.counts[*w].as_u64().unwrap_or(0)))
         .collect();
@@ -1342,7 +1613,7 @@ pub fn build_join_vec_viz_with_sides(
 /// stage <seg>` publishes, and a key one of them holds is a key the other two
 /// commands agree on by construction.
 pub struct HopSides {
-    /// The hop readout: six words, both directions of every match.
+    /// The hop readout: class words, both directions of every match.
     pub join: StageView,
     /// The upstream segment's view.
     pub left: StageView,
@@ -1457,7 +1728,7 @@ struct Obj {
     /// Which segment's view published it, so a row can say where it lives.
     seg: &'static str,
     /// The class it has in its own view (`box`, `layer`, `pin`), which is not
-    /// the class this readout prints: the class column is the six words.
+    /// the class this readout prints: the class column is the class words.
     stage_class: String,
     /// The §2.4 key, when the kind has one. `null` for a kind matched by a
     /// derived criterion, whose item therefore carries no key at all.
@@ -1837,13 +2108,13 @@ fn join_by_member_set(
     classify_components(hk, left, right, groups)
 }
 
-/// The six words plus the two diagnostic states, all at zero.
+/// The class words plus the two diagnostic states, all at zero.
 ///
 /// The words are always all present so a summary line can never omit a class by
 /// having none of it; the diagnostic states are carried along so a hop with
 /// nothing to refuse reads as zero rather than as an absent key.
 fn zero_classes() -> BTreeMap<&'static str, usize> {
-    SIX_WORDS
+    CLASS_WORDS
         .iter()
         .chain(DIAG_WORDS)
         .map(|w| (*w, 0))
@@ -1931,7 +2202,7 @@ fn own_text(item: &Value) -> String {
 /// Join a hop's two views: one traversal of each, one item per object.
 fn build_hop(hop: &Hop, left: &StageView, right: &StageView) -> StageView {
     let mut items: Vec<(u8, String, Value)> = Vec::new();
-    let mut classes: BTreeMap<&'static str, usize> = SIX_WORDS
+    let mut classes: BTreeMap<&'static str, usize> = CLASS_WORDS
         .iter()
         .chain(DIAG_WORDS)
         .map(|w| (*w, 0))
