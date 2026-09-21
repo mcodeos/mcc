@@ -972,10 +972,11 @@ impl McComponentInst {
     ///      - Interface(UART0::UART.TTL)  → "UART0.TX"/"UART0.RX" → pid
     ///      - Interface(XTAL{X1,X2})      → "XTAL.X1"/"XTAL.X2"  → pid
     ///
-    /// ## Sorting
-    /// Sort pin_ids in ascending order by pid value (e.g., `"6","7"` not `"7","6"`).
-    /// This matches the order of pin declarations in mc source code,
-    /// ensuring stable N×N pin connections.
+    /// ## Ordering
+    /// Every arm reads the written declaration order — bus/interface member
+    /// lists, `registered_pins`, the written Multi list, and (fallback)
+    /// `decl_order` — never a sort of container keys (U152 ③: numeric-pid
+    /// sorting reordered lanes whenever the written order was not ascending).
     ///
     /// ## Return
     /// - At least 2 pin_ids → `Some(pids)`
@@ -1150,16 +1151,50 @@ impl McComponentInst {
             return None;
         }
 
-        // General case: Scan names_to_id for all dotted name,
-        // reverse lookup Single(pid)
+        // General case: collect the dotted aliases of this port, one lane per
+        // physical pin, in PIN DECLARATION order (R0 source-order rule, U152 ③).
+        // The old form walked `names_to_id` (a BTreeMap — dictionary order) and
+        // re-sorted by numeric pid; both orderings are guesses at the lane order,
+        // and the numeric sort silently reordered lanes whenever the written
+        // declaration order was not numerically ascending. `decl_order` is the
+        // recorded declaration sequence, so walk it and take each pin's first
+        // dotted alias; no sort anywhere.
+        //
+        // Reachability note (U152 ③, instrumented 2026-09-21): the grammar
+        // steers every current spelling into the ordered arms above — a Bus's
+        // member list is built from exactly the dotted aliases its pins
+        // register, so the P1 block resolves them, and an Interface adoption
+        // always carries `registered_pins` for the U150 arm. Zero hits across
+        // the mcs+mclibs corpus and hbl/hbl1 builds. This arm stays as the
+        // documented fallback so a future spelling that lands here still reads
+        // the written order instead of a sort.
         let prefix = format!("{port_name}.");
         let mut pid_with_name: Vec<(String, String)> = Vec::new();
-        for (name, port) in self.def.pins.names_to_id.iter() {
-            if !name.starts_with(&prefix) {
-                continue;
-            }
-            if let McPinPort::Single(pid) = port {
-                pid_with_name.push((name.clone(), pid.clone()));
+        {
+            let mut seen_pids: std::collections::BTreeSet<String> =
+                std::collections::BTreeSet::new();
+            for pid in self.def.pins.decl_order.iter() {
+                if !seen_pids.insert(pid.clone()) {
+                    continue;
+                }
+                let alias = self
+                    .def
+                    .pins
+                    .pin_id_to_names
+                    .get(pid)
+                    .and_then(|names| {
+                        names.iter().find(|n| {
+                            n.starts_with(&prefix)
+                                && matches!(
+                                    self.def.pins.names_to_id.get(n.as_str()),
+                                    Some(McPinPort::Single(_))
+                                )
+                        })
+                    })
+                    .cloned();
+                if let Some(alias) = alias {
+                    pid_with_name.push((alias, pid.clone()));
+                }
             }
         }
 
@@ -1184,15 +1219,6 @@ impl McComponentInst {
         if unique_pid_count < 2 {
             return None;
         }
-
-        // Sort pin_ids in ascending order by pid value (e.g., "6","7" not "7","6").
-        // This matches the order of pin declarations in mc source code,
-        // ensuring stable N×N pin connections.
-        pid_with_name.sort_by(|a, b| {
-            let na: i64 = a.1.parse().unwrap_or(0);
-            let nb: i64 = b.1.parse().unwrap_or(0);
-            na.cmp(&nb)
-        });
 
         // Iter-11.D-fix2: Remove duplicate pids
         {
