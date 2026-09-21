@@ -33,9 +33,9 @@ range (threshold 40KB).
 | `db/infra/mc_code.rs` | 341 KB | 95 |
 | `viz/layout/equipotential_tree.rs` | 332 KB | 173 |
 | `semantic/basic/mc_phrase.rs` | 312 KB | 68 |
-| `semantic/component/mc_pins/mod.rs` | 227 KB | 105 |
+| `semantic/component/mc_pins/mod.rs` | 225 KB | 104 |
 | `instant/mc_mod/stmt.rs` | 194 KB | 76 |
-| `db/diagnostic/errcodes.rs` | 177 KB | 434 |
+| `db/diagnostic/errcodes.rs` | 178 KB | 434 |
 | `semantic/validation/nets/mod.rs` | 176 KB | 115 |
 | `rules.rs` | 174 KB | 83 |
 | `instant/insttab.rs` | 153 KB | 110 |
@@ -60,20 +60,20 @@ range (threshold 40KB).
 | `build/` | 5 | 74 KB |
 | `builder/` | 1 | 0 KB |
 | `cli/` | 6 | 103 KB |
-| `cmds/` | 28 | 483 KB |
-| `db/` | 27 | 905 KB |
+| `cmds/` | 28 | 485 KB |
+| `db/` | 27 | 906 KB |
 | `eval/` | 2 | 48 KB |
 | `export/` | 6 | 44 KB |
-| `instant/` | 40 | 1546 KB |
+| `instant/` | 40 | 1549 KB |
 | `lsp/` | 7 | 66 KB |
 | `output/` | 7 | 107 KB |
 | `query/` | 9 | 157 KB |
 | `refdef/` | 7 | 118 KB |
 | `rpc/` | 16 | 293 KB |
-| `semantic/` | 89 | 2591 KB |
+| `semantic/` | 89 | 2590 KB |
 | `stages/` | 11 | 296 KB |
 | `vector/` | 25 | 462 KB |
-| `viz/` | 95 | 2289 KB |
+| `viz/` | 95 | 2292 KB |
 
 ## Declaration index
 
@@ -766,39 +766,40 @@ cmds/build.rs#L114  fn cli_entry
 cmds/build.rs#L121  fn run
 cmds/build.rs#L152  fn resolve_project_root
 cmds/build.rs#L188  fn run_rpc
-cmds/build.rs#L229  fn emit_build_result
-cmds/build.rs#L255  fn run_local
-cmds/build.rs#L694  fn build_failure_diag
-cmds/build.rs#L730  fn build_browse_dir
-cmds/build.rs#L1105  fn emit_gate_envelope
-cmds/build.rs#L1111  fn emit_err
-cmds/build.rs#L1120  fn build_viz_opts
-cmds/build.rs#L1138  mod phase0_golden
-cmds/build.rs#L1148  fn hbl_project
-cmds/build.rs#L1158  fn build_graph
-cmds/build.rs#L1179  fn render_signature
-cmds/build.rs#L1188  fn cli_build__determinism_render_twice
-cmds/build.rs#L1208  fn cli_build__determinism_two_builds
-cmds/build.rs#L1223  fn cli_build__golden_roundtrip_hbl
-cmds/build.rs#L1244  fn cli_build__metrics_hbl_smoke
-cmds/build.rs#L1265  mod d_detectors
-cmds/build.rs#L1270  static TEST_LOCK
-cmds/build.rs#L1274  fn build_fixture
-cmds/build.rs#L1294  fn build_fixture_or_panic
-cmds/build.rs#L1305  fn build_fixture_with_graph
-cmds/build.rs#L1325  fn has_code
-cmds/build.rs#L1332  fn cli_build__d1_sort_hazard_non_monotonic_pins
-cmds/build.rs#L1364  fn cli_build__d2_floating_placeholder_unbound_lead
-cmds/build.rs#L1382  fn cli_build__d3_merged_short_same_physical_pin
-cmds/build.rs#L1404  fn cli_build__d3_no_fire_for_legit_fanout
-cmds/build.rs#L1445  fn cli_build__d5_same_name_group_redundant_ref_warns
-cmds/build.rs#L1484  fn cli_build__d5_same_name_group_short_ref_warns
-cmds/build.rs#L1519  fn cli_build__d5_same_name_group_single_ref_no_warn
-cmds/build.rs#L1551  fn cli_build__d5_same_name_group_single_side_fan_in_connects_pads
-cmds/build.rs#L1609  fn cli_build__arity_gate_noarg_method_with_args_not_dispatched
-cmds/build.rs#L1668  fn cli_build__d6_dropped_statement_indexed_alias
-cmds/build.rs#L1690  fn cli_build__d7_pullup_degenerate_signal_bridge
-cmds/build.rs#L1724  fn cli_build__d8_array_instance_bracket_reference_relinks
+cmds/build.rs#L236  fn write_delegated_viz
+cmds/build.rs#L275  fn emit_build_result
+cmds/build.rs#L307  fn run_local
+cmds/build.rs#L746  fn build_failure_diag
+cmds/build.rs#L782  fn build_browse_dir
+cmds/build.rs#L1157  fn emit_gate_envelope
+cmds/build.rs#L1163  fn emit_err
+cmds/build.rs#L1172  fn build_viz_opts
+cmds/build.rs#L1190  mod phase0_golden
+cmds/build.rs#L1200  fn hbl_project
+cmds/build.rs#L1210  fn build_graph
+cmds/build.rs#L1231  fn render_signature
+cmds/build.rs#L1240  fn cli_build__determinism_render_twice
+cmds/build.rs#L1260  fn cli_build__determinism_two_builds
+cmds/build.rs#L1275  fn cli_build__golden_roundtrip_hbl
+cmds/build.rs#L1296  fn cli_build__metrics_hbl_smoke
+cmds/build.rs#L1317  mod d_detectors
+cmds/build.rs#L1322  static TEST_LOCK
+cmds/build.rs#L1326  fn build_fixture
+cmds/build.rs#L1346  fn build_fixture_or_panic
+cmds/build.rs#L1357  fn build_fixture_with_graph
+cmds/build.rs#L1377  fn has_code
+cmds/build.rs#L1384  fn cli_build__d1_sort_hazard_non_monotonic_pins
+cmds/build.rs#L1416  fn cli_build__d2_floating_placeholder_unbound_lead
+cmds/build.rs#L1434  fn cli_build__d3_merged_short_same_physical_pin
+cmds/build.rs#L1456  fn cli_build__d3_no_fire_for_legit_fanout
+cmds/build.rs#L1497  fn cli_build__d5_same_name_group_redundant_ref_warns
+cmds/build.rs#L1536  fn cli_build__d5_same_name_group_short_ref_warns
+cmds/build.rs#L1571  fn cli_build__d5_same_name_group_single_ref_no_warn
+cmds/build.rs#L1603  fn cli_build__d5_same_name_group_single_side_fan_in_connects_pads
+cmds/build.rs#L1661  fn cli_build__arity_gate_noarg_method_with_args_not_dispatched
+cmds/build.rs#L1720  fn cli_build__d6_dropped_statement_indexed_alias
+cmds/build.rs#L1742  fn cli_build__d7_pullup_degenerate_signal_bridge
+cmds/build.rs#L1776  fn cli_build__d8_array_instance_bracket_reference_relinks
 cmds/check.rs#L26  struct CheckOutcome
 cmds/check.rs#L34  struct CheckBatch
 cmds/check.rs#L44  fn check_one_world
@@ -2739,27 +2740,27 @@ instant/insttab.rs#L1584  fn net_count
 instant/insttab.rs#L1611  fn backfill_port_decl_pos
 instant/insttab.rs#L1629  fn port_decl_span_of
 instant/insttab.rs#L1637  fn flatten_module
-instant/insttab.rs#L2624  fn flatten_nets
-instant/insttab.rs#L2821  fn resolve_netpoint_path
-instant/insttab.rs#L2857  fn resolve_single_path
-instant/insttab.rs#L2904  fn dump
-instant/insttab.rs#L2991  fn write_known_missing
-instant/insttab.rs#L3040  fn collect_failed_records
-instant/insttab.rs#L3074  fn expand_bracket_list
-instant/insttab.rs#L3105  mod tests
-instant/insttab.rs#L3109  fn mat_insttab__register_and_lookup
-instant/insttab.rs#L3124  fn mat_insttab__no_duplicate_registration
-instant/insttab.rs#L3145  fn mat_insttab__children_of
-instant/insttab.rs#L3181  fn mat_insttab__id_uniqueness
-instant/insttab.rs#L3201  fn mat_insttab__resolve_bus_member_path_fallback
-instant/insttab.rs#L3236  fn mat_insttab__resolve_plain_dot_path_still_works
-instant/insttab.rs#L3266  fn mat_insttab__resolve_top_level_port_no_prefix
-instant/insttab.rs#L3289  fn mat_insttab__resolve_bracket_list_expands
-instant/insttab.rs#L3327  fn mat_insttab__resolve_bracket_partial_miss
-instant/insttab.rs#L3358  fn mat_insttab__resolve_missing_path_returns_empty
-instant/insttab.rs#L3373  fn mat_insttab__expand_bracket_list_syntax
-instant/insttab.rs#L3403  fn mat_insttab__element_class_comes_from_the_definition_spec_table
-instant/insttab.rs#L3405  const SRC
+instant/insttab.rs#L2629  fn flatten_nets
+instant/insttab.rs#L2826  fn resolve_netpoint_path
+instant/insttab.rs#L2862  fn resolve_single_path
+instant/insttab.rs#L2909  fn dump
+instant/insttab.rs#L2996  fn write_known_missing
+instant/insttab.rs#L3045  fn collect_failed_records
+instant/insttab.rs#L3079  fn expand_bracket_list
+instant/insttab.rs#L3110  mod tests
+instant/insttab.rs#L3114  fn mat_insttab__register_and_lookup
+instant/insttab.rs#L3129  fn mat_insttab__no_duplicate_registration
+instant/insttab.rs#L3150  fn mat_insttab__children_of
+instant/insttab.rs#L3186  fn mat_insttab__id_uniqueness
+instant/insttab.rs#L3206  fn mat_insttab__resolve_bus_member_path_fallback
+instant/insttab.rs#L3241  fn mat_insttab__resolve_plain_dot_path_still_works
+instant/insttab.rs#L3271  fn mat_insttab__resolve_top_level_port_no_prefix
+instant/insttab.rs#L3294  fn mat_insttab__resolve_bracket_list_expands
+instant/insttab.rs#L3332  fn mat_insttab__resolve_bracket_partial_miss
+instant/insttab.rs#L3363  fn mat_insttab__resolve_missing_path_returns_empty
+instant/insttab.rs#L3378  fn mat_insttab__expand_bracket_list_syntax
+instant/insttab.rs#L3408  fn mat_insttab__element_class_comes_from_the_definition_spec_table
+instant/insttab.rs#L3410  const SRC
 instant/island.rs#L45  enum NetRole
 instant/island.rs#L60  impl NetRole
 instant/island.rs#L61  fn as_str
@@ -2852,12 +2853,12 @@ instant/mc_comp.rs#L924  fn is_two_port
 instant/mc_comp.rs#L929  fn is_multi_pin
 instant/mc_comp.rs#L937  fn has_io_annotations
 instant/mc_comp.rs#L944  fn pin_count
-instant/mc_comp.rs#L986  fn find_bus_port_pin_ids
-instant/mc_comp.rs#L1234  fn pin_id_cmp
-instant/mc_comp.rs#L1250  fn natural_cmp
-instant/mc_comp.rs#L1291  fn numeric_str_cmp
-instant/mc_comp.rs#L1300  impl std::fmt::Display for McComponentInst
-instant/mc_comp.rs#L1301  fn fmt
+instant/mc_comp.rs#L987  fn find_bus_port_pin_ids
+instant/mc_comp.rs#L1260  fn pin_id_cmp
+instant/mc_comp.rs#L1276  fn natural_cmp
+instant/mc_comp.rs#L1317  fn numeric_str_cmp
+instant/mc_comp.rs#L1326  impl std::fmt::Display for McComponentInst
+instant/mc_comp.rs#L1327  fn fmt
 instant/mc_mod/builder.rs#L71  struct InstantiationBuilder
 instant/mc_mod/builder.rs#L187  impl Deref for InstantiationBuilder
 instant/mc_mod/builder.rs#L188  type Target
@@ -5931,66 +5932,65 @@ semantic/component/mc_pins/mod.rs#L786  fn parse_dynamic_pin_line
 semantic/component/mc_pins/mod.rs#L850  fn is_bus
 semantic/component/mc_pins/mod.rs#L858  fn is_interface
 semantic/component/mc_pins/mod.rs#L866  fn get_bus_members
-semantic/component/mc_pins/mod.rs#L880  fn get_bus_members_for_port
-semantic/component/mc_pins/mod.rs#L925  fn power_pair_member_refs
-semantic/component/mc_pins/mod.rs#L949  fn parse
-semantic/component/mc_pins/mod.rs#L2095  fn parse_pinid
-semantic/component/mc_pins/mod.rs#L2304  enum PinPart
-semantic/component/mc_pins/mod.rs#L2555  fn insert_values
-semantic/component/mc_pins/mod.rs#L2565  fn attach_row_attrs
-semantic/component/mc_pins/mod.rs#L2589  fn group_entry
-semantic/component/mc_pins/mod.rs#L2606  fn note_group_member
-semantic/component/mc_pins/mod.rs#L2617  fn register_pin
-semantic/component/mc_pins/mod.rs#L2720  fn merge_into_base
-semantic/component/mc_pins/mod.rs#L2753  fn extract_common_base
-semantic/component/mc_pins/mod.rs#L2770  fn find_pin
-semantic/component/mc_pins/mod.rs#L2787  fn addressable_members
-semantic/component/mc_pins/mod.rs#L2808  fn register_member_id_alias
-semantic/component/mc_pins/mod.rs#L2828  fn iface_member_pin_id
-semantic/component/mc_pins/mod.rs#L2850  fn pin_of_ref
-semantic/component/mc_pins/mod.rs#L2860  fn get_all_pins
-semantic/component/mc_pins/mod.rs#L2864  fn count
-semantic/component/mc_pins/mod.rs#L2868  fn get_pins_by_io
-semantic/component/mc_pins/mod.rs#L2897  fn get_pin_io
-semantic/component/mc_pins/mod.rs#L2906  fn build_interface_param_bindings
-semantic/component/mc_pins/mod.rs#L2944  fn leading_ident_span
-semantic/component/mc_pins/mod.rs#L2982  impl std::fmt::Display for McPins
-semantic/component/mc_pins/mod.rs#L2983  fn fmt
-semantic/component/mc_pins/mod.rs#L3118  struct McPinNames
-semantic/component/mc_pins/mod.rs#L3136  impl McPinNames
-semantic/component/mc_pins/mod.rs#L3141  fn push_option
-semantic/component/mc_pins/mod.rs#L3148  fn push_option_with_span
-semantic/component/mc_pins/mod.rs#L3159  fn has_param_ref
-semantic/component/mc_pins/mod.rs#L3178  fn new
-semantic/component/mc_pins/mod.rs#L3188  fn new_power_row
-semantic/component/mc_pins/mod.rs#L3192  fn new_inner
-semantic/component/mc_pins/mod.rs#L4102  fn derive_interface_subnames
-semantic/component/mc_pins/mod.rs#L4143  mod subname_tests
-semantic/component/mc_pins/mod.rs#L4149  fn ida
-semantic/component/mc_pins/mod.rs#L4156  fn bus_ids
-semantic/component/mc_pins/mod.rs#L4173  fn list_ids
-semantic/component/mc_pins/mod.rs#L4188  fn plain_ids
-semantic/component/mc_pins/mod.rs#L4200  fn sem_mcpins__bus_form_xtal_regression
-semantic/component/mc_pins/mod.rs#L4209  fn sem_mcpins__bus_form_dc2
-semantic/component/mc_pins/mod.rs#L4218  fn sem_mcpins__list_form_no_prefix
-semantic/component/mc_pins/mod.rs#L4227  fn sem_mcpins__plain_form_crosses_with_iface_pins
-semantic/component/mc_pins/mod.rs#L4236  fn sem_mcpins__plain_form_empty_iface_pins
-semantic/component/mc_pins/mod.rs#L4245  fn sem_mcpins__embedded_square_gpio_interface
-semantic/component/mc_pins/mod.rs#L4255  mod pwr_capture_tests
-semantic/component/mc_pins/mod.rs#L4262  fn parse_component_pins
-semantic/component/mc_pins/mod.rs#L4279  const LDO
-semantic/component/mc_pins/mod.rs#L4292  fn captures_psnk_sink_pair_with_nominal
-semantic/component/mc_pins/mod.rs#L4311  fn captures_psrc_source_with_tol_text
-semantic/component/mc_pins/mod.rs#L4329  fn plain_power_and_signal_pins_are_not_contracts
-semantic/component/mc_pins/mod.rs#L4330  const SRC
-semantic/component/mc_pins/mod.rs#L4358  fn captures_ac_row_beside_the_dc_axis
-semantic/component/mc_pins/mod.rs#L4359  const SRC
-semantic/component/mc_pins/mod.rs#L4391  fn generic_io_row_identity_attrs_carry_to_pins
+semantic/component/mc_pins/mod.rs#L884  fn power_pair_member_refs
+semantic/component/mc_pins/mod.rs#L908  fn parse
+semantic/component/mc_pins/mod.rs#L2054  fn parse_pinid
+semantic/component/mc_pins/mod.rs#L2263  enum PinPart
+semantic/component/mc_pins/mod.rs#L2514  fn insert_values
+semantic/component/mc_pins/mod.rs#L2524  fn attach_row_attrs
+semantic/component/mc_pins/mod.rs#L2548  fn group_entry
+semantic/component/mc_pins/mod.rs#L2565  fn note_group_member
+semantic/component/mc_pins/mod.rs#L2576  fn register_pin
+semantic/component/mc_pins/mod.rs#L2679  fn merge_into_base
+semantic/component/mc_pins/mod.rs#L2712  fn extract_common_base
+semantic/component/mc_pins/mod.rs#L2729  fn find_pin
+semantic/component/mc_pins/mod.rs#L2746  fn addressable_members
+semantic/component/mc_pins/mod.rs#L2767  fn register_member_id_alias
+semantic/component/mc_pins/mod.rs#L2787  fn iface_member_pin_id
+semantic/component/mc_pins/mod.rs#L2809  fn pin_of_ref
+semantic/component/mc_pins/mod.rs#L2819  fn get_all_pins
+semantic/component/mc_pins/mod.rs#L2823  fn count
+semantic/component/mc_pins/mod.rs#L2827  fn get_pins_by_io
+semantic/component/mc_pins/mod.rs#L2856  fn get_pin_io
+semantic/component/mc_pins/mod.rs#L2865  fn build_interface_param_bindings
+semantic/component/mc_pins/mod.rs#L2903  fn leading_ident_span
+semantic/component/mc_pins/mod.rs#L2941  impl std::fmt::Display for McPins
+semantic/component/mc_pins/mod.rs#L2942  fn fmt
+semantic/component/mc_pins/mod.rs#L3077  struct McPinNames
+semantic/component/mc_pins/mod.rs#L3095  impl McPinNames
+semantic/component/mc_pins/mod.rs#L3100  fn push_option
+semantic/component/mc_pins/mod.rs#L3107  fn push_option_with_span
+semantic/component/mc_pins/mod.rs#L3118  fn has_param_ref
+semantic/component/mc_pins/mod.rs#L3137  fn new
+semantic/component/mc_pins/mod.rs#L3147  fn new_power_row
+semantic/component/mc_pins/mod.rs#L3151  fn new_inner
+semantic/component/mc_pins/mod.rs#L4061  fn derive_interface_subnames
+semantic/component/mc_pins/mod.rs#L4102  mod subname_tests
+semantic/component/mc_pins/mod.rs#L4108  fn ida
+semantic/component/mc_pins/mod.rs#L4115  fn bus_ids
+semantic/component/mc_pins/mod.rs#L4132  fn list_ids
+semantic/component/mc_pins/mod.rs#L4147  fn plain_ids
+semantic/component/mc_pins/mod.rs#L4159  fn sem_mcpins__bus_form_xtal_regression
+semantic/component/mc_pins/mod.rs#L4168  fn sem_mcpins__bus_form_dc2
+semantic/component/mc_pins/mod.rs#L4177  fn sem_mcpins__list_form_no_prefix
+semantic/component/mc_pins/mod.rs#L4186  fn sem_mcpins__plain_form_crosses_with_iface_pins
+semantic/component/mc_pins/mod.rs#L4195  fn sem_mcpins__plain_form_empty_iface_pins
+semantic/component/mc_pins/mod.rs#L4204  fn sem_mcpins__embedded_square_gpio_interface
+semantic/component/mc_pins/mod.rs#L4214  mod pwr_capture_tests
+semantic/component/mc_pins/mod.rs#L4221  fn parse_component_pins
+semantic/component/mc_pins/mod.rs#L4238  const LDO
+semantic/component/mc_pins/mod.rs#L4251  fn captures_psnk_sink_pair_with_nominal
+semantic/component/mc_pins/mod.rs#L4270  fn captures_psrc_source_with_tol_text
+semantic/component/mc_pins/mod.rs#L4288  fn plain_power_and_signal_pins_are_not_contracts
+semantic/component/mc_pins/mod.rs#L4289  const SRC
+semantic/component/mc_pins/mod.rs#L4317  fn captures_ac_row_beside_the_dc_axis
+semantic/component/mc_pins/mod.rs#L4318  const SRC
+semantic/component/mc_pins/mod.rs#L4350  fn generic_io_row_identity_attrs_carry_to_pins
+semantic/component/mc_pins/mod.rs#L4351  const SRC
+semantic/component/mc_pins/mod.rs#L4391  fn row_attrs_merge_into_reused_pin_without_duplicate_keys
 semantic/component/mc_pins/mod.rs#L4392  const SRC
-semantic/component/mc_pins/mod.rs#L4432  fn row_attrs_merge_into_reused_pin_without_duplicate_keys
-semantic/component/mc_pins/mod.rs#L4433  const SRC
-semantic/component/mc_pins/mod.rs#L4457  fn dynamic_pin_row_identity_attrs_carry_on_the_line
-semantic/component/mc_pins/mod.rs#L4458  const SRC
+semantic/component/mc_pins/mod.rs#L4416  fn dynamic_pin_row_identity_attrs_carry_on_the_line
+semantic/component/mc_pins/mod.rs#L4417  const SRC
 semantic/component/mod.rs#L5  mod mc_attr
 semantic/component/mod.rs#L6  mod mc_attr_view
 semantic/component/mod.rs#L7  mod mc_layout
@@ -6237,11 +6237,10 @@ semantic/mc_ifs.rs#L439  fn args_are_literals
 semantic/mc_ifs.rs#L448  fn parse_pins_from_block
 semantic/mc_ifs.rs#L474  fn pin_count
 semantic/mc_ifs.rs#L479  fn base_name
-semantic/mc_ifs.rs#L484  fn get_all_pin_ids
-semantic/mc_ifs.rs#L493  fn merge_with
-semantic/mc_ifs.rs#L546  fn merge_pins_with
-semantic/mc_ifs.rs#L572  impl std::fmt::Debug for Mc2Interface
-semantic/mc_ifs.rs#L573  fn fmt
+semantic/mc_ifs.rs#L485  fn merge_with
+semantic/mc_ifs.rs#L538  fn merge_pins_with
+semantic/mc_ifs.rs#L564  impl std::fmt::Debug for Mc2Interface
+semantic/mc_ifs.rs#L565  fn fmt
 semantic/mc_inst.rs#L40  fn collect_ctor_params
 semantic/mc_inst.rs#L65  struct McInst
 semantic/mc_inst.rs#L72  enum LabelKind
@@ -6958,8 +6957,8 @@ semantic/validation/iface_role_arg.rs#L32  fn name
 semantic/validation/iface_role_arg.rs#L35  fn phase
 semantic/validation/iface_role_arg.rs#L38  fn default_severity
 semantic/validation/iface_role_arg.rs#L42  fn run_post_parse
-semantic/validation/iface_role_arg.rs#L50  fn role_bearing_ifaces
-semantic/validation/iface_role_arg.rs#L63  fn check_iface_role_arg_literal
+semantic/validation/iface_role_arg.rs#L53  fn role_bearing_ifaces
+semantic/validation/iface_role_arg.rs#L66  fn check_iface_role_arg_literal
 semantic/validation/imports.rs#L17  struct ImportsCheck
 semantic/validation/imports.rs#L19  impl ValidationCheck for ImportsCheck
 semantic/validation/imports.rs#L20  fn name
@@ -6988,10 +6987,10 @@ semantic/validation/interface.rs#L25  fn default_severity
 semantic/validation/interface.rs#L29  fn run_post_parse
 semantic/validation/interface.rs#L43  fn check_iface_pin_completeness
 semantic/validation/interface.rs#L136  fn check_iface_role_exists
-semantic/validation/interface.rs#L237  fn check_module_port_role_free
-semantic/validation/interface.rs#L283  fn check_deprecated_cmie_usage
-semantic/validation/interface.rs#L396  fn has_deprecated_attr
-semantic/validation/interface.rs#L415  fn check_iface_view_lane_match
+semantic/validation/interface.rs#L245  fn check_module_port_role_free
+semantic/validation/interface.rs#L291  fn check_deprecated_cmie_usage
+semantic/validation/interface.rs#L404  fn has_deprecated_attr
+semantic/validation/interface.rs#L423  fn check_iface_view_lane_match
 semantic/validation/ledger.rs#L36  enum LedgerKind
 semantic/validation/ledger.rs#L52  impl LedgerKind
 semantic/validation/ledger.rs#L53  fn as_str
@@ -10511,21 +10510,24 @@ viz/semantic/mod.rs#L1375  fn submodule_io_net_role_is_module_io
 viz/semantic/mod.rs#L1389  fn isolated_net_role
 viz/sourcelink.rs#L51  type FileCache
 viz/sourcelink.rs#L61  fn wrap_standalone
-viz/sourcelink.rs#L71  fn stamp_vscode_links
-viz/sourcelink.rs#L86  const URI_ATTR
-viz/sourcelink.rs#L87  const OFF_ATTR
-viz/sourcelink.rs#L89  fn linkify
-viz/sourcelink.rs#L134  fn vscode_link
-viz/sourcelink.rs#L180  fn percent_encode_path
-viz/sourcelink.rs#L196  fn unescape_attr
-viz/sourcelink.rs#L203  fn escape_attr
-viz/sourcelink.rs#L213  mod tests
-viz/sourcelink.rs#L216  fn tmpdir
-viz/sourcelink.rs#L237  fn link_carries_line_and_utf16_column
-viz/sourcelink.rs#L257  fn stamping_adds_the_link_and_leaves_the_offset_alone
-viz/sourcelink.rs#L277  fn unreadable_uri_gets_no_link
-viz/sourcelink.rs#L295  fn offset_past_eof_clamps_and_relative_uris_resolve
-viz/sourcelink.rs#L312  fn unrelated_svg_is_untouched
+viz/sourcelink.rs#L74  fn stamp_wrapped
+viz/sourcelink.rs#L83  fn stamp_vscode_links
+viz/sourcelink.rs#L98  const URI_ATTR
+viz/sourcelink.rs#L99  const OFF_ATTR
+viz/sourcelink.rs#L101  fn linkify
+viz/sourcelink.rs#L146  fn vscode_link
+viz/sourcelink.rs#L192  fn percent_encode_path
+viz/sourcelink.rs#L208  fn unescape_attr
+viz/sourcelink.rs#L215  fn escape_attr
+viz/sourcelink.rs#L225  mod tests
+viz/sourcelink.rs#L228  fn tmpdir
+viz/sourcelink.rs#L249  fn link_carries_line_and_utf16_column
+viz/sourcelink.rs#L269  fn stamping_adds_the_link_and_leaves_the_offset_alone
+viz/sourcelink.rs#L289  fn unreadable_uri_gets_no_link
+viz/sourcelink.rs#L307  fn offset_past_eof_clamps_and_relative_uris_resolve
+viz/sourcelink.rs#L324  fn unrelated_svg_is_untouched
+viz/sourcelink.rs#L335  fn stamp_wrapped_stamps_a_wrapped_document
+viz/sourcelink.rs#L360  fn stamp_wrapped_without_pairs_is_untouched
 viz/special/mod.rs#L26  struct PowerGroundBusModel
 viz/special/mod.rs#L40  struct SpecialEndpointKey
 viz/special/mod.rs#L49  struct PowerGroundNetIntent
@@ -10745,4 +10747,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-398 files, 10665 declarations.
+398 files, 10667 declarations.
