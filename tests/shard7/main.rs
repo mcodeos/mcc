@@ -51,6 +51,7 @@ mod u131_named_func_args;
 mod u138_iface_return_face;
 mod u141_parsed_pins_boundary;
 mod u54_parameter_default;
+mod ghost_port_boundary;
 mod vec_group_expansion_equivalence;
 mod vec_lane_chain_width;
 mod vec_net_crossnet;

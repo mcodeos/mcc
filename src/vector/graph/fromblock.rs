@@ -1389,6 +1389,35 @@ fn build_mc_vec_graph_inner(
 /// ## ★ P01 (S2) Changes
 /// Endpoints fetched from InstTable, IOType translated to `IoDirection`, numeric pin number
 /// extracted from pin name, filled in one go with `EndpointRef::full(...)`.
+/// Whether `pid`'s entry chain reaches a port declared by the block being
+/// drawn (`bid`). Such an endpoint is the layer's own boundary: module-port
+/// drawing paints it on the dashed frame (`viz::layout::module_frame`), never
+/// in a box, so `make_endpoint` returning `None` for it is by design and
+/// GHOST_PORT's premise ("crosses a boundary without being exposed as a
+/// port") is false by construction. Members of the port group — written
+/// (`MIC.P`), interface-adopted anonymous (`SPI._(1)`), or role-resolved
+/// (`UART0.RX`) — reach their port through Bus/Label/Pin children; a
+/// usage-born label has no Port ancestor and stays reported (D4b keeps
+/// serving it).
+fn is_own_boundary_port(table: &InstTable, bid: i64, pid: i64) -> bool {
+    if pid < 0 {
+        return false;
+    }
+    let mut cur = match table.get_entry(pid as u32) {
+        Some(e) => e,
+        None => return false,
+    };
+    loop {
+        if cur.kind == InstKind::Port {
+            return cur.parent_id == Some(bid as u32);
+        }
+        match cur.parent_id.and_then(|p| table.get_entry(p)) {
+            Some(parent) => cur = parent,
+            None => return false,
+        }
+    }
+}
+
 fn generate_viznets_from_block(
     block: &McVecBlock,
     point_to_box: &HashMap<u32, u32>,
@@ -1749,7 +1778,7 @@ fn generate_viznets_from_block(
         for pid in net.all_point_ids() {
             if let Some(e) = make_endpoint(pid) {
                 endpoints.push(e);
-            } else if pid >= 0 {
+            } else if pid >= 0 && !is_own_boundary_port(table, block.bid, pid) {
                 // D4: GHOST_PORT detection
                 // Fire when a net endpoint can't be mapped to any box in the
                 // current layer. This includes placeholder pins (id ≥ 8e9) and

@@ -49,6 +49,7 @@ range (threshold 40KB).
 | `instant/mc_mod/points.rs` | 117 KB | 20 |
 | `semantic/basic/mc_fcall.rs` | 114 KB | 22 |
 | `semantic/module/mod.rs` | 114 KB | 80 |
+| `vector/graph/fromblock.rs` | 100 KB | 35 |
 
 ## Modules
 
@@ -72,7 +73,7 @@ range (threshold 40KB).
 | `rpc/` | 16 | 293 KB |
 | `semantic/` | 89 | 2591 KB |
 | `stages/` | 11 | 296 KB |
-| `vector/` | 25 | 462 KB |
+| `vector/` | 25 | 463 KB |
 | `viz/` | 95 | 2292 KB |
 
 ## Declaration index
@@ -7936,19 +7937,20 @@ vector/graph/fromblock.rs#L758  fn backfill_children_recursive
 vector/graph/fromblock.rs#L765  const MAX_DEPTH
 vector/graph/fromblock.rs#L999  const MAX_HOPS
 vector/graph/fromblock.rs#L1104  const MAX_HOPS_E1
-vector/graph/fromblock.rs#L1392  fn generate_viznets_from_block
-vector/graph/fromblock.rs#L1426  fn bus_width_from_shape
-vector/graph/fromblock.rs#L1454  fn is_real_bus
-vector/graph/fromblock.rs#L1943  fn probe_node_conservation
-vector/graph/fromblock.rs#L1965  fn build_point_to_box
-vector/graph/fromblock.rs#L2006  fn map_all_descendants
-vector/graph/fromblock.rs#L2047  fn layout_post_adjust_borders
-vector/graph/fromblock.rs#L2099  mod tests
-vector/graph/fromblock.rs#L2104  fn pos
-vector/graph/fromblock.rs#L2108  fn pin_entry
-vector/graph/fromblock.rs#L2147  fn g16_pin_src_span_prefers_wiring_site_over_decl_site
-vector/graph/fromblock.rs#L2155  fn g16_pin_src_span_falls_back_to_decl_site_when_unwired
-vector/graph/fromblock.rs#L2163  fn g16_placeholder_pins_carry_no_src_span
+vector/graph/fromblock.rs#L1402  fn is_own_boundary_port
+vector/graph/fromblock.rs#L1421  fn generate_viznets_from_block
+vector/graph/fromblock.rs#L1455  fn bus_width_from_shape
+vector/graph/fromblock.rs#L1483  fn is_real_bus
+vector/graph/fromblock.rs#L1972  fn probe_node_conservation
+vector/graph/fromblock.rs#L1994  fn build_point_to_box
+vector/graph/fromblock.rs#L2035  fn map_all_descendants
+vector/graph/fromblock.rs#L2076  fn layout_post_adjust_borders
+vector/graph/fromblock.rs#L2128  mod tests
+vector/graph/fromblock.rs#L2133  fn pos
+vector/graph/fromblock.rs#L2137  fn pin_entry
+vector/graph/fromblock.rs#L2176  fn g16_pin_src_span_prefers_wiring_site_over_decl_site
+vector/graph/fromblock.rs#L2184  fn g16_pin_src_span_falls_back_to_decl_site_when_unwired
+vector/graph/fromblock.rs#L2192  fn g16_placeholder_pins_carry_no_src_span
 vector/graph/graphdef.rs#L25  struct McVecGraph
 vector/graph/graphdef.rs#L106  enum LayerStyle
 vector/graph/graphdef.rs#L113  enum GeomStage
@@ -10749,4 +10751,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-398 files, 10669 declarations.
+398 files, 10670 declarations.
