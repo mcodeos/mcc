@@ -185,27 +185,14 @@ fn resolve_project_root(args: &BuildArgs) -> PathBuf {
     }
 }
 
-/// Outlet for the viz artifact: `-o` when given, else
-/// `<project_root>/build/circuit.html` — a file product lives under the
-/// project's `build/` (build-design §3.4), never loose in the project root.
-/// The caller creates the parent directory, like the `--product` writer does.
+/// Outlet for the viz artifact: `-o` when given, else the shared
+/// `cli::outlet` law — `<project_root>/build/circuit.html` (build-design
+/// §3.4), never loose in the project root.
 fn viz_output_path(project_root: &Path) -> PathBuf {
     match mcc::cli::globals().output.as_deref() {
         Some(p) => PathBuf::from(p),
-        None => project_root.join("build").join("circuit.html"),
+        None => mcc::cli::outlet::intermediate(project_root, "circuit.html"),
     }
-}
-
-/// Create the parent directory of a viz outlet, so the `build/` default
-/// materializes on first write and `-o` into a fresh directory works too.
-fn ensure_viz_parent(output_path: &Path) -> Result<()> {
-    if let Some(parent) = output_path.parent() {
-        if !parent.as_os_str().is_empty() {
-            std::fs::create_dir_all(parent)
-                .with_context(|| format!("create {}", parent.display()))?;
-        }
-    }
-    Ok(())
 }
 
 fn run_rpc(c: &RpcClient, args: &BuildArgs) -> Result<BuildOutcome> {
@@ -277,7 +264,7 @@ fn write_delegated_viz(
         .ok_or_else(|| anyhow::anyhow!("viz: server returned no html"))?;
 
     let output_path = viz_output_path(&resolve_project_root(args));
-    ensure_viz_parent(&output_path)?;
+    mcc::cli::outlet::ensure_parent(&output_path)?;
     std::fs::write(&output_path, html)
         .with_context(|| format!("failed to write file: {}", output_path.display()))?;
     eprintln!("viz: {} bytes written to {}", html.len(), output_path.display());
@@ -588,7 +575,7 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
             let html = mcc::viz::sourcelink::wrap_standalone(&mut doc, &project_root);
 
             let output_path = viz_output_path(&project_root);
-            ensure_viz_parent(&output_path)?;
+            mcc::cli::outlet::ensure_parent(&output_path)?;
             std::fs::write(&output_path, &html)
                 .with_context(|| format!("failed to write file: {}", output_path.display()))?;
             eprintln!("viz: {} bytes written to {}", html.len(), output_path.display());
@@ -666,7 +653,11 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
                 mcc_dbg!("build", "{line}");
             }
 
-            // [P0-DET] CLI golden guard: compare against baseline when MCC_GOLDEN_CHECK is set
+            // [P0-DET] CLI golden guard: compare against baseline when MCC_GOLDEN_CHECK is set.
+            // The one deliberate exception to `cli::outlet`: this golden is the
+            // mcc checkout's own `tests/golden/` fixture — infra of the repo,
+            // not a project intermediate — and its read and write must hit one
+            // path, so it stays anchored where the checkout anchors it.
             if std::env::var("MCC_GOLDEN_CHECK").is_ok() {
                 let sig = doc.to_json();
                 let gp = std::path::PathBuf::from("tests/golden/hbl.golden.json");
@@ -698,7 +689,7 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
             let html = mcc::viz::sourcelink::wrap_standalone(&mut doc, &project_root);
 
             let output_path = viz_output_path(&project_root);
-            ensure_viz_parent(&output_path)?;
+            mcc::cli::outlet::ensure_parent(&output_path)?;
             std::fs::write(&output_path, &html)
                 .with_context(|| format!("failed to write file: {}", output_path.display()))?;
             eprintln!("viz: {} bytes written to {}", html.len(), output_path.display());
@@ -1134,7 +1125,7 @@ fn build_browse_dir(
         doc.add_layer(layer);
         let html = mcc::viz::sourcelink::wrap_standalone(&mut doc, root);
         let output_path = viz_output_path(root);
-        ensure_viz_parent(&output_path)?;
+        mcc::cli::outlet::ensure_parent(&output_path)?;
         std::fs::write(&output_path, &html)
             .with_context(|| format!("failed to write file: {}", output_path.display()))?;
         eprintln!("viz: {} bytes written to {}", html.len(), output_path.display());

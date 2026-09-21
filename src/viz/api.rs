@@ -186,7 +186,9 @@ pub fn renderdiff_report(
     metrics: &crate::viz::metrics::MetricsAccumulator,
 ) -> Option<Vec<crate::viz::metrics::renderdiff::LayerDiff>> {
     let path = std::env::var("MC_RENDER_GOLDEN").unwrap_or_else(|_| {
-        std::path::PathBuf::from("build/baseline/render_golden.toml")
+        // Default arm of the shared `cli::outlet` law: the golden lives under
+        // the project's `build/`, anchored to the cwd's project.
+        crate::cli::outlet::intermediate(std::path::Path::new("."), "baseline/render_golden.toml")
             .to_string_lossy()
             .into_owned()
     });

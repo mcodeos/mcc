@@ -10,6 +10,7 @@
 pub mod config;
 pub mod datadir;
 pub mod manifest;
+pub mod outlet;
 pub mod rpcclient;
 pub mod servercfg;
 use clap::{Parser, Subcommand, ValueEnum};

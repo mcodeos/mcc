@@ -24,6 +24,10 @@
 //! Built-in and 3rd-party libs share the same flat namespace — `@version`
 //! suffix naturally separates the two (mcode has no version suffix;
 //! 3rd-party libs always carry one).
+//!
+//! This root holds the **installation's** files. Files a command *generates
+//! for a project* (viz html, products, audits) belong to the project's
+//! `build/` instead — see [`crate::cli::outlet`] for that law.
 
 use std::path::{Path, PathBuf};
 use tracing::debug;

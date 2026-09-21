@@ -82,11 +82,13 @@ impl ProjectionLog {
                 r.rule, r.layer, r.net, r.endpoint, r.note
             ));
         }
-        let path = std::path::Path::new("build/baseline/render_projection.md");
-        if let Some(dir) = path.parent() {
-            let _ = std::fs::create_dir_all(dir);
-        }
-        let _ = std::fs::write(path, md);
+        let path = crate::cli::outlet::intermediate(
+            std::path::Path::new("."),
+            "baseline/render_projection.md",
+        );
+        // The audit is a side effect of projecting, never the command's
+        // answer — a failed write is degraded to a debug log, not an error.
+        let _ = crate::cli::outlet::write(&path, md.as_bytes());
     }
 }
 
