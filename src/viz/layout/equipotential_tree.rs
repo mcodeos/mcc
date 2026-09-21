@@ -4230,22 +4230,24 @@ fn resolve_columns_for_side(graph: &mut McVecGraph, topos: &[NetTopology], layer
             // The outward-most origin is the only x that satisfies both.
             let mut anchor_pin_x = base_x;
             if let Some(p) = &partner {
-                // ★ M15.8: only push a shared member outward when both nets sit
-                // on the SAME component. `mic`'s bridge cap `C1` joins `MIC.N`
-                // (anchored on `mic`) to `MIC.P` (anchored on `wm7121`): the
-                // partner origin is the OTHER component's pin, and pushing the
-                // bridge there tucks it under that box — dragging `MIC.N`'s
-                // trunk underneath `wm7121` so the picture reads as if `mic.2`
-                // reached `wm7121.2`. A cross-component bridge belongs in the
-                // gap, anchored at its own net's pin.
-                if topos
-                    .get(p.topo_idx)
-                    .is_some_and(|o| o.anchor == topo.anchor)
-                {
-                    if let Some(&po) = topos.get(p.topo_idx).and_then(|o| origins.get(&o.nid)) {
-                        if (po - anchor_pin_x) * outward > 0.0 {
-                            anchor_pin_x = po;
-                        }
+                // ★ M15.8: a shared member takes the OUTWARD-MOST of its two
+                // nets' origins, provided the target is CLEAR. The FB divider
+                // (hbl POWER_DCDC) needs this: the FB net claims `_R2`/`_C5`
+                // first and packs them west of the Series joint `_L1`, so the
+                // `VCC_1V2` trunk has to fold back over `_L1` onto the LX lane
+                // and the carve then leaves a floating tooth. The old
+                // same-anchor guard was a proxy — `VCC_1V2`'s topo anchor is a
+                // two-pin passive picked by `select_anchor_deterministic`'s id
+                // tiebreak, so the isomorphic shape went unsaved. M18's
+                // `blocked` set states the real rule: refuse the push when the
+                // target sits inside a foreign body's interval on this row.
+                // `mic`'s `C1` fails exactly there (the partner origin is the
+                // other component's pin) and stays in the gap.
+                if let Some(&po) = topos.get(p.topo_idx).and_then(|o| origins.get(&o.nid)) {
+                    if (po - anchor_pin_x) * outward > 0.0
+                        && !blocked.iter().any(|&(blo, bhi)| po > blo && po < bhi)
+                    {
+                        anchor_pin_x = po;
                     }
                 }
             }
