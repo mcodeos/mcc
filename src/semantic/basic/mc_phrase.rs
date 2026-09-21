@@ -312,6 +312,15 @@ impl McPhrase {
 
     fn expand_group(phrase: McPhrase) -> Option<Vec<McPhrase>> {
         match phrase {
+            // A one-element group is pure parenthesization — the same
+            // see-through the chain operand face already gives it — so the
+            // walk descends into what it wraps: `(A -> B -> (C, D))` written
+            // with the outer parens (to keep a continued line off a leading
+            // operator) expands exactly like the bare series.
+            McPhrase::Group(mut g) if g.opds.len() == 1 => {
+                // The guard just matched one element, so the pop cannot miss.
+                Self::expand_group(g.opds.pop().expect("one-element group has an element"))
+            }
             // A multi-statement group is a statement list: each branch stands alone.
             McPhrase::Group(g) if g.opds.len() > 1 => {
                 let mut out = Vec::new();

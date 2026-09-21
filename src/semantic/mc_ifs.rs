@@ -436,8 +436,20 @@ impl Mc2Interface {
     /// received parameter unreduced, so a condition over it is undecided — the
     /// value may still arrive from the instance or the spec — and must not be
     /// reported as an operator error.
+    ///
+    /// A **window** literal (`::DC(2.5V~5.5V)`, `5V±5%`) is decided as to its
+    /// endpoints but undecided as to any single compare over it: the value
+    /// layer keeps window forms undecoded by design (doc/eval), so `volt ==
+    /// 1.2V` against a window has no truth value — the argument is the
+    /// consumer's honest input-range declaration, not an operator error, and
+    /// branch selection falls through to the interface's `else` exactly as a
+    /// scalar outside every tested class does.
     fn args_are_literals(params: &[McParamValue], arity: usize) -> bool {
-        params.len() == arity && params.iter().all(McParamValue::is_literal)
+        params.len() == arity
+            && params.iter().all(|p| {
+                p.is_literal()
+                    && !matches!(p, McParamValue::UValue(uv) if uv.is_range_or_plusminus())
+            })
     }
 
     /// Parse an interface body's pin block. `uri` is the file that owns the
