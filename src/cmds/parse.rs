@@ -216,8 +216,10 @@ pub fn run(args: &ParseArgs) -> Result<()> {
                 nodes.push(match cmie {
                     McCMIE::Module(m) => {
                         let mut children = Vec::with_capacity(m.stmts.len());
-                        for stmt in m.stmts.iter() {
-                            children.push(phrase_to_tree_json(stmt, args.depth, 0));
+                        for (stmt, span) in m.stmts.iter().zip(m.stmt_spans.iter()) {
+                            let mut tree = phrase_to_tree_json(stmt, args.depth, 0);
+                            tree["span"] = json!({"start": span.start, "end": span.end});
+                            children.push(tree);
                         }
                         json!({
                             "kind": "module",
@@ -260,8 +262,10 @@ pub fn run(args: &ParseArgs) -> Result<()> {
                     mcc::get_def(&ident, &McURI::from(cmie_uri.as_str()))
                 {
                     let mut children = Vec::with_capacity(m.stmts.len());
-                    for stmt in m.stmts.iter() {
-                        children.push(phrase_to_tree_json(stmt, args.depth, 0));
+                    for (stmt, span) in m.stmts.iter().zip(m.stmt_spans.iter()) {
+                        let mut tree = phrase_to_tree_json(stmt, args.depth, 0);
+                        tree["span"] = json!({"start": span.start, "end": span.end});
+                        children.push(tree);
                     }
                     nodes.push(json!({
                         "kind": "module",
