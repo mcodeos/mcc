@@ -1511,6 +1511,15 @@ fn two_pin_member_boxes(
 /// component. Both must touch the layer anchor and be side (non-Ground) nets —
 /// a cap to ground is a Drop, not a coupling.
 ///
+/// ★ U162-1 probe verdict (2026-09-21): relaxing the anchor-touch requirement
+/// was PROBED and withdrawn. The relaxed channel forms 10 new pairs on hbl and
+/// reaches the crystal loop (`_net12~0` ~ `_net14~0`), but Pass 1.5 only rules
+/// W/E REGION — it cannot orient the chain segments the signal-flow metric
+/// flags. Measured result: X6 regressed (monotonic 1/3 → 0/3, `io_vdd.GND`
+/// dragged into NONLTR by the new coupling) and the other 13 NONLTR entries
+/// did not move. The work order needs M19's underdetermined-orientation
+/// fallback to consume netlist coupling, not a wider Pass 1.5.
+///
 /// Pure topology: reads group box ids and pin COUNTS, never a rect (A2).
 pub(crate) fn coupled_net_pairs(
     graph: &McVecGraph,
