@@ -206,18 +206,64 @@ fn run_rpc(c: &RpcClient, args: &BuildArgs) -> Result<BuildOutcome> {
         json!({
             "entry": entry_abs.to_string_lossy(),
             "top": mcc::cli::globals().top,
-            "libs": libs,
+            "libs": libs.clone(),
             "include_system": args.include_system,
         }),
     ) {
-        Ok(result) => Ok(BuildOutcome {
-            exit_code: emit_build_result(result)?,
-        }),
+        Ok(result) => {
+            let exit_code = emit_build_result(result, args.viz)?;
+            if args.viz {
+                write_delegated_viz(c, &entry_abs, &libs, args)?;
+            }
+            Ok(BuildOutcome { exit_code })
+        }
         Err(e) => {
             tracing::debug!(target: "mcc::build", "RPC failed, using local: {}", e);
             run_local(args)
         }
     }
+}
+
+/// Delegated viz: the local face renders and writes the HTML itself, so the
+/// RPC face asks the server's `build.viz` for the same artifact and leaves the
+/// same file (and the same stderr line) behind — the output-parity contract.
+///
+/// The server returns its HTML through `wrap_document` (the webview wrapper,
+/// see `handle_build_viz`), while the local face writes through
+/// `wrap_standalone`. A `circuit.html` on disk must carry the vscode source
+/// links whichever face wrote it, so the wrapped string is stamped here
+/// rather than re-wrapped — the document itself lives on the server.
+fn write_delegated_viz(
+    c: &RpcClient,
+    entry_abs: &Path,
+    libs: &[String],
+    args: &BuildArgs,
+) -> Result<()> {
+    let result = c
+        .call(
+            "build.viz",
+            json!({
+                "entry": entry_abs.to_string_lossy(),
+                "top": mcc::cli::globals().top,
+                "libs": libs,
+                "layouter": args.layouter,
+            }),
+        )
+        .map_err(|e| anyhow::anyhow!("viz: server render failed: {e}"))?;
+    let html = result
+        .get("html")
+        .and_then(|h| h.as_str())
+        .ok_or_else(|| anyhow::anyhow!("viz: server returned no html"))?;
+    let html = mcc::viz::sourcelink::stamp_wrapped(html, &resolve_project_root(args));
+
+    let output_path = mcc::cli::globals()
+        .output
+        .as_deref()
+        .unwrap_or("circuit.html");
+    std::fs::write(output_path, &html)
+        .with_context(|| format!("failed to write file: {}", output_path))?;
+    eprintln!("viz: {} bytes written to {}", html.len(), output_path);
+    Ok(())
 }
 
 /// Render an RPC `build.full` result exactly like the local path, per `--format`.
@@ -226,9 +272,15 @@ fn run_rpc(c: &RpcClient, args: &BuildArgs) -> Result<BuildOutcome> {
 /// process-local truth here, so they are realigned to what a local build would
 /// emit (matching the design contract that output matches the local path). Exit code follows
 /// the summary's error count.
-fn emit_build_result(result: serde_json::Value) -> Result<i32> {
+fn emit_build_result(result: serde_json::Value, viz_takes_output: bool) -> Result<i32> {
     let format = mcc::cli::globals().format;
-    let target = mcc::cli::globals().output.as_deref().map(Path::new);
+    // When `--viz` owns the output path, the envelope must not clobber it —
+    // the same rule the local face applies at its envelope step.
+    let target = if viz_takes_output {
+        None
+    } else {
+        mcc::cli::globals().output.as_deref().map(Path::new)
+    };
 
     let mut r = result;
     r["command"] = json!("mcc build");
