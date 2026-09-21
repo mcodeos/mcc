@@ -70,7 +70,7 @@ range (threshold 40KB).
 | `query/` | 9 | 157 KB |
 | `refdef/` | 7 | 118 KB |
 | `rpc/` | 16 | 293 KB |
-| `semantic/` | 89 | 2590 KB |
+| `semantic/` | 89 | 2591 KB |
 | `stages/` | 11 | 296 KB |
 | `vector/` | 25 | 462 KB |
 | `viz/` | 95 | 2292 KB |
@@ -6914,19 +6914,19 @@ semantic/validation/finding.rs#L264  fn severity_strings_map_to_their_enum_level
 semantic/validation/finding.rs#L280  fn to_diagnostic_matches_nets_sink_mapping
 semantic/validation/finding.rs#L298  fn to_diagnostic_matches_post_parse_sink_mapping
 semantic/validation/finding.rs#L328  fn to_diagnostic_flat_empty_anchor_stays_empty_uri
-semantic/validation/floating.rs#L35  struct FloatingLabelCheck
-semantic/validation/floating.rs#L37  impl ValidationCheck for FloatingLabelCheck
-semantic/validation/floating.rs#L38  fn name
-semantic/validation/floating.rs#L41  fn phase
-semantic/validation/floating.rs#L44  fn default_severity
-semantic/validation/floating.rs#L48  fn run_post_parse
-semantic/validation/floating.rs#L57  fn check_floating_labels
-semantic/validation/floating.rs#L99  fn check_owner_floating_labels
-semantic/validation/floating.rs#L236  struct RefCounts
-semantic/validation/floating.rs#L255  fn count_refs
-semantic/validation/floating.rs#L305  fn count_endpoint_refs
-semantic/validation/floating.rs#L318  fn inst_name_matches
-semantic/validation/floating.rs#L329  fn count_param_value_refs
+semantic/validation/floating.rs#L41  struct FloatingLabelCheck
+semantic/validation/floating.rs#L43  impl ValidationCheck for FloatingLabelCheck
+semantic/validation/floating.rs#L44  fn name
+semantic/validation/floating.rs#L47  fn phase
+semantic/validation/floating.rs#L50  fn default_severity
+semantic/validation/floating.rs#L54  fn run_post_parse
+semantic/validation/floating.rs#L63  fn check_floating_labels
+semantic/validation/floating.rs#L105  fn check_owner_floating_labels
+semantic/validation/floating.rs#L257  struct RefCounts
+semantic/validation/floating.rs#L276  fn count_refs
+semantic/validation/floating.rs#L326  fn count_endpoint_refs
+semantic/validation/floating.rs#L339  fn inst_name_matches
+semantic/validation/floating.rs#L350  fn count_param_value_refs
 semantic/validation/gate.rs#L94  struct GateCheck
 semantic/validation/gate.rs#L96  impl ValidationCheck for GateCheck
 semantic/validation/gate.rs#L97  fn name

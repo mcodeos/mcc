@@ -5,9 +5,11 @@
 //! E3136 (FUNC_FLOATING_LABEL): a bare identifier in a func body net stmt that
 //! resolves to no declared pin / interface / param member / func-local instance
 //! becomes a dangling net label. The criterion is positional — the reference
-//! must land on a container terminal — so the miss is reported whatever its
-//! reference count: a second func writing the same spelling shares a net that
-//! was never declared.
+//! must land on a container terminal — and the count rule is per stream: in
+//! func bodies the miss reports whatever its reference count (a second func
+//! writing the same spelling shares a net that was never declared), while at a
+//! module's top level a label tagged at two endpoints is the via-label idiom
+//! and stays silent; a single stub still reports.
 
 // Family naming `{family}__{essence}` deliberately doubles the underscore to
 // keep the grep-able family token separate (matrix §1 taxonomy).
@@ -108,5 +110,51 @@ fn sem_flabel__call_receiver_does_not_warn() {
     assert!(
         !codes.contains(&mcc::errcodes::FUNC_FLOATING_LABEL),
         "E3136 false positive on a call receiver; got codes: {codes:?}"
+    );
+}
+
+#[test]
+fn sem_flabel__module_via_label_two_ends_stay_silent() {
+    let _lock = common::lock();
+
+    // U13 revision, 2026-09-21: at a module's top level a bare label tagged at
+    // two endpoints is the via-label idiom — the same spelling on both ends is
+    // the net, no middle wire — so two top-level endpoint references stay
+    // silent and the net layer judges the net (the E3137 division of labor).
+    let src = "module VIA()\n{\n    in A\n    in B\n    SPK -> A\n    SPK -> B\n}\nmodule main { io VDD }";
+    let codes = build_codes(src);
+    assert!(
+        !codes.contains(&mcc::errcodes::FUNC_FLOATING_LABEL),
+        "E3136 false positive on a module top-level via label; got codes: {codes:?}"
+    );
+}
+
+#[test]
+fn sem_flabel__module_single_stub_label_warns() {
+    let _lock = common::lock();
+
+    // One top-level endpoint and nothing at the other end is still the typo
+    // signal — the via-label exemption needs both ends written.
+    let src = "module STUB()\n{\n    in A\n    SPK -> A\n}\nmodule main { io VDD }";
+    let codes = build_codes(src);
+    assert!(
+        codes.contains(&mcc::errcodes::FUNC_FLOATING_LABEL),
+        "E3136 expected for a single-end stub label at module top level; got codes: {codes:?}"
+    );
+}
+
+#[test]
+fn sem_flabel__func_miss_reports_despite_module_top_writes() {
+    let _lock = common::lock();
+
+    // The func stream keeps the U13 rule: a bare name in a func body that
+    // lands on no container terminal reports however often it is written —
+    // two extra top-level writings do not rescue a func miss, because a func
+    // reference that silently stays internal has no backstop anywhere else.
+    let src = "module MIX()\n{\n    in A\n    in B\n    func F()\n    {\n        VSW -> A\n    }\n    VSW -> B\n    VSW - A\n}\nmodule main { io VDD }";
+    let codes = build_codes(src);
+    assert!(
+        codes.contains(&mcc::errcodes::FUNC_FLOATING_LABEL),
+        "E3136 expected for a func-body miss even with two top-level writings; got codes: {codes:?}"
     );
 }

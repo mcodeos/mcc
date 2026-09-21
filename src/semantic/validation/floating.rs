@@ -7,12 +7,18 @@
 //! E3136 (FUNC_FLOATING_LABEL): a bare identifier in a func body net
 //! statement that resolves to nothing declared (pin, interface, parameter
 //! member, or func-local instance) becomes a dangling net label
-//! (mc_phrase.rs single-segment fallback). The criterion is positional, not
-//! quantitative — a reference that leaves the container must land on a
-//! container terminal, and the miss is reported however often the name is
-//! written: two funcs joining the same undeclared spelling have invented a
-//! net, not declared one (`pwr -> DC` with no `DC` pin; `VSW` in both LDO
-//! funcs with no `VSW` pin or label).
+//! (mc_phrase.rs single-segment fallback). The criterion is positional — a
+//! reference that leaves the container must land on a container terminal —
+//! but the count rule is per stream. In func bodies the miss is reported
+//! however often the name is written (U13): two funcs joining the same
+//! undeclared spelling have invented a net, not declared one (`pwr -> DC`
+//! with no `DC` pin; `VSW` in both LDO funcs with no `VSW` pin or label),
+//! and a missed func reference has no backstop anywhere else. At a module's
+//! top level a label tagged at two or more endpoints is the via-label idiom
+//! — the same spelling on both ends is the net, no middle wire — so it
+//! stays silent and the net layer judges the net (the E3137 division of
+//! labor); a single top-level endpoint (a stub with nothing at the other
+//! end) still reports.
 //!
 //! A name referenced only as a method-call receiver or argument (an
 //! inline-constructed instance like `DC.LDO(...) ld` then `ld.ldrop(...)`) is
@@ -157,35 +163,50 @@ fn check_owner_floating_labels<F>(
         }
 
         // Count references across all funcs (top-level stmts + conditional
-        // blocks) and, for modules, the top-level body. A name used as a call
-        // receiver or argument (`ld.ldrop(VSW, ...)`) is an instance
+        // blocks) and, for modules, the top-level body, keeping the two
+        // streams separate — the verdict differs by stream. A name used as a
+        // call receiver or argument (`ld.ldrop(VSW, ...)`) is an instance
         // reference, not a wire, so it neither triggers nor adds to the wire
         // count. Every other reference is a net endpoint — and the name
-        // reached this point because it lands on no container terminal, which
-        // is the whole criterion: how often it is written decides nothing.
-        let mut counts = RefCounts::default();
+        // reached this point because it lands on no container terminal.
+        let mut func_counts = RefCounts::default();
         for func in funcs.iter() {
             for stmt in &func.stmts {
-                count_refs(stmt, &name, &mut counts, true);
+                count_refs(stmt, &name, &mut func_counts, true);
             }
             for cond in &func.conds {
                 for block in &cond.if_blocks {
                     for stmt in &block.stmts {
-                        count_refs(stmt, &name, &mut counts, true);
+                        count_refs(stmt, &name, &mut func_counts, true);
                     }
                 }
                 for stmt in &cond.else_stmts {
-                    count_refs(stmt, &name, &mut counts, true);
+                    count_refs(stmt, &name, &mut func_counts, true);
                 }
             }
         }
+        let mut top_counts = RefCounts::default();
         for stmt in top_stmts {
-            count_refs(stmt, &name, &mut counts, true);
+            count_refs(stmt, &name, &mut top_counts, true);
         }
         // Failure ledger (observation-only): the action carries the verdict
         // this name gets below, so the count stays pure attribution.
-        let refs = counts.endpoint;
-        let reported = refs >= 1 && counts.other == 0;
+        let refs = func_counts.endpoint + top_counts.endpoint;
+        // Func bodies are a wiring contract: a bare name there is expected to
+        // land on a container terminal, and the miss reports however often it
+        // is written (U13) — joining the same undeclared spelling across two
+        // funcs has invented a net, not declared one. At a module's top level
+        // a label tagged at two or more endpoints is the via-label idiom (the
+        // same spelling on both ends is the net, no middle wire), so it stays
+        // silent and the net layer judges the net; a single stub still
+        // reports. `other` stays joint: an instance-style use anywhere keeps
+        // the name out of the wire verdict.
+        let other = func_counts.other + top_counts.other;
+        let reported = if func_counts.endpoint >= 1 {
+            other == 0
+        } else {
+            top_counts.endpoint == 1 && other == 0
+        };
         let action = if reported {
             LedgerAction::Warning
         } else {
