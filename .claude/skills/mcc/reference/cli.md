@@ -408,8 +408,8 @@ $MCC diff $HBL /tmp/viz_now.json --view stage.viz
 # 4. AST <-> source round-trip gate (every non-comment byte accounted for)
 python3 scripts/check-ast-roundtrip.py --mcc $MCC ~/work/mo/mcs/hbl/src/*.mc
 
-# 5. Diagnostics floor — syntax/semantic + (with --local) the 6xxx ERC codes
-$MCC check --local -F $HBL
+# 5. Diagnostics floor — syntax/semantic errors and warnings for the target
+$MCC check $HBL                    # positional TARGET; --local belongs to `build`
 ```
 
 Reading order: 4 must be clean before anything downstream is trusted;
