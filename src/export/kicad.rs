@@ -8,7 +8,7 @@ use crate::McModuleInst;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-use super::netlist::{collect_nets, PointNaming};
+use super::netlist::PointNaming;
 
 pub fn build_kicad_netlist(
     tree: &McModuleInst,
@@ -47,24 +47,17 @@ pub fn build_kicad_netlist(
     }
     out.push_str("  )\n");
 
-    // Nets
-    let mut netmap: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    // Phase D: the tree never stores NetPoint — read the frozen per-module
-    // string net tables from the flat table's store.
-    let store_ref = table.net_table();
-    let store_ref = store_ref.borrow();
-    collect_nets(
-        tree,
-        arena,
-        inst_store,
-        &store_ref,
-        PointNaming::Local,
-        &mut netmap,
-    );
+    // Nets: copper islands from the flat table (U158) — an island carries the
+    // whole node, so no connection point vanishes for being on the far side of
+    // a module boundary or on copper no statement ever named.
+    let netmap: BTreeMap<String, Vec<String>> =
+        super::netlist::island_nets(table, PointNaming::Local);
     out.push_str("  (nets\n");
     let mut net_code: u32 = 1;
     for (net_name, points) in &netmap {
-        if net_name == "NC" || crate::instant::mc_net::is_anon_net_name(net_name) {
+        if net_name == "NC"
+            || net_name.starts_with(crate::semantic::basic::mc_bus::McBus::ERROR_PREFIX)
+        {
             continue;
         }
         out.push_str(&format!(

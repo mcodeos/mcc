@@ -134,16 +134,12 @@ pub fn build_payload(
 ) -> (String, Value, usize) {
     match kind {
         1 => bom::build_bom(tree, arena, inst_store, top, format),
-        2 => spice::build_spice(tree, table, arena, inst_store, top),
+        2 => spice::build_spice(table, top),
         3 => kicad::build_kicad_netlist(tree, table, arena, inst_store, top),
         4 => instlist::build_inst_list(table, format),
-        _ => {
-            // Phase D: the tree never stores NetPoint — the netlist export
-            // reads the frozen string net tables from the flat table's store.
-            let store = table.net_table();
-            let store_ref = store.borrow();
-            netlist::build_netlist(tree, arena, inst_store, top, format, &store_ref)
-        }
+        // The netlist face reads copper islands from the flat table (U158):
+        // one entry per electrically distinct node, anonymous copper included.
+        _ => netlist::build_netlist(table, top, format),
     }
 }
 

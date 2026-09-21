@@ -3,6 +3,7 @@
 
 use crate::export::NodeArena;
 use crate::instant::inststore::{InstanceStore, TreeView};
+use crate::instant::insttab::{InstKind, InstTable};
 use crate::instant::nettab::NetTableStore;
 use crate::McModuleInst;
 use crate::NetPoint;
@@ -20,31 +21,24 @@ pub enum PointNaming {
     Hierarchical,
 }
 
-pub fn build_netlist(
-    tree: &McModuleInst,
-    arena: &NodeArena,
-    inst_store: &InstanceStore,
-    top: &str,
-    format: u8,
-    net_store: &NetTableStore,
-) -> (String, Value, usize) {
-    let mut nets: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    collect_nets(
-        tree,
-        arena,
-        inst_store,
-        net_store,
-        PointNaming::Local,
-        &mut nets,
-    );
-    let nets: BTreeMap<String, Vec<String>> = nets
-        .into_iter()
-        .filter(|(n, _)| {
-            n != "NC"
-                && !crate::instant::mc_net::is_anon_net_name(n)
-                && !n.starts_with(crate::semantic::basic::mc_bus::McBus::ERROR_PREFIX)
-        })
-        .collect();
+/// An engine-generated anonymous net (`_net14`); a standalone island keeps the
+/// name as its export identity (U158: dropping anonymous islands dropped real
+/// copper — crystal pins, filter midpoints, series-resistor junctions — and a
+/// SPICE netlist that cannot be simulated).
+fn is_anon(name: &str) -> bool {
+    crate::instant::mc_net::is_anon_net_name(name)
+}
+
+/// A name no export may carry: the deliberate no-connect bucket and the
+/// parse-error marker.
+fn is_excluded(name: &str) -> bool {
+    name == "NC" || name.starts_with(crate::semantic::basic::mc_bus::McBus::ERROR_PREFIX)
+}
+
+pub fn build_netlist(table: &InstTable, top: &str, format: u8) -> (String, Value, usize) {
+    let nets = island_nets(table, PointNaming::Local);
+    let nets: BTreeMap<String, Vec<String>> =
+        nets.into_iter().filter(|(n, _)| !is_excluded(n)).collect();
     let count = nets.len();
     if format == 1 {
         let items: Vec<Value> = nets
@@ -59,6 +53,149 @@ pub fn build_netlist(
             out.push_str(&format!("{}: {}\n", name, points.join(" ")));
         }
         (out, Value::Null, count)
+    }
+}
+
+/// The flat table's net segments folded into **copper islands** — one entry
+/// per electrically distinct node, the grain a netlist export owes its
+/// consumer (U158).
+///
+/// The flat table records one net segment per owning scope (its frozen string
+/// net table), and a module-boundary point is one id on both sides (A′). A
+/// junction point joins every segment wired to it. So the segments union into
+/// islands by one walk: any two segments sharing a point id are one copper.
+/// The old export folded the same tables into a name-keyed map instead, which
+/// left the far side of every cross-scope boundary off the output and dropped
+/// anonymous-keyed segments outright — hbl lost ~28 connection points, among
+/// them both crystal pins and a five-pin DCDC's entire control face.
+///
+/// An island is named by its best member: a named segment's own name (the
+/// flat table's port-name > label-name attribution), lexicographically first
+/// for determinism when several members carry names. Only an island with no
+/// named member keeps an engine `_netN` spelling — that island is real copper
+/// no statement ever named, and the export keeps it (dropping it is a
+/// connectivity loss, not a naming choice; whether the exit contract wants a
+/// different spelling is S2's to rule, not this face's to guess).
+///
+/// Spellings can collide — the engine numbers anonymous segments per scope,
+/// and two scopes may also each label a private net the same. Same-spelling
+/// islands are distinct copper (islands are maximal), so they stay distinct
+/// buckets: the first island in root order keeps the bare spelling, the next
+/// takes `#2`, `#3`, ...
+///
+/// Points render per [`PointNaming`], members in ascending net id, deduplicated
+/// in encounter order; the `BTreeMap` keys the islands by name so the export
+/// order is the input's alone (build-design §3.7 discipline 4).
+pub fn island_nets(table: &InstTable, naming: PointNaming) -> BTreeMap<String, Vec<String>> {
+    let nets = table.get_nets();
+    // Union-find over segment ids: a segment merges with the first segment of
+    // each of its points (`nets_of` lists every segment the point sits on).
+    let mut parent: BTreeMap<u32, u32> = nets.iter().map(|n| (n.id, n.id)).collect();
+    fn find(parent: &mut BTreeMap<u32, u32>, mut a: u32) -> u32 {
+        while parent[&a] != a {
+            a = parent[&a];
+        }
+        a
+    }
+    for n in &nets {
+        for &pt in &n.points {
+            if let Some(&first) = table.nets_of(pt).first() {
+                let (a, b) = (find(&mut parent, first), find(&mut parent, n.id));
+                if a != b {
+                    parent.insert(b, a);
+                }
+            }
+        }
+    }
+    // Gather islands: root -> member segments, ascending by net id.
+    let mut islands: BTreeMap<u32, Vec<&crate::instant::insttab::NetEntry>> = BTreeMap::new();
+    for n in &nets {
+        islands.entry(find(&mut parent, n.id)).or_default().push(n);
+    }
+    let mut out: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    // Island spellings can collide: the engine numbers anonymous segments per
+    // scope, so one scope's `_net1` and another scope's `_net1` are two
+    // coppers, and two scopes may each label a private net `ENABLE`. Islands
+    // are maximal, so same-spelling islands are distinct copper — one bucket
+    // each: the first island (ascending root id, hence input-determined)
+    // keeps the bare spelling, the next distinct island with the same
+    // spelling takes `#2`, `#3`, ...
+    let mut spellings: BTreeMap<String, usize> = BTreeMap::new();
+    for members in islands.values() {
+        // Name: named members first, lexicographically first for determinism;
+        // a member spelling no export may carry never names the island.
+        let name = members
+            .iter()
+            .map(|n| n.name.as_str())
+            .filter(|n| !is_excluded(n) && !is_anon(n))
+            .min()
+            .or_else(|| {
+                members
+                    .iter()
+                    .map(|n| n.name.as_str())
+                    .filter(|n| !is_excluded(n))
+                    .min()
+            })
+            .unwrap_or("NC")
+            .to_string();
+        if is_excluded(&name) {
+            continue;
+        }
+        let seen = spellings.entry(name.clone()).or_default();
+        let key = if *seen == 0 {
+            name.clone()
+        } else {
+            format!("{}#{}", name, *seen + 1)
+        };
+        *seen += 1;
+        let bucket = out.entry(key).or_default();
+        for n in members {
+            for &pt in &n.points {
+                let Some(label) = island_point_label(table, pt, naming) else {
+                    continue;
+                };
+                if !bucket.contains(&label) {
+                    bucket.push(label);
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Label one flat point for an export island. A pin keeps `owner.pin` under
+/// local naming; a port or label keeps its own name under its owning module —
+/// the same spellings the per-scope tables printed, now boundary-complete.
+fn island_point_label(table: &InstTable, point: u32, naming: PointNaming) -> Option<String> {
+    let entry = table.get_entry(point)?;
+    match naming {
+        PointNaming::Hierarchical => Some(entry.path.clone()),
+        PointNaming::Local => Some(match entry.kind {
+            InstKind::Pin => {
+                // `main.MIC.FB_vmic.2` -> `FB_vmic.2`: the instance's local
+                // name is the segment in front of the pin's own.
+                let owner = entry
+                    .path
+                    .rsplit_once('.')
+                    .and_then(|(rest, _)| rest.rsplit_once('.'))
+                    .map(|(_, owner)| owner)
+                    .unwrap_or(entry.path.as_str());
+                let pin = entry.path.rsplit('.').next()?;
+                format!("{owner}.{pin}")
+            }
+            _ => {
+                // A port or label sits directly under its module: strip the
+                // module's path prefix (`main.MIC.VMIC` -> `VMIC`).
+                let parent = entry.parent_id.and_then(|id| table.get_entry(id));
+                match parent {
+                    Some(p) if entry.path.starts_with(&p.path) => entry.path
+                        [p.path.len().min(entry.path.len())..]
+                        .trim_start_matches('.')
+                        .to_string(),
+                    _ => entry.path.clone(),
+                }
+            }
+        }),
     }
 }
 

@@ -78,9 +78,9 @@ fn spice() -> (String, usize) {
     let uri: McURI = URI.to_string();
     common::load_string(URI, SOURCE);
     let ident = McIds::from("main");
-    let (tree, table, arena, store) =
+    let (tree, table, _arena, _store) =
         mcc::mcc_build_flat_with_arena(&ident, &uri, 1).expect("pass2_flat failed");
-    let (text, _, count) = mcc::export::spice::build_spice(&tree, &table, &arena, &store, "main");
+    let (text, _, count) = mcc::export::spice::build_spice(&table, "main");
     (text, count)
 }
 
