@@ -14,10 +14,10 @@ use crate::cmds::manifest;
 use crate::output::envelope::ExportData;
 use crate::output::{self, builder::ResultBuilder, envelope::Envelope};
 use anyhow::Result;
-use mcc::cli::{rpcclient::RpcClient, ExportArgs, OutputFormat};
+use mcc::cli::{rpcclient::RpcClient, ExportArgs, ExportKind, OutputFormat};
 use mcc::export;
 use serde_json::{json, Value};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub fn run(args: &ExportArgs) -> Result<()> {
     // An omitted target defaults to the current directory when it holds a
@@ -100,6 +100,14 @@ fn run_local(args: &ExportArgs, target: Option<&str>) -> Result<()> {
         .top
         .clone()
         .unwrap_or_else(|| mcc::mcb_get_first_module_name().unwrap_or_else(|| "?".into()));
+
+    // The graphical KiCad export writes one .kicad_sch per sheet, so it does
+    // not fit the single-payload `build_payload` faces; it writes its files
+    // directly and reports them on stderr.
+    if args.kind == ExportKind::KiCadSch {
+        return write_kicad_sch(&tree, &table, &arena, &inst_store, &top);
+    }
+
     let kind_str = args.kind.name();
     let kind_tag = args.kind.id();
     let format_tag = format.id();
@@ -143,4 +151,67 @@ fn run_local(args: &ExportArgs, target: Option<&str>) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// Write the hierarchical `.kicad_sch` set: the root sheet at `-o` (or
+/// `<top>.kicad_sch` in the current directory) and every child sheet beside it.
+fn write_kicad_sch(
+    tree: &mcc::McModuleInst,
+    table: &mcc::InstTable,
+    arena: &mcc::NodeArena,
+    inst_store: &mcc::InstanceStore,
+    top: &str,
+) -> Result<()> {
+    let files = export::kicad_sch::build_kicad_sch_project(tree, table, arena, inst_store, top);
+    if files.is_empty() {
+        anyhow::bail!("kicad-sch: nothing rendered for top '{top}'");
+    }
+    let out = mcc::cli::globals().output.clone();
+    let (dir, root_name) = match out.as_deref() {
+        Some(p) if p.ends_with(".kicad_sch") => {
+            let path = Path::new(p);
+            let name = path
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| format!("{top}.kicad_sch"));
+            (path.parent().unwrap_or(Path::new(".")).to_path_buf(), name)
+        }
+        Some(p) => (
+            PathBuf::from(p),
+            format!("{}.kicad_sch", sanitize_stem(top)),
+        ),
+        None => (
+            PathBuf::from("."),
+            format!("{}.kicad_sch", sanitize_stem(top)),
+        ),
+    };
+    std::fs::create_dir_all(&dir)?;
+    let mut written: Vec<String> = Vec::new();
+    for (i, f) in files.iter().enumerate() {
+        let name = if i == 0 {
+            root_name.clone()
+        } else {
+            f.name.clone()
+        };
+        let path = dir.join(&name);
+        std::fs::write(&path, f.content.as_bytes())?;
+        written.push(path.display().to_string());
+    }
+    eprintln!("(kicad-sch: {} sheets -> {})", written.len(), dir.display());
+    for w in &written {
+        eprintln!("  {w}");
+    }
+    Ok(())
+}
+
+fn sanitize_stem(s: &str) -> String {
+    s.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
 }

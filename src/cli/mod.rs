@@ -849,6 +849,9 @@ pub enum ExportKind {
     // KiCad s-expression netlist (M8)
     #[value(name = "kicad")]
     KiCad,
+    // KiCad hierarchical schematic, one .kicad_sch sheet per module layer
+    #[value(name = "kicad-sch")]
+    KiCadSch,
     // Instance list carrying the two-space identity (build-design §3.7)
     #[value(name = "inst-list")]
     InstList,
@@ -858,11 +861,12 @@ impl ExportKind {
     /// Every kind, in `id()` order -- the one list the outward faces agree
     /// with: `id()` tags `build_payload`, `name()` is the `KIND` token, and
     /// the RPC `features.export` array is derived from here.
-    pub const ALL: [ExportKind; 5] = [
+    pub const ALL: [ExportKind; 6] = [
         ExportKind::Netlist,
         ExportKind::Bom,
         ExportKind::Spice,
         ExportKind::KiCad,
+        ExportKind::KiCadSch,
         ExportKind::InstList,
     ];
 
@@ -873,6 +877,7 @@ impl ExportKind {
             ExportKind::Bom => 1,
             ExportKind::Spice => 2,
             ExportKind::KiCad => 3,
+            ExportKind::KiCadSch => 5,
             ExportKind::InstList => 4,
         }
     }
@@ -886,6 +891,7 @@ impl ExportKind {
             ExportKind::Bom => "bom",
             ExportKind::Spice => "spice",
             ExportKind::KiCad => "kicad-netlist",
+            ExportKind::KiCadSch => "kicad-sch",
             ExportKind::InstList => "inst-list",
         }
     }
@@ -897,6 +903,7 @@ impl ExportKind {
             "bom" => ExportKind::Bom,
             "spice" => ExportKind::Spice,
             "kicad" | "kicad-netlist" => ExportKind::KiCad,
+            "kicad-sch" | "kicad_sch" => ExportKind::KiCadSch,
             "inst-list" => ExportKind::InstList,
             _ => ExportKind::Netlist,
         }
@@ -927,6 +934,7 @@ impl ExportKind {
             match self {
                 ExportKind::Spice => return "design.spice".to_string(),
                 ExportKind::KiCad => return "design.kicad_netlist".to_string(),
+                ExportKind::KiCadSch => return "design.kicad_sch".to_string(),
                 _ => {}
             }
         }
