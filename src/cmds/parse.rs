@@ -468,6 +468,7 @@ pub fn run(args: &ParseArgs) -> Result<()> {
                 };
                 let path_str = out_path.to_string_lossy().to_string();
 
+                ensure_viz_parent(&out_path)?;
                 std::fs::write(&out_path, &output_text)
                     .with_context(|| format!("Failed to write file: {}", path_str))?;
                 eprintln!(
@@ -1017,20 +1018,53 @@ fn escape_xml_viz(s: &str) -> String {
         .replace('"', "&quot;")
 }
 
-/// Default outlet for a viz payload written without `-o`: `<stem>.<ext>` beside
-/// the source file, the extension following the payload's own format.
+/// Default outlet for a viz payload written without `-o`:
+/// `<project-root>/build/<stem>.<ext>` — a generated intermediate lives under
+/// the project's `build/`, never loose in the source tree beside the entry.
+/// The project root is the nearest ancestor of the source carrying
+/// `project.toml`; with no manifest anywhere, the source's own directory plays
+/// root. The extension follows the payload's own format.
 ///
 /// Both viz writers derive their path here so the two cannot drift, and so the
 /// two modes cannot resolve to the same file. They did: `--viz-json` took the
 /// `.html` name and overwrote what `--viz` had written, leaving a JSON payload
-/// under an HTML name in the source tree.
+/// under an HTML name.
+/// Create the parent directory of a viz outlet: the `build/` default has to
+/// materialize on first write, and `-o` into a fresh directory works too.
+fn ensure_viz_parent(path: &Path) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("Failed to create directory: {}", parent.display()))?;
+        }
+    }
+    Ok(())
+}
+
 fn viz_default_path(source: &Path, json: bool) -> PathBuf {
     let stem = source
         .file_stem()
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_else(|| "output".to_string());
-    let parent = source.parent().unwrap_or(Path::new(""));
-    parent.join(format!("{}.{}", stem, if json { "json" } else { "html" }))
+    let mut dir = source
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("."));
+    let start = dir.clone();
+    loop {
+        if manifest::Manifest::find_in(&dir).is_some() {
+            break;
+        }
+        match dir.parent() {
+            Some(parent) if parent != dir => dir = parent.to_path_buf(),
+            _ => {
+                dir = start;
+                break;
+            }
+        }
+    }
+    dir.join("build").join(format!("{}.{}", stem, if json { "json" } else { "html" }))
 }
 
 fn run_viz(
@@ -1116,15 +1150,12 @@ fn run_viz(
             .as_ref()
             .filter(|t| Path::new(t).exists() && Path::new(t).is_file())
             .map(|t| viz_default_path(Path::new(t), json_mode_viz))
-            .unwrap_or_else(|| {
-                Path::new(if json_mode_viz {
-                    "circuit.json"
-                } else {
-                    "circuit.html"
-                })
-                .to_path_buf()
-            });
+            // No resolvable target: the name is fixed, the outlet still lands
+            // under the project's `build/` (resolved from the cwd), never loose
+            // in the directory the command ran in.
+            .unwrap_or_else(|| viz_default_path(Path::new("circuit.mc"), json_mode_viz));
         let path_str = path.to_string_lossy().to_string();
+        ensure_viz_parent(&path)?;
         std::fs::write(&path, &output_text)
             .with_context(|| format!("Failed to write file: {}", path_str))?;
         renderer.viz_written(&path_str, output_text.len());

@@ -244,6 +244,9 @@ fn copy_tree(src: &Path, dst: &Path) {
     std::fs::create_dir_all(dst).expect("create dir");
     for entry in std::fs::read_dir(src).expect("read fixture dir") {
         let entry = entry.expect("dir entry");
+        if entry.file_name() == "build" {
+            continue;
+        }
         let to = dst.join(entry.file_name());
         if entry.file_type().expect("file type").is_dir() {
             copy_tree(&entry.path(), &to);
@@ -254,13 +257,14 @@ fn copy_tree(src: &Path, dst: &Path) {
 }
 
 /// `parse --viz` / `parse --viz-json` — the **default** outlet, taken when `-o`
-/// is absent: a file beside the source, whose extension follows the payload.
+/// is absent: a file under the project's `build/`, whose extension follows the
+/// payload.
 ///
 /// Both modes used to derive `<stem>.html`, so `--viz-json` overwrote what
-/// `--viz` had just written and left a JSON payload under an HTML name, in the
-/// source tree. The two writers now share one naming law, and this locks the two
-/// properties that law has: the name follows the payload, and the two modes
-/// cannot collide.
+/// `--viz` had just written and left a JSON payload under an HTML name. The two
+/// writers now share one naming law, and this locks the properties that law
+/// has: the name follows the payload, the two modes cannot collide, and the
+/// outlet is under `build/` — never the source tree beside the entry.
 ///
 /// `parse --viz … --top <m>` is a **second** writer (`run_viz`), and both
 /// writers share one write rule: `-o` overrides *where* a payload goes, never
@@ -278,8 +282,10 @@ fn parse_viz_default_outlet_follows_the_payload() {
     );
     let entry = root.join("src/hbl.mc");
     let entry_str = entry.to_str().expect("fixture path").to_string();
-    let beside_html = root.join("src/hbl.html");
-    let beside_json = root.join("src/hbl.json");
+    let beside_html = root.join("build").join("hbl.html");
+    let beside_json = root.join("build").join("hbl.json");
+    let no_beside_html = root.join("src").join("hbl.html");
+    let no_beside_json = root.join("src").join("hbl.json");
 
     // A. `--viz`: beside the source, `.html`, and the payload really is HTML.
     let (_, stderr, ok) = run_mcc(&cwd, &["parse", &entry_str, "--viz"]);
@@ -329,6 +335,12 @@ fn parse_viz_default_outlet_follows_the_payload() {
         html,
         "`mcc parse --viz-json` overwrote `{}` — the two modes collide",
         beside_html.display()
+    );
+
+    // The source tree stays clean: both writes landed under `build/`.
+    assert!(
+        !no_beside_html.exists() && !no_beside_json.exists(),
+        "`parse --viz` left a payload in the source tree beside the entry"
     );
 
     // C. The second writer, HTML arm: same outlet, no file left from step A.

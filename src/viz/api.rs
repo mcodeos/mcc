@@ -175,7 +175,7 @@ pub fn render_with_metrics_and_sink(
 
 /// ★ P7-1: compare renderdiff readings against golden, reporting layer by layer.
 ///
-/// golden path: `MC_RENDER_GOLDEN` env var > `./baseline/render_golden.toml`.
+/// golden path: `MC_RENDER_GOLDEN` env var > `./build/baseline/render_golden.toml`.
 /// When golden is not found, prints a SKIP (a visible skip, not a false green).
 ///
 /// With `MC_RENDER_GOLDEN_SAVE` set the same path is **written** instead of read
@@ -186,7 +186,7 @@ pub fn renderdiff_report(
     metrics: &crate::viz::metrics::MetricsAccumulator,
 ) -> Option<Vec<crate::viz::metrics::renderdiff::LayerDiff>> {
     let path = std::env::var("MC_RENDER_GOLDEN").unwrap_or_else(|_| {
-        std::path::PathBuf::from("baseline/render_golden.toml")
+        std::path::PathBuf::from("build/baseline/render_golden.toml")
             .to_string_lossy()
             .into_owned()
     });

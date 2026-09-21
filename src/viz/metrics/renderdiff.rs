@@ -7,7 +7,7 @@
 //! ## Positioning
 //! Separate from netdiff (netlist criteria) and equally strict:
 //! - netdiff governs "is it connected right" (pass2 golden)
-//! - renderdiff governs "is it drawn right" (render golden: `baseline/render_golden.toml`)
+//! - renderdiff governs "is it drawn right" (render golden: `build/baseline/render_golden.toml`)
 //!
 //! ## Criterion groups
 //! - **G10 structure conservation**: box count vs golden; synth box count == 0
@@ -1057,7 +1057,7 @@ impl RenderGolden {
     /// against it: `MC_RENDER_GOLDEN_SAVE`, the same idiom as `UPDATE_EXPECT=1` in
     /// `scripts/regress.sh`. The path written is whichever
     /// [`crate::viz::api::renderdiff_report`] would have read (`MC_RENDER_GOLDEN`,
-    /// else `baseline/render_golden.toml`), so generate and compare target the
+    /// else `build/baseline/render_golden.toml`), so generate and compare target the
     /// same file by construction.
     pub fn save_requested() -> bool {
         save_flag_set(std::env::var("MC_RENDER_GOLDEN_SAVE").ok().as_deref())
@@ -1065,7 +1065,7 @@ impl RenderGolden {
 
     /// Write the baseline to `path`.
     ///
-    /// The parent directory is created: `baseline/` is gitignored, so on a fresh
+    /// The parent directory is created: `build/` is gitignored, so on a fresh
     /// clone it does not exist and the first save would otherwise have nowhere to
     /// land.
     pub fn save(&self, path: &std::path::Path) -> Result<(), String> {
@@ -1532,7 +1532,7 @@ mod tests {
 
     #[test]
     fn golden_toml_parses() {
-        // Minimal sample isomorphic to baseline/render_golden.toml
+        // Minimal sample isomorphic to build/baseline/render_golden.toml
         let text = r#"
 [layer.main]
 module = "main"
@@ -1788,7 +1788,7 @@ boxes = 0
         );
     }
 
-    /// `baseline/` is gitignored, so a fresh clone has no directory for the first
+    /// `build/` is gitignored, so a fresh clone has no directory for the first
     /// save to land in.
     #[test]
     fn save_creates_a_missing_baseline_directory() {
