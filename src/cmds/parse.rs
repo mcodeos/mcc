@@ -468,7 +468,7 @@ pub fn run(args: &ParseArgs) -> Result<()> {
                 };
                 let path_str = out_path.to_string_lossy().to_string();
 
-                ensure_viz_parent(&out_path)?;
+                mcc::cli::outlet::ensure_parent(&out_path)?;
                 std::fs::write(&out_path, &output_text)
                     .with_context(|| format!("Failed to write file: {}", path_str))?;
                 eprintln!(
@@ -1029,42 +1029,17 @@ fn escape_xml_viz(s: &str) -> String {
 /// two modes cannot resolve to the same file. They did: `--viz-json` took the
 /// `.html` name and overwrote what `--viz` had written, leaving a JSON payload
 /// under an HTML name.
-/// Create the parent directory of a viz outlet: the `build/` default has to
-/// materialize on first write, and `-o` into a fresh directory works too.
-fn ensure_viz_parent(path: &Path) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        if !parent.as_os_str().is_empty() {
-            std::fs::create_dir_all(parent)
-                .with_context(|| format!("Failed to create directory: {}", parent.display()))?;
-        }
-    }
-    Ok(())
-}
-
 fn viz_default_path(source: &Path, json: bool) -> PathBuf {
     let stem = source
         .file_stem()
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_else(|| "output".to_string());
-    let mut dir = source
+    let start = source
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| PathBuf::from("."));
-    let start = dir.clone();
-    loop {
-        if manifest::Manifest::find_in(&dir).is_some() {
-            break;
-        }
-        match dir.parent() {
-            Some(parent) if parent != dir => dir = parent.to_path_buf(),
-            _ => {
-                dir = start;
-                break;
-            }
-        }
-    }
-    dir.join("build").join(format!("{}.{}", stem, if json { "json" } else { "html" }))
+        .unwrap_or_else(|| Path::new("."));
+    let name = format!("{}.{}", stem, if json { "json" } else { "html" });
+    mcc::cli::outlet::intermediate(start, &name)
 }
 
 fn run_viz(
@@ -1155,7 +1130,7 @@ fn run_viz(
             // in the directory the command ran in.
             .unwrap_or_else(|| viz_default_path(Path::new("circuit.mc"), json_mode_viz));
         let path_str = path.to_string_lossy().to_string();
-        ensure_viz_parent(&path)?;
+        mcc::cli::outlet::ensure_parent(&path)?;
         std::fs::write(&path, &output_text)
             .with_context(|| format!("Failed to write file: {}", path_str))?;
         renderer.viz_written(&path_str, output_text.len());
