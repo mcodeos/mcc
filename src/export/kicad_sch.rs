@@ -832,6 +832,7 @@ fn emit_tree_nets_opt(
             e.close();
         }
         let mut has_text_symbol = false;
+        let flat_mode = !net_names.is_empty();
         for s in &t.symbols {
             match s.kind {
                 TreeSymbolKind::Ground => {
@@ -890,9 +891,11 @@ fn emit_tree_nets_opt(
                 }
                 TreeSymbolKind::NetLabel | TreeSymbolKind::BusLabel | TreeSymbolKind::PortLabel => {
                     has_text_symbol = true;
-                    // A boundary net names itself by its port through the
-                    // hierarchical label; a second label would only fight it.
-                    if !is_anon(&t.net_name) && !is_boundary {
+                    // Hierarchical mode: a boundary net names itself by its
+                    // port through the hierarchical label, so a second label
+                    // would only fight it. Flat mode: the renamed label IS
+                    // the cross-module join, boundary or not.
+                    if !is_anon(&t.net_name) && (!is_boundary || flat_mode) {
                         let shown = display_of(&t.net_name);
                         text_label(graph.bid, &shown, xf.x(s.x), xf.y(s.y), e);
                     }
@@ -904,7 +907,7 @@ fn emit_tree_nets_opt(
         // sheet the label is unconditional — the net-name rename (to the
         // copper island's board-wide name) only joins the modules if it lands
         // on copper, whatever the tree's own terminal style is.
-        if (!has_text_symbol || !net_names.is_empty()) && !is_anon(&t.net_name) && !is_boundary {
+        if (!has_text_symbol || flat_mode) && !is_anon(&t.net_name) && (!is_boundary || flat_mode) {
             if let Some((x, y)) =
                 longest_midpoint(t.segments.iter().map(|s| ((s.x1, s.y1), (s.x2, s.y2))))
             {
@@ -2620,6 +2623,76 @@ mod tests {
         // differs from the sheet element uuid.
         assert!(root_s.contains("top_ldo.kicad_sch"), "{root_s}");
         assert!(child_s.contains("(uuid \""));
+    }
+
+    #[test]
+    fn flat_sheet_has_no_hierarchy() {
+        // The flat face is the whole board on one sheet: no sheet instances,
+        // no hierarchical labels, no top block diagram — just parts joined by
+        // net name.
+        let g = block_graph();
+        let mut root = McVecGraph::new(1, "top".into());
+        root.is_root = true;
+        root.layer_style = LayerStyle::Block;
+        let mut sub = McVecBox::new_v2(
+            20,
+            "ldo".into(),
+            "LDO".into(),
+            BoxKind::SubModule,
+            Symbol::Module,
+            Some("ldo".into()),
+            None,
+            0,
+            IoSummary::new(),
+            "top.ldo".into(),
+            Vec::new(),
+        );
+        sub.provenance = BoxProvenance::Declared;
+        sub.x = 10.0;
+        sub.y = 10.0;
+        sub.w = 40.0;
+        sub.h = 30.0;
+        root.boxes.push(sub);
+        root.clickable_subs.push(20);
+        let mut child = McVecGraph::new(20, "ldo".into());
+        child.layer_style = LayerStyle::Device;
+        let mut dev = McVecBox::new_v2(
+            30,
+            "U1".into(),
+            "LDO".into(),
+            BoxKind::MultiPin,
+            Symbol::Unknown,
+            Some("U1".into()),
+            None,
+            0,
+            IoSummary::new(),
+            "top.ldo.U1".into(),
+            Vec::new(),
+        );
+        dev.provenance = BoxProvenance::Declared;
+        dev.x = 10.0;
+        dev.y = 10.0;
+        dev.w = 40.0;
+        dev.h = 30.0;
+        child.boxes.push(dev);
+        let layers = vec![
+            RenderedLayer { graph: root, parent: None, canvas: (200.0, 100.0), audited: true },
+            RenderedLayer { graph: child, parent: Some(1), canvas: (200.0, 100.0), audited: false },
+        ];
+        let files = emit_sheets(&layers, "top");
+        assert_eq!(files.len(), 2, "hierarchical mode keeps both sheets");
+
+        // flat mode: build via the same path the CLI takes
+        let flat = super::emit_flat_sheet(&layers, &dummy_table(), "top");
+        assert_eq!(flat.len(), 1);
+        let s = &flat[0].content;
+        assert!(!s.contains("(sheet\n"), "no sheet instances: {s}");
+        assert!(!s.contains("hierarchical_label"), "no hierarchical labels: {s}");
+        assert!(s.contains("(lib_id \"mcc:L20_"), "device content present: {s}");
+    }
+
+    fn dummy_table() -> crate::InstTable {
+        crate::InstTable::new(1)
     }
 
     #[test]
