@@ -14,7 +14,9 @@ use serde::{Deserialize, Serialize};
 use crate::vector::builder::report::BuilderReport;
 use crate::vector::graph::boxdef::{EntryPoint, EntrySide, McVecBox};
 use crate::vector::graph::netdef::{Point, Route, Segment};
+use crate::semantic::common::ConnOp;
 use crate::vector::graph::{McVecGraph, NetKind};
+use crate::vector::model::AttrRole;
 use crate::viz::render::label_render::{designator_value_label_bounds, LabelBounds};
 use crate::viz::route::audit::CollisionReport;
 use crate::viz::semantic::SemanticSummary;
@@ -361,8 +363,27 @@ fn measure_signal_flow(graph: &McVecGraph) -> Axis {
     // Check if signal chains flow left-to-right
     let mut chains = 0usize;
     let mut monotonic = 0usize;
+    // U162(b) (signal-flow-metric-design P1/P3): a net is judged by its own
+    // drawing law, not by one flat rule. Declared supply nets draw as trunks
+    // and are already placed by the rail/ground axes; a declared parallel net
+    // fans out from one driver and carries no chain order. Both leave the
+    // axis — counting them here judged misordering no layout pass promised.
+    let mut rails_out = 0usize;
+    let mut fanout_out = 0usize;
     for net in &graph.nets {
         if net.endpoints.len() < 2 {
+            continue;
+        }
+        if net
+            .attr
+            .as_ref()
+            .is_some_and(|a| matches!(a.role, AttrRole::Hot | AttrRole::Ret | AttrRole::Reference))
+        {
+            rails_out += 1;
+            continue;
+        }
+        if net.shape.as_ref().and_then(|s| s.op) == Some(ConnOp::Parallel) {
+            fanout_out += 1;
             continue;
         }
         chains += 1;
@@ -399,10 +420,12 @@ fn measure_signal_flow(graph: &McVecGraph) -> Axis {
         }
     }
     crate::vlog!(
-        "[sigflow] layer={} summary monotonic={}/{}",
+        "[sigflow] layer={} summary monotonic={}/{} rails-out={} fanout-out={}",
         graph.name,
         monotonic,
-        chains
+        chains,
+        rails_out,
+        fanout_out
     );
     Axis::new(monotonic, chains)
 }
