@@ -3161,10 +3161,7 @@ pub(crate) fn check_return_leg_undeclared(table: &InstTable, results: &mut Vec<N
 /// vocabulary (5360) and carry no verdict yet — a branch with no reading is
 /// silence, never a guess. An unwired pin is the unwired-pin rule's object;
 /// a net with no class at all is the unanchored half (info), not a mismatch.
-pub(crate) fn check_pin_copper_expectation(
-    table: &InstTable,
-    results: &mut Vec<NetCheckResult>,
-) {
+pub(crate) fn check_pin_copper_expectation(table: &InstTable, results: &mut Vec<NetCheckResult>) {
     let idx = crate::instant::island::NetIslandIndex::build(table);
     let faces = faces::DomainFaces::read(table);
     // Conduit role words per (owning scope, copper name) — the identity a
@@ -3195,10 +3192,12 @@ pub(crate) fn check_pin_copper_expectation(
             let Some(mp) = def_pin_of(def, &comp.path, pin) else {
                 continue;
             };
-            let Some(word) = crate::semantic::module::pi::attr_texts(&mp.attrs, crate::semantic::basic::attr_keys::KEY_ROLE)
-                .into_iter()
-                .next()
-            else {
+            let Some(word) = crate::semantic::module::pi::attr_texts(
+                &mp.attrs,
+                crate::semantic::basic::attr_keys::KEY_ROLE,
+            )
+            .into_iter()
+            .next() else {
                 continue;
             };
             if word != crate::semantic::basic::attr_keys::WORD_QUIET {
