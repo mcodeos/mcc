@@ -185,6 +185,29 @@ fn resolve_project_root(args: &BuildArgs) -> PathBuf {
     }
 }
 
+/// Outlet for the viz artifact: `-o` when given, else
+/// `<project_root>/build/circuit.html` — a file product lives under the
+/// project's `build/` (build-design §3.4), never loose in the project root.
+/// The caller creates the parent directory, like the `--product` writer does.
+fn viz_output_path(project_root: &Path) -> PathBuf {
+    match mcc::cli::globals().output.as_deref() {
+        Some(p) => PathBuf::from(p),
+        None => project_root.join("build").join("circuit.html"),
+    }
+}
+
+/// Create the parent directory of a viz outlet, so the `build/` default
+/// materializes on first write and `-o` into a fresh directory works too.
+fn ensure_viz_parent(output_path: &Path) -> Result<()> {
+    if let Some(parent) = output_path.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("create {}", parent.display()))?;
+        }
+    }
+    Ok(())
+}
+
 fn run_rpc(c: &RpcClient, args: &BuildArgs) -> Result<BuildOutcome> {
     let project_root = resolve_project_root(args);
     let manifest =
@@ -256,13 +279,11 @@ fn write_delegated_viz(
         .ok_or_else(|| anyhow::anyhow!("viz: server returned no html"))?;
     let html = mcc::viz::sourcelink::stamp_wrapped(html, &resolve_project_root(args));
 
-    let output_path = mcc::cli::globals()
-        .output
-        .as_deref()
-        .unwrap_or("circuit.html");
-    std::fs::write(output_path, &html)
-        .with_context(|| format!("failed to write file: {}", output_path))?;
-    eprintln!("viz: {} bytes written to {}", html.len(), output_path);
+    let output_path = viz_output_path(&resolve_project_root(args));
+    ensure_viz_parent(&output_path)?;
+    std::fs::write(&output_path, &html)
+        .with_context(|| format!("failed to write file: {}", output_path.display()))?;
+    eprintln!("viz: {} bytes written to {}", html.len(), output_path.display());
     Ok(())
 }
 
@@ -564,13 +585,11 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
 
             let html = mcc::viz::sourcelink::wrap_standalone(&mut doc, &project_root);
 
-            let output_path = mcc::cli::globals()
-                .output
-                .as_deref()
-                .unwrap_or("circuit.html");
-            std::fs::write(output_path, &html)
-                .with_context(|| format!("failed to write file: {}", output_path))?;
-            eprintln!("viz: {} bytes written to {}", html.len(), output_path);
+            let output_path = viz_output_path(&project_root);
+            ensure_viz_parent(&output_path)?;
+            std::fs::write(&output_path, &html)
+                .with_context(|| format!("failed to write file: {}", output_path.display()))?;
+            eprintln!("viz: {} bytes written to {}", html.len(), output_path.display());
 
             mcc_dbg!(
                 "build",
@@ -676,13 +695,11 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
             // (tests/golden via render_signature), so it stays link-free.
             let html = mcc::viz::sourcelink::wrap_standalone(&mut doc, &project_root);
 
-            let output_path = mcc::cli::globals()
-                .output
-                .as_deref()
-                .unwrap_or("circuit.html");
-            std::fs::write(output_path, &html)
-                .with_context(|| format!("failed to write file: {}", output_path))?;
-            eprintln!("viz: {} bytes written to {}", html.len(), output_path);
+            let output_path = viz_output_path(&project_root);
+            ensure_viz_parent(&output_path)?;
+            std::fs::write(&output_path, &html)
+                .with_context(|| format!("failed to write file: {}", output_path.display()))?;
+            eprintln!("viz: {} bytes written to {}", html.len(), output_path.display());
 
             // [P0/A2] Electrical-fidelity hard gate: a non-perfect fidelity report means
             // the drawing is electrically wrong (dropped/partial nets, unrendered pins,
@@ -1113,13 +1130,11 @@ fn build_browse_dir(
         layer.svg = combined_svg;
         doc.add_layer(layer);
         let html = mcc::viz::sourcelink::wrap_standalone(&mut doc, root);
-        let output_path = mcc::cli::globals()
-            .output
-            .as_deref()
-            .unwrap_or("circuit.html");
-        std::fs::write(output_path, &html)
-            .with_context(|| format!("failed to write file: {}", output_path))?;
-        eprintln!("viz: {} bytes written to {}", html.len(), output_path);
+        let output_path = viz_output_path(root);
+        ensure_viz_parent(&output_path)?;
+        std::fs::write(&output_path, &html)
+            .with_context(|| format!("failed to write file: {}", output_path.display()))?;
+        eprintln!("viz: {} bytes written to {}", html.len(), output_path.display());
         mcc_dbg!(
             "build",
             "[viz] rendered {} targets: {} boxes",
