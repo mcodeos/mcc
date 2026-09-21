@@ -52,6 +52,44 @@ pub fn set_trace_stdout_suppressed(suppress: bool) {
     SUPPRESS_TRACE_STDOUT.store(suppress, std::sync::atomic::Ordering::SeqCst);
 }
 
+/// When true, the parse captures its AST visit as JSON in the C engine's
+/// buffer (`visit_tree_json`) instead of printing the color tree to stdout.
+/// `show ast -f json` sets this so the face can emit the tree as data.
+static AST_VISIT_JSON: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+pub fn is_ast_visit_json() -> bool {
+    AST_VISIT_JSON.load(std::sync::atomic::Ordering::SeqCst)
+}
+
+pub fn set_ast_visit_json(json: bool) {
+    AST_VISIT_JSON.store(json, std::sync::atomic::Ordering::SeqCst);
+}
+
+/// Per-URI capture of the AST visit trees. `mcc_load_project` parses the use
+/// chain plus every project module in collection order, so a single
+/// "first parse wins" buffer is order-dependent. JSON mode records one tree
+/// per source URI instead, and the reader asks for the entry file's tree.
+static AST_VISIT_JSON_MAP: std::sync::Mutex<std::collections::BTreeMap<String, serde_json::Value>> =
+    std::sync::Mutex::new(std::collections::BTreeMap::new());
+
+pub fn record_ast_visit_json(uri: String, tree: serde_json::Value) {
+    if let Ok(mut map) = AST_VISIT_JSON_MAP.lock() {
+        map.insert(uri, tree);
+    }
+}
+
+pub fn take_ast_visit_json_for(uri: &str) -> Option<serde_json::Value> {
+    let mut map = AST_VISIT_JSON_MAP.lock().ok()?;
+    map.remove(uri)
+}
+
+pub fn clear_ast_visit_json() {
+    if let Ok(mut map) = AST_VISIT_JSON_MAP.lock() {
+        map.clear();
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct MccConfig {
     #[serde(default)]

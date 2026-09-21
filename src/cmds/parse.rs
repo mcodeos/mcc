@@ -38,7 +38,7 @@ use crate::output::{
 use anyhow::{Context, Result};
 use mcc::cli::ParseArgs;
 use mcc::{IOType, McCMIE, McEndpoint, McIds, McInstance, McInstanceRef, McPhrase, McURI};
-use mcc::{McParamDeclare, McParamTypeKind};
+use mcc::{McParamDeclare, McParamTypeKind, McParamValue};
 use serde_json::json;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -1202,11 +1202,24 @@ fn phrase_to_tree_json(p: &McPhrase, max_depth: usize, cur: usize) -> serde_json
             "label": format!("params={} body={}", c.params.len(), c.body.len()),
             "children": recurse(&c.body),
         }),
-        McPhrase::FuncCall(fc) => json!({
-            "kind": "FuncCall",
-            "label": format!("{}({} args)", fc.func_name, fc.params.len()),
-            "children": fc.caller.as_ref().map(|c| vec![phrase_to_tree_json(c, max_depth, cur + 1)]).unwrap_or_default(),
-        }),
+        McPhrase::FuncCall(fc) => {
+            // The receiver (caller chain) and every argument are kept as
+            // children; the label alone is a summary and loses the call shape.
+            let mut kids: Vec<serde_json::Value> = Vec::new();
+            if let Some(c) = fc.caller.as_ref() {
+                kids.push(phrase_to_tree_json(c, max_depth, cur + 1));
+            }
+            for p in fc.params.iter() {
+                kids.push(param_to_tree_json(p, max_depth, cur + 1));
+            }
+            json!({
+                "kind": "FuncCall",
+                "label": format!("{}({} args)", fc.func_name, fc.params.len()),
+                "func": fc.func_name.to_string(),
+                "member": fc.dot_member.as_deref(),
+                "children": kids,
+            })
+        }
         McPhrase::Transposed(inner) => json!({
             "kind": "Transposed",
             "label": "",
@@ -1222,16 +1235,59 @@ fn phrase_to_tree_json(p: &McPhrase, max_depth: usize, cur: usize) -> serde_json
             "label": format!(".{}", ep),
             "children": [phrase_to_tree_json(inner, max_depth, cur + 1)],
         }),
-        McPhrase::Lead(_) => json!({
+        McPhrase::Lead(offset) => json!({
             "kind": "Lead",
             "usage": "passthrough",
             "label": "",
+            "offset": offset,
             "children": [],
+        }),
+        McPhrase::Endpoint(McEndpoint::Node { input, output }) => json!({
+            "kind": "Node",
+            "input": endpoints_json(input),
+            "output": endpoints_json(output),
+        }),
+        McPhrase::Endpoint(McEndpoint::List(nodes)) => json!({
+            "kind": "EndpointList",
+            "children": endpoints_json(nodes),
         }),
         McPhrase::Endpoint(ep) => json!({
             "kind": "Endpoint",
             "label": endpoint_label(ep),
             "children": [],
+        }),
+    }
+}
+
+fn endpoints_json(eps: &[McEndpoint]) -> Vec<serde_json::Value> {
+    eps.iter()
+        .map(|ep| {
+            json!({
+                "kind": "Endpoint",
+                "label": endpoint_label(ep),
+            })
+        })
+        .collect()
+}
+
+fn param_to_tree_json(p: &McParamValue, max_depth: usize, cur: usize) -> serde_json::Value {
+    let truncated = max_depth > 0 && cur >= max_depth;
+    match p {
+        McParamValue::Phrase(inner) if !truncated => phrase_to_tree_json(inner, max_depth, cur),
+        McParamValue::Set(items) => json!({
+            "kind": "Set",
+            "children": if truncated {
+                Vec::new()
+            } else {
+                items
+                    .iter()
+                    .map(|i| param_to_tree_json(i, max_depth, cur + 1))
+                    .collect::<Vec<_>>()
+            },
+        }),
+        other => json!({
+            "kind": "Value",
+            "label": other.to_string(),
         }),
     }
 }
@@ -1312,7 +1368,7 @@ fn param_default(d: &McParamDeclare) -> Option<String> {
 }
 
 /// Build a JSON tree representation for a non-Module CMIE definition.
-fn cmie_to_tree_json(cmie: &McCMIE, _max_depth: usize) -> serde_json::Value {
+fn cmie_to_tree_json(cmie: &McCMIE, max_depth: usize) -> serde_json::Value {
     match cmie {
         McCMIE::Component(c) => {
             // ── params: name, cls (type annotation), default ──
@@ -1362,15 +1418,23 @@ fn cmie_to_tree_json(cmie: &McCMIE, _max_depth: usize) -> serde_json::Value {
                 })
                 .collect();
 
-            // ── funcs: name, param count ──
+            // ── funcs: name, param count, body statements ──
             let funcs: Vec<_> = c
                 .funcs
                 .iter()
                 .map(|f| {
-                    json!({
-                        "name": f.name.to_string(),
-                        "params": f.params.len(),
-                    })
+                    let mut obj = serde_json::Map::new();
+                    obj.insert("name".into(), json!(f.name.to_string()));
+                    obj.insert("params".into(), json!(f.params.len()));
+                    if !f.stmts.is_empty() {
+                        let stmts: Vec<_> = f
+                            .stmts
+                            .iter()
+                            .map(|s| phrase_to_tree_json(s, max_depth, 0))
+                            .collect();
+                        obj.insert("stmts".into(), json!(stmts));
+                    }
+                    serde_json::Value::Object(obj)
                 })
                 .collect();
 
