@@ -308,45 +308,45 @@ ast/mod.rs#L8  mod node
 ast/mod.rs#L9  mod sem
 ast/mod.rs#L10  mod token
 ast/node.rs#L15  struct McValueFFI
-ast/node.rs#L26  struct AstNode
-ast/node.rs#L31  struct AstNodeIter
-ast/node.rs#L35  impl Clone for AstNode
-ast/node.rs#L36  fn clone
-ast/node.rs#L44  impl AstNode
-ast/node.rs#L45  fn new
-ast/node.rs#L49  fn iter
-ast/node.rs#L55  fn from_ptr
-ast/node.rs#L66  fn set_ptr
-ast/node.rs#L70  fn get_ptr
-ast/node.rs#L74  fn get_pos
-ast/node.rs#L81  fn get_len
-ast/node.rs#L88  fn is_null
-ast/node.rs#L97  fn is_type
-ast/node.rs#L104  fn get_type
-ast/node.rs#L111  fn get_data
-ast/node.rs#L125  fn get_sub_node
-ast/node.rs#L132  fn get_next
-ast/node.rs#L153  fn clause_list
-ast/node.rs#L159  fn collect_clauses
-ast/node.rs#L189  fn data_as_cstr
-ast/node.rs#L201  fn to_float
-ast/node.rs#L220  fn to_i32
-ast/node.rs#L257  fn to_u32
-ast/node.rs#L307  fn named_arg_parts
-ast/node.rs#L329  fn to_string
-ast/node.rs#L612  fn subs_to_string_vec
-ast/node.rs#L625  fn subs_to_mcids_vec
-ast/node.rs#L638  fn to_id_or_ida
-ast/node.rs#L681  fn to_id_or_ida_or_num
-ast/node.rs#L702  impl Drop for AstNode
-ast/node.rs#L703  fn drop
-ast/node.rs#L715  fn extract_ida
-ast/node.rs#L717  enum Segment
-ast/node.rs#L723  impl Segment
-ast/node.rs#L724  fn size
-ast/node.rs#L912  impl Iterator for AstNodeIter
-ast/node.rs#L913  type Item
-ast/node.rs#L914  fn next
+ast/node.rs#L28  struct AstNode
+ast/node.rs#L33  struct AstNodeIter
+ast/node.rs#L37  impl Clone for AstNode
+ast/node.rs#L38  fn clone
+ast/node.rs#L46  impl AstNode
+ast/node.rs#L47  fn new
+ast/node.rs#L51  fn iter
+ast/node.rs#L57  fn from_ptr
+ast/node.rs#L68  fn set_ptr
+ast/node.rs#L72  fn get_ptr
+ast/node.rs#L76  fn get_pos
+ast/node.rs#L83  fn get_len
+ast/node.rs#L90  fn is_null
+ast/node.rs#L99  fn is_type
+ast/node.rs#L106  fn get_type
+ast/node.rs#L113  fn get_data
+ast/node.rs#L127  fn get_sub_node
+ast/node.rs#L134  fn get_next
+ast/node.rs#L155  fn clause_list
+ast/node.rs#L161  fn collect_clauses
+ast/node.rs#L191  fn data_as_cstr
+ast/node.rs#L203  fn to_float
+ast/node.rs#L222  fn to_i32
+ast/node.rs#L259  fn to_u32
+ast/node.rs#L309  fn named_arg_parts
+ast/node.rs#L331  fn to_string
+ast/node.rs#L614  fn subs_to_string_vec
+ast/node.rs#L627  fn subs_to_mcids_vec
+ast/node.rs#L640  fn to_id_or_ida
+ast/node.rs#L683  fn to_id_or_ida_or_num
+ast/node.rs#L704  impl Drop for AstNode
+ast/node.rs#L705  fn drop
+ast/node.rs#L717  fn extract_ida
+ast/node.rs#L719  enum Segment
+ast/node.rs#L725  impl Segment
+ast/node.rs#L726  fn size
+ast/node.rs#L914  impl Iterator for AstNodeIter
+ast/node.rs#L915  type Item
+ast/node.rs#L916  fn next
 ast/sem.rs#L19  struct McSemSymbols
 ast/sem.rs#L44  impl Default for McSemSymbols
 ast/sem.rs#L45  fn default
