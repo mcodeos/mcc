@@ -278,14 +278,23 @@ static int json_visit_nodes(mc_value* node, int depth) {
             if (!json_buf_escaped(mcc_type_name(node->type))) return 0;
             // Source span in bytes ([start, end) of this node), following the
             // `span: {start, end}` contract the Rust read faces render as
-            // `@start:end` (output/compact.rs span_suffix).
+            // `@start:end` (output/compact.rs span_suffix). The rule span
+            // (rpos/rlen, whole reduction, discarded tokens included) is the
+            // coverage face; nodes without one fall back to the first-subnode
+            // anchor pos/len.
             {
                 char num[32];
+                unsigned int s = node->pos;
+                unsigned int e = node->pos + node->len;
+                if (node->rlen != 0) {
+                    s = node->rpos;
+                    e = node->rpos + node->rlen;
+                }
                 if (!json_buf_str(",\"span\":{\"start\":")) return 0;
-                snprintf(num, sizeof(num), "%u", node->pos);
+                snprintf(num, sizeof(num), "%u", s);
                 if (!json_buf_str(num)) return 0;
                 if (!json_buf_str(",\"end\":")) return 0;
-                snprintf(num, sizeof(num), "%u", node->pos + node->len);
+                snprintf(num, sizeof(num), "%u", e);
                 if (!json_buf_str(num)) return 0;
                 if (!json_buf_str("}")) return 0;
             }
