@@ -1188,6 +1188,10 @@ pub const GATE_ORPHAN_INSTANCE: u32 = 4214;
 /// R15 — a synthetic terminal is not backed by any real pin (advisory).
 pub const GATE_SYNTHETIC_PIN: u32 = 4215;
 
+/// U155 — a connection replication count must be an int >= 2
+/// (`Phrase * N` / `Phrase × N`).
+pub const CONN_REPLICATION_COUNT: u32 = 4216;
+
 // Pass3: duplicate validation (5000-5049)
 
 /// Same name defined in another file (cross-file duplicate).
@@ -2611,4 +2615,5 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(GATE_DANGLING_PORT, "R12 — a port net holds only its own point.", "dangling port net: {0}"),
     entry!(GATE_ORPHAN_INSTANCE, "R14 — an instance is registered but appears in no net.", "orphan instance: {0}"),
     entry!(GATE_SYNTHETIC_PIN, "R15 — a synthetic terminal is not backed by any real pin.", "synthetic terminal: {0}"),
+    entry!(CONN_REPLICATION_COUNT, "U155 — a connection replication count must be an int >= 2.", "replication count: {0}"),
 ];

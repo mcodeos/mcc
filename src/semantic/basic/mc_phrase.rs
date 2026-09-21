@@ -25,7 +25,9 @@ use crate::{
     query::refs::{mcb_register_declare_class, mcb_register_instance_ref},
     refdef::types::SymbolKind,
     semantic::{
-        basic::{mc_opd::McOpd, mc_param::McParamValue, opd_shape::OpdShape},
+        basic::{
+            mc_literal::McInt, mc_opd::McOpd, mc_param::McParamValue, opd_shape::OpdShape,
+        },
         component::mc_pins::{pin_value_keys, pin_values_of, McPinPort},
         context::resolve_cmie,
         instref::validate_inst_reference,
@@ -3376,15 +3378,66 @@ impl McPhrase {
             }
             MCAST_IOTYPE_RETURN => None,
 
+            // U155: anonymous replication — `Phrase * N` (the `×` spelling
+            // produces the same MCAST_OPD_MULTI node) with a nonneg int
+            // literal builds N independent copies of the phrase, exactly as
+            // an N-element square vector `[P, P, …]` would. The copies are
+            // fresh anonymous instantiations, one per lane. A count below 2
+            // is its own diagnostic (CONN_REPLICATION_COUNT); any other
+            // right operand keeps the operator-unsupported diagnostic below.
+            MCAST_OPD_MULTI => {
+                let subs: Vec<AstNode> = node
+                    .get_sub_node()
+                    .map(|s| s.iter().collect())
+                    .unwrap_or_default();
+                if subs.len() == 2 {
+                    if let Some(count) = McInt::new(&subs[1]) {
+                        if count.value >= 2 {
+                            let copies: Option<Vec<McPhrase>> = (0..count.value)
+                                .map(|_| {
+                                    Some(
+                                        McPhrase::new(&subs[0], context)?
+                                            .upgrade_new_label_or_bus(context),
+                                    )
+                                })
+                                .collect();
+                            return Some(McPhrase::Multiple(copies?));
+                        }
+                        dlog_error(
+                            crate::errcodes::CONN_REPLICATION_COUNT,
+                            node,
+                            &crate::errcodes::format_msg(
+                                crate::errcodes::CONN_REPLICATION_COUNT,
+                                &[&count.value as &dyn std::fmt::Display],
+                            ),
+                        );
+                        return None;
+                    }
+                }
+                let op = "*";
+                dlog_error(
+                    crate::errcodes::CONN_OPERATOR_UNSUPPORTED,
+                    node,
+                    &crate::errcodes::format_msg(
+                        crate::errcodes::CONN_OPERATOR_UNSUPPORTED,
+                        &[
+                            &node.get_type() as &dyn std::fmt::Display,
+                            &op as &dyn std::fmt::Display,
+                        ],
+                    ),
+                );
+                None
+            }
+
             // P1-1: arithmetic / range operators on connection stmts
-            // mca.y accepts `A * B` / `A / B` / `A ~ B` / `A : B` as mc_phrase,
-            // but only `+` (parallel) and `-` / `->` (series) have connection
-            // semantics. These four fall through to the generic E1110 today;
-            // give an operator-specific diagnostic instead so the dropped stmt
-            // is not confused with an AST shape bug.
-            MCAST_OPD_MULTI | MCAST_OPD_DIVID | MCAST_OPD_TILDE | MCAST_OPD_COLON => {
+            // mca.y accepts `A / B` / `A ~ B` / `A : B` as mc_phrase, but
+            // only `+` (parallel) and `-` / `->` (series) have connection
+            // semantics (`*` is U155 replication above). These fall through
+            // to the generic E1110 today; give an operator-specific
+            // diagnostic instead so the dropped stmt is not confused with an
+            // AST shape bug.
+            MCAST_OPD_DIVID | MCAST_OPD_TILDE | MCAST_OPD_COLON => {
                 let op = match node.get_type() {
-                    MCAST_OPD_MULTI => "*",
                     MCAST_OPD_DIVID => "/",
                     MCAST_OPD_TILDE => "~",
                     _ => ":",
