@@ -480,14 +480,6 @@ impl Mc2Interface {
         self.base.name.to_string()
     }
 
-    /// Get all pin names list (for merging)
-    pub fn get_all_pin_ids(&self) -> Vec<String> {
-        let mut pin_names: Vec<String> = self.base.pins.names_to_id.keys().cloned().collect();
-        pin_names.sort();
-        pin_names.dedup();
-        pin_names
-    }
-
     /// Merge two interfaces' pins (used for merging same-type interfaces)
     /// Return a new Mc2Interface containing merged pins
     pub fn merge_with(&self, other: &Mc2Interface) -> Self {

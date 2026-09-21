@@ -2095,9 +2095,13 @@ impl InstTable {
             }
 
             // Each pin as an independent entry
-            // ★ Use sorted keys to ensure stable pin order
+            // ★ U152 ⑥: canonical pin order (`pin_id_cmp` — numeric ids
+            // numerically, the rest naturally), not dictionary order. The sort
+            // exists for determinism; the canonical comparator is the one
+            // definition every pin listing uses, so the registration (and with
+            // it the entry-id allocation order) follows it too.
             let mut pin_names: Vec<&String> = comp.pins.keys().collect();
-            pin_names.sort();
+            pin_names.sort_by(|a, b| crate::instant::mc_comp::pin_id_cmp(a, b));
             for pin_name in pin_names {
                 if let Some(net_point) = comp.pins.get(pin_name) {
                     let pin_path = format!("{comp_path}.{pin_name}");
@@ -2324,8 +2328,9 @@ impl InstTable {
                 self.bridge_passive_paths.insert(comp_path.clone());
             }
 
+            // U152 ⑥: canonical pin order, see the twin site above.
             let mut pin_names: Vec<&String> = comp.pins.keys().collect();
-            pin_names.sort();
+            pin_names.sort_by(|a, b| crate::instant::mc_comp::pin_id_cmp(a, b));
             for pin_name in pin_names {
                 if let Some(net_point) = comp.pins.get(pin_name) {
                     let pin_path = format!("{comp_path}.{pin_name}");

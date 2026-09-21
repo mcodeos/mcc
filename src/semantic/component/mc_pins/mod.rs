@@ -874,47 +874,6 @@ impl McPins {
         }
     }
 
-    /// ── S3 fix: get a port's bus_members (supports both Bus and Interface forms) ──
-    /// For Interface port, collect members via "PORT.MEMBER" form dot alias
-    /// in Component's pin_id_to_names (sorted by pinid numeric ascending, deduped).
-    pub fn get_bus_members_for_port(&self, name: &str) -> Vec<String> {
-        if let Some(port) = self.names_to_id.get(name) {
-            match port {
-                McPinPort::Bus(bus) => return bus.full_members.clone(),
-                McPinPort::Interface(_iface_arc) => {
-                    // ── S3 fix: extract "PORT.MEMBER" form from pin_id_to_names
-                    // member name. Order by pinid numeric ascending, dedup by pid.
-                    let prefix = format!("{name}.");
-                    let mut members: Vec<String> = Vec::new();
-                    let mut seen_pids: BTreeSet<String> = BTreeSet::new();
-                    let mut sorted_keys: Vec<&String> = self.pins.keys().collect();
-                    sorted_keys.sort_by(|a, b| {
-                        let na: i64 = a.parse().unwrap_or(0);
-                        let nb: i64 = b.parse().unwrap_or(0);
-                        na.cmp(&nb)
-                    });
-                    for pid in sorted_keys {
-                        if seen_pids.contains(pid) {
-                            continue;
-                        }
-                        if let Some(names) = self.pin_id_to_names.get(pid) {
-                            for n in names {
-                                if let Some(rest) = n.strip_prefix(&prefix) {
-                                    members.push(rest.to_string());
-                                    seen_pids.insert(pid.clone());
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                    return members;
-                }
-                _ => return Vec::new(),
-            }
-        }
-        Vec::new()
-    }
-
     /// §5.3 whole-pair DC face: a curly-`|` face may name a whole power port
     /// (`ldo33{VIN | VOUT}`) rather than its members. Each face then spans that
     /// port's full DC pair, in declaration order (hot, ret) — read from the
