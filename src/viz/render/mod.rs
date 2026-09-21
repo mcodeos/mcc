@@ -210,6 +210,24 @@ fn render_module_frame(mf: &crate::vector::graph::ModuleFrame) -> String {
             anchor = anchor,
             color = color,
         ));
+        // ★ U160-5: the lead wires the layout pass routed — one polyline per
+        // net crossing this port, from the tick's inner end to that net's own
+        // boundary-crossing symbol. Drawn before the dot so the anchor dot
+        // caps the joint.
+        for lead in &p.leads {
+            for s in lead {
+                svg.push_str(&format!(
+                    r##"    <line x1="{x1:.1}" y1="{y1:.1}" x2="{x2:.1}" y2="{y2:.1}"
+          stroke="{color}" stroke-width="2.0"/>
+"##,
+                    x1 = s.x1,
+                    y1 = s.y1,
+                    x2 = s.x2,
+                    y2 = s.y2,
+                    color = color,
+                ));
+            }
+        }
     }
     svg.push_str("  </g>\n");
     svg

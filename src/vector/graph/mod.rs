@@ -50,7 +50,8 @@ pub mod promote;
 // Top-level re-exports
 
 pub use boxdef::{
-    AnchorHint, BoundaryPort, BoxLabelPlacement, EntryPoint, EntrySide, FramePort, IoSummary,
+    AnchorHint, BoundaryPort, BoxLabelPlacement, EntryPoint, EntrySide, FrameLeadSeg, FramePort,
+    IoSummary,
     LabelPlacementKind, McVecBox, ModuleFrame, PinConstraint, PinSlot, PortDir, VisualRole,
 };
 pub use graphdef::{LayerStyle, McVecGraph};

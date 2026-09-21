@@ -19,10 +19,10 @@
 //! consulted, and the renderer recomputes nothing — it draws the rect and the
 //! labels as written.
 
-use crate::vector::graph::{EntrySide, FramePort, McVecGraph, ModuleFrame};
+use crate::vector::graph::{BoxKind, EntrySide, FrameLeadSeg, FramePort, McVecGraph, ModuleFrame};
 use crate::vector::model::PortFlow;
 
-use super::equipotential_tree::{build_all_trees, content_bbox};
+use super::equipotential_tree::{build_all_trees, content_bbox, EquiTree, GUTTER_STEP};
 
 /// Gutter between the content and the frame.
 const FRAME_PAD: f64 = 18.0;
@@ -81,13 +81,14 @@ pub fn layout_module_frame(
         (max_x - min_x) + 2.0 * FRAME_PAD,
         (max_y - min_y) + 2.0 * FRAME_PAD,
     );
+    let ports = frame_ports(graph, &trees, rect);
     let frame = ModuleFrame {
         x: rect.0,
         y: rect.1,
         w: rect.2,
         h: rect.3,
         title: graph.name.clone(),
-        ports: frame_ports(graph, &trees, rect),
+        ports,
     };
 
     crate::vlog!(
@@ -165,7 +166,19 @@ fn frame_ports(
     // `vin.GND`), and the frame shows the port once, where it actually leaves.
     // The group's nets are not interchangeable: the one whose marker carries the
     // declared side is the port's own face, so it wins the anchor its lead.
-    let mut seen: Vec<(i64, f64, f64, String, bool, Option<PortFlow>)> = Vec::new();
+    //
+    // ★ U160-5: every net's crossing is KEPT, not just the flow-winning one —
+    // each crossing gets its own lead wire out of the shared anchor (a `psnk
+    // dc{VDD_3V3, GND}` head port or a `MIC{P,N}` bus port fans out into one
+    // wire per net).
+    let mut seen: Vec<(
+        i64,
+        Vec<(i64, f64, f64)>,
+        Option<(f64, f64)>,
+        String,
+        bool,
+        Option<PortFlow>,
+    )> = Vec::new();
     for net in &graph.nets {
         let Some(bi) = net.boundary.as_ref() else {
             continue;
@@ -186,22 +199,20 @@ fn frame_ports(
             continue;
         };
         if let Some(slot) = seen.iter_mut().find(|(id, ..)| *id == bi.port_group_id) {
+            slot.1.push((net.nid, p.0, p.1));
             if slot.5.is_none() && bi.flow.is_some() {
-                *slot = (
-                    bi.port_group_id,
-                    p.0,
-                    p.1,
-                    bi.port_name.clone(),
-                    bi.is_supply,
-                    bi.flow,
-                );
+                // The flow-declaring net is the port's own face: its crossing
+                // drives where the anchor projects onto the declared edge.
+                slot.2 = Some(p);
+                slot.5 = bi.flow;
             }
             continue;
         }
+        let face = if bi.flow.is_some() { Some(p) } else { None };
         seen.push((
             bi.port_group_id,
-            p.0,
-            p.1,
+            vec![(net.nid, p.0, p.1)],
+            face,
             bi.port_name.clone(),
             bi.is_supply,
             bi.flow,
@@ -211,7 +222,13 @@ fn frame_ports(
     // Project each crossing onto the frame edge it leaves through, then spread
     // the anchors on each edge so two labels cannot land on top of each other.
     let mut out: Vec<FramePort> = Vec::with_capacity(seen.len());
-    for (_, px, py, name, is_supply, flow) in seen {
+    let mut crossings: Vec<Vec<(i64, f64, f64)>> = Vec::with_capacity(seen.len());
+    for (_, crosses, face, name, is_supply, flow) in seen {
+        crossings.push(crosses);
+        let (px, py) = face.unwrap_or_else(|| {
+            let c = &crossings[crossings.len() - 1];
+            (c[0].1, c[0].2)
+        });
         let (side, x, y) = match flow {
             Some(PortFlow::In) => (EntrySide::Left, min_x, py),
             Some(PortFlow::Out) => (EntrySide::Right, max_x, py),
@@ -249,10 +266,199 @@ fn frame_ports(
             y,
             side,
             is_supply,
+            leads: Vec::new(),
         });
     }
     spread_along_edges(&mut out, min_x, min_y, max_x, max_y);
+    // ★ U160-5: the anchors are final — route one lead per crossing net, out of
+    // the shared anchor, to that net's own boundary-crossing symbol.
+    //
+    // ★ U160-2: several nets of one port can route leads that SHARE pieces (the
+    // hbl `SPI` port: all four nets' leads run the same first piece out of the
+    // shared anchor, then branch to their own crossings). Rendering every lead
+    // whole draws those shared pieces twice over. Dedup at the SEGMENT level
+    // within the port — a piece already drawn for this port is dropped from the
+    // later leads that would repeat it, so each wire pixel goes out exactly
+    // once. Keys are rounded to the renderer's 0.1 formatting precision, so
+    // sub-pixel route differences still count as "the same piece".
+    for (port, crosses) in out.iter_mut().zip(&crossings) {
+        let mut seg_keys: Vec<(i64, i64, i64, i64)> = Vec::new();
+        let mut leads: Vec<Vec<FrameLeadSeg>> = Vec::new();
+        for &(nid, tx, ty) in crosses {
+            let Some(raw) = route_lead(port, nid, tx, ty, graph, trees) else {
+                continue;
+            };
+            let mut lead: Vec<FrameLeadSeg> = Vec::new();
+            for s in raw {
+                let key = (
+                    (s.x1 * 10.0).round() as i64,
+                    (s.y1 * 10.0).round() as i64,
+                    (s.x2 * 10.0).round() as i64,
+                    (s.y2 * 10.0).round() as i64,
+                );
+                if seg_keys.contains(&key) {
+                    continue;
+                }
+                seg_keys.push(key);
+                lead.push(s);
+            }
+            if !lead.is_empty() {
+                leads.push(lead);
+            }
+        }
+        port.leads = leads;
+    }
     out
+}
+
+/// ★ U160-5: route one port lead from the anchor tick's inner end to the net's
+/// boundary-crossing symbol.
+///
+/// Candidates are tried in order of visual simplicity and the FIRST one whose
+/// whole corridor is clear is drawn: straight, then the two L shapes, then a
+/// dodged Z at successive [`GUTTER_STEP`] offsets around the crossing's axis
+/// (the hbl `dc` port: its symbol sits on the VMIC row, so the straight
+/// corridor would run the supply lead through the bead's trunk — a visual
+/// short). A crossing tree segment of a FOREIGN net, or a real component box,
+/// blocks a corridor; the lead's own net is free (landing on its own wire is a
+/// junction, not a short). If nothing clears — content packed to the frame —
+/// the plain horizontal-first L is drawn anyway: a crossing beats a missing
+/// connection.
+fn route_lead(
+    port: &FramePort,
+    net_nid: i64,
+    tx: f64,
+    ty: f64,
+    graph: &McVecGraph,
+    trees: &[EquiTree],
+) -> Option<Vec<FrameLeadSeg>> {
+    // Mirrors the tick the renderer draws; the lead continues it inward.
+    const TICK: f64 = 9.0;
+    let (sx, sy) = match port.side {
+        EntrySide::Left => (port.x + TICK, port.y),
+        EntrySide::Right => (port.x - TICK, port.y),
+        EntrySide::Top => (port.x, port.y + TICK),
+        EntrySide::Bottom => (port.x, port.y - TICK),
+    };
+
+    let seg = |x1: f64, y1: f64, x2: f64, y2: f64| FrameLeadSeg { x1, y1, x2, y2 };
+    let tidy = |mut pieces: Vec<FrameLeadSeg>| -> Vec<FrameLeadSeg> {
+        pieces.retain(|s| (s.x1 - s.x2).abs() > 0.5 || (s.y1 - s.y2).abs() > 0.5);
+        pieces
+    };
+
+    let mut cands: Vec<Vec<FrameLeadSeg>> = Vec::new();
+    // Straight — only when it really is orthogonal (a crossing off the anchor's
+    // row/edge is the L shapes' job; an unconstrained "straight" piece would be
+    // a diagonal across the drawing).
+    if (sy - ty).abs() <= 0.5 || (sx - tx).abs() <= 0.5 {
+        cands.push(tidy(vec![seg(sx, sy, tx, ty)]));
+    }
+    if (sy - ty).abs() > 0.5 {
+        cands.push(tidy(vec![seg(sx, sy, tx, sy), seg(tx, sy, tx, ty)]));
+        cands.push(tidy(vec![seg(sx, sy, sx, ty), seg(sx, ty, tx, ty)]));
+    }
+    // Dodged Z routes: the lead's long run shifts off the crossing's axis until
+    // it slips between the rows — or, when the content fills every lane between
+    // the anchor and the crossing, all the way through the channel along the
+    // frame edge. `GUTTER_STEP` keeps it parallel to any gutter another net
+    // already deflected into.
+    let horizontal_travel = matches!(port.side, EntrySide::Left | EntrySide::Right);
+    for k in 1..=30i32 {
+        for s in [1.0, -1.0] {
+            if horizontal_travel {
+                let mid_y = ty + s * k as f64 * GUTTER_STEP;
+                cands.push(tidy(vec![
+                    seg(sx, sy, sx, mid_y),
+                    seg(sx, mid_y, tx, mid_y),
+                    seg(tx, mid_y, tx, ty),
+                ]));
+            } else {
+                let mid_x = tx + s * k as f64 * GUTTER_STEP;
+                cands.push(tidy(vec![
+                    seg(sx, sy, mid_x, sy),
+                    seg(mid_x, sy, mid_x, ty),
+                    seg(mid_x, ty, tx, ty),
+                ]));
+            }
+        }
+    }
+
+    let best = cands
+        .iter()
+        .find(|pieces| corridor_clear(graph, trees, net_nid, pieces))
+        // Best effort: the first orthogonal L (horizontal-first) — a crossing
+        // beats a missing connection.
+        .or_else(|| cands.first())?
+        .clone();
+    if best.is_empty() {
+        return None;
+    }
+    crate::vlog!(
+        "[frame-lead] port '{}' net#{} {} piece(s): {:?}",
+        port.name,
+        net_nid,
+        best.len(),
+        best.iter().map(|s| format!("({:.0},{:.0})->({:.0},{:.0})", s.x1, s.y1, s.x2, s.y2)).collect::<Vec<_>>()
+    );
+    Some(best)
+}
+
+/// ★ U160-5: is every piece of a candidate lead free of foreign wires and
+/// component bodies? Each piece is a rectangle inflated by [`LEAD_CLEARANCE`];
+/// a tree segment of another net (or a real box — glyph kinds are drawn as tree
+/// symbols, not boxes) intersecting that rectangle blocks the route. Leads of
+/// sibling ports are not yet in the trees, so two leads may overlap; each is
+/// routed against the wired world only.
+fn corridor_clear(
+    graph: &McVecGraph,
+    trees: &[EquiTree],
+    net_nid: i64,
+    pieces: &[FrameLeadSeg],
+) -> bool {
+    const LEAD_CLEARANCE: f64 = 2.0;
+    for p in pieces {
+        let (xa, xb) = (
+            p.x1.min(p.x2) - LEAD_CLEARANCE,
+            p.x1.max(p.x2) + LEAD_CLEARANCE,
+        );
+        let (ya, yb) = (
+            p.y1.min(p.y2) - LEAD_CLEARANCE,
+            p.y1.max(p.y2) + LEAD_CLEARANCE,
+        );
+        for t in trees {
+            // A tree's own wire is free: meeting it is a junction with this
+            // very net. (`symbols` is never empty for a rendered tree.)
+            let Some(sym) = t.symbols.first() else {
+                continue;
+            };
+            if sym.net_id == net_nid {
+                continue;
+            }
+            for s in &t.segments {
+                let (sa, sb) = (s.x1.min(s.x2) - 1.0, s.x1.max(s.x2) + 1.0);
+                let (ta, tb) = (s.y1.min(s.y2) - 1.0, s.y1.max(s.y2) + 1.0);
+                if sa < xb && xa < sb && ta < yb && ya < tb {
+                    return false;
+                }
+            }
+        }
+        for b in &graph.boxes {
+            if b.w <= 0.0 || b.h <= 0.0 {
+                continue;
+            }
+            if matches!(
+                b.kind,
+                BoxKind::PowerLabel | BoxKind::Dot | BoxKind::PortTerminal
+            ) {
+                continue;
+            }
+            if b.x - 1.0 < xb && xa < b.x + b.w + 1.0 && b.y - 1.0 < yb && ya < b.y + b.h + 1.0 {
+                return false;
+            }
+        }
+    }
+    true
 }
 
 /// Push same-edge anchors apart so their labels stay legible.
