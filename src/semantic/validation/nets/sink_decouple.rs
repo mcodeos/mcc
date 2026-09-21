@@ -19,7 +19,10 @@
 //! `ret` is not judged** (§2.1: a single-phase AC shape declares no pair at all,
 //! and the return-missing shape is 6030's object), and neither is a site whose
 //! contract row cannot be reached at all — the family's standing silence (§1.3),
-//! never a guess.
+//! never a guess. Nor is a pin of a part marked `nc` at its instance site (U163,
+//! hbl `wm7121(NC)`): an unmounted alternative draws nothing, so the same
+//! not-fitted read the family applies to element candidates applies to the sink
+//! subject too.
 //!
 //! The candidate is the flat element class ([`InstEntry::element_class`]
 //! `Capacitive`, two terminals on two distinct nets — a terminal unwired or both
@@ -156,7 +159,22 @@ fn sink_sites(table: &InstTable) -> Vec<(u32, u32)> {
         }
         let member = entry.path.rsplit('.').next().unwrap_or("");
         let is_sink = match entry.kind {
-            InstKind::Pin => entry.pwr_dir == Some(PwrDir::Snk),
+            InstKind::Pin => {
+                // A part marked `nc` at its instance site is not on the board
+                // (U163, hbl `wm7121(NC)`): its pins draw nothing, so the pair
+                // they declare feeds no load here. The family already filters
+                // not-fitted parts on the element side — the capacitor
+                // candidate below, thermal, PI-3, the window rules — and this
+                // is the same read applied to the subject: an unmounted
+                // alternative must not report a decoupling gap for a load that
+                // does not exist. An abstract instance no variant materialized
+                // is off the board the same way.
+                let mounted = entry
+                    .parent_id
+                    .and_then(|pid| table.get_entry(pid))
+                    .is_some_and(|c| !c.not_fitted && !c.unselected);
+                mounted && entry.pwr_dir == Some(PwrDir::Snk)
+            }
             InstKind::Port => entry.parent_id.is_some_and(|module| {
                 table.power_decls().get(&module).is_some_and(|pi| {
                     pi.pwr_ports

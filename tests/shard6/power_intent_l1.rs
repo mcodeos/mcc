@@ -4567,6 +4567,31 @@ fn not_fitted_capacitor_does_not_cover_the_load_6036() {
     );
 }
 
+/// U163 (hbl `wm7121(NC)`): a sink whose **own part** is marked `nc` is not on
+/// the board, so its pins draw nothing and its pair feeds no load here — the
+/// not-fitted read the candidate side already applies reaches the subject. The
+/// fitted twin on the same board is what proves the rule ran and stayed silent
+/// only for the unmounted part.
+#[test]
+fn not_fitted_sink_part_is_not_judged_6036() {
+    let src = format!(
+        "{SINK_DC}{CAP_DECOUP}module main {{\n    {PI1_BOARD}\
+         SINK_DC(NC) z\n    z.VDD -> VDD_3V3\n    z.GND -> GND\n    \
+         SINK_DC t\n    t.VDD -> VDD_5V\n    t.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let msgs = msgs_of(mcc::errcodes::SINK_PIN_NO_DECOUPLING, &src);
+    assert_eq!(
+        msgs.len(),
+        1,
+        "only the fitted twin may fire — the unmounted part draws nothing; got codes: {codes:?}"
+    );
+    assert!(
+        msgs[0].contains("main.t.VDD") && !msgs[0].contains("main.z.VDD"),
+        "…and it is the fitted sink that fires, never the `nc` part: {msgs:?}"
+    );
+}
+
 /// A terminal off the board draws from nothing: an unwired sink pad is a
 /// floating-input matter, not a decoupling gap. The wired twin is what proves
 /// the rule ran on this board.
