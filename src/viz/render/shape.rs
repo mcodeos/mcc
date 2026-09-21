@@ -61,16 +61,26 @@ pub trait BoxShape {
 pub fn render_box(b: &McVecBox, is_root: bool, clickable_subs: &[i64]) -> String {
     let inner = render_box_inner(b, is_root, clickable_subs);
     // G16: source position travels on the rendered box so the viewer can jump
-    // from the drawing back to the declaring line.
+    // from the drawing back to the declaring line. S4: the visible label rides
+    // along too (`data-name`) so the viewer can address a box — select /
+    // highlight / drill — without parsing label text. The label (not the raw
+    // instance name) keeps the virtual-view convention: a fabricated `u_1`
+    // never leaks into the DOM either.
+    let label = box_name_label(b);
+    let name = escape_xml_attr(label);
     if let Some(sp) = &b.source_span {
         format!(
-            r##"  <g data-src-uri="{}" data-src-offset="{}">{}
+            r##"  <g data-name="{name}" data-src-uri="{}" data-src-offset="{}">{}
   </g>
 "##,
             escape_xml_attr(&sp.uri),
             sp.offset,
             inner
         )
+    } else if !label.is_empty() {
+        format!(r##"  <g data-name="{name}">{inner}
+  </g>
+"##)
     } else {
         inner
     }
@@ -367,6 +377,8 @@ mod tests {
             .filter(|l| {
                 let t = l.trim_start();
                 !t.starts_with(r#"<g class="comp "#)
+                    && !t.starts_with(r#"<g data-name="#)
+                    && !t.starts_with("</g>")
                     && !l.contains("cursor:pointer")
                     && !t.starts_with("onclick=")
                     && !t.starts_with("<title>")
