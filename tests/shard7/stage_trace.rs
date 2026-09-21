@@ -81,6 +81,9 @@ module main {
     CAP c2(2)
     c2.Cap([VDD, GND])
     c2.Cap([VDD, GND])
+    c1.Foo([VDD, GND])
+    c2.Foo([VDD, GND])
+    c2.Foo([VDD, GND])
 }
 "#;
 
@@ -526,7 +529,12 @@ fn a_statement_the_circuit_never_took_reports_which_stage_stopped_it() {
     let cwd = scratch("stop");
     let src = TWICE_SRC;
     let entry = write_fixture("stopped", src);
-    let line = line_of(src, "c2.Cap([VDD, GND])", 1);
+    // A call to a function the receiver does not have: the statement is real
+    // syntax, so it owns a source row and an AST phrase, but no stage object
+    // ever takes it -- which is what the pipeline-fault word `drop` means. A
+    // call that *does* resolve, like `c2.Cap(..)`, is a `call` whose rows ride
+    // the expansion edges and is no longer an example of a stop (U166).
+    let line = line_of(src, "c1.Foo([VDD, GND])", 1);
 
     let (stdout, stderr, ok) = run_trace_in(
         &cwd,
@@ -546,7 +554,10 @@ fn a_statement_the_circuit_never_took_reports_which_stage_stopped_it() {
         .as_str()
         .unwrap_or("")
         .starts_with("phrase#"));
-    // … it is reported as dropped at the hop that dropped it …
+    // … it is reported as dropped at the hop that dropped it: no object of p2
+    // took the row, which is the one thing `drop` still means after U166 (a
+    // hop losing a row it should have carried), and a well-formed walk never
+    // earns the word.
     assert_eq!(class_at(&view, "p2"), "drop");
     assert_eq!(
         count(&view, "reached"),
@@ -583,8 +594,12 @@ fn two_statements_alike_at_two_positions_keep_their_own_rows() {
     let cwd = scratch("twice");
     let src = TWICE_SRC;
     let entry = write_fixture("twice", src);
-    let first = line_of(src, "c2.Cap([VDD, GND])", 1);
-    let second = line_of(src, "c2.Cap([VDD, GND])", 2);
+    // Two spellings of a call that resolves to nothing (`Foo` is no function
+    // of CAP), so each position's walk must stop at its own row: a statement
+    // that *did* resolve, like `c2.Cap(..)`, would carry its expansion rows
+    // and make the two walks hard to tell apart (U166).
+    let first = line_of(src, "c2.Foo([VDD, GND])", 1);
+    let second = line_of(src, "c2.Foo([VDD, GND])", 2);
     assert_ne!(first, second);
 
     let a = trace_of(&cwd, &entry, &format!("{}:{first}", entry.display()), &[]);
@@ -600,9 +615,9 @@ fn two_statements_alike_at_two_positions_keep_their_own_rows() {
         "two positions, one ordinal: the derived index is not per-statement"
     );
 
-    // And both are mismatches. The instance the name *does* resolve to, `c2`, is
-    // declared twice in this fixture; a lookup that fell back to the name would
-    // have handed these statements `c2`'s rows and reported a `carry`.
+    // And both are drops. The instance the name *does* resolve to, `c2`, is
+    // declared twice in this fixture; a lookup that fell back to the name
+    // would have handed these statements `c2`'s rows and reported a `carry`.
     for view in [&a, &b] {
         assert_eq!(class_at(view, "p2"), "drop");
         assert_eq!(key_at(view, "p2"), "-");
@@ -686,19 +701,21 @@ fn the_class_a_walk_prints_is_the_class_the_hop_prints() {
         }
     }
 
-    // A `carry`, an `expand` and a `drop`: one position per class, so a walk
+    // A `carry`, an `expand` and a `call`: one position per class, so a walk
     // that hard-coded a class, or read a different build, fails here.
     //
-    // The `drop` member is a statement that wires nothing at all. A statement
-    // that *does* wire something is no longer a `drop` even when another
-    // statement wires the same rows, so `MIC(V3V3).MIC ->` -- which writes the
-    // microphone rows -- is an `expand` now and cannot serve here. The position
-    // is the second spelling of `MCU513.i2c()`: the first one is chained into
-    // `loadFlash` and reaches a row.
+    // The `call` member is a function call whose products ride the expansion
+    // edges rather than the statement's own rows. A statement that wires
+    // something directly is an `expand` even when another statement wires the
+    // same rows, so `MIC(V3V3).MIC ->` -- which writes the microphone rows --
+    // cannot serve here. The position is the second spelling of
+    // `MCU513.i2c()`: the first one is chained into `loadFlash` and reaches a
+    // row through it (U166 -- the call is named for what it is, never for how
+    // far its rows reached).
     let wanted: [(&str, usize, &str); 3] = [
         ("FLASH.GD25Q32E FLASH(V3V3)", 1, "carry"),
         ("V5V -> LDO", 1, "expand"),
-        ("MCU513.i2c()", 2, "drop"),
+        ("MCU513.i2c()", 2, "call"),
     ];
     let mut seen: BTreeMap<String, usize> = BTreeMap::new();
     for (needle, nth, class) in wanted {

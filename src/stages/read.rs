@@ -22,6 +22,7 @@
 
 use crate::instant::arena::NodeArena;
 use crate::instant::inststore::InstanceStore;
+use crate::instant::inststore::TreeView;
 use crate::instant::insttab::InstTable;
 use crate::stages::join;
 use crate::stages::{trace, StageSeg, StageView};
@@ -160,7 +161,13 @@ pub fn build_join_pair(a: &str, b: &str, loaded: &Loaded) -> Result<StageView, S
     }
     let top = loaded.top.as_str();
     Ok(match (a, b) {
-        ("src", "p2") => join::build_join_src_p2(&loaded.table, top, loaded.diagnostics),
+        ("src", "p2") => join::build_join_src_p2(
+            &loaded.table,
+            &loaded.tree,
+            &TreeView::new(&loaded.arena, &loaded.store),
+            top,
+            loaded.diagnostics,
+        ),
         ("p2", "vec") => {
             let (graph, log) = loaded.vec_block();
             join::build_join_p2_vec(&graph, &log, &loaded.table, top, loaded.diagnostics)
@@ -180,7 +187,7 @@ pub fn build_join_pair(a: &str, b: &str, loaded: &Loaded) -> Result<StageView, S
 pub fn filter_join_items(view: &mut StageView, only: Option<&str>) -> Result<(), String> {
     let Some(only) = only else { return Ok(()) };
     if !join::is_class_word(only) {
-        let words: Vec<&str> = join::SIX_WORDS
+        let words: Vec<&str> = join::CLASS_WORDS
             .iter()
             .chain(join::DIAG_WORDS)
             .copied()
@@ -200,7 +207,13 @@ pub fn build_trace_view(key: &str, loaded: &Loaded) -> Result<StageView, String>
     // and the two circuit hops from one vector graph — cloned rather than built
     // twice, because the second hop's builder consumes the graph it renders.
     let top = loaded.top.as_str();
-    let src_p2 = join::build_join_src_p2(&loaded.table, top, loaded.diagnostics);
+    let src_p2 = join::build_join_src_p2(
+        &loaded.table,
+        &loaded.tree,
+        &TreeView::new(&loaded.arena, &loaded.store),
+        top,
+        loaded.diagnostics,
+    );
     let (graph, log) = loaded.vec_block();
     let p2_vec =
         join::build_join_p2_vec_with_sides(&graph, &log, &loaded.table, top, loaded.diagnostics);

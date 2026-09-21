@@ -235,6 +235,7 @@ fn eval__func_branch_follows_the_bound_value() {
         let params = vec![(McIds::from("volt"), text.to_string())];
         conds
             .evaluate(&params)
+            .0
             .iter()
             .map(|stmt| stmt.to_string())
             .collect::<Vec<_>>()
@@ -327,12 +328,13 @@ fn rail_diagnostics_with(tag: &str, iface: &str, arg: &str) -> Vec<(u32, String,
 }
 
 /// An interface condition is written in the interface file, but a failing one is
-/// the *consumer's* problem — the argument is the consumer's syntax. A range
-/// literal handed to a single-value parameter is exactly that, and it must be
-/// reported once, in the consuming file, naming the argument as written.
+/// the *consumer's* problem — the argument is the consumer's syntax. A quoted
+/// string handed to a single-value parameter is a literal no compare can
+/// decide, and it must be reported once, in the consuming file, naming the
+/// argument as written.
 #[test]
 fn eval__literal_arg_condition_reports_in_the_consumer() {
-    let diags = rail_diagnostics("literal", "2.5V~5.5V");
+    let diags = rail_diagnostics("literal", "'abc'");
     let hits: Vec<_> = diags
         .iter()
         .filter(|(code, ..)| *code == mcc::errcodes::EVAL_OPERAND_NOT_NUMERIC)
@@ -348,18 +350,21 @@ fn eval__literal_arg_condition_reports_in_the_consumer() {
         "the failure belongs to the consuming file, not to supply.mc; got {uri}"
     );
     assert!(
-        msg.contains("2.5V~5.5V"),
+        msg.contains("abc"),
         "the message must name the argument the consumer wrote; got {msg}"
     );
 }
 
-/// A symbolic argument (`::RAIL(volt)`) and an absent one (`::RAIL()`) leave the
-/// parameter unreduced: the value may still arrive from the instance or the
-/// spec, so the condition is undecided rather than wrong, and saying nothing is
-/// the only honest answer.
+/// A symbolic argument (`::RAIL(volt)`), an absent one (`::RAIL()`), and a
+/// **window** literal (`::RAIL(2.5V~5.5V)`, `5V±5%`) leave the condition
+/// undecided rather than wrong: the unreduced value may still arrive from the
+/// instance or the spec, and the value layer keeps window forms undecoded by
+/// design — a single compare over a window has no truth value, the window is
+/// the consumer's honest input-range declaration, and branch selection falls
+/// through to the interface's `else`. Saying nothing is the only honest answer.
 #[test]
 fn eval__unreduced_arg_condition_is_not_reported() {
-    for arg in ["volt", ""] {
+    for arg in ["volt", "", "2.5V~5.5V", "5V±5%"] {
         let diags = rail_diagnostics("unreduced", arg);
         let hits: Vec<_> = diags
             .iter()

@@ -104,6 +104,19 @@ pub(crate) struct InstantiationBuilder {
     /// (bus / group / fcallinst); set by [`Self::with_func_stmt`].
     pub(super) current_func_span: Option<SourcePos>,
 
+    /// The most recent func **body statement** entered on this builder — the
+    /// innermost statement that triggered whatever nested expansion is
+    /// running. A library func body (`cap.mc`'s `Cap`) expands under a
+    /// `current_func_span` in *its* file, so
+    /// [`Self::construction_site`]'s cross-file rule needs a statement to
+    /// anchor the derived rows at; the outermost call statement would
+    /// misattribute them, and pairing the caller's offset with `def_uri`
+    /// would fabricate a position in the wrong file (§1 U166 ruling B:
+    /// derived rows anchor at the call site). The site carries its own uri,
+    /// so the anchor stays resolvable. Reset per top-level statement so a
+    /// stale body cannot outlive the func that set it.
+    pub(super) last_func_stmt: Option<SourcePos>,
+
     /// ★ P9-A2: Current trunk group name for provenance tracking.
     /// Set when processing a connection that involves a port group (e.g.,
     /// `flash.SPI`, `mic.MIC`); read by `make_conn_with_provenance` (group.rs).
@@ -365,6 +378,7 @@ impl InstantiationBuilder {
             current_stmt_span: None,
             current_stmt_end: None,
             current_func_span: None,
+            last_func_stmt: None,
             current_trunk: None,
             current_trunk_kind: None,
             internal_member_reported: HashSet::new(),
@@ -879,7 +893,19 @@ impl InstantiationBuilder {
     pub(super) fn construction_site(&self) -> Option<SourcePos> {
         match (&self.current_func_span, &self.current_stmt_span) {
             (Some(sp), Some(s)) if sp.uri != self.def_uri => {
-                Some(SourcePos::new(self.def_uri.clone(), s.offset))
+                // A func body living in another file (library-function
+                // expansion, e.g. the `Cap` body in `cap.mc`) is the library
+                // author's code, so the site falls back to the statement
+                // that triggered the call — the innermost func body
+                // statement (`last_func_stmt`), not the outermost statement
+                // that started the whole expansion: the row was written by
+                // executing *that* body statement (§1 U166 ruling B). The
+                // site carries its own uri, so the anchor never pairs one
+                // file's offset with another file's name.
+                match &self.last_func_stmt {
+                    Some(f) => Some(f.clone()),
+                    None => Some(s.clone()),
+                }
             }
             (Some(sp), _) => Some(sp.clone()),
             (None, Some(s)) => Some(SourcePos::new(self.def_uri.clone(), s.offset)),
@@ -1324,7 +1350,11 @@ impl InstantiationBuilder {
         self.current_func_span = match uri {
             Some(u) => {
                 if let Some(off) = stmt_idx.and_then(|i| func.stmt_offsets.get(i)) {
-                    Some(SourcePos::new(u.clone(), *off as u32))
+                    let site = SourcePos::new(u.clone(), *off as u32);
+                    // A real body statement — any file: the next candidate
+                    // anchor for nested cross-file expansions.
+                    self.last_func_stmt = Some(site.clone());
+                    Some(site)
                 } else {
                     func.span
                         .as_ref()
@@ -1347,6 +1377,35 @@ impl InstantiationBuilder {
         f: impl FnOnce(&mut Self) -> R,
     ) -> R {
         let saved = self.enter_func_stmt(func, stmt_idx);
+        let r = f(self);
+        self.current_func_span = saved;
+        r
+    }
+
+    /// Run `f` with the func-body stmt context anchored at an **explicit**
+    /// source position. Conditional-block stmts carry their own offsets
+    /// (CIMP U166 ruling B) but live outside `func.stmt_offsets`, so
+    /// [`Self::with_func_stmt`]'s index lookup cannot reach them; this takes
+    /// the position directly. `None` falls back to the func header exactly as
+    /// `with_func_stmt(func, None)` does.
+    pub(super) fn with_func_site<R>(
+        &mut self,
+        func: &McFunction,
+        site: Option<SourcePos>,
+        f: impl FnOnce(&mut Self) -> R,
+    ) -> R {
+        let saved = self.current_func_span.clone();
+        match site {
+            Some(s) => {
+                self.current_func_span = Some(s.clone());
+                // A real body statement — any file: the next candidate anchor
+                // for nested cross-file expansions (same as enter_func_stmt).
+                self.last_func_stmt = Some(s);
+            }
+            None => {
+                let _ = self.enter_func_stmt(func, None);
+            }
+        }
         let r = f(self);
         self.current_func_span = saved;
         r

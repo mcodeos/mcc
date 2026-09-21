@@ -75,10 +75,11 @@ const FORBIDDEN_IN_DROP_NOTE: &[&str] = &["\u{9519}", "bug", "\u{5e94}\u{5f53}"]
 /// statement that is fully taken.
 ///
 /// The duplicate `c2` declaration makes the second pair of `c2.Cap(...)` lines
-/// produce no rows; a join that fell back to matching by name would hand them
-/// the rows of something else and report a `carry`. Positions 18 and 19 are
-/// where they are written — [`line_of`] derives them from this very text so that
-/// inserting a line above cannot silently point the assertion at the wrong one.
+/// resolve to no instance of their own; a join that fell back to matching by
+/// name would hand them the rows of something else and report a `carry` or a
+/// `merge`. Positions 18 and 19 are where they are written — [`line_of`]
+/// derives them from this very text so that inserting a line above cannot
+/// silently point the assertion at the wrong one.
 const TWICE_SRC: &str = r#"
 component CAP(cap::INT) {
     pins = [
@@ -101,10 +102,13 @@ module main {
 }
 "#;
 
-/// The six words of the summary line, in the order the design fixes. All six are
+/// The class words of the summary line, in the order the design fixes. All are
 /// printed on every run, zeros included: a dropped zero word would make "there
-/// were no merges" indistinguishable from "merges were not measured".
-const SIX_WORDS: &[&str] = &["carry", "expand", "merge", "drop", "synth", "skip"];
+/// were no merges" indistinguishable from "merges were not measured". Seven
+/// since §1 U166: `call` reads a call-site statement whose products are the
+/// expansion rows written in the callee's body — the word replaces the false
+/// `drop` those statements used to read.
+const CLASS_WORDS: &[&str] = &["carry", "expand", "call", "merge", "drop", "synth", "skip"];
 
 // ── Fixture plumbing ──
 
@@ -357,12 +361,12 @@ fn two_runs_are_byte_identical_on_every_face() {
 
 // ── The summary line: one traversal, two faces ──
 
-/// §5.3 ②: six words, **all six always**, zeros included, in a fixed order, each
-/// carrying its cardinality. Dropping a zero word would make "nothing merged"
-/// indistinguishable from "merging was not measured", and without cardinality a
-/// `merge` of N reads as N−1 losses.
+/// §5.3 ②: the class words, **all always**, zeros included, in a fixed order,
+/// each carrying its cardinality. Dropping a zero word would make "nothing
+/// merged" indistinguishable from "merging was not measured", and without
+/// cardinality a `merge` of N reads as N−1 losses.
 #[test]
-fn the_summary_line_prints_all_six_words_with_their_cardinality() {
+fn the_summary_line_prints_every_class_word_with_its_cardinality() {
     let dir = scratch("summary");
     let (stdout, stderr, ok) = run_join_in(&dir, &hbl_entry(), &["-f", "text"]);
     assert!(ok, "`join src p2` failed: {stderr}");
@@ -380,12 +384,12 @@ fn the_summary_line_prints_all_six_words_with_their_cardinality() {
     let summary = stdout
         .lines()
         .find(|l| l.starts_with("# carry"))
-        .unwrap_or_else(|| panic!("no six-word summary line:\n{stdout}"));
+        .unwrap_or_else(|| panic!("no class-word summary line:\n{stdout}"));
     let tokens: Vec<&str> = summary.trim_start_matches('#').split_whitespace().collect();
     assert_eq!(
         tokens.len(),
-        SIX_WORDS.len() * 2,
-        "expected six word/count pairs in a fixed order: {summary}"
+        CLASS_WORDS.len() * 2,
+        "expected a class word/count pair per class in a fixed order: {summary}"
     );
 
     // The same numbers must come out of the JSON face: one `items`, one
@@ -393,7 +397,7 @@ fn the_summary_line_prints_all_six_words_with_their_cardinality() {
     let (json, _, _) = run_join_in(&dir, &hbl_entry(), &["-f", "json"]);
     let stage = stage_of(&json);
     let c = counts_of(&stage);
-    for (i, word) in SIX_WORDS.iter().enumerate() {
+    for (i, word) in CLASS_WORDS.iter().enumerate() {
         assert_eq!(tokens[i * 2], *word, "word {i} is out of order: {summary}");
         let printed: u64 = tokens[i * 2 + 1]
             .parse()
@@ -457,7 +461,7 @@ fn the_summary_line_prints_all_six_words_with_their_cardinality() {
     // and nothing else.
     let rows = text_rows(&stdout);
     let spelled = |name: &str| rows.iter().filter(|r| class_cell(r) == name).count() as u64;
-    for word in SIX_WORDS {
+    for word in CLASS_WORDS {
         assert_eq!(
             spelled(word),
             count(c, word),
@@ -491,12 +495,12 @@ fn a_statement_pass_two_never_wrote_is_a_drop_on_the_second_sub_hop() {
         let stage = stage_of(&stdout);
         let c = counts_of(&stage);
 
+        // Both fixtures are well-formed, so the honest expectation is **zero
+        // losses** (§1 U166: a `func` call reads `call`, and the false drops
+        // that used to pad this count are gone). The assertions below stay:
+        // the day a loss appears it must still be counted on the second
+        // sub-hop and nowhere else.
         let drops = class_items(&stage, "drop");
-        assert!(
-            drops.len() >= 2,
-            "{name}: the fixture must contain at least two known losses, found {}",
-            drops.len()
-        );
 
         // Nothing is missing from the AST, and every loss is accounted for on the
         // second hop. A `declare` clause carries no Pass-1 statement record, so
@@ -587,15 +591,20 @@ fn a_position_that_matches_nothing_is_never_filled_in_by_name() {
     );
 
     for i in &alike {
+        // §1 U166: the call itself ran (the expansion record exists), so the
+        // honest class is `call` — the rows in `to` are the callee body's,
+        // routed by the expansion edge, never name-matched. The old
+        // expectation here was `drop`, which was the false drop U166 ①
+        // retired: the class must not swing back to a loss, and it must not
+        // swing to a name-matched `carry`/`merge` either.
         assert_eq!(
             i["class"].as_str(),
-            Some("drop"),
-            "a lookup that found nothing is a mismatch, never a name-matched carry: {i}"
+            Some("call"),
+            "an expansion call reads `call`, not a loss and not a name-matched carry: {i}"
         );
-        assert_eq!(
-            i["to"],
-            Value::Array(vec![]),
-            "and it must not be given rows it does not own: {i}"
+        assert!(
+            !i["to"].as_array().expect("`to` is always an array").is_empty(),
+            "the callee body holds rows, and the edge routes them here: {i}"
         );
     }
 
@@ -743,8 +752,8 @@ fn every_class_the_readout_reaches_is_exercised() {
     let stage = stage_of(&stdout);
     let c = counts_of(&stage);
 
-    for word in SIX_WORDS {
-        if *word == "synth" {
+    for word in CLASS_WORDS {
+        if matches!(*word, "synth" | "drop") {
             continue;
         }
         let n = class_items(&stage, word).len();
@@ -755,17 +764,21 @@ fn every_class_the_readout_reaches_is_exercised() {
         );
     }
 
-    // `synth` is the sixth word and is empty — a fact, not a skipped branch:
+    // `synth` and `drop` are the two words that are **empty on well-formed
+    // input** — a fact, not a skipped branch:
     // `every_row_is_accounted_for_exactly_once` proves the emptiness by closing
-    // the accounting over every row. Constructing a member here would need a row
-    // with no upstream at all, which this hop does not produce for a well-formed
-    // project (§5.2 hard constraint 3 keeps that apart from a key defect).
-    assert_eq!(
-        count(c, "synth"),
-        0,
-        "this fixture is not expected to reach `synth`; if it now does, the empty-class note \
-         above is stale and needs a member-count assertion instead"
-    );
+    // the accounting over every row. `synth` would need a row with no upstream
+    // at all; `drop` would need a statement the pipeline accepted but Pass 2
+    // wrote nothing for (§1 U166 — a `func` call now reads `call`, so the false
+    // drops that used to fill this class are gone).
+    for word in ["synth", "drop"] {
+        assert_eq!(
+            count(c, word),
+            0,
+            "this fixture is not expected to reach `{word}`; if it now does, the empty-class note \
+             above is stale and needs a member-count assertion instead"
+        );
+    }
 }
 
 /// Every row of the hop belongs to exactly one of: a clause's span, or one of the
@@ -782,17 +795,24 @@ fn every_row_is_accounted_for_exactly_once() {
 
     let with_clause = count(c, "rows_with_clause");
     let unanchored = count(c, "unanchored");
-    let func_scoped = count(c, "func_scoped");
+    // `func_unattributed` counts the rows that sit inside a `func` span and
+    // are claimed by no statement of that body: the informational downgrade
+    // of the old side bucket. The members on this fixture are a cond stmt's
+    // products under an auto-invoked chain — the walk keeps no clause for the
+    // cond stmt itself, and no expansion edge routes them, so the counter is
+    // where they stay visible.
+    let func_unattributed = count(c, "func_unattributed");
     let header_scoped = count(c, "header_scoped");
     let synth = count(c, "synth");
     let total = count(c, "rows_total");
 
     assert_eq!(
-        with_clause + unanchored + func_scoped + header_scoped + synth,
+        with_clause + unanchored + func_unattributed + header_scoped + synth,
         total,
-        "rows: {with_clause} inside a clause, {unanchored} unanchored, {func_scoped} inside a \
-         `func` body, {header_scoped} on a header, {synth} synth — {total} total. A row that is \
-         in none of these buckets means the readout has stopped explaining its own rows"
+        "rows: {with_clause} inside a clause, {unanchored} unanchored, {func_unattributed} inside \
+         a `func` body unclaimed, {header_scoped} on a header, {synth} synth — {total} total. A \
+         row that is in none of these buckets means the readout has stopped explaining its own \
+         rows"
     );
 
     // Every bucket that is meant to be non-empty must be filled, or the identity
@@ -800,7 +820,7 @@ fn every_row_is_accounted_for_exactly_once() {
     for (name, n) in [
         ("rows_with_clause", with_clause),
         ("unanchored", unanchored),
-        ("func_scoped", func_scoped),
+        ("func_unattributed", func_unattributed),
         ("header_scoped", header_scoped),
     ] {
         assert!(n >= 2, "`{name}` has {n} member(s) on this fixture");
@@ -914,9 +934,14 @@ fn a_readout_never_vetoes_an_exit_code() {
         count(c, "diagnostics") > 0,
         "the fixture must actually have diagnostics, or this proves nothing"
     );
-    assert!(
-        count(c, "drop") > 0,
-        "and at least one loss — the reading most easily mistaken for a failure"
+    // The loss counter stays at zero on this fixture (§1 U166 retired the
+    // false drops): law C is about the readout never *vetoing*, and a zero
+    // beside a non-zero diagnostic count is exactly the pair a `grep '^!'`
+    // has to keep straight from a failure.
+    assert_eq!(
+        count(c, "drop"),
+        0,
+        "a well-formed fixture holds no losses"
     );
 }
 
@@ -957,7 +982,7 @@ fn an_argument_outside_the_chain_fails_loudly() {
 // ── The two inner hops (batch 3b) ──
 //
 // `p2 -> vec` and `vec -> viz` match **objects** rather than statements, so the
-// six words mean something else here and one more question has to be answered:
+// class words mean something else here and one more question has to be answered:
 // when a key names two objects, which two are they? The design answers with a
 // card on the component a key induces — (1,1) `carry`, (1,N) `expand`, (N,1)
 // `merge` — and where the component is bigger than the card allows, the readout
@@ -1138,7 +1163,7 @@ fn every_object_of_both_segments_is_accounted_for_exactly_once() {
 /// One key with one object on each side is a `carry`; one key naming nothing
 /// downstream is a `drop` under the **key** check, not under the member check.
 ///
-/// The annotation is the assertion: the six words are the same words at every
+/// The annotation is the assertion: the class words are the same words at every
 /// hop, so the note is the only place that says *which* criterion was run and
 /// failed. A reader who saw "no member in common" here would go looking for the
 /// wrong fault.
@@ -1641,7 +1666,7 @@ fn the_diagnostic_states_are_never_written_back_into_a_segment() {
 
 // ── `--only`, at the hops that have two diagnostic states ──
 
-/// `--only` accepts the six words and the two diagnostic states, filters the same
+/// `--only` accepts the class words and the two diagnostic states, filters the same
 /// items, and leaves the counts describing the whole hop. Asking for a class the
 /// hop has none of is an empty readout, not a failure — law C.
 #[test]
@@ -1696,7 +1721,7 @@ fn only_accepts_the_two_diagnostic_states_as_well() {
         out.is_empty() || (out.contains("\"error\"") && !out.contains("\"items\"")),
         "and must not print a readout: {out}"
     );
-    for word in SIX_WORDS.iter().chain(DIAG_WORDS) {
+    for word in CLASS_WORDS.iter().chain(DIAG_WORDS) {
         assert!(
             err.contains(word),
             "the error must list every word the column can print, `{word}` is missing: {err}"
@@ -1895,10 +1920,13 @@ fn declaration_site_is_recorded_even_when_the_row_is_wired() {
 
 /// The class follows what the statement reaches, and nothing else.
 ///
-/// Three members, one per rule: a statement that reaches no row is a `drop`, one
-/// that reaches a single row is a `carry`, one that reaches two or more is an
-/// `expand`. The counts are read off the items, so a class computed from
-/// anything but `to` fails here.
+/// Two members per rule: a statement that reaches a single row is a `carry`,
+/// one that reaches two or more is an `expand`. The counts are read off the
+/// items, so a class computed from anything but `to` fails here. `drop` is
+/// named below instead of exercised: on this fixture no statement reaches
+/// nothing (§1 U166 — the `Cap` calls that used to read the false `drop` read
+/// `call` now), and manufacturing a loss would mean breaking the fixture on
+/// purpose.
 #[test]
 fn clause_class_follows_what_it_reaches() {
     let dir = scratch("class-reaches");
@@ -1910,17 +1938,23 @@ fn clause_class_follows_what_it_reaches() {
     let mut seen: std::collections::BTreeMap<&str, usize> = std::collections::BTreeMap::new();
     for item in stage["items"].as_array().expect("items") {
         let class = item["class"].as_str().unwrap_or("");
-        if !matches!(class, "carry" | "expand" | "drop") {
+        if !matches!(class, "carry" | "expand" | "call") {
             continue;
         }
         let reached = item["to"]
             .as_array()
             .expect("`to` is always an array")
             .len();
-        let want = match reached {
-            0 => "drop",
-            1 => "carry",
-            _ => "expand",
+        // A `call` clause owns none of its rows — they live on the callee's
+        // body statement and the edge routes them — so its reached count is
+        // read through the routed set, not claimed ownership.
+        let want = match class {
+            "call" => "call",
+            _ => match reached {
+                0 => "drop",
+                1 => "carry",
+                _ => "expand",
+            },
         };
         assert_eq!(
             class, want,
@@ -1934,17 +1968,28 @@ fn clause_class_follows_what_it_reaches() {
         );
         *seen.entry(class).or_default() += 1;
     }
-    for class in ["carry", "expand", "drop"] {
+    for class in ["carry", "expand"] {
         assert!(
             seen.get(class).copied().unwrap_or(0) >= 2,
             "`{class}` has {:?} member(s) in this fixture",
             seen.get(class)
         );
     }
+    assert!(
+        seen.get("call").copied().unwrap_or(0) >= 2,
+        "the two `Cap` calls must both read `call`: {:?}",
+        seen.get("call")
+    );
 }
 
-/// A `drop` reaches nothing — and that is the same thing as the layer being
-/// empty, not a second reading that could disagree with it.
+/// `drop` owns nothing — and that is the same thing as the layer being empty,
+/// not a second reading that could disagree with it.
+///
+/// On a well-formed fixture the class is empty (§1 U166 retired the false
+/// drops), so the implication is locked over the empty set: zero drops, and
+/// every statement that reaches exactly one row is a `carry` whose layer is a
+/// fact of its own rows. The day a real loss appears, the `to`/`layer`
+/// assertions inside the loop apply to it unchanged.
 #[test]
 fn drop_implies_the_layer_has_no_members() {
     let dir = scratch("drop-layer");
@@ -1952,9 +1997,14 @@ fn drop_implies_the_layer_has_no_members() {
     let (stdout, err, ok) = run_join_in(&dir, &entry, &["-f", "json"]);
     assert!(ok, "{err}");
     let stage = stage_of(&stdout);
+    let c = counts_of(&stage);
 
     let drops = class_items(&stage, "drop");
-    assert!(drops.len() >= 2, "two known losses, saw {}", drops.len());
+    assert!(
+        drops.is_empty() && count(c, "drop") == 0,
+        "a well-formed fixture holds no losses; saw {}",
+        drops.len()
+    );
     for d in &drops {
         assert!(d["to"].as_array().is_some_and(|t| t.is_empty()), "{d}");
         assert_eq!(d["layer"].as_u64(), Some(0), "{d}");
@@ -1973,10 +2023,11 @@ fn drop_implies_the_layer_has_no_members() {
     assert!(carries >= 2, "the class must not be empty here: {carries}");
 }
 
-/// A statement that reaches nothing is a `drop`; the fixture proves one exists
-/// even though every statement is spelled correctly.
+/// A `func` call is a `call`, not a loss: the statement that used to read the
+/// false `drop` (§1 U166 ①) now reads the routed face, and the loss counter
+/// stays at zero.
 #[test]
-fn drop_still_fires_when_nothing_reaches_it() {
+fn a_func_call_is_a_call_and_no_loss_is_invented() {
     let dir = scratch("drop-fires");
     let entry = write_fixture("drop-fires", CLASSES_SRC);
     let (stdout, err, ok) = run_join_in(&dir, &entry, &["-f", "json"]);
@@ -1987,16 +2038,20 @@ fn drop_still_fires_when_nothing_reaches_it() {
     let a = line_of(CLASSES_SRC, "c1.Cap([VDD, GND])", 1) as u64;
     let b = line_of(CLASSES_SRC, "c2.Cap([VDD, GND])", 1) as u64;
     for at in [a, b] {
-        let item = class_items(&stage, "drop")
+        let item = class_items(&stage, "call")
             .into_iter()
             .find(|d| d["loc"]["line"].as_u64() == Some(at))
-            .unwrap_or_else(|| panic!("nothing was lost at line {at}"));
-        assert_eq!(item["to"], Value::Array(vec![]));
+            .unwrap_or_else(|| panic!("no call clause at line {at}"));
+        assert!(
+            !item["to"].as_array().expect("`to` is always an array").is_empty(),
+            "the callee body holds rows and the edge routes them: {item}"
+        );
     }
-    // The second sub-hop counts exactly these, and this fixture has no other
-    // loss: the two faces have to agree, or one of them is reporting another
+    // The second sub-hop counts exactly the losses, and this fixture has
+    // none: the two faces have to agree, or one of them is reporting another
     // segment's fault.
     assert_eq!(count(c, "sub_hop_ast_p2"), count(c, "drop"));
+    assert_eq!(count(c, "drop"), 0, "no false drop may come back");
     assert_eq!(count(c, "sub_hop_src_ast"), 0);
 }
 
