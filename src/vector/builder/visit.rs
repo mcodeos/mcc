@@ -27,7 +27,7 @@
 //!   4. Iterate sub_modules → recursively generate child McVecBlock
 //! ```
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use crate::instant::arena::NodeArena;
 use crate::instant::inststore::{InstanceStore, TreeView};
@@ -418,7 +418,7 @@ impl<'a> McVecBuilder<'a> {
         // ★ P8-6: Extract component inner layers.
         // For each component instance with func-created children,
         // create a sub-block so they render as separate layers.
-        Self::extract_component_inner_layers(&mut block, &self.inst_table);
+        Self::extract_component_inner_layers(&mut block, inst, &self.inst_table);
 
         // ── Debug: output snapshot + consistency check (printed when MC_VEC_DUMP=1) ──
         debug::dump_output(&block);
@@ -433,33 +433,83 @@ impl<'a> McVecBuilder<'a> {
     /// create a sub-block containing those children. The parent block's insts
     /// are updated to remove the func-created children, and the sub-block's nets
     /// are copied from the parent block's nets that involve those children.
-    fn extract_component_inner_layers(block: &mut McVecBlock, inst_table: &InstTable) {
-        // Find component instances that have func-created children
-        let mut comp_children: HashMap<u32, (String, Vec<u32>)> = HashMap::new();
-
+    ///
+    /// ★ expansion-provenance §3.4 stage 2 (viz aggregation): membership comes
+    /// from two unioned sources —
+    ///   1. InstTable parenthood: products whose `fn_name` matched a func name
+    ///      were re-parented to the owner at flatten time (P8-1 pass 2), so
+    ///      `children_of(owner)` sees them;
+    ///   2. the provenance caller chain: inline constructions (`RES(10kΩ)`,
+    ///      `CAP(100nF)`) record the *class* name as `fn_name`, so P8-1 misses
+    ///      them and they stay parented to the calling module. For those, walk
+    ///      the expansion records to the outermost `caller_inst` (the same
+    ///      walk `show instances` does, hierarchy.rs) and match it against the
+    ///      Declared component instances of this scope.
+    /// The flat list keeps physical ownership (InstTable / nets / BOM are not
+    /// touched — §3.3); only the drawing tree regroups.
+    fn extract_component_inner_layers(
+        block: &mut McVecBlock,
+        inst: &McModuleInst,
+        inst_table: &InstTable,
+    ) {
+        // Declared component instances of this scope: name → inst id. Only a
+        // Declared instance can be a comp-boundary owner (P9-A1 rule: func
+        // products are never owners).
+        let mut declared_ids: HashMap<String, u32> = HashMap::new();
         for &iid in &block.insts {
             if iid < 0 {
                 continue;
             }
             let id = iid as u32;
-            let entry = match inst_table.get_entry(id) {
-                Some(e) => e,
-                None => continue,
+            let Some(e) = inst_table.get_entry(id) else {
+                continue;
+            };
+            if e.kind != InstKind::Component || !matches!(e.origin, InstOrigin::Declared) {
+                continue;
+            }
+            declared_ids.insert(extract_last_segment(&e.path), id);
+        }
+
+        // owner id → func-created children. BTreeMap on purpose: the iteration
+        // order decides the order sub-blocks are pushed (hence layer order in
+        // every downstream readout), and one module may own several comps.
+        let mut comp_children: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
+
+        // Source 2 (provenance): every FuncCall component in the flat list,
+        // resolved through its expansion caller chain.
+        for &iid in &block.insts {
+            if iid < 0 {
+                continue;
+            }
+            let id = iid as u32;
+            let Some(entry) = inst_table.get_entry(id) else {
+                continue;
             };
             if entry.kind != InstKind::Component {
                 continue;
             }
+            let InstOrigin::FuncCall { expansion_id, .. } = &entry.origin else {
+                continue;
+            };
+            let Some((caller, _fn)) = Self::outermost_caller(&inst.expansion, *expansion_id)
+            else {
+                continue;
+            };
+            if let Some(owner) = Self::owner_in_scope(caller, &declared_ids) {
+                comp_children.entry(owner).or_default().push(id);
+            }
+        }
 
-            let children = inst_table.children_of(id);
-            let func_created: Vec<u32> = children
-                .iter()
-                .filter(|c| matches!(c.origin, InstOrigin::FuncCall { .. }))
-                .map(|c| c.id)
-                .collect();
-
-            if !func_created.is_empty() {
-                let name = extract_last_segment(&entry.path);
-                comp_children.insert(id, (name, func_created));
+        // Source 1 (InstTable parenthood): keep the original sweep so entries
+        // P8-1 pass 2 already re-parented keep landing in the sub-block.
+        for owner in declared_ids.values() {
+            for c in inst_table.children_of(*owner) {
+                if matches!(c.origin, InstOrigin::FuncCall { .. }) {
+                    let set = comp_children.entry(*owner).or_default();
+                    if !set.contains(&c.id) {
+                        set.push(c.id);
+                    }
+                }
             }
         }
 
@@ -468,8 +518,24 @@ impl<'a> McVecBuilder<'a> {
         }
 
         // For each component with func-created children, create a sub-block
-        for (comp_id, (comp_name, child_ids)) in &comp_children {
+        for (comp_id, child_ids) in &comp_children {
+            let comp_name = inst_table
+                .get_entry(*comp_id)
+                .map(|e| extract_last_segment(&e.path))
+                .unwrap_or_default();
             let child_id_set: HashSet<i64> = child_ids.iter().map(|&id| id as i64).collect();
+            // Net points are PointIds — entry ids, one per pin — not instance
+            // ids, so a net is recognised as touching a child through the
+            // child's **pins**: every entry parented to a moved child belongs
+            // to the child's face of the net.
+            let mut child_point_set: HashSet<i64> = child_id_set.clone();
+            for (entry_id, entry) in inst_table.iter() {
+                if let Some(p) = entry.parent_id {
+                    if child_id_set.contains(&(p as i64)) {
+                        child_point_set.insert(*entry_id as i64);
+                    }
+                }
+            }
 
             let mut sub_block = McVecBlock::new(*comp_id as i64, comp_name.clone());
 
@@ -490,23 +556,56 @@ impl<'a> McVecBuilder<'a> {
                 }
             }
 
-            // Copy nets that involve func-created children
+            // Copy nets that involve func-created children. The clone is the
+            // comp-boundary projection of the parent-scope net (§3.4): the
+            // parent's net is a whole-scope object, so the clone keeps only the
+            // face this layer owns — the component's own pins, the func-created
+            // children (with their pins), and bare labels (rail/signal tags
+            // that connect by name, not by a drawn wire). A foreign endpoint
+            // (another instance's pin) stays in the parent's net and would
+            // otherwise re-materialize its box inside this layer.
+            let mut comp_pin_set: HashSet<i64> = HashSet::new();
+            for (entry_id, entry) in inst_table.iter() {
+                if entry.parent_id == Some(*comp_id) {
+                    comp_pin_set.insert(*entry_id as i64);
+                }
+            }
             for net in &block.nets {
                 let points = net.all_point_ids();
                 let has_func_child = points
                     .iter()
-                    .any(|pid| *pid >= 0 && child_id_set.contains(pid));
+                    .any(|pid| *pid >= 0 && child_point_set.contains(pid));
                 if has_func_child {
-                    // Clone the net but clear BoundaryInfo — the component's ports
-                    // are the boundary for the inner layer, not the parent module's.
+                    let keep = |pid: i64| -> bool {
+                        if pid < 0 {
+                            return false;
+                        }
+                        if child_point_set.contains(&pid) || comp_pin_set.contains(&pid) {
+                            return true;
+                        }
+                        inst_table
+                            .get_entry(pid as u32)
+                            .is_some_and(|e| e.kind == InstKind::Label)
+                    };
                     let mut net_clone = net.clone();
+                    for vec in &mut net_clone.nets {
+                        let kept: Vec<i64> =
+                            vec.ids().iter().copied().filter(|pid| keep(*pid)).collect();
+                        *vec = McVec::new(kept);
+                    }
+                    net_clone.nets.retain(|v| !v.is_empty());
+                    // BoundaryInfo cleared — the component's ports are the
+                    // boundary for the inner layer, not the parent module's.
                     net_clone.boundary = None;
-                    sub_block.nets.push(net_clone);
+                    if net_clone.total_points() >= 2 {
+                        sub_block.nets.push(net_clone);
+                    }
                 }
             }
 
-            // Remove func-created children from parent block's insts
-            // (keep the component itself in the parent block)
+            // Revoke moved children's endpoints AFTER all sub-blocks have been
+            // assembled (below): a net touching two owners' products must be
+            // cloned in full for each before the parent side is trimmed.
             block.insts.retain(|iid| !child_id_set.contains(iid));
 
             block.blocks.push(sub_block);
@@ -518,6 +617,84 @@ impl<'a> McVecBuilder<'a> {
                 child_ids.len()
             );
         }
+
+        // Revoke the moved children's endpoints from the parent's nets — after
+        // all sub-blocks have been assembled, so a net touching two owners'
+        // products is cloned in full for each before the parent side is
+        // trimmed. A leftover endpoint would re-materialize the moved child in
+        // the parent layer as a parked duplicate box via the net-endpoint
+        // substitution path (fromblock Phase 2).
+        let mut dead: HashSet<i64> = HashSet::new();
+        for child_ids in comp_children.values() {
+            dead.extend(child_ids.iter().map(|&id| id as i64));
+        }
+        for (entry_id, entry) in inst_table.iter() {
+            if let Some(p) = entry.parent_id {
+                if dead.contains(&(p as i64)) {
+                    dead.insert(*entry_id as i64);
+                }
+            }
+        }
+        for net in &mut block.nets {
+            for vec in &mut net.nets {
+                let kept: Vec<i64> = vec
+                    .ids()
+                    .iter()
+                    .copied()
+                    .filter(|id| !dead.contains(id))
+                    .collect();
+                *vec = McVec::new(kept);
+            }
+            net.nets.retain(|v| !v.is_empty());
+        }
+        block.nets.retain(|n| n.total_points() >= 2);
+    }
+
+    /// Outermost caller of a func-created instance: walk the expansion record
+    /// parent chain and keep the last record carrying both a caller instance
+    /// and a function name — the whole call path ("RECEIVER.func"), not the
+    /// leaf construction ("R442.RES"). Same walk as `show instances`
+    /// (hierarchy.rs §5.1 `generated`).
+    fn outermost_caller<'b>(
+        expansion: &'b crate::instant::provenance::ExpansionLog,
+        start: Option<usize>,
+    ) -> Option<(&'b str, &'b str)> {
+        let mut cur = start?;
+        let mut best: Option<(&str, &str)> = None;
+        loop {
+            let rec = expansion.records.get(cur)?;
+            if let (Some(c), f) = (&rec.caller_inst, rec.func_name.as_str()) {
+                if !f.is_empty() {
+                    best = Some((c.as_str(), f));
+                }
+            }
+            match rec.parent {
+                Some(p) => cur = p,
+                None => return best,
+            }
+        }
+    }
+
+    /// Match a `caller_inst` scope path ("FLASH", "U1.cap1") against the
+    /// Declared component instances of the calling scope: exact, then the path
+    /// head (member dispatch onto a nested product), then the tail. A
+    /// cross-scope path ("mcu.uC" — the product lives inside `mcu`) matches
+    /// nothing here and stays flat.
+    fn owner_in_scope(caller: &str, declared: &HashMap<String, u32>) -> Option<u32> {
+        if let Some(id) = declared.get(caller) {
+            return Some(*id);
+        }
+        if let Some(head) = caller.split('.').next() {
+            if let Some(id) = declared.get(head) {
+                return Some(*id);
+            }
+        }
+        if let Some((_, tail)) = caller.rsplit_once('.') {
+            if let Some(id) = declared.get(tail) {
+                return Some(*id);
+            }
+        }
+        None
     }
 
     // Phase 2: Build McVecNet from connections

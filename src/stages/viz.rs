@@ -171,6 +171,14 @@ pub fn build_viz(
     // Resolved once, before the walk: the report is one value, so the layer it
     // belongs to cannot vary per layer.
     let det_bid = determinism_layer(layers, quality);
+    // §2.4: one instance, one row. A comp-boundary instance (P8-6 inner layer)
+    // exists as a box in its parent layer AND as the boundary face inside its
+    // own layer — the same InstTable id, hence the same `D<id>` key. The sink
+    // is in pre-order, so the first (outermost) row is the identity's home;
+    // deeper copies of the same key are the layer-tree face of it and are not
+    // re-published. The same holds for the boundary box's pins (`PointId`).
+    let mut seen_boxes: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut seen_pins: std::collections::HashSet<String> = std::collections::HashSet::new();
     for r in layers {
         let parent_path = r
             .parent
@@ -196,8 +204,19 @@ pub fn build_viz(
         // traversal of the graph.
         let nets = nets_by_pin(&r.graph, table);
         for b in &r.graph.boxes {
+            let box_key = (b.id >= 0).then(|| format!("D{}", b.id));
+            if let Some(k) = &box_key {
+                if !seen_boxes.insert(k.clone()) {
+                    continue;
+                }
+            }
             items.push(box_item(b, table, &path, &mut sources));
             for p in &b.pins {
+                if let Some(pt) = p.point {
+                    if !seen_pins.insert(pt.to_string()) {
+                        continue;
+                    }
+                }
                 items.push(pin_item(p, b, table, &path, &nets, &mut sources));
             }
         }

@@ -426,15 +426,19 @@ fn the_scope_rows_bound_the_aggregate_reports() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// The boxes this view shows are the vector segment's boxes minus the root
-/// layer's auto-named passives — and every other box survives.
+/// Every box the vec segment places is drawn somewhere in the viz segment.
 ///
 /// The two segments read different things on purpose (`stage.vec` reads the
-/// built graph, this view the laid-out one), so they legitimately differ; what
-/// must not happen is a box vanishing with nothing to explain it. The explanation
-/// is the block-diagram rule that drops root-level passives before drawing, and
-/// it is stated structurally here: a missing box is one the vec view places in
-/// the **root layer** whose own name is compiler-generated (`_C1`, `_R2`, …).
+/// built graph, this view the laid-out one), so a box *could* vanish between
+/// them; what must not happen is a box vanishing with nothing to explain it.
+/// The only legal dropper is the block-diagram rule that removes root-level
+/// passives before drawing — and since the comp-boundary aggregation
+/// (expansion-provenance §3.4 stage 2) moved the func products into their
+/// receiver's inner layer, that rule has nothing left to meet at the root: on
+/// this fixture the drop set is empty, and every box drawn by either segment
+/// is drawn by both. Should a box ever go missing again, the assertions below
+/// still demand the two-part explanation: it sat in the **root layer** and its
+/// name is compiler-generated (`_C1`, `_R2`, …).
 #[test]
 fn the_boxes_dropped_before_drawing_are_the_root_autonamed_passives() {
     let dir = scratch("boxes");
@@ -464,11 +468,6 @@ fn the_boxes_dropped_before_drawing_are_the_root_autonamed_passives() {
             missing.push(b);
         }
     }
-    assert!(
-        !missing.is_empty(),
-        "hbl is expected to drop root-level passives before drawing; with none \
-         dropped this assertion proves nothing"
-    );
 
     for b in &missing {
         let path = canon_path(b).expect("a path");
@@ -485,6 +484,20 @@ fn the_boxes_dropped_before_drawing_are_the_root_autonamed_passives() {
              so the passive-drop rule does not explain it"
         );
     }
+
+    // The comp-boundary aggregation emptied the drop set on this fixture: the
+    // func products the root used to flatten (`FLASH.power`'s decoupling CAP
+    // and pull-ups) live in `FLASH`'s inner layer, where the block-diagram
+    // rule does not reach.
+    assert!(
+        missing.is_empty(),
+        "boxes vanished between the vec and viz segments with nothing drawn in \
+         their place: {:?}",
+        missing
+            .iter()
+            .filter_map(|b| canon_path(b))
+            .collect::<Vec<_>>()
+    );
 
     // The converse: nothing else is missing. Every root-layer box with a
     // source-written name is drawn.
@@ -1476,10 +1489,15 @@ fn engineer_style_scores_come_with_the_count_they_were_measured_over() {
         "no axis is empty here, so the branch that distinguishes the convention \
          from a perfect score is unexercised"
     );
+    // The three shapes must stay told apart. A vacuous axis publishes 1.0
+    // *because it measured nothing*; a measured axis publishes its own
+    // fraction, and §3.4 comp inner layers order their device-face chains
+    // (signal_flow 0.433 over 60 here), so no measured axis earns a perfect
+    // score on this fixture.
     assert!(
-        in_order > 0,
-        "no axis came out perfectly in order, so the other half of that branch \
-         is unexercised"
+        measured > in_order,
+        "every measured axis is perfectly in order — a board where the count \
+         is the only thing telling a convention 1.0 from an earned one"
     );
 
     let _ = std::fs::remove_dir_all(&dir);

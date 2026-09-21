@@ -53,7 +53,8 @@ pub fn build_vec(
     let mut sources = SourceText::new();
     let mut items: Vec<Value> = Vec::new();
     let homes = endpoint_homes(graph, table, "");
-    walk(graph, table, "", &mut sources, &mut items, &homes);
+    let mut seen_boxes = std::collections::HashSet::new();
+    walk(graph, table, "", &mut sources, &mut items, &homes, &mut seen_boxes);
 
     // The projection's own account: one row per layer, then one per action.
     // `before` / `after` are the only place the *net count change* is visible —
@@ -183,6 +184,7 @@ fn walk(
     sources: &mut SourceText,
     items: &mut Vec<Value>,
     homes: &BTreeMap<i64, String>,
+    seen_boxes: &mut std::collections::HashSet<i64>,
 ) {
     let path = layer_path(graph, table, parent);
     let has_row = graph.bid >= 0 && table.get_entry(graph.bid as u32).is_some();
@@ -209,6 +211,14 @@ fn walk(
     }));
 
     for b in &graph.boxes {
+        // §2.4: one instance, one row. A comp-boundary instance (P8-6 inner
+        // layer) is a box in its parent layer AND the boundary face inside its
+        // own layer — the same InstTable id, hence the same `D<id>` key. The
+        // walk is in pre-order, so the first (outermost) row is the identity's
+        // home; the deeper copy is the layer-tree face and is not re-published.
+        if b.id >= 0 && !seen_boxes.insert(b.id) {
+            continue;
+        }
         items.push(box_item(b, table, &path, sources));
     }
     for t in &graph.port_trunks {
@@ -256,7 +266,7 @@ fn walk(
     }
 
     for sub in &graph.sub_graphs {
-        walk(sub, table, &path, sources, items, homes);
+        walk(sub, table, &path, sources, items, homes, seen_boxes);
     }
 }
 

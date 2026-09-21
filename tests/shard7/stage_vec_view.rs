@@ -487,48 +487,65 @@ fn a_keyed_net_names_a_source_net_that_pass2_knows() {
 }
 
 /// A Pass2-labelled net that the vec graph no longer carries is **named by the
-/// projection's own log**.
+/// projection's own log** — and a name the projection merged at one layer may
+/// survive at another.
 ///
 /// This is the reconciliation the phase exists for. The projection merges and
 /// drops nets, so the two segments legitimately disagree on the count; what makes
-/// them non-contradictory is that the log says which net went where. On hbl the
-/// only lost name is `V3V3.GND`, and the log's rule `a` records it as
-/// `union 4 nets: GND + V1V2.GND + V3V3.GND + V5V.GND` — the answer to "why does
-/// `stage.p2` count more nets than this view".
+/// them non-contradictory is that the log says which net went where. The root
+/// layer unions `V3V3.GND` away (`union 4 nets: GND + V1V2.GND + V3V3.GND +
+/// V5V.GND` — the answer to "why does `stage.p2` count more nets than this
+/// view"), but since §3.4 stage 2 the comp inner layers carry the func products'
+/// nets, and FLASH's decoupling keeps the source's own spelling `V3V3.GND`
+/// alive there. So on hbl nothing is lost *overall* — the assertion of that
+/// fact is what keeps the inner layers honest about naming.
 #[test]
 fn a_net_the_projection_removed_is_named_in_the_log() {
     let dir = scratch("lost");
     let p2 = seg_of_hbl(&dir, "p2");
     let vec = seg_of_hbl(&dir, "vec");
 
-    let p2_keyed: BTreeSet<String> = of_class(&items_of(&p2), "net")
-        .iter()
-        .filter_map(|n| n["key"].as_str().map(|k| k.to_string()))
-        .collect();
-    let vec_named: BTreeSet<String> = of_class(&items_of(&vec), "net")
-        .iter()
-        .filter_map(|n| n["name"].as_str().map(str::to_string))
-        .collect();
-
-    let lost: Vec<String> = p2_keyed
-        .iter()
-        .map(|k| k.trim_start_matches("net:").to_string())
-        .filter(|n| !vec_named.contains(n))
-        .collect();
-    assert!(
-        !lost.is_empty(),
-        "hbl is expected to lose a net in the projection; with none lost this \
-         assertion proves nothing"
-    );
-
-    // Every record, as one searchable string: a lost net may be named as the
-    // record's subject or inside its note (a union names its members there).
+    // Non-vacuity: the root must still union rail names, or nothing below is
+    // tested — the merged-elsewhere and the log branches both hang off it.
     let records: Vec<String> = of_class(&items_of(&vec), "projection")
         .into_iter()
         .filter(|i| i["before"].is_null())
         .map(|i| i.to_string())
         .collect();
+    for name in ["V3V3.GND", "V3V3.VCC"] {
+        assert!(
+            records.iter().any(|r| r.contains(name)),
+            "the root projection no longer unions `{name}` — the reconciliation \
+             this test pins has nothing to reconcile"
+        );
+    }
 
+    // The merged name survives in the comp inner layer that owns the func
+    // products, spelled as the source spelled it.
+    let vec_named: BTreeSet<String> = of_class(&items_of(&vec), "net")
+        .iter()
+        .filter_map(|n| n["name"].as_str().map(str::to_string))
+        .collect();
+    for name in ["V3V3.GND", "V3V3.VCC"] {
+        assert!(
+            vec_named.contains(name),
+            "Pass2 net `{name}` is unioned at the root yet appears nowhere in \
+             the vec graph — the projection lost a name the log does not \
+             account for"
+        );
+    }
+
+    // The general law, kept as an implication: any name absent from the whole
+    // vec view must be named by the projection's log.
+    let p2_keyed: BTreeSet<String> = of_class(&items_of(&p2), "net")
+        .iter()
+        .filter_map(|n| n["key"].as_str().map(|k| k.to_string()))
+        .collect();
+    let lost: Vec<String> = p2_keyed
+        .iter()
+        .map(|k| k.trim_start_matches("net:").to_string())
+        .filter(|n| !vec_named.contains(n))
+        .collect();
     for name in &lost {
         assert!(
             records.iter().any(|r| r.contains(name)),

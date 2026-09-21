@@ -324,16 +324,26 @@ fn drill_targets(svg: &str) -> Vec<i64> {
     out
 }
 
-/// Each `class="comp root-block"` box in a root-layer SVG, as `(data-id, does the
-/// opening tag carry an onclick)`.
+/// Each container box in a layer SVG, as `(data-id, does the opening tag carry
+/// an onclick)`.
+///
+/// Both container faces are read: the root layer's `comp root-block` block boxes
+/// and a device layer's `comp sub-module` boxes (§3.4 comp-boundary: a component
+/// that owns an inner layer draws the module face there too, so it advertises
+/// exactly like a module).
 ///
 /// The opening tag spans two lines when it advertises a drill-down, so the tag is
 /// taken as everything up to the next `>` rather than up to the newline.
 fn root_block_boxes(svg: &str) -> Vec<(i64, bool)> {
-    const OPEN: &str = r#"<g class="comp root-block""#;
+    const OPENS: [&str; 2] = [r#"<g class="comp root-block""#, r#"<g class="comp sub-module""#];
     let mut out = Vec::new();
     let mut rest = svg;
-    while let Some(i) = rest.find(OPEN) {
+    loop {
+        let hit = OPENS
+            .iter()
+            .filter_map(|open| rest.find(open).map(|i| (i, open.len())))
+            .min_by_key(|(i, _)| *i);
+        let Some((i, len)) = hit else { break };
         let tail = &rest[i..];
         let Some(end) = tail.find('>') else { break };
         let tag = &tail[..end];
@@ -419,7 +429,11 @@ fn viz_drill_down__every_advertised_id_opens_a_layer() {
     }
 
     // Non-vacuity, on the layer where the defect was reported: the root layer must
-    // show both an advertised box and a box that is drawn but not advertised.
+    // draw containers and advertise exactly its roster. (The older form of this
+    // check also demanded a *silent* container here; since §3.4 stage 2 every
+    // component standing on this fixture's root owns an inner layer, so the silent
+    // branch is legitimately empty — its content is still pinned below, as the
+    // equality silent ⇔ drawn \ roster.)
     let root = doc.root_layer().expect("root visualization layer");
     let boxes = root_block_boxes(&root.svg);
     assert!(!boxes.is_empty(), "the root layer draws no boxes at all");
@@ -435,8 +449,8 @@ fn viz_drill_down__every_advertised_id_opens_a_layer() {
         .map(|(id, _)| *id)
         .collect();
     assert!(
-        !advertised.is_empty() && !silent.is_empty(),
-        "the root layer must draw both a drillable and a non-drillable box, got \
+        !advertised.is_empty(),
+        "the root layer must draw at least one drillable box, got \
          advertised={advertised:?} silent={silent:?}"
     );
     // The two sides of the roster, stated as equalities rather than as spot checks:
@@ -538,4 +552,135 @@ fn anchor_covers_the_port_naming_change_class() {
         "the port-named lead `_CS` should be paired with pin number `1` at the \
          MCU513 west face (P0c-R4): {text:?}"
     );
+}
+
+
+// ── §3.4 stage 2: func products live in the component's inner layer ──
+
+/// The comp-boundary law, on a purpose-built minimal board.
+///
+/// A component-method func (`FLASH.power`) inlines a decoupling CAP and pull-up
+/// RESs **physically into the caller's flat list**; the viz projection must
+/// regroup them into the receiver's own inner layer, and the caller's drawing
+/// must not show them. The nested arm (`box.setup()` → `UC.power`) pins whose
+/// layer wins when the receiver is reached through a module-method func: the
+/// component that owns the method, not the module whose func did the calling.
+#[test]
+fn viz_comp_boundary__func_products_live_in_the_component_s_inner_layer() {
+    let _guard = common::lock();
+
+    let source = r#"
+component FLASH.GD25Q32E
+{
+    pins = [
+        1 = _CS
+        3 = _WP
+        7 = _HOLD
+        [8,4] = [VCC,VSS]::DC(3.3V)
+    ]
+
+    func power([V3V3, GND]::DC(3.3V))
+    {
+        [V3V3, GND] => CAP(100nF).Cap(_) -> [VCC, VSS]
+        RES(10k).Pullup([_CS, V3V3])
+        RES(10k).Pullup([_WP, V3V3])
+    }
+}
+
+module BOX(psnk [VDD, GND]::DC(3.3V))
+{
+    FLASH.GD25Q32E UC
+
+    func setup()
+    {
+        UC.power([VDD, GND])
+    }
+}
+
+module main(psnk [V3V3, GND]::DC(3.3V))
+{
+    FLASH.GD25Q32E FLASH
+    BOX box(V3V3)
+
+    FLASH.power([V3V3, GND])
+    box.setup()
+}
+"#;
+    let dir = std::env::temp_dir().join(format!(
+        "mcc-comp-boundary-{}-{:?}",
+        std::process::id(),
+        std::thread::current().id()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("create scratch dir");
+    let entry = dir.join("circuit.mc");
+    std::fs::write(&entry, source).expect("write the source");
+
+    mcc::mcc_init();
+    mcc::mcc_set_project_root(&dir);
+    let entry_uri: String = entry.to_string_lossy().into_owned();
+    mcc::mcc_load_project(&entry_uri);
+
+    let (tree, table, arena, store) = mcc::mcc_build_flat_with_arena(&McIds::from("main"), &entry_uri, 3000)
+        .expect("build the minimal board");
+    let vec_block = mcc::vector::builder::visit::build_mc_vec(&tree, &table, &arena, &store);
+    let graph = mcc::vector::graph::fromblock::build_mc_vec_graph(&vec_block, &table);
+    let doc = mcc::viz::api::render(graph);
+
+    // Anonymous func products carry `_`-prefixed names; the layer faces are
+    // told apart by how many of them they draw.
+    let anon = |svg: &str| svg.matches("data-name=\"_").count();
+    let root = doc.root_layer().expect("root layer");
+    let layer_by_name = |name: &str| {
+        doc.layers
+            .values()
+            .find(|l| l.name == name)
+            .unwrap_or_else(|| panic!("no layer named `{name}` in the document"))
+    };
+
+    // ① The receiver owns a layer, and the root advertises it.
+    let flash = layer_by_name("FLASH");
+    assert_eq!(
+        flash.parent_bid,
+        Some(doc.root_bid),
+        "the component's inner layer hangs off the root"
+    );
+    assert!(
+        root.clickable_subs.contains(&flash.bid),
+        "the root roster must advertise the component's inner layer"
+    );
+    // ② The inlined products are inside it: one decoupling CAP, two pull-ups.
+    assert_eq!(
+        anon(&flash.svg),
+        3,
+        "FLASH's inner layer must draw the func's CAP + 2 RES: {}",
+        flash.svg.matches("data-name=").count()
+    );
+    // ③ The caller's drawing does not.
+    assert_eq!(
+        anon(&root.svg),
+        0,
+        "the root must draw no anonymous func product"
+    );
+    // ④ Nested: `box.setup()` calls `UC.power`, so the products belong to UC's
+    // inner layer (a child of BOX's layer) — not to BOX's own face, and the
+    // root never hears of them.
+    let box_layer = layer_by_name("box");
+    let uc = doc
+        .layers
+        .values()
+        .find(|l| l.name == "UC" && l.parent_bid == Some(box_layer.bid))
+        .expect("UC's inner layer under BOX");
+    assert!(
+        box_layer.clickable_subs.contains(&uc.bid),
+        "BOX's layer must advertise UC's inner layer"
+    );
+    assert_eq!(anon(&uc.svg), 3, "UC's inner layer draws its own products");
+    assert_eq!(
+        anon(&box_layer.svg),
+        0,
+        "BOX's device layer must draw no anonymous func product"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
 }
