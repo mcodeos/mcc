@@ -833,8 +833,11 @@ pub fn assign_regions(graph: &McVecGraph, topos: &mut [NetTopology]) -> usize {
                 && is_w_e_opposite(topos[sides[0]].lane.region, topos[sides[1]].lane.region)
             {
                 let key = |k: usize| chain_far_end_key(graph, topos, layer_anchor, k);
-                if let (Some((ka, nets_a)), Some((kb, nets_b))) =
-                    (key(sides[0]), key(sides[1]))
+                let (ka_d, kb_d) = (key(sides[0]), key(sides[1]));
+                if ka_d.is_none() || kb_d.is_none() {
+                    // A missing far end leaves the balance choice standing.
+                }
+                if let (Some((ka, nets_a)), Some((kb, nets_b))) = (ka_d, kb_d)
                 {
                     let chain_nets = |t: &NetTopology| {
                         nets_a.contains(&t.nid) || nets_b.contains(&t.nid)
@@ -881,6 +884,9 @@ pub fn assign_regions(graph: &McVecGraph, topos: &mut [NetTopology]) -> usize {
 
     // Pass 1.5 (★ M7.1): netlist-driven side coupling
     //
+    // ★ U162①: nets the coupling/satellite passes MOVE are recorded here so the
+    // R0 reading pass (below) never re-flips them against their partner.
+    //
     // The side decision must START FROM THE NETLIST, not from each pin's IO
     // direction read in isolation. Two nets that share a TWO-PIN member form a
     // loop through that component:
@@ -895,6 +901,7 @@ pub fn assign_regions(graph: &McVecGraph, topos: &mut [NetTopology]) -> usize {
     // nets land on adjacent bands and the component becomes one short vertical
     // Bridge between them — which is how the schematic is meant to read.
     //
+    let mut coupling_moved: BTreeSet<usize> = BTreeSet::new();
     // Only W/E nets on the layer anchor take part; Ground (South) and the N/S
     // rails are positional, not side decisions. Each net moves at most once, so
     // the pass cannot oscillate, and pairs are visited in index order, so it is
@@ -981,6 +988,7 @@ pub fn assign_regions(graph: &McVecGraph, topos: &mut [NetTopology]) -> usize {
             );
             topos[loser].lane.region = target;
             moved[loser] = true;
+            coupling_moved.insert(loser);
         }
     }
 
@@ -1094,6 +1102,7 @@ pub fn assign_regions(graph: &McVecGraph, topos: &mut [NetTopology]) -> usize {
                 );
                 topos[i].lane.region = region;
                 moved_here[i] = true;
+                coupling_moved.insert(i);
             }
 
             for i in 0..topos.len() {
@@ -1129,6 +1138,7 @@ pub fn assign_regions(graph: &McVecGraph, topos: &mut [NetTopology]) -> usize {
                 topos[i].lane.region = opposite;
                 yielded[i] = true;
                 moved_here[i] = true;
+                coupling_moved.insert(i);
             }
         }
     }
@@ -1276,6 +1286,76 @@ pub fn assign_regions(graph: &McVecGraph, topos: &mut [NetTopology]) -> usize {
         }
         if !changed {
             break;
+        }
+    }
+
+    // Pass 2.5 (★ U162① M19-b): a W/E band reads in R0 statement order
+    //
+    // M19 orients the two sides of a TWO-PIN anchor by declaration order, but
+    // the same reading law decides which side ANY band grows to: the layer's
+    // statement walk fills `endpoints` in R0 issuance order, and the drawing
+    // should read the same way — endpoints left-to-right in statement order.
+    // When the layer anchor's own endpoint is FIRST in a net's statement order
+    // the chain reads eastward (hub declared before its peripherals); when it
+    // is LAST the chain reads westward. The IO rule (`direct_region`) only
+    // knows the pin's electrical role, not the author's reading order, so on
+    // those nets this pass overrules it — exactly the standing M19 took for
+    // the two-pin-anchor case.
+    //
+    // Guards: the net must still carry its Pass-1 answer (never inherited,
+    // never moved by the coupling/satellite passes, never a rail driver or a
+    // sense feedback net — those have electrical standing), must not be a
+    // ground (Pass 0 / the adoption pass own grounds), and the anchor
+    // endpoint must sit at one END of the statement order — anywhere else and
+    // the net is a fanout the reading law cannot orient.
+    {
+        let endpoints_of = |nid: i64| -> Option<&Vec<crate::vector::graph::netdef::EndpointRef>> {
+            graph
+                .nets
+                .iter()
+                .find(|n| n.nid == nid)
+                .map(|n| &n.endpoints)
+        };
+        for i in 0..topos.len() {
+            if !resolved[i] || weak[i] || coupling_moved.contains(&i) {
+                continue;
+            }
+            if !matches!(topos[i].lane.region, Region::West | Region::East) {
+                continue;
+            }
+            if !matches!(strength[i], SideStrength::Balanced | SideStrength::Io) {
+                continue;
+            }
+            if topos[i].net_kind == NetKind::Ground {
+                continue;
+            }
+            let Some(eps) = endpoints_of(topos[i].nid) else {
+                continue;
+            };
+            if eps.len() < 2 {
+                continue;
+            }
+            let first_is_anchor = eps.first().is_some_and(|e| e.box_id == layer_anchor);
+            let last_is_anchor = eps.last().is_some_and(|e| e.box_id == layer_anchor);
+            if first_is_anchor == last_is_anchor {
+                continue; // anchor absent, or mid-chain (a fanout): abstain
+            }
+            let want = if first_is_anchor {
+                Region::East
+            } else {
+                Region::West
+            };
+            if topos[i].lane.region != want {
+                crate::vlog!(
+                    "[region] R0 reading: net '{}' {:?} → {:?} (anchor endpoint is {} in \
+                     statement order)",
+                    topos[i].net_name,
+                    topos[i].lane.region,
+                    want,
+                    if first_is_anchor { "first" } else { "last" }
+                );
+                topos[i].lane.region = want;
+            }
         }
     }
 
@@ -4199,6 +4279,72 @@ fn chain_origins(
             series_x.push((bid, x_col));
         }
     }
+
+    // ★ M20 (U162①): two same-row parts bridging the SAME two nets are drawn
+    // in PARALLEL — a shunt across the step (the crystal's `R442` sits across
+    // `X6`). The run hands them their two row slots in walk order, which is
+    // not the author's reading order. R0 says a reading reads left→right in
+    // statement order, so the part declared first sits further west: swap the
+    // two slots when the walk order came out inverted. Keys are pin ids and
+    // group membership only — no rect is read (A2).
+    {
+        let decl_rank = |bid: i64| -> i64 {
+            graph
+                .boxes
+                .iter()
+                .find(|b| b.id == bid)
+                .and_then(|b| b.pins.iter().map(|p| p.id).min())
+                .unwrap_or(i64::MAX)
+        };
+        // (box id, x, the two nets it bridges, statement rank) — first slot wins.
+        let mut entries: Vec<(i64, f64, [usize; 2], i64)> = Vec::new();
+        for (bid, x) in &series_x {
+            if entries.iter().any(|e| e.0 == *bid) {
+                continue;
+            }
+            let nets: Vec<usize> = topos
+                .iter()
+                .enumerate()
+                .filter(|(_, t)| t.groups.iter().any(|g| g.box_id == *bid))
+                .map(|(i, _)| i)
+                .collect();
+            if let [a, b] = nets[..] {
+                entries.push((*bid, *x, [a, b], decl_rank(*bid)));
+            }
+        }
+        for i in 0..entries.len() {
+            for j in (i + 1)..entries.len() {
+                if entries[i].2 != entries[j].2 {
+                    continue;
+                }
+                let (bi, xi, ri) = (entries[i].0, entries[i].1, entries[i].3);
+                let (bj, xj, rj) = (entries[j].0, entries[j].1, entries[j].3);
+                if (xi - xj).abs() < 0.5 {
+                    continue;
+                }
+                let inverted = (ri > rj) == (xi < xj);
+                if !inverted {
+                    continue;
+                }
+                crate::vlog!(
+                    "[chain] M20 parallel read: '{}/{}' and '{}/{}' swap to statement order",
+                    bi,
+                    ri,
+                    bj,
+                    rj
+                );
+                for s in series_x.iter_mut() {
+                    if s.0 == bi {
+                        s.1 = xj;
+                    } else if s.0 == bj {
+                        s.1 = xi;
+                    }
+                }
+                entries[i].1 = xj;
+                entries[j].1 = xi;
+            }
+        }
+    }
     (origins, series_x)
 }
 
@@ -4473,6 +4619,15 @@ fn resolve_columns_for_side(graph: &mut McVecGraph, topos: &[NetTopology], layer
                     }
                 }
             }
+            // ★ M21: R0 reading rank — this box's position in its own net's
+            // endpoint list. The metric judges cx monotonicity in exactly
+            // this order, so the greedy tiebreak must match it.
+            let read_rank = graph
+                .nets
+                .iter()
+                .find(|n| n.nid == topos[ti].nid)
+                .and_then(|n| n.endpoints.iter().position(|e| e.box_id == group.box_id))
+                .unwrap_or(usize::MAX);
             let m = SideMember {
                 idx: Some((ti, gi)),
                 role,
@@ -4480,6 +4635,7 @@ fn resolve_columns_for_side(graph: &mut McVecGraph, topos: &[NetTopology], layer
                 h: b.h,
                 row_y: topo.lane.axis,
                 anchor_pin_x,
+                read_rank,
                 // ★ M18: the partner net's row — the far end of this member's
                 // vertical tooth (a cap's GND hang reaches the rail below, a
                 // bridge's tooth spans both rows). `None` (no partner, or a

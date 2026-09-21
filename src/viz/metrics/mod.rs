@@ -394,9 +394,14 @@ fn measure_signal_flow(graph: &McVecGraph) -> Axis {
         // endpoint itself is not in the sequence — it broke the order.
         let dump = crate::viz::log::enabled();
         let mut seq = String::new();
+        let mut full = String::new();
         for ep in &net.endpoints {
             if let Some(b) = graph.boxes.iter().find(|bx| bx.id == ep.box_id) {
                 let cx = b.x + b.w / 2.0;
+                if dump {
+                    let name = b.designator.clone().unwrap_or_else(|| b.name.clone());
+                    full.push_str(&format!("{}/{}@{:.0} ", name, ep.box_id, cx));
+                }
                 if cx < prev_x {
                     all_ltr = false;
                     break;
@@ -404,16 +409,27 @@ fn measure_signal_flow(graph: &McVecGraph) -> Axis {
                 prev_x = cx;
             }
             if dump {
-                seq.push_str(&format!("{}@{:.0} ", ep.box_id, prev_x));
+                let name = graph
+                    .boxes
+                    .iter()
+                    .find(|bx| bx.id == ep.box_id)
+                    .map(|bx| {
+                        bx.designator
+                            .clone()
+                            .unwrap_or_else(|| bx.name.clone())
+                    })
+                    .unwrap_or_default();
+                seq.push_str(&format!("{}/{}@{:.0} ", name, ep.box_id, prev_x));
             }
         }
         if !all_ltr {
             crate::vlog!(
-                "[sigflow] layer={} net={}({}) NONLTR seq={}",
+                "[sigflow] layer={} net={}({}) NONLTR seq={} FULL={}",
                 graph.name,
                 net.name,
                 net.nid,
-                seq
+                seq,
+                full
             );
         } else {
             monotonic += 1;
