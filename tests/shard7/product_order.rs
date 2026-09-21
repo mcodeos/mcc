@@ -40,6 +40,25 @@ fn hbl_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/hbl")
 }
 
+/// Copy a fixture project tree into `dst`, `build/` excepted: a generated
+/// directory in the shared fixture (or in a prior run's copy) is exactly the
+/// state a fresh private copy must not inherit.
+fn copy_tree(src: &Path, dst: &Path) {
+    std::fs::create_dir_all(dst).expect("create dst");
+    for entry in std::fs::read_dir(src).expect("read src") {
+        let entry = entry.expect("entry");
+        if entry.file_name() == "build" {
+            continue;
+        }
+        let to = dst.join(entry.file_name());
+        if entry.file_type().expect("file type").is_dir() {
+            copy_tree(&entry.path(), &to);
+        } else {
+            std::fs::copy(entry.path(), &to).expect("copy file");
+        }
+    }
+}
+
 /// A fresh, **empty** directory to run a CLI invocation in, so nothing the
 /// command reads can depend on where the test happens to be.
 fn scratch(name: &str) -> PathBuf {
@@ -315,9 +334,19 @@ fn the_drawn_circuit_is_the_same_file_twice() {
     const MIN_BYTES: usize = 10_000;
 
     let cwd = scratch("viz-cross-process");
-    let target = hbl_dir().join("src/hbl.mc");
+    // A private copy of the fixture: the shared fixture is read-only by
+    // convention, and the default viz outlet writes into the project root —
+    // so the project this build writes into has to be this test's own.
+    let root = cwd.join("hbl");
+    copy_tree(&hbl_dir(), &root);
+    let target = root.join("src/hbl.mc");
     let t = target.to_str().expect("fixture path");
-    let product = cwd.join("circuit.html");
+    // The default outlet is the project's `build/` directory — the fixture
+    // resolves to its own root through `project.toml` — never the process cwd,
+    // never the source tree.
+    let product = root.join("build").join("circuit.html");
+    assert!(!cwd.join("circuit.html").exists());
+    assert!(!root.join("src/circuit.html").exists());
 
     let mut drawings = Vec::new();
     for _ in 0..2 {

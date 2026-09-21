@@ -38,7 +38,7 @@
 //!
 //! ## Auditable
 //! Every merge/dedup/removal is recorded as (layer, net, endpoint, rule a|b|c), aggregated
-//! into `baseline/render_projection.md`, plus one vlog summary line per layer.
+//! into `build/baseline/render_projection.md`, plus one vlog summary line per layer.
 
 use std::collections::{BTreeSet, HashMap};
 
@@ -65,7 +65,7 @@ pub struct ProjectionLog {
 }
 
 impl ProjectionLog {
-    /// Aggregated into `baseline/render_projection.md` (overwritten each projection, deterministic
+    /// Aggregated into `build/baseline/render_projection.md` (overwritten each projection, deterministic
     /// content).
     pub fn write_md(&self) {
         let mut md = String::new();
@@ -82,7 +82,7 @@ impl ProjectionLog {
                 r.rule, r.layer, r.net, r.endpoint, r.note
             ));
         }
-        let path = std::path::Path::new("baseline/render_projection.md");
+        let path = std::path::Path::new("build/baseline/render_projection.md");
         if let Some(dir) = path.parent() {
             let _ = std::fs::create_dir_all(dir);
         }

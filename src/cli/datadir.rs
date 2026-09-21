@@ -159,6 +159,12 @@ pub fn rebuild_index() -> std::io::Result<()> {
             if skip.contains(&name.as_str()) {
                 continue;
             }
+            // Hidden directories are never libraries — pointing the data root
+            // at a working copy (the README's local-hacking recipe) must not
+            // index `.git` as a system lib.
+            if name.starts_with('.') {
+                continue;
+            }
             if let Some((lib_name, ver)) = parse_name_version(&name) {
                 tp_entries.push(json!({
                     "name": lib_name,

@@ -57,6 +57,9 @@ fn copy_tree(src: &Path, dst: &Path) {
     std::fs::create_dir_all(dst).expect("create dst");
     for entry in std::fs::read_dir(src).expect("read src") {
         let entry = entry.expect("entry");
+        if entry.file_name() == "build" {
+            continue;
+        }
         let to = dst.join(entry.file_name());
         if entry.file_type().expect("file type").is_dir() {
             copy_tree(&entry.path(), &to);
@@ -142,13 +145,28 @@ fn a_product_lands_under_the_project_root_not_the_caller() {
 ///
 /// Locked because "writes no file" is the easy thing to lose: a default that
 /// started emitting a product would be invisible in every other test.
+/// A product is a **top-level file** in `build/` — the G4 audit trail lives one
+/// level down, in `build/baseline/` — so "wrote a product" is readable off the
+/// directory's own shape.
+fn has_top_level_files(build: &Path) -> bool {
+    std::fs::read_dir(build)
+        .map(|rd| rd.flatten().any(|e| e.path().is_file()))
+        .unwrap_or(false)
+}
+
+/// The default set is the envelope alone, so no product is written.
+///
+/// Locked because "writes no file" is the easy thing to lose: a default that
+/// started emitting a product would be invisible in every other test. The
+/// `build/` directory itself may appear (the G4 audit writes
+/// `build/baseline/known_missing.md`), but nothing lands at its top level.
 #[test]
 fn without_the_flag_no_product_is_written() {
     let root = project("default");
     let root_arg = root.to_str().expect("root path");
     run_build(&root, &["build", root_arg]);
     assert!(
-        !root.join("build").exists(),
+        !has_top_level_files(&root.join("build")),
         "a build with no --product wrote into {}",
         root.join("build").display()
     );
@@ -256,7 +274,7 @@ fn a_retired_product_is_refused_by_name() {
         "the refusal does not name the id it refuses: {err}"
     );
     assert!(
-        !root.join("build").exists(),
+        !has_top_level_files(&root.join("build")),
         "the refusing build wrote a product anyway"
     );
 }
@@ -281,7 +299,7 @@ fn a_directory_batch_refuses_a_product() {
         "the refusal does not name the flag it is refusing: {err}"
     );
     assert!(
-        !root.join("build").exists(),
+        !has_top_level_files(&root.join("build")),
         "the refusing build wrote a product anyway"
     );
 }
