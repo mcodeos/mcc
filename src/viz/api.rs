@@ -316,6 +316,10 @@ fn render_layer_recursive(
         // coincident parts as a drawing error, and every output face inherits
         // the drawing — separate them before canvas fit re-derives the trees.
         crate::viz::layout::overlap::separate_overlaps_x(&mut graph);
+        // ★ U168: keep sibling `block` clusters from interleaving — their
+        // frames must never merge, and hold exactly their own members. Same
+        // X-only shift safety as the pass above; runs before the canvas fit.
+        crate::viz::layout::block_frame::separate_block_frames_x(&mut graph);
         // ★ Content-adaptive canvas: fit every box + tree segment + symbol
         // (including negative-x West trunks and upward-reading vertical labels)
         // into the SVG viewBox, starting at the TRUE content top.
