@@ -48,7 +48,7 @@ range (threshold 40KB).
 | `instant/mc_mod/phases.rs` | 120 KB | 28 |
 | `instant/mc_mod/points.rs` | 117 KB | 20 |
 | `semantic/module/mod.rs` | 114 KB | 80 |
-| `semantic/basic/mc_fcall.rs` | 114 KB | 22 |
+| `semantic/basic/mc_fcall.rs` | 110 KB | 22 |
 | `vector/graph/fromblock.rs` | 101 KB | 35 |
 
 ## Modules
@@ -71,7 +71,7 @@ range (threshold 40KB).
 | `query/` | 9 | 157 KB |
 | `refdef/` | 7 | 118 KB |
 | `rpc/` | 16 | 297 KB |
-| `semantic/` | 89 | 2606 KB |
+| `semantic/` | 89 | 2603 KB |
 | `stages/` | 11 | 297 KB |
 | `vector/` | 25 | 475 KB |
 | `viz/` | 96 | 2346 KB |
@@ -5142,15 +5142,15 @@ semantic/basic/mc_fcall.rs#L282  fn parse
 semantic/basic/mc_fcall.rs#L404  fn is_construction
 semantic/basic/mc_fcall.rs#L415  fn caller_is_construction
 semantic/basic/mc_fcall.rs#L422  fn parse_internal
-semantic/basic/mc_fcall.rs#L1909  fn resolve_return_shape
-semantic/basic/mc_fcall.rs#L1943  fn fill_return_shape
-semantic/basic/mc_fcall.rs#L1963  fn expand_iface_port_return_face
-semantic/basic/mc_fcall.rs#L1998  fn lookup_func_returns
-semantic/basic/mc_fcall.rs#L2024  fn fill_return_shapes
-semantic/basic/mc_fcall.rs#L2075  fn check_chain_validity
-semantic/basic/mc_fcall.rs#L2117  fn root_receiver
-semantic/basic/mc_fcall.rs#L2129  fn extract_method_name
-semantic/basic/mc_fcall.rs#L2169  fn try_parse_inner_fcall
+semantic/basic/mc_fcall.rs#L1847  fn resolve_return_shape
+semantic/basic/mc_fcall.rs#L1881  fn fill_return_shape
+semantic/basic/mc_fcall.rs#L1901  fn expand_iface_port_return_face
+semantic/basic/mc_fcall.rs#L1936  fn lookup_func_returns
+semantic/basic/mc_fcall.rs#L1962  fn fill_return_shapes
+semantic/basic/mc_fcall.rs#L2013  fn check_chain_validity
+semantic/basic/mc_fcall.rs#L2055  fn root_receiver
+semantic/basic/mc_fcall.rs#L2067  fn extract_method_name
+semantic/basic/mc_fcall.rs#L2107  fn try_parse_inner_fcall
 semantic/basic/mc_group.rs#L16  struct McGroup
 semantic/basic/mc_group.rs#L22  impl McGroup
 semantic/basic/mc_group.rs#L24  fn parse
