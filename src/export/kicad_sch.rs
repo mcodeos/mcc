@@ -69,6 +69,7 @@ pub fn build_kicad_sch_project(
     arena: &NodeArena,
     inst_store: &InstanceStore,
     top: &str,
+    flat: bool,
 ) -> Vec<SchFile> {
     let vec_block = build_mc_vec_with_arena(tree, table, arena, inst_store);
     let graph = build_mc_vec_graph(&vec_block, table);
@@ -81,7 +82,11 @@ pub fn build_kicad_sch_project(
              design; the sheets mirror the drawing as rendered, which may drop content"
         );
     }
-    emit_sheets(&layers, top)
+    if flat {
+        emit_flat_sheet(&layers, table, top)
+    } else {
+        emit_sheets(&layers, top)
+    }
 }
 
 // === S-expression emitter ===
@@ -151,6 +156,52 @@ struct SheetSet<'a> {
     sheet_uuid_of: HashMap<i64, String>,
     /// bid -> page number, assigned in pre-order (root = 1)
     page_of: HashMap<i64, usize>,
+    /// child bid -> its boundary ports as (name, KiCad label shape). Computed
+    /// once from the child's own graph, it is the ONE list both the parent's
+    /// sheet pins and the child's hierarchical labels read, so the two sides
+    /// agree by construction instead of by two derivations agreeing.
+    ports_of: HashMap<i64, Vec<(String, &'static str)>>,
+}
+
+/// The boundary-port list of one child layer: its boundary nets first (in net
+/// order), then the module's declared ports that no boundary net carried.
+fn child_ports_of(graph: &McVecGraph) -> Vec<(String, &'static str)> {
+    let mut v: Vec<(String, &'static str)> = Vec::new();
+    for n in &graph.nets {
+        if let Some(bi) = &n.boundary {
+            let shape = shape_of_io(bi.io);
+            if writable_port_name(&bi.port_name) && !v.iter().any(|(nm, _)| nm == &bi.port_name) {
+                v.push((bi.port_name.clone(), shape));
+            }
+        }
+    }
+    for (name, dir, _role) in &graph.module_ports {
+        if v.iter().any(|(nm, _)| nm == name) || !writable_port_name(name) {
+            continue;
+        }
+        let shape = match dir {
+            crate::vector::graph::PortDir::In => "input",
+            crate::vector::graph::PortDir::Out => "output",
+            crate::vector::graph::PortDir::Io => "bidirectional",
+            _ => "passive",
+        };
+        v.push((name.clone(), shape));
+    }
+    v
+}
+
+/// KiCad's netname grammar reserves `{…}` for escape syntax, so a port-group
+/// display label (`dc{VDD_3V3, GND}`) cannot be written as a pin/label name.
+/// Skipping it is a format limitation, reported once — the name is never
+/// rewritten into something the source did not say.
+fn writable_port_name(name: &str) -> bool {
+    let ok = !name.contains('{') && !name.contains('}');
+    if !ok {
+        eprintln!(
+            "[export-kicad-sch] port name not representable in KiCad, skipped: {name}"
+        );
+    }
+    ok
 }
 
 /// Per-sheet mutable state, split from [`SheetSet`] so the layer graphs can
@@ -180,6 +231,7 @@ fn emit_sheets(layers: &[RenderedLayer], top: &str) -> Vec<SchFile> {
         file_of: HashMap::new(),
         sheet_uuid_of: HashMap::new(),
         page_of: HashMap::new(),
+        ports_of: HashMap::new(),
     };
 
     // Names and pages in pre-order, so a re-render of the same design numbers
@@ -191,6 +243,7 @@ fn emit_sheets(layers: &[RenderedLayer], top: &str) -> Vec<SchFile> {
         if l.parent.is_some() {
             let uuid = det_uuid(&format!("{}#sheet#{}", set.top, l.graph.bid));
             set.sheet_uuid_of.insert(l.graph.bid, uuid);
+            set.ports_of.insert(l.graph.bid, child_ports_of(&l.graph));
         }
     }
 
@@ -228,10 +281,21 @@ fn layer_stem(set: &SheetSet, idx: usize) -> String {
 struct Xform {
     ox: f64,
     oy: f64,
+    /// Global translation in sheet mm, used by the flat single-sheet mode to
+    /// place each module's drawing side by side. Zero in hierarchical mode.
+    gx: f64,
+    gy: f64,
+    /// Right/bottom edge of the drawing in sheet mm (for flat tiling).
+    max_x: f64,
+    max_y: f64,
 }
 
 impl Xform {
     fn new(graph: &McVecGraph, trees: &[EquiTree]) -> Self {
+        Self::with_offset(graph, trees, 0.0, 0.0)
+    }
+
+    fn with_offset(graph: &McVecGraph, trees: &[EquiTree], gx: f64, gy: f64) -> Self {
         let mut min = (f64::MAX, f64::MAX);
         let acc = |x: f64, y: f64, min: &mut (f64, f64)| {
             min.0 = min.0.min(x);
@@ -255,26 +319,51 @@ impl Xform {
         if let Some(f) = &graph.module_frame {
             acc(f.x, f.y, &mut min);
         }
+        let (ox, oy) = if min.0.is_finite() {
+            (MARGIN_PX - min.0, if min.1.is_finite() { MARGIN_PX - min.1 } else { MARGIN_PX })
+        } else {
+            (MARGIN_PX, MARGIN_PX)
+        };
+        let mut max = (f64::MIN, f64::MIN);
+        for b in &graph.boxes {
+            max.0 = max.0.max(b.x + b.w + PIN_LEN_PX);
+            max.1 = max.1.max(b.y + b.h + PIN_LEN_PX);
+        }
+        for t in trees {
+            for sgm in &t.segments {
+                max.0 = max.0.max(sgm.x1).max(sgm.x2);
+                max.1 = max.1.max(sgm.y1).max(sgm.y2);
+            }
+            for sgm in &t.symbols {
+                max.0 = max.0.max(sgm.x);
+                max.1 = max.1.max(sgm.y);
+            }
+        }
+        if let Some(f) = &graph.module_frame {
+            max.0 = max.0.max(f.x + f.w);
+            max.1 = max.1.max(f.y + f.h);
+        }
+        let (mx, my) = if max.0.is_finite() {
+            ((max.0 + ox) * MM_PER_PX, (max.1 + oy) * MM_PER_PX)
+        } else {
+            (0.0, 0.0)
+        };
         Xform {
-            ox: if min.0.is_finite() {
-                MARGIN_PX - min.0
-            } else {
-                MARGIN_PX
-            },
-            oy: if min.1.is_finite() {
-                MARGIN_PX - min.1
-            } else {
-                MARGIN_PX
-            },
+            ox,
+            oy,
+            gx,
+            gy,
+            max_x: mx,
+            max_y: my,
         }
     }
 
     fn x(&self, px: f64) -> f64 {
-        (px + self.ox) * MM_PER_PX
+        (px + self.ox) * MM_PER_PX + self.gx
     }
 
     fn y(&self, px: f64) -> f64 {
-        (px + self.oy) * MM_PER_PX
+        (px + self.oy) * MM_PER_PX + self.gy
     }
 }
 
@@ -308,29 +397,7 @@ fn emit_sheet(set: &SheetSet, state: &mut SheetState, idx: usize) -> String {
     // One lib symbol per distinct (class, pin set, extent); per-instance
     // layout differences get their own variant, because the pin positions ARE
     // the geometry the wires were routed to.
-    let mut lib_sig: HashMap<String, String> = HashMap::new();
-    let mut lib_of_box: HashMap<i64, String> = HashMap::new();
-    let mut variant_count: HashMap<String, usize> = HashMap::new();
-    for b in component_boxes(graph) {
-        let sig = lib_signature(b);
-        let name = match lib_sig.get(&sig) {
-            Some(n) => n.clone(),
-            None => {
-                let base = sanitize_lib_id(&b.class_name);
-                let n = variant_count.entry(base.clone()).or_insert(0);
-                *n += 1;
-                let name = if *n == 1 {
-                    base.clone()
-                } else {
-                    format!("{base}_v{n}")
-                };
-                lib_sig.insert(sig, name.clone());
-                name
-            }
-        };
-        lib_of_box.insert(b.id, name);
-    }
-    let with_power = has_power_symbols(graph, &trees);
+    let (lib_of_box, _lib_bodies, with_power) = collect_layer_libs(graph, &trees, "");
 
     let sheet_uuid = if idx == 0 {
         set.root_uuid.clone()
@@ -428,6 +495,288 @@ fn component_boxes(graph: &McVecGraph) -> Vec<&McVecBox> {
         .collect()
 }
 
+/// Per-layer lib symbols: one per distinct (class, pin set, extent), renamed
+/// `"{prefix}{class}_vN"` when variants repeat. `prefix` namespaces the names
+/// in the flat single-sheet mode, where two modules' `RES` layouts must not
+/// collide. Returns the box->lib-name map, the deduped bodies, and whether the
+/// layer draws any power glyph (those libs are shared, never prefixed).
+fn collect_layer_libs(
+    graph: &McVecGraph,
+    trees: &[EquiTree],
+    prefix: &str,
+) -> (
+    HashMap<i64, String>,
+    BTreeMap<String, String>,
+    bool,
+) {
+    let mut lib_sig: HashMap<String, String> = HashMap::new();
+    let mut lib_of_box: HashMap<i64, String> = HashMap::new();
+    let mut variant_count: HashMap<String, usize> = HashMap::new();
+    for b in component_boxes(graph) {
+        let sig = lib_signature(b);
+        let name = match lib_sig.get(&sig) {
+            Some(n) => n.clone(),
+            None => {
+                let base = sanitize_lib_id(&b.class_name);
+                let n = variant_count.entry(base.clone()).or_insert(0);
+                *n += 1;
+                let name = if *n == 1 {
+                    base.clone()
+                } else {
+                    format!("{base}_v{n}")
+                };
+                lib_sig.insert(sig, name.clone());
+                name
+            }
+        };
+        lib_of_box.insert(b.id, name);
+    }
+    let mut bodies = BTreeMap::new();
+    for b in component_boxes(graph) {
+        let name = lib_of_box[&b.id].clone();
+        bodies
+            .entry(name.clone())
+            .or_insert_with(|| lib_symbol_body(b, &format!("{prefix}{name}")));
+    }
+    let with_power = has_power_symbols(graph, trees);
+    (lib_of_box, bodies, with_power)
+}
+
+// === Flat single-sheet mode ===
+
+/// The whole circuit on one sheet: every module's own device drawing is tiled
+/// left to right on a shared canvas, and each module's boundary ports are
+/// renamed to the net the PARENT's crossing carries. Same-name labels are what
+/// KiCad joins a net by, so the modules become one circuit with zero long
+/// cross-module wires — the connection lives in the net name, not in a drawn
+/// line across the sheet. The hierarchical mode above stays the default; this
+/// is the `--flat` face.
+fn emit_flat_sheet(
+    layers: &[RenderedLayer],
+    table: &InstTable,
+    top: &str,
+) -> Vec<SchFile> {
+    let mut set = SheetSet {
+        top: sanitize_file_stem(top),
+        root_uuid: det_uuid(&format!("{top}#root")),
+        layers,
+        by_bid: HashMap::new(),
+        file_of: HashMap::new(),
+        sheet_uuid_of: HashMap::new(),
+        page_of: HashMap::new(),
+        ports_of: HashMap::new(),
+    };
+    let mut state = SheetState {
+        used_refs: HashMap::new(),
+        pwr_seq: 0,
+        flagged: HashSet::new(),
+    };
+
+    // Tile width pass: every layer that will be drawn gets an x offset. A
+    // Block-style root is skipped unless it carries direct component boxes
+    // (its sub-module boxes duplicate the child drawings below).
+    let root_is_block_with_subs = layers[0].parent.is_none()
+        && layers[0].graph.layer_style == LayerStyle::Block
+        && layers[0].graph.boxes.iter().any(|b| b.kind == BoxKind::SubModule);
+    let mut included: Vec<usize> = Vec::new();
+    for (i, l) in layers.iter().enumerate() {
+        let is_root = l.parent.is_none();
+        let skip = is_root
+            && root_is_block_with_subs
+            && component_boxes(&l.graph).is_empty();
+        if !skip {
+            included.push(i);
+        }
+    }
+
+    // Port -> parent-side net name, read off the parent's crossing: the
+    // parent SubModule box's lead carries the net label the wire uses, which
+    // is the name that makes the two drawings one circuit.
+    let mut port_net: HashMap<i64, HashMap<String, String>> = HashMap::new();
+    for (i, l) in layers.iter().enumerate() {
+        let Some(parent_idx) = l
+            .parent
+            .and_then(|p| layers.iter().position(|l2| l2.graph.bid == p))
+        else {
+            continue;
+        };
+        let parent = &layers[parent_idx].graph;
+        let mut m: HashMap<String, String> = HashMap::new();
+        if let Some(sub) = parent
+            .boxes
+            .iter()
+            .find(|b| b.kind == BoxKind::SubModule && b.name == l.graph.name)
+        {
+            for bp in &sub.boundary_ports {
+                if let Some(ep) = sub.find_entry(bp.entry_pin_id) {
+                    m.insert(bp.port_name.clone(), ep.pin_name.clone());
+                }
+            }
+        }
+        port_net.insert(layers[i].graph.bid, m);
+    }
+
+    // The flat table's copper islands are the ONE authority for "which
+    // sub-module local net is which board net": every endpoint's full
+    // instance path maps to the island it sits on, and the island's name is
+    // what all flat labels must carry for KiCad to join the modules.
+    let mut islands: HashMap<String, String> = HashMap::new();
+    for (island, pts) in crate::export::netlist::island_nets(table, crate::export::netlist::PointNaming::Hierarchical) {
+        for p in pts {
+            islands.insert(p, island.clone());
+        }
+    }
+
+    // Tile the drawings and collect the shared lib_symbols.
+    let mut libs: BTreeMap<String, String> = BTreeMap::new();
+    let mut with_power = false;
+    let mut tiling: Vec<(usize, Xform, HashMap<i64, String>)> = Vec::new();
+    let mut cursor = 0.0f64;
+    const FLAT_GAP_MM: f64 = 40.0;
+    for &i in &included {
+        let layer = &layers[i];
+        let is_device = layer.graph.layer_style == LayerStyle::Device;
+        let trees: Vec<EquiTree> = if is_device {
+            build_all_trees(&layer.graph)
+        } else {
+            Vec::new()
+        };
+        let xf = Xform::with_offset(&layer.graph, &trees, cursor, 0.0);
+        cursor += xf.max_x + FLAT_GAP_MM;
+        let prefix = format!("L{}_", layer.graph.bid);
+        let (lib_of_box, bodies, pw) = collect_layer_libs(&layer.graph, &trees, &prefix);
+        for (n, b) in bodies {
+            libs.insert(format!("{prefix}{n}"), b);
+        }
+        with_power |= pw;
+        tiling.push((i, xf, lib_of_box));
+    }
+
+    let mut e = Emit::new();
+    e.open("kicad_sch");
+    line!(e, "(version {SCH_VERSION})");
+    line!(e, "(generator \"mcc\")");
+    line!(e, "(generator_version \"9.0\")");
+    line!(e, "(uuid \"{}\")", set.root_uuid);
+    let sheet_w = cursor.max(297.0);
+    let sheet_h = tiling
+        .iter()
+        .map(|(_, xf, _)| xf.max_y)
+        .fold(210.0f64, f64::max)
+        .max(210.0);
+    line!(e, "(paper \"User\" {} {})", sheet_w.ceil() as i64 + 20, sheet_h.ceil() as i64 + 20);
+    e.open("title_block");
+    line!(e, "(title \"{}\")", escape(top));
+    e.close();
+
+    e.open("lib_symbols");
+    for (n, b) in &libs {
+        e.atom(b);
+        let _ = n;
+    }
+    if with_power {
+        e.atom(&lib_gnd_body());
+        e.atom(&lib_pwr_body());
+        e.atom(&lib_flag_body());
+    }
+    e.close();
+
+    // Root rail names by declared voltage — the rename authority for every
+    // sub-module's local arm of a shared rail.
+    for (i, xf, lib_of_box) in &tiling {
+        let layer = &layers[*i];
+        let graph = &layer.graph;
+        let is_device = graph.layer_style == LayerStyle::Device;
+        let pn = port_net.get(&graph.bid).cloned().unwrap_or_default();
+        state.used_refs.entry(graph.bid).or_default();
+        if is_device {
+            let trees: Vec<EquiTree> = build_all_trees(graph);
+            let net_names: HashMap<String, String> = graph
+                .nets
+                .iter()
+                .filter_map(|n| {
+                    island_name_of_net(graph, n, &islands).map(|i| (n.name.clone(), i))
+                })
+                .collect();
+            emit_tree_nets_opt(graph, &trees, xf, &set.root_uuid, &set, &mut state, &mut e, &net_names);
+            // Boundary ports become same-name labels joined to the parent's
+            // net name; the hierarchical label itself would be meaningless on
+            // a sheetless drawing.
+            emit_flat_boundary_labels(graph, &trees, xf, &pn, &mut e);
+        } else {
+            emit_root_passive_nets(graph, xf, &mut e);
+        }
+        let net_names: HashMap<String, String> = graph
+            .nets
+            .iter()
+            .filter_map(|n| {
+                island_name_of_net(graph, n, &islands).map(|i| (n.name.clone(), i))
+            })
+            .collect();
+        emit_rail_decorations_opt(graph, xf, &set.root_uuid, &set, &mut state, &mut e, &net_names);
+        for b in component_boxes(graph) {
+            emit_symbol_instance(
+                graph,
+                b,
+                &format!("L{}_{}", graph.bid, lib_of_box[&b.id]),
+                xf,
+                &set.root_uuid,
+                &set,
+                &mut state,
+                &mut e,
+            );
+        }
+        emit_no_connects(graph, xf, &mut e);
+    }
+
+    e.open("sheet_instances");
+    e.open("path \"/\"");
+    line!(e, "(page \"1\")");
+    e.close();
+    e.close();
+    line!(e, "(embedded_fonts no)");
+    e.close();
+    vec![SchFile {
+        name: format!("{}.kicad_sch", set.top),
+        content: e.s,
+    }]
+}
+
+/// Flat-mode boundary labels: the same anchors as the hierarchical labels,
+/// but plain labels named by the PARENT-side net (falling back to the port
+/// name when the parent never drew the crossing).
+fn emit_flat_boundary_labels(
+    graph: &McVecGraph,
+    trees: &[EquiTree],
+    xf: &Xform,
+    port_net: &HashMap<String, String>,
+    e: &mut Emit,
+) {
+    for net in &graph.nets {
+        let Some(bi) = &net.boundary else { continue };
+        let name = port_net
+            .get(&bi.port_name)
+            .cloned()
+            .unwrap_or_else(|| bi.port_name.clone());
+        if is_anon(&name) {
+            continue;
+        }
+        let terminal = graph.boxes.iter().find(|b| {
+            b.kind == BoxKind::PortTerminal
+                && b.boundary_ports.iter().any(|p| p.port_name == bi.port_name)
+        });
+        let pos = terminal.and_then(|b| {
+            b.entry_points
+                .first()
+                .map(|ep| anchor_mm(xf, b, ep.side, ep.offset))
+        });
+        let Some((x, y)) = pos.or_else(|| boundary_tree_endpoint(graph, trees, xf, net)) else {
+            continue;
+        };
+        text_label(graph.bid, &name, x, y, e);
+    }
+}
+
 // === Nets ===
 
 fn emit_tree_nets(
@@ -439,7 +788,24 @@ fn emit_tree_nets(
     state: &mut SheetState,
     e: &mut Emit,
 ) {
+    emit_tree_nets_opt(graph, trees, xf, path, set, state, e, &HashMap::new());
+}
+
+#[allow(clippy::too_many_arguments)]
+fn emit_tree_nets_opt(
+    graph: &McVecGraph,
+    trees: &[EquiTree],
+    xf: &Xform,
+    path: &str,
+    set: &SheetSet,
+    state: &mut SheetState,
+    e: &mut Emit,
+    net_names: &HashMap<String, String>,
+) {
     let _ = set;
+    let display_of = |name: &str| -> String {
+        net_names.get(name).cloned().unwrap_or_else(|| name.to_string())
+    };
     let boundary = boundary_net_ids(graph);
     let nid_of_name: HashMap<&str, i64> = graph
         .nets
@@ -527,18 +893,23 @@ fn emit_tree_nets(
                     // A boundary net names itself by its port through the
                     // hierarchical label; a second label would only fight it.
                     if !is_anon(&t.net_name) && !is_boundary {
-                        text_label(graph.bid, &t.net_name, xf.x(s.x), xf.y(s.y), e);
+                        let shown = display_of(&t.net_name);
+                        text_label(graph.bid, &shown, xf.x(s.x), xf.y(s.y), e);
                     }
                 }
             }
         }
         // Named nets with no drawn label still get their name on the wire, so
-        // KiCad's netlist reads the same net names mcc's does.
-        if !has_text_symbol && !is_anon(&t.net_name) && !is_boundary {
+        // KiCad's netlist reads the same net names mcc's does. In the flat
+        // sheet the label is unconditional — the net-name rename (to the
+        // copper island's board-wide name) only joins the modules if it lands
+        // on copper, whatever the tree's own terminal style is.
+        if (!has_text_symbol || !net_names.is_empty()) && !is_anon(&t.net_name) && !is_boundary {
             if let Some((x, y)) =
                 longest_midpoint(t.segments.iter().map(|s| ((s.x1, s.y1), (s.x2, s.y2))))
             {
-                text_label(graph.bid, &t.net_name, xf.x(x), xf.y(y), e);
+                let shown = display_of(&t.net_name);
+                text_label(graph.bid, &shown, xf.x(x), xf.y(y), e);
             }
         }
     }
@@ -979,6 +1350,19 @@ fn emit_rail_decorations(
     state: &mut SheetState,
     e: &mut Emit,
 ) {
+    emit_rail_decorations_opt(graph, xf, path, set, state, e, &HashMap::new());
+}
+
+#[allow(clippy::too_many_arguments)]
+fn emit_rail_decorations_opt(
+    graph: &McVecGraph,
+    xf: &Xform,
+    path: &str,
+    set: &SheetSet,
+    state: &mut SheetState,
+    e: &mut Emit,
+    net_names: &HashMap<String, String>,
+) {
     for d in &graph.rail_decorations {
         let Some(b) = graph.boxes.iter().find(|b| b.id == d.box_id) else {
             continue;
@@ -995,6 +1379,10 @@ fn emit_rail_decorations(
         } else {
             d.label.clone()
         };
+        let net_name = net_names
+            .get(&net_name)
+            .cloned()
+            .unwrap_or(net_name);
         let shown = if is_anon(&net_name) {
             if d.is_ground { "GND" } else { "PWR" }.to_string()
         } else {
@@ -1146,34 +1534,26 @@ fn emit_sheet_instance(
         false,
     );
     property(e, "Sheetfile", file, x, y + h + 1.0, false);
-    // Sheet pins are driven by the child's own boundary ports — the same
-    // list the child's hierarchical labels come from — so pin and label
-    // always agree on name and direction. The parent-side anchor prefers the
-    // box's own boundary entry; ports with no entry there spread down the
-    // left edge, where a parent-side wire can still be drawn to them.
-    let mut child_ports: Vec<(String, IoDirection)> = {
-        let mut v: Vec<(String, IoDirection)> = Vec::new();
-        if let Some(&ci) = set.by_bid.get(&child_bid) {
-            for n in &set.layers[ci].graph.nets {
-                if let Some(bi) = &n.boundary {
-                    if !v.iter().any(|(nm, _)| nm == &bi.port_name) {
-                        v.push((bi.port_name.clone(), bi.io));
-                    }
-                }
-            }
-        }
-        v
-    };
-    for (i, (port_name, io)) in child_ports.iter().enumerate() {
+    // Sheet pins mirror the child's port list (see `ports_of`): one pin per
+    // child hierarchical label, same name, same direction. Anchored at the
+    // parent crossing the port's net actually lands on — by port name, or by
+    // the crossing wire that carries the member spelling of the group — and
+    // spread down the left edge when the parent never drew that crossing.
+    let child_ports = set
+        .ports_of
+        .get(&child_bid)
+        .cloned()
+        .unwrap_or_default();
+    for (i, (port_name, shape)) in child_ports.iter().enumerate() {
         let via_box = b
             .boundary_ports
             .iter()
             .find(|p| &p.port_name == port_name)
             .and_then(|p| b.find_entry(p.entry_pin_id))
             .or_else(|| {
-                // A crossing whose wire carries this exact net: the member
-                // spelling of a port group, anchored where the wire lands.
-                b.entry_points.iter().find(|ep| &ep.pin_name == port_name)
+                b.entry_points
+                    .iter()
+                    .find(|ep| &ep.pin_name == port_name)
             });
         let (px, py, angle) = match via_box {
             Some(ep) => {
@@ -1192,7 +1572,7 @@ fn emit_sheet_instance(
                 (x, py, "180")
             }
         };
-        e.open(&format!("pin \"{port_name}\" {}", shape_of_io(*io)));
+        e.open(&format!("pin \"{port_name}\" {shape}"));
         line!(e, "(at {} {} {})", mm(px), mm(py), angle);
         e.open("effects");
         e.open("font");
@@ -1308,31 +1688,41 @@ fn anchor_px(b: &McVecBox, a: &EntryPoint) -> (f64, f64) {
     }
 }
 
-/// Hierarchical labels on a child sheet: one per boundary net, anchored at the
-/// port terminal's pin so the label lands on the wire that already reaches the
-/// boundary. The label's name is the port — the same name the parent's sheet
-/// pin carries — which is what makes the two sheets one circuit in KiCad.
+/// Hierarchical labels on a child sheet: one per entry of the child's port
+/// list (the same list the parent's sheet pins mirror), anchored — in order of
+/// preference — at the port terminal's pin, the boundary net's own wire, the
+/// module frame port, and finally the frame's left edge, so every port the
+/// parent names exists on the child by construction.
 fn emit_boundary_labels(graph: &McVecGraph, trees: &[EquiTree], xf: &Xform, e: &mut Emit) {
-    // Declared ports whose net never got a boundary marker still need a label
-    // — the parent's sheet pin names them either way.
-    let mut covered: HashSet<String> = graph
-        .nets
-        .iter()
-        .filter_map(|n| n.boundary.as_ref().map(|b| b.port_name.clone()))
-        .collect();
-    for net in &graph.nets {
-        let Some(bi) = &net.boundary else { continue };
-        let terminal = graph.boxes.iter().find(|b| {
-            b.kind == BoxKind::PortTerminal
-                && b.boundary_ports.iter().any(|p| p.port_name == bi.port_name)
+    let ports = child_ports_of(graph);
+    // Left-edge spread for ports with no drawn anchor of their own.
+    let frame = graph.module_frame.as_ref();
+    let n = ports.len();
+    let mut emitted: HashSet<String> = HashSet::new();
+    for (i, (name, shape)) in ports.iter().enumerate() {
+        if !emitted.insert(name.clone()) {
+            continue;
+        }
+        let anchored = graph.nets.iter().find_map(|net| {
+            let bi = net.boundary.as_ref()?;
+            if bi.port_name != *name {
+                return None;
+            }
+            let terminal = graph.boxes.iter().find(|b| {
+                b.kind == BoxKind::PortTerminal
+                    && b.boundary_ports.iter().any(|p| p.port_name == *name)
+            });
+            terminal
+                .and_then(|b| {
+                    b.entry_points
+                        .first()
+                        .map(|ep| (ep.side, anchor_mm(xf, b, ep.side, ep.offset)))
+                })
+                .or_else(|| boundary_tree_endpoint(graph, trees, xf, net).map(|(x, y)| (EntrySide::Left, (x, y))))
+                .map(|(side, xy)| (side, xy, shape_of_io(bi.io)))
         });
-        let anchored = terminal.and_then(|b| {
-            b.entry_points
-                .first()
-                .map(|ep| (ep.side, anchor_mm(xf, b, ep.side, ep.offset)))
-        });
-        let (angle, (x, y)) = match anchored {
-            Some((side, (x, y))) => (
+        let (angle, (x, y), real_shape) = match anchored {
+            Some((side, (x, y), shp)) => (
                 // The label points along the wire, into the sheet.
                 match side {
                     EntrySide::Left => "0",
@@ -1341,68 +1731,41 @@ fn emit_boundary_labels(graph: &McVecGraph, trees: &[EquiTree], xf: &Xform, e: &
                     EntrySide::Bottom => "90",
                 },
                 (x, y),
+                shp,
             ),
-            None => {
-                let Some((x, y)) = boundary_tree_endpoint(graph, trees, xf, net) else {
-                    continue;
-                };
-                ("0", (x, y))
-            }
-        };
-        e.open(&format!("hierarchical_label \"{}\"", escape(&bi.port_name)));
-        line!(e, "(at {} {} {})", mm(x), mm(y), angle);
-        line!(e, "(shape {})", shape_of_io(bi.io));
-        e.open("effects");
-        e.open("font");
-        line!(e, "(size 1.27 1.27)");
-        e.close();
-        line!(e, "(justify left bottom)");
-        e.close();
-        line!(
-            e,
-            "(uuid \"{}\")",
-            det_uuid(&format!("{}#hl#{}", graph.bid, bi.port_group_id))
-        );
-        e.close();
-    }
-    for (name, dir, _role) in &graph.module_ports {
-        if !covered.insert(name.clone()) {
-            continue;
-        }
-        let Some(fp) = graph
-            .module_frame
-            .as_ref()
-            .and_then(|f| f.ports.iter().find(|p| &p.name == name))
-        else {
-            continue;
-        };
-        let (x, y) = (xf.x(fp.x), xf.y(fp.y));
-        let angle = match fp.side {
-            EntrySide::Left => "0",
-            EntrySide::Right => "180",
-            EntrySide::Top => "270",
-            EntrySide::Bottom => "90",
-        };
-        let shape = match dir {
-            crate::vector::graph::PortDir::In => "input",
-            crate::vector::graph::PortDir::Out => "output",
-            crate::vector::graph::PortDir::Io => "bidirectional",
-            _ => "passive",
+            None => match frame.and_then(|f| f.ports.iter().find(|p| &p.name == name)) {
+                Some(fp) => (
+                    match fp.side {
+                        EntrySide::Left => "0",
+                        EntrySide::Right => "180",
+                        EntrySide::Top => "270",
+                        EntrySide::Bottom => "90",
+                    },
+                    (xf.x(fp.x), xf.y(fp.y)),
+                    *shape,
+                ),
+                None => (
+                    "0",
+                    (
+                        frame.map(|f| xf.x(f.x)).unwrap_or(0.0),
+                        frame
+                            .map(|f| xf.y(f.y + f.h * (i as f64 + 1.0) / (n + 1) as f64))
+                            .unwrap_or(i as f64 * 5.08),
+                    ),
+                    *shape,
+                ),
+            },
         };
         e.open(&format!("hierarchical_label \"{}\"", escape(name)));
         line!(e, "(at {} {} {})", mm(x), mm(y), angle);
-        line!(e, "(shape {shape})");
+        line!(e, "(shape {real_shape})");
         e.open("effects");
         e.open("font");
         line!(e, "(size 1.27 1.27)");
         e.close();
         line!(e, "(justify left bottom)");
         e.close();
-        line!(
-            e,
-            "(uuid \"{}\")",
-            det_uuid(&format!("{}#hlp#{}", graph.bid, name))
-        );
+        line!(e, "(uuid \"{}\")", det_uuid(&format!("{}#hl#{}", graph.bid, name)));
         e.close();
     }
 }
@@ -1453,6 +1816,27 @@ fn shape_of_io(io: IoDirection) -> &'static str {
 
 fn is_anon(name: &str) -> bool {
     name.is_empty() || crate::instant::mc_net::is_anon_net_name(name)
+}
+
+/// The copper island a layer net sits on, read through ONE endpoint's full
+/// instance path (`main.MCU513.UC.1`) — the same spelling
+/// `island_nets(Hierarchical)` keys on. A net no endpoint of which lands on a
+/// table point (a pure drawing label) keeps its own name.
+fn island_name_of_net(
+    graph: &McVecGraph,
+    net: &VizNet,
+    islands: &HashMap<String, String>,
+) -> Option<String> {
+    for e in &net.endpoints {
+        let Some(b) = graph.boxes.iter().find(|b| b.id == e.box_id) else {
+            continue;
+        };
+        let path = format!("{}.{}", b.inst_path, e.pin_name);
+        if let Some(name) = islands.get(&path) {
+            return Some(name.clone());
+        }
+    }
+    None
 }
 
 // === lib symbols ===

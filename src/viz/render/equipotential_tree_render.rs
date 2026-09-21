@@ -12,6 +12,10 @@ use crate::vector::graph::NetKind;
 /// Render an equipotential tree into SVG.
 pub fn render_equi_tree(tree: &EquiTree) -> String {
     let (color, stroke_w) = style_for_kind(&tree.net_kind);
+    // Machine-readable net identity on every drawn element: the same key the
+    // stage view publishes, so a host (or an IDE agent) can point at a wire
+    // and read which net it belongs to. Anonymous nets stamp nothing.
+    let net_attr = machine_net_attr(&tree.net_name);
 
     let mut svg = String::new();
 
@@ -19,13 +23,14 @@ pub fn render_equi_tree(tree: &EquiTree) -> String {
     for seg in &tree.segments {
         svg.push_str(&format!(
             r##"  <line x1="{x1:.1}" y1="{y1:.1}" x2="{x2:.1}" y2="{y2:.1}"
-       stroke="{color}" stroke-width="{sw:.1}"/>"##,
+       stroke="{color}" stroke-width="{sw:.1}"{net}/>"##,
             x1 = seg.x1,
             y1 = seg.y1,
             x2 = seg.x2,
             y2 = seg.y2,
             color = color,
             sw = stroke_w,
+            net = net_attr,
         ));
         svg.push('\n');
     }
@@ -33,10 +38,11 @@ pub fn render_equi_tree(tree: &EquiTree) -> String {
     // ── Junction dots (>=3 degree) ──
     for &(jx, jy) in &tree.junction_dots {
         svg.push_str(&format!(
-            r##"  <circle cx="{x:.1}" cy="{y:.1}" r="3.0" fill="{color}"/>"##,
+            r##"  <circle cx="{x:.1}" cy="{y:.1}" r="3.0" fill="{color}"{net}/>"##,
             x = jx,
             y = jy,
             color = color,
+            net = net_attr,
         ));
         svg.push('\n');
     }
@@ -47,6 +53,21 @@ pub fn render_equi_tree(tree: &EquiTree) -> String {
     }
 
     svg
+}
+
+/// ` data-net="…"` for a named net, empty for an anonymous one.
+fn machine_net_attr(net_name: &str) -> String {
+    if net_name.is_empty() || crate::instant::mc_net::is_anon_net_name(net_name) {
+        return String::new();
+    }
+    format!(
+        r#" data-net="{}""#,
+        net_name
+            .replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;")
+            .replace('"', "&quot;")
+    )
 }
 
 /// Render a terminal symbol.

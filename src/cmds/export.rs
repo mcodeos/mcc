@@ -105,7 +105,7 @@ fn run_local(args: &ExportArgs, target: Option<&str>) -> Result<()> {
     // not fit the single-payload `build_payload` faces; it writes its files
     // directly and reports them on stderr.
     if args.kind == ExportKind::KiCadSch {
-        return write_kicad_sch(&tree, &table, &arena, &inst_store, &top);
+        return write_kicad_sch(&tree, &table, &arena, &inst_store, &top, args.flat);
     }
 
     let kind_str = args.kind.name();
@@ -161,8 +161,9 @@ fn write_kicad_sch(
     arena: &mcc::NodeArena,
     inst_store: &mcc::InstanceStore,
     top: &str,
+    flat: bool,
 ) -> Result<()> {
-    let files = export::kicad_sch::build_kicad_sch_project(tree, table, arena, inst_store, top);
+    let files = export::kicad_sch::build_kicad_sch_project(tree, table, arena, inst_store, top, flat);
     if files.is_empty() {
         anyhow::bail!("kicad-sch: nothing rendered for top '{top}'");
     }
