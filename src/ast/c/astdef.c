@@ -51,6 +51,24 @@ mc_value* mc_value_create_node(unsigned short type, mc_value* sub)
     return value;
 }
 
+// Grammar-side node factory: same shape as mc_value_create_node, but the
+// rule span (the bison location of the whole reduction, @$) is recorded in
+// the parallel rpos/rlen pair. pos/len keep the first-subnode anchor the
+// semantic layer has always read; tokens the action discards (leading
+// keywords, operators, separators, closing brackets) are covered only by
+// the rule span. Declared here, #define-redirected from mca.y so every
+// rule action picks it up without touching the 383 call sites.
+mc_value* mc_value_create_node_spanned(unsigned short type, mc_value* sub,
+                                       unsigned int pos, unsigned int end)
+{
+    mc_value* value = mc_value_create_node(type, sub);
+    if (end > pos) {
+        value->rpos = pos;
+        value->rlen = end - pos;
+    }
+    return value;
+}
+
 mc_value* mc_value_create_data(unsigned short type, void* data, unsigned int pos, unsigned int len)
 {
     mc_value* value = mc_value_create();
@@ -73,7 +91,17 @@ mc_value* mc_value_link(mc_value* va, mc_value* vb)
 
     // va already has a position from a previous link or create_node call.
     // Since grammar rules always link nodes in source order, va->pos is the
-    // minimum position. Just extend len from vb's chain.
+    // minimum position. Just extend len from vb's chain. The rule span
+    // rpos/rlen extends the same way, so a linked run stays covered.
+    if (va->rlen != 0) {
+        unsigned int va_rend = va->rpos + va->rlen;
+        for (mc_value* p = vb; p != NULL; p = p->next) {
+            unsigned int rend = (p->rlen != 0 ? p->rpos + p->rlen : p->pos + p->len);
+            if (rend > va_rend) va_rend = rend;
+            if (p->rpos != 0 && p->rpos < va->rpos) va->rpos = p->rpos;
+        }
+        va->rlen = va_rend - va->rpos;
+    }
     if (va->pos != 0) {
         unsigned int va_end = va->pos + va->len;
         for (mc_value* p = vb; p != NULL; p = p->next) {

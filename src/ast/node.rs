@@ -17,6 +17,8 @@ pub struct McValueFFI {
     pub data: *mut c_void,
     pub pos: i32,
     pub len: i32,
+    pub rpos: i32,
+    pub rlen: i32,
     pub next: *mut McValueFFI,
     pub sub: *mut McValueFFI,
 }

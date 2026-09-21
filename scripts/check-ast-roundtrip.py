@@ -90,15 +90,25 @@ def line_of(text, offset):
     return text.count(b"\n", 0, offset) + 1
 
 
-def collect_cst_leaves(node, out):
-    """Leaves = nodes without a non-empty children array; spans required."""
+def collect_cst_leaves(node, out, all_spans=None):
+    """Leaves = nodes without a non-empty children array; spans required.
+
+    Every node span lands in ``all_spans`` (when given): container extents
+    count toward source coverage even though only leaves drive the invented
+    and overlap checks.
+    """
     if not isinstance(node, dict):
         return
     kids = node.get("children")
     span = node.get("span")
+    if isinstance(span, dict) and all_spans is not None:
+        try:
+            all_spans.append((int(span["start"]), int(span["end"])))
+        except (KeyError, TypeError, ValueError):
+            pass
     if isinstance(kids, list) and kids:
         for k in kids:
-            collect_cst_leaves(k, out)
+            collect_cst_leaves(k, out, all_spans)
     elif isinstance(span, dict):
         try:
             start = int(span["start"])
@@ -164,13 +174,17 @@ def tighten_leaves(text, leaves):
     return kept
 
 
-def check_face(path, text, mask, leaves, findings, max_examples):
-    """Coverage / invented / overlap over tightened leaves."""
+def check_face(path, text, mask, leaves, findings, max_examples, all_spans=None):
+    """Coverage over every node span; invented/overlap over kept leaves."""
     kept = tighten_leaves(text, leaves)
-    cover_count = [0] * (len(text) + 1)
+    cover_all = [0] * (len(text) + 1)
+    for start, end in (all_spans if all_spans is not None else []):
+        for i in range(max(0, start), min(end, len(text))):
+            cover_all[i] += 1
+    cover_leaf = [0] * (len(text) + 1)
     for start, end, _kind, _value in kept:
         for i in range(max(0, start), min(end, len(text))):
-            cover_count[i] += 1
+            cover_leaf[i] += 1
 
     for start, end, kind, value in kept:
         chunk = text[start:end]
@@ -193,18 +207,18 @@ def check_face(path, text, mask, leaves, findings, max_examples):
     for i in range(len(text)):
         if mask[i]:
             continue
-        if cover_count[i] == 0:
+        if cover_all[i] == 0:
             gaps += 1
             if gaps <= max_examples:
                 line = line_of(text, i)
                 findings.append(("gap", path, "byte %d (line %d) %r uncovered"
                                  % (i, line, text[i:i + 20].decode("utf-8", "replace"))))
-        elif cover_count[i] > 1:
+        elif cover_leaf[i] > 1:
             overlaps += 1
             if overlaps <= max_examples:
                 line = line_of(text, i)
                 findings.append(("overlap", path, "byte %d (line %d) covered %d times"
-                                 % (i, line, cover_count[i])))
+                                 % (i, line, cover_leaf[i])))
     return gaps, overlaps, len(kept)
 
 
@@ -225,15 +239,16 @@ def check_file(mcc_bin, path, faces, max_examples):
         except (KeyError, TypeError):
             return fail("%s: unexpected show ast envelope" % path)
         leaves = []
+        all_spans = []
         if isinstance(ast, list):
             for root in ast:
-                collect_cst_leaves(root, leaves)
+                collect_cst_leaves(root, leaves, all_spans)
         else:
-            collect_cst_leaves(ast, leaves)
+            collect_cst_leaves(ast, leaves, all_spans)
         leaves.sort()
         mask = build_trivia_mask(text)
         gaps, overlaps, kept = check_face(
-            path, text, mask, leaves, findings, max_examples)
+            path, text, mask, leaves, findings, max_examples, all_spans)
         print("%s cst: %d leaves (%d kept), gaps=%d overlaps=%d invented=%d" % (
             path, len(leaves), kept, gaps, overlaps,
             sum(1 for f in findings if f[0] == "invented")))
@@ -254,11 +269,20 @@ def check_file(mcc_bin, path, faces, max_examples):
                 cover[i] = True
         stmt_gaps = sum(1 for i in range(len(text))
                         if not mask[i] and not cover[i])
-        if stmt_gaps:
-            findings.append(("gap", path,
-                             "%d non-trivia bytes outside any statement span"
-                             % stmt_gaps))
-        print("%s stmt: %d stmts, uncovered=%d" % (path, len(spans), stmt_gaps))
+        # The phrase face only carries connection statements, so byte
+        # coverage is not its contract -- uncovered bytes are an
+        # informational readout. What IS a finding: a malformed span
+        # (empty, inverted, out of file, or starting on trivia).
+        for start, end in spans:
+            if start < 0 or end <= start or end > len(text):
+                findings.append(("gap", path,
+                                 "malformed statement span %d:%d" % (start, end)))
+            elif start < len(text) and mask[start]:
+                findings.append(("gap", path,
+                                 "statement span %d:%d starts on trivia"
+                                 % (start, end)))
+        print("%s stmt: %d stmts, uncovered=%d (informational)"
+              % (path, len(spans), stmt_gaps))
 
     for kind, fpath, detail in findings[:max_examples * 3]:
         print("  %s %s: %s" % (kind.upper(), fpath, detail))

@@ -259,12 +259,22 @@ typedef struct mc_value {
     void* data;
     unsigned int pos;
     unsigned int len;
+    /* Rule span of the reduction that built this node (first to last token
+       of the rule, tokens the action discards included). pos/len stay the
+       first-subnode anchor the semantic layer has always read for
+       token-precise positions (definition names, declared forms without
+       their direction keyword). rlen == 0 means "no rule span recorded";
+       consumers fall back to pos/len. */
+    unsigned int rpos;
+    unsigned int rlen;
     struct mc_value* next;
     struct mc_value* sub;
 } mc_value;
 
 mc_value* mc_value_create(void);
 mc_value* mc_value_create_node(unsigned short type, mc_value* sub);
+mc_value* mc_value_create_node_spanned(unsigned short type, mc_value* sub,
+                                       unsigned int pos, unsigned int end);
 mc_value* mc_value_create_data(unsigned short type, void* data, unsigned int pos, unsigned int len);
 mc_value* mc_value_link(mc_value* va, mc_value* vb);
 mc_value* mc_value_link3(mc_value* va, mc_value* vb, mc_value* vc);
