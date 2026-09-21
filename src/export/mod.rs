@@ -8,6 +8,7 @@
 pub mod bom;
 pub mod instlist;
 pub mod kicad;
+pub mod kicad_sch;
 pub mod netlist;
 pub mod spice;
 
@@ -137,6 +138,15 @@ pub fn build_payload(
         2 => spice::build_spice(table, top),
         3 => kicad::build_kicad_netlist(tree, table, arena, inst_store, top),
         4 => instlist::build_inst_list(table, format),
+        // The graphical `.kicad_sch` export writes one file per sheet and
+        // therefore cannot come back as a single payload string; the CLI
+        // dispatches it before reaching here, and an RPC caller gets pointed
+        // at the CLI instead of a silently partial artifact.
+        5 => (
+            "kicad-sch export produces one file per sheet; use `mcc export kicad-sch`".to_string(),
+            Value::Null,
+            0,
+        ),
         // The netlist face reads copper islands from the flat table (U158):
         // one entry per electrically distinct node, anonymous copper included.
         _ => netlist::build_netlist(table, top, format),
