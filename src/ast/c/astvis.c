@@ -217,6 +217,107 @@ void mcc_visit_tree_color(mc_value* ast) {
     fflush(stdout);
 }
 
+// JSON tree capture: a growable buffer the json visitor fills so the host
+// can read the rendering back without routing it through stdout.
+static char* g_json_buf = NULL;
+static size_t g_json_len = 0;
+static size_t g_json_cap = 0;
+
+static int json_buf_append(const char* s, size_t n) {
+    if (g_json_len + n + 1 > g_json_cap) {
+        size_t cap = g_json_cap ? g_json_cap : 4096;
+        while (g_json_len + n + 1 > cap) cap *= 2;
+        char* buf = realloc(g_json_buf, cap);
+        if (buf == NULL) return 0;
+        g_json_buf = buf;
+        g_json_cap = cap;
+    }
+    memcpy(g_json_buf + g_json_len, s, n);
+    g_json_len += n;
+    g_json_buf[g_json_len] = '\0';
+    return 1;
+}
+
+static int json_buf_str(const char* s) {
+    return json_buf_append(s, strlen(s));
+}
+
+// Append s as a JSON string literal; control bytes are escaped, other bytes
+// (including UTF-8 source text) pass through untouched.
+static int json_buf_escaped(const char* s) {
+    if (!json_buf_str("\"")) return 0;
+    for (const unsigned char* p = (const unsigned char*)s; *p != '\0'; p++) {
+        char esc[8];
+        switch (*p) {
+            case '"':  if (!json_buf_str("\\\"")) return 0; break;
+            case '\\': if (!json_buf_str("\\\\")) return 0; break;
+            case '\b': if (!json_buf_str("\\b")) return 0; break;
+            case '\f': if (!json_buf_str("\\f")) return 0; break;
+            case '\n': if (!json_buf_str("\\n")) return 0; break;
+            case '\r': if (!json_buf_str("\\r")) return 0; break;
+            case '\t': if (!json_buf_str("\\t")) return 0; break;
+            default:
+                if (*p < 0x20) {
+                    snprintf(esc, sizeof(esc), "\\u%04x", *p);
+                    if (!json_buf_str(esc)) return 0;
+                } else {
+                    if (!json_buf_append((const char*)p, 1)) return 0;
+                }
+        }
+    }
+    return json_buf_str("\"");
+}
+
+static int json_visit_nodes(mc_value* node, int depth) {
+    int first = 1;
+    while (node != NULL) {
+        if (node->type != 0) {
+            if (!first && !json_buf_str(",")) return 0;
+            first = 0;
+            if (!json_buf_str("{\"kind\":")) return 0;
+            if (!json_buf_escaped(mcc_type_name(node->type))) return 0;
+            const char* data = (const char*)node->data;
+            if (data != NULL && data[0] != '\0') {
+                if (!json_buf_str(",\"value\":")) return 0;
+                if (!json_buf_escaped(data)) return 0;
+            }
+            if (depth < 100 && node->sub != NULL) {
+                if (!json_buf_str(",\"children\":[")) return 0;
+                if (!json_visit_nodes(node->sub, depth + 1)) return 0;
+                if (!json_buf_str("]")) return 0;
+            }
+            if (!json_buf_str("}")) return 0;
+        }
+        node = node->next;
+    }
+    return 1;
+}
+
+void mcc_visit_tree_json(mc_value* ast) {
+    g_json_len = 0;
+    if (g_json_buf != NULL) g_json_buf[0] = '\0';
+    if (!json_buf_str("[")) return;
+    if (ast != NULL) {
+        json_visit_nodes(ast, 0);
+    }
+    json_buf_str("]");
+}
+
+const char* mcc_visit_json_data(void) {
+    return g_json_buf != NULL ? g_json_buf : "[]";
+}
+
+int mcc_visit_json_len(void) {
+    return (int)g_json_len;
+}
+
+void mcc_visit_json_free(void) {
+    free(g_json_buf);
+    g_json_buf = NULL;
+    g_json_len = 0;
+    g_json_cap = 0;
+}
+
 // Mode control
 ast_visit_mode_t mcc_visit_get_mode(void) {
     return g_visit_mode;

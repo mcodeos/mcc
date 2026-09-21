@@ -1530,7 +1530,21 @@ pub use crate::cli::config::set_log_stream_applier;
 // Allow binary to suppress engine-level stdout traces (e.g. AST visit tree) when a
 // command emits a structured JSON result on stdout, protecting the JSON contract.
 pub use crate::cli::config::{get_runtime_trace, set_trace_stdout_suppressed};
+pub use crate::cli::config::{is_ast_visit_json, set_ast_visit_json};
 pub use crate::db::infra::mc_code::mcb_reset_ast_visit_flag;
+
+/// Take the AST visit JSON a parse captured for `uri` (`set_ast_visit_json(true)`
+/// before the parse; capture is keyed per source URI, so load order inside
+/// `mcc_load_project` cannot change which tree the caller reads).
+pub fn take_ast_visit_json_for(uri: &str) -> Option<serde_json::Value> {
+    crate::cli::config::take_ast_visit_json_for(uri)
+}
+
+/// Drop every captured AST visit tree (call before a re-parse so stale
+/// entries from a previous load cannot be read back).
+pub fn clear_ast_visit_json() {
+    crate::cli::config::clear_ast_visit_json();
+}
 
 /// Load trace config from global + project config files into runtime state
 /// **without** applying its level/targets to the active logging filter.

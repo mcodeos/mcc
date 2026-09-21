@@ -712,14 +712,33 @@ fn show_ast(args: &ShowArgs, loaded: Option<&str>) -> Result<()> {
     if let Ok(mut trace) = mcc::get_runtime_trace().write() {
         trace.visit = Some(true);
     }
-    mcc::set_trace_stdout_suppressed(false);
+    let structured = !matches!(mcc::cli::globals().format, OutputFormat::Text);
+    if structured {
+        // JSON face: the re-parse below captures the tree into the engine
+        // buffer instead of printing it, and the face emits it as data.
+        mcc::set_ast_visit_json(true);
+        mcc::set_trace_stdout_suppressed(true);
+    } else {
+        mcc::set_trace_stdout_suppressed(false);
+    }
     // The tree is printed *by the parse*, so this face has to own one. The
     // flag alone is not enough: `prepare` already parsed the target, and a
     // second `mcc_load_project` on a parsed file parses nothing and prints
     // nothing. Dropping the entry and loading it again re-parses it here.
     mcc::mcc_remove(&mc_uri);
     mcc::mcb_reset_ast_visit_flag();
+    mcc::clear_ast_visit_json();
     mcc::mcc_load_project(&mc_uri);
+    if structured {
+        // Capture is keyed per URI: read the entry file's own tree, not
+        // whichever file in the load chain happened to parse first.
+        let tree = mcc::take_ast_visit_json_for(&uri_str)
+            .unwrap_or_else(|| json!({"error": "no AST visit captured", "uri": uri_str}));
+        return emit_show_owned(
+            ShowTarget::Ast,
+            json!({"uri": uri_str, "ast": tree}),
+        );
+    }
     Ok(())
 }
 

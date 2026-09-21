@@ -41,6 +41,10 @@ mod raw {
         pub fn mcc_visit(ast: *mut McValueFFI);
         pub fn mcc_visit_tree(ast: *mut McValueFFI);
         pub fn mcc_visit_tree_color(ast: *mut McValueFFI);
+        pub fn mcc_visit_tree_json(ast: *mut McValueFFI);
+        pub fn mcc_visit_json_data() -> *const libc::c_char;
+        pub fn mcc_visit_json_len() -> libc::c_int;
+        pub fn mcc_visit_json_free();
         pub fn mcc_visit_set_mode(mode: libc::c_int);
         pub fn mcc_visit_get_mode() -> libc::c_int;
         pub fn mcc_get_sem_tokens() -> *mut McSemTokenFFI;
@@ -129,6 +133,26 @@ impl Frontend {
     /// `ast` must be the tree `parse` returned and not yet freed.
     pub unsafe fn visit_tree_color(&self, ast: *mut McValueFFI) {
         raw::mcc_visit_tree_color(ast)
+    }
+
+    /// # Safety
+    /// `ast` must be the tree `parse` returned and not yet freed.
+    pub unsafe fn visit_tree_json(&self, ast: *mut McValueFFI) {
+        raw::mcc_visit_tree_json(ast)
+    }
+
+    /// Take the JSON the last `visit_tree_json` built, as an owned
+    /// [`serde_json::Value`]. Returns `None` when the buffer holds no valid
+    /// document.
+    pub fn take_visit_json(&self) -> Option<serde_json::Value> {
+        let data = unsafe { raw::mcc_visit_json_data() };
+        if data.is_null() {
+            return None;
+        }
+        let bytes = unsafe { std::ffi::CStr::from_ptr(data) }.to_bytes();
+        let value = serde_json::from_slice(bytes).ok();
+        unsafe { raw::mcc_visit_json_free() };
+        value
     }
 
     pub fn get_error_tokens(&self) -> *mut McSemTokenFFI {

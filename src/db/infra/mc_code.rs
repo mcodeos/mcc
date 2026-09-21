@@ -401,10 +401,25 @@ impl McCode {
                 // Output AST visit (if trace.visit is enabled), once per cycle
                 // Skip during system library loading, to prevent mcode loading from preempting user
                 // file visit quota
-                if crate::cli::config::get_trace_visit() == Some(true)
+                if crate::cli::config::is_ast_visit_json()
                     && !crate::cli::config::is_system_lib_loading()
-                    && !crate::cli::config::is_trace_stdout_suppressed()
+                {
+                    // JSON mode records one tree per source URI, so it must
+                    // fire on every parse (not once per cycle) and must drain
+                    // the engine buffer immediately: it holds a single tree,
+                    // and the next parse would overwrite it. Never touches
+                    // stdout, so the stdout suppression gate does not apply.
+                    fe.visit_tree_json(ast.get_ptr() as *mut McValueFFI);
+                    if let Some(tree) = fe.take_visit_json() {
+                        crate::cli::config::record_ast_visit_json(
+                            self.uri.to_string(),
+                            tree,
+                        );
+                    }
+                } else if crate::cli::config::get_trace_visit() == Some(true)
+                    && !crate::cli::config::is_system_lib_loading()
                     && !AST_VISIT_DONE.swap(true, Ordering::SeqCst)
+                    && !crate::cli::config::is_trace_stdout_suppressed()
                 {
                     fe.visit_tree_color(ast.get_ptr() as *mut McValueFFI);
                 }
@@ -888,7 +903,19 @@ impl McCode {
             if ast.is_null() {
                 tracing::warn!(target: "mcc::code", uri = %self.uri, "AST parse returned null");
             } else {
-                if crate::cli::config::get_trace_visit() == Some(true)
+                if crate::cli::config::is_ast_visit_json()
+                    && !crate::cli::config::is_system_lib_loading()
+                {
+                    // Same per-URI capture as parse_ast(): drain the engine
+                    // buffer right away so the next parse cannot overwrite it.
+                    fe.visit_tree_json(ast.get_ptr() as *mut McValueFFI);
+                    if let Some(tree) = fe.take_visit_json() {
+                        crate::cli::config::record_ast_visit_json(
+                            self.uri.to_string(),
+                            tree,
+                        );
+                    }
+                } else if crate::cli::config::get_trace_visit() == Some(true)
                     && !crate::cli::config::is_system_lib_loading()
                     && !crate::cli::config::is_trace_stdout_suppressed()
                     && !AST_VISIT_DONE.swap(true, Ordering::SeqCst)

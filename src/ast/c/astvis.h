@@ -26,4 +26,12 @@ void mcc_visit_tree(mc_value* ast);
 // Color tree-print AST
 void mcc_visit_tree_color(mc_value* ast);
 
+// Build a JSON rendering of the AST into an internal buffer (no stdout).
+// Read it back with mcc_visit_json_data()/mcc_visit_json_len() and release
+// it with mcc_visit_json_free().
+void mcc_visit_tree_json(mc_value* ast);
+const char* mcc_visit_json_data(void);
+int mcc_visit_json_len(void);
+void mcc_visit_json_free(void);
+
 #endif
