@@ -2179,6 +2179,11 @@ fn place_satellites(
         // the box while `_net2` / `_net3` ran somewhere else entirely, so the
         // wire had to leave the pin, find the trunk, and come back (A27).
         let n = away.len();
+        // ★ U164: away pins of one net all read the SAME net row → the SAME
+        // offset (two identical leads). Keep the first on the row, step each
+        // further duplicate down by one pitch.
+        let pitch = (PIN_PITCH / box_h.max(1.0)).clamp(0.0, 1.0);
+        let mut used: Vec<f64> = Vec::new();
         for (k, &pid) in away.iter().enumerate() {
             let name = box_pin_name(b, pid);
             let row_y = away_rows.iter().find(|&&(p, _)| p == pid).map(|&(_, y)| y);
@@ -2186,6 +2191,8 @@ fn place_satellites(
                 Some(y) => ((y - box_y) / box_h).clamp(0.0, 1.0),
                 None => (k as f64 + 1.0) / (n as f64 + 1.0),
             };
+            let offset = dedupe_pin_offset(offset, &used, pitch, box_h);
+            used.push(offset);
             b.slots.push(PinSlot {
                 pin_id: pid,
                 number: (rows.len() + k) as u32,
@@ -2260,9 +2267,17 @@ fn snap_satellite_pins_to_rows(
         let bottom = (b.y + b.h).max(hi + PIN_MARGIN);
         b.y = top;
         b.h = (bottom - top).max(PIN_PITCH);
+        // ★ U164: several pins of this box on the SAME net row all snap to one
+        // offset — a second identical lead. Keep the first on the row, step
+        // each further duplicate down by one pitch.
+        let pitch = (PIN_PITCH / b.h.max(1.0)).clamp(0.0, 1.0);
+        let mut used: Vec<f64> = Vec::new();
         for slot in b.slots.iter_mut() {
             if let Some(&(_, y)) = want.iter().find(|&&(p, _)| p == slot.pin_id) {
-                slot.offset = ((y - b.y) / b.h).clamp(0.0, 1.0);
+                let offset = ((y - b.y) / b.h).clamp(0.0, 1.0);
+                let offset = dedupe_pin_offset(offset, &used, pitch, b.h);
+                used.push(offset);
+                slot.offset = offset;
             }
         }
         sync_entry_points(b, &connected);
@@ -5456,6 +5471,31 @@ fn assign_anchor_slots(
     }
 }
 
+/// ★ U164: the nearest free offset to `want` at `pitch` granularity — used to
+/// fan pins that one net pinned onto one row. Steps alternate down/up from
+/// `want` and stop at the first position no already-placed pin occupies (same
+/// < 1px tolerance the caller uses). BOUNDED: a scan alternates at most
+/// `used.len() + 1` steps each way, so two taken slots `2 * pitch` apart can
+/// no longer make a stepper oscillate between them forever (the hs hang).
+/// Returns `want` unchanged when every candidate is taken.
+fn dedupe_pin_offset(want: f64, used: &[f64], pitch: f64, box_h: f64) -> f64 {
+    let clash = |o: f64| used.iter().any(|&u| (u - o).abs() * box_h.max(1.0) < 1.0);
+    if !clash(want) {
+        return want;
+    }
+    for k in 1..=(used.len() + 1) {
+        let down = want + k as f64 * pitch;
+        if down <= 1.0 && !clash(down) {
+            return down;
+        }
+        let up = want - k as f64 * pitch;
+        if up >= 0.0 && !clash(up) {
+            return up;
+        }
+    }
+    want
+}
+
 /// Assign PinSlots for the given pins on one box side. West/East pins land on
 /// the row from the `RowPlan` (the offset is derived from the row — pin-offset
 /// ownership inversion); North/South pins are spread along the box edge as
@@ -5483,7 +5523,7 @@ fn assign_side_slots(
     let mut used: Vec<f64> = Vec::new();
     let pitch = (PIN_PITCH / box_h.max(1.0)).clamp(0.0, 1.0);
     for (i, &pid) in pin_ids.iter().enumerate() {
-        let mut offset = if matches!(side, EntrySide::Left | EntrySide::Right) {
+        let offset = if matches!(side, EntrySide::Left | EntrySide::Right) {
             match rows.get(&pid) {
                 // Connected or NC pin → land on its assigned row.
                 Some(&r) => ((r - box_y) / box_h).clamp(0.0, 1.0),
@@ -5500,14 +5540,7 @@ fn assign_side_slots(
         } else {
             (i as f64 + 1.0) / (n as f64 + 1.0)
         };
-        while used.iter().any(|&u| (u - offset).abs() * box_h.max(1.0) < 1.0) {
-            let down = offset + pitch;
-            if down <= 1.0 {
-                offset = down;
-            } else {
-                offset -= pitch;
-            }
-        }
+        let offset = dedupe_pin_offset(offset, &used, pitch, box_h);
         used.push(offset);
         let name = b
             .pins
