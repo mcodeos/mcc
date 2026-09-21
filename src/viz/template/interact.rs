@@ -113,6 +113,13 @@ function applyZoom(scale) {
     const zout = document.getElementById('zoom-out');
     if (zin) zin.disabled = zoomLevel >= ZOOM_MAX;
     if (zout) zout.disabled = zoomLevel <= ZOOM_MIN;
+    // VS Code keeps webview state across an html replacement of the same
+    // panel, so the zoom survives a re-render without a host round-trip.
+    // (The standalone page and the mcide iframe have no such store; the
+    // iframe keeper protocol covers the latter.)
+    if (mcodeHost && typeof mcodeHost.setState === 'function') {
+        mcodeHost.setState({ zoomLevel: zoomLevel });
+    }
 }
 
 function zoomIn()  { applyZoom(zoomLevel * ZOOM_STEP); }
@@ -432,6 +439,18 @@ document.getElementById('canvas').addEventListener('click', function (ev) {
     }
 }, true);
 
+// S5.5: single click on a class label → tell the host to open the selector
+// filtered to that class. Only fires when the target has a class stamp.
+document.getElementById('canvas').addEventListener('click', function (ev) {
+    const g = ev.target.closest ? ev.target.closest('#canvas g[data-symbol-source]') : null;
+    if (!g) return;
+    const cls = g.getAttribute('data-symbol-source');
+    if (!cls || !hostTarget) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    hostTarget.postMessage({ type: 'viz:classSelect', class: cls }, '*');
+}, true);
+
 // S4: double-click a named box = the drill gesture. The artifact stays a
 // read-only projection — it only *reports* the box; the host decides what the
 // committed viewframe is (workbench: focus `inst:<name>` + highlight).
@@ -480,6 +499,15 @@ function announceReady() {
     host && host.postMessage({ type: 'viz:ready' }, '*');
 }
 
+// The VS Code webview store read back before the first render, so a panel
+// re-render (html replacement) keeps the zoom the user had set.
+function restoreZoomState() {
+    if (!mcodeHost || typeof mcodeHost.getState !== 'function') return;
+    const s = mcodeHost.getState();
+    const z = s && Number(s.zoomLevel);
+    if (z > 0) zoomLevel = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z));
+}
+
 // Keeper protocol (mcide iframe-keeper): the workbench frame persists across
 // reparent/reload and asks the artifact for its zoom state (viz:save →
 // viz:state), restores it (viz:restore), and learns when the artifact is
@@ -492,12 +520,37 @@ window.addEventListener('message', function (e) {
         host && host.postMessage({ type: 'viz:state', state: { zoomLevel: zoomLevel } }, '*');
     } else if (m.type === 'viz:restore' && m.state && Number(m.state.zoomLevel) > 0) {
         applyZoom(Number(m.state.zoomLevel));
+    } else if (m.type === 'viz:queryClass') {
+        // The host cannot read this sandboxed DOM, so the class selector's
+        // candidates are enumerated here: every named box stamped with the
+        // class (data-class; data-symbol-source as the legacy narrower stamp).
+        // uri/offset ride along so the host can jump on pick.
+        const cls = m.class || '';
+        const seen = {};
+        const out = [];
+        document.querySelectorAll('#canvas g[data-name]').forEach(function (g) {
+            if (g.getAttribute('data-class') !== cls && g.getAttribute('data-symbol-source') !== cls) return;
+            const name = g.getAttribute('data-name');
+            if (!name || seen[name]) return;
+            seen[name] = 1;
+            out.push({
+                name: name,
+                uri: g.getAttribute('data-src-uri') || '',
+                offset: parseInt(g.getAttribute('data-src-offset') || '0', 10) || 0,
+            });
+        });
+        (mcodeHost || hostTarget) && (mcodeHost || hostTarget).postMessage({
+            type: 'viz:classInstances',
+            class: cls,
+            instances: out,
+        }, '*');
     }
 });
 
 if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', function () { init(); announceReady(); });
+    document.addEventListener('DOMContentLoaded', function () { restoreZoomState(); init(); announceReady(); });
 } else {
+    restoreZoomState();
     init();
     announceReady();
 }
@@ -581,6 +634,48 @@ mod tests {
         assert!(
             js.contains("'blur'"),
             "a highlight stuck on after focus loss is never disarmed"
+        );
+    }
+
+    /// The host-facing protocol surface S4/S5.5 wire against: drill and class
+    /// select report outward; highlight, save/restore and the class query are
+    /// answered; the echo closes the loop for a sandboxed frame the host
+    /// cannot read.
+    #[test]
+    fn host_protocol_messages_round_trip() {
+        let js = js();
+        for msg in [
+            "'viz:drill'",
+            "'viz:classSelect'",
+            "'viz:highlighted'",
+            "'viz:ready'",
+            "'viz:state'",
+            "'viz:highlight'",
+            "'viz:save'",
+            "'viz:restore'",
+            "'viz:queryClass'",
+            "'viz:classInstances'",
+        ] {
+            assert!(js.contains(msg), "protocol message {msg} missing");
+        }
+    }
+
+    /// The VS Code-native keeper: zoom writes into the webview state store and
+    /// is read back before the first render, so a panel re-render keeps the
+    /// user's zoom without a host round-trip.
+    #[test]
+    fn zoom_persists_through_the_vscode_state_store() {
+        let js = js();
+        assert!(
+            js.contains("mcodeHost.setState({ zoomLevel: zoomLevel })"),
+            "zoom never written to the webview state store"
+        );
+        let restore = js.find("function restoreZoomState").expect("restore fn");
+        let startup = js.find("restoreZoomState();").expect("startup call");
+        let init_call = js.find("init();").expect("init call");
+        assert!(
+            restore < startup && startup < init_call,
+            "the zoom restore must run before the first render"
         );
     }
 }

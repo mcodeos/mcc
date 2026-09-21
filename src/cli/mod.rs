@@ -793,6 +793,12 @@ pub struct QueryArgs {
     /// Shorthand for `--format json`
     #[arg(long, conflicts_with = "format")]
     pub json: bool,
+
+    /// kicad-sch only: flatten the whole hierarchy onto one sheet. Each
+    /// module's device drawing is tiled on a shared canvas and the modules
+    /// join by net name — no hierarchical sheets, no long cross-module wires.
+    #[arg(long)]
+    pub flat: bool,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
@@ -836,6 +842,12 @@ pub struct ExportArgs {
     /// Shorthand for `--format json`
     #[arg(long, conflicts_with = "format")]
     pub json: bool,
+
+    /// kicad-sch only: flatten the whole hierarchy onto one sheet. Each
+    /// module's device drawing is tiled on a shared canvas and the modules
+    /// join by net name — no hierarchical sheets, no long cross-module wires.
+    #[arg(long)]
+    pub flat: bool,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
@@ -968,6 +980,12 @@ pub struct ImpactArgs {
     /// Shorthand for `--format json`
     #[arg(long, conflicts_with = "format")]
     pub json: bool,
+
+    /// kicad-sch only: flatten the whole hierarchy onto one sheet. Each
+    /// module's device drawing is tiled on a shared canvas and the modules
+    /// join by net name — no hierarchical sheets, no long cross-module wires.
+    #[arg(long)]
+    pub flat: bool,
 }
 
 // import
@@ -994,6 +1012,12 @@ pub struct ImportArgs {
     /// Shorthand for `--format json`
     #[arg(long, conflicts_with = "format")]
     pub json: bool,
+
+    /// kicad-sch only: flatten the whole hierarchy onto one sheet. Each
+    /// module's device drawing is tiled on a shared canvas and the modules
+    /// join by net name — no hierarchical sheets, no long cross-module wires.
+    #[arg(long)]
+    pub flat: bool,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
