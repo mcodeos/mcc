@@ -74,7 +74,7 @@ range (threshold 40KB).
 | `semantic/` | 89 | 2591 KB |
 | `stages/` | 11 | 296 KB |
 | `vector/` | 25 | 463 KB |
-| `viz/` | 95 | 2290 KB |
+| `viz/` | 95 | 2293 KB |
 
 ## Declaration index
 
@@ -957,35 +957,36 @@ cmds/nets.rs#L24  fn fold_connections
 cmds/nets.rs#L53  fn top_nets
 cmds/parse.rs#L48  fn run
 cmds/parse.rs#L167  enum ParseTarget
-cmds/parse.rs#L521  struct Stages
-cmds/parse.rs#L530  impl Stages
-cmds/parse.rs#L531  fn from_args
-cmds/parse.rs#L554  fn public_collect_pass0
-cmds/parse.rs#L567  fn public_collect_pass1
-cmds/parse.rs#L594  fn try_collect_modules
-cmds/parse.rs#L609  fn try_collect_components
-cmds/parse.rs#L622  fn try_collect_interfaces
-cmds/parse.rs#L635  fn try_collect_enums
-cmds/parse.rs#L648  fn group_by_uri
-cmds/parse.rs#L710  fn public_collect_pass2
-cmds/parse.rs#L735  fn instance_to_node
-cmds/parse.rs#L791  fn iotype_str
-cmds/parse.rs#L805  fn extract_connections
-cmds/parse.rs#L815  fn walk_connections
-cmds/parse.rs#L871  fn extract_nets
-cmds/parse.rs#L881  fn walk_nets
-cmds/parse.rs#L916  fn combine_svgs
-cmds/parse.rs#L981  fn extract_viewbox
-cmds/parse.rs#L1000  fn extract_svg_inner
-cmds/parse.rs#L1013  fn escape_xml_viz
-cmds/parse.rs#L1031  fn viz_default_path
-cmds/parse.rs#L1057  fn run_viz
-cmds/parse.rs#L1162  fn phrase_to_tree_json
-cmds/parse.rs#L1250  fn endpoint_label
-cmds/parse.rs#L1272  fn emit_error
-cmds/parse.rs#L1297  fn param_cls
-cmds/parse.rs#L1316  fn param_default
-cmds/parse.rs#L1326  fn cmie_to_tree_json
+cmds/parse.rs#L522  struct Stages
+cmds/parse.rs#L531  impl Stages
+cmds/parse.rs#L532  fn from_args
+cmds/parse.rs#L555  fn public_collect_pass0
+cmds/parse.rs#L568  fn public_collect_pass1
+cmds/parse.rs#L595  fn try_collect_modules
+cmds/parse.rs#L610  fn try_collect_components
+cmds/parse.rs#L623  fn try_collect_interfaces
+cmds/parse.rs#L636  fn try_collect_enums
+cmds/parse.rs#L649  fn group_by_uri
+cmds/parse.rs#L711  fn public_collect_pass2
+cmds/parse.rs#L736  fn instance_to_node
+cmds/parse.rs#L792  fn iotype_str
+cmds/parse.rs#L806  fn extract_connections
+cmds/parse.rs#L816  fn walk_connections
+cmds/parse.rs#L872  fn extract_nets
+cmds/parse.rs#L882  fn walk_nets
+cmds/parse.rs#L917  fn combine_svgs
+cmds/parse.rs#L982  fn extract_viewbox
+cmds/parse.rs#L1001  fn extract_svg_inner
+cmds/parse.rs#L1014  fn escape_xml_viz
+cmds/parse.rs#L1034  fn ensure_viz_parent
+cmds/parse.rs#L1044  fn viz_default_path
+cmds/parse.rs#L1070  fn run_viz
+cmds/parse.rs#L1176  fn phrase_to_tree_json
+cmds/parse.rs#L1264  fn endpoint_label
+cmds/parse.rs#L1286  fn emit_error
+cmds/parse.rs#L1311  fn param_cls
+cmds/parse.rs#L1330  fn param_default
+cmds/parse.rs#L1340  fn cmie_to_tree_json
 cmds/print.rs#L31  fn print_phrase_members
 cmds/print.rs#L154  fn print_module_inst
 cmds/print.rs#L336  fn print_connections
@@ -10022,24 +10023,24 @@ viz/render/resistor.rs#L165  fn no_rect_body
 viz/render/shape.rs#L43  trait BoxShape
 viz/render/shape.rs#L45  fn render
 viz/render/shape.rs#L61  fn render_box
-viz/render/shape.rs#L80  fn render_box_inner
-viz/render/shape.rs#L160  fn render_custom_symbol
-viz/render/shape.rs#L189  fn escape_xml_attr
-viz/render/shape.rs#L201  fn box_name_label
-viz/render/shape.rs#L215  fn render_test_point
-viz/render/shape.rs#L240  fn render_dot_symbol
-viz/render/shape.rs#L262  fn render_box_legacy
-viz/render/shape.rs#L303  mod tests
-viz/render/shape.rs#L308  fn mk
-viz/render/shape.rs#L333  fn custom_symbol_overrides_system_symbol_in_device_layers
-viz/render/shape.rs#L352  fn no_custom_symbol_uses_system
-viz/render/shape.rs#L365  fn box_body
-viz/render/shape.rs#L385  fn root_box_advertises_drill_down_only_when_the_layer_exists
-viz/render/shape.rs#L431  fn drill_down_does_not_depend_on_the_face
-viz/render/shape.rs#L459  fn virtual_test_point_hides_instance_name
-viz/render/shape.rs#L474  fn real_test_point_keeps_instance_name
-viz/render/shape.rs#L485  fn box_with_source_span_stamps_its_coordinate
-viz/render/shape.rs#L497  fn box_without_source_span_stamps_nothing
+viz/render/shape.rs#L90  fn render_box_inner
+viz/render/shape.rs#L170  fn render_custom_symbol
+viz/render/shape.rs#L199  fn escape_xml_attr
+viz/render/shape.rs#L211  fn box_name_label
+viz/render/shape.rs#L225  fn render_test_point
+viz/render/shape.rs#L250  fn render_dot_symbol
+viz/render/shape.rs#L272  fn render_box_legacy
+viz/render/shape.rs#L313  mod tests
+viz/render/shape.rs#L318  fn mk
+viz/render/shape.rs#L343  fn custom_symbol_overrides_system_symbol_in_device_layers
+viz/render/shape.rs#L362  fn no_custom_symbol_uses_system
+viz/render/shape.rs#L375  fn box_body
+viz/render/shape.rs#L397  fn root_box_advertises_drill_down_only_when_the_layer_exists
+viz/render/shape.rs#L443  fn drill_down_does_not_depend_on_the_face
+viz/render/shape.rs#L471  fn virtual_test_point_hides_instance_name
+viz/render/shape.rs#L486  fn real_test_point_keeps_instance_name
+viz/render/shape.rs#L497  fn box_with_source_span_stamps_its_coordinate
+viz/render/shape.rs#L509  fn box_without_source_span_stamps_nothing
 viz/render/sub_module.rs#L45  fn submodule_pin_opts
 viz/render/sub_module.rs#L66  fn render_submodule_pin
 viz/render/sub_module.rs#L79  fn render_sub_module
@@ -10697,21 +10698,30 @@ viz/template/interact.rs#L289  const subs
 viz/template/interact.rs#L290  const svgKb
 viz/template/interact.rs#L311  const zoomCanvas
 viz/template/interact.rs#L347  const mcodeHost
-viz/template/interact.rs#L353  const IS_MAC
-viz/template/interact.rs#L354  const MOD_LABEL
-viz/template/interact.rs#L357  const gesture
-viz/template/interact.rs#L368  const el
-viz/template/interact.rs#L370  const jumpable
-viz/template/interact.rs#L390  const el
-viz/template/interact.rs#L392  const uri
-viz/template/interact.rs#L393  const offset
-viz/template/interact.rs#L399  const text
-viz/template/interact.rs#L403  const note
-viz/template/interact.rs#L416  const coord
-viz/template/interact.rs#L441  mod tests
-viz/template/interact.rs#L450  fn source_navigation_js_gates_on_the_modifier_and_reads_the_stamp
-viz/template/interact.rs#L471  fn source_navigation_falls_back_host_then_link_then_copy
-viz/template/interact.rs#L496  fn the_gesture_is_announced_and_armed_by_the_modifier
+viz/template/interact.rs#L351  const hostTarget
+viz/template/interact.rs#L357  const IS_MAC
+viz/template/interact.rs#L358  const MOD_LABEL
+viz/template/interact.rs#L361  const gesture
+viz/template/interact.rs#L372  const el
+viz/template/interact.rs#L374  const jumpable
+viz/template/interact.rs#L394  const el
+viz/template/interact.rs#L396  const uri
+viz/template/interact.rs#L397  const offset
+viz/template/interact.rs#L403  const text
+viz/template/interact.rs#L407  const note
+viz/template/interact.rs#L420  const coord
+viz/template/interact.rs#L439  const g
+viz/template/interact.rs#L441  const name
+viz/template/interact.rs#L457  const m
+viz/template/interact.rs#L467  const g
+viz/template/interact.rs#L473  const host
+viz/template/interact.rs#L479  const host
+viz/template/interact.rs#L488  const m
+viz/template/interact.rs#L491  const host
+viz/template/interact.rs#L508  mod tests
+viz/template/interact.rs#L517  fn source_navigation_js_gates_on_the_modifier_and_reads_the_stamp
+viz/template/interact.rs#L538  fn source_navigation_falls_back_host_then_link_then_copy
+viz/template/interact.rs#L563  fn the_gesture_is_announced_and_armed_by_the_modifier
 viz/template/mod.rs#L27  mod interact
 viz/template/mod.rs#L28  mod shell
 viz/template/mod.rs#L29  mod theme
@@ -10729,9 +10739,9 @@ viz/template/shell.rs#L81  mod tests
 viz/template/shell.rs#L85  fn test_html_safe_replaces_close_tag
 viz/template/shell.rs#L94  fn test_html_safe_preserves_open_tags
 viz/template/theme.rs#L11  fn css
-viz/template/theme.rs#L236  mod tests
-viz/template/theme.rs#L246  fn stamped_elements_hit_their_whole_box
-viz/template/theme.rs#L265  fn armed_modifier_outlines_the_same_stamp
+viz/template/theme.rs#L241  mod tests
+viz/template/theme.rs#L251  fn stamped_elements_hit_their_whole_box
+viz/template/theme.rs#L270  fn armed_modifier_outlines_the_same_stamp
 viz/traits.rs#L15  trait Layouter
 viz/traits.rs#L16  fn layout
 viz/traits.rs#L22  fn with_model
@@ -10749,4 +10759,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-398 files, 10668 declarations.
+398 files, 10678 declarations.
