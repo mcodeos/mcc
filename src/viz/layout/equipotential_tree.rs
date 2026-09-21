@@ -630,6 +630,24 @@ fn build_one_topology(net: &VizNet, graph: &McVecGraph) -> Option<NetTopology> {
 }
 
 /// Select anchor deterministically: most pins, tiebreak: degree → source_line → box_id.
+///
+/// ★ U157 ruling — the anchor is a deterministic attachment point, NOT a
+/// semantic choice. On a face-member net whose candidates each carry one pin
+/// (a boundary port's own rail, say) the whole chain degenerates to the final
+/// `box_id` comparison and hands the anchor to whichever two-pin passive has
+/// the largest id. That is fine, because every consumer judges the anchor by
+/// CLASS, never identity: `== layer_anchor` (M16, terminal_only), two-pin
+/// self-placement, or the anchor box's rect as a trunk seed. Measured
+/// (hbl `POWER_DCDC` `vout.VCC_1V2`): inverting the final tiebreak moves the
+/// anchor `_C5`→`_C3` and the rendered stage.viz is unchanged — zero drift.
+/// The preferred-by-the-ledger alternative, "anchor on the boundary
+/// representative box", is not realizable here: the port group is not a
+/// candidate (its supply pseudo endpoints are dropped from `real` by the
+/// projection, and `BoundaryInfo::port_group_id` is a declaration-side id
+/// with no box in `graph.boxes`). A future consumer that needs the anchor to
+/// MEAN something (e.g. the run-path member) must not read identity off this
+/// result — it should extend a class predicate, the way M18 replaced M15.8's
+/// anchor proxy with the `blocked` set.
 fn select_anchor_deterministic(
     groups: &BTreeMap<i64, Vec<i64>>,
     net: &VizNet,
@@ -2464,6 +2482,16 @@ pub fn place_by_topology(graph: &mut McVecGraph, topos: &mut [NetTopology]) {
     // past the members, into the satellite's facing pin.
     push_satellites_clear(graph, topos, &satellites, layer_anchor);
 
+    // ★ U164: two DIFFERENT members placed by two different nets can still land
+    // on one rect — the column allocator is per net (P4) and per side (P4b), so
+    // members of nets that never compare against each other pile up (hbl `UC`:
+    // caps `C1`/`C3` both at (100,70); `X6`: `R442`/`C4` both at (30,70)). Two
+    // coincident glyph boxes double-draw every lead and stack their labels on
+    // one point. Nudge the later-placed box sideways — away from the layer
+    // anchor's centre, just far enough to clear — before the final span
+    // enveloping re-derives the trunks from the final positions.
+    resolve_member_collisions(graph, topos, layer_anchor);
+
     // P6: after members are placed, re-envelope the lane span over all tap
     // points (anchor pins + member taps) so the trunk reaches every tap.
     envelop_lanes(graph, topos);
@@ -2508,6 +2536,17 @@ fn dump_layer(graph: &McVecGraph, topos: &[NetTopology], layer_anchor: i64) {
                 crate::vlog!("[equi-dump]     group#{} box{} MISSING", gi, g.box_id);
                 continue;
             };
+            crate::vlog!(
+                "[u164s] box{} '{}' locked={} slots={}",
+                b.id,
+                b.name,
+                b.geom_locked,
+                b.slots
+                    .iter()
+                    .map(|s| format!("{}/{:?}/{:.3}", s.pin_id, s.side, s.offset))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            );
             let role = if b.pins.len() == 2 && gi > 0 {
                 format!(
                     "{:?}",
@@ -4463,6 +4502,90 @@ fn resolve_columns_for_side(graph: &mut McVecGraph, topos: &[NetTopology], layer
     }
 }
 
+/// ★ U164: push coincident member boxes apart (call site: the end of
+/// `place_by_topology`, before the final span enveloping).
+///
+/// The column allocator is per net (P4) and per side (P4b), so two members of
+/// nets that never compare against each other can land on one rect — the two
+/// glyph boxes then double-draw every lead and stack their labels on one
+/// point. The earlier-placed box keeps its column; the later one steps
+/// sideways — away from the layer anchor's centre — just far enough to clear.
+fn resolve_member_collisions(
+    graph: &mut McVecGraph,
+    topos: &[NetTopology],
+    layer_anchor: i64,
+) {
+    // Member box ids in placement order (topo order, then group order — the
+    // same order `place_members` ran in), so "the later one moves" is
+    // deterministic.
+    let mut member_ids: Vec<i64> = Vec::new();
+    for topo in topos {
+        if topo.ground_column {
+            // M12.1: a ground column places none of its own members.
+            continue;
+        }
+        for g in topo.groups.iter().skip(1) {
+            if g.box_id != layer_anchor && !member_ids.contains(&g.box_id) {
+                member_ids.push(g.box_id);
+            }
+        }
+    }
+    let anchor_cx = graph
+        .boxes
+        .iter()
+        .find(|b| b.id == layer_anchor)
+        .map(|b| b.x + b.w / 2.0);
+    // Rects already accepted — every placed member keeps its rect as an
+    // obstacle for the ones after it. Unplaced members (zero size, not
+    // `geom_locked`) take no part.
+    let mut placed: Vec<(f64, f64, f64, f64)> = Vec::new();
+    for &id in &member_ids {
+        let Some(idx) = graph.boxes.iter().position(|b| b.id == id) else {
+            continue;
+        };
+        let (x0, y, w, h, locked) = {
+            let b = &graph.boxes[idx];
+            (b.x, b.y, b.w, b.h, b.geom_locked)
+        };
+        if !locked || w <= 0.0 || h <= 0.0 {
+            continue;
+        }
+        // Direction: sideways on the member's OWN side — a West member steps
+        // left, an East member right. The anchor-centre fallback is only for a
+        // N/S-owned member, where there is no side to respect.
+        let owner_region = topos
+            .iter()
+            .find(|t| t.groups.iter().skip(1).any(|g| g.box_id == id))
+            .map(|t| t.lane.region);
+        let dir = match owner_region {
+            Some(Region::West) => -1.0,
+            Some(Region::East) => 1.0,
+            _ => match anchor_cx {
+                Some(ax) if (x0 + w / 2.0 - ax).abs() > 0.5 => (x0 + w / 2.0 - ax).signum(),
+                _ => 1.0,
+            },
+        };
+        let mut x = x0;
+        for _ in 0..64 {
+            let Some(&(px, _, _, pw)) = placed.iter().find(|&&(px, py, pw, ph)| {
+                x < px + pw && px < x + w && y < py + ph && py < y + h
+            }) else {
+                break;
+            };
+            let overlap = if dir > 0.0 {
+                (px + pw) - x
+            } else {
+                (x + w) - px
+            };
+            x += dir * (overlap.max(0.0) + MEMBER_GAP);
+        }
+        if (x - x0).abs() > 0.01 {
+            graph.boxes[idx].x = x;
+        }
+        placed.push((x, y, w, h));
+    }
+}
+
 // ★ M3.3: TapRole — electrical role by partner ROW
 
 /// Electrical role of a member box, decided by where the member's OTHER pin's
@@ -5233,6 +5356,28 @@ fn assign_anchor_slots(
         east.extend(unassigned.iter().cloned());
     }
 
+    // ★ U164: rows are per NET, not per PIN — a part whose two legs sit on the
+    // same net (a speaker's two GND pins) got both pins the same row and
+    // therefore one slot point (hbl `SPK`: `spk.3`/`spk.4` both at the right
+    // edge y=500, two identical pin leads drawn). Keep the first pin of a row
+    // group on the row; step each further pin of that group down by PIN_PITCH
+    // and grow the box to cover it.
+    for side in [&west, &east] {
+        let mut seen: BTreeMap<i64, usize> = BTreeMap::new();
+        for &pid in side {
+            if let Some(&r) = pin_rows.get(&pid) {
+                let key = (r * 10.0).round() as i64;
+                let k = seen.entry(key).or_insert(0);
+                *k += 1;
+                if *k > 1 {
+                    let y = r + (*k - 1) as f64 * PIN_PITCH;
+                    pin_rows.insert(pid, y);
+                    box_h = box_h.max(y + PIN_MARGIN - box_y);
+                }
+            }
+        }
+    }
+
     // Box width (M2.5 Step 4): fit the pin labels on both sides plus padding.
     let left_w = side_label_width(anchor_box, &west);
     let right_w = side_label_width(anchor_box, &east);
@@ -5340,8 +5485,16 @@ fn assign_side_slots(
     }
     let connected: std::collections::HashSet<i64> =
         b.entry_points.iter().map(|ep| ep.pin_id).collect();
+    // ★ U164: rows are per NET, not per PIN — a part whose two legs sit on the
+    // same net (a speaker's two GND pins) gets both pins the same row and
+    // therefore the SAME slot point; each pin then draws an identical lead and
+    // the pair reads as one pin. Keep the first pin of a duplicated row on the
+    // row; step each further duplicate down by one pitch (up along the edge
+    // when there is no room below).
+    let mut used: Vec<f64> = Vec::new();
+    let pitch = (PIN_PITCH / box_h.max(1.0)).clamp(0.0, 1.0);
     for (i, &pid) in pin_ids.iter().enumerate() {
-        let offset = if matches!(side, EntrySide::Left | EntrySide::Right) {
+        let mut offset = if matches!(side, EntrySide::Left | EntrySide::Right) {
             match rows.get(&pid) {
                 // Connected or NC pin → land on its assigned row.
                 Some(&r) => ((r - box_y) / box_h).clamp(0.0, 1.0),
@@ -5358,6 +5511,15 @@ fn assign_side_slots(
         } else {
             (i as f64 + 1.0) / (n as f64 + 1.0)
         };
+        while used.iter().any(|&u| (u - offset).abs() * box_h.max(1.0) < 1.0) {
+            let down = offset + pitch;
+            if down <= 1.0 {
+                offset = down;
+            } else {
+                offset -= pitch;
+            }
+        }
+        used.push(offset);
         let name = b
             .pins
             .iter()
@@ -6818,6 +6980,12 @@ pub(crate) fn member_pin_point(
     (member_box.x, member_box.y + member_box.h / 2.0)
 }
 
+/// ★ U164: an exact duplicate must not reach the drawing. Two code paths can
+/// legitimately produce the same wire — a member tap that lands on a deflection
+/// closing vertical, a terminal stub drawn once per terminal from the same pin
+/// — and overdrawing adds no geometry while double-counting `degree_map`
+/// endpoints (which can spawn a spurious junction dot). Dedupe on the same
+/// render-rounding key `add_segment` already uses for degrees.
 fn add_segment(
     seg: &Segment,
     segments: &mut Vec<Segment>,
@@ -6827,6 +6995,22 @@ fn add_segment(
     let y1 = seg.y1.round() as i64;
     let x2 = seg.x2.round() as i64;
     let y2 = seg.y2.round() as i64;
+
+    // ★ U164: a wire already drawn — the render-rounding key is identical, so
+    // the overdrawing copy would only double-count the endpoint degrees. Draw
+    // each distinct wire once (either endpoint order counts as the same wire).
+    let (ka, kb) = ((x1, y1, x2, y2), (x2, y2, x1, y1));
+    if segments.iter().any(|s| {
+        let (sx1, sy1, sx2, sy2) = (
+            s.x1.round() as i64,
+            s.y1.round() as i64,
+            s.x2.round() as i64,
+            s.y2.round() as i64,
+        );
+        (sx1, sy1, sx2, sy2) == ka || (sx1, sy1, sx2, sy2) == kb
+    }) {
+        return;
+    }
 
     *degree_map.entry((x1, y1)).or_default() += 1;
     *degree_map.entry((x2, y2)).or_default() += 1;
