@@ -273,12 +273,13 @@ fn render_block_edges(graph: &McVecGraph) -> String {
         // Trunk rail
         svg.push_str(&format!(
             r##"  <line x1="{tx:.1}" y1="{y1:.1}" x2="{tx:.1}" y2="{y2:.1}"
-       stroke="{stroke}" stroke-width="{sw:.1}"/>"##,
+       stroke="{stroke}" stroke-width="{sw:.1}"{net}/>"##,
             tx = trunk.x,
             y1 = trunk.y_min,
             y2 = trunk.y_max,
             stroke = stroke,
             sw = trunk.stroke_width,
+            net = machine_net_attr(label),
         ));
         svg.push('\n');
 
@@ -293,6 +294,7 @@ fn render_block_edges(graph: &McVecGraph) -> String {
                 trunk.stroke_width,
                 false,
                 false,
+                &machine_net_attr(label),
             );
             svg.push_str(&line_svg);
         }
@@ -326,6 +328,7 @@ fn render_block_edges(graph: &McVecGraph) -> String {
                 trunk.stroke_width,
                 false,
                 true,
+                &machine_net_attr(label),
             );
             svg.push_str(&line_svg);
         }
@@ -369,14 +372,20 @@ fn render_block_edges(graph: &McVecGraph) -> String {
         // L5: the centreline is the plan's point list -- out of one lead, across
         // and in over the other. The shape is decided with the edge; this only
         // formats it.
-        svg.push_str(&render_centreline(points, stroke, stroke_w, true));
+        svg.push_str(&render_centreline(
+            points,
+            stroke,
+            stroke_w,
+            true,
+            &machine_net_attr(&draw.label),
+        ));
         svg.push('\n');
 
         // P3 (ret lineage, opt-in): a point-to-point power edge draws a
         // parallel second return lane along the same spine.
         if ret_lanes {
             if let Some(lane) = &draw.ret_lane {
-                svg.push_str(&render_centreline(&lane.points, RET_STROKE, 1.5, false));
+                svg.push_str(&render_centreline(&lane.points, RET_STROKE, 1.5, false, ""));
                 svg.push('\n');
             }
         }
@@ -432,6 +441,16 @@ fn render_block_edges(graph: &McVecGraph) -> String {
     svg
 }
 
+/// ` data-net="…"` for a visible edge/trunk label, empty when the drawing
+/// shows no name — the attribute mirrors what the canvas already prints,
+/// never an identity the label does not carry.
+fn machine_net_attr(label: &str) -> String {
+    if label.is_empty() {
+        return String::new();
+    }
+    format!(r#" data-net="{}""#, escape_xml(label))
+}
+
 fn escape_xml(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('<', "&lt;")
@@ -462,13 +481,14 @@ fn render_lead_run(
     stroke_w: f64,
     with_arrow: bool,
     drawn_from_rail: bool,
+    net: &str,
 ) -> String {
     let (x1, y1, x2, y2) = if drawn_from_rail || (approach_y - root.1).abs() >= 1.0 {
         (rail_x, approach_y, root.0, root.1)
     } else {
         (root.0, root.1, rail_x, approach_y)
     };
-    render_ortho_path(x1, y1, x2, y2, label, stroke, stroke_w, with_arrow)
+    render_ortho_path(x1, y1, x2, y2, label, stroke, stroke_w, with_arrow, net)
 }
 
 /// Format a plan-decided centreline: a line when it is one segment, a polyline
@@ -478,6 +498,7 @@ fn render_centreline(
     stroke: &str,
     stroke_w: f64,
     with_arrow: bool,
+    net: &str,
 ) -> String {
     let arrow = if with_arrow {
         r#" marker-end="url(#arrow)""#
@@ -489,8 +510,9 @@ fn render_centreline(
     if points.len() == 2 {
         format!(
             r##"  <line x1="{x1:.1}" y1="{y1:.1}" x2="{x2:.1}" y2="{y2:.1}"
-       stroke="{stroke}" stroke-width="{sw:.1}"{arrow}/>"##,
+       stroke="{stroke}" stroke-width="{sw:.1}"{arrow}{net}/>"##,
             sw = stroke_w,
+            net = net,
         )
     } else {
         let pts = points
@@ -500,8 +522,9 @@ fn render_centreline(
             .join(" ");
         format!(
             r##"  <polyline points="{pts}"
-       fill="none" stroke="{stroke}" stroke-width="{sw:.1}"{arrow}/>"##,
+       fill="none" stroke="{stroke}" stroke-width="{sw:.1}"{arrow}{net}/>"##,
             sw = stroke_w,
+            net = net,
         )
     }
 }
@@ -519,6 +542,7 @@ fn render_ortho_path(
     stroke: &str,
     stroke_w: f64,
     with_arrow: bool,
+    net: &str,
 ) -> String {
     let mut svg = String::new();
     let arrow = if with_arrow {
@@ -531,7 +555,7 @@ fn render_ortho_path(
         // Single segment
         svg.push_str(&format!(
             r##"  <line x1="{x1:.1}" y1="{y1:.1}" x2="{x2:.1}" y2="{y2:.1}"
-       stroke="{stroke}" stroke-width="{sw:.1}"{arrow}/>"##,
+       stroke="{stroke}" stroke-width="{sw:.1}"{arrow}{net}/>"##,
             x1 = x1,
             y1 = y1,
             x2 = x2,
@@ -539,13 +563,14 @@ fn render_ortho_path(
             stroke = stroke,
             sw = stroke_w,
             arrow = arrow,
+            net = net,
         ));
         svg.push('\n');
     } else {
         // L-shaped: horizontal then vertical
         svg.push_str(&format!(
             r##"  <polyline points="{x1:.1},{y1:.1} {x2:.1},{y1:.1} {x2:.1},{y2:.1}"
-       fill="none" stroke="{stroke}" stroke-width="{sw:.1}"{arrow}/>"##,
+       fill="none" stroke="{stroke}" stroke-width="{sw:.1}"{arrow}{net}/>"##,
             x1 = x1,
             y1 = y1,
             x2 = x2,
@@ -553,6 +578,7 @@ fn render_ortho_path(
             stroke = stroke,
             sw = stroke_w,
             arrow = arrow,
+            net = net,
         ));
         svg.push('\n');
     }
