@@ -4652,7 +4652,22 @@ pub(crate) fn tap_role(
             // ground rails and the shared ground band are always below the side
             // rows, so an upward shunt would route its ground pin back over its
             // own body.
-            Some(p) if p.kind == NetKind::Ground => TapRole::Drop { dir: 1.0 },
+            //
+            // ★ U160-3a: that "always below" premise breaks when the ground
+            // partner IS an adopted run end sitting on a row ABOVE this one
+            // (hbl `FB_gnd`: GNDA row 420, partner `dc.GND` adopted to West
+            // row 200). Pinned down, the bead hung BELOW the GNDA row and its
+            // far pin had to climb back up — straight through its own body and
+            // through the GNDA trunk, landing exactly on the entry-pin
+            // junction (a visual short). When the partner's row is known and
+            // lies above, hang UP instead: the bead then sits between the two
+            // rows, each pin facing its own row.
+            Some(p) if p.kind == NetKind::Ground => {
+                match p.row {
+                    Some(r) if r < my_row - 1.0 => TapRole::Drop { dir: -1.0 },
+                    _ => TapRole::Drop { dir: 1.0 },
+                }
+            }
             // A terminal-only partner OUTSIDE the run has no trunk of its own;
             // its glyph hangs wherever this member ends up, so the direction
             // stays free.
@@ -4856,7 +4871,19 @@ fn place_members_for_topo(
                 // so the column allocator reserves the right width for it (otherwise
                 // it reserves 80 against a box drawn 180 wide and overlaps a neighbour).
                 TapRole::Sink => {
-                    let (t, bm, _) = sink_pin_sides(member_box, topos);
+                    // ★ U160-4a: the ground-side decision needs the box's
+                    // prospective center y — same placement formula the Sink
+                    // branch below uses, and the height `sink_box_size` will
+                    // pick (it does not depend on the sides). Keeps the column
+                    // allocator's width reservation on the edge the pins will
+                    // really occupy.
+                    let py = if on_side {
+                        axis + LEAD
+                    } else {
+                        axis + dy * MEMBER_GAP
+                    };
+                    let ph = MIN_SINK_H.max(member_box.h);
+                    let (t, bm, _) = sink_pin_sides(member_box, topos, py + ph / 2.0);
                     sink_box_size(member_box, &t, &bm)
                 }
             }
@@ -4902,6 +4929,13 @@ fn place_members_for_topo(
 
     // Pass 2: place each member at its column centreline, keeping the M3 role
     // orientation + y exactly as before.
+    // ★ U160-1: the Series `toward_anchor` face on a N/S row needs to know
+    // which horizontal end the anchor box sits on.
+    let anchor_center_x = graph
+        .boxes
+        .iter()
+        .find(|b| b.id == topo.anchor)
+        .map(|b| b.x + b.w / 2.0);
     for (k, (box_id, entry_pin, view)) in entries.iter().enumerate() {
         let line_x = col_plan.x_values[col_plan.slots[k].col_idx];
         let Some(member_box) = graph.boxes.iter_mut().find(|b| b.id == *box_id) else {
@@ -4939,11 +4973,19 @@ fn place_members_for_topo(
                 // of them is further out; the region is the same for both, so
                 // the old region-based side put the outer net's pin on the wrong
                 // end and the two spans crossed through the body.
+                // ★ U160-1: a Series body lies ALONG its horizontal row on every
+                // region (`y = axis - h/2` below), so a N/S row must face a
+                // horizontal end too. The old Top/Bottom mapping sided the pins
+                // onto the SHORT edges while the body sat horizontal — the row
+                // then ran straight through the glyph and stopped at its mid
+                // edge (hbl `FB_vmic`). Face the end the anchor box sits on.
                 let toward_anchor = match topo.lane.region {
                     Region::West => EntrySide::Right,
                     Region::East => EntrySide::Left,
-                    Region::North => EntrySide::Bottom,
-                    Region::South => EntrySide::Top,
+                    Region::North | Region::South => match anchor_center_x {
+                        Some(ax) if ax > line_x => EntrySide::Right,
+                        _ => EntrySide::Left,
+                    },
                 };
                 // I am the INNER net of the pair when my depth is the smaller
                 // one, and then my pin is the one facing the anchor.
@@ -5044,7 +5086,8 @@ fn place_members_for_topo(
                 // straddling it — a W/E Sink used to sit with its top edge on the
                 // trunk (`dy == 0`) and its pins on the Left/Right edge, so every
                 // tap ran along the box border.
-                let (top, bottom, connected) = sink_pin_sides(member_box, topos);
+                // ★ U160-4a: rect first, sides second — the ground-side
+                // decision reads the box's final center y.
                 member_box.w = view.w;
                 member_box.h = view.h;
                 member_box.x = line_x - view.w / 2.0;
@@ -5054,6 +5097,8 @@ fn place_members_for_topo(
                     axis + dy * MEMBER_GAP
                 };
                 member_box.geom_locked = true;
+                let (top, bottom, connected) =
+                    sink_pin_sides(member_box, topos, member_box.y + member_box.h / 2.0);
                 assign_sink_slots(member_box, &top, &bottom, &connected);
             }
         }
@@ -5381,10 +5426,20 @@ pub(crate) fn slot_of(b: &crate::vector::graph::McVecBox, pin_id: i64) -> Option
 /// (Bottom). That also puts each ground pin's stub on the side the ground rail
 /// is actually on, instead of hanging a ground glyph above the part.
 ///
-/// Returns `(top, bottom, connected)` — pure topology, no rect is read.
+/// Returns `(top, bottom, connected)`.
+///
+/// ★ U160-4a: the function no longer decides ground sides purely from
+/// topology — it takes the box's FINAL center y (callers compute it with the
+/// same formula they place by) and faces each ground pin toward its ground
+/// net's actual trunk row: row above the box → Top, row below (or unknown) →
+/// Bottom. The old unconditional Bottom assumed the ground band always sits
+/// below every part; a sink placed UNDER its own ground row (hbl `wm7121`,
+/// GNDA row 420 above the box) drew its ground taps from the bottom edge
+/// straight up through its own body.
 fn sink_pin_sides(
     b: &crate::vector::graph::McVecBox,
     topos: &[NetTopology],
+    box_center_y: f64,
 ) -> (Vec<i64>, Vec<i64>, BTreeSet<i64>) {
     let mut ground: BTreeSet<i64> = BTreeSet::new();
     let mut connected: BTreeSet<i64> = BTreeSet::new();
@@ -5398,10 +5453,26 @@ fn sink_pin_sides(
             }
         }
     }
+    let ground_row = |pid: i64| -> Option<f64> {
+        topos
+            .iter()
+            .filter(|t| t.net_kind == NetKind::Ground)
+            .find(|t| {
+                t.groups
+                    .iter()
+                    .any(|g| g.box_id == b.id && g.pin_ids.contains(&pid))
+            })
+            .map(|t| t.lane.axis)
+    };
     let mut top: Vec<i64> = Vec::new();
     let mut bottom: Vec<i64> = Vec::new();
     for p in &b.pins {
-        if ground.contains(&p.id) || !connected.contains(&p.id) {
+        if ground.contains(&p.id) {
+            match ground_row(p.id) {
+                Some(r) if r < box_center_y - 0.5 => top.push(p.id),
+                _ => bottom.push(p.id),
+            }
+        } else if !connected.contains(&p.id) {
             bottom.push(p.id);
         } else {
             top.push(p.id);
@@ -6110,12 +6181,21 @@ pub(crate) fn realize(
                     x2: jh,
                     y2: gutter,
                 });
-                deflected.push(Segment {
-                    x1: jh,
-                    y1: gutter,
-                    x2: jh,
-                    y2: axis,
-                });
+                // ★ U160-3b: the closing re-ascend only earns its keep when the
+                // trunk CONTINUES on the axis after the gutter. When the blocked
+                // run reaches this piece's east end (`jh` clamped to `hi`), no
+                // axis piece follows — the old unconditional re-ascend left a
+                // dangling corner floating at (jh, axis) (hbl `dc.GND`: gutter
+                // run ending on FB_gnd's tooth junction, plus a stray vertical
+                // back up to the dead row).
+                if hi - jh > 0.5 {
+                    deflected.push(Segment {
+                        x1: jh,
+                        y1: gutter,
+                        x2: jh,
+                        y2: axis,
+                    });
+                }
                 deflect_regions.push((jl, jh, gutter));
             }
             cursor = jh;
@@ -6207,14 +6287,23 @@ pub(crate) fn realize(
         let Some(member_box) = graph.boxes.iter().find(|b| b.id == group.box_id) else {
             continue;
         };
-        let (mx, my) = member_pin_point(member_box, group);
-        let seg = Segment {
-            x1: mx,
-            y1: my,
-            x2: mx,
-            y2: trunk_y(mx),
-        };
-        add_segment(&seg, &mut segments, &mut degree_map);
+        // ★ U160-4b: a member group may carry SEVERAL pins on the same box
+        // (the sip mic's GND{3,4}, the wm7121's GND{2,3}); tapping only the
+        // first pin left the second pin with a slot but no wire. Tap every
+        // pin of the group — single-pin groups keep the exact previous wire.
+        for &pid in &group.pin_ids {
+            let Some(slot) = slot_of(member_box, pid) else {
+                continue;
+            };
+            let (mx, my) = slot_point(member_box, slot);
+            let seg = Segment {
+                x1: mx,
+                y1: my,
+                x2: mx,
+                y2: trunk_y(mx),
+            };
+            add_segment(&seg, &mut segments, &mut degree_map);
+        }
     }
 
     // ★ F4: Junction dot fix — count internal points too.

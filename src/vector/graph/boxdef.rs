@@ -734,6 +734,19 @@ pub struct ModuleFrame {
     pub ports: Vec<FramePort>,
 }
 
+/// One orthogonal piece of a frame port's lead wire (★ U160-5).
+///
+/// A plain coordinate quad rather than a borrow of the equipotential tree's
+/// `Segment`: the frame lives in `vector::graph`, which must not reach into the
+/// `viz` layout modules for a type.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FrameLeadSeg {
+    pub x1: f64,
+    pub y1: f64,
+    pub x2: f64,
+    pub y2: f64,
+}
+
 /// One module port drawn on a [`ModuleFrame`].
 ///
 /// Named by the **port** it is (`vin`) — never by the net it happens to carry
@@ -752,4 +765,10 @@ pub struct FramePort {
     /// Carried from the net's declared identity (`BoundaryInfo.is_supply`), never
     /// re-derived downstream from the port's name.
     pub is_supply: bool,
+    /// ★ U160-5: one lead per net crossing this port, routed by the layout pass
+    /// from the anchor tick's inner end to that net's own boundary-crossing
+    /// symbol. A port group can carry several nets (`MIC{P,N}`, `psnk dc{VDD_3V3,
+    /// GND}`), so this is a list, not a single polyline. Empty only when a net
+    /// has no drawn symbol to reach.
+    pub leads: Vec<Vec<FrameLeadSeg>>,
 }
