@@ -32,7 +32,7 @@ range (threshold 40KB).
 |---|---|---|
 | `db/infra/mc_code.rs` | 341 KB | 95 |
 | `viz/layout/equipotential_tree.rs` | 332 KB | 173 |
-| `semantic/basic/mc_phrase.rs` | 314 KB | 68 |
+| `semantic/basic/mc_phrase.rs` | 315 KB | 68 |
 | `semantic/component/mc_pins/mod.rs` | 225 KB | 104 |
 | `instant/mc_mod/stmt.rs` | 194 KB | 76 |
 | `db/diagnostic/errcodes.rs` | 178 KB | 435 |
@@ -72,8 +72,8 @@ range (threshold 40KB).
 | `refdef/` | 7 | 118 KB |
 | `rpc/` | 16 | 297 KB |
 | `semantic/` | 89 | 2594 KB |
-| `stages/` | 11 | 296 KB |
-| `vector/` | 25 | 463 KB |
+| `stages/` | 11 | 297 KB |
+| `vector/` | 25 | 469 KB |
 | `viz/` | 95 | 2294 KB |
 
 ## Declaration index
@@ -5465,55 +5465,55 @@ semantic/basic/mc_phrase.rs#L313  fn expand_group
 semantic/basic/mc_phrase.rs#L370  fn cartesian_product
 semantic/basic/mc_phrase.rs#L389  fn flatten_series_dir
 semantic/basic/mc_phrase.rs#L400  fn new
-semantic/basic/mc_phrase.rs#L3481  struct CompPinShape
-semantic/basic/mc_phrase.rs#L3489  enum PinShapeKind
-semantic/basic/mc_phrase.rs#L3511  fn shape_defaults
-semantic/basic/mc_phrase.rs#L3561  fn is_reverse_noop_operand
-semantic/basic/mc_phrase.rs#L3591  fn as_bare_component
-semantic/basic/mc_phrase.rs#L3602  fn body_arity
-semantic/basic/mc_phrase.rs#L3616  fn check_inst_plusminus
-semantic/basic/mc_phrase.rs#L3642  fn check_body_pair_plusminus
-semantic/basic/mc_phrase.rs#L3666  fn as_bare_net
-semantic/basic/mc_phrase.rs#L3694  fn root_ident
-semantic/basic/mc_phrase.rs#L3720  fn check_net_pair_plusminus
-semantic/basic/mc_phrase.rs#L3735  impl McPhrase
-semantic/basic/mc_phrase.rs#L3740  fn reverse_is_noop
-semantic/basic/mc_phrase.rs#L3744  fn get_left
-semantic/basic/mc_phrase.rs#L3893  fn get_right
-semantic/basic/mc_phrase.rs#L4023  fn dot_or_curly
-semantic/basic/mc_phrase.rs#L4416  fn access_node_element_members
-semantic/basic/mc_phrase.rs#L4479  fn curly_mn
-semantic/basic/mc_phrase.rs#L4495  fn opd_to_node_element_vec
-semantic/basic/mc_phrase.rs#L4594  fn upgrade_new_label_or_bus
-semantic/basic/mc_phrase.rs#L4605  fn needs_paren_for_priority
-semantic/basic/mc_phrase.rs#L4624  fn needs_paren_for_series
-semantic/basic/mc_phrase.rs#L4643  fn format_series_item
-semantic/basic/mc_phrase.rs#L4651  impl std::fmt::Display for McPhrase
-semantic/basic/mc_phrase.rs#L4652  fn fmt
-semantic/basic/mc_phrase.rs#L4720  fn flatten
-semantic/basic/mc_phrase.rs#L4824  fn stretch_licensed_members
-semantic/basic/mc_phrase.rs#L4848  fn operand_is_licensed_member
-semantic/basic/mc_phrase.rs#L4864  fn operand_lane_width
-semantic/basic/mc_phrase.rs#L4872  fn infer_shape_and_upgrade
-semantic/basic/mc_phrase.rs#L5052  fn check_transpose_allowed
-semantic/basic/mc_phrase.rs#L5073  fn interface_elems
-semantic/basic/mc_phrase.rs#L5111  fn component_port_elems
-semantic/basic/mc_phrase.rs#L5173  fn base_instance_name
-semantic/basic/mc_phrase.rs#L5192  fn module_port_elems
-semantic/basic/mc_phrase.rs#L5248  fn operand_base_member
-semantic/basic/mc_phrase.rs#L5279  fn module_member_is_internal
-semantic/basic/mc_phrase.rs#L5322  fn report_internal_member_access
-semantic/basic/mc_phrase.rs#L5354  fn group_display_form
-semantic/basic/mc_phrase.rs#L5359  fn eval_port_elems
-semantic/basic/mc_phrase.rs#L5877  impl OpdShape
-semantic/basic/mc_phrase.rs#L5884  fn of
-semantic/basic/mc_phrase.rs#L5894  fn from_sides
-semantic/basic/mc_phrase.rs#L5941  fn check_list_column_width_mixed
-semantic/basic/mc_phrase.rs#L5998  fn declared_scalar_element
-semantic/basic/mc_phrase.rs#L6021  fn list_element_elems
-semantic/basic/mc_phrase.rs#L6037  fn column_kind
-semantic/basic/mc_phrase.rs#L6067  enum ColumnKind
-semantic/basic/mc_phrase.rs#L6098  fn is_connectable
+semantic/basic/mc_phrase.rs#L3490  struct CompPinShape
+semantic/basic/mc_phrase.rs#L3498  enum PinShapeKind
+semantic/basic/mc_phrase.rs#L3520  fn shape_defaults
+semantic/basic/mc_phrase.rs#L3570  fn is_reverse_noop_operand
+semantic/basic/mc_phrase.rs#L3600  fn as_bare_component
+semantic/basic/mc_phrase.rs#L3611  fn body_arity
+semantic/basic/mc_phrase.rs#L3625  fn check_inst_plusminus
+semantic/basic/mc_phrase.rs#L3651  fn check_body_pair_plusminus
+semantic/basic/mc_phrase.rs#L3675  fn as_bare_net
+semantic/basic/mc_phrase.rs#L3703  fn root_ident
+semantic/basic/mc_phrase.rs#L3729  fn check_net_pair_plusminus
+semantic/basic/mc_phrase.rs#L3744  impl McPhrase
+semantic/basic/mc_phrase.rs#L3749  fn reverse_is_noop
+semantic/basic/mc_phrase.rs#L3753  fn get_left
+semantic/basic/mc_phrase.rs#L3902  fn get_right
+semantic/basic/mc_phrase.rs#L4032  fn dot_or_curly
+semantic/basic/mc_phrase.rs#L4425  fn access_node_element_members
+semantic/basic/mc_phrase.rs#L4488  fn curly_mn
+semantic/basic/mc_phrase.rs#L4504  fn opd_to_node_element_vec
+semantic/basic/mc_phrase.rs#L4603  fn upgrade_new_label_or_bus
+semantic/basic/mc_phrase.rs#L4614  fn needs_paren_for_priority
+semantic/basic/mc_phrase.rs#L4633  fn needs_paren_for_series
+semantic/basic/mc_phrase.rs#L4652  fn format_series_item
+semantic/basic/mc_phrase.rs#L4660  impl std::fmt::Display for McPhrase
+semantic/basic/mc_phrase.rs#L4661  fn fmt
+semantic/basic/mc_phrase.rs#L4729  fn flatten
+semantic/basic/mc_phrase.rs#L4833  fn stretch_licensed_members
+semantic/basic/mc_phrase.rs#L4857  fn operand_is_licensed_member
+semantic/basic/mc_phrase.rs#L4873  fn operand_lane_width
+semantic/basic/mc_phrase.rs#L4881  fn infer_shape_and_upgrade
+semantic/basic/mc_phrase.rs#L5061  fn check_transpose_allowed
+semantic/basic/mc_phrase.rs#L5082  fn interface_elems
+semantic/basic/mc_phrase.rs#L5120  fn component_port_elems
+semantic/basic/mc_phrase.rs#L5182  fn base_instance_name
+semantic/basic/mc_phrase.rs#L5201  fn module_port_elems
+semantic/basic/mc_phrase.rs#L5257  fn operand_base_member
+semantic/basic/mc_phrase.rs#L5288  fn module_member_is_internal
+semantic/basic/mc_phrase.rs#L5331  fn report_internal_member_access
+semantic/basic/mc_phrase.rs#L5363  fn group_display_form
+semantic/basic/mc_phrase.rs#L5368  fn eval_port_elems
+semantic/basic/mc_phrase.rs#L5886  impl OpdShape
+semantic/basic/mc_phrase.rs#L5893  fn of
+semantic/basic/mc_phrase.rs#L5903  fn from_sides
+semantic/basic/mc_phrase.rs#L5950  fn check_list_column_width_mixed
+semantic/basic/mc_phrase.rs#L6007  fn declared_scalar_element
+semantic/basic/mc_phrase.rs#L6030  fn list_element_elems
+semantic/basic/mc_phrase.rs#L6046  fn column_kind
+semantic/basic/mc_phrase.rs#L6076  enum ColumnKind
+semantic/basic/mc_phrase.rs#L6107  fn is_connectable
 semantic/basic/mc_role.rs#L12  struct McRole
 semantic/basic/mc_role.rs#L19  impl McRole
 semantic/basic/mc_role.rs#L20  fn new
@@ -7714,36 +7714,36 @@ stages/vec.rs#L371  fn endpoint_path
 stages/vec.rs#L375  fn pin_path
 stages/vec.rs#L390  fn render_vec_text
 stages/viz.rs#L146  fn build_viz
-stages/viz.rs#L269  fn group_items
-stages/viz.rs#L305  const POWER_INTENT
-stages/viz.rs#L317  fn face_name
-stages/viz.rs#L358  fn intent_items
-stages/viz.rs#L388  fn net_statements
-stages/viz.rs#L427  fn edge_end
-stages/viz.rs#L454  fn layer_path
-stages/viz.rs#L469  fn layer_item
-stages/viz.rs#L522  fn reports_of
-stages/viz.rs#L548  fn determinism_layer
-stages/viz.rs#L572  fn edge_item
-stages/viz.rs#L610  fn style_str
-stages/viz.rs#L617  fn box_item
-stages/viz.rs#L650  fn pin_item
-stages/viz.rs#L695  fn side_str
-stages/viz.rs#L706  struct PinNet
-stages/viz.rs#L739  fn nets_by_pin
-stages/viz.rs#L762  type NetsByPin
-stages/viz.rs#L775  fn segment_item
-stages/viz.rs#L800  fn seg_length
-stages/viz.rs#L824  fn metrics_items
-stages/viz.rs#L1042  fn push_fields
-stages/viz.rs#L1062  fn absent_family
-stages/viz.rs#L1079  fn pin_path
-stages/viz.rs#L1111  fn anchor_x
-stages/viz.rs#L1119  fn anchor_y
-stages/viz.rs#L1130  fn render_viz_text
-stages/viz.rs#L1248  fn family_list
-stages/viz.rs#L1268  fn end_list
-stages/viz.rs#L1284  fn num
+stages/viz.rs#L288  fn group_items
+stages/viz.rs#L324  const POWER_INTENT
+stages/viz.rs#L336  fn face_name
+stages/viz.rs#L377  fn intent_items
+stages/viz.rs#L407  fn net_statements
+stages/viz.rs#L446  fn edge_end
+stages/viz.rs#L473  fn layer_path
+stages/viz.rs#L488  fn layer_item
+stages/viz.rs#L541  fn reports_of
+stages/viz.rs#L567  fn determinism_layer
+stages/viz.rs#L591  fn edge_item
+stages/viz.rs#L629  fn style_str
+stages/viz.rs#L636  fn box_item
+stages/viz.rs#L669  fn pin_item
+stages/viz.rs#L714  fn side_str
+stages/viz.rs#L725  struct PinNet
+stages/viz.rs#L758  fn nets_by_pin
+stages/viz.rs#L781  type NetsByPin
+stages/viz.rs#L794  fn segment_item
+stages/viz.rs#L819  fn seg_length
+stages/viz.rs#L843  fn metrics_items
+stages/viz.rs#L1061  fn push_fields
+stages/viz.rs#L1081  fn absent_family
+stages/viz.rs#L1098  fn pin_path
+stages/viz.rs#L1130  fn anchor_x
+stages/viz.rs#L1138  fn anchor_y
+stages/viz.rs#L1149  fn render_viz_text
+stages/viz.rs#L1267  fn family_list
+stages/viz.rs#L1287  fn end_list
+stages/viz.rs#L1303  fn num
 stages/world_ver.rs#L39  const FNV_OFFSET_BASIS
 stages/world_ver.rs#L41  const FNV_PRIME
 stages/world_ver.rs#L44  fn fold
@@ -7846,21 +7846,23 @@ vector/builder/visit.rs#L130  fn observe_block_nets_recursive
 vector/builder/visit.rs#L155  fn build
 vector/builder/visit.rs#L178  fn try_build
 vector/builder/visit.rs#L214  fn convert_module
-vector/builder/visit.rs#L436  fn extract_component_inner_layers
-vector/builder/visit.rs#L527  fn build_nets_from_connections
-vector/builder/visit.rs#L572  struct PointResult
-vector/builder/visit.rs#L1011  fn uf_find
-vector/builder/visit.rs#L1018  fn uf_union
-vector/builder/visit.rs#L1115  fn looks_like_rail
-vector/builder/visit.rs#L1130  fn name_priority
-vector/builder/visit.rs#L1354  fn override_ground_nets_from_pass2
-vector/builder/visit.rs#L1415  fn next_net_id
-vector/builder/visit.rs#L1431  fn two_pin_component_pins
-vector/builder/visit.rs#L1455  fn segment_net_name
-vector/builder/visit.rs#L1478  fn trunk_end_from_id
-vector/builder/visit.rs#L1543  fn build_mc_vec
-vector/builder/visit.rs#L1556  fn build_mc_vec_with_arena
-vector/builder/visit.rs#L1571  fn build_mc_vec_with_report
+vector/builder/visit.rs#L450  fn extract_component_inner_layers
+vector/builder/visit.rs#L612  fn outermost_caller
+vector/builder/visit.rs#L637  fn owner_in_scope
+vector/builder/visit.rs#L658  fn build_nets_from_connections
+vector/builder/visit.rs#L703  struct PointResult
+vector/builder/visit.rs#L1142  fn uf_find
+vector/builder/visit.rs#L1149  fn uf_union
+vector/builder/visit.rs#L1246  fn looks_like_rail
+vector/builder/visit.rs#L1261  fn name_priority
+vector/builder/visit.rs#L1485  fn override_ground_nets_from_pass2
+vector/builder/visit.rs#L1546  fn next_net_id
+vector/builder/visit.rs#L1562  fn two_pin_component_pins
+vector/builder/visit.rs#L1586  fn segment_net_name
+vector/builder/visit.rs#L1609  fn trunk_end_from_id
+vector/builder/visit.rs#L1674  fn build_mc_vec
+vector/builder/visit.rs#L1687  fn build_mc_vec_with_arena
+vector/builder/visit.rs#L1702  fn build_mc_vec_with_report
 vector/graph/boxdef.rs#L30  struct IoSummary
 vector/graph/boxdef.rs#L37  impl IoSummary
 vector/graph/boxdef.rs#L38  fn new
@@ -10033,23 +10035,23 @@ viz/render/shape.rs#L43  trait BoxShape
 viz/render/shape.rs#L45  fn render
 viz/render/shape.rs#L61  fn render_box
 viz/render/shape.rs#L90  fn render_box_inner
-viz/render/shape.rs#L170  fn render_custom_symbol
-viz/render/shape.rs#L199  fn escape_xml_attr
-viz/render/shape.rs#L211  fn box_name_label
-viz/render/shape.rs#L225  fn render_test_point
-viz/render/shape.rs#L250  fn render_dot_symbol
-viz/render/shape.rs#L272  fn render_box_legacy
-viz/render/shape.rs#L313  mod tests
-viz/render/shape.rs#L318  fn mk
-viz/render/shape.rs#L343  fn custom_symbol_overrides_system_symbol_in_device_layers
-viz/render/shape.rs#L362  fn no_custom_symbol_uses_system
-viz/render/shape.rs#L375  fn box_body
-viz/render/shape.rs#L397  fn root_box_advertises_drill_down_only_when_the_layer_exists
-viz/render/shape.rs#L443  fn drill_down_does_not_depend_on_the_face
-viz/render/shape.rs#L471  fn virtual_test_point_hides_instance_name
-viz/render/shape.rs#L486  fn real_test_point_keeps_instance_name
-viz/render/shape.rs#L497  fn box_with_source_span_stamps_its_coordinate
-viz/render/shape.rs#L509  fn box_without_source_span_stamps_nothing
+viz/render/shape.rs#L178  fn render_custom_symbol
+viz/render/shape.rs#L207  fn escape_xml_attr
+viz/render/shape.rs#L219  fn box_name_label
+viz/render/shape.rs#L233  fn render_test_point
+viz/render/shape.rs#L258  fn render_dot_symbol
+viz/render/shape.rs#L280  fn render_box_legacy
+viz/render/shape.rs#L321  mod tests
+viz/render/shape.rs#L326  fn mk
+viz/render/shape.rs#L351  fn custom_symbol_overrides_system_symbol_in_device_layers
+viz/render/shape.rs#L370  fn no_custom_symbol_uses_system
+viz/render/shape.rs#L383  fn box_body
+viz/render/shape.rs#L405  fn root_box_advertises_drill_down_only_when_the_layer_exists
+viz/render/shape.rs#L451  fn drill_down_does_not_depend_on_the_face
+viz/render/shape.rs#L479  fn virtual_test_point_hides_instance_name
+viz/render/shape.rs#L494  fn real_test_point_keeps_instance_name
+viz/render/shape.rs#L505  fn box_with_source_span_stamps_its_coordinate
+viz/render/shape.rs#L517  fn box_without_source_span_stamps_nothing
 viz/render/sub_module.rs#L45  fn submodule_pin_opts
 viz/render/sub_module.rs#L66  fn render_submodule_pin
 viz/render/sub_module.rs#L79  fn render_sub_module
@@ -10768,4 +10770,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-399 files, 10687 declarations.
+399 files, 10689 declarations.
