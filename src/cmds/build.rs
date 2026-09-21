@@ -250,12 +250,9 @@ fn run_rpc(c: &RpcClient, args: &BuildArgs) -> Result<BuildOutcome> {
 /// Delegated viz: the local face renders and writes the HTML itself, so the
 /// RPC face asks the server's `build.viz` for the same artifact and leaves the
 /// same file (and the same stderr line) behind — the output-parity contract.
-///
-/// The server returns its HTML through `wrap_document` (the webview wrapper,
-/// see `handle_build_viz`), while the local face writes through
-/// `wrap_standalone`. A `circuit.html` on disk must carry the vscode source
-/// links whichever face wrote it, so the wrapped string is stamped here
-/// rather than re-wrapped — the document itself lives on the server.
+/// `standalone: true` makes the server wrap through `wrap_standalone`, the
+/// same writer the local face uses, so the two faces leave byte-identical
+/// files; the html comes back ready to write, no client-side stamping.
 fn write_delegated_viz(
     c: &RpcClient,
     entry_abs: &Path,
@@ -270,6 +267,7 @@ fn write_delegated_viz(
                 "top": mcc::cli::globals().top,
                 "libs": libs,
                 "layouter": args.layouter,
+                "standalone": true,
             }),
         )
         .map_err(|e| anyhow::anyhow!("viz: server render failed: {e}"))?;
@@ -277,11 +275,10 @@ fn write_delegated_viz(
         .get("html")
         .and_then(|h| h.as_str())
         .ok_or_else(|| anyhow::anyhow!("viz: server returned no html"))?;
-    let html = mcc::viz::sourcelink::stamp_wrapped(html, &resolve_project_root(args));
 
     let output_path = viz_output_path(&resolve_project_root(args));
     ensure_viz_parent(&output_path)?;
-    std::fs::write(&output_path, &html)
+    std::fs::write(&output_path, html)
         .with_context(|| format!("failed to write file: {}", output_path.display()))?;
     eprintln!("viz: {} bytes written to {}", html.len(), output_path.display());
     Ok(())
@@ -456,8 +453,13 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
 
     // ── G4: Write known_missing.md baseline ──
     // Phase C S3-D: the failed-record tree walk resolves sub-modules through
-    // the view (the tree's Vec fields are gone).
-    mcc::InstTable::write_known_missing(inst, "baseline/known_missing.md", &view);
+    // the view (the tree's Vec fields are gone). Anchored to the project root,
+    // not the cwd: the audit lands in the project it audits.
+    let known_missing = project_root
+        .join("build")
+        .join("baseline")
+        .join("known_missing.md");
+    mcc::InstTable::write_known_missing(inst, &known_missing.to_string_lossy(), &view);
 
     // ── 3.7. Selected file products ──
     // Read here, off the same flat projection the envelope is built from, so a
@@ -1109,7 +1111,8 @@ fn build_browse_dir(
         // Phase C S3-D: the failed-record tree walk resolves sub-modules
         // through the view (the tree's Vec fields are gone).
         let view = mcc::TreeView::new(arena, store);
-        mcc::InstTable::write_known_missing(inst, "baseline/known_missing.md", &view);
+        let known_missing = root.join("build").join("baseline").join("known_missing.md");
+        mcc::InstTable::write_known_missing(inst, &known_missing.to_string_lossy(), &view);
     }
 
     // ── 4. Viz: write out what the entries rendered ──

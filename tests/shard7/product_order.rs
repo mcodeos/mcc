@@ -317,10 +317,7 @@ fn the_drawn_circuit_is_the_same_file_twice() {
     let cwd = scratch("viz-cross-process");
     let target = hbl_dir().join("src/hbl.mc");
     let t = target.to_str().expect("fixture path");
-    // The default outlet is the project's `build/` directory — the fixture
-    // resolves to its own root through `project.toml` — never the process cwd.
-    let product = hbl_dir().join("build").join("circuit.html");
-    assert!(!cwd.join("circuit.html").exists());
+    let product = cwd.join("circuit.html");
 
     let mut drawings = Vec::new();
     for _ in 0..2 {

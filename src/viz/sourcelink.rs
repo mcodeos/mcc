@@ -63,18 +63,6 @@ pub fn wrap_standalone(doc: &mut VizDocument, project_root: &Path) -> String {
     super::template::wrap_document(doc)
 }
 
-/// Stamp the source links onto an already-wrapped HTML document.
-///
-/// The delegated build face writes the server's `build.viz` output to disk,
-/// and that output comes out through [`super::template::wrap_document`] (the
-/// webview wrapper) because the document itself lives on the server. This is
-/// the same contract [`wrap_standalone`] enforces for locally rendered
-/// documents — a `circuit.html` on disk must carry the `data-src-vscode`
-/// links — applied to the wrapped string instead of a held document.
-pub fn stamp_wrapped(html: &str, project_root: &Path) -> String {
-    linkify(html, project_root, &mut FileCache::new())
-}
-
 /// Add a `data-src-vscode` link beside every `data-src-uri`/`data-src-offset`
 /// pair in the document's layers.
 ///
@@ -324,41 +312,5 @@ mod tests {
     fn unrelated_svg_is_untouched() {
         let svg = r##"<rect x="1" data-pin-id="7"/><text>VCC</text>"##;
         assert_eq!(linkify(svg, Path::new("/"), &mut FileCache::new()), svg);
-    }
-
-    /// The delegated-build face receives a fully wrapped HTML document from
-    /// the server and must still leave the vscode links on disk — the same
-    /// contract `wrap_standalone` enforces, just over a string the CLI does
-    /// not hold as a document. A pair outside any layer must stamp too, and
-    /// template text without the pair must come through untouched.
-    #[test]
-    fn stamp_wrapped_stamps_a_wrapped_document() {
-        let dir = tmpdir();
-        let path = dir.join("m.mc");
-        std::fs::write(&path, "a\nb\n").unwrap();
-        let html = format!(
-            concat!(
-                r#"<html><body><script>const DOC = 1;</script>"#,
-                r##"<g data-src-uri="{}" data-src-offset="2"><rect/></g>"##,
-                r#"<footer>circuit.html</footer></body></html>"#
-            ),
-            path.to_string_lossy()
-        );
-        let out = stamp_wrapped(&html, &dir);
-        assert!(
-            out.contains(r##"data-src-vscode="vscode://file/"##),
-            "{out}"
-        );
-        assert!(out.contains(":2:1"), "{out}");
-        assert!(out.contains("<footer>circuit.html</footer>"), "{out}");
-    }
-
-    /// A wrapped document whose layers carry no coordinate pair (no render
-    /// attributes at all) passes through unchanged — the same pass-through
-    /// rule `linkify` applies, so an attribute-free template is not edited.
-    #[test]
-    fn stamp_wrapped_without_pairs_is_untouched() {
-        let html = r#"<html><body><span class="hint">open dev tools</span></body></html>"#;
-        assert_eq!(stamp_wrapped(html, Path::new("/")), html);
     }
 }

@@ -96,6 +96,17 @@ pub fn handle_build_viz(params: Option<Value>) -> RpcResult {
     };
 
     let mc_uri = McURI::from(entry_path.to_string_lossy().as_ref());
+    // Project-local resources (`symbols/manifest.toml`) resolve from the
+    // project root — the setup the local build face does in
+    // `build_from_manifest` before it renders. Without it every component
+    // carrying a custom symbol falls back to the generic box and the
+    // delegated render drifts from the local one (b3668). The server is
+    // long-lived, so this is per-request: the next `build.viz` re-resolves
+    // the root for its own entry.
+    let entry_dir = entry_path.parent().unwrap_or(&entry_path).to_path_buf();
+    let symbols_root = crate::cli::manifest::Manifest::nearest_root(&entry_dir)
+        .unwrap_or_else(|| entry_dir.clone());
+    crate::mcc_set_project_root(&symbols_root);
     let t1 = std::time::Instant::now();
     crate::mcc_load_project(&mc_uri);
     tracing::info!(target: "mcc::perf", step = "load_project", ms = t1.elapsed().as_millis() as u64, "build.viz step");
@@ -183,7 +194,7 @@ pub fn handle_build_viz(params: Option<Value>) -> RpcResult {
     // Single target: keep the full render document. Multiple targets (peer
     // modules, or several components/interfaces in one file): stack the SVGs
     // vertically into one self-contained HTML.
-    let doc = if let Some(doc) = single_doc {
+    let mut doc = if let Some(doc) = single_doc {
         doc
     } else {
         let combined_svg = crate::viz::template::combine_svgs(&svgs);
@@ -194,13 +205,26 @@ pub fn handle_build_viz(params: Option<Value>) -> RpcResult {
         doc.add_layer(layer);
         doc
     };
-    let html = crate::viz::template::wrap_document(&doc);
+    // Standalone mode is the CLI write-to-disk contract: the same
+    // `wrap_standalone` the local face goes through, so the two faces leave
+    // byte-identical artifacts. The wrapper root is the entry's project root
+    // — relative source URIs (a `use`d file recorded before
+    // canonicalization) resolve against it; absolute ones ignore it.
+    let (html, standalone) = if p.standalone {
+        (
+            crate::viz::sourcelink::wrap_standalone(&mut doc, &symbols_root),
+            true,
+        )
+    } else {
+        (crate::viz::template::wrap_document(&doc), false)
+    };
     tracing::info!(target: "mcc::perf", step = "total", ms = t_all.elapsed().as_millis() as u64, "build.viz step");
 
     Ok(json!({
         "command": "build.viz",
         "top": top_name,
         "html": html,
+        "standalone": standalone,
         "svg_bytes": doc.total_svg_bytes(),
         "layers": doc.layer_count(),
     }))
@@ -333,6 +357,57 @@ component RES
         let html = resp["html"].as_str().expect("html field");
         assert!(html.contains("BLINKER"), "module label BLINKER must render");
         assert!(html.contains("BUZZER"), "module label BUZZER must render");
+        std::fs::remove_dir_all(path.parent().unwrap()).ok();
+    }
+
+    /// Standalone mode (the CLI write-to-disk contract): the response html
+    /// goes through `wrap_standalone`, so the vscode source links are inside
+    /// the document the server wrapped — not stamped client-side onto a
+    /// string whose svg lives JSON-escaped (the escaped quotes are exactly
+    /// why a post-hoc stamp over the wrapped bytes cannot see the pairs).
+    /// The fixture declares a component so the rendered box carries a
+    /// `source_span` — an empty module renders no source anchor at all.
+    #[test]
+    fn cli_buildcmd__build_viz_standalone_stamps_source_links() {
+        let _guard = parse_lock();
+        crate::mcc_init_no_lib();
+        crate::mcc_set_system_root(std::path::Path::new(""));
+        crate::mcc_clear_workspace();
+
+        let path = tmp_file(
+            "standalone",
+            r#"
+component RES
+{
+    pins = [
+        1 = 1, "Term 1"
+        2 = 2, "Term 2"
+    ]
+}
+module main
+{
+    R1::RES()
+}
+"#,
+        );
+        let entry = path.to_string_lossy().into_owned();
+
+        let resp =
+            handle_build_viz(Some(json!({ "entry": entry, "standalone": true })))
+                .expect("build.viz ok");
+        assert_eq!(resp["standalone"], json!(true), "echo the wrap mode");
+        let html = resp["html"].as_str().expect("html field");
+        assert!(
+            html.contains("data-src-uri="),
+            "the component box must carry a source anchor"
+        );
+        // The svg is embedded JSON-escaped, so the stamped link reads with
+        // backslash-escaped quotes — matching the raw quote form would be
+        // matching the wrong layer of the document.
+        assert!(
+            html.contains(r#"data-src-vscode=\"vscode://file/"#),
+            "wrapped output must carry the stamped links"
+        );
         std::fs::remove_dir_all(path.parent().unwrap()).ok();
     }
 

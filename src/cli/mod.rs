@@ -275,7 +275,7 @@ pub struct ParseArgs {
     #[arg(long)]
     pub pass2: bool,
 
-    /// Generate visualization HTML (default <project-root>/build/circuit.html)
+    /// Generate visualization HTML (default circuit.html)
     #[arg(long)]
     pub viz: bool,
 

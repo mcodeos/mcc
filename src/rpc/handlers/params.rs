@@ -159,6 +159,12 @@ pub(crate) struct BuildVizParams {
     /// (flow|schematic_radial|schematic_sub|hierarchical|radial|layered).
     #[serde(default)]
     pub(crate) layouter: Option<String>,
+    /// Wrap for a standalone file on disk: stamp the vscode source links and
+    /// wrap through `wrap_standalone`, exactly what the CLI's local face
+    /// writes. The webview consumers keep the default (false): they get
+    /// `wrap_document` output and post byte offsets to a host themselves.
+    #[serde(default)]
+    pub(crate) standalone: bool,
 }
 
 pub(crate) struct FileEntry {
