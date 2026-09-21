@@ -90,13 +90,13 @@ fn run_mcc(cwd: &Path, args: &[&str]) -> (String, String, bool) {
 
 /// Run a build that is expected to **reach the envelope**, and return its stdout.
 ///
-/// The exit code is deliberately not the assertion. The fixture reports an
-/// electrical error (E5414), and a build that reports errors still writes its
-/// products — the error rides in the envelope and the exit code, exactly as
-/// `mcc export` does not refuse to project a circuit it has complaints about.
-/// So what must be checked is that the command **ran to the end**: an empty
-/// stdout is a usage error or a panic, and would otherwise let "no product was
-/// written" pass for the wrong reason.
+/// The exit code is deliberately not the assertion. The fixture may report
+/// warnings, and a build that reports findings still writes its products —
+/// they ride in the envelope and the exit code, exactly as `mcc export` does
+/// not refuse to project a circuit it has complaints about. So what must be
+/// checked is that the command **ran to the end**: an empty stdout is a usage
+/// error or a panic, and would otherwise let "no product was written" pass for
+/// the wrong reason.
 fn run_build(cwd: &Path, args: &[&str]) -> String {
     let (out, err, _) = run_mcc(cwd, args);
     assert!(
