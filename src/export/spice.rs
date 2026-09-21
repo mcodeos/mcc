@@ -2,28 +2,19 @@
 //! SPICE-style text netlist export -- a human-readable netlist, not a
 //! simulation deck (deck responsibility belongs to the sim domain).
 
-use crate::export::NodeArena;
-use crate::instant::inststore::InstanceStore;
 use crate::instant::insttab::InstTable;
 use crate::instant::refdes;
-use crate::McModuleInst;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-use super::netlist::{collect_nets, PointNaming};
+use super::netlist::PointNaming;
 
 /// Letter for a component class the refdes table does not register. `X` is a
 /// marker, not a guess: a class spelling is no evidence of what a device is
 /// (`refdes-design.md` §2).
 const UNKNOWN_PREFIX: &str = "X";
 
-pub fn build_spice(
-    tree: &McModuleInst,
-    table: &InstTable,
-    arena: &NodeArena,
-    inst_store: &InstanceStore,
-    top: &str,
-) -> (String, Value, usize) {
+pub fn build_spice(table: &InstTable, top: &str) -> (String, Value, usize) {
     let mut out = String::new();
     out.push_str(&format!("* SPICE netlist: top={}\n", top));
     out.push_str(&format!(".SUBCKT {}\n", top));
@@ -37,21 +28,11 @@ pub fn build_spice(
         }
     }
 
-    let mut netmap: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    // Phase D: the tree never stores NetPoint — read the frozen per-module
-    // string net tables from the flat table's store.
-    let store_ref = table.net_table();
-    let store_ref = store_ref.borrow();
-    // Hierarchical labels: the instance key must join to `name_to_class`, whose
-    // keys are flat-table paths.
-    collect_nets(
-        tree,
-        arena,
-        inst_store,
-        &store_ref,
-        PointNaming::Hierarchical,
-        &mut netmap,
-    );
+    // Copper islands from the flat table (U158): a merged island carries the
+    // whole node, so a part's pin list is complete even where the copper is
+    // anonymous — dropping those islands dropped the device's own pins.
+    let netmap: BTreeMap<String, Vec<String>> =
+        super::netlist::island_nets(table, PointNaming::Hierarchical);
 
     // A `BTreeMap`, not a `HashMap`: this map's iteration order *is* the order
     // of the `X<name> <net> <net>` lines below, and a `HashMap` draws its order
@@ -62,7 +43,9 @@ pub fn build_spice(
     let mut inst_nodes: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
 
     for (net_name, points) in &netmap {
-        if net_name == "NC" || crate::instant::mc_net::is_anon_net_name(net_name) {
+        if net_name == "NC"
+            || net_name.starts_with(crate::semantic::basic::mc_bus::McBus::ERROR_PREFIX)
+        {
             continue;
         }
         let node = net_name.replace('.', "_").replace('-', "_");
@@ -78,11 +61,15 @@ pub fn build_spice(
 
     let mut total: usize = 0;
     for (inst, nodes) in &inst_nodes {
+        // An island carries its boundary port points too (U158), so a port
+        // group (`main.LDO.vin`) and a module instance arrive here beside the
+        // real parts. The flat table's component registry is the divider: no
+        // component row, no device line.
+        let Some(class) = name_to_class.get(inst) else {
+            continue;
+        };
         let node_list: Vec<&String> = nodes.iter().collect();
-        let prefix = name_to_class
-            .get(inst)
-            .and_then(|class| refdes::prefix_for_class(class))
-            .unwrap_or(UNKNOWN_PREFIX);
+        let prefix = refdes::prefix_for_class(class).unwrap_or(UNKNOWN_PREFIX);
         // `inst` is the hierarchical path; the netlist reader is told the name
         // the module itself uses.
         let name = inst.rsplit('.').next().unwrap_or(inst);
