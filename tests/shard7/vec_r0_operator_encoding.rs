@@ -292,19 +292,18 @@ fn caret__on_orderless_operand_still_wraps() {
     // operands stack into a point (`1*1 + 1*1 = 1*1`) whose two faces are the
     // same element list. `A` is deliberately undeclared — a bare label is a
     // point, while a declared-but-unused port is shape-by-use (unknown width)
-    // and would not present a point at all; the E3136 that undeclared
-    // func-body labels raise is incidental to this cell.
+    // and would not present a point at all.
     //
     // The two operands must be the **same** name: two *distinct* bare labels
     // are two distinct potentials, so `+` between them fuses two nets and
     // Pass1 rejects the statement (`CONN_NET_CROSSNET`) before `^` is reached
     // (vec-dianlu §1.4/§5.4). `A + A` is the reachable point-valued `+`; the
     // other one is two one-pin bodies.
-    // E3136 fires once for the undeclared bare label `A` (resolve gate) and is
-    // incidental to this cell; the helper dedups, so one label written twice
-    // stays one diagnostic.
+    // Two endpoint references of the one bare label `A` are the via-label
+    // idiom — under the unified usage-count matrix (U154 ruling, 2026-09-21)
+    // the pair stays silent, so only E2903 is expected here.
     assert_eq!(
-        only_with("(A + A)^", &[2903, 3136]),
+        only_with("(A + A)^", &[2903]),
         "Reversed(Group[Parallel[A, A]])"
     );
     // `C1'` is a column (`2*1`) — left face == right face.

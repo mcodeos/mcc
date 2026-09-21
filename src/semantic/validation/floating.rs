@@ -192,21 +192,21 @@ fn check_owner_floating_labels<F>(
         // Failure ledger (observation-only): the action carries the verdict
         // this name gets below, so the count stays pure attribution.
         let refs = func_counts.endpoint + top_counts.endpoint;
-        // Func bodies are a wiring contract: a bare name there is expected to
-        // land on a container terminal, and the miss reports however often it
-        // is written (U13) — joining the same undeclared spelling across two
-        // funcs has invented a net, not declared one. At a module's top level
-        // a label tagged at two or more endpoints is the via-label idiom (the
-        // same spelling on both ends is the net, no middle wire), so it stays
-        // silent and the net layer judges the net; a single stub still
-        // reports. `other` stays joint: an instance-style use anywhere keeps
-        // the name out of the wire verdict.
+        // The usage-count matrix (usage-count-policy-design.md §1, U154 ruling
+        // 2026-09-21): func bodies and a module's top level share one verdict —
+        // the count is a property of the name in its owner, not of the stream
+        // that wrote it, and the net joins the spellings across funcs and the
+        // top level all the same. Exactly one endpoint reference is the single
+        // stub — the typo signal. Two or more are the via-label idiom (the
+        // same spelling on both ends is the net, no middle wire): silent, and
+        // the net layer judges the net (the E3137 division of labor). This
+        // retires the U13 func-body counter-blindness (2026-09-16); the
+        // accepted face is that two funcs writing the same misspelling share a
+        // silently invented net. `other` stays joint: an instance-style use
+        // anywhere keeps the name out of the wire verdict.
         let other = func_counts.other + top_counts.other;
-        let reported = if func_counts.endpoint >= 1 {
-            other == 0
-        } else {
-            top_counts.endpoint == 1 && other == 0
-        };
+        let endpoint = func_counts.endpoint + top_counts.endpoint;
+        let reported = endpoint == 1 && other == 0;
         let action = if reported {
             LedgerAction::Warning
         } else {

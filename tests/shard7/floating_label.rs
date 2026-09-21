@@ -5,11 +5,15 @@
 //! E3136 (FUNC_FLOATING_LABEL): a bare identifier in a func body net stmt that
 //! resolves to no declared pin / interface / param member / func-local instance
 //! becomes a dangling net label. The criterion is positional — the reference
-//! must land on a container terminal — and the count rule is per stream: in
-//! func bodies the miss reports whatever its reference count (a second func
-//! writing the same spelling shares a net that was never declared), while at a
-//! module's top level a label tagged at two endpoints is the via-label idiom
-//! and stays silent; a single stub still reports.
+//! must land on a container terminal — and the count rule is the unified
+//! usage-count matrix (usage-count-policy-design.md §1, U154 ruling
+//! 2026-09-21): func bodies and a module's top level share one verdict, counted
+//! across both streams. Exactly one endpoint reference is the single stub —
+//! the typo signal; two or more are the via-label idiom (the same spelling on
+//! both ends is the net, no middle wire) and stay silent, judged by the net
+//! layer (the E3137 division of labor). This retires the U13 func-body
+//! counter-blindness; the accepted face is that two funcs writing the same
+//! misspelling share a silently invented net.
 
 // Family naming `{family}__{essence}` deliberately doubles the underscore to
 // keep the grep-able family token separate (matrix §1 taxonomy).
@@ -56,17 +60,20 @@ fn sem_flabel__declared_pins_params_func_local_do_not_warn() {
 }
 
 #[test]
-fn sem_flabel__shared_undeclared_net_across_funcs_warns() {
+fn sem_flabel__shared_undeclared_net_across_funcs_stays_silent() {
     let _lock = common::lock();
 
-    // `VSW` is written in both funcs and declared nowhere. Two funcs joining the
-    // same spelling does not declare a net — it invents one — so this is the
-    // LDO2/LDO3 shape and it warns (compat-period verdict: warning, not error).
+    // `VSW` is written in both funcs and declared nowhere. Two endpoint
+    // references across the owner are the via-label idiom — the same spelling
+    // on both ends is the net — so under the unified matrix (U154 ruling) the
+    // pair stays silent and the net layer judges the net. The accepted face of
+    // this cell: two funcs writing the same misspelling share a silently
+    // invented net.
     let src = "component SHARED(pwr)\n{\n    pins = [\n        in 1 = VA\n        in 2 = VB\n    ]\n    func A(pwr)\n    {\n        VSW -> VA\n    }\n    func B(pwr)\n    {\n        VB -> VSW\n    }\n}\nmodule main { io VDD }";
     let codes = build_codes(src);
     assert!(
-        codes.contains(&mcc::errcodes::FUNC_FLOATING_LABEL),
-        "E3136 expected for an undeclared net shared by two funcs; got codes: {codes:?}"
+        !codes.contains(&mcc::errcodes::FUNC_FLOATING_LABEL),
+        "E3136 false positive on an undeclared net shared by two funcs; got codes: {codes:?}"
     );
 }
 
@@ -85,16 +92,32 @@ fn sem_flabel__declared_shared_net_does_not_warn() {
 }
 
 #[test]
-fn sem_flabel__repeated_reference_in_one_func_warns() {
+fn sem_flabel__repeated_reference_in_one_func_stays_silent() {
     let _lock = common::lock();
 
-    // Both references sit in one func: the count is irrelevant to a positional
-    // criterion, the name still lands on no terminal.
+    // Both references sit in one func: two endpoint references are the
+    // via-label idiom wherever they are written — under the unified matrix
+    // (U154 ruling) the pair stays silent and the net layer judges the net.
     let src = "component REPEAT(pwr)\n{\n    pins = [\n        in 1 = VA\n        in 2 = VB\n    ]\n    func F(pwr)\n    {\n        VSW -> VA\n        VB -> VSW\n    }\n}\nmodule main { io VDD }";
     let codes = build_codes(src);
     assert!(
-        codes.contains(&mcc::errcodes::FUNC_FLOATING_LABEL),
-        "E3136 expected for a twice-written undeclared name in one func; got codes: {codes:?}"
+        !codes.contains(&mcc::errcodes::FUNC_FLOATING_LABEL),
+        "E3136 false positive on a twice-written undeclared name in one func; got codes: {codes:?}"
+    );
+}
+
+#[test]
+fn sem_flabel__func_write_plus_top_write_stays_silent() {
+    let _lock = common::lock();
+
+    // The count is a property of the name in its owner, not of the stream
+    // that wrote it: one func endpoint reference plus one top-level endpoint
+    // reference is a two-ended via label and stays silent.
+    let src = "module MIX()\n{\n    in A\n    in B\n    func F()\n    {\n        VSW -> A\n    }\n    VSW -> B\n}\nmodule main { io VDD }";
+    let codes = build_codes(src);
+    assert!(
+        !codes.contains(&mcc::errcodes::FUNC_FLOATING_LABEL),
+        "E3136 false positive on a via label with one end in a func; got codes: {codes:?}"
     );
 }
 
@@ -144,17 +167,16 @@ fn sem_flabel__module_single_stub_label_warns() {
 }
 
 #[test]
-fn sem_flabel__func_miss_reports_despite_module_top_writes() {
+fn sem_flabel__func_miss_rescued_by_top_writes_stays_silent() {
     let _lock = common::lock();
 
-    // The func stream keeps the U13 rule: a bare name in a func body that
-    // lands on no container terminal reports however often it is written —
-    // two extra top-level writings do not rescue a func miss, because a func
-    // reference that silently stays internal has no backstop anywhere else.
+    // U154 ruling, 2026-09-21: the streams merge — three endpoint references
+    // over the owner (one in a func, two at the top level) are the via-label
+    // idiom and stay silent, the same verdict the top level got in b3667.
     let src = "module MIX()\n{\n    in A\n    in B\n    func F()\n    {\n        VSW -> A\n    }\n    VSW -> B\n    VSW - A\n}\nmodule main { io VDD }";
     let codes = build_codes(src);
     assert!(
-        codes.contains(&mcc::errcodes::FUNC_FLOATING_LABEL),
-        "E3136 expected for a func-body miss even with two top-level writings; got codes: {codes:?}"
+        !codes.contains(&mcc::errcodes::FUNC_FLOATING_LABEL),
+        "E3136 false positive on a func write joined by top-level writings; got codes: {codes:?}"
     );
 }
