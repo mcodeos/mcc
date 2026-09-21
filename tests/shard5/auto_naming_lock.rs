@@ -110,3 +110,85 @@ fn mat_aname__normal_sequence_lock() {
         "diagnostic codes around auto-named instances changed (P0.5 lock)"
     );
 }
+
+// ── U170 lock: bare anonymous zero-arg constructions of non-two-pin classes ──
+// The retired parse-time eager Endpoint arm (semantic/basic/mc_fcall.rs, U170
+// retirement comment) used to swallow bare `TP()` constructions whole: the
+// `@`-anonymous component was never stored (semantic/module/mod.rs add_component,
+// P2-10) and Pass2 instantiates constructions only from FuncCall phrases
+// (instant/mc_mod/funccall.rs), so the class silently produced zero instances
+// with zero diagnostics — and inside a group it poisoned the whole connection
+// statement. Now every bare construction keeps the FuncCall form (the P2-12
+// contract two-pin classes already had) and Pass2 auto-names + wires it.
+const TP_COMP: &str = "component TP() {\n    pins = [\n        1 = 1\n    ]\n}\n";
+
+#[test]
+fn mat_u170__bare_anon_one_pin_construction_instantiates_and_wires() {
+    // Replicated (`TP()*2`) and single bare forms both instantiate; every
+    // single-pin device lands its only pin on the driven net. Auto-names use
+    // the Normal `_TP<n>` family (Pass2 counter, one sequence per prefix).
+    let src = format!(
+        "{TP_COMP}module main {{\n    io GND\n    TP()*2 -> GND*2\n    TP() -> GND\n}}"
+    );
+    let (paths, nets, codes) = build_all(&src);
+
+    assert_eq!(
+        paths,
+        vec![
+            "main",
+            "main.GND",
+            "main._TP1",
+            "main._TP1.1",
+            "main._TP2",
+            "main._TP2.1",
+            "main._TP3",
+            "main._TP3.1",
+        ],
+        "bare anonymous one-pin constructions must materialize as auto-named instances (U170)"
+    );
+    assert_eq!(
+        nets,
+        vec!["GND <= [main.GND, main._TP1.1, main._TP2.1, main._TP3.1]"],
+        "every bare-construction pin must sit on the target net (U170)"
+    );
+    assert_eq!(
+        codes,
+        Vec::<u32>::new(),
+        "bare constructions must stay diagnostic-free when wired (U170)"
+    );
+}
+
+#[test]
+fn mat_u170__bare_construction_inside_group_no_longer_poisons_the_statement() {
+    // The hbl SPEAKER_M shape: a bare construction inside a parallel group,
+    // the group chained onward. Before the U170 fix the group kept a bare
+    // `@TP1` junction point and dropped the statement's wiring.
+    let src = format!(
+        "{TP_COMP}{RES_COMP}module main {{\n    io VDD\n    io GND\n    (VDD + TP()) -> RES(1).1 -> GND\n}}"
+    );
+    let (paths, nets, codes) = build_all(&src);
+
+    assert!(
+        paths.contains(&"main._TP1".to_string()) && paths.contains(&"main._TP1.1".to_string()),
+        "group member bare construction must instantiate (U170): {paths:?}"
+    );
+    assert!(
+        paths.contains(&"main._R1".to_string()) && paths.contains(&"main._R1.1".to_string()),
+        "the chained statement must still instantiate its downstream device (U170): {paths:?}"
+    );
+    // Series semantics: the whole group sits left of `_R1`, so the group
+    // member's pin and the chain head (RES pin 1) share one net.
+    let tp_net = nets
+        .iter()
+        .find(|l| l.contains("main._TP1.1"))
+        .expect("the group member pin sits on some net (U170)");
+    assert!(
+        tp_net.contains("main._R1.1") && tp_net.contains("main.VDD"),
+        "group member pin must land on the chain-head net (U170): {tp_net}"
+    );
+    assert!(
+        !codes.contains(&4119),
+        "no silently floating pads may remain after the U170 fix: {codes:?}"
+    );
+}
+
