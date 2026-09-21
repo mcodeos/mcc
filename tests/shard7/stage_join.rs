@@ -1273,28 +1273,55 @@ fn an_expand_names_the_two_objects_one_key_reaches() {
         "the fixture must reach `expand` at this hop, or the card's middle case is untested"
     );
     assert_eq!(count(c, "expand"), expands.len() as u64);
+    let mut instance_expands = 0usize;
     for row in &expands {
         assert_eq!(row["side"], "p2", "the subject is the one upstream object");
         let to = row["to"]
             .as_array()
             .expect("an expand names what it reached");
-        assert_eq!(
-            to.len(),
-            2,
-            "an expansion of one into two, and the count is on the row: {row}"
-        );
-        let (class0, key0) = handle_parts(to[0].as_str().expect("handle"));
-        let (class1, key1) = handle_parts(to[1].as_str().expect("handle"));
-        assert_eq!(key0, key1, "both downstream objects carry the upstream key");
-        assert_ne!(
-            class0, class1,
-            "and they are two objects of the segment, not one written twice: {row}"
+        assert!(
+            to.len() >= 2,
+            "an expansion reaches at least two objects, and the count is on the row: {row}"
         );
         assert!(
             row["from"].as_array().is_some_and(|f| f.is_empty()),
             "an `expand` has one upstream, so `from` names nothing extra: {row}"
         );
+        let classes: Vec<&str> = to
+            .iter()
+            .map(|h| handle_parts(h.as_str().expect("handle")).0)
+            .collect();
+        if row["kind"] == "instance" {
+            instance_expands += 1;
+            // §2.4: the instance's two downstream objects are its box (the
+            // identity's home layer) and its interior layer. The vec walk
+            // publishes the box once (the outermost layer), so the pair is
+            // exactly these two, distinguished by class under one key.
+            assert_eq!(
+                to.len(),
+                2,
+                "an instance expands into its box and its layer, no more: {row}"
+            );
+            assert_ne!(
+                classes[0], classes[1],
+                "and they are two objects of the segment, not one written twice: {row}"
+            );
+        } else {
+            // A net carries no key; its expansion is the one construction
+            // appearing in several layers' projections (the GND rail in the
+            // root, DCDC's and MCU513's scopes...). Same construction, so all
+            // downstream objects are nets.
+            assert!(
+                classes.iter().all(|c| *c == classes[0]),
+                "a net's expansion names the same construction per layer: {row}"
+            );
+        }
     }
+    assert!(
+        instance_expands >= 2,
+        "the fixture must expand instances into box+layer, or the card's named \
+         case is untested"
+    );
 }
 
 // ── The two criteria that are deliberately not keys ──

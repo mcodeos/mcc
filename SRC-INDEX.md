@@ -73,7 +73,7 @@ range (threshold 40KB).
 | `rpc/` | 16 | 297 KB |
 | `semantic/` | 89 | 2594 KB |
 | `stages/` | 11 | 297 KB |
-| `vector/` | 25 | 469 KB |
+| `vector/` | 25 | 471 KB |
 | `viz/` | 95 | 2294 KB |
 
 ## Declaration index
@@ -7701,18 +7701,18 @@ stages/trace.rs#L868  fn key_cell
 stages/trace.rs#L880  fn detail_cell
 stages/trace.rs#L894  fn source_line
 stages/vec.rs#L46  fn build_vec
-stages/vec.rs#L118  fn endpoint_homes
-stages/vec.rs#L141  fn collect_claims
-stages/vec.rs#L170  fn pin_owner_scope
-stages/vec.rs#L179  fn walk
-stages/vec.rs#L265  fn layer_path
-stages/vec.rs#L280  fn box_item
-stages/vec.rs#L304  fn endpoint_item
-stages/vec.rs#L322  fn trunk_item
-stages/vec.rs#L363  fn endpoint_canon
-stages/vec.rs#L371  fn endpoint_path
-stages/vec.rs#L375  fn pin_path
-stages/vec.rs#L390  fn render_vec_text
+stages/vec.rs#L119  fn endpoint_homes
+stages/vec.rs#L142  fn collect_claims
+stages/vec.rs#L171  fn pin_owner_scope
+stages/vec.rs#L180  fn walk
+stages/vec.rs#L275  fn layer_path
+stages/vec.rs#L290  fn box_item
+stages/vec.rs#L314  fn endpoint_item
+stages/vec.rs#L332  fn trunk_item
+stages/vec.rs#L373  fn endpoint_canon
+stages/vec.rs#L381  fn endpoint_path
+stages/vec.rs#L385  fn pin_path
+stages/vec.rs#L400  fn render_vec_text
 stages/viz.rs#L146  fn build_viz
 stages/viz.rs#L288  fn group_items
 stages/viz.rs#L324  const POWER_INTENT
@@ -7847,22 +7847,22 @@ vector/builder/visit.rs#L155  fn build
 vector/builder/visit.rs#L178  fn try_build
 vector/builder/visit.rs#L214  fn convert_module
 vector/builder/visit.rs#L450  fn extract_component_inner_layers
-vector/builder/visit.rs#L612  fn outermost_caller
-vector/builder/visit.rs#L637  fn owner_in_scope
-vector/builder/visit.rs#L658  fn build_nets_from_connections
-vector/builder/visit.rs#L703  struct PointResult
-vector/builder/visit.rs#L1142  fn uf_find
-vector/builder/visit.rs#L1149  fn uf_union
-vector/builder/visit.rs#L1246  fn looks_like_rail
-vector/builder/visit.rs#L1261  fn name_priority
-vector/builder/visit.rs#L1485  fn override_ground_nets_from_pass2
-vector/builder/visit.rs#L1546  fn next_net_id
-vector/builder/visit.rs#L1562  fn two_pin_component_pins
-vector/builder/visit.rs#L1586  fn segment_net_name
-vector/builder/visit.rs#L1609  fn trunk_end_from_id
-vector/builder/visit.rs#L1674  fn build_mc_vec
-vector/builder/visit.rs#L1687  fn build_mc_vec_with_arena
-vector/builder/visit.rs#L1702  fn build_mc_vec_with_report
+vector/builder/visit.rs#L658  fn outermost_caller
+vector/builder/visit.rs#L683  fn owner_in_scope
+vector/builder/visit.rs#L704  fn build_nets_from_connections
+vector/builder/visit.rs#L749  struct PointResult
+vector/builder/visit.rs#L1188  fn uf_find
+vector/builder/visit.rs#L1195  fn uf_union
+vector/builder/visit.rs#L1292  fn looks_like_rail
+vector/builder/visit.rs#L1307  fn name_priority
+vector/builder/visit.rs#L1531  fn override_ground_nets_from_pass2
+vector/builder/visit.rs#L1592  fn next_net_id
+vector/builder/visit.rs#L1608  fn two_pin_component_pins
+vector/builder/visit.rs#L1632  fn segment_net_name
+vector/builder/visit.rs#L1655  fn trunk_end_from_id
+vector/builder/visit.rs#L1720  fn build_mc_vec
+vector/builder/visit.rs#L1733  fn build_mc_vec_with_arena
+vector/builder/visit.rs#L1748  fn build_mc_vec_with_report
 vector/graph/boxdef.rs#L30  struct IoSummary
 vector/graph/boxdef.rs#L37  impl IoSummary
 vector/graph/boxdef.rs#L38  fn new

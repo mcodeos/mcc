@@ -108,6 +108,14 @@ fn render_box_inner(b: &McVecBox, is_root: bool, clickable_subs: &[i64]) -> Stri
     if is_root {
         return render_sub_module_root(b, drill);
     }
+    // ★ expansion-provenance §3.4 comp-boundary: a component that owns an inner
+    // layer is a container, in every layer — the roster said so, and the
+    // drill-consistency lock demands the box advertise exactly that. The module
+    // face is the container face; a part without a sub-layer keeps its device
+    // symbol below.
+    if drill {
+        return render_sub_module(b, drill);
+    }
     match b.symbol {
         Symbol::Resistor => ResistorShape.render(b),
         Symbol::Capacitor | Symbol::PolarCapacitor => CapacitorShape.render(b),
