@@ -382,6 +382,40 @@ python3 scripts/check-ast-roundtrip.py --mcc target-slots/b/debug/mcc \
     /path/to/project/src/*.mc
 ```
 
+#### Worked example — full-chain audit of a project
+
+The five-step recipe used to audit `mcs/hbl` end to end (`$MCC` is the
+mcc binary, `$HBL` the project's top file, e.g.
+`~/work/mo/mcs/hbl/src/hbl.mc`; a project directory works too):
+
+```bash
+MCC=mcc
+HBL=~/work/mo/mcs/hbl/src/hbl.mc
+
+# 1. Segment joins — audit each seam; drop/synth are the suspect classes
+$MCC join src p2  -F $HBL          # source -> Pass2 circuit
+$MCC join p2  vec -F $HBL          # Pass2 -> vec
+$MCC join vec viz -F $HBL          # vec -> viz
+$MCC join vec viz -F $HBL --only drop   # zoom into one class
+
+# 2. Trace one object that looks wrong at some stage
+$MCC trace top.u1.vin -F $HBL      # instance port / net name / mcu.mc:23 / N12:3
+
+# 3. Diff two readings of one view (before/after an edit)
+$MCC show stage viz -F $HBL -f json -o /tmp/viz_now.json
+$MCC diff $HBL /tmp/viz_now.json --view stage.viz
+
+# 4. AST <-> source round-trip gate (every non-comment byte accounted for)
+python3 scripts/check-ast-roundtrip.py --mcc $MCC ~/work/mo/mcs/hbl/src/*.mc
+
+# 5. Diagnostics floor — syntax/semantic + (with --local) the 6xxx ERC codes
+$MCC check --local -F $HBL
+```
+
+Reading order: 4 must be clean before anything downstream is trusted;
+1's `drop`/`synth` rows name what to feed into 2; 3 closes the loop
+after any fix; 5 is the standing diagnostics floor, not a comparison.
+
 ***
 
 
