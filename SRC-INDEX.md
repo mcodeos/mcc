@@ -60,7 +60,7 @@ range (threshold 40KB).
 | `build/` | 5 | 74 KB |
 | `builder/` | 1 | 0 KB |
 | `cli/` | 6 | 103 KB |
-| `cmds/` | 28 | 485 KB |
+| `cmds/` | 28 | 486 KB |
 | `db/` | 27 | 906 KB |
 | `eval/` | 2 | 48 KB |
 | `export/` | 6 | 44 KB |
@@ -765,41 +765,43 @@ cmds/build.rs#L70  fn write_build_products
 cmds/build.rs#L114  fn cli_entry
 cmds/build.rs#L121  fn run
 cmds/build.rs#L152  fn resolve_project_root
-cmds/build.rs#L188  fn run_rpc
-cmds/build.rs#L236  fn write_delegated_viz
-cmds/build.rs#L275  fn emit_build_result
-cmds/build.rs#L307  fn run_local
-cmds/build.rs#L746  fn build_failure_diag
-cmds/build.rs#L782  fn build_browse_dir
-cmds/build.rs#L1157  fn emit_gate_envelope
-cmds/build.rs#L1163  fn emit_err
-cmds/build.rs#L1172  fn build_viz_opts
-cmds/build.rs#L1190  mod phase0_golden
-cmds/build.rs#L1200  fn hbl_project
-cmds/build.rs#L1210  fn build_graph
-cmds/build.rs#L1231  fn render_signature
-cmds/build.rs#L1240  fn cli_build__determinism_render_twice
-cmds/build.rs#L1260  fn cli_build__determinism_two_builds
-cmds/build.rs#L1275  fn cli_build__golden_roundtrip_hbl
-cmds/build.rs#L1296  fn cli_build__metrics_hbl_smoke
-cmds/build.rs#L1317  mod d_detectors
-cmds/build.rs#L1322  static TEST_LOCK
-cmds/build.rs#L1326  fn build_fixture
-cmds/build.rs#L1346  fn build_fixture_or_panic
-cmds/build.rs#L1357  fn build_fixture_with_graph
-cmds/build.rs#L1377  fn has_code
-cmds/build.rs#L1384  fn cli_build__d1_sort_hazard_non_monotonic_pins
-cmds/build.rs#L1416  fn cli_build__d2_floating_placeholder_unbound_lead
-cmds/build.rs#L1434  fn cli_build__d3_merged_short_same_physical_pin
-cmds/build.rs#L1456  fn cli_build__d3_no_fire_for_legit_fanout
-cmds/build.rs#L1497  fn cli_build__d5_same_name_group_redundant_ref_warns
-cmds/build.rs#L1536  fn cli_build__d5_same_name_group_short_ref_warns
-cmds/build.rs#L1571  fn cli_build__d5_same_name_group_single_ref_no_warn
-cmds/build.rs#L1603  fn cli_build__d5_same_name_group_single_side_fan_in_connects_pads
-cmds/build.rs#L1661  fn cli_build__arity_gate_noarg_method_with_args_not_dispatched
-cmds/build.rs#L1720  fn cli_build__d6_dropped_statement_indexed_alias
-cmds/build.rs#L1742  fn cli_build__d7_pullup_degenerate_signal_bridge
-cmds/build.rs#L1776  fn cli_build__d8_array_instance_bracket_reference_relinks
+cmds/build.rs#L192  fn viz_output_path
+cmds/build.rs#L201  fn ensure_viz_parent
+cmds/build.rs#L211  fn run_rpc
+cmds/build.rs#L259  fn write_delegated_viz
+cmds/build.rs#L296  fn emit_build_result
+cmds/build.rs#L328  fn run_local
+cmds/build.rs#L763  fn build_failure_diag
+cmds/build.rs#L799  fn build_browse_dir
+cmds/build.rs#L1172  fn emit_gate_envelope
+cmds/build.rs#L1178  fn emit_err
+cmds/build.rs#L1187  fn build_viz_opts
+cmds/build.rs#L1205  mod phase0_golden
+cmds/build.rs#L1215  fn hbl_project
+cmds/build.rs#L1225  fn build_graph
+cmds/build.rs#L1246  fn render_signature
+cmds/build.rs#L1255  fn cli_build__determinism_render_twice
+cmds/build.rs#L1275  fn cli_build__determinism_two_builds
+cmds/build.rs#L1290  fn cli_build__golden_roundtrip_hbl
+cmds/build.rs#L1311  fn cli_build__metrics_hbl_smoke
+cmds/build.rs#L1332  mod d_detectors
+cmds/build.rs#L1337  static TEST_LOCK
+cmds/build.rs#L1341  fn build_fixture
+cmds/build.rs#L1361  fn build_fixture_or_panic
+cmds/build.rs#L1372  fn build_fixture_with_graph
+cmds/build.rs#L1392  fn has_code
+cmds/build.rs#L1399  fn cli_build__d1_sort_hazard_non_monotonic_pins
+cmds/build.rs#L1431  fn cli_build__d2_floating_placeholder_unbound_lead
+cmds/build.rs#L1449  fn cli_build__d3_merged_short_same_physical_pin
+cmds/build.rs#L1471  fn cli_build__d3_no_fire_for_legit_fanout
+cmds/build.rs#L1512  fn cli_build__d5_same_name_group_redundant_ref_warns
+cmds/build.rs#L1551  fn cli_build__d5_same_name_group_short_ref_warns
+cmds/build.rs#L1586  fn cli_build__d5_same_name_group_single_ref_no_warn
+cmds/build.rs#L1618  fn cli_build__d5_same_name_group_single_side_fan_in_connects_pads
+cmds/build.rs#L1676  fn cli_build__arity_gate_noarg_method_with_args_not_dispatched
+cmds/build.rs#L1735  fn cli_build__d6_dropped_statement_indexed_alias
+cmds/build.rs#L1757  fn cli_build__d7_pullup_degenerate_signal_bridge
+cmds/build.rs#L1791  fn cli_build__d8_array_instance_bracket_reference_relinks
 cmds/check.rs#L26  struct CheckOutcome
 cmds/check.rs#L34  struct CheckBatch
 cmds/check.rs#L44  fn check_one_world
@@ -10747,4 +10749,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-398 files, 10667 declarations.
+398 files, 10669 declarations.
