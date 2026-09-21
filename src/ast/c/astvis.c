@@ -276,6 +276,19 @@ static int json_visit_nodes(mc_value* node, int depth) {
             first = 0;
             if (!json_buf_str("{\"kind\":")) return 0;
             if (!json_buf_escaped(mcc_type_name(node->type))) return 0;
+            // Source span in bytes ([start, end) of this node), following the
+            // `span: {start, end}` contract the Rust read faces render as
+            // `@start:end` (output/compact.rs span_suffix).
+            {
+                char num[32];
+                if (!json_buf_str(",\"span\":{\"start\":")) return 0;
+                snprintf(num, sizeof(num), "%u", node->pos);
+                if (!json_buf_str(num)) return 0;
+                if (!json_buf_str(",\"end\":")) return 0;
+                snprintf(num, sizeof(num), "%u", node->pos + node->len);
+                if (!json_buf_str(num)) return 0;
+                if (!json_buf_str("}")) return 0;
+            }
             const char* data = (const char*)node->data;
             if (data != NULL && data[0] != '\0') {
                 if (!json_buf_str(",\"value\":")) return 0;
