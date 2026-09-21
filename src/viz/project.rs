@@ -65,8 +65,8 @@ pub struct ProjectionLog {
 }
 
 impl ProjectionLog {
-    /// Aggregated into `build/baseline/render_projection.md` (overwritten each projection, deterministic
-    /// content).
+    /// Aggregated into `build/baseline/render_projection.md` (overwritten each
+    /// projection, deterministic content).
     pub fn write_md(&self) {
         let mut md = String::new();
         md.push_str("# Render Projection (P7-2)\n\n");
@@ -148,7 +148,12 @@ fn pseudo_entry_with_ancestor(
         return None;
     }
     let e = table.get_entry(id as u32)?;
-    if !matches!(e.kind, InstKind::Port | InstKind::Label) {
+    // ★ expansion-provenance §3.4 stage 2: a component's own pin is the
+    // boundary declaration of the component's layer (comp as module). Pins
+    // parented to anything else are connection points and stay out — the
+    // parent_id test in the walk below enforces that on its own.
+    let pin_of_this_comp = e.kind == InstKind::Pin && e.parent_id == Some(bid as u32);
+    if !matches!(e.kind, InstKind::Port | InstKind::Label) && !pin_of_this_comp {
         return None;
     }
     // Walk ancestor chain until we reach bid or exceed MAX_HOPS.
@@ -527,6 +532,12 @@ fn project_nets(
         // `vin.GND`, §5⑥ `in VDD_3V3`) leaves the group Signal, so its pseudo
         // endpoints stay in real as Boundary / PortTerminal markers.
         let attr = detect_net_attr(&all_ids, block, table);
+        // ★ expansion-provenance §3.4 stage 2: a component's own layer is framed
+        // like a module's, and the component's pins are its boundary. A pin
+        // carries no IO direction word, so the io_type gate alone would never
+        // name one; a pin-kind pseudo endpoint (which only exists for a
+        // component's own layer, see `pseudo_entry_with_ancestor`) crosses by
+        // itself. Bare labels stay excluded, exactly as for a module.
         let group_is_rail = attr.as_ref().map_or(false, |a| a.role != AttrRole::Signal);
         let mut dropped_c: Vec<&crate::instant::insttab::InstEntry> = Vec::new();
         let mut boundary: Option<BoundaryInfo> = None;
@@ -548,7 +559,10 @@ fn project_nets(
                 // must not appear on a boundary drawn around this module. A declared
                 // port (and every member of one) carries an IO direction; a bare name
                 // carries none. Structural — the direction, never the spelling.
-                if boundary.is_none() && e.io_type != crate::semantic::common::IOType::None {
+                if boundary.is_none()
+                    && (e.io_type != crate::semantic::common::IOType::None
+                        || e.kind == InstKind::Pin)
+                {
                     let io = match e.io_type {
                         crate::semantic::common::IOType::In => IoDirection::Input,
                         crate::semantic::common::IOType::Out => IoDirection::Output,
@@ -557,7 +571,17 @@ fn project_nets(
                         crate::semantic::common::IOType::Return => IoDirection::Ground,
                         _ => IoDirection::Passive,
                     };
-                    let port_name = last_segment(&ancestor.path);
+                    // A pin's path names the outer pin number; its function
+                    // name (`1 = _CS`) rides in class_name. The frame labels
+                    // the crossing the way the box labels the pin — function
+                    // name when there is one, path tail otherwise (module
+                    // ports carry no class_name, so their naming is untouched).
+                    let raw_name = e.class_name.trim();
+                    let port_name = if raw_name.is_empty() {
+                        last_segment(&ancestor.path)
+                    } else {
+                        raw_name.to_string()
+                    };
                     boundary = Some(BoundaryInfo {
                         port_group_id: ancestor.id as i64,
                         port_name,

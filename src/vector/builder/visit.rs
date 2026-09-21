@@ -539,8 +539,11 @@ impl<'a> McVecBuilder<'a> {
 
             let mut sub_block = McVecBlock::new(*comp_id as i64, comp_name.clone());
 
-            // Add the component itself so the inner layer has its box with pins
-            sub_block.insts.push(*comp_id as i64);
+            // The component itself is NOT a box in its own layer — a module's
+            // own layer does not draw the module either. The pins face outward:
+            // the projection names them boundary crossings and module_frame
+            // paints them on the dashed frame, so `is_own_boundary_port`
+            // already answers "no box, by design" for every pin endpoint.
 
             // Add func-created children to sub-block
             for &cid in child_ids {
