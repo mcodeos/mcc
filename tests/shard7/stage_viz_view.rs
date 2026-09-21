@@ -96,6 +96,32 @@ module main {
 }
 "#;
 
+/// A pure series chain on the root device face: three two-pin parts between
+/// the two ports, no shunts. This is the shape the M19 orientation law
+/// governs completely — nothing else on the layer constrains the drawing —
+/// so it is where an *earned* perfect `signal_flow` can be demanded.
+const CHAIN_SRC: &str = r#"
+component CAP(cap::INT) {
+    pins = [
+        1 = 1
+        2 = 2
+    ]
+    func Cap([n1, n2]) {
+        n1 - this - n2
+    }
+}
+module main {
+    io VDD
+    io GND
+    CAP c1(1)
+    CAP c2(1)
+    CAP c3(1)
+    c1.Cap([VDD, c2.1])
+    c2.Cap([c1.2, c3.1])
+    c3.Cap([c2.2, GND])
+}
+"#;
+
 // ── Fixture plumbing ──
 
 fn hbl_entry() -> PathBuf {
@@ -1422,8 +1448,10 @@ fn inserting_an_instance_does_not_reorder_the_canonical_sequence() {
 /// axis that measured nothing (`1.0`, count `0`), one that measured things and
 /// found them in order (`1.0`, count > `0`), and the all-zero default an
 /// **unwired** family would have published. The fixture fills both branches —
-/// `bus_order` has nothing to measure, `signal_flow` has 49 chains — so neither
-/// half of the family is asserted from the code alone.
+/// `bus_order` has nothing to measure, `signal_flow` has 58 chains — so neither
+/// half of the family is asserted from the code alone. The middle shape (a
+/// measured axis earning 1.0) lives on its own fixture, see
+/// [`root_device_chain_earns_a_perfect_signal_flow`].
 #[test]
 fn engineer_style_scores_come_with_the_count_they_were_measured_over() {
     let dir = scratch("engineer-style");
@@ -1491,13 +1519,54 @@ fn engineer_style_scores_come_with_the_count_they_were_measured_over() {
     );
     // The three shapes must stay told apart. A vacuous axis publishes 1.0
     // *because it measured nothing*; a measured axis publishes its own
-    // fraction, and §3.4 comp inner layers order their device-face chains
-    // (signal_flow 0.433 over 60 here), so no measured axis earns a perfect
-    // score on this fixture.
+    // fraction. §3.4 comp inner layers order their device-face chains, so on
+    // this fixture the `signal_flow` aggregate stays well short of 1.0 — it
+    // is the measured-imperfect carrier here, beside the rail/ground axes.
+    // The third shape, a measured axis *earning* 1.0, has its own fixture:
+    // `root_device_chain_earns_a_perfect_signal_flow` below.
     assert!(
         measured > in_order,
         "every measured axis is perfectly in order — a board where the count \
          is the only thing telling a convention 1.0 from an earned one"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The measured-perfect third shape, on the face that can still earn it.
+///
+/// §3.4 (b3679) moved the func-expanded passives into comp inner layers, and
+/// the hbl fixture's `signal_flow` aggregate fell to ~0.41 over 58 chains —
+/// the root layer's in-order reading is diluted beyond recovery there, which
+/// is what U156 filed. The root device face still has a full ordering law
+/// (M19: a series step on a two-pin anchor reads in declaration order, West →
+/// East), so this fixture demands the law's consequence: every chain earns
+/// its monotonicity and `signal_flow` publishes 1.0 with samples > 0 — a
+/// shape a vacuous axis can never produce, since its 1.0 comes with count 0.
+#[test]
+fn root_device_chain_earns_a_perfect_signal_flow() {
+    let dir = scratch("chain-order");
+    let stage = run_on(&dir, CHAIN_SRC);
+    let items = items_of(&stage);
+
+    let raw = metric(&items, "engineer_style.signal_flow_samples");
+    let samples = raw
+        .as_u64()
+        .unwrap_or_else(|| panic!("`signal_flow_samples` is a count, got {raw}"));
+    assert_eq!(
+        samples, 2,
+        "the chain holds exactly two internal nets; the two ports do not \
+         count as chain endpoints on a device root"
+    );
+
+    let raw = metric(&items, "engineer_style.signal_flow_monotonicity");
+    let score = raw
+        .as_f64()
+        .unwrap_or_else(|| panic!("`signal_flow_monotonicity` is a number, got {raw}"));
+    assert_eq!(
+        score, 1.0,
+        "a declaration-order chain must read West → East under M19 — this \
+         is the earned 1.0, measured over {samples} chains"
     );
 
     let _ = std::fs::remove_dir_all(&dir);

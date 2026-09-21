@@ -780,6 +780,87 @@ pub fn assign_regions(graph: &McVecGraph, topos: &mut [NetTopology]) -> usize {
         }
     }
 
+    // ★ M19: a two-pin anchor is a series step — `netA — part — netB` — and the
+    // balance rule above hands its two side nets W/E in name order, which is
+    // luck, not a direction: rename the ports and the same chain flips. The
+    // R0 source-order canon supplies the missing orientation — a chain reads
+    // in declaration order — so the side whose CHAIN FAR END is declared
+    // earlier belongs West (`chain_far_end_key` walks each side's
+    // continuation through two-pin members; unlike kinds do not order, and a
+    // missing end leaves the balance choice standing).
+    //
+    // A two-pin member joining the two chains (a shunt across the step) makes
+    // the drawing underdetermined — either orientation strands one of its
+    // nets on the far side of the anchor and its trunk crosses — so the swap
+    // runs only when the two chains are independent.
+    {
+        let two_pin_anchor = graph
+            .boxes
+            .iter()
+            .find(|b| b.id == layer_anchor)
+            .is_some_and(|b| b.pins.len() == 2);
+        if two_pin_anchor {
+            let sides: Vec<usize> = (0..topos.len())
+                .filter(|&k| {
+                    resolved[k]
+                        && strength[k] == SideStrength::Balanced
+                        && topos[k]
+                            .groups
+                            .iter()
+                            .any(|g| g.box_id == layer_anchor)
+                        && matches!(topos[k].lane.region, Region::West | Region::East)
+                })
+                .collect();
+            if sides.len() == 2
+                && is_w_e_opposite(topos[sides[0]].lane.region, topos[sides[1]].lane.region)
+            {
+                let key = |k: usize| chain_far_end_key(graph, topos, layer_anchor, k);
+                if let (Some((ka, nets_a)), Some((kb, nets_b))) =
+                    (key(sides[0]), key(sides[1]))
+                {
+                    let chain_nets = |t: &NetTopology| {
+                        nets_a.contains(&t.nid) || nets_b.contains(&t.nid)
+                    };
+                    let bridged = graph.boxes.iter().any(|b| {
+                        if b.id == layer_anchor || b.pins.len() != 2 {
+                            return false;
+                        }
+                        let on: Vec<i64> = topos
+                            .iter()
+                            .filter(|t| t.groups.iter().any(|g| g.box_id == b.id))
+                            .filter(|t| chain_nets(t))
+                            .map(|t| t.nid)
+                            .collect();
+                        on.len() == 2
+                            && (nets_a.contains(&on[0])) != (nets_a.contains(&on[1]))
+                    });
+                    if let Some(ord) = chain_far_end_order(&ka, &kb) {
+                        if !bridged && ord == std::cmp::Ordering::Greater {
+                            let (west, east) = if topos[sides[0]].lane.region == Region::West {
+                                (sides[0], sides[1])
+                            } else {
+                                (sides[1], sides[0])
+                            };
+                            let w = topos[west].lane.region;
+                            let e = topos[east].lane.region;
+                            topos[west].lane.region = e;
+                            topos[east].lane.region = w;
+                            crate::vlog!(
+                                "[region] M19 orient: '{}' {:?} → {:?}, '{}' {:?} → {:?}",
+                                topos[west].net_name,
+                                w,
+                                e,
+                                topos[east].net_name,
+                                e,
+                                w
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // Pass 1.5 (★ M7.1): netlist-driven side coupling
     //
     // The side decision must START FROM THE NETLIST, not from each pin's IO
@@ -1713,6 +1794,95 @@ fn is_definite(io: IoDirection) -> bool {
 /// M2: switch every caller to nid.
 fn find_net<'a>(graph: &'a McVecGraph, nid: i64) -> Option<&'a VizNet> {
     graph.nets.iter().find(|n| n.nid == nid)
+}
+
+/// ★ M19: how a side net's chain end identifies itself, for the orientation
+/// comparison. A port net ends at its module port — identified by the port's
+/// declaration order; any other stop identifies by the earliest member call
+/// site. Only like keys order (`chain_far_end_order`); anything else leaves
+/// the balance choice standing.
+enum FarEndKey {
+    /// index into `graph.module_ports`
+    Port(usize),
+    /// earliest member call site `(uri, offset)`
+    Inst((String, u32)),
+}
+
+/// ★ M19: where a side net's chain ends, as a comparable declaration
+/// position. From the net, keep crossing two-pin members into the next net
+/// until the walk reaches a port net (its port is the end), has to stop at a
+/// fan or a wider box (the earliest member call site is the end), or doubles
+/// back into itself (a closed loop has no far end — `None`). Also returns the
+/// nets the chain passes through, so the caller can tell the two chains
+/// apart from a member that BRIDGES them.
+fn chain_far_end_key(
+    graph: &McVecGraph,
+    topos: &[NetTopology],
+    layer_anchor: i64,
+    start: usize,
+) -> Option<(FarEndKey, Vec<i64>)> {
+    let port_index =
+        |name: &str| graph.module_ports.iter().position(|(p, _, _)| p == name);
+    let mut visited = vec![topos[start].nid];
+    let mut cur = start;
+    // The member the walk arrived through — not a continuation. `None` at the
+    // chain's own start.
+    let mut came_from: Option<i64> = None;
+    loop {
+        if let Some(i) = port_index(&topos[cur].net_name) {
+            return Some((FarEndKey::Port(i), visited));
+        }
+        let members: Vec<i64> = topos[cur]
+            .groups
+            .iter()
+            .filter(|g| g.box_id != layer_anchor)
+            .map(|g| g.box_id)
+            .filter(|bid| Some(*bid) != came_from)
+            .collect();
+        if members.len() != 1 {
+            return members
+                .iter()
+                .filter_map(|bid| graph.boxes.iter().find(|b| b.id == *bid))
+                .filter_map(|b| b.source_span.as_ref().map(|p| (p.uri.clone(), p.offset)))
+                .min()
+                .map(|k| (FarEndKey::Inst(k), visited));
+        }
+        let mid = members[0];
+        let two_pin = graph
+            .boxes
+            .iter()
+            .find(|b| b.id == mid)
+            .is_some_and(|b| b.pins.len() == 2);
+        if !two_pin {
+            return graph
+                .boxes
+                .iter()
+                .find(|b| b.id == mid)
+                .and_then(|b| b.source_span.as_ref())
+                .map(|p| (FarEndKey::Inst((p.uri.clone(), p.offset)), visited));
+        }
+        // The next net is the other net on that member — one of this net's
+        // pins and one of the next net's pins share the two-pin part.
+        let next = topos.iter().position(|t| {
+            t.nid != topos[cur].nid && t.groups.iter().any(|g| g.box_id == mid)
+        })?;
+        if visited.contains(&topos[next].nid) {
+            return None;
+        }
+        visited.push(topos[next].nid);
+        came_from = Some(mid);
+        cur = next;
+    }
+}
+
+/// ★ M19: order two far-end keys — ports by declaration order, call sites by
+/// offset within one file. Unlike kinds do not order.
+fn chain_far_end_order(a: &FarEndKey, b: &FarEndKey) -> Option<std::cmp::Ordering> {
+    match (a, b) {
+        (FarEndKey::Port(x), FarEndKey::Port(y)) => Some(x.cmp(y)),
+        (FarEndKey::Inst(x), FarEndKey::Inst(y)) if x.0 == y.0 => Some(x.1.cmp(&y.1)),
+        _ => None,
+    }
 }
 
 /// The name the renderer prints for a pin (`description`, falling back to

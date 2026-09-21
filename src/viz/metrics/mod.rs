@@ -368,6 +368,11 @@ fn measure_signal_flow(graph: &McVecGraph) -> Axis {
         chains += 1;
         let mut all_ltr = true;
         let mut prev_x = f64::NEG_INFINITY;
+        // Debug face: the monotone prefix of the chain, `box@center-x`, so a
+        // failing chain can be read straight off the dump. The failing
+        // endpoint itself is not in the sequence — it broke the order.
+        let dump = crate::viz::log::enabled();
+        let mut seq = String::new();
         for ep in &net.endpoints {
             if let Some(b) = graph.boxes.iter().find(|bx| bx.id == ep.box_id) {
                 let cx = b.x + b.w / 2.0;
@@ -377,11 +382,28 @@ fn measure_signal_flow(graph: &McVecGraph) -> Axis {
                 }
                 prev_x = cx;
             }
+            if dump {
+                seq.push_str(&format!("{}@{:.0} ", ep.box_id, prev_x));
+            }
         }
-        if all_ltr {
+        if !all_ltr {
+            crate::vlog!(
+                "[sigflow] layer={} net={}({}) NONLTR seq={}",
+                graph.name,
+                net.name,
+                net.nid,
+                seq
+            );
+        } else {
             monotonic += 1;
         }
     }
+    crate::vlog!(
+        "[sigflow] layer={} summary monotonic={}/{}",
+        graph.name,
+        monotonic,
+        chains
+    );
     Axis::new(monotonic, chains)
 }
 
