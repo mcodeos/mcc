@@ -2106,6 +2106,24 @@ pub const EXPOSED_NET_DOWNSTREAM_UNPROTECTED: u32 = 6044;
 /// carries a domain name as a prefix or element is out of this code's object.
 pub const DOMAIN_ENDPOINT_NAME_COLLISION: u32 = 6050;
 
+/// Pin copper expectation (pin-expectation-design.md §3, v0.1): a component
+/// pin row carrying `@role(<word>)` states the copper identity the pin
+/// expects to land on. The component layer cannot name a conduit (conduit
+/// does not cross layers), so the word is an expectation and the module
+/// layer's binding is the witness: the landed net's potential class must
+/// anchor the expected identity — through a declared domain face (the §1.4
+/// read) or through the copper conduit's own `@role` word. A class that
+/// anchors neither contradicts the expectation. Advisory Warning.
+pub const PIN_COPPER_EXPECTATION_MISMATCH: u32 = 6051;
+
+/// The unanchored half of the same expectation: the landed net resolves no
+/// potential class at all (a bare net — no conduit copper, no rail
+/// membership), so there is no identity to compare against. Info, because
+/// the expectation is unmet by absence rather than contradicted — an empty
+/// reading is still a reading, and it is judged only where the pin row
+/// actually declares one.
+pub const PIN_COPPER_EXPECTATION_UNANCHORED: u32 = 6052;
+
 /// R3 **mixed bridge identity** (intent-reference-layer-design.md §10.4 bridge
 /// identity three-state): a `@bridge(X, Y)` whose two arguments disagree on
 /// kind — one names a whole-referenceable domain of the owning module, the
@@ -2615,4 +2633,6 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(GATE_ORPHAN_INSTANCE, "R14 — an instance is registered but appears in no net.", "orphan instance: {0}"),
     entry!(GATE_SYNTHETIC_PIN, "R15 — a synthetic terminal is not backed by any real pin.", "synthetic terminal: {0}"),
     entry!(CONN_REPLICATION_COUNT, "U155 — a connection replication count must be an int >= 2.", "replication count: {0}"),
+    entry!(PIN_COPPER_EXPECTATION_MISMATCH, "A pin row declares a copper-identity expectation the net it lands on contradicts.", "pin '{0}' expects a {1} copper but lands on class '{2}' — the class anchors no declared quiet face and its copper conduit carries no matching @role: bind the pin to the copper the expectation names, or change the expectation (pin-expectation-design.md §3)"),
+    entry!(PIN_COPPER_EXPECTATION_UNANCHORED, "A pin row declares a copper-identity expectation but its net resolves no identity at all.", "pin '{0}' expects a {1} copper but its net carries no declared identity — a bare net is no face at all: declare the copper (conduit or domain rail) in the owning module, or the expectation stays a wish (pin-expectation-design.md §3)"),
 ];

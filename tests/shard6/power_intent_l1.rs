@@ -5980,3 +5980,157 @@ fn pin_row_exposed_host_does_not_stack_the_two_halves() {
         "the clamp on the pin's net covers it — 6031 stays silent; got codes: {codes:?}"
     );
 }
+
+// ── pin copper expectation (6051/6052, pin-expectation-design.md §3 v0.1) ──
+//
+// A component pin row carrying @role(quiet) expects the landed copper to
+// anchor a quiet identity; the module layer's binding is the witness. Every
+// verdict branch gets two members (two ground rows), per the acceptance
+// discipline: a one-member branch cannot tell a per-pin rule from a
+// per-instance one.
+
+/// A speaker-like part: two signal pins and two ground rows carrying the
+/// quiet expectation (the hbl PHB2AWB shape).
+const SPK: &str = "component SPK {\n    pins = [\n        in [1,2] = IN{P, N}\n        3 = GND @role(quiet)\n        4 = GND @role(quiet)\n    ]\n}\n";
+
+/// Anchored through the copper conduit's own @role word: both ground rows sit
+/// on a conduit declared @role(quiet), so neither code may fire.
+#[test]
+fn quiet_expectation_on_quiet_conduit_stays_silent() {
+    let src = format!(
+        "{SPK}\nmodule main {{\n    conduit GND  @role(main) @star\n    \
+         conduit GNDA @role(quiet)\n    \
+         GNDA - fb::FB() - GND @bridge(GNDA, GND)\n    \
+         SPK u1\n    u1{{3, 4}} - [GNDA, GNDA]\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::PIN_COPPER_EXPECTATION_MISMATCH),
+        "quiet conduit anchors the quiet expectation — no 6051; got codes: {codes:?}"
+    );
+    assert!(
+        !codes.contains(&mcc::errcodes::PIN_COPPER_EXPECTATION_UNANCHORED),
+        "the conduit route needs no class at all — no 6052; got codes: {codes:?}"
+    );
+}
+
+/// Anchored through the domain face: GNDA is a rail *member* with no same-name
+/// conduit, and AV declares its own face quiet (@class/@noise — the §1.4 read;
+/// a domain that says nothing anchors nothing).
+#[test]
+fn quiet_expectation_on_quiet_rail_member_stays_silent() {
+    let src = format!(
+        "{SPK}\nmodule main {{\n    conduit GND @role(main) @star\n    \
+         domain AV @class(analog) @noise(sensitive) {{ rail [VDDA, GNDA]::DC(3V3) }}\n    \
+         SPK u1\n    u1{{3, 4}} - [GNDA, GNDA]\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::PIN_COPPER_EXPECTATION_MISMATCH),
+        "the quiet face anchors the expectation — no 6051; got codes: {codes:?}"
+    );
+    assert!(
+        !codes.contains(&mcc::errcodes::PIN_COPPER_EXPECTATION_UNANCHORED),
+        "a rail member resolves a class — no 6052; got codes: {codes:?}"
+    );
+}
+
+/// Contradicted through the conduit route: both ground rows sit on a conduit
+/// declared @role(main). Two rows, two findings — the rule is per pin.
+#[test]
+fn quiet_expectation_on_main_ground_fires_6051_twice() {
+    let src = format!(
+        "{SPK}\nmodule main {{\n    conduit GND @role(main) @star\n    \
+         SPK u1\n    u1{{3, 4}} - [GND, GND]\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let n = codes
+        .iter()
+        .filter(|&&c| c == mcc::errcodes::PIN_COPPER_EXPECTATION_MISMATCH)
+        .count();
+    assert_eq!(
+        n, 2,
+        "two quiet-expectation rows on a main conduit → 6051 ×2; got codes: {codes:?}"
+    );
+    assert!(
+        !codes.contains(&mcc::errcodes::PIN_COPPER_EXPECTATION_UNANCHORED),
+        "the main conduit resolves a class — no 6052; got codes: {codes:?}"
+    );
+}
+
+/// Contradicted through the face route: the rows land on a hot rail member of
+/// a domain that declares no quiet face at all.
+#[test]
+fn quiet_expectation_on_hot_rail_member_fires_6051() {
+    let src = format!(
+        "{SPK}\nmodule main {{\n    conduit GND @role(main) @star\n    \
+         domain DV {{ rail [VDD_3V3, GND]::DC(3V3) }}\n    \
+         SPK u1\n    u1{{3, 4}} - [VDD_3V3, VDD_3V3]\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let n = codes
+        .iter()
+        .filter(|&&c| c == mcc::errcodes::PIN_COPPER_EXPECTATION_MISMATCH)
+        .count();
+    assert_eq!(
+        n, 2,
+        "a hot member anchors no quiet face → 6051 ×2; got codes: {codes:?}"
+    );
+}
+
+/// Unanchored: the rows land on bare nets — no conduit copper, no rail
+/// membership, so there is no identity to compare against. Info, not a
+/// mismatch, and still once per row.
+#[test]
+fn quiet_expectation_on_bare_net_fires_6052_not_6051() {
+    let src = format!(
+        "{SPK}\nmodule main {{\n    conduit GND @role(main) @star\n    \
+         SPK u1\n    u1{{3, 4}} - [BARE1, BARE2]\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let n = codes
+        .iter()
+        .filter(|&&c| c == mcc::errcodes::PIN_COPPER_EXPECTATION_UNANCHORED)
+        .count();
+    assert_eq!(
+        n, 2,
+        "two bare-net rows → 6052 ×2 (an empty reading is still a reading); got codes: {codes:?}"
+    );
+    assert!(
+        !codes.contains(&mcc::errcodes::PIN_COPPER_EXPECTATION_MISMATCH),
+        "absence is not contradiction — no 6051; got codes: {codes:?}"
+    );
+}
+
+/// v0.1 scope: only `quiet` has a net-side reading. A non-quiet expectation
+/// passes the write-site vocabulary and carries no verdict yet — the same
+/// bare-net shape the quiet rows fire 6052 on stays silent here.
+#[test]
+fn non_quiet_expectation_carries_no_verdict_yet() {
+    let src = "component SP2 {\n    pins = [\n        3 = GND @role(main)\n        4 = GND @role(main)\n    ]\n}\n\
+         module main {\n    conduit GND @role(main) @star\n    \
+         SP2 u1\n    u1{3, 4} - [BARE1, BARE2]\n}\n"
+        .to_string();
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::PIN_COPPER_EXPECTATION_MISMATCH)
+            && !codes.contains(&mcc::errcodes::PIN_COPPER_EXPECTATION_UNANCHORED),
+        "v0.1 judges quiet only — main carries no verdict; got codes: {codes:?}"
+    );
+}
+
+/// An unwired pin carrying the expectation is the unwired-pin rule's object,
+/// never an identity verdict: no net, no class, no code from this rule.
+#[test]
+fn unwired_pin_with_expectation_is_not_judged() {
+    let src = format!(
+        "{SPK}\nmodule main {{\n    conduit GND @role(main) @star\n    \
+         SPK u1\n    u1.1 -> GNDA\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::PIN_COPPER_EXPECTATION_MISMATCH)
+            && !codes.contains(&mcc::errcodes::PIN_COPPER_EXPECTATION_UNANCHORED),
+        "unwired pins are out of this rule's object; got codes: {codes:?}"
+    );
+}

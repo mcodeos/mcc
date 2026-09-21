@@ -209,6 +209,11 @@ pub(crate) fn is_voltage_key(key: &str, face: AttrFace) -> bool {
 
 const BODY: &[AttrFace] = &[AttrFace::Body];
 const PIN: &[AttrFace] = &[AttrFace::PinRow];
+/// `role` is written at two declaration sites: a body conduit row (the copper's
+/// own identity) and a component pin row (the pin's identity *expectation* —
+/// pin-expectation-design.md §3; the row cannot name a conduit, so the word is
+/// what the landed copper must anchor).
+const BODY_PIN: &[AttrFace] = &[AttrFace::Body, AttrFace::PinRow];
 const IFACE: &[AttrFace] = &[AttrFace::Interface];
 const SPEC: &[AttrFace] = &[AttrFace::Spec];
 /// `voltage` is written at all three value sites: a component body
@@ -285,7 +290,7 @@ pub(crate) const ATTR_KEYS: &[AttrKeyDef] = &[
     row("this", BODY, false),
     row("pins", BODY, false),
     // `@role`'s values are the ledger's five identity words (R9).
-    vocab_row(KEY_ROLE, BODY, false, AttrVocab::Words(ROLE_WORDS)),
+    vocab_row(KEY_ROLE, BODY_PIN, false, AttrVocab::Words(ROLE_WORDS)),
     row("func", BODY, false),
     // `@return` names a return conduit, so its value is a reference rather than
     // a word: no vocabulary is registered for it.
