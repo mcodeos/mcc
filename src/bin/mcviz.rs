@@ -209,7 +209,10 @@ fn main() {
 fn build_opts(apply_promote: bool, layouter_name: Option<&str>, flatten: bool) -> RenderOpts {
     let mut opts = RenderOpts::default();
     opts.apply_promote = apply_promote;
-    opts.flatten = flatten;
+    // The `--flatten` flag parses but stays inert until the flat-layout WIP
+    // lands its RenderOpts field (U191 — the declaration raced ahead of the
+    // code).
+    let _ = flatten;
 
     if let Some(name) = layouter_name {
         if name != "flow" {

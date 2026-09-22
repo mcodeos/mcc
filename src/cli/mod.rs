@@ -7,7 +7,8 @@
 //! This only declares command structures, does not contain any business logic.
 //! Business logic is in `crate::cmds::*` modules.
 
-pub mod caps;
+// pub mod caps; // WIP: concurrent session — file never landed (U191); re-land
+// the declaration together with the module file.
 pub mod config;
 pub mod datadir;
 pub mod manifest;
@@ -221,7 +222,7 @@ pub enum Command {
     Rules(RulesArgs),
 
     /// Show compiler capabilities (M6) — self-describing API for AI
-    Caps(caps::CapsArgs),
+    Caps,
 
     /// Go-to-definition for a symbol
     Def(DefArgs),
