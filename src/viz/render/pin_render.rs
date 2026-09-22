@@ -482,7 +482,7 @@ pub fn render_nc_pin(
     };
 
     format!(
-        r##"    <g class="pin nc" data-pin-id="{}"{}{}{}{}
+        r##"    <g class="pin nc" data-pin-id="{}"{}>{}{}{}
     </g>
 "##,
         pin.id, point_attr, nc_mark, number_svg, name_svg
@@ -568,6 +568,31 @@ mod tests {
         let svg = render_pin(&b, &ep, PinRenderOpts::for_ic());
         // Synthetic pin name `(rail)` should not appear on the diagram
         assert!(!svg.contains(">(rail)</text>"));
+    }
+
+    // U174: the nc `<g>` open tag must close with `>` before its children —
+    // a missing `>` is tolerated by embedded HTML parsing but breaks standalone
+    // XML consumers (minidom `attributes construct error`).
+    #[test]
+    fn render_nc_pin_open_tag_is_self_closed() {
+        use crate::vector::graph::boxdef::{BoxPin, PortDir};
+        let b = mk_box();
+        let pin = BoxPin {
+            id: 1003,
+            pin_id: "5".into(),
+            description: String::new(),
+            io: IoDirection::Input,
+            port_dir: PortDir::None,
+            src_span: None,
+            point: None,
+        };
+        let svg = render_nc_pin(&b, &pin, 0.5);
+        // The open tag ends at the first `>` (attribute values escape `>` as
+        // `&gt;`, so this is unambiguous) and closes before the nc cross mark.
+        let open_end = svg.find('>').expect("open tag closes");
+        let open_tag = &svg[..=open_end];
+        assert!(open_tag.trim_start().starts_with(r##"<g class="pin nc" data-pin-id="1003""##));
+        assert!(svg.contains(r#""><line"#)); // first child is a sibling, not an attribute
     }
 
     #[test]

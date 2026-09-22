@@ -44,9 +44,9 @@ range (threshold 40KB).
 | `cmds/show.rs` | 144 KB | 116 |
 | `viz/layout/equi_audit.rs` | 137 KB | 103 |
 | `rpc/handlers/mod.rs` | 130 KB | 106 |
+| `export/kicad_sch.rs` | 123 KB | 105 |
 | `semantic/mc_inst.rs` | 122 KB | 88 |
 | `instant/mc_mod/phases.rs` | 121 KB | 28 |
-| `export/kicad_sch.rs` | 118 KB | 103 |
 | `instant/mc_mod/points.rs` | 117 KB | 20 |
 | `semantic/module/mod.rs` | 114 KB | 80 |
 | `semantic/basic/mc_fcall.rs` | 110 KB | 22 |
@@ -65,7 +65,7 @@ range (threshold 40KB).
 | `cmds/` | 28 | 492 KB |
 | `db/` | 27 | 910 KB |
 | `eval/` | 2 | 48 KB |
-| `export/` | 7 | 175 KB |
+| `export/` | 7 | 179 KB |
 | `instant/` | 40 | 1554 KB |
 | `lsp/` | 7 | 66 KB |
 | `output/` | 7 | 107 KB |
@@ -75,7 +75,7 @@ range (threshold 40KB).
 | `semantic/` | 89 | 2613 KB |
 | `stages/` | 12 | 321 KB |
 | `vector/` | 25 | 475 KB |
-| `viz/` | 96 | 2410 KB |
+| `viz/` | 96 | 2412 KB |
 
 ## Declaration index
 
@@ -2421,92 +2421,94 @@ export/kicad_sch.rs#L147  struct SheetSet
 export/kicad_sch.rs#L168  fn child_ports_of
 export/kicad_sch.rs#L197  fn writable_port_name
 export/kicad_sch.rs#L209  struct SheetState
-export/kicad_sch.rs#L221  fn emit_sheets
-export/kicad_sch.rs#L269  fn layer_stem
-export/kicad_sch.rs#L281  struct Xform
-export/kicad_sch.rs#L293  impl Xform
-export/kicad_sch.rs#L294  fn new
-export/kicad_sch.rs#L298  fn with_offset
-export/kicad_sch.rs#L361  fn x
-export/kicad_sch.rs#L365  fn y
-export/kicad_sch.rs#L371  fn anchor_mm
-export/kicad_sch.rs#L383  fn emit_sheet
-export/kicad_sch.rs#L487  fn component_boxes
-export/kicad_sch.rs#L503  fn collect_layer_libs
-export/kicad_sch.rs#L548  fn emit_flat_sheet
-export/kicad_sch.rs#L633  struct FlatTile
-export/kicad_sch.rs#L710  const FLAT_GAP_MM
-export/kicad_sch.rs#L829  struct FlatRun
-export/kicad_sch.rs#L1279  fn emit_flat_boundary_labels
-export/kicad_sch.rs#L1316  fn emit_tree_nets
-export/kicad_sch.rs#L1448  fn boundary_net_ids
-export/kicad_sch.rs#L1457  fn longest_midpoint
-export/kicad_sch.rs#L1468  fn emit_wire
-export/kicad_sch.rs#L1489  fn text_label
-export/kicad_sch.rs#L1513  fn emit_block_edges
-export/kicad_sch.rs#L1617  fn emit_root_passive_nets
-export/kicad_sch.rs#L1661  fn key_of
-export/kicad_sch.rs#L1666  fn middle_of
-export/kicad_sch.rs#L1677  fn power_symbol
-export/kicad_sch.rs#L1729  fn emit_instances
-export/kicad_sch.rs#L1743  fn power_flag
-export/kicad_sch.rs#L1796  fn emit_symbol_instance
-export/kicad_sch.rs#L1840  fn property
-export/kicad_sch.rs#L1855  fn unique_ref
-export/kicad_sch.rs#L1874  fn emit_rail_decorations
-export/kicad_sch.rs#L1943  fn rail_name_of_pin
-export/kicad_sch.rs#L1958  fn emit_no_connects
-export/kicad_sch.rs#L1996  fn emit_sheet_instance
-export/kicad_sch.rs#L2124  fn bridge_pins
-export/kicad_sch.rs#L2187  fn emit_pin_rescue
-export/kicad_sch.rs#L2293  fn d2
-export/kicad_sch.rs#L2302  fn endpoint_pin
-export/kicad_sch.rs#L2317  fn pin_placement
-export/kicad_sch.rs#L2334  fn anchor_px
-export/kicad_sch.rs#L2348  fn emit_boundary_labels
-export/kicad_sch.rs#L2427  fn boundary_tree_endpoint
-export/kicad_sch.rs#L2460  fn shape_of_io
-export/kicad_sch.rs#L2469  fn is_anon
-export/kicad_sch.rs#L2475  fn displayable
-export/kicad_sch.rs#L2482  fn flat_port_anchor
-export/kicad_sch.rs#L2505  fn hseg_hits
-export/kicad_sch.rs#L2517  fn vseg_hits
-export/kicad_sch.rs#L2530  fn flat_wire
-export/kicad_sch.rs#L2560  fn island_name_of_net
-export/kicad_sch.rs#L2582  fn lib_signature
-export/kicad_sch.rs#L2607  fn side_letter
-export/kicad_sch.rs#L2620  fn lib_symbol_body
-export/kicad_sch.rs#L2734  fn internal_pin
-export/kicad_sch.rs#L2745  fn pin_text
-export/kicad_sch.rs#L2755  fn polyline
-export/kicad_sch.rs#L2772  fn pin_elec_type
-export/kicad_sch.rs#L2785  fn lib_gnd_body
-export/kicad_sch.rs#L2828  fn lib_pwr_body
-export/kicad_sch.rs#L2870  fn lib_flag_body
-export/kicad_sch.rs#L2917  fn has_power_symbols
-export/kicad_sch.rs#L2928  fn paper_for
-export/kicad_sch.rs#L2953  const SIZES
-export/kicad_sch.rs#L2972  fn det_uuid
-export/kicad_sch.rs#L2990  fn q
-export/kicad_sch.rs#L2995  fn mm
-export/kicad_sch.rs#L3005  fn escape
-export/kicad_sch.rs#L3009  fn sanitize_file_stem
-export/kicad_sch.rs#L3021  fn sanitize_lib_id
-export/kicad_sch.rs#L3028  mod tests
-export/kicad_sch.rs#L3034  fn two_pin_box
-export/kicad_sch.rs#L3055  fn add_pin
-export/kicad_sch.rs#L3073  fn net
-export/kicad_sch.rs#L3094  fn block_graph
-export/kicad_sch.rs#L3120  fn one_layer
-export/kicad_sch.rs#L3130  fn uuid_is_deterministic_and_shaped
-export/kicad_sch.rs#L3141  fn mm_trims_trailing_zeros
-export/kicad_sch.rs#L3149  fn block_layer_wires_land_on_pin_anchors
-export/kicad_sch.rs#L3178  fn no_connect_lands_on_unwired_anchor
-export/kicad_sch.rs#L3186  fn wire_anchors_match_internal_pin_math
-export/kicad_sch.rs#L3205  fn hierarchy_emits_sheet_pins_and_hierarchical_labels
-export/kicad_sch.rs#L3361  fn flat_sheet_has_no_hierarchy
-export/kicad_sch.rs#L3426  fn dummy_table
-export/kicad_sch.rs#L3431  fn s_expression_parens_balance
+export/kicad_sch.rs#L224  fn emit_sheets
+export/kicad_sch.rs#L273  fn layer_stem
+export/kicad_sch.rs#L285  struct Xform
+export/kicad_sch.rs#L297  impl Xform
+export/kicad_sch.rs#L298  fn new
+export/kicad_sch.rs#L302  fn with_offset
+export/kicad_sch.rs#L365  fn x
+export/kicad_sch.rs#L369  fn y
+export/kicad_sch.rs#L375  fn anchor_mm
+export/kicad_sch.rs#L387  fn emit_sheet
+export/kicad_sch.rs#L491  fn component_boxes
+export/kicad_sch.rs#L507  fn collect_layer_libs
+export/kicad_sch.rs#L552  fn emit_flat_sheet
+export/kicad_sch.rs#L638  struct FlatTile
+export/kicad_sch.rs#L715  const FLAT_GAP_MM
+export/kicad_sch.rs#L824  struct FlatRun
+export/kicad_sch.rs#L1276  fn emit_flat_boundary_labels
+export/kicad_sch.rs#L1314  fn emit_tree_nets
+export/kicad_sch.rs#L1446  fn boundary_net_ids
+export/kicad_sch.rs#L1455  fn longest_midpoint
+export/kicad_sch.rs#L1466  fn emit_wire
+export/kicad_sch.rs#L1487  fn text_label
+export/kicad_sch.rs#L1508  const OFFS
+export/kicad_sch.rs#L1553  fn emit_block_edges
+export/kicad_sch.rs#L1657  fn emit_root_passive_nets
+export/kicad_sch.rs#L1706  fn key_of
+export/kicad_sch.rs#L1711  fn middle_of
+export/kicad_sch.rs#L1722  fn power_symbol
+export/kicad_sch.rs#L1774  fn emit_instances
+export/kicad_sch.rs#L1788  fn power_flag
+export/kicad_sch.rs#L1841  fn emit_symbol_instance
+export/kicad_sch.rs#L1885  fn property
+export/kicad_sch.rs#L1900  fn unique_ref
+export/kicad_sch.rs#L1919  fn emit_rail_decorations
+export/kicad_sch.rs#L1988  fn rail_name_of_pin
+export/kicad_sch.rs#L2003  fn emit_no_connects
+export/kicad_sch.rs#L2041  fn emit_sheet_instance
+export/kicad_sch.rs#L2169  fn bridge_pins
+export/kicad_sch.rs#L2232  fn emit_pin_rescue
+export/kicad_sch.rs#L2345  fn emit_wired_pin_guarantee
+export/kicad_sch.rs#L2414  fn d2
+export/kicad_sch.rs#L2423  fn endpoint_pin
+export/kicad_sch.rs#L2438  fn pin_placement
+export/kicad_sch.rs#L2455  fn anchor_px
+export/kicad_sch.rs#L2469  fn emit_boundary_labels
+export/kicad_sch.rs#L2548  fn boundary_tree_endpoint
+export/kicad_sch.rs#L2581  fn shape_of_io
+export/kicad_sch.rs#L2590  fn is_anon
+export/kicad_sch.rs#L2596  fn displayable
+export/kicad_sch.rs#L2603  fn flat_port_anchor
+export/kicad_sch.rs#L2626  fn hseg_hits
+export/kicad_sch.rs#L2638  fn vseg_hits
+export/kicad_sch.rs#L2651  fn flat_wire
+export/kicad_sch.rs#L2681  fn island_name_of_net
+export/kicad_sch.rs#L2703  fn lib_signature
+export/kicad_sch.rs#L2728  fn side_letter
+export/kicad_sch.rs#L2741  fn lib_symbol_body
+export/kicad_sch.rs#L2855  fn internal_pin
+export/kicad_sch.rs#L2866  fn pin_text
+export/kicad_sch.rs#L2876  fn polyline
+export/kicad_sch.rs#L2893  fn pin_elec_type
+export/kicad_sch.rs#L2906  fn lib_gnd_body
+export/kicad_sch.rs#L2949  fn lib_pwr_body
+export/kicad_sch.rs#L2991  fn lib_flag_body
+export/kicad_sch.rs#L3038  fn has_power_symbols
+export/kicad_sch.rs#L3049  fn paper_for
+export/kicad_sch.rs#L3074  const SIZES
+export/kicad_sch.rs#L3093  fn det_uuid
+export/kicad_sch.rs#L3111  fn q
+export/kicad_sch.rs#L3116  fn mm
+export/kicad_sch.rs#L3126  fn escape
+export/kicad_sch.rs#L3130  fn sanitize_file_stem
+export/kicad_sch.rs#L3142  fn sanitize_lib_id
+export/kicad_sch.rs#L3149  mod tests
+export/kicad_sch.rs#L3155  fn two_pin_box
+export/kicad_sch.rs#L3176  fn add_pin
+export/kicad_sch.rs#L3194  fn net
+export/kicad_sch.rs#L3215  fn block_graph
+export/kicad_sch.rs#L3241  fn one_layer
+export/kicad_sch.rs#L3251  fn uuid_is_deterministic_and_shaped
+export/kicad_sch.rs#L3262  fn mm_trims_trailing_zeros
+export/kicad_sch.rs#L3270  fn block_layer_wires_land_on_pin_anchors
+export/kicad_sch.rs#L3299  fn no_connect_lands_on_unwired_anchor
+export/kicad_sch.rs#L3307  fn wire_anchors_match_internal_pin_math
+export/kicad_sch.rs#L3326  fn hierarchy_emits_sheet_pins_and_hierarchical_labels
+export/kicad_sch.rs#L3482  fn flat_sheet_has_no_hierarchy
+export/kicad_sch.rs#L3547  fn dummy_table
+export/kicad_sch.rs#L3552  fn s_expression_parens_balance
 export/mod.rs#L8  mod bom
 export/mod.rs#L9  mod instlist
 export/mod.rs#L10  mod kicad
@@ -10241,7 +10243,8 @@ viz/render/pin_render.rs#L506  fn mk_box
 viz/render/pin_render.rs#L528  fn pin_position_correct
 viz/render/pin_render.rs#L543  fn render_pin_includes_name_and_number
 viz/render/pin_render.rs#L560  fn render_pin_hides_synthetic_names
-viz/render/pin_render.rs#L574  fn marker_only_no_text
+viz/render/pin_render.rs#L577  fn render_nc_pin_open_tag_is_self_closed
+viz/render/pin_render.rs#L599  fn marker_only_no_text
 viz/render/power_label.rs#L19  struct PowerLabelShape
 viz/render/power_label.rs#L21  impl BoxShape for PowerLabelShape
 viz/render/power_label.rs#L22  fn render
@@ -10275,24 +10278,24 @@ viz/render/resistor.rs#L165  fn no_rect_body
 viz/render/shape.rs#L43  trait BoxShape
 viz/render/shape.rs#L45  fn render
 viz/render/shape.rs#L61  fn render_box
-viz/render/shape.rs#L90  fn render_box_inner
-viz/render/shape.rs#L178  fn render_custom_symbol
-viz/render/shape.rs#L207  fn escape_xml_attr
-viz/render/shape.rs#L219  fn box_name_label
-viz/render/shape.rs#L233  fn render_test_point
-viz/render/shape.rs#L258  fn render_dot_symbol
-viz/render/shape.rs#L280  fn render_box_legacy
-viz/render/shape.rs#L321  mod tests
-viz/render/shape.rs#L326  fn mk
-viz/render/shape.rs#L351  fn custom_symbol_overrides_system_symbol_in_device_layers
-viz/render/shape.rs#L370  fn no_custom_symbol_uses_system
-viz/render/shape.rs#L383  fn box_body
-viz/render/shape.rs#L405  fn root_box_advertises_drill_down_only_when_the_layer_exists
-viz/render/shape.rs#L451  fn drill_down_does_not_depend_on_the_face
-viz/render/shape.rs#L479  fn virtual_test_point_hides_instance_name
-viz/render/shape.rs#L494  fn real_test_point_keeps_instance_name
-viz/render/shape.rs#L505  fn box_with_source_span_stamps_its_coordinate
-viz/render/shape.rs#L517  fn box_without_source_span_stamps_nothing
+viz/render/shape.rs#L93  fn render_box_inner
+viz/render/shape.rs#L181  fn render_custom_symbol
+viz/render/shape.rs#L210  fn escape_xml_attr
+viz/render/shape.rs#L222  fn box_name_label
+viz/render/shape.rs#L236  fn render_test_point
+viz/render/shape.rs#L261  fn render_dot_symbol
+viz/render/shape.rs#L283  fn render_box_legacy
+viz/render/shape.rs#L324  mod tests
+viz/render/shape.rs#L329  fn mk
+viz/render/shape.rs#L354  fn custom_symbol_overrides_system_symbol_in_device_layers
+viz/render/shape.rs#L373  fn no_custom_symbol_uses_system
+viz/render/shape.rs#L386  fn box_body
+viz/render/shape.rs#L408  fn root_box_advertises_drill_down_only_when_the_layer_exists
+viz/render/shape.rs#L454  fn drill_down_does_not_depend_on_the_face
+viz/render/shape.rs#L482  fn virtual_test_point_hides_instance_name
+viz/render/shape.rs#L497  fn real_test_point_keeps_instance_name
+viz/render/shape.rs#L508  fn box_with_source_span_stamps_its_coordinate
+viz/render/shape.rs#L520  fn box_without_source_span_stamps_nothing
 viz/render/sub_module.rs#L45  fn submodule_pin_opts
 viz/render/sub_module.rs#L66  fn render_submodule_pin
 viz/render/sub_module.rs#L79  fn render_sub_module
@@ -11036,4 +11039,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-402 files, 10954 declarations.
+402 files, 10957 declarations.
