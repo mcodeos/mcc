@@ -56,6 +56,13 @@ pub(super) enum Face {
 pub(super) struct DomainFaces {
     quiet: HashMap<u32, HashSet<String>>,
     noisy: HashMap<u32, HashSet<String>>,
+    /// Worlds a scope declares `@class(digital)` or `@noise(noisy)` — the
+    /// signal-class axis's net-side reading (pin-expectation-design.md §4,
+    /// v0.3): the §1.4 face model pairs quiet/sensitive with the analog class,
+    /// so its declared opposite carries the digital class. The
+    /// pin-expectation gate is the only consumer; the SN/PI rules keep
+    /// reading the two §1.4 faces only.
+    digital: HashMap<u32, HashSet<String>>,
 }
 
 /// §1.4's face for **one declaration's words**, wherever they were written: a
@@ -86,6 +93,15 @@ impl DomainFaces {
         let mut out = Self::default();
         for (id, pi) in table.power_decls() {
             for f in pi.l1_domain_faces() {
+                // The class read sits beside the face read, not inside it:
+                // `@class(digital)` and `@noise(noisy)` name no §1.4 face
+                // between them (`face_of_words` maps only the analog side),
+                // but both declare the digital class.
+                if f.class.as_deref() == Some(attr_keys::WORD_DIGITAL)
+                    || f.noise.as_deref() == Some(attr_keys::WORD_NOISY)
+                {
+                    out.digital.entry(*id).or_default().insert(f.name.clone());
+                }
                 match face_of_words(f.class.as_deref(), f.noise.as_deref()) {
                     Some(Face::Quiet) => {
                         out.quiet.entry(*id).or_default().insert(f.name);
@@ -116,7 +132,28 @@ impl DomainFaces {
     /// Whether any scope on `layer`'s chain declares a face at all — the cheap
     /// guard that keeps a board with no faces at all out of the walk.
     pub(super) fn is_empty(&self) -> bool {
-        self.quiet.is_empty() && self.noisy.is_empty()
+        self.quiet.is_empty() && self.noisy.is_empty() && self.digital.is_empty()
+    }
+
+    /// The digital-class world `worlds` anchors, if any — the signal-class
+    /// axis's net-side reading (pin-expectation-design.md §4, v0.3). The same
+    /// per-scope chain walk [`Self::world_of`] does for the §1.4 faces.
+    pub(super) fn digital_world(
+        &self,
+        table: &InstTable,
+        layer: u32,
+        worlds: &[String],
+    ) -> Option<String> {
+        let mut cur = Some(layer);
+        while let Some(id) = cur {
+            if let Some(set) = self.digital.get(&id) {
+                if let Some(w) = worlds.iter().find(|w| set.contains(*w)) {
+                    return Some(w.clone());
+                }
+            }
+            cur = table.get_entry(id).and_then(|e| e.parent_id);
+        }
+        None
     }
 
     /// The first of `worlds` that some scope on `layer`'s chain declares as

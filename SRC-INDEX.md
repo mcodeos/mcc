@@ -30,14 +30,14 @@ range (threshold 40KB).
 
 | File | Size | Declarations |
 |---|---|---|
-| `viz/layout/equipotential_tree.rs` | 371 KB | 180 |
+| `viz/layout/equipotential_tree.rs` | 390 KB | 198 |
 | `db/infra/mc_code.rs` | 342 KB | 95 |
 | `semantic/basic/mc_phrase.rs` | 315 KB | 68 |
 | `semantic/component/mc_pins/mod.rs` | 225 KB | 104 |
 | `instant/mc_mod/stmt.rs` | 194 KB | 76 |
-| `semantic/validation/nets/mod.rs` | 182 KB | 117 |
-| `db/diagnostic/errcodes.rs` | 180 KB | 436 |
-| `rules.rs` | 175 KB | 83 |
+| `semantic/validation/nets/mod.rs` | 186 KB | 121 |
+| `db/diagnostic/errcodes.rs` | 181 KB | 436 |
+| `rules.rs` | 176 KB | 83 |
 | `instant/insttab.rs` | 154 KB | 111 |
 | `instant/mc_mod/fcallinst.rs` | 147 KB | 26 |
 | `db/defregistry.rs` | 147 KB | 179 |
@@ -63,7 +63,7 @@ range (threshold 40KB).
 | `builder/` | 1 | 0 KB |
 | `cli/` | 7 | 111 KB |
 | `cmds/` | 28 | 492 KB |
-| `db/` | 27 | 909 KB |
+| `db/` | 27 | 910 KB |
 | `eval/` | 2 | 48 KB |
 | `export/` | 7 | 175 KB |
 | `instant/` | 40 | 1554 KB |
@@ -72,10 +72,10 @@ range (threshold 40KB).
 | `query/` | 9 | 157 KB |
 | `refdef/` | 7 | 118 KB |
 | `rpc/` | 16 | 302 KB |
-| `semantic/` | 89 | 2605 KB |
+| `semantic/` | 89 | 2613 KB |
 | `stages/` | 12 | 321 KB |
 | `vector/` | 25 | 475 KB |
-| `viz/` | 96 | 2386 KB |
+| `viz/` | 96 | 2405 KB |
 
 ## Declaration index
 
@@ -1984,13 +1984,13 @@ db/diagnostic/errcodes.rs#L2023  const SHARED_RETURN_BRIDGE
 db/diagnostic/errcodes.rs#L2057  const FILTER_SUBFACE_OVERREACH
 db/diagnostic/errcodes.rs#L2093  const EXPOSED_NET_DOWNSTREAM_UNPROTECTED
 db/diagnostic/errcodes.rs#L2107  const DOMAIN_ENDPOINT_NAME_COLLISION
-db/diagnostic/errcodes.rs#L2117  const PIN_COPPER_EXPECTATION_MISMATCH
-db/diagnostic/errcodes.rs#L2125  const PIN_COPPER_EXPECTATION_UNANCHORED
-db/diagnostic/errcodes.rs#L2138  const DOMAIN_NET_MIXED_BRIDGE
-db/diagnostic/errcodes.rs#L2151  const DOMAIN_BRIDGE_DIRECTION_REVERSED
-db/diagnostic/errcodes.rs#L2163  const DOMAIN_BRIDGE_LEG_INCONSISTENT
-db/diagnostic/errcodes.rs#L2174  const DOMAIN_BRIDGE_DANGLING
-db/diagnostic/errcodes.rs#L2176  static ALL_CODES
+db/diagnostic/errcodes.rs#L2123  const PIN_COPPER_EXPECTATION_MISMATCH
+db/diagnostic/errcodes.rs#L2133  const PIN_COPPER_EXPECTATION_UNANCHORED
+db/diagnostic/errcodes.rs#L2146  const DOMAIN_NET_MIXED_BRIDGE
+db/diagnostic/errcodes.rs#L2159  const DOMAIN_BRIDGE_DIRECTION_REVERSED
+db/diagnostic/errcodes.rs#L2171  const DOMAIN_BRIDGE_LEG_INCONSISTENT
+db/diagnostic/errcodes.rs#L2182  const DOMAIN_BRIDGE_DANGLING
+db/diagnostic/errcodes.rs#L2184  static ALL_CODES
 db/diagnostic/mod.rs#L2  mod diagnostic
 db/diagnostic/mod.rs#L3  mod errcodes
 db/diagnostic/mod.rs#L4  mod override_store
@@ -4872,75 +4872,76 @@ semantic/basic/attr_keys.rs#L166  struct AttrKeyDef
 semantic/basic/attr_keys.rs#L206  fn is_voltage_key
 semantic/basic/attr_keys.rs#L210  const BODY
 semantic/basic/attr_keys.rs#L211  const PIN
-semantic/basic/attr_keys.rs#L216  const BODY_PIN
-semantic/basic/attr_keys.rs#L217  const IFACE
-semantic/basic/attr_keys.rs#L218  const SPEC
-semantic/basic/attr_keys.rs#L222  const BODY_PIN_IFACE
-semantic/basic/attr_keys.rs#L230  const KEY_ROLE
-semantic/basic/attr_keys.rs#L231  const KEY_CLASS
-semantic/basic/attr_keys.rs#L232  const KEY_NATURE
-semantic/basic/attr_keys.rs#L233  const KEY_NOISE
-semantic/basic/attr_keys.rs#L234  const KEY_EXPOSED
-semantic/basic/attr_keys.rs#L235  const KEY_BIND_ROLE
-semantic/basic/attr_keys.rs#L236  const KEY_RETURN
-semantic/basic/attr_keys.rs#L237  const KEY_STAR
-semantic/basic/attr_keys.rs#L238  const KEY_PROTECT
-semantic/basic/attr_keys.rs#L243  const WORD_MAIN
-semantic/basic/attr_keys.rs#L244  const WORD_QUIET
-semantic/basic/attr_keys.rs#L245  const WORD_PROTECTIVE
-semantic/basic/attr_keys.rs#L246  const WORD_EARTH
-semantic/basic/attr_keys.rs#L247  const WORD_ISOLATED
-semantic/basic/attr_keys.rs#L248  const WORD_DIGITAL
-semantic/basic/attr_keys.rs#L249  const WORD_ANALOG
-semantic/basic/attr_keys.rs#L250  const WORD_NOISY
-semantic/basic/attr_keys.rs#L251  const WORD_SENSITIVE
-semantic/basic/attr_keys.rs#L252  const WORD_AC
-semantic/basic/attr_keys.rs#L253  const WORD_DC
-semantic/basic/attr_keys.rs#L254  const WORD_SHUNT
-semantic/basic/attr_keys.rs#L255  const WORD_SERIES
-semantic/basic/attr_keys.rs#L256  const WORD_ESD_CONTACT
-semantic/basic/attr_keys.rs#L257  const WORD_ESD_AIR
-semantic/basic/attr_keys.rs#L258  const WORD_EFT
-semantic/basic/attr_keys.rs#L259  const WORD_SURGE
-semantic/basic/attr_keys.rs#L260  const WORD_LIGHTNING
-semantic/basic/attr_keys.rs#L262  const ROLE_WORDS
-semantic/basic/attr_keys.rs#L269  const CLASS_WORDS
-semantic/basic/attr_keys.rs#L270  const NATURE_WORDS
-semantic/basic/attr_keys.rs#L271  const NOISE_WORDS
-semantic/basic/attr_keys.rs#L272  const EXPOSED_WORDS
-semantic/basic/attr_keys.rs#L279  const PROTECT_WORDS
-semantic/basic/attr_keys.rs#L287  const ATTR_KEYS
-semantic/basic/attr_keys.rs#L491  const fn
-semantic/basic/attr_keys.rs#L509  const fn
-semantic/basic/attr_keys.rs#L528  const fn
-semantic/basic/attr_keys.rs#L549  const fn
-semantic/basic/attr_keys.rs#L568  const fn
-semantic/basic/attr_keys.rs#L586  const fn
-semantic/basic/attr_keys.rs#L606  fn lookup
-semantic/basic/attr_keys.rs#L616  fn value_kind
-semantic/basic/attr_keys.rs#L627  fn arity_of
-semantic/basic/attr_keys.rs#L637  fn element_of_key
-semantic/basic/attr_keys.rs#L645  fn element_of_spec_key
-semantic/basic/attr_keys.rs#L656  fn vocab_of
-semantic/basic/attr_keys.rs#L677  const SPEC_TABLE_KEY
-semantic/basic/attr_keys.rs#L679  fn is_table_namespace
-semantic/basic/attr_keys.rs#L687  fn is_reserved
-semantic/basic/attr_keys.rs#L695  fn is_known_key
-semantic/basic/attr_keys.rs#L700  mod tests
-semantic/basic/attr_keys.rs#L704  fn attrkeys__spec_key_carries_its_unit
-semantic/basic/attr_keys.rs#L721  fn attrkeys__standalone_key_carries_its_kind
-semantic/basic/attr_keys.rs#L730  fn attrkeys__lookup_is_exact_and_whole
-semantic/basic/attr_keys.rs#L745  fn attrkeys__face_decides_which_namespace_answers
-semantic/basic/attr_keys.rs#L764  fn attrkeys__contract_half_pairs_demand_with_supply
-semantic/basic/attr_keys.rs#L788  fn attrkeys__clipped_spec_key_is_not_registered
-semantic/basic/attr_keys.rs#L813  fn attrkeys__bom_field_has_no_spec_row
-semantic/basic/attr_keys.rs#L823  fn attrkeys__unregistered_device_key_is_silent
-semantic/basic/attr_keys.rs#L832  fn attrkeys__registered_spec_key_is_not_reserved
-semantic/basic/attr_keys.rs#L840  fn attrkeys__element_column_marks_the_keys_that_decide_the_class
-semantic/basic/attr_keys.rs#L871  fn attrkeys__element_lookup_is_whole_and_exact
-semantic/basic/attr_keys.rs#L887  fn attrkeys__vocab_column_registers_the_closed_word_sets
-semantic/basic/attr_keys.rs#L906  fn attrkeys__vocab_is_absent_where_values_are_open
-semantic/basic/attr_keys.rs#L922  fn attrkeys__spec_namespace_is_derived_from_the_rows
+semantic/basic/attr_keys.rs#L219  const BODY_PIN
+semantic/basic/attr_keys.rs#L220  const IFACE
+semantic/basic/attr_keys.rs#L221  const SPEC
+semantic/basic/attr_keys.rs#L225  const BODY_PIN_IFACE
+semantic/basic/attr_keys.rs#L233  const KEY_ROLE
+semantic/basic/attr_keys.rs#L234  const KEY_CLASS
+semantic/basic/attr_keys.rs#L235  const KEY_REQ
+semantic/basic/attr_keys.rs#L236  const KEY_NATURE
+semantic/basic/attr_keys.rs#L237  const KEY_NOISE
+semantic/basic/attr_keys.rs#L238  const KEY_EXPOSED
+semantic/basic/attr_keys.rs#L239  const KEY_BIND_ROLE
+semantic/basic/attr_keys.rs#L240  const KEY_RETURN
+semantic/basic/attr_keys.rs#L241  const KEY_STAR
+semantic/basic/attr_keys.rs#L242  const KEY_PROTECT
+semantic/basic/attr_keys.rs#L247  const WORD_MAIN
+semantic/basic/attr_keys.rs#L248  const WORD_QUIET
+semantic/basic/attr_keys.rs#L249  const WORD_PROTECTIVE
+semantic/basic/attr_keys.rs#L250  const WORD_EARTH
+semantic/basic/attr_keys.rs#L251  const WORD_ISOLATED
+semantic/basic/attr_keys.rs#L252  const WORD_DIGITAL
+semantic/basic/attr_keys.rs#L253  const WORD_ANALOG
+semantic/basic/attr_keys.rs#L254  const WORD_NOISY
+semantic/basic/attr_keys.rs#L255  const WORD_SENSITIVE
+semantic/basic/attr_keys.rs#L256  const WORD_AC
+semantic/basic/attr_keys.rs#L257  const WORD_DC
+semantic/basic/attr_keys.rs#L258  const WORD_SHUNT
+semantic/basic/attr_keys.rs#L259  const WORD_SERIES
+semantic/basic/attr_keys.rs#L260  const WORD_ESD_CONTACT
+semantic/basic/attr_keys.rs#L261  const WORD_ESD_AIR
+semantic/basic/attr_keys.rs#L262  const WORD_EFT
+semantic/basic/attr_keys.rs#L263  const WORD_SURGE
+semantic/basic/attr_keys.rs#L264  const WORD_LIGHTNING
+semantic/basic/attr_keys.rs#L266  const ROLE_WORDS
+semantic/basic/attr_keys.rs#L273  const CLASS_WORDS
+semantic/basic/attr_keys.rs#L274  const NATURE_WORDS
+semantic/basic/attr_keys.rs#L275  const NOISE_WORDS
+semantic/basic/attr_keys.rs#L276  const EXPOSED_WORDS
+semantic/basic/attr_keys.rs#L283  const PROTECT_WORDS
+semantic/basic/attr_keys.rs#L291  const ATTR_KEYS
+semantic/basic/attr_keys.rs#L502  const fn
+semantic/basic/attr_keys.rs#L520  const fn
+semantic/basic/attr_keys.rs#L539  const fn
+semantic/basic/attr_keys.rs#L560  const fn
+semantic/basic/attr_keys.rs#L579  const fn
+semantic/basic/attr_keys.rs#L597  const fn
+semantic/basic/attr_keys.rs#L617  fn lookup
+semantic/basic/attr_keys.rs#L627  fn value_kind
+semantic/basic/attr_keys.rs#L638  fn arity_of
+semantic/basic/attr_keys.rs#L648  fn element_of_key
+semantic/basic/attr_keys.rs#L656  fn element_of_spec_key
+semantic/basic/attr_keys.rs#L667  fn vocab_of
+semantic/basic/attr_keys.rs#L688  const SPEC_TABLE_KEY
+semantic/basic/attr_keys.rs#L690  fn is_table_namespace
+semantic/basic/attr_keys.rs#L698  fn is_reserved
+semantic/basic/attr_keys.rs#L706  fn is_known_key
+semantic/basic/attr_keys.rs#L711  mod tests
+semantic/basic/attr_keys.rs#L715  fn attrkeys__spec_key_carries_its_unit
+semantic/basic/attr_keys.rs#L732  fn attrkeys__standalone_key_carries_its_kind
+semantic/basic/attr_keys.rs#L741  fn attrkeys__lookup_is_exact_and_whole
+semantic/basic/attr_keys.rs#L756  fn attrkeys__face_decides_which_namespace_answers
+semantic/basic/attr_keys.rs#L775  fn attrkeys__contract_half_pairs_demand_with_supply
+semantic/basic/attr_keys.rs#L799  fn attrkeys__clipped_spec_key_is_not_registered
+semantic/basic/attr_keys.rs#L824  fn attrkeys__bom_field_has_no_spec_row
+semantic/basic/attr_keys.rs#L834  fn attrkeys__unregistered_device_key_is_silent
+semantic/basic/attr_keys.rs#L843  fn attrkeys__registered_spec_key_is_not_reserved
+semantic/basic/attr_keys.rs#L851  fn attrkeys__element_column_marks_the_keys_that_decide_the_class
+semantic/basic/attr_keys.rs#L882  fn attrkeys__element_lookup_is_whole_and_exact
+semantic/basic/attr_keys.rs#L898  fn attrkeys__vocab_column_registers_the_closed_word_sets
+semantic/basic/attr_keys.rs#L917  fn attrkeys__vocab_is_absent_where_values_are_open
+semantic/basic/attr_keys.rs#L933  fn attrkeys__spec_namespace_is_derived_from_the_rows
 semantic/basic/equivalent.rs#L27  fn member_set
 semantic/basic/equivalent.rs#L38  fn canonical_single
 semantic/basic/equivalent.rs#L51  fn are_equivalent
@@ -6178,46 +6179,46 @@ semantic/component/mod.rs#L128  fn closed_pin_ids
 semantic/component/mod.rs#L154  fn has_pin_defs
 semantic/component/mod.rs#L168  fn two_pin_verdict
 semantic/component/mod.rs#L181  fn new
-semantic/component/mod.rs#L366  fn parse_cond_blocks
-semantic/component/mod.rs#L526  fn collect_param_refs_in_body
-semantic/component/mod.rs#L534  fn collect_param_refs_in_node
-semantic/component/mod.rs#L580  impl HasFindInst for McComponent
-semantic/component/mod.rs#L581  fn find_inst
-semantic/component/mod.rs#L585  fn find_inst_mut
-semantic/component/mod.rs#L589  fn find_inst_with_span
-semantic/component/mod.rs#L603  fn find_terminal
-semantic/component/mod.rs#L609  fn add_label_at
-semantic/component/mod.rs#L619  fn add_bus
-semantic/component/mod.rs#L625  fn add_list
-semantic/component/mod.rs#L631  fn add_bus_member
-semantic/component/mod.rs#L635  fn add_interface_member
-semantic/component/mod.rs#L644  fn check_bus_member
-semantic/component/mod.rs#L651  fn is_component_bus
-semantic/component/mod.rs#L655  fn uri
-semantic/component/mod.rs#L659  fn parse_declare
-semantic/component/mod.rs#L679  fn add_component
-semantic/component/mod.rs#L694  fn add_module
-semantic/component/mod.rs#L702  fn gen_anon_name
-semantic/component/mod.rs#L713  fn upgrade_label_to_bus
-semantic/component/mod.rs#L717  fn record_declareb_def
-semantic/component/mod.rs#L726  fn scope_name
-semantic/component/mod.rs#L732  struct Mc2Component
-semantic/component/mod.rs#L747  impl std::fmt::Display for McComponent
-semantic/component/mod.rs#L748  fn fmt
-semantic/component/mod.rs#L754  impl Mc2Component
-semantic/component/mod.rs#L755  fn new
-semantic/component/mod.rs#L766  fn with_nc
-semantic/component/mod.rs#L777  fn with_params
-semantic/component/mod.rs#L792  fn integer_param_bindings
-semantic/component/mod.rs#L816  fn pins_contain
-semantic/component/mod.rs#L826  fn find_pin
-semantic/component/mod.rs#L882  fn resolved_pin_count
-semantic/component/mod.rs#L896  fn find_port
-semantic/component/mod.rs#L910  fn port_to_instance
-semantic/component/mod.rs#L946  fn find_scoped_enum_value
-semantic/component/mod.rs#L981  fn lookup_enum_class_id
-semantic/component/mod.rs#L988  impl std::fmt::Display for Mc2Component
-semantic/component/mod.rs#L989  fn fmt
+semantic/component/mod.rs#L380  fn parse_cond_blocks
+semantic/component/mod.rs#L540  fn collect_param_refs_in_body
+semantic/component/mod.rs#L548  fn collect_param_refs_in_node
+semantic/component/mod.rs#L594  impl HasFindInst for McComponent
+semantic/component/mod.rs#L595  fn find_inst
+semantic/component/mod.rs#L599  fn find_inst_mut
+semantic/component/mod.rs#L603  fn find_inst_with_span
+semantic/component/mod.rs#L617  fn find_terminal
+semantic/component/mod.rs#L623  fn add_label_at
+semantic/component/mod.rs#L633  fn add_bus
+semantic/component/mod.rs#L639  fn add_list
+semantic/component/mod.rs#L645  fn add_bus_member
+semantic/component/mod.rs#L649  fn add_interface_member
+semantic/component/mod.rs#L658  fn check_bus_member
+semantic/component/mod.rs#L665  fn is_component_bus
+semantic/component/mod.rs#L669  fn uri
+semantic/component/mod.rs#L673  fn parse_declare
+semantic/component/mod.rs#L693  fn add_component
+semantic/component/mod.rs#L708  fn add_module
+semantic/component/mod.rs#L716  fn gen_anon_name
+semantic/component/mod.rs#L727  fn upgrade_label_to_bus
+semantic/component/mod.rs#L731  fn record_declareb_def
+semantic/component/mod.rs#L740  fn scope_name
+semantic/component/mod.rs#L746  struct Mc2Component
+semantic/component/mod.rs#L761  impl std::fmt::Display for McComponent
+semantic/component/mod.rs#L762  fn fmt
+semantic/component/mod.rs#L768  impl Mc2Component
+semantic/component/mod.rs#L769  fn new
+semantic/component/mod.rs#L780  fn with_nc
+semantic/component/mod.rs#L791  fn with_params
+semantic/component/mod.rs#L806  fn integer_param_bindings
+semantic/component/mod.rs#L830  fn pins_contain
+semantic/component/mod.rs#L840  fn find_pin
+semantic/component/mod.rs#L896  fn resolved_pin_count
+semantic/component/mod.rs#L910  fn find_port
+semantic/component/mod.rs#L924  fn port_to_instance
+semantic/component/mod.rs#L960  fn find_scoped_enum_value
+semantic/component/mod.rs#L995  fn lookup_enum_class_id
+semantic/component/mod.rs#L1002  impl std::fmt::Display for Mc2Component
+semantic/component/mod.rs#L1003  fn fmt
 semantic/context.rs#L26  fn resolve_cmie
 semantic/context.rs#L39  trait NameResolver
 semantic/context.rs#L42  fn resolve
@@ -7296,13 +7297,14 @@ semantic/validation/nets/budget_derive.rs#L390  fn derived_charges
 semantic/validation/nets/decouple.rs#L46  fn check_decoupling_return_face
 semantic/validation/nets/faces.rs#L45  enum Face
 semantic/validation/nets/faces.rs#L56  struct DomainFaces
-semantic/validation/nets/faces.rs#L66  fn face_of_words
-semantic/validation/nets/faces.rs#L84  impl DomainFaces
-semantic/validation/nets/faces.rs#L85  fn read
-semantic/validation/nets/faces.rs#L108  fn declares
-semantic/validation/nets/faces.rs#L118  fn is_empty
-semantic/validation/nets/faces.rs#L125  fn world_of
-semantic/validation/nets/faces.rs#L151  fn quiet_world
+semantic/validation/nets/faces.rs#L73  fn face_of_words
+semantic/validation/nets/faces.rs#L91  impl DomainFaces
+semantic/validation/nets/faces.rs#L92  fn read
+semantic/validation/nets/faces.rs#L124  fn declares
+semantic/validation/nets/faces.rs#L134  fn is_empty
+semantic/validation/nets/faces.rs#L141  fn digital_world
+semantic/validation/nets/faces.rs#L162  fn world_of
+semantic/validation/nets/faces.rs#L188  fn quiet_world
 semantic/validation/nets/mod.rs#L28  mod window
 semantic/validation/nets/mod.rs#L37  mod budget
 semantic/validation/nets/mod.rs#L43  mod budget_derive
@@ -7394,32 +7396,36 @@ semantic/validation/nets/mod.rs#L2936  type EdgeEndpoint
 semantic/validation/nets/mod.rs#L2938  fn edge_endpoint
 semantic/validation/nets/mod.rs#L2964  fn leg_sites
 semantic/validation/nets/mod.rs#L3002  fn check_return_leg_undeclared
-semantic/validation/nets/mod.rs#L3164  fn check_pin_copper_expectation
-semantic/validation/nets/mod.rs#L3265  fn def_pin_of
-semantic/validation/nets/mod.rs#L3287  fn domain_edge_covers
-semantic/validation/nets/mod.rs#L3304  fn comp_def_uri
-semantic/validation/nets/mod.rs#L3314  struct DeviceReturnClass
-semantic/validation/nets/mod.rs#L3347  fn check_device_return_span
-semantic/validation/nets/mod.rs#L3549  fn check_port_bind_role
-semantic/validation/nets/mod.rs#L3634  fn resolve_bind_role
-semantic/validation/nets/mod.rs#L3722  fn exposed_hosts
-semantic/validation/nets/mod.rs#L3750  fn check_exposed_clamp_coverage
-semantic/validation/nets/mod.rs#L3793  fn segment_is_clamped
-semantic/validation/nets/mod.rs#L3852  fn clamp_declaration_plane
-semantic/validation/nets/mod.rs#L3893  const NO_SKIP
-semantic/validation/nets/mod.rs#L3899  fn role_excluded
-semantic/validation/nets/mod.rs#L3924  fn copper_region_into
-semantic/validation/nets/mod.rs#L4011  fn check_exposed_clamp_downstream
-semantic/validation/nets/mod.rs#L4121  fn fmt_amps
-semantic/validation/nets/mod.rs#L4130  fn fmt_round
-semantic/validation/nets/mod.rs#L4145  fn sink_contract_for
-semantic/validation/nets/mod.rs#L4166  fn source_contract_for
-semantic/validation/nets/mod.rs#L4191  fn member_net_of
-semantic/validation/nets/mod.rs#L4209  fn net_name
-semantic/validation/nets/mod.rs#L4217  mod tests
-semantic/validation/nets/mod.rs#L4224  fn net_result
-semantic/validation/nets/mod.rs#L4236  fn diag_key
-semantic/validation/nets/mod.rs#L4241  fn net_results_to_diagnostics_is_identity_under_any_store_today
+semantic/validation/nets/mod.rs#L3171  fn check_pin_copper_expectation
+semantic/validation/nets/mod.rs#L3264  enum Expectation
+semantic/validation/nets/mod.rs#L3273  fn judge_expectation
+semantic/validation/nets/mod.rs#L3348  fn push_unanchored
+semantic/validation/nets/mod.rs#L3372  fn exp_phrase
+semantic/validation/nets/mod.rs#L3385  fn def_pin_of
+semantic/validation/nets/mod.rs#L3407  fn domain_edge_covers
+semantic/validation/nets/mod.rs#L3424  fn comp_def_uri
+semantic/validation/nets/mod.rs#L3434  struct DeviceReturnClass
+semantic/validation/nets/mod.rs#L3467  fn check_device_return_span
+semantic/validation/nets/mod.rs#L3669  fn check_port_bind_role
+semantic/validation/nets/mod.rs#L3754  fn resolve_bind_role
+semantic/validation/nets/mod.rs#L3842  fn exposed_hosts
+semantic/validation/nets/mod.rs#L3870  fn check_exposed_clamp_coverage
+semantic/validation/nets/mod.rs#L3913  fn segment_is_clamped
+semantic/validation/nets/mod.rs#L3972  fn clamp_declaration_plane
+semantic/validation/nets/mod.rs#L4013  const NO_SKIP
+semantic/validation/nets/mod.rs#L4019  fn role_excluded
+semantic/validation/nets/mod.rs#L4044  fn copper_region_into
+semantic/validation/nets/mod.rs#L4131  fn check_exposed_clamp_downstream
+semantic/validation/nets/mod.rs#L4241  fn fmt_amps
+semantic/validation/nets/mod.rs#L4250  fn fmt_round
+semantic/validation/nets/mod.rs#L4265  fn sink_contract_for
+semantic/validation/nets/mod.rs#L4286  fn source_contract_for
+semantic/validation/nets/mod.rs#L4311  fn member_net_of
+semantic/validation/nets/mod.rs#L4329  fn net_name
+semantic/validation/nets/mod.rs#L4337  mod tests
+semantic/validation/nets/mod.rs#L4344  fn net_result
+semantic/validation/nets/mod.rs#L4356  fn diag_key
+semantic/validation/nets/mod.rs#L4361  fn net_results_to_diagnostics_is_identity_under_any_store_today
 semantic/validation/nets/protect.rs#L49  fn declared_ref_roles
 semantic/validation/nets/protect.rs#L80  fn role_in_chain
 semantic/validation/nets/protect.rs#L99  fn marked_components
@@ -9159,50 +9165,68 @@ viz/layout/equipotential_tree.rs#L6233  impl DeflectAlloc
 viz/layout/equipotential_tree.rs#L6234  fn new
 viz/layout/equipotential_tree.rs#L6244  fn alloc
 viz/layout/equipotential_tree.rs#L6296  fn realize_all
-viz/layout/equipotential_tree.rs#L6314  fn realize
-viz/layout/equipotential_tree.rs#L7039  const BAND
-viz/layout/equipotential_tree.rs#L7157  fn pick_stub_dir
-viz/layout/equipotential_tree.rs#L7173  fn stub_dir_is_free
-viz/layout/equipotential_tree.rs#L7220  fn terminal_stub
-viz/layout/equipotential_tree.rs#L7254  fn segment_hits_box
-viz/layout/equipotential_tree.rs#L7288  fn segments_overlap
-viz/layout/equipotential_tree.rs#L7343  fn member_pin_point
-viz/layout/equipotential_tree.rs#L7361  fn add_segment
-viz/layout/equipotential_tree.rs#L7394  fn point_on_segment
-viz/layout/equipotential_tree.rs#L7415  fn symbol_node
-viz/layout/equipotential_tree.rs#L7424  fn symbol_alt_node
-viz/layout/equipotential_tree.rs#L7431  fn build_symbols
-viz/layout/equipotential_tree.rs#L7525  const LAYOUT_ANCHOR_X
-viz/layout/equipotential_tree.rs#L7526  const LAYOUT_ANCHOR_Y
-viz/layout/equipotential_tree.rs#L7535  fn layout_box_dims
-viz/layout/equipotential_tree.rs#L7570  fn seed_layout_boxes
-viz/layout/equipotential_tree.rs#L7617  fn layout_anchor_rect
-viz/layout/equipotential_tree.rs#L7625  fn layout_device_layer
-viz/layout/equipotential_tree.rs#L7841  fn fallback_box_dims
-viz/layout/equipotential_tree.rs#L7896  fn build_all_trees
-viz/layout/equipotential_tree.rs#L7933  fn fit_content_to_canvas
-viz/layout/equipotential_tree.rs#L7993  fn content_bbox
-viz/layout/equipotential_tree.rs#L8047  const R
-viz/layout/equipotential_tree.rs#L8083  mod tests
-viz/layout/equipotential_tree.rs#L8091  fn mk_ic
-viz/layout/equipotential_tree.rs#L8119  fn mk_two_pin
-viz/layout/equipotential_tree.rs#L8147  fn mk_net
-viz/layout/equipotential_tree.rs#L8163  fn build_test_graph
-viz/layout/equipotential_tree.rs#L8185  fn lanes_layout_match_render
-viz/layout/equipotential_tree.rs#L8212  fn lanes_are_per_topology
-viz/layout/equipotential_tree.rs#L8228  fn no_dangling_segments
-viz/layout/equipotential_tree.rs#L8251  fn terminal_wires_clear_of_boxes
-viz/layout/equipotential_tree.rs#L8301  fn span_envelops_member_taps
-viz/layout/equipotential_tree.rs#L8343  fn trunk_reaches_member_beyond_anchor_range
-viz/layout/equipotential_tree.rs#L8391  fn dangling_segments
-viz/layout/equipotential_tree.rs#L8454  fn anchor_side_not_overloaded
-viz/layout/equipotential_tree.rs#L8486  fn ground_pins_on_south
-viz/layout/equipotential_tree.rs#L8515  fn layout_box_seeded_in_device_layer
-viz/layout/equipotential_tree.rs#L8586  fn no_region_fallback
-viz/layout/equipotential_tree.rs#L8597  fn shunt_cap_hangs_vertical
-viz/layout/equipotential_tree.rs#L8654  fn decoupling_cap_to_own_ground_lies_horizontal
-viz/layout/equipotential_tree.rs#L8695  fn ground_drop_not_flipped_up_across_row
-viz/layout/equipotential_tree.rs#L8759  fn two_device_pin_net_blocks_series
+viz/layout/equipotential_tree.rs#L6315  enum RowOverlap
+viz/layout/equipotential_tree.rs#L6322  const ROW_EPS
+viz/layout/equipotential_tree.rs#L6326  fn seg_row_overlap
+viz/layout/equipotential_tree.rs#L6355  struct DodgePlan
+viz/layout/equipotential_tree.rs#L6366  fn alloc_vertical_column
+viz/layout/equipotential_tree.rs#L6410  fn dodge_plan
+viz/layout/equipotential_tree.rs#L6490  fn apply_dodge
+viz/layout/equipotential_tree.rs#L6607  fn reconcile_row_overlaps
+viz/layout/equipotential_tree.rs#L6713  fn realize
+viz/layout/equipotential_tree.rs#L7438  const BAND
+viz/layout/equipotential_tree.rs#L7556  fn pick_stub_dir
+viz/layout/equipotential_tree.rs#L7572  fn stub_dir_is_free
+viz/layout/equipotential_tree.rs#L7619  fn terminal_stub
+viz/layout/equipotential_tree.rs#L7653  fn segment_hits_box
+viz/layout/equipotential_tree.rs#L7687  fn segments_overlap
+viz/layout/equipotential_tree.rs#L7742  fn member_pin_point
+viz/layout/equipotential_tree.rs#L7760  fn add_segment
+viz/layout/equipotential_tree.rs#L7793  fn point_on_segment
+viz/layout/equipotential_tree.rs#L7814  fn symbol_node
+viz/layout/equipotential_tree.rs#L7823  fn symbol_alt_node
+viz/layout/equipotential_tree.rs#L7830  fn build_symbols
+viz/layout/equipotential_tree.rs#L7924  const LAYOUT_ANCHOR_X
+viz/layout/equipotential_tree.rs#L7925  const LAYOUT_ANCHOR_Y
+viz/layout/equipotential_tree.rs#L7934  fn layout_box_dims
+viz/layout/equipotential_tree.rs#L7969  fn seed_layout_boxes
+viz/layout/equipotential_tree.rs#L8016  fn layout_anchor_rect
+viz/layout/equipotential_tree.rs#L8024  fn layout_device_layer
+viz/layout/equipotential_tree.rs#L8240  fn fallback_box_dims
+viz/layout/equipotential_tree.rs#L8295  fn build_all_trees
+viz/layout/equipotential_tree.rs#L8344  fn fit_content_to_canvas
+viz/layout/equipotential_tree.rs#L8404  fn content_bbox
+viz/layout/equipotential_tree.rs#L8458  const R
+viz/layout/equipotential_tree.rs#L8494  mod tests
+viz/layout/equipotential_tree.rs#L8502  fn mk_ic
+viz/layout/equipotential_tree.rs#L8530  fn mk_two_pin
+viz/layout/equipotential_tree.rs#L8558  fn mk_net
+viz/layout/equipotential_tree.rs#L8574  fn build_test_graph
+viz/layout/equipotential_tree.rs#L8596  fn lanes_layout_match_render
+viz/layout/equipotential_tree.rs#L8623  fn lanes_are_per_topology
+viz/layout/equipotential_tree.rs#L8639  fn no_dangling_segments
+viz/layout/equipotential_tree.rs#L8662  fn terminal_wires_clear_of_boxes
+viz/layout/equipotential_tree.rs#L8712  fn span_envelops_member_taps
+viz/layout/equipotential_tree.rs#L8754  fn trunk_reaches_member_beyond_anchor_range
+viz/layout/equipotential_tree.rs#L8802  fn dangling_segments
+viz/layout/equipotential_tree.rs#L8865  fn anchor_side_not_overloaded
+viz/layout/equipotential_tree.rs#L8897  fn ground_pins_on_south
+viz/layout/equipotential_tree.rs#L8926  fn layout_box_seeded_in_device_layer
+viz/layout/equipotential_tree.rs#L8997  fn no_region_fallback
+viz/layout/equipotential_tree.rs#L9008  fn shunt_cap_hangs_vertical
+viz/layout/equipotential_tree.rs#L9065  fn decoupling_cap_to_own_ground_lies_horizontal
+viz/layout/equipotential_tree.rs#L9106  fn ground_drop_not_flipped_up_across_row
+viz/layout/equipotential_tree.rs#L9170  fn two_device_pin_net_blocks_series
+viz/layout/equipotential_tree.rs#L9233  fn rtree
+viz/layout/equipotential_tree.rs#L9243  fn rseg
+viz/layout/equipotential_tree.rs#L9248  fn residual_overlaps
+viz/layout/equipotential_tree.rs#L9264  fn flat
+viz/layout/equipotential_tree.rs#L9272  fn reconcile_dodges_the_shorter_run_and_keeps_endpoints
+viz/layout/equipotential_tree.rs#L9295  fn reconcile_partial_overlap_keeps_the_outside_pieces
+viz/layout/equipotential_tree.rs#L9313  fn reconcile_vertical_overlap_runs_a_parallel_column
+viz/layout/equipotential_tree.rs#L9332  fn reconcile_dot_inside_the_span_hands_the_dodge_to_the_other_tree
+viz/layout/equipotential_tree.rs#L9345  fn reconcile_gives_up_when_no_gutter_level_is_free
+viz/layout/equipotential_tree.rs#L9374  fn reconcile_is_idempotent_once_clean
 viz/layout/facade.rs#L36  fn pin_facade
 viz/layout/facade.rs#L51  fn pin_facade_root
 viz/layout/facade.rs#L114  fn pin_facade_sub
@@ -10295,28 +10319,27 @@ viz/route/audit.rs#L59  fn audit_collisions
 viz/route/audit.rs#L169  fn audit_all
 viz/route/audit.rs#L185  struct TreeOverlapReport
 viz/route/audit.rs#L190  fn audit_tree_row_overlaps
-viz/route/audit.rs#L233  fn collinear_overlap
-viz/route/audit.rs#L261  fn net_has_conflict
-viz/route/audit.rs#L309  fn rects_overlap
-viz/route/audit.rs#L337  fn seg_hits_rect
-viz/route/audit.rs#L350  fn seg_seg_collide
-viz/route/audit.rs#L384  fn cross_hv
-viz/route/audit.rs#L395  fn seg_cross_point
-viz/route/audit.rs#L410  fn ranges_overlap
-viz/route/audit.rs#L416  mod tests
-viz/route/audit.rs#L420  fn seg
-viz/route/audit.rs#L428  fn hv_cross_counts
-viz/route/audit.rs#L437  fn hv_touch_at_endpoint_counts
-viz/route/audit.rs#L447  fn parallel_overlap_counts
-viz/route/audit.rs#L456  fn parallel_apart_not_counted
-viz/route/audit.rs#L464  fn seg_through_box
-viz/route/audit.rs#L484  fn boxes_overlap_detect
-viz/route/audit.rs#L493  fn tree
-viz/route/audit.rs#L504  fn tseg
-viz/route/audit.rs#L514  fn tree_same_row_overlap_counts_with_span
-viz/route/audit.rs#L526  fn tree_perpendicular_crossing_not_counted
-viz/route/audit.rs#L535  fn tree_same_row_apart_not_counted
-viz/route/audit.rs#L544  fn tree_vertical_collinear_overlap_counts
+viz/route/audit.rs#L228  fn net_has_conflict
+viz/route/audit.rs#L276  fn rects_overlap
+viz/route/audit.rs#L304  fn seg_hits_rect
+viz/route/audit.rs#L317  fn seg_seg_collide
+viz/route/audit.rs#L351  fn cross_hv
+viz/route/audit.rs#L362  fn seg_cross_point
+viz/route/audit.rs#L377  fn ranges_overlap
+viz/route/audit.rs#L383  mod tests
+viz/route/audit.rs#L388  fn seg
+viz/route/audit.rs#L396  fn hv_cross_counts
+viz/route/audit.rs#L405  fn hv_touch_at_endpoint_counts
+viz/route/audit.rs#L415  fn parallel_overlap_counts
+viz/route/audit.rs#L424  fn parallel_apart_not_counted
+viz/route/audit.rs#L432  fn seg_through_box
+viz/route/audit.rs#L452  fn boxes_overlap_detect
+viz/route/audit.rs#L461  fn tree
+viz/route/audit.rs#L472  fn tseg
+viz/route/audit.rs#L482  fn tree_same_row_overlap_counts_with_span
+viz/route/audit.rs#L494  fn tree_perpendicular_crossing_not_counted
+viz/route/audit.rs#L503  fn tree_same_row_apart_not_counted
+viz/route/audit.rs#L512  fn tree_vertical_collinear_overlap_counts
 viz/route/bus_bundle.rs#L51  const BUS_TRUNK_OVERHANG
 viz/route/bus_bundle.rs#L56  fn route_bus_bundle_with_channels
 viz/route/channels.rs#L71  struct HChannel
@@ -11011,4 +11034,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-402 files, 10929 declarations.
+402 files, 10952 declarations.

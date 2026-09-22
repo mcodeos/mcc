@@ -180,7 +180,11 @@ impl McComponent {
 
     pub fn new(node: &AstNode, uri: &McURI) -> Option<Self> {
         // MCK_COMPONENT
-        // |- MCAST_ABSTRACT? - MCAST_NAME - MCAST_PARAMS? - MCAST_VARIANT? - MCAST_ADOPTS? - MCAST_BODY
+        // |- MCAST_ABSTRACT? - MCAST_NAME - MCAST_PARAMS? - MCAST_VARIANT?
+        // |- MCAST_ADOPTS? - MCAST_ATTRIBUTE* - MCAST_BODY
+        // (the MCAST_ATTRIBUTE run between ADOPTS and BODY is the header's
+        // trailing `@key` / `@key(v)` slot, U172 — `component X @req { … }`;
+        // found by type like every other header child)
         let subnodes = node.get_sub_node()?;
 
         // 0. header derivation metadata (abstract-variant-capability plan §0.1):
@@ -247,6 +251,16 @@ impl McComponent {
             .iter()
             .find(|x| x.is_type(MCAST_PARAMS))
             .map(|param_node| new_comp.params.parse(&param_node));
+
+        //2.5. header attrs: the trailing `@key` run the component header
+        // carries (U172) — parsed before the body's clauses so a duplicate key
+        // between the two reports on the later one, matching the order they
+        // are written in. Direct children only: a body clause of the same node
+        // type sits deeper (under MCAST_BODY), so this filter cannot reach it.
+        subnodes
+            .iter()
+            .filter(|x| x.is_type(MCAST_ATTRIBUTE))
+            .for_each(|x| new_comp.attrs.parse(&x));
 
         //3. body
         if let Some(body) = subnodes.iter().find(|x| x.is_type(MCAST_BODY)) {

@@ -3149,18 +3149,25 @@ pub(crate) fn check_return_leg_undeclared(table: &InstTable, results: &mut Vec<N
     }
 }
 
-/// Pin copper expectation (pin-expectation-design.md §3, v0.1): a component
-/// pin row carrying `@role(<word>)` states the copper identity the pin
-/// expects to land on. The component layer cannot name a conduit (conduit
-/// does not cross layers), so the word is an expectation, and the module
-/// layer's binding is the witness: the landed net's potential class
-/// ([`eff_class`]) must anchor the expected identity — through a declared
-/// domain face (the §1.4 read, [`faces::DomainFaces`]) or through the copper
-/// conduit's own `@role` word. v0.1 judges `quiet` only: it is the one role
-/// word with a net-side reading. The other words pass the write-site
-/// vocabulary (5360) and carry no verdict yet — a branch with no reading is
-/// silence, never a guess. An unwired pin is the unwired-pin rule's object;
-/// a net with no class at all is the unanchored half (info), not a mismatch.
+/// Pin expectation (pin-expectation-design.md §3 v0.1, §3.1/§4 v0.3): a
+/// component pin row carries an expectation — `@role(<word>)` on the
+/// copper-identity axis or `@class(analog|digital)` on the signal-class axis
+/// — and the module layer's binding is the witness: the landed net's
+/// potential class ([`eff_class`]) must anchor what the row declares. The
+/// identity axis anchors through a declared domain face (the §1.4 read,
+/// [`faces::DomainFaces`]) or through the copper conduit's own `@role` word;
+/// the class axis through the same face read's class side — a quiet face
+/// carries the analog class, a declared digital/noisy world the digital one
+/// ([`faces::DomainFaces::digital_world`]). `quiet` and the two class words
+/// are the only expectations with a net-side reading; the other role words
+/// pass the write-site vocabulary (5360) and carry no verdict yet — a branch
+/// with no reading is silence, never a guess. A net that resolves a class
+/// but no class word is the unanchored half too (info), not a mismatch:
+/// unprovable is not violated. An unwired pin is the unwired-pin rule's
+/// object. Severity follows the part's strength tier (§3.1): `@req` on the
+/// component header — the same header slot the flag is written at, one word
+/// for the whole part — states the part's expectations as physical facts,
+/// and a violated one is an Error.
 pub(crate) fn check_pin_copper_expectation(table: &InstTable, results: &mut Vec<NetCheckResult>) {
     let idx = crate::instant::island::NetIslandIndex::build(table);
     let faces = faces::DomainFaces::read(table);
@@ -3168,8 +3175,8 @@ pub(crate) fn check_pin_copper_expectation(table: &InstTable, results: &mut Vec<
     // pure conduit reference carries when no domain world anchors it.
     let mut conduit_role: std::collections::HashMap<(u32, String), String> =
         std::collections::HashMap::new();
-    for (id, pi) in table.power_decls() {
-        for r in pi.l1_refs() {
+    for (id, p) in table.power_decls() {
+        for r in p.l1_refs() {
             if let Some(w) = r.role {
                 conduit_role.insert((*id, r.name), w);
             }
@@ -3188,75 +3195,188 @@ pub(crate) fn check_pin_copper_expectation(table: &InstTable, results: &mut Vec<
         let Some(def) = workspace.get(&comp.class_name) else {
             continue;
         };
+        // §3.1: the strength tier is a class-level fact — one flag on the
+        // header, read once per part. It lifts only the violated half.
+        let must =
+            crate::semantic::module::pi::has_attr(&def.attrs, crate::semantic::basic::attr_keys::KEY_REQ);
         for pin in table.get_pins_of(comp.id) {
             let Some(mp) = def_pin_of(def, &comp.path, pin) else {
                 continue;
             };
-            let Some(word) = crate::semantic::module::pi::attr_texts(
-                &mp.attrs,
-                crate::semantic::basic::attr_keys::KEY_ROLE,
-            )
-            .into_iter()
-            .next() else {
-                continue;
-            };
-            if word != crate::semantic::basic::attr_keys::WORD_QUIET {
-                continue; // v0.1: only `quiet` has a net-side reading
+            // One axis per row is the default shape (§4). A row that writes
+            // both is judged on each — the axes share one gate, one
+            // single-end comparison and one tier; no fourth reading exists.
+            let role_word =
+                crate::semantic::module::pi::attr_texts(&mp.attrs, attr_keys::KEY_ROLE)
+                    .into_iter()
+                    .next();
+            let class_word =
+                crate::semantic::module::pi::attr_texts(&mp.attrs, attr_keys::KEY_CLASS)
+                    .into_iter()
+                    .next();
+            // The class words normalize through the registry's own set, so a
+            // word here is always one of the two the axis reads.
+            let class_exp = class_word.map(|w| {
+                if w == attr_keys::WORD_ANALOG {
+                    attr_keys::WORD_ANALOG
+                } else {
+                    attr_keys::WORD_DIGITAL
+                }
+            });
+            if let Some(w) = role_word {
+                // v0.1's ruling, kept: `quiet` is the one role word with a
+                // net-side reading — the other four pass the write-site
+                // vocabulary and carry no verdict yet (silence, not 6052).
+                if w == attr_keys::WORD_QUIET {
+                    judge_expectation(
+                        table,
+                        &idx,
+                        &faces,
+                        &conduit_role,
+                        pin,
+                        comp,
+                        must,
+                        Expectation::Identity(w),
+                        results,
+                    );
+                }
             }
-            let Some(net) = table.get_net_of(pin.id) else {
-                continue;
-            };
-            let Some(attr) = idx.get(net.id) else {
-                continue;
-            };
-            match eff_class(table, &idx, attr, &mut Vec::new()) {
-                None => {
-                    let (pos, uri) = entry_pos(comp);
-                    results.push(NetCheckResult {
-                        check: "pin-copper-expectation",
-                        severity: "info",
-                        message: crate::errcodes::format_msg(
-                            crate::errcodes::PIN_COPPER_EXPECTATION_UNANCHORED,
-                            &[&pin.path, &word],
-                        ),
-                        net_name: net.name.clone(),
-                        code: crate::errcodes::PIN_COPPER_EXPECTATION_UNANCHORED,
-                        pos,
-                        uri,
-                    });
-                }
-                Some(cls) => {
-                    // The identity is judged at the class's owning scope: the
-                    // face read walks that scope's chain, and the conduit's
-                    // role word lives in its own body's declarations.
-                    let Some(scope) = attr.module else {
-                        continue;
-                    };
-                    let anchored = faces.quiet_world(table, scope, &cls.worlds).is_some()
-                        || conduit_role
-                            .get(&(scope, cls.id.clone()))
-                            .is_some_and(|w| w == &word);
-                    if anchored {
-                        continue;
-                    }
-                    let (pos, uri) = entry_pos(comp);
-                    results.push(NetCheckResult {
-                        check: "pin-copper-expectation",
-                        severity: "warning",
-                        message: crate::errcodes::format_msg(
-                            crate::errcodes::PIN_COPPER_EXPECTATION_MISMATCH,
-                            &[&pin.path, &word, &cls.id],
-                        ),
-                        net_name: net.name.clone(),
-                        code: crate::errcodes::PIN_COPPER_EXPECTATION_MISMATCH,
-                        pos,
-                        uri,
-                    });
-                }
+            if let Some(w) = class_exp {
+                judge_expectation(
+                    table,
+                    &idx,
+                    &faces,
+                    &conduit_role,
+                    pin,
+                    comp,
+                    must,
+                    Expectation::Class(w),
+                    results,
+                );
             }
         }
     }
 }
+
+/// One expectation of one pin row, on one of the two axes (§4). `Identity`
+/// carries the role word as written (`quiet` — the one with a reading);
+/// `Class` carries the normalized class word.
+enum Expectation {
+    Identity(String),
+    Class(&'static str),
+}
+
+/// Judge one pin-row expectation against the net it landed on, pushing the
+/// finding the verdict calls for. Anchoring is judged at the class's owning
+/// scope: the face read walks that scope's chain, and a conduit's role word
+/// lives in its own body's declarations.
+fn judge_expectation(
+    table: &InstTable,
+    idx: &crate::instant::island::NetIslandIndex,
+    faces: &faces::DomainFaces,
+    conduit_role: &std::collections::HashMap<(u32, String), String>,
+    pin: &InstEntry,
+    comp: &InstEntry,
+    must: bool,
+    exp: Expectation,
+    results: &mut Vec<NetCheckResult>,
+) {
+    let Some(net) = table.get_net_of(pin.id) else {
+        return;
+    };
+    let Some(attr) = idx.get(net.id) else {
+        return;
+    };
+    let Some(cls) = eff_class(table, idx, attr, &mut Vec::new()) else {
+        push_unanchored(pin, comp, exp_phrase(&exp), net, results);
+        return;
+    };
+    // Whether the landed class anchors the expectation, and the landed class
+    // id the finding names. `None` = judged nowhere (no owning scope to ask).
+    let judged = || -> Option<(bool, String)> {
+        let scope = attr.module?;
+        let verdict = match &exp {
+            Expectation::Identity(w) => {
+                faces.quiet_world(table, scope, &cls.worlds).is_some()
+                    || conduit_role
+                        .get(&(scope, cls.id.clone()))
+                        .is_some_and(|cw| *cw == *w)
+            }
+            Expectation::Class(w) => {
+                let reading = faces
+                    .quiet_world(table, scope, &cls.worlds)
+                    .map(|_| attr_keys::WORD_ANALOG)
+                    .or_else(|| {
+                        faces
+                            .digital_world(table, scope, &cls.worlds)
+                            .map(|_| attr_keys::WORD_DIGITAL)
+                    });
+                // A class with no class word at all is the unanchored half
+                // (§4: the net resolves no *class* to compare against), not
+                // a contradiction — reported as such below.
+                return reading.map(|r| (r == *w, cls.id.clone()));
+            }
+        };
+        Some((verdict, cls.id.clone()))
+    };
+    let phrase = exp_phrase(&exp);
+    match judged() {
+        // No owning scope on the class — nothing to judge against; silence,
+        // never a guess (v0.1 behavior, kept).
+        None => {}
+        Some((true, _)) => {}
+        Some((false, class_id)) => {
+            let (pos, uri) = entry_pos(comp);
+            results.push(NetCheckResult {
+                check: "pin-copper-expectation",
+                severity: if must { "error" } else { "warning" },
+                message: crate::errcodes::format_msg(
+                    crate::errcodes::PIN_COPPER_EXPECTATION_MISMATCH,
+                    &[&pin.path, &phrase, &class_id],
+                ),
+                net_name: net.name.clone(),
+                code: crate::errcodes::PIN_COPPER_EXPECTATION_MISMATCH,
+                pos,
+                uri,
+            });
+        }
+    }
+}
+
+/// The unanchored half (6052, always Info — §3.1: the `@req` tier lifts only
+/// the violated leg, because unprovable is not violated).
+fn push_unanchored(
+    pin: &InstEntry,
+    comp: &InstEntry,
+    phrase: String,
+    net: &NetEntry,
+    results: &mut Vec<NetCheckResult>,
+) {
+    let (pos, uri) = entry_pos(comp);
+    results.push(NetCheckResult {
+        check: "pin-copper-expectation",
+        severity: "info",
+        message: crate::errcodes::format_msg(
+            crate::errcodes::PIN_COPPER_EXPECTATION_UNANCHORED,
+            &[&pin.path, &phrase],
+        ),
+        net_name: net.name.clone(),
+        code: crate::errcodes::PIN_COPPER_EXPECTATION_UNANCHORED,
+        pos,
+        uri,
+    });
+}
+
+/// The phrase a finding names the expectation with: the identity axis speaks
+/// of copper, the class axis of signal nets.
+fn exp_phrase(exp: &Expectation) -> String {
+    match exp {
+        Expectation::Identity(w) => format!("a {w} copper"),
+        Expectation::Class(attr_keys::WORD_ANALOG) => "an analog signal net".to_string(),
+        Expectation::Class(_) => "a digital signal net".to_string(),
+    }
+}
+
 
 /// Def-side [`McPin`] of a flat pin: resolved by (1) exact physical-id path
 /// tail, (2) exact leaf, (3) a def pin whose registered `names` carry the

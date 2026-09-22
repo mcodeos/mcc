@@ -1267,16 +1267,16 @@ pub static FLAT_ERC_RULES: &[FlatErcRule] = &[
         overridable = false,
         owner = check_exposed_clamp_downstream,
     },
-    // Pin copper expectation (pin-expectation-design.md §3, v0.1, ruled
+    // Pin expectation (pin-expectation-design.md §3 v0.1, §3.1/§4 v0.3, ruled
     // 2026-09-22); table tail, tracking the FLAT_ERC_ORDER append (§5-5).
     declare_flat_erc_rule! {
         code = crate::errcodes::PIN_COPPER_EXPECTATION_MISMATCH,
         name = "pin-copper-expectation",
-        title = "a pin row's copper-identity expectation is not anchored by the net it lands on",
+        title = "a pin row's identity or signal-class expectation is not anchored by the net it lands on",
         severity = Warning,
         domain = Power,
         family = None,
-        doc = "§3 pin copper expectation (v0.1): a component pin row carrying @role(<word>) states the copper identity the pin expects to land on. The component layer cannot name a conduit (conduit does not cross layers), so the word is an expectation and the module layer's binding is the witness: the landed net's potential class must anchor the expected identity — through a declared domain face (the §1.4 read shared with SN-1/SN-2/SN-3/PI) or through the copper conduit's own @role word. v0.1 judges quiet only, the one role word with a net-side reading; the other words pass the write-site vocabulary (5360) and carry no verdict yet. A class anchoring neither is a Warning; a net with no class at all is the unanchored half and fires the info code (PIN_COPPER_EXPECTATION_UNANCHORED) — unmet by absence, not contradicted. An unwired pin is the unwired-pin rule's object, never this one's.",
+        doc = "§3 pin expectation (v0.1 identity axis, v0.3 class axis and tier): a component pin row carries an expectation — @role(<word>) on the copper-identity axis or @class(analog|digital) on the signal-class axis. The component layer cannot name a conduit (conduit does not cross layers), so the word is an expectation and the module layer's binding is the witness: the landed net's potential class must anchor the expectation — through a declared domain face (the §1.4 read shared with SN-1/SN-2/SN-3/PI) or, on the identity axis, through the copper conduit's own @role word; on the class axis a quiet face reads analog and a declared digital/noisy world reads digital (§4, the face model's own opposite). quiet and the two class words are the only expectations with a net-side reading; the other role words pass the write-site vocabulary (5360) and carry no verdict yet. A class anchoring neither is a Warning at the default tier; a component whose header carries the @req flag (§3.1, the strength tier the component header slot was opened for) states its expectations as physical facts and a violated one is an Error. A net with no class — or a class with no class word on the class axis — is the unanchored half and fires the info code (PIN_COPPER_EXPECTATION_UNANCHORED), never lifted by the tier: unmet by absence is not contradicted. An unwired pin is the unwired-pin rule's object, never this one's.",
         lock = "tests/power_intent_l1.rs",
         overridable = false,
         owner = check_pin_copper_expectation,

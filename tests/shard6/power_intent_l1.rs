@@ -6134,3 +6134,197 @@ fn unwired_pin_with_expectation_is_not_judged() {
         "unwired pins are out of this rule's object; got codes: {codes:?}"
     );
 }
+
+// ── v0.3: the signal-class axis and the strength tier (§3.1/§4) ──
+//
+// `@class(analog|digital)` on a pin row is the second expectation axis: the
+// landed class must carry the expected class word — a quiet face reads
+// analog, a declared `@class(digital)` or `@noise(noisy)` world reads
+// digital. `@req` on the component header is the strength tier: a violated
+// expectation of that part is an Error, the unanchored half stays Info.
+// Every verdict branch keeps two members, per the acceptance discipline.
+
+/// An op-amp-like part: two signal rows carrying the analog class expectation.
+const AMP: &str = "component AMP {\n    pins = [\n        1 = INP @class(analog)\n        2 = INN @class(analog)\n    ]\n}\n";
+
+/// A comparator-like part: two signal rows carrying the digital expectation.
+const CMP: &str = "component CMP {\n    pins = [\n        1 = OUT @class(digital)\n        2 = CLK @class(digital)\n    ]\n}\n";
+
+/// The diagnostic levels of one code, in emission order — the tier face.
+fn levels_of(code: u32, src: &str) -> Vec<mcc::DiagnosticLevel> {
+    let _lock = common::lock();
+    common::reset();
+    let uri: McURI = "/mcc/power-intent-l1.mc".to_string();
+    mcc::mcc_load_from_string(&uri, src);
+    let _ = mcc::mcc_build_flat(&McIds::from("main"), &uri, 1000).expect("flat build");
+    mcc::mcc_diagnose_all()
+        .iter()
+        .filter(|d| d.code == code)
+        .map(|d| d.level)
+        .collect()
+}
+
+/// Anchored on the class axis: both signal rows sit on a rail member of a
+/// domain whose face is quiet (@class(analog) — the §1.4 read), so the class
+/// reads analog and neither code may fire.
+#[test]
+fn analog_class_expectation_on_quiet_face_stays_silent() {
+    let src = format!(
+        "{AMP}\nmodule main {{\n    \
+         domain AV @class(analog) {{ rail [VDDA, GNDA]::DC(3V3) }}\n    \
+         AMP u1\n    u1.1 - GNDA\n    u1.2 - GNDA\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::PIN_COPPER_EXPECTATION_MISMATCH),
+        "the quiet face reads analog — no 6051; got codes: {codes:?}"
+    );
+    assert!(
+        !codes.contains(&mcc::errcodes::PIN_COPPER_EXPECTATION_UNANCHORED),
+        "the rail member resolves a class — no 6052; got codes: {codes:?}"
+    );
+}
+
+/// Contradicted on the class axis: the rows land on a rail member of a domain
+/// declared `@class(digital)` — the class reads digital, the expectation says
+/// analog. Two rows, two findings, both at the default Warning tier.
+#[test]
+fn analog_class_expectation_on_digital_world_fires_6051_warning() {
+    let src = format!(
+        "{AMP}\nmodule main {{\n    \
+         domain DV @class(digital) {{ rail [VDD_3V3, GND]::DC(3V3) }}\n    \
+         AMP u1\n    u1.1 - VDD_3V3\n    u1.2 - VDD_3V3\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let n = codes
+        .iter()
+        .filter(|&&c| c == mcc::errcodes::PIN_COPPER_EXPECTATION_MISMATCH)
+        .count();
+    assert_eq!(n, 2, "analog expectation on a digital world → 6051 ×2; got codes: {codes:?}");
+    let levels = levels_of(mcc::errcodes::PIN_COPPER_EXPECTATION_MISMATCH, &src);
+    assert!(
+        levels.iter().all(|l| *l == mcc::DiagnosticLevel::Warning),
+        "no @req on the part — the default tier is Warning; got {levels:?}"
+    );
+}
+
+/// Anchored through the class word itself: `@class(digital)` rows land on a
+/// domain declared `@class(digital)` — the same word, no code.
+#[test]
+fn digital_class_expectation_on_digital_domain_stays_silent() {
+    let src = format!(
+        "{CMP}\nmodule main {{\n    \
+         domain DV @class(digital) {{ rail [VDD_3V3, GND]::DC(3V3) }}\n    \
+         CMP u1\n    u1.1 - VDD_3V3\n    u1.2 - VDD_3V3\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::PIN_COPPER_EXPECTATION_MISMATCH),
+        "the class word anchors the expectation — no 6051; got codes: {codes:?}"
+    );
+    assert!(
+        !codes.contains(&mcc::errcodes::PIN_COPPER_EXPECTATION_UNANCHORED),
+        "the rail member resolves a class — no 6052; got codes: {codes:?}"
+    );
+}
+
+/// Anchored through the face model's own opposite: `@class(digital)` rows on
+/// a domain declared only `@noise(noisy)` — the noisy face is §1.4's declared
+/// opposite of the quiet/analog one, so the class reads digital.
+#[test]
+fn digital_class_expectation_on_noisy_face_stays_silent() {
+    let src = format!(
+        "{CMP}\nmodule main {{\n    \
+         domain PW @noise(noisy) {{ rail [VS, GNDP]::DC(12V) }}\n    \
+         CMP u1\n    u1.1 - VS\n    u1.2 - VS\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::PIN_COPPER_EXPECTATION_MISMATCH),
+        "the noisy face reads digital — no 6051; got codes: {codes:?}"
+    );
+}
+
+/// Contradicted the other way: `@class(digital)` rows land on the quiet face
+/// — the class reads analog, the expectation says digital.
+#[test]
+fn digital_class_expectation_on_quiet_face_fires_6051() {
+    let src = format!(
+        "{CMP}\nmodule main {{\n    \
+         domain AV @class(analog) {{ rail [VDDA, GNDA]::DC(3V3) }}\n    \
+         CMP u1\n    u1.1 - GNDA\n    u1.2 - GNDA\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let n = codes
+        .iter()
+        .filter(|&&c| c == mcc::errcodes::PIN_COPPER_EXPECTATION_MISMATCH)
+        .count();
+    assert_eq!(n, 2, "digital expectation on a quiet face → 6051 ×2; got codes: {codes:?}");
+}
+
+/// Unanchored on the class axis: the rows land on bare nets — no class, so
+/// there is no class word to compare against. 6052 Info, never 6051.
+#[test]
+fn class_expectation_on_bare_net_fires_6052_not_6051() {
+    let src = format!(
+        "{AMP}\nmodule main {{\n    \
+         AMP u1\n    u1.1 - BARE1\n    u1.2 - BARE2\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let n = codes
+        .iter()
+        .filter(|&&c| c == mcc::errcodes::PIN_COPPER_EXPECTATION_UNANCHORED)
+        .count();
+    assert_eq!(n, 2, "bare nets carry no class word → 6052 ×2; got codes: {codes:?}");
+    assert!(
+        !codes.contains(&mcc::errcodes::PIN_COPPER_EXPECTATION_MISMATCH),
+        "unprovable is not violated — no 6051; got codes: {codes:?}"
+    );
+}
+
+/// A part whose header carries `@req`: the same contradicted board the
+/// default-tier test uses, now judged as a physical fact — the same code,
+/// the same count, the Error tier.
+#[test]
+fn req_tier_lifts_violated_expectation_to_error() {
+    let spk_req = "component SPK @req {\n    pins = [\n        3 = GND @role(quiet)\n        4 = GND @role(quiet)\n    ]\n}\n";
+    let src = format!(
+        "{spk_req}\nmodule main {{\n    conduit GND @role(main) @star\n    \
+         SPK u1\n    u1{{3, 4}} - [GND, GND]\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let n = codes
+        .iter()
+        .filter(|&&c| c == mcc::errcodes::PIN_COPPER_EXPECTATION_MISMATCH)
+        .count();
+    assert_eq!(n, 2, "@req does not change the object — 6051 ×2; got codes: {codes:?}");
+    let levels = levels_of(mcc::errcodes::PIN_COPPER_EXPECTATION_MISMATCH, &src);
+    assert_eq!(
+        levels,
+        vec![mcc::DiagnosticLevel::Error, mcc::DiagnosticLevel::Error],
+        "@req lifts the violated leg to Error; got {levels:?}"
+    );
+}
+
+/// The tier lifts only the violated leg: an `@req` part whose rows land on
+/// bare nets still fires the unanchored half at Info — a board that never
+/// splits domains is not forced into it.
+#[test]
+fn req_tier_does_not_lift_the_unanchored_half() {
+    let spk_req = "component SPK @req {\n    pins = [\n        3 = GND @role(quiet)\n        4 = GND @role(quiet)\n    ]\n}\n";
+    let src = format!(
+        "{spk_req}\nmodule main {{\n    conduit GND @role(main) @star\n    \
+         SPK u1\n    u1{{3, 4}} - [BARE1, BARE2]\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::PIN_COPPER_EXPECTATION_MISMATCH),
+        "unprovable stays unviolated — no 6051 at any tier; got codes: {codes:?}"
+    );
+    let levels = levels_of(mcc::errcodes::PIN_COPPER_EXPECTATION_UNANCHORED, &src);
+    assert_eq!(levels.len(), 2, "two bare rows → 6052 ×2; got {levels:?}");
+    assert!(
+        levels.iter().all(|l| *l == mcc::DiagnosticLevel::Info),
+        "@req never lifts the unanchored half — Info stays Info; got {levels:?}"
+    );
+}

@@ -2107,13 +2107,19 @@ pub const EXPOSED_NET_DOWNSTREAM_UNPROTECTED: u32 = 6044;
 pub const DOMAIN_ENDPOINT_NAME_COLLISION: u32 = 6050;
 
 /// Pin copper expectation (pin-expectation-design.md §3, v0.1): a component
-/// pin row carrying `@role(<word>)` states the copper identity the pin
-/// expects to land on. The component layer cannot name a conduit (conduit
-/// does not cross layers), so the word is an expectation and the module
-/// layer's binding is the witness: the landed net's potential class must
-/// anchor the expected identity — through a declared domain face (the §1.4
-/// read) or through the copper conduit's own `@role` word. A class that
-/// anchors neither contradicts the expectation. Advisory Warning.
+/// pin row carrying an expectation states the identity the pin expects to
+/// land on — `@role(<word>)` for the copper-identity axis (the identity
+/// words, v0.1: `quiet` is the one with a net-side reading) or
+/// `@class(analog|digital)` for
+/// the signal-class axis (v0.3 §4). The component layer cannot name a conduit
+/// (conduit does not cross layers), so the word is an expectation and the
+/// module layer's binding is the witness: the landed net's potential class
+/// must anchor the expected identity — through a declared domain face (the
+/// §1.4 read) or, on the identity axis, through the copper conduit's own
+/// `@role` word. A class that anchors neither contradicts the expectation.
+/// Severity follows the part's strength tier (§3.1): a component whose header
+/// carries `@req` states the expectation as a physical fact — Error; the
+/// default tier is Warning.
 pub const PIN_COPPER_EXPECTATION_MISMATCH: u32 = 6051;
 
 /// The unanchored half of the same expectation: the landed net resolves no
@@ -2121,7 +2127,9 @@ pub const PIN_COPPER_EXPECTATION_MISMATCH: u32 = 6051;
 /// membership), so there is no identity to compare against. Info, because
 /// the expectation is unmet by absence rather than contradicted — an empty
 /// reading is still a reading, and it is judged only where the pin row
-/// actually declares one.
+/// actually declares one. The `@req` tier does not lift this half
+/// (§3.1: unprovable ≠ violated — a board that never splits domains is not
+/// forced into it).
 pub const PIN_COPPER_EXPECTATION_UNANCHORED: u32 = 6052;
 
 /// R3 **mixed bridge identity** (intent-reference-layer-design.md §10.4 bridge
@@ -2633,6 +2641,6 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(GATE_ORPHAN_INSTANCE, "R14 — an instance is registered but appears in no net.", "orphan instance: {0}"),
     entry!(GATE_SYNTHETIC_PIN, "R15 — a synthetic terminal is not backed by any real pin.", "synthetic terminal: {0}"),
     entry!(CONN_REPLICATION_COUNT, "U155 — a connection replication count must be an int >= 2.", "replication count: {0}"),
-    entry!(PIN_COPPER_EXPECTATION_MISMATCH, "A pin row declares a copper-identity expectation the net it lands on contradicts.", "pin '{0}' expects a {1} copper but lands on class '{2}' — the class anchors no declared quiet face and its copper conduit carries no matching @role: bind the pin to the copper the expectation names, or change the expectation (pin-expectation-design.md §3)"),
-    entry!(PIN_COPPER_EXPECTATION_UNANCHORED, "A pin row declares a copper-identity expectation but its net resolves no identity at all.", "pin '{0}' expects a {1} copper but its net carries no declared identity — a bare net is no face at all: declare the copper (conduit or domain rail) in the owning module, or the expectation stays a wish (pin-expectation-design.md §3)"),
+    entry!(PIN_COPPER_EXPECTATION_MISMATCH, "A pin row declares an identity or signal-class expectation the net it lands on contradicts.", "pin '{0}' expects {1} but lands on class '{2}' — the class anchors neither a matching declared face nor a matching copper identity: bind the pin to a net of the expected identity, or change the expectation (pin-expectation-design.md §3-§4)"),
+    entry!(PIN_COPPER_EXPECTATION_UNANCHORED, "A pin row declares an expectation but its net resolves no identity at all.", "pin '{0}' expects {1} but its net carries no declared identity — a bare net is no face at all: declare the copper (conduit or domain rail) in the owning module, or the expectation stays a wish (pin-expectation-design.md §3-§4)"),
 ];
