@@ -2117,9 +2117,8 @@ pub const DOMAIN_ENDPOINT_NAME_COLLISION: u32 = 6050;
 /// must anchor the expected identity — through a declared domain face (the
 /// §1.4 read) or, on the identity axis, through the copper conduit's own
 /// `@role` word. A class that anchors neither contradicts the expectation.
-/// Severity follows the part's strength tier (§3.1): a component whose header
-/// carries `@req` states the expectation as a physical fact — Error; the
-/// default tier is Warning.
+/// The contradicted leg is always Warning (the former @req strength tier is
+/// retired — group-wise physical facts move to the barrier axis, U175).
 pub const PIN_COPPER_EXPECTATION_MISMATCH: u32 = 6051;
 
 /// The unanchored half of the same expectation: the landed net resolves no
@@ -2127,9 +2126,9 @@ pub const PIN_COPPER_EXPECTATION_MISMATCH: u32 = 6051;
 /// membership), so there is no identity to compare against. Info, because
 /// the expectation is unmet by absence rather than contradicted — an empty
 /// reading is still a reading, and it is judged only where the pin row
-/// actually declares one. The `@req` tier does not lift this half
-/// (§3.1: unprovable ≠ violated — a board that never splits domains is not
-/// forced into it).
+/// actually declares one. This half stays Info regardless of anything the
+/// part declares (unprovable ≠ violated — a board that never splits domains
+/// is not forced into it).
 pub const PIN_COPPER_EXPECTATION_UNANCHORED: u32 = 6052;
 
 /// R3 **mixed bridge identity** (intent-reference-layer-design.md §10.4 bridge

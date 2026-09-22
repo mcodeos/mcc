@@ -6135,13 +6135,13 @@ fn unwired_pin_with_expectation_is_not_judged() {
     );
 }
 
-// ── v0.3: the signal-class axis and the strength tier (§3.1/§4) ──
+// ── v0.3: the signal-class axis (§4) ──
 //
 // `@class(analog|digital)` on a pin row is the second expectation axis: the
 // landed class must carry the expected class word — a quiet face reads
 // analog, a declared `@class(digital)` or `@noise(noisy)` world reads
-// digital. `@req` on the component header is the strength tier: a violated
-// expectation of that part is an Error, the unanchored half stays Info.
+// digital. Violations are always Warning (the former @req strength tier is
+// retired; group-wise physical facts move to the barrier axis, U175).
 // Every verdict branch keeps two members, per the acceptance discipline.
 
 /// An op-amp-like part: two signal rows carrying the analog class expectation.
@@ -6204,7 +6204,7 @@ fn analog_class_expectation_on_digital_world_fires_6051_warning() {
     let levels = levels_of(mcc::errcodes::PIN_COPPER_EXPECTATION_MISMATCH, &src);
     assert!(
         levels.iter().all(|l| *l == mcc::DiagnosticLevel::Warning),
-        "no @req on the part — the default tier is Warning; got {levels:?}"
+        "a contradicted expectation is always Warning; got {levels:?}"
     );
 }
 
@@ -6279,52 +6279,5 @@ fn class_expectation_on_bare_net_fires_6052_not_6051() {
     assert!(
         !codes.contains(&mcc::errcodes::PIN_COPPER_EXPECTATION_MISMATCH),
         "unprovable is not violated — no 6051; got codes: {codes:?}"
-    );
-}
-
-/// A part whose header carries `@req`: the same contradicted board the
-/// default-tier test uses, now judged as a physical fact — the same code,
-/// the same count, the Error tier.
-#[test]
-fn req_tier_lifts_violated_expectation_to_error() {
-    let spk_req = "component SPK @req {\n    pins = [\n        3 = GND @role(quiet)\n        4 = GND @role(quiet)\n    ]\n}\n";
-    let src = format!(
-        "{spk_req}\nmodule main {{\n    conduit GND @role(main) @star\n    \
-         SPK u1\n    u1{{3, 4}} - [GND, GND]\n}}\n"
-    );
-    let codes = build_codes(&src);
-    let n = codes
-        .iter()
-        .filter(|&&c| c == mcc::errcodes::PIN_COPPER_EXPECTATION_MISMATCH)
-        .count();
-    assert_eq!(n, 2, "@req does not change the object — 6051 ×2; got codes: {codes:?}");
-    let levels = levels_of(mcc::errcodes::PIN_COPPER_EXPECTATION_MISMATCH, &src);
-    assert_eq!(
-        levels,
-        vec![mcc::DiagnosticLevel::Error, mcc::DiagnosticLevel::Error],
-        "@req lifts the violated leg to Error; got {levels:?}"
-    );
-}
-
-/// The tier lifts only the violated leg: an `@req` part whose rows land on
-/// bare nets still fires the unanchored half at Info — a board that never
-/// splits domains is not forced into it.
-#[test]
-fn req_tier_does_not_lift_the_unanchored_half() {
-    let spk_req = "component SPK @req {\n    pins = [\n        3 = GND @role(quiet)\n        4 = GND @role(quiet)\n    ]\n}\n";
-    let src = format!(
-        "{spk_req}\nmodule main {{\n    conduit GND @role(main) @star\n    \
-         SPK u1\n    u1{{3, 4}} - [BARE1, BARE2]\n}}\n"
-    );
-    let codes = build_codes(&src);
-    assert!(
-        !codes.contains(&mcc::errcodes::PIN_COPPER_EXPECTATION_MISMATCH),
-        "unprovable stays unviolated — no 6051 at any tier; got codes: {codes:?}"
-    );
-    let levels = levels_of(mcc::errcodes::PIN_COPPER_EXPECTATION_UNANCHORED, &src);
-    assert_eq!(levels.len(), 2, "two bare rows → 6052 ×2; got {levels:?}");
-    assert!(
-        levels.iter().all(|l| *l == mcc::DiagnosticLevel::Info),
-        "@req never lifts the unanchored half — Info stays Info; got {levels:?}"
     );
 }
