@@ -230,6 +230,14 @@ body.nav-armed #canvas [data-src-uri] {
 #canvas g.inst-focused {
   filter: drop-shadow(0 0 6px #f59e0b);
 }
+/* Whole-net highlight (viz:highlightNet): wires carry data-net directly,
+   pins and boxes sit in groups whose stroke/fill follows. */
+#canvas .net-focused, #canvas g.net-focused * {
+  stroke: #f59e0b !important;
+}
+#canvas circle.net-focused {
+  fill: #f59e0b !important;
+}
 /* Hint sits at the far end of the status row, opposite the layer stats. */
 #stats .hint {
   margin-left: auto;
