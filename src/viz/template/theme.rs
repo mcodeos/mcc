@@ -230,6 +230,33 @@ body.nav-armed #canvas [data-src-uri] {
 #canvas g.inst-focused {
   filter: drop-shadow(0 0 6px #f59e0b);
 }
+/* Hover cards (mouseover): one floating panel, four card kinds, all data
+   read from the embedded LAYOUT manifest — never from the SVG. */
+#viz-card {
+  position: fixed;
+  display: none;
+  z-index: 999;
+  max-width: 420px;
+  max-height: 60vh;
+  overflow: auto;
+  background: var(--panel, #fff);
+  color: var(--text, #222);
+  border: 1px solid var(--link, #1565c0);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.25);
+}
+#viz-card .vc-title { font-weight: 700; font-size: 13px; margin-bottom: 2px; }
+#viz-card .vc-sub { color: var(--link, #1565c0); margin-bottom: 4px; }
+#viz-card .vc-dnp { color: #b00; font-weight: 700; }
+#viz-card table { border-collapse: collapse; margin: 4px 0; width: 100%; }
+#viz-card td, #viz-card th { padding: 1px 6px; text-align: left; border-bottom: 1px solid rgba(128,128,128,0.25); }
+#viz-card .vc-nets { margin-top: 4px; word-break: break-all; }
+#viz-card .vc-jump { color: var(--link, #1565c0); cursor: pointer; margin-top: 4px; text-decoration: underline; }
+#viz-card tr[data-jump] { cursor: pointer; }
+#viz-card tr[data-jump]:hover { background: rgba(21,101,192,0.12); }
 /* Whole-net highlight (viz:highlightNet): wires carry data-net directly,
    pins and boxes sit in groups whose stroke/fill follows. */
 #canvas .net-focused, #canvas g.net-focused * {

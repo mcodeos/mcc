@@ -19,6 +19,12 @@ pub struct VizDocument {
     pub root_bid: i64,
     pub root_name: String,
     pub layers: HashMap<i64, VizLayer>,
+    /// The machine-readable layout manifest (viz.layout.1), attached after the
+    /// render by the caller that owns the instance store. `wrap_document`
+    /// embeds it as `const LAYOUT` so the artifact is self-querying; `to_json`
+    /// deliberately excludes it — the golden contract describes the drawing,
+    /// not the sidecar face.
+    pub layout: Option<serde_json::Value>,
 }
 
 impl VizDocument {
@@ -27,6 +33,7 @@ impl VizDocument {
             root_bid,
             root_name,
             layers: HashMap::new(),
+            layout: None,
         }
     }
 

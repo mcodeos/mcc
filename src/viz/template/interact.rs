@@ -541,6 +541,156 @@ function setInstFocus(name) {
     host && host.postMessage({ type: 'viz:highlighted', name: name }, '*');
 }
 
+// === Hover cards: component / pin / net / module, all data from LAYOUT ===
+// The artifact never parses its own SVG for facts: data-* only routes the
+// element to an identity key, and the card reads the embedded manifest.
+let cardEl = null;
+let cardPin = null;
+
+function layoutReady() {
+    return typeof LAYOUT !== 'undefined' && LAYOUT && LAYOUT.boxes;
+}
+
+function boxByPath(p) {
+    if (!layoutReady()) return null;
+    return (LAYOUT.boxes || []).find(function (b) { return b.path === p; }) || null;
+}
+
+function netRowsOnLayer(netName, bid) {
+    if (!layoutReady()) return [];
+    return (LAYOUT.nets || []).filter(function (n) {
+        return n.name === netName && (bid === undefined || n.layer === bid);
+    });
+}
+
+function esc(t) {
+    return String(t === null || t === undefined ? '' : t)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function ensureCard() {
+    if (cardEl) return cardEl;
+    cardEl = document.createElement('div');
+    cardEl.id = 'viz-card';
+    cardEl.addEventListener('mouseleave', function () { hideCard(); });
+    document.body.appendChild(cardEl);
+    return cardEl;
+}
+
+function hideCard() {
+    if (cardEl) cardEl.style.display = 'none';
+}
+
+function showCard(html, x, y) {
+    const c = ensureCard();
+    c.innerHTML = html;
+    c.style.display = 'block';
+    const r = c.getBoundingClientRect();
+    let left = x + 16, top = y + 12;
+    if (left + r.width > window.innerWidth - 8) left = x - r.width - 12;
+    if (top + r.height > window.innerHeight - 8) top = y - r.height - 10;
+    c.style.left = left + 'px';
+    c.style.top = top + 'px';
+}
+
+function pinRowsOf(b) {
+    return (b && b.pins || []).map(function (p) {
+        const src = p.src ? ' data-jump=\"' + esc(JSON.stringify(p.src)) + "\"'" : '';
+        return '<tr' + src + '><td>' + esc(p.num) + '</td><td>' + esc(p.name) +
+            '</td><td>' + esc(p.io) + '</td><td>' + esc(p.side || '-') + '</td></tr>';
+    }).join('');
+}
+
+function componentCard(b, x, y) {
+    const pr = b.params && typeof b.params === 'object' ? b.params : {};
+    const rows = pinRowsOf(b);
+    showCard(
+        '<div class="vc-title">' + esc(b.name) + (b.dnp ? ' <span class="vc-dnp">DNP</span>' : '') + '</div>' +
+        '<div class="vc-sub">' + esc(b.class) + ' · ' + esc(b.path) + '</div>' +
+        '<table class="vc-params">' +
+        (pr.value ? '<tr><td>value</td><td>' + esc(pr.value) + '</td></tr>' : '') +
+        (pr.partno ? '<tr><td>partno</td><td>' + esc(pr.partno) + '</td></tr>' : '') +
+        (pr.package ? '<tr><td>package</td><td>' + esc(pr.package) + '</td></tr>' : '') +
+        '</table>' +
+        (rows ? '<table class="vc-pins"><tr><th>#</th><th>name</th><th>io</th><th>side</th></tr>' + rows + '</table>' : ''),
+        x, y
+    );
+}
+
+function pinCard(point, x, y) {
+    if (!layoutReady()) return;
+    let b = null;
+    let pin = null;
+    (LAYOUT.boxes || []).forEach(function (cand) {
+        (cand.pins || []).forEach(function (p) {
+            if (p.point === point) { b = cand; pin = p; }
+        });
+    });
+    if (!b || !pin) return;
+    const full = b.path + '.' + pin.num;
+    const nets = (LAYOUT.nets || []).filter(function (n) {
+        return (n.endpoints || []).indexOf(full) >= 0;
+    });
+    const netList = nets.map(function (n) { return esc(n.name); }).join(', ');
+    const srcAttr = pin.src ? ' data-jump="' + esc(JSON.stringify(pin.src)) + '"' : '';
+    showCard(
+        '<div class="vc-title">' + esc(b.name) + ' · ' + esc(pin.num) + '</div>' +
+        '<div class="vc-sub">' + esc(pin.name) + ' · ' + esc(pin.io) + ' · ' + esc(pin.side || '-') + '</div>' +
+        (netList ? '<div class="vc-nets">nets: ' + netList + '</div>' : '') +
+        (pin.src ? '<div class="vc-jump"' + srcAttr + '>→ source</div>' : ''),
+        x, y
+    );
+}
+
+function netCard(netName, bid, x, y) {
+    const rows = netRowsOnLayer(netName, bid);
+    const ends = new Set();
+    rows.forEach(function (n) { (n.endpoints || []).forEach(function (e2) { ends.add(e2); }); });
+    const segs = rows.reduce(function (a, n) { return a + (n.segments || []).length; }, 0);
+    showCard(
+        '<div class="vc-title">' + esc(netName) + '</div>' +
+        '<div class="vc-sub">net · ' + rows.map(function (n) { return esc(n.kind); }).join('/') +
+        ' · ' + segs + ' segments</div>' +
+        (ends.size ? '<div class="vc-nets">' + [...ends].map(esc).join('<br>') + '</div>' : ''),
+        x, y
+    );
+}
+
+function initCards() {
+    if (!layoutReady()) return;
+    const canvas = document.getElementById('canvas');
+    canvas.addEventListener('mousemove', function (ev) {
+        const boxG = ev.target.closest ? ev.target.closest('#canvas g[data-name]') : null;
+        const pinG = ev.target.closest ? ev.target.closest('#canvas g[data-point]') : null;
+        const netEl = ev.target.closest ? ev.target.closest('#canvas [data-net]') : null;
+        if (pinG) {
+            const pt = pinG.getAttribute('data-point');
+            if (pt) { pinCard(pt, ev.clientX, ev.clientY); return; }
+        }
+        if (boxG) {
+            const b = boxByPath(boxG.getAttribute('data-mcc-path') || '');
+            if (b) { componentCard(b, ev.clientX, ev.clientY); return; }
+        }
+        if (netEl) {
+            netCard(netEl.getAttribute('data-net'), currentBid, ev.clientX, ev.clientY);
+            return;
+        }
+        hideCard();
+    });
+    canvas.addEventListener('mouseleave', hideCard);
+    window.addEventListener('keydown', function (e2) { if (e2.key === 'Escape') hideCard(); });
+    // Card source rows and jump chips post mcc.openSource like canvas clicks.
+    document.body.addEventListener('click', function (ev) {
+        const j = ev.target.closest ? ev.target.closest('[data-jump]') : null;
+        if (!j || !hostTarget) return;
+        try {
+            const src = JSON.parse(j.getAttribute('data-jump'));
+            if (src && src.uri) hostTarget.postMessage(
+                { type: 'mcc.openSource', uri: src.uri, offset: src.offset }, '*');
+        } catch (err) { /* malformed payload: ignore */ }
+    });
+}
+
 // Startup
 function announceReady() {
     const host = mcodeHost || ((window.parent && window.parent !== window) ? window.parent : null);
@@ -596,10 +746,11 @@ window.addEventListener('message', function (e) {
 });
 
 if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', function () { restoreZoomState(); init(); announceReady(); });
+    document.addEventListener('DOMContentLoaded', function () { restoreZoomState(); init(); initCards(); announceReady(); });
 } else {
     restoreZoomState();
     init();
+    initCards();
     announceReady();
 }
 "##
@@ -737,6 +888,25 @@ mod tests {
             !js[sel_at..].starts_with("stopPropagation"),
             "select must not swallow the click"
         );
+    }
+
+    /// Hover cards are self-querying: they read the embedded LAYOUT manifest
+    /// (never the SVG), gate on its presence so older artifacts degrade
+    /// silently, route elements to identity via data-mcc-path / data-point /
+    /// data-net, and jump rows post mcc.openSource like canvas clicks.
+    #[test]
+    fn hover_cards_read_the_layout_manifest() {
+        let js = js();
+        assert!(js.contains("typeof LAYOUT !== 'undefined'"), "no LAYOUT gate");
+        assert!(js.contains("closest('#canvas g[data-name]')"), "box identity not routed");
+        assert!(js.contains("data-mcc-path"), "box path never read");
+        assert!(js.contains("closest('#canvas g[data-point]')"), "pin identity not routed");
+        assert!(js.contains("closest('#canvas [data-net]')"), "net identity not routed");
+        assert!(js.contains("componentCard("), "component card missing");
+        assert!(js.contains("pinCard("), "pin card missing");
+        assert!(js.contains("netCard("), "net card missing");
+        assert!(js.contains("mcc.openSource"), "card jump does not reach the host");
+        assert!(js.contains("initCards()"), "cards never initialize");
     }
 
     /// The VS Code-native keeper: zoom writes into the webview state store and

@@ -48,7 +48,11 @@ pub fn wrap_document(doc: &VizDocument) -> String {
     let css = theme::css();
     let js = interact::js();
     let doc_json = doc.to_json();
-    shell::wrap(&doc.root_name, css, &doc_json, js)
+    let layout_json = doc
+        .layout
+        .as_ref()
+        .map(|v| serde_json::to_string(v).unwrap_or_default());
+    shell::wrap(&doc.root_name, css, &doc_json, js, layout_json.as_deref())
 }
 
 /// Root name for the combined multi-target view: the entry file's base name

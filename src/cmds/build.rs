@@ -652,7 +652,9 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
             // The machine-readable layout manifest rides beside the HTML: an
             // agent reads positions, pins and wire geometry from it instead of
             // parsing the SVG.
-            let manifest = mcc::viz::layout_manifest::build_manifest(&layers, &top_name);
+            let params = mcc::viz::layout_manifest::collect_params(inst, &arena, &store);
+            let manifest = mcc::viz::layout_manifest::build_manifest(&layers, &params, &top_name);
+            doc.layout = Some(manifest.clone());
             let manifest_path = viz_output_path(&project_root).with_extension("layout.json");
             mcc::cli::outlet::ensure_parent(&manifest_path)?;
             std::fs::write(
