@@ -41,6 +41,7 @@ pub mod equi_column;
 pub mod equi_place;
 pub mod equipotential_tree;
 pub mod facade;
+// pub mod flat_layout; // WIP: concurrent session
 pub mod flow;
 pub mod islands;
 pub mod ladder_model;

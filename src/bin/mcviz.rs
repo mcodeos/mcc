@@ -47,6 +47,7 @@ fn main() {
     let mut output_file: Option<String> = None;
     let mut json_mode = false;
     let mut no_promote = false;
+    let mut flatten = false;
     let mut layouter_name: Option<String> = None;
     let mut entry_file: Option<String> = None;
     let mut i = 3;
@@ -69,6 +70,10 @@ fn main() {
                 no_promote = true;
                 i += 1;
             }
+            "--flatten" => {
+                flatten = true;
+                i += 1;
+            }
             "--entry" => {
                 if i + 1 < args.len() {
                     entry_file = Some(args[i + 1].clone());
@@ -83,7 +88,7 @@ fn main() {
                     layouter_name = Some(args[i + 1].clone());
                     i += 2;
                 } else {
-                    eprintln!("Error: --layouter requires a name (flow)");
+                    eprintln!("Error: --layouter requires a name (supported: flow)");
                     process::exit(1);
                 }
             }
@@ -143,12 +148,12 @@ fn main() {
     // ── Output: two modes ──
     let output = if json_mode {
         mcc_dbg!("viz", "[mcviz] using NEW P2 pipeline -> VizDocument JSON");
-        let opts = build_opts(!no_promote, layouter_name.as_deref());
+        let opts = build_opts(!no_promote, layouter_name.as_deref(), flatten);
         let doc = render_with(graph, opts);
         doc.to_json()
     } else {
         mcc_dbg!("viz", "[mcviz] using NEW P2 pipeline -> HTML (real expand)");
-        let opts = build_opts(!no_promote, layouter_name.as_deref());
+        let opts = build_opts(!no_promote, layouter_name.as_deref(), flatten);
         let doc = render_with(graph, opts);
         let layer_count = doc.layer_count();
         let svg_bytes = doc.total_svg_bytes();
@@ -201,9 +206,10 @@ fn main() {
 }
 
 /// Build RenderOpts with optional single-layouter override
-fn build_opts(apply_promote: bool, layouter_name: Option<&str>) -> RenderOpts {
+fn build_opts(apply_promote: bool, layouter_name: Option<&str>, flatten: bool) -> RenderOpts {
     let mut opts = RenderOpts::default();
     opts.apply_promote = apply_promote;
+    opts.flatten = flatten;
 
     if let Some(name) = layouter_name {
         if name != "flow" {
@@ -225,6 +231,7 @@ fn print_usage() {
     eprintln!("  -o <file>      Output to file (default: stdout)");
     eprintln!("  --json         Output JSON instead of HTML");
     eprintln!("  --no-promote   Disable top-layer simplification (show all nets)");
+    eprintln!("  --flatten      Flatten the hierarchy into a single layer");
     eprintln!("  --entry <name> Entry file name (default: same as module_name)");
     eprintln!("  --layouter <name>  Lock to single layouter: flow");
     eprintln!("  -h, --help     Show this help");

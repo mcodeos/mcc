@@ -424,51 +424,77 @@ pub fn render_nc_pin(
     pin: &crate::vector::graph::boxdef::BoxPin,
     offset: f64,
 ) -> String {
-    // Place NC pins on the right side of the box
-    let cx = b.x + b.w;
-    let cy = b.y + offset * b.h;
+    render_nc_pin_side(b, pin, offset, crate::vector::graph::EntrySide::Right)
+}
 
-    // NC cross mark at the pin position
-    let cross_size = 4.0;
+/// Draw an NC marker on the pin's REAL edge (`side` + `offset`), not forced to
+/// the right margin. Forcing every NC pin to the right stacked its crosses on
+/// top of neighbouring connected pins.
+pub fn render_nc_pin_side(
+    b: &McVecBox,
+    pin: &crate::vector::graph::boxdef::BoxPin,
+    offset: f64,
+    side: crate::vector::graph::EntrySide,
+) -> String {
+    use crate::vector::graph::EntrySide::*;
+    let cross = 4.0;
+    let label = pin.description.clone();
+    let number = pin.pin_id.clone();
+
+    // Edge anchor point + outward direction.
+    let (px, py, dx, dy): (f64, f64, f64, f64) = match side {
+        Right => (b.x + b.w, b.y + offset * b.h, 1.0, 0.0),
+        Left => (b.x, b.y + offset * b.h, -1.0, 0.0),
+        Bottom => (b.x + offset * b.w, b.y + b.h, 0.0, 1.0),
+        Top => (b.x + offset * b.w, b.y, 0.0, -1.0),
+    };
+    // Cross stays axis-aligned regardless of edge.
     let nc_mark = format!(
         r##"<line x1="{x1:.1}" y1="{y1:.1}" x2="{x2:.1}" y2="{y2:.1}" stroke="#C0392B" stroke-width="1.5"/>
     <line x1="{x2:.1}" y1="{y1:.1}" x2="{x1:.1}" y2="{y2:.1}" stroke="#C0392B" stroke-width="1.5"/>"##,
-        x1 = cx - cross_size,
-        y1 = cy - cross_size,
-        x2 = cx + cross_size,
-        y2 = cy + cross_size,
+        x1 = px - cross,
+        y1 = py - cross,
+        x2 = px + cross,
+        y2 = py + cross,
     );
 
-    // Pin number (outside, right)
-    let number_svg = if !pin.pin_id.is_empty() {
+    let horizontal = matches!(side, Left | Right);
+    let anchor = if horizontal {
+        if dx > 0.0 { "start" } else { "end" }
+    } else if dy > 0.0 {
+        "middle"
+    } else {
+        "middle"
+    };
+    // Number sits just outside the edge; name sits just inside.
+    let (nx, ny) = (px + dx * 6.0, py + dy * 10.0 - if horizontal { 6.0 } else { 0.0 });
+    let number_svg = if !number.is_empty() {
         format!(
-            r##"<text x="{:.1}" y="{:.1}" font-size="8" fill="#C0392B"
+            r##"<text x="{nx:.1}" y="{ny:.1}" font-size="8" fill="#C0392B"
                     font-family="JetBrains Mono, Menlo, monospace"
-                    text-anchor="start" dominant-baseline="central">{}</text>"##,
-            cx + 6.0,
-            cy - 6.0,
-            escape_xml(&pin.pin_id)
+                    text-anchor="{anc}" dominant-baseline="central">{n}</text>"##,
+            nx = nx,
+            ny = ny,
+            anc = anchor,
+            n = escape_xml(&number)
         )
     } else {
         String::new()
     };
-
-    // Pin name (inside, left)
-    let name_svg = if !pin.description.is_empty() {
+    let (lx, ly) = (px - dx * 6.0, py - dy * 4.0);
+    let inner_anchor = if horizontal {
+        if dx > 0.0 { "end" } else { "start" }
+    } else {
+        "middle"
+    };
+    let name_svg = if !label.is_empty() {
         format!(
-            r##"<text x="{:.1}" y="{:.1}" font-size="10" fill="#C0392B"
-                    text-anchor="end" dominant-baseline="central">{}</text>"##,
-            cx - 6.0,
-            cy,
-            escape_xml(&pin.description)
-        )
-    } else if !pin.pin_id.is_empty() {
-        format!(
-            r##"<text x="{:.1}" y="{:.1}" font-size="10" fill="#C0392B"
-                    text-anchor="end" dominant-baseline="central">{}</text>"##,
-            cx - 6.0,
-            cy,
-            escape_xml(&pin.pin_id)
+            r##"<text x="{x:.1}" y="{y:.1}" font-size="10" fill="#C0392B"
+                    text-anchor="{anc}" dominant-baseline="central">{n}</text>"##,
+            x = lx,
+            y = ly,
+            anc = inner_anchor,
+            n = escape_xml(&label)
         )
     } else {
         String::new()
