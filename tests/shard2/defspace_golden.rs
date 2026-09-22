@@ -1088,6 +1088,7 @@ abstract component ABuf
 {
     package = PKG.SOIC8
     spec.HBM = ±0kV
+    ABuf.doc_features = "dual buffer"
 
     pins = [
         in 1 = A
@@ -1119,7 +1120,10 @@ module main
                 &diags,
                 mcc::errcodes::VARIANT_REDECLARES_PINS_PARAMS_FUNCS,
                 |d| d.code
-            ),
+            )
+            // U194: the base's name-prefixed attrs ride the materialize
+            // clone; neither the base nor the variant may report E5358.
+            && !any_code(&diags, mcc::errcodes::ATTR_DOTTED_NAME_UNRESOLVED, |d| d.code),
         "a conformant variant/base pair loads clean; got {:?}",
         diags
             .iter()

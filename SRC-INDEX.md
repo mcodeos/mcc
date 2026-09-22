@@ -73,7 +73,7 @@ range (threshold 40KB).
 | `query/` | 9 | 161 KB |
 | `refdef/` | 7 | 118 KB |
 | `rpc/` | 16 | 302 KB |
-| `semantic/` | 89 | 2621 KB |
+| `semantic/` | 89 | 2622 KB |
 | `stages/` | 12 | 321 KB |
 | `vector/` | 25 | 475 KB |
 | `viz/` | 97 | 2451 KB |
@@ -6976,12 +6976,13 @@ semantic/validation/attrs.rs#L23  fn phase
 semantic/validation/attrs.rs#L26  fn default_severity
 semantic/validation/attrs.rs#L30  fn run_post_parse
 semantic/validation/attrs.rs#L51  fn check_reserved_attr_name
-semantic/validation/attrs.rs#L111  fn check_unresolvable_dotted_name
-semantic/validation/attrs.rs#L145  fn check_nesting_depth
-semantic/validation/attrs.rs#L167  fn attr_val_depth
-semantic/validation/attrs.rs#L186  fn check_pins_group
-semantic/validation/attrs.rs#L219  fn check_pins_overlap
-semantic/validation/attrs.rs#L247  fn entry_key_ident
+semantic/validation/attrs.rs#L121  fn check_unresolvable_dotted_name
+semantic/validation/attrs.rs#L163  fn check_nesting_depth
+semantic/validation/attrs.rs#L185  fn attr_val_depth
+semantic/validation/attrs.rs#L204  fn check_pins_group
+semantic/validation/attrs.rs#L237  fn check_pins_overlap
+semantic/validation/attrs.rs#L265  fn entry_key_ident
+semantic/validation/attrs.rs#L272  fn spells_name_prefix
 semantic/validation/body.rs#L20  struct BodyCheck
 semantic/validation/body.rs#L22  impl ValidationCheck for BodyCheck
 semantic/validation/body.rs#L23  fn name
@@ -11093,4 +11094,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-403 files, 11010 declarations.
+403 files, 11011 declarations.
