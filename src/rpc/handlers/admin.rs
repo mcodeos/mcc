@@ -210,7 +210,9 @@ pub fn handle_load_project(params: Option<Value>) -> RpcResult {
     }
 
     let p: LoadProjectParams = parse_strict(params)?;
-    let mc_uri = McURI::from(p.entry.as_str());
-    crate::mcc_load_project(&mc_uri);
+    match super::file_path_from_uri_param(&p.entry) {
+        Some(path) => super::auto_load_from_file_path(&path),
+        None => crate::mcc_load_project(&McURI::from(p.entry.as_str())),
+    }
     Ok(serde_json::json!({ "ok": true }))
 }

@@ -2400,14 +2400,12 @@ pub(crate) fn instances_json(insts: &crate::McInstances, type_filter: Option<&st
 
 // Semantic data (sem tokens + symbols) for LSP
 
-/// Load the project for a file that is not yet in the active workspace.
-///
-/// Non-project mode: the workspace root is the configured project root (the
-/// folder opened in the editor). Only the opened file plus its `use` closure
-/// is loaded; sibling files are intentionally NOT added, so each file is
-/// parsed in its own semantic scope without bare-name pollution from
-/// unrelated definitions.
-pub(crate) fn auto_load_from_file_path(file_path: &Path) {
+/// Make the file's own project root the active workspace before any of its
+/// definitions enter the tables. `load_project` / `add_file` name a file, not
+/// a project: without this gate a file from a sibling project joins the active
+/// world, and its duplicate names read as cross-project E5001 shadows.
+/// Returns the resolved project root.
+pub(crate) fn switch_to_file_workspace(file_path: &Path) -> PathBuf {
     let project_root = find_project_root(file_path);
     info!(target: "crate::rpc", "auto_load: project_root={}", project_root.display());
 
@@ -2421,6 +2419,29 @@ pub(crate) fn auto_load_from_file_path(file_path: &Path) {
     } else {
         info!(target: "crate::rpc", "auto_load: reusing active workspace root={}", project_root.display());
     }
+    project_root
+}
+
+/// The path behind a `load_project` / `add_file` parameter: accept a plain path
+/// or a `file://` URI; a relative path resolves against the server's cwd.
+pub(crate) fn file_path_from_uri_param(uri: &str) -> Option<PathBuf> {
+    let raw = uri.strip_prefix("file://").unwrap_or(uri);
+    let path = PathBuf::from(raw);
+    if path.is_absolute() {
+        return Some(path);
+    }
+    std::env::current_dir().ok().map(|cwd| cwd.join(path))
+}
+
+/// Load the project for a file that is not yet in the active workspace.
+///
+/// Non-project mode: the workspace root is the configured project root (the
+/// folder opened in the editor). Only the opened file plus its `use` closure
+/// is loaded; sibling files are intentionally NOT added, so each file is
+/// parsed in its own semantic scope without bare-name pollution from
+/// unrelated definitions.
+pub(crate) fn auto_load_from_file_path(file_path: &Path) {
+    let project_root = switch_to_file_workspace(file_path);
 
     // Load library dependencies from project.toml before parsing
     let file_uri = McURI::from(file_path.to_string_lossy().to_string());
@@ -3222,6 +3243,71 @@ mod tests {
 
         fs::remove_dir_all(&tmp).unwrap();
         crate::db::infra::init::mcb_set_project_root(&saved);
+    }
+
+    /// `load_project` names a file, and the file's own manifest decides its
+    /// world. Loading a sibling project's file while another project is active
+    /// must switch worlds, not merge definitions: the merge surfaced as
+    /// cross-project E5001 shadows for two real projects whose module names
+    /// collide.
+    #[test]
+    fn cli_rpc__load_project_keeps_sibling_projects_in_separate_worlds() {
+        let saved_root = crate::db::infra::init::mcb_get_project_root();
+        let saved_ws = crate::workspace_root();
+
+        let proj_a = std::env::temp_dir().join(format!("mcc-ws-a-{}", std::process::id()));
+        let proj_b = std::env::temp_dir().join(format!("mcc-ws-b-{}", std::process::id()));
+        for (proj, module) in [(&proj_a, "WORLD_A_MOD"), (&proj_b, "WORLD_B_MOD")] {
+            fs::create_dir_all(proj).unwrap();
+        }
+        // The workspace pipeline canonicalizes roots; on macOS /var is a
+        // symlink to /private/var, so compare against canonical forms.
+        let proj_a = fs::canonicalize(&proj_a).unwrap();
+        let proj_b = fs::canonicalize(&proj_b).unwrap();
+        for (proj, module) in [(&proj_a, "WORLD_A_MOD"), (&proj_b, "WORLD_B_MOD")] {
+            fs::write(
+                proj.join("project.toml"),
+                format!("[project]\nname = \"{}\"\n", proj.file_name().unwrap().to_str().unwrap()),
+            )
+            .unwrap();
+            fs::write(
+                proj.join(format!("{}.mc", module.to_lowercase())),
+                format!("module {module}\n{{\n}}\n"),
+            )
+            .unwrap();
+        }
+
+        let module_names = || {
+            crate::mcb_iter_modules()
+                .into_iter()
+                .map(|(name, _)| name)
+                .collect::<Vec<_>>()
+        };
+
+        crate::db::infra::init::mcb_set_project_root(&proj_a);
+        let _ = super::admin::handle_load_project(Some(
+            serde_json::json!({"entry": proj_a.join("world_a_mod.mc").to_string_lossy()}),
+        ));
+        assert_eq!(crate::workspace_root(), Some(proj_a.clone()));
+        assert!(module_names().contains(&"WORLD_A_MOD".to_string()));
+
+        // The sibling file carries its own manifest, so loading it switches
+        // worlds instead of dropping WORLD_B_MOD into project A's tables.
+        let _ = super::admin::handle_load_project(Some(
+            serde_json::json!({"entry": proj_b.join("world_b_mod.mc").to_string_lossy()}),
+        ));
+        assert_eq!(crate::workspace_root(), Some(proj_b.clone()));
+        assert!(module_names().contains(&"WORLD_B_MOD".to_string()));
+
+        // Back in project A: its own module is intact and B's never joined it.
+        assert!(crate::workspace_switch_to(Some(proj_a.clone()), crate::WorkspaceKind::Project));
+        assert!(module_names().contains(&"WORLD_A_MOD".to_string()));
+        assert!(!module_names().contains(&"WORLD_B_MOD".to_string()));
+
+        fs::remove_dir_all(&proj_a).unwrap();
+        fs::remove_dir_all(&proj_b).unwrap();
+        let _ = crate::workspace_switch_to(saved_ws, crate::WorkspaceKind::Project);
+        crate::db::infra::init::mcb_set_project_root(&saved_root);
     }
 
     /// The `pins` view orders pin IDs naturally (see `pin_id_cmp`): numeric
