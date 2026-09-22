@@ -127,6 +127,7 @@ pub fn handle_build_viz(params: Option<Value>) -> RpcResult {
     let mut svgs: Vec<(Option<String>, String)> = Vec::new();
     let mut single_doc: Option<crate::viz::doc::VizDocument> = None;
     let mut top_name = String::new();
+    let mut all_layers: Vec<crate::viz::api::RenderedLayer> = Vec::new();
     for target in &targets {
         // Flatten (Pass2 + InstTable) with panic guard, mirroring execute_pass2.
         let t2 = std::time::Instant::now();
@@ -166,7 +167,13 @@ pub fn handle_build_viz(params: Option<Value>) -> RpcResult {
 
         let opts = build_viz_render_opts(p.layouter.as_deref(), p.frames);
         let t4 = std::time::Instant::now();
-        let doc = crate::viz::api::render_with(graph, opts);
+        let mut rendered: Vec<crate::viz::api::RenderedLayer> = Vec::new();
+        let (doc, _metrics) = crate::viz::api::render_with_metrics_and_sink(
+            graph,
+            opts,
+            Some(&mut rendered),
+        );
+        all_layers.extend(rendered);
         tracing::info!(target: "mcc::perf", step = "render", ms = t4.elapsed().as_millis() as u64, "build.viz step");
         if let Some(root_layer) = doc.root_layer() {
             // Virtual (component/interface) targets get no heading in the
@@ -220,11 +227,14 @@ pub fn handle_build_viz(params: Option<Value>) -> RpcResult {
     };
     tracing::info!(target: "mcc::perf", step = "total", ms = t_all.elapsed().as_millis() as u64, "build.viz step");
 
+    let layout = crate::viz::layout_manifest::build_manifest(&all_layers, &top_name);
+
     Ok(json!({
         "command": "build.viz",
         "top": top_name,
         "html": html,
         "standalone": standalone,
+        "layout": layout,
         "svg_bytes": doc.total_svg_bytes(),
         "layers": doc.layer_count(),
     }))
