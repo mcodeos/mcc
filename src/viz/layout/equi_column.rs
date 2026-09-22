@@ -208,6 +208,16 @@ pub struct SideMember {
     /// order, so the part the author named first sits further west (east on
     /// a West side). `usize::MAX` = unknown (keep the old input order).
     pub read_rank: usize,
+    /// ★ M22 (U162 residual): rank-window edges from ALREADY-PLACED
+    /// co-endpoints of every net this box belongs to, INTERSECTED (a shared
+    /// member must satisfy all its nets' R0 orders; conflicting windows fall
+    /// back to the owning topo's own window). A co-endpoint ranked BEFORE
+    /// this member bounds it from the west (its east edge); one ranked AFTER
+    /// bounds it from the east (its west edge). Applied only when the band's
+    /// default walk would park the member outside the window (see the gate in
+    /// [`allocate_columns_for_side`]). `None` = unbounded.
+    pub min_edge: Option<f64>,
+    pub max_edge: Option<f64>,
 }
 
 /// Half-width of the tooth strip the allocator reserves for a vertical tooth.
@@ -240,6 +250,30 @@ fn side_priority(role: &TapRole) -> u8 {
 /// Returns `Vec<(idx, x)>` — the absolute centreline x for each member.
 pub fn allocate_columns_for_side(members: &[SideMember], dir: f64) -> Vec<(usize, usize, f64)> {
     let dir = if dir < 0.0 { -1.0 } else { 1.0 };
+    // ★ M22: the rank window is a reading-order constraint, not an allocation
+    // origin — it fires only when the band's own walk would park the member on
+    // the wrong side of an already-placed co-endpoint. A window the walk
+    // already satisfies stays ignored: the member also rides other nets whose
+    // reading order the unconstrained placement was chosen for, and dragging
+    // it against those (e.g. a power symbol shared by the rail net and a
+    // chain) is a regression this gate specifically closed.
+    let members: Vec<SideMember> = members
+        .iter()
+        .map(|e| {
+            let mut m = e.clone();
+            if m.min_edge.is_some() || m.max_edge.is_some() {
+                let half_w = m.w / 2.0 + COL_CLEAR / 2.0;
+                let walk_cx = m.anchor_pin_x + dir * COL_MARGIN;
+                if m.min_edge.is_some_and(|lo| walk_cx >= lo + half_w) {
+                    m.min_edge = None;
+                }
+                if m.max_edge.is_some_and(|hi| walk_cx <= hi - half_w) {
+                    m.max_edge = None;
+                }
+            }
+            m
+        })
+        .collect();
     // Greedy order: priority, then anchor x, then R0 reading rank (stable).
     let mut order: Vec<usize> = (0..members.len()).collect();
     order.sort_by(|&a, &b| {
@@ -281,7 +315,20 @@ pub fn allocate_columns_for_side(members: &[SideMember], dir: f64) -> Vec<(usize
             // further step moves COL_STEP outward. Without the margin the first
             // East member lands exactly on the IC edge and its tooth runs
             // collinear with the IC border (A18).
-            let cx = e.anchor_pin_x + dir * (COL_MARGIN + k as f64 * COL_STEP);
+            //
+            // ★ M22: a ranked member allocates from its window edge instead —
+            // east of a lower-rank placed co-endpoint, west of a higher-rank
+            // one — because the R0 reading order outranks the band's walk
+            // direction (a last-rank member on a West band belongs between the
+            // outermost joint and the anchor, not further west).
+            let (base, step) = if let Some(lo) = e.min_edge {
+                (lo + half_w, 1.0)
+            } else if let Some(hi) = e.max_edge {
+                (hi - half_w, -1.0)
+            } else {
+                (e.anchor_pin_x + dir * COL_MARGIN, dir)
+            };
+            let cx = base + step * (k as f64 * COL_STEP);
             let x_lo = cx - half_w;
             let x_hi = cx + half_w;
             // ★ M18: never hang a member where its net's trunk is deflected —
@@ -324,7 +371,7 @@ pub fn allocate_columns_for_side(members: &[SideMember], dir: f64) -> Vec<(usize
             }
         }
     }
-    reduce_crossings(members, dir, &mut result, &mut occupied);
+    reduce_crossings(&members, dir, &mut result, &mut occupied);
     members
         .iter()
         .enumerate()
@@ -362,6 +409,15 @@ fn reduce_crossings(
         let ib = order[i + 1];
         // Same anchor edge: no forced order, no swap.
         if (members[ia].anchor_pin_x - members[ib].anchor_pin_x).abs() < 0.5 {
+            continue;
+        }
+        // ★ M22: a windowed member's column is pinned by its rank against
+        // already-placed co-endpoints — a swap would violate the window.
+        if members[ia].min_edge.is_some()
+            || members[ia].max_edge.is_some()
+            || members[ib].min_edge.is_some()
+            || members[ib].max_edge.is_some()
+        {
             continue;
         }
         // "Right of" in boost steps means toward +x; two members are inverted
@@ -449,6 +505,8 @@ mod tests {
                 partner_y: None,
                 blocked: vec![],
                 read_rank: usize::MAX,
+                min_edge: None,
+                max_edge: None,
             },
             SideMember {
                 idx: Some((1, 0)),
@@ -460,6 +518,8 @@ mod tests {
                 partner_y: None,
                 blocked: vec![],
                 read_rank: usize::MAX,
+                min_edge: None,
+                max_edge: None,
             },
         ];
         let out = allocate_columns_for_side(&members, -1.0);
@@ -556,6 +616,8 @@ mod tests {
                 partner_y: None,
                 blocked: vec![],
                 read_rank: usize::MAX,
+                min_edge: None,
+                max_edge: None,
             },
             SideMember {
                 idx: Some((0, 1)),
@@ -567,6 +629,8 @@ mod tests {
                 partner_y: None,
                 blocked: vec![],
                 read_rank: usize::MAX,
+                min_edge: None,
+                max_edge: None,
             },
         ];
         // Simulate the inverted greedy result: a(100) out at 300, b(200) in at 200.
@@ -616,6 +680,8 @@ mod tests {
                 partner_y: None,
                 blocked: vec![],
                 read_rank: usize::MAX,
+                min_edge: None,
+                max_edge: None,
             },
             SideMember {
                 idx: Some((0, 1)),
@@ -627,6 +693,8 @@ mod tests {
                 partner_y: None,
                 blocked: vec![],
                 read_rank: usize::MAX,
+                min_edge: None,
+                max_edge: None,
             },
         ];
         let mut result = vec![194.0, 244.0]; // already in anchor order
@@ -669,6 +737,8 @@ mod tests {
                 partner_y: None,
                 blocked: vec![],
                 read_rank: 1,
+                min_edge: None,
+                max_edge: None,
             },
             SideMember {
                 idx: Some((0, 1)),
@@ -680,6 +750,8 @@ mod tests {
                 partner_y: None,
                 blocked: vec![],
                 read_rank: 0,
+                min_edge: None,
+                max_edge: None,
             },
         ];
         let out = allocate_columns_for_side(&members, 1.0);
@@ -695,6 +767,113 @@ mod tests {
             x_first < x_second,
             "reading order not respected on East side: rank0 x={x_first}, rank1 x={x_second}"
         );
+    }
+
+    /// M22 (U162 residual, positive): a member whose read_rank comes after an
+    /// ALREADY-PLACED co-endpoint allocates EAST of that endpoint's east edge
+    /// even on a West band — the R0 reading order outranks the band's walk
+    /// direction. X6's load cap `_C4` (last rank of its net) hung west of the
+    /// crystal run's R442 joint before the window existed.
+    #[test]
+    fn min_edge_window_places_member_east_of_placed_joint_on_west_band() {
+        let members = vec![SideMember {
+            idx: Some((0, 0)),
+            role: TapRole::Bridge {
+                partner: 1,
+                dir: -1.0,
+            },
+            w: 40.0,
+            h: 60.0,
+            row_y: 100.0,
+            // Unbounded, the band walk would put this west of the tap.
+            anchor_pin_x: 100.0,
+            partner_y: Some(200.0),
+            blocked: vec![],
+            read_rank: 2,
+            // The rank-1 joint sits at centre x -6 with a 60-wide body: its
+            // east edge is 24.
+            min_edge: Some(24.0),
+            max_edge: None,
+        }];
+        let out = allocate_columns_for_side(&members, -1.0);
+        let x = out[0].2;
+        assert!(
+            x > 24.0,
+            "windowed member went west of the placed joint's east edge: x={x}"
+        );
+    }
+
+    /// M22 (mirror): a member whose read_rank comes before a placed
+    /// co-endpoint stays WEST of that endpoint's west edge (SPK `_R2`).
+    #[test]
+    fn max_edge_window_places_member_west_of_placed_endpoint() {
+        let members = vec![SideMember {
+            idx: Some((0, 0)),
+            role: TapRole::Drop { dir: 1.0 },
+            w: 40.0,
+            h: 60.0,
+            row_y: 100.0,
+            anchor_pin_x: 300.0,
+            partner_y: None,
+            blocked: vec![],
+            read_rank: 0,
+            min_edge: None,
+            max_edge: Some(200.0),
+        }];
+        let out = allocate_columns_for_side(&members, 1.0);
+        let x = out[0].2;
+        assert!(
+            x < 200.0,
+            "windowed member went east of the placed endpoint's west edge: x={x}"
+        );
+    }
+
+    /// M22 (guard): `reduce_crossings` never swaps a windowed member — its
+    /// column is pinned by rank against placed co-endpoints, and a swap would
+    /// silently move it back across the window edge.
+    #[test]
+    fn reduce_crossings_never_swaps_windowed_member() {
+        let members = vec![
+            SideMember {
+                idx: Some((0, 0)),
+                role: TapRole::Drop { dir: 1.0 },
+                w: 40.0,
+                h: 60.0,
+                row_y: 100.0,
+                // Anchor tap west of the second member's: without the window
+                // the pass would swap them.
+                anchor_pin_x: 100.0,
+                partner_y: None,
+                blocked: vec![],
+                read_rank: 0,
+                min_edge: Some(150.0),
+                max_edge: None,
+            },
+            SideMember {
+                idx: Some((0, 1)),
+                role: TapRole::Drop { dir: 1.0 },
+                w: 40.0,
+                h: 60.0,
+                row_y: 200.0,
+                anchor_pin_x: 300.0,
+                partner_y: None,
+                blocked: vec![],
+                read_rank: 1,
+                min_edge: None,
+                max_edge: None,
+            },
+        ];
+        let mut result = vec![180.0, 260.0];
+        let mut occupied = vec![
+            (0usize, 140.0, 220.0, 20.0, 180.0),
+            (1usize, 220.0, 300.0, 120.0, 280.0),
+        ];
+        reduce_crossings(&members, 1.0, &mut result, &mut occupied);
+        assert_eq!(
+            result[0], 180.0,
+            "windowed member was swapped off its window spot"
+        );
+        assert_eq!(result[1], 260.0);
     }
 
     /// M21 (guard): an unknown rank (`usize::MAX`) ties with another unknown
@@ -713,6 +892,8 @@ mod tests {
                 partner_y: None,
                 blocked: vec![],
                 read_rank: usize::MAX,
+                min_edge: None,
+                max_edge: None,
             },
             SideMember {
                 idx: Some((0, 1)),
@@ -724,6 +905,8 @@ mod tests {
                 partner_y: None,
                 blocked: vec![],
                 read_rank: usize::MAX,
+                min_edge: None,
+                max_edge: None,
             },
         ];
         let out = allocate_columns_for_side(&members, 1.0);
@@ -738,6 +921,64 @@ mod tests {
             "unknown ranks must keep input order: first-input x={}, second-input x={}",
             x_of((0, 0)),
             x_of((0, 1))
+        );
+    }
+
+    /// M22 (gate): a rank window the band's own walk already satisfies must
+    /// stay ignored — the member also rides other nets whose reading order
+    /// the unconstrained placement was chosen for. Regressed shape: a power
+    /// symbol last-ranked on the rail net would be dragged east against the
+    /// chain net it also feeds.
+    #[test]
+    fn satisfied_rank_window_does_not_move_the_member() {
+        // West band (dir=-1): the walk parks the member at 80-40=40, well
+        // west of a ceiling at 120 — the window is satisfied, so the result
+        // must equal the unwindowed allocation (40), not the window origin
+        // (120-18=102).
+        let members = vec![SideMember {
+            idx: Some((0, 0)),
+            role: TapRole::Drop { dir: 1.0 },
+            w: 20.0,
+            h: 60.0,
+            row_y: 100.0,
+            anchor_pin_x: 80.0,
+            partner_y: None,
+            blocked: vec![],
+            read_rank: 0,
+            min_edge: None,
+            max_edge: Some(120.0),
+        }];
+        let out = allocate_columns_for_side(&members, -1.0);
+        assert_eq!(
+            out[0].2, 40.0,
+            "a satisfied window was applied as an allocation origin"
+        );
+    }
+
+    /// M22 (the U162 residual shape): a last-rank member on a West band would
+    /// walk west of an already-placed lower-rank joint — the window fires and
+    /// allocates it east of the floor instead, back in reading order.
+    #[test]
+    fn violated_rank_window_clamps_to_the_reading_side() {
+        // West band: walk parks at 160-40=120, west of the floor 240+18=258
+        // set by a placed co-endpoint ranked before this member.
+        let members = vec![SideMember {
+            idx: Some((0, 0)),
+            role: TapRole::Drop { dir: 1.0 },
+            w: 20.0,
+            h: 60.0,
+            row_y: 100.0,
+            anchor_pin_x: 160.0,
+            partner_y: None,
+            blocked: vec![],
+            read_rank: 1,
+            min_edge: Some(240.0),
+            max_edge: None,
+        }];
+        let out = allocate_columns_for_side(&members, -1.0);
+        assert_eq!(
+            out[0].2, 258.0,
+            "a violated window must clamp the member to its reading side"
         );
     }
 }

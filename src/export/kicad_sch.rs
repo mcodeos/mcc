@@ -442,12 +442,12 @@ fn emit_sheet(set: &SheetSet, state: &mut SheetState, idx: usize) -> String {
 
     // Wires, junctions, terminals, labels.
     if is_device {
-        emit_tree_nets(graph, &trees, &xf, &path_prefix, set, state, &mut e);
+        emit_tree_nets(graph, &trees, &xf, &path_prefix, set, state, &mut e, &HashMap::new());
     } else {
         emit_block_edges(graph, &xf, set, &mut e);
         emit_root_passive_nets(graph, &xf, &mut e);
     }
-    emit_rail_decorations(graph, &xf, &path_prefix, set, state, &mut e);
+    emit_rail_decorations(graph, &xf, &path_prefix, set, state, &mut e, &HashMap::new());
 
     for b in component_boxes(graph) {
         emit_symbol_instance(
@@ -1065,7 +1065,7 @@ fn emit_flat_sheet(
                     island_name_of_net(graph, n, &islands).map(|i| (n.name.clone(), i))
                 })
                 .collect();
-            emit_tree_nets_opt(graph, &trees, xf, &set.root_uuid, &set, &mut state, &mut e, &net_names);
+            emit_tree_nets(graph, &trees, xf, &set.root_uuid, &set, &mut state, &mut e, &net_names);
             // Boundary ports become same-name labels joined to the parent's
             // net name; the hierarchical label itself would be meaningless on
             // a sheetless drawing.
@@ -1080,7 +1080,7 @@ fn emit_flat_sheet(
                 island_name_of_net(graph, n, &islands).map(|i| (n.name.clone(), i))
             })
             .collect();
-        emit_rail_decorations_opt(graph, xf, &set.root_uuid, &set, &mut state, &mut e, &net_names);
+        emit_rail_decorations(graph, xf, &set.root_uuid, &set, &mut state, &mut e, &net_names);
         for b in component_boxes(graph) {
             emit_symbol_instance(
                 graph,
@@ -1146,20 +1146,8 @@ fn emit_flat_boundary_labels(
 
 // === Nets ===
 
-fn emit_tree_nets(
-    graph: &McVecGraph,
-    trees: &[EquiTree],
-    xf: &Xform,
-    path: &str,
-    set: &SheetSet,
-    state: &mut SheetState,
-    e: &mut Emit,
-) {
-    emit_tree_nets_opt(graph, trees, xf, path, set, state, e, &HashMap::new());
-}
-
 #[allow(clippy::too_many_arguments)]
-fn emit_tree_nets_opt(
+fn emit_tree_nets(
     graph: &McVecGraph,
     trees: &[EquiTree],
     xf: &Xform,
@@ -1712,19 +1700,8 @@ fn unique_ref(state: &mut SheetState, bid: i64, b: &McVecBox) -> String {
 
 // === Rail glyphs (pin decorations) ===
 
-fn emit_rail_decorations(
-    graph: &McVecGraph,
-    xf: &Xform,
-    path: &str,
-    set: &SheetSet,
-    state: &mut SheetState,
-    e: &mut Emit,
-) {
-    emit_rail_decorations_opt(graph, xf, path, set, state, e, &HashMap::new());
-}
-
 #[allow(clippy::too_many_arguments)]
-fn emit_rail_decorations_opt(
+fn emit_rail_decorations(
     graph: &McVecGraph,
     xf: &Xform,
     path: &str,

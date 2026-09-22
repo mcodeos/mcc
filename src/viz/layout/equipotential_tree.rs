@@ -4628,6 +4628,78 @@ fn resolve_columns_for_side(graph: &mut McVecGraph, topos: &[NetTopology], layer
                 .find(|n| n.nid == topos[ti].nid)
                 .and_then(|n| n.endpoints.iter().position(|e| e.box_id == group.box_id))
                 .unwrap_or(usize::MAX);
+            // ★ M22 (U162 residual): rank-window edges for this member —
+            // see the long comment inside the block.
+            let (min_edge, max_edge) = {
+                // ★ M22 (U162 residual): rank-window edges from EVERY net this
+                // box belongs to — a shared member must satisfy all of its
+                // nets' R0 orders at once, so the windows INTERSECT (the
+                // stricter bound wins). A single-net window dragged mcexpl
+                // `004-button-pullup`'s shared `PWR` east past `R_PULLUP`
+                // (GND's order) and inverted V3V3's chain.
+                //
+                // Bounds come from ALREADY-PLACED co-endpoints only: run
+                // joints/tails (final since the `series_x` application above)
+                // and the layer anchor's P2 rect; boxes this same loop
+                // allocates are NOT bounds (the greedy's occupancy table
+                // orders them). X6's load cap `_C4` (last rank of its net)
+                // hung west of the crystal run's R442 joint because the band
+                // walks west; with the window it allocates east of R442, back
+                // in reading order.
+                let mut lo: Option<f64> = None;
+                let mut hi: Option<f64> = None;
+                // The owning topo's own contribution — the tiebreak stake when
+                // the intersection comes out empty.
+                let mut own_lo: Option<f64> = None;
+                let mut own_hi: Option<f64> = None;
+                for n in &graph.nets {
+                    let Some(my) = n.endpoints.iter().position(|e| e.box_id == group.box_id)
+                    else {
+                        continue;
+                    };
+                    let mut n_lo: Option<f64> = None;
+                    let mut n_hi: Option<f64> = None;
+                    for (r, e) in n.endpoints.iter().enumerate() {
+                        if r == my {
+                            continue;
+                        }
+                        let placed = series_x.iter().any(|&(bid, _)| bid == e.box_id)
+                            || e.box_id == layer_anchor;
+                        if !placed {
+                            continue;
+                        }
+                        let Some(eb) = graph.boxes.iter().find(|b| b.id == e.box_id) else {
+                            continue;
+                        };
+                        if eb.w <= 0.0 {
+                            continue;
+                        }
+                        if r < my {
+                            n_lo = Some(n_lo.map_or(eb.x + eb.w, |v| v.max(eb.x + eb.w)));
+                        } else {
+                            n_hi = Some(n_hi.map_or(eb.x, |v| v.min(eb.x)));
+                        }
+                    }
+                    lo = lo.map_or(n_lo, |v| n_lo.map_or(Some(v), |n| Some(v.max(n))));
+                    hi = hi.map_or(n_hi, |v| n_hi.map_or(Some(v), |n| Some(v.min(n))));
+                    if n.nid == topos[ti].nid {
+                        own_lo = n_lo;
+                        own_hi = n_hi;
+                    }
+                }
+                // ★ Conflicting windows: two nets rank this box on OPPOSITE
+                // sides of placed co-endpoints (UC `_R6`: east of the SDA
+                // chain's anchor pull, west of `_net44`'s), so no spot
+                // satisfies both. Fall back to the OWNING topo's own window —
+                // the net whose pass allocates the box gets the decisive say.
+                if let (Some(l), Some(h)) = (lo, hi) {
+                    if l > h && (own_lo.is_some() || own_hi.is_some()) {
+                        lo = own_lo;
+                        hi = own_hi;
+                    }
+                }
+                (lo, hi)
+            };
             let m = SideMember {
                 idx: Some((ti, gi)),
                 role,
@@ -4636,6 +4708,8 @@ fn resolve_columns_for_side(graph: &mut McVecGraph, topos: &[NetTopology], layer
                 row_y: topo.lane.axis,
                 anchor_pin_x,
                 read_rank,
+                min_edge,
+                max_edge,
                 // ★ M18: the partner net's row — the far end of this member's
                 // vertical tooth (a cap's GND hang reaches the rail below, a
                 // bridge's tooth spans both rows). `None` (no partner, or a
@@ -4643,6 +4717,23 @@ fn resolve_columns_for_side(graph: &mut McVecGraph, topos: &[NetTopology], layer
                 partner_y: partner.as_ref().and_then(|p| p.row),
                 blocked: blocked.clone(),
             };
+            if min_edge.is_some() || max_edge.is_some() {
+                let nm = b.designator.clone().unwrap_or_else(|| b.name.clone());
+                crate::vlog!(
+                    "[window] '{}' net='{}' rank={} min={:?} max={:?} tap={:.0}",
+                    nm,
+                    graph
+                        .nets
+                        .iter()
+                        .find(|n| n.nid == topos[ti].nid)
+                        .map(|n| n.name.as_str())
+                        .unwrap_or("?"),
+                    read_rank,
+                    min_edge,
+                    max_edge,
+                    anchor_pin_x
+                );
+            }
             if is_east {
                 east.push(m);
             } else {
