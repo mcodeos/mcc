@@ -737,19 +737,19 @@ fn emit_flat_sheet(
                     + (a.y + a.h / 2.0 - root_center.1).powi(2);
                 let db = (b.x + b.w / 2.0 - root_center.0).powi(2)
                     + (b.y + b.h / 2.0 - root_center.1).powi(2);
-                // Push the tile farther from the root centre AWAY from it,
-                // along the thinner penetration axis. The sign follows the
-                // tile's own bearing relative to the centre, so a module
-                // seeded right of centre stays right of centre.
-                let (push_idx, axis_x) = if da >= db { (i, ox <= oy) } else { (j, ox <= oy) };
+                // Push the tile farther from the root centre ALONG ITS OWN
+                // BEARING RAY (the direction from the centre through the tile,
+                // quantized to the dominant axis of that ray). A module seeded
+                // right of centre retreats right, above stays above — the
+                // block diagram's quadrant survives every push.
+                let (push_idx, ox, oy) = if da >= db { (i, ox, oy) } else { (j, ox, oy) };
                 let t = &mut tiles[push_idx];
                 let (cx, cy) = (t.x + t.w / 2.0, t.y + t.h / 2.0);
-                if ox <= oy {
-                    let sgn = if cx >= root_center.0 { 1.0 } else { -1.0 };
-                    t.x += sgn * ox;
+                let (rx, ry) = (cx - root_center.0, cy - root_center.1);
+                if rx.abs() >= ry.abs() {
+                    t.x += if rx >= 0.0 { ox } else { -ox };
                 } else {
-                    let sgn = if cy >= root_center.1 { 1.0 } else { -1.0 };
-                    t.y += sgn * oy;
+                    t.y += if ry >= 0.0 { oy } else { -oy };
                 }
                 moved += 1.0;
             }
@@ -761,7 +761,8 @@ fn emit_flat_sheet(
     // Compact: the seeded positions inherit the block diagram's spacing,
     // far looser than a sheet of drawings needs - pull every tile toward the
     // root centre while the step keeps the gap, closest first.
-    for _ in 0..300 {
+    for round in 0..300 {
+        let step = if round < 100 { 8.0 } else if round < 200 { 4.0 } else { 2.0 };
         let mut moved = 0usize;
         for i in 0..tiles.len() {
             let (tx, ty) = (tiles[i].x + tiles[i].w / 2.0, tiles[i].y + tiles[i].h / 2.0);
@@ -770,7 +771,7 @@ fn emit_flat_sheet(
             if len < 1.0 {
                 continue;
             }
-            let step = 8.0f64;
+            let (nx, ny) = (tiles[i].x + dx / len * step, tiles[i].y + dy / len * step);
             let (nx, ny) = (tiles[i].x + dx / len * step, tiles[i].y + dy / len * step);
             let conflict = (0..tiles.len()).any(|j| {
                 j != i
@@ -853,7 +854,9 @@ fn emit_flat_sheet(
                 match root_graph.boxes.iter().find(|b| b.id == ep.box_id) {
                     None => eprintln!("[ksch] net {} ep box_id={} NOT FOUND", n.name, ep.box_id),
                     Some(b) => {
-                        if !b.pins.iter().any(|p| p.id == ep.pin_id) {
+                        if !b.pins.iter().any(|p| p.id == ep.pin_id) && !b.pins.iter().any(|p| {
+                            ep.pin_number.map(|n| p.pin_id == n.to_string()) == Some(true)
+                        }) {
                             eprintln!(
                                 "[ksch] net {} ep {} pin_id={} MISSING in box pins {:?}",
                                 n.name, b.name, ep.pin_id,
@@ -1161,6 +1164,7 @@ fn emit_flat_sheet(
                     &edge.label,
                     (sx + fx) / 2.0,
                     (sy + fy) / 2.0,
+                    Slide::X,
                     &mut state.labels,
                     &mut e,
                 );
@@ -1176,7 +1180,7 @@ fn emit_flat_sheet(
         }
         let a = run.pts[0];
         let b = *run.pts.last().unwrap();
-        text_label(root_graph.bid, &run.net, (a.0 + b.0) / 2.0, (a.1 + b.1) / 2.0, &mut state.labels, &mut e);
+        text_label(root_graph.bid, &run.net, (a.0 + b.0) / 2.0, (a.1 + b.1) / 2.0, Slide::X, &mut state.labels, &mut e);
     }
     for (x, y, port) in &gnd_glyphs {
         state.pwr_seq += 1;
@@ -1202,10 +1206,10 @@ fn emit_flat_sheet(
     if !unrouted.is_empty() {
         let lx = tiles.iter().map(|t| t.x + t.w).fold(0.0f64, f64::max) + 15.0;
         let mut ly = 30.0;
-        text_label(root_graph.bid, "Unrouted connections", lx, ly, &mut state.labels, &mut e);
+        text_label(root_graph.bid, "Unrouted connections", lx, ly, Slide::None, &mut state.labels, &mut e);
         ly += 6.0;
         for (n, a, b) in &unrouted {
-            text_label(root_graph.bid, &format!("{n}: {a} - {b}"), lx, ly, &mut state.labels, &mut e);
+            text_label(root_graph.bid, &format!("{n}: {a} - {b}"), lx, ly, Slide::None, &mut state.labels, &mut e);
             ly += 5.0;
         }
     }
@@ -1226,7 +1230,7 @@ fn emit_flat_sheet(
                 })
                 .collect();
             emit_tree_nets(graph, &trees, xf, &set.root_uuid, &set, &mut state, &mut e, &net_names);
-            emit_wired_pin_guarantee(graph, &trees, &net_names, xf, &mut state.labels, &mut e);
+            emit_wired_pin_guarantee(graph, &trees, &islands, &net_names, xf, &mut state.labels, &mut e);
             // Boundary ports become same-name labels joined to the parent's
             // net name; the hierarchical label itself would be meaningless on
             // a sheetless drawing.
@@ -1304,7 +1308,7 @@ fn emit_flat_boundary_labels(
         let Some((x, y)) = pos.or_else(|| boundary_tree_endpoint(graph, trees, xf, net)) else {
             continue;
         };
-        text_label(graph.bid, &name, x, y, ledger, e);
+        text_label(graph.bid, &name, x, y, Slide::X, ledger, e);
     }
 }
 
@@ -1416,7 +1420,7 @@ fn emit_tree_nets(
                     // the cross-module join, boundary or not.
                     if !is_anon(&t.net_name) && (!is_boundary || flat_mode) {
                         let shown = display_of(&t.net_name);
-                        text_label(graph.bid, &shown, xf.x(s.x), xf.y(s.y), &mut state.labels, e);
+                        text_label(graph.bid, &shown, xf.x(s.x), xf.y(s.y), Slide::X, &mut state.labels, e);
                     }
                 }
             }
@@ -1431,7 +1435,7 @@ fn emit_tree_nets(
                 longest_midpoint(t.segments.iter().map(|s| ((s.x1, s.y1), (s.x2, s.y2))))
             {
                 let shown = display_of(&t.net_name);
-                text_label(graph.bid, &shown, xf.x(x), xf.y(y), &mut state.labels, e);
+                text_label(graph.bid, &shown, xf.x(x), xf.y(y), Slide::X, &mut state.labels, e);
             }
         }
         if let Some(net) = graph.nets.iter().find(|n| n.name == t.net_name) {
@@ -1484,54 +1488,91 @@ fn emit_wire(bid: i64, xf: &Xform, x1: f64, y1: f64, x2: f64, y2: f64, e: &mut E
     e.close();
 }
 
+/// Which way a label may slide while staying electrically connected: along
+/// the wire it sits on. Labels whose anchor is a short vertical stub register
+/// as `None` — they never slide, and later labels route around them.
+#[derive(Clone, Copy, PartialEq)]
+enum Slide {
+    X,
+    Y,
+    None,
+}
+
 fn text_label(
     bid: i64,
     text: &str,
     x: f64,
     y: f64,
+    slide: Slide,
     ledger: &mut Vec<(f64, f64, f64, f64)>,
     e: &mut Emit,
 ) {
-    // Anti-overlap: the anchor must stay electrically connected, so it slides
-    // ALONG the wire (the horizontal trunks dominate) before it ever hops
-    // perpendicular.
-    let w = text.len() as f64 * 0.9 + 2.0;
-    let h = 2.0;
-    let hits = |bx: f64, by: f64| {
-        ledger.iter().any(|(ox, oy, ow, oh)| {
-            bx < *ox + *ow && *ox < bx + w && by < *oy + *oh && *oy < by + h
-        })
-    };
-    let mut fx = x;
-    let mut fy = y;
-    if hits(fx, fy) {
-        const OFFS: [(f64, f64); 11] = [
+    // Anti-overlap: slide ALONG the wire first; if every candidate collides,
+    // drop the font one notch and try the same run again (dense sheets read a
+    // smaller label better than an overlapping one).
+    let offs: Vec<(f64, f64)> = match slide {
+        Slide::X => vec![
             (12.0, 0.0),
             (-12.0, 0.0),
             (24.0, 0.0),
             (-24.0, 0.0),
             (36.0, 0.0),
             (-36.0, 0.0),
+            (48.0, 0.0),
+            (-48.0, 0.0),
+        ],
+        Slide::Y => vec![
             (0.0, 3.0),
             (0.0, -3.0),
             (0.0, 6.0),
             (0.0, -6.0),
             (0.0, 9.0),
-        ];
-        for (dx, dy) in OFFS {
+            (0.0, -9.0),
+            (0.0, 12.0),
+            (0.0, -12.0),
+        ],
+        Slide::None => vec![],
+    };
+    let mut font = 1.27;
+    let mut fx = x;
+    let mut fy = y;
+    for round in 0..2 {
+        let w = text.len() as f64 * (font * 0.71) + 2.0;
+        let h = font + 0.8;
+        let hits = |bx: f64, by: f64| {
+            ledger.iter().any(|(ox, oy, ow, oh)| {
+                bx < *ox + *ow && *ox < bx + w && by < *oy + *oh && *oy < by + h
+            })
+        };
+        if !hits(x, y) {
+            break;
+        }
+        let mut moved = false;
+        for (dx, dy) in &offs {
             if !hits(x + dx, y + dy) {
                 fx = x + dx;
                 fy = y + dy;
+                moved = true;
                 break;
             }
         }
+        if moved {
+            break;
+        }
+        if round == 0 {
+            font = 1.0;
+        } else {
+            fx = x;
+            fy = y;
+        }
     }
-    ledger.push((fx, fy, w, 2.0));
+    let w = text.len() as f64 * (font * 0.71) + 2.0;
+    ledger.push((fx, fy, w, font + 0.8));
     e.open(&format!("label \"{}\"", escape(text)));
     line!(e, "(at {} {} 0)", mm(fx), mm(fy));
     e.open("effects");
     e.open("font");
-    line!(e, "(size 1.27 1.27)");
+    line!(e, "(size {font} {font})");
     e.close();
     line!(e, "(justify left bottom)");
     e.close();
@@ -1645,7 +1686,7 @@ fn emit_block_edges(graph: &McVecGraph, xf: &Xform, set: &SheetSet, e: &mut Emit
             continue;
         }
         let mid = middle_of(path);
-        text_label(graph.bid, &edge.label, xf.x(mid.0), xf.y(mid.1), &mut Vec::new(), e);
+        text_label(graph.bid, &edge.label, xf.x(mid.0), xf.y(mid.1), Slide::X, &mut Vec::new(), e);
     }
     let _ = set;
 }
@@ -1666,9 +1707,10 @@ fn emit_root_passive_nets(
     for b in component_boxes(graph) {
         for p in &b.pins {
             let Some(net) = graph.nets.iter().find(|n| {
-                n.endpoints
-                    .iter()
-                    .any(|ep| ep.box_id == b.id && ep.pin_id == p.id)
+                n.endpoints.iter().any(|ep| {
+                    ep.box_id == b.id
+                        && endpoint_pin(b, ep).map(|bp| bp.id) == Some(p.id)
+                })
             }) else {
                 continue;
             };
@@ -1697,7 +1739,7 @@ fn emit_root_passive_nets(
             );
             e.close();
             if !is_anon(&net.name) {
-                text_label(graph.bid, &net.name, sx, sy, ledger, e);
+                text_label(graph.bid, &net.name, sx, sy, Slide::X, ledger, e);
             }
         }
     }
@@ -2275,7 +2317,7 @@ fn emit_pin_rescue(
                         EntrySide::Bottom => (ax, ay + 10.0),
                     };
                     emit_wire(graph.bid, xf, ax, ay, sx, sy, e);
-                    text_label(graph.bid, display, xf.x(sx), xf.y(sy), &mut Vec::new(), e);
+                    text_label(graph.bid, display, sx, sy, Slide::Y, ledger, e);
                 }
             }
             continue;
@@ -2318,14 +2360,7 @@ fn emit_pin_rescue(
             continue;
         };
         if named {
-            let (sx, sy) = match side {
-                EntrySide::Left => (ax - 10.0, ay),
-                EntrySide::Right => (ax + 10.0, ay),
-                EntrySide::Top => (ax, ay - 10.0),
-                EntrySide::Bottom => (ax, ay + 10.0),
-            };
-            emit_wire(graph.bid, xf, ax, ay, sx, sy, e);
-            text_label(graph.bid, display, xf.x(sx), xf.y(sy), &mut Vec::new(), e);
+            emit_stub_label(graph.bid, xf, ax, ay, side, display, ledger, e);
         } else if (ex - ax).abs() < 0.05 || (ey - ay).abs() < 0.05 {
             emit_wire(graph.bid, xf, ax, ay, ex, ey, e);
         } else {
@@ -2345,6 +2380,7 @@ fn emit_pin_rescue(
 fn emit_wired_pin_guarantee(
     graph: &McVecGraph,
     trees: &[EquiTree],
+    islands: &HashMap<String, String>,
     net_names: &HashMap<String, String>,
     xf: &Xform,
     ledger: &mut Vec<(f64, f64, f64, f64)>,
@@ -2390,7 +2426,7 @@ fn emit_wired_pin_guarantee(
             };
             emit_wire(graph.bid, xf, ax, ay, sx, sy, e);
             if named {
-                text_label(graph.bid, &shown, xf.x(sx), xf.y(sy), &mut Vec::new(), e);
+                text_label(graph.bid, &shown, xf.x(sx), xf.y(sy), Slide::None, ledger, e);
             } else if let Some(&(ex, ey)) = ends
                 .iter()
                 .min_by(|p, q| {
@@ -2409,6 +2445,78 @@ fn emit_wired_pin_guarantee(
             ends.push((ax, ay));
         }
     }
+    // Second sweep over the flat table's copper islands: members the
+    // projected graph dropped (a pull-up referenced only through the net
+    // table) still get their stub and island name.
+    for b in component_boxes(graph) {
+        for p in &b.pins {
+            let full = format!("{}.{}", b.inst_path, p.pin_id);
+            let Some(island) = islands.get(&full) else { continue };
+            if is_anon(island) {
+                continue;
+            }
+            let (side, offset) = pin_placement(b, p);
+            let (ax, ay) = match side {
+                EntrySide::Left => (b.x, b.y + b.h * offset),
+                EntrySide::Right => (b.x + b.w, b.y + b.h * offset),
+                EntrySide::Top => (b.x + b.w * offset, b.y),
+                EntrySide::Bottom => (b.x + b.w * offset, b.y + b.h),
+            };
+            if ends
+                .iter()
+                .any(|(x, y)| (x - ax).abs() < 0.05 && (y - ay).abs() < 0.05)
+            {
+                continue;
+            }
+            let (sx, sy) = match side {
+                EntrySide::Left => (ax - 10.0, ay),
+                EntrySide::Right => (ax + 10.0, ay),
+                EntrySide::Top => (ax, ay - 10.0),
+                EntrySide::Bottom => (ax, ay + 10.0),
+            };
+            emit_wire(graph.bid, xf, ax, ay, sx, sy, e);
+            text_label(graph.bid, island, xf.x(sx), xf.y(sy), Slide::None, ledger, e);
+            ends.push((ax, ay));
+        }
+    }
+}
+
+/// Stub + label as one unit: the stub grows (10 → 25 → 40 px) until the
+/// label at its far end finds free space, so adjacent-pin labels never
+/// overlap and the wire stays attached to the pin the whole time.
+#[allow(clippy::too_many_arguments)]
+fn emit_stub_label(
+    bid: i64,
+    xf: &Xform,
+    ax: f64,
+    ay: f64,
+    side: EntrySide,
+    display: &str,
+    ledger: &mut Vec<(f64, f64, f64, f64)>,
+    e: &mut Emit,
+) {
+    let (dx, dy) = match side {
+        EntrySide::Left => (-1.0, 0.0),
+        EntrySide::Right => (1.0, 0.0),
+        EntrySide::Top => (0.0, -1.0),
+        EntrySide::Bottom => (0.0, 1.0),
+    };
+    let w = display.len() as f64 * 0.9 + 2.0;
+    let free = |sx: f64, sy: f64| {
+        !ledger.iter().any(|(ox, oy, ow, oh)| {
+            sx < *ox + *ow && *ox < sx + w && sy < *oy + *oh && *oy < sy + 2.0
+        })
+    };
+    let mut ext = 10.0;
+    for cand in [10.0, 25.0, 40.0] {
+        ext = cand;
+        if free(ax + dx * ext, ay + dy * ext) {
+            break;
+        }
+    }
+    let (sx, sy) = (ax + dx * ext, ay + dy * ext);
+    emit_wire(bid, xf, ax, ay, sx, sy, e);
+    text_label(bid, display, xf.x(sx), xf.y(sy), Slide::None, ledger, e);
 }
 
 fn d2(p: (f64, f64), q: (f64, f64)) -> f64 {
@@ -3280,11 +3388,12 @@ mod tests {
         let xf = Xform::new(&layers[0].graph, &[]);
         let (ax, ay) = anchor_mm(&xf, &layers[0].graph.boxes[0], EntrySide::Right, 0.5);
         let expect = format!("(xy {} {}", mm(ax), mm(ay));
+        std::fs::write("/tmp/test_block.kicad_sch", s).unwrap();
         assert!(
             s.contains(&expect),
             "wire must start at the pin anchor {expect}"
         );
-        assert!(s.contains("(label \"MID\""), "{s}");
+        assert!(s.contains("(label \"MID\""), "{s}"); // label present (ledger may slide it)
         assert!(!s.contains("mcc:GND"), "{s}");
         assert!(s.contains("(sheet_instances"), "{s}");
         // Symbol placed at the box corner in sheet mm.
