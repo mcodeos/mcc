@@ -50,7 +50,9 @@ impl InstantiationBuilder {
         // sites — this one (series family) and the §5.1 loop in
         // vexpr_wire_parallel — and both call the same one implementation
         // (design-premises R8); check only, the pairing below stays
-        // positional.
+        // positional. Criterion 4 (E4122, topology) is judged per emitted
+        // net at the emission sites below (U200): the pre-split junction
+        // over-counts element-wise group wiring.
         self.check_iface_connect_points(&left_points, &right_points);
 
         // §5.3 shape-match check (vec-dianlu.md)
@@ -350,6 +352,8 @@ impl InstantiationBuilder {
             );
 
             for (l, r) in m.pairs {
+                // One emitted net per row pair — criterion 4 judged on it.
+                self.check_net_topology(&[l.clone(), r.clone()]);
                 let conn = mk_conn(self.next_conn_id(), vec![l, r], dir, lane);
                 self.add_connection(conn);
             }
@@ -371,6 +375,7 @@ impl InstantiationBuilder {
             if let Some(expanded) = self.try_member_passthrough_scalar(&l, &right_points) {
                 // ── P2/A2: bare submodule port expanded by peer member then per-bit zip ──
                 for (le, r) in expanded.into_iter().zip(right_points.into_iter()) {
+                    self.check_net_topology(&[le.clone(), r.clone()]);
                     let conn = mk_conn(self.next_conn_id(), vec![le, r], dir, lane);
                     self.add_connection(conn);
                 }
@@ -380,6 +385,10 @@ impl InstantiationBuilder {
             {
                 // One logical net on the N side (§7.3 same-name fan): every pad
                 // shares the (owner, member) net identity → merge onto scalar.
+                // The merged net is judged whole: scalar + every pad.
+                let mut merged = vec![l.clone()];
+                merged.extend(right_points.iter().cloned());
+                self.check_net_topology(&merged);
                 for r in right_points {
                     let conn = mk_conn(self.next_conn_id(), vec![l.clone(), r], dir, lane);
                     self.add_connection(conn);
@@ -399,6 +408,7 @@ impl InstantiationBuilder {
             if let Some(expanded) = self.try_member_passthrough_scalar(&r, &left_points) {
                 // ── P2/A2: same as above, scalar on the right ──
                 for (l, re) in left_points.into_iter().zip(expanded.into_iter()) {
+                    self.check_net_topology(&[l.clone(), re.clone()]);
                     let conn = mk_conn(self.next_conn_id(), vec![l, re], dir, lane);
                     self.add_connection(conn);
                 }
@@ -407,6 +417,10 @@ impl InstantiationBuilder {
                 .all(|p| net_key(p) == net_key(&left_points[0]))
             {
                 // One logical net on the N side → legal merge onto scalar.
+                // The merged net is judged whole: scalar + every pad.
+                let mut merged = vec![r.clone()];
+                merged.extend(left_points.iter().cloned());
+                self.check_net_topology(&merged);
                 for l in left_points {
                     let conn = mk_conn(self.next_conn_id(), vec![l, r.clone()], dir, lane);
                     self.add_connection(conn);

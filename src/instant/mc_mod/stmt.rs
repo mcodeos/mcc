@@ -2249,15 +2249,26 @@ impl InstantiationBuilder {
             .iter()
             .filter_map(|p| self.iface_endpoint_of_point(p))
             .collect();
-        // Criterion 4 counts the whole junction, both faces included.
-        let mut eps = left_eps;
-        eps.extend(rights.iter().cloned());
-        self.check_iface_topology(&eps);
+        // Criterion 4 (E4122) is NOT judged here: a whole-junction count
+        // over-counts element-wise group wiring (`a.IF -> b.IF`, two rows a
+        // side) as 4 endpoints when the statement emits two nets of two.
+        // Topology is judged per emitted net — the §5.1 wiring-loop site and
+        // the per-net checks at the create_connection emission sites.
         for ep in &rights {
             if self.iface_pair_diag(&ep0, ep) {
                 return;
             }
         }
+    }
+
+    /// Criterion 4 over one emitted net's points, for the create_connection
+    /// emission sites (row pairs, passthrough lanes, the §7.3 merged fan).
+    pub(super) fn check_net_topology(&mut self, points: &[NetPoint]) {
+        let eps: Vec<IfaceEndpoint> = points
+            .iter()
+            .filter_map(|p| self.iface_endpoint_of_point(p))
+            .collect();
+        self.check_iface_topology(&eps);
     }
 
     /// Same rule over one emitted net — the shape the §5.1 wiring loop sees
@@ -2283,8 +2294,10 @@ impl InstantiationBuilder {
     /// declares `topology = "point to point"` fits exactly two endpoints on
     /// one net — more report once per family. Families without the attribute
     /// (or declaring `multi-point`) skip: the attribute is judged only where
-    /// declared. Junction-local by design — nets merged across separate
-    /// statements are the flatten stage's reading, not this sweep's.
+    /// declared. Net-local by design (U200): element-wise group wiring splits
+    /// one statement into per-row nets, each judged on its own endpoints;
+    /// nets merged across separate statements are the flatten stage's
+    /// reading, not this sweep's.
     fn check_iface_topology(&mut self, eps: &[IfaceEndpoint]) {
         let mut fams: Vec<(String, usize)> = Vec::new();
         for ep in eps {
