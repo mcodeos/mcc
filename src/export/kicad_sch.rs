@@ -713,7 +713,7 @@ fn emit_flat_sheet(
     // seeded tiles overlap. Separate them outward: of an overlapping pair,
     // the tile farther from the root centre yields along the thinner axis.
     // Bounded sweeps; the arrangement still reads as the block diagram's.
-    const FLAT_GAP_MM: f64 = 30.0;
+    const FLAT_GAP_MM: f64 = 15.0;
     for _ in 0..200 {
         let mut moved = 0.0f64;
         for i in 0..tiles.len() {
@@ -769,6 +769,37 @@ fn emit_flat_sheet(
             break;
         }
     }
+    // Compact: the seeded positions inherit the block diagram's spacing,
+    // far looser than a sheet of drawings needs - pull every tile toward the
+    // root centre while the step keeps the gap, closest first.
+    for _ in 0..300 {
+        let mut moved = 0usize;
+        for i in 0..tiles.len() {
+            let (tx, ty) = (tiles[i].x + tiles[i].w / 2.0, tiles[i].y + tiles[i].h / 2.0);
+            let (dx, dy) = (root_center.0 - tx, root_center.1 - ty);
+            let len = (dx * dx + dy * dy).sqrt();
+            if len < 1.0 {
+                continue;
+            }
+            let step = 8.0f64;
+            let (nx, ny) = (tiles[i].x + dx / len * step, tiles[i].y + dy / len * step);
+            let conflict = (0..tiles.len()).any(|j| {
+                j != i
+                    && nx < tiles[j].x + tiles[j].w + FLAT_GAP_MM
+                    && tiles[j].x < nx + tiles[i].w + FLAT_GAP_MM
+                    && ny < tiles[j].y + tiles[j].h + FLAT_GAP_MM
+                    && tiles[j].y < ny + tiles[i].h + FLAT_GAP_MM
+            });
+            if !conflict {
+                tiles[i].x = nx;
+                tiles[i].y = ny;
+                moved += 1;
+            }
+        }
+        if moved == 0 {
+            break;
+        }
+    }
     // Fit: shift everything so the sheet starts at one margin.
     let min_x = tiles.iter().map(|t| t.x).fold(f64::MAX, f64::min);
     let min_y = tiles.iter().map(|t| t.y).fold(f64::MAX, f64::min);
@@ -796,6 +827,171 @@ fn emit_flat_sheet(
         tiling.push((t.idx, xf, t.lib_of_box.clone()));
     }
 
+    // Phase 4.5 - route the block diagram's inter-module edges between the
+    // expanded regions. Four orthogonal candidates per run; the first that
+    // crosses no foreign tile wins. A run no candidate can route joins the
+    // corner legend instead - the sheet then covers every connection either
+    // as copper or as text, never silently drops one.
+    struct FlatRun {
+        pts: Vec<(f64, f64)>,
+        net: String,
+    }
+    let mut runs: Vec<FlatRun> = Vec::new();
+    let mut unrouted: Vec<(String, String, String)> = Vec::new();
+    let rects: Vec<(f64, f64, f64, f64)> =
+        tiles.iter().map(|t| (t.x, t.y, t.w, t.h)).collect();
+    let mut port_at: HashMap<(usize, String), (f64, f64)> = HashMap::new();
+    for (i, xf, _) in &tiling {
+        let graph = &layers[*i].graph;
+        if graph.layer_style != LayerStyle::Device {
+            continue;
+        }
+        let trees = build_all_trees(graph);
+        for n in &graph.nets {
+            let Some(bi) = &n.boundary else { continue };
+            let Some(at) = flat_port_anchor(graph, &trees, xf, &bi.port_name) else {
+                continue;
+            };
+            port_at.insert((*i, bi.port_name.clone()), at);
+            port_at.insert((*i, n.name.clone()), at);
+        }
+    }
+    let root_tile = tiling
+        .iter()
+        .position(|(i, _, _)| layers[*i].parent.is_none());
+    for net in &root_graph.nets {
+        if net.kind == crate::vector::graph::NetKind::Ground || is_anon(&net.name) {
+            continue;
+        }
+        let mut anchors: Vec<((f64, f64), String, Option<usize>)> = Vec::new();
+        for ep in &net.endpoints {
+            let Some(b) = root_graph.boxes.iter().find(|b| b.id == ep.box_id) else {
+                continue;
+            };
+            if b.provenance != BoxProvenance::Declared {
+                continue;
+            }
+            match b.kind {
+                BoxKind::SubModule => {
+                    let Some(&li) = set.by_bid.get(&b.id) else { continue };
+                    let port = b
+                        .boundary_ports
+                        .iter()
+                        .find(|p| p.entry_pin_id == ep.pin_id)
+                        .map(|p| p.port_name.clone())
+                        .or_else(|| b.find_entry(ep.pin_id).map(|x| x.pin_name.clone()))
+                        .unwrap_or_default();
+                    let Some(at) = port_at.get(&(li, port.clone())) else { continue };
+                    anchors.push((*at, format!("{}.{}", b.name, port), Some(li)));
+                }
+                BoxKind::TwoPin | BoxKind::MultiPin => {
+                    let Some(ri) = root_tile else { continue };
+                    let Some(pin) = b.pins.iter().find(|p| p.id == ep.pin_id) else {
+                        continue;
+                    };
+                    let xf = &tiling[ri].1;
+                    let (side, offset) = pin_placement(b, pin);
+                    let (ax, ay) = anchor_mm(xf, b, side, offset);
+                    let (dx, dy) = match side {
+                        EntrySide::Left => (-10.0 * MM_PER_PX, 0.0),
+                        EntrySide::Right => (10.0 * MM_PER_PX, 0.0),
+                        EntrySide::Top => (0.0, -10.0 * MM_PER_PX),
+                        EntrySide::Bottom => (0.0, 10.0 * MM_PER_PX),
+                    };
+                    anchors.push((
+                        (ax + dx, ay + dy),
+                        format!("{}.{}", b.display_label(), pin.pin_id),
+                        Some(ri),
+                    ));
+                }
+                _ => {}
+            }
+        }
+        let mut uniq: Vec<((f64, f64), String, Option<usize>)> = Vec::new();
+        for a in anchors {
+            if !uniq
+                .iter()
+                .any(|u| (u.0.0 - a.0.0).abs() < 0.05 && (u.0.1 - a.0.1).abs() < 0.05)
+            {
+                uniq.push(a);
+            }
+        }
+        if uniq.len() < 2 {
+            continue;
+        }
+        let mut chain: Vec<((f64, f64), String, Option<usize>)> = vec![uniq[0].clone()];
+        let mut left: Vec<((f64, f64), String, Option<usize>)> = uniq[1..].to_vec();
+        while !left.is_empty() {
+            let last = chain.last().unwrap().0;
+            let best = left
+                .iter()
+                .enumerate()
+                .min_by(|(_, a), (_, b)| {
+                    let da = (a.0.0 - last.0).powi(2) + (a.0.1 - last.1).powi(2);
+                    let db = (b.0.0 - last.0).powi(2) + (b.0.1 - last.1).powi(2);
+                    da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+                })
+                .map(|(i, _)| i)
+                .unwrap_or(0);
+            chain.push(left.remove(best));
+        }
+        let exits: Vec<((f64, f64), String, Option<usize>)> = chain
+            .into_iter()
+            .map(|(at, desc, tile)| {
+                let at = tile
+                    .and_then(|ti| tiles.iter().find(|t| t.idx == ti))
+                    .map(|t| {
+                        let (dx, dy) = (at.0 - (t.x + t.w / 2.0), at.1 - (t.y + t.h / 2.0));
+                        let len = (dx * dx + dy * dy).sqrt().max(0.001);
+                        (at.0 + dx / len * 3.0, at.1 + dy / len * 3.0)
+                    })
+                    .unwrap_or(at);
+                (at, desc, tile)
+            })
+            .collect();
+        for w in exits.windows(2) {
+            let (p1, d1, t1) = (&w[0].0, &w[0].1, &w[0].2);
+            let (p2, d2, t2) = (&w[1].0, &w[1].1, &w[1].2);
+            if t1 == t2 {
+                continue;
+            }
+            let mut skip: Vec<usize> = Vec::new();
+            if let Some(i) = t1 {
+                skip.push(*i);
+            }
+            if let Some(i) = t2 {
+                skip.push(*i);
+            }
+            let (x1, y1) = *p1;
+            let (x2, y2) = *p2;
+            let (xm, ym) = ((x1 + x2) / 2.0, (y1 + y2) / 2.0);
+            let cand = [
+                vec![(x1, y1), (xm, y1), (xm, y2), (x2, y2)],
+                vec![(x1, y1), (x1, ym), (x2, ym), (x2, y2)],
+                vec![(x1, y1), (x2, y1), (x2, y2)],
+                vec![(x1, y1), (x1, y2), (x2, y2)],
+            ];
+            let hits = |pts: &Vec<(f64, f64)>| {
+                pts.windows(2).any(|s| {
+                    let (a, b) = (s[0], s[1]);
+                    if (a.1 - b.1).abs() < 0.01 {
+                        hseg_hits(a.0, b.0, a.1, &rects, &skip)
+                    } else {
+                        vseg_hits(a.0, a.1, b.1, &rects, &skip)
+                    }
+                })
+            };
+            match cand.iter().find(|c| !hits(c)) {
+                Some(pts) => runs.push(FlatRun {
+                    pts: pts.clone(),
+                    net: net.name.clone(),
+                }),
+                None => unrouted.push((net.name.clone(), d1.clone(), d2.clone())),
+            }
+        }
+    }
+    let legend_w = if unrouted.is_empty() { 0.0 } else { 90.0 };
+
     let mut e = Emit::new();
     e.open("kicad_sch");
     line!(e, "(version {SCH_VERSION})");
@@ -805,7 +1001,8 @@ fn emit_flat_sheet(
     let sheet_w = tiles
         .iter()
         .map(|t| t.x + t.w)
-        .fold(297.0f64, f64::max);
+        .fold(297.0f64, f64::max)
+        + legend_w;
     let sheet_h = tiles
         .iter()
         .map(|t| t.y + t.h)
@@ -829,155 +1026,25 @@ fn emit_flat_sheet(
 
     // Root rail names by declared voltage — the rename authority for every
     // sub-module's local arm of a shared rail.
-    // Phase 5 - the main block diagram's inter-module edges, redrawn between
-    // the expanded regions. Each root-net endpoint on a sub-module box maps to
-    // the child's own drawn port anchor (same anchors the flat labels use),
-    // so a wire lands on copper at both ends; a root-level part lands on its
-    // wiring stub. Ground stays glyph-joined, exactly as the main mode drew
-    // no ground edges.
-    let mut port_at: HashMap<(usize, String), (f64, f64)> = HashMap::new();
-    for (i, xf, _) in &tiling {
-        let graph = &layers[*i].graph;
-        if graph.layer_style != LayerStyle::Device {
-            continue;
+    // Phase 5 - draw the routed runs with their board-level names, then the
+    // corner legend for whatever routing could not place.
+    for run in &runs {
+        for sg in run.pts.windows(2) {
+            flat_wire(root_graph.bid, sg[0].0, sg[0].1, sg[1].0, sg[1].1, &mut e);
         }
-        let trees = build_all_trees(graph);
-        for n in &graph.nets {
-            let Some(bi) = &n.boundary else { continue };
-            let Some(at) = flat_port_anchor(graph, &trees, xf, &bi.port_name) else {
-                continue;
-            };
-            port_at.insert((*i, bi.port_name.clone()), at);
-            port_at.insert((*i, n.name.clone()), at);
-        }
+        let a = run.pts[0];
+        let b = *run.pts.last().unwrap();
+        text_label(root_graph.bid, &run.net, (a.0 + b.0) / 2.0, (a.1 + b.1) / 2.0, &mut e);
     }
-    for net in &root_graph.nets {
-        if net.kind == crate::vector::graph::NetKind::Ground || is_anon(&net.name) {
-            continue;
+    if !unrouted.is_empty() {
+        let lx = tiles.iter().map(|t| t.x + t.w).fold(0.0f64, f64::max) + 15.0;
+        let mut ly = 30.0;
+        text_label(root_graph.bid, "Unrouted connections", lx, ly, &mut e);
+        ly += 6.0;
+        for (n, a, b) in &unrouted {
+            text_label(root_graph.bid, &format!("{n}: {a} - {b}"), lx, ly, &mut e);
+            ly += 5.0;
         }
-        let mut ats: Vec<(f64, f64)> = Vec::new();
-        for ep in &net.endpoints {
-            let Some(b) = root_graph.boxes.iter().find(|b| b.id == ep.box_id) else {
-                continue;
-            };
-            if b.provenance != BoxProvenance::Declared {
-                continue;
-            }
-            match b.kind {
-                BoxKind::SubModule => {
-                    let Some(&li) = set.by_bid.get(&b.id) else {
-                        continue;
-                    };
-                    let port = b
-                        .boundary_ports
-                        .iter()
-                        .find(|p| p.entry_pin_id == ep.pin_id)
-                        .map(|p| p.port_name.clone())
-                        .or_else(|| {
-                            b.find_entry(ep.pin_id).map(|x| x.pin_name.clone())
-                        })
-                        .unwrap_or_default();
-                    if let Some(at) = port_at.get(&(li, port)) {
-                        ats.push(*at);
-                    }
-                }
-                BoxKind::TwoPin | BoxKind::MultiPin => {
-                    // A root-level part: land on the stub end that
-                    // emit_root_passive_nets drew for this pin.
-                    let Some(ri) = tiling
-                        .iter()
-                        .find(|(i, _, _)| layers[*i].parent.is_none())
-                    else {
-                        continue;
-                    };
-                    let Some(pin) = b.pins.iter().find(|p| p.id == ep.pin_id) else {
-                        continue;
-                    };
-                    let (side, offset) = pin_placement(b, pin);
-                    let (ax, ay) = anchor_mm(&ri.1, b, side, offset);
-                    let (dx, dy) = match side {
-                        EntrySide::Left => (-10.0 * MM_PER_PX, 0.0),
-                        EntrySide::Right => (10.0 * MM_PER_PX, 0.0),
-                        EntrySide::Top => (0.0, -10.0 * MM_PER_PX),
-                        EntrySide::Bottom => (0.0, 10.0 * MM_PER_PX),
-                    };
-                    ats.push((ax + dx, ay + dy));
-                }
-                _ => {}
-            }
-        }
-        let mut uniq: Vec<(f64, f64)> = Vec::new();
-        for a in ats {
-            if !uniq
-                .iter()
-                .any(|u| (u.0 - a.0).abs() < 0.05 && (u.1 - a.1).abs() < 0.05)
-            {
-                uniq.push(a);
-            }
-        }
-        if uniq.len() < 2 {
-            continue;
-        }
-        // Chain the anchors nearest-neighbour first: endpoint order follows
-        // the build walk, and chaining in that order strung a rail across the
-        // whole sheet. A greedy short chain keeps each run local, which is
-        // what keeps the flat face free of long wires.
-        let mut chain: Vec<(f64, f64)> = vec![uniq[0]];
-        let mut left: Vec<(f64, f64)> = uniq[1..].to_vec();
-        while !left.is_empty() {
-            let last = *chain.last().unwrap();
-            let best = left
-                .iter()
-                .enumerate()
-                .min_by(|(_, a), (_, b)| {
-                    let da = (a.0 - last.0).powi(2) + (a.1 - last.1).powi(2);
-                    let db = (b.0 - last.0).powi(2) + (b.1 - last.1).powi(2);
-                    da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
-                })
-                .map(|(i, _)| i)
-                .unwrap_or(0);
-            chain.push(left.remove(best));
-        }
-        let uniq = chain;
-        // Each anchor exits its own tile outward by 3 mm, so the routing runs
-        // in the corridor between regions, never through their parts.
-        let exits: Vec<(f64, f64)> = uniq
-            .iter()
-            .map(|&(x, y)| {
-                let rect = tiles.iter().find(|t| {
-                    x >= t.x - 1.0 && x <= t.x + t.w + 1.0 && y >= t.y - 1.0 && y <= t.y + t.h + 1.0
-                });
-                match rect {
-                    Some(t) => {
-                        let (dx, dy) = (x - (t.x + t.w / 2.0), y - (t.y + t.h / 2.0));
-                        let len = (dx * dx + dy * dy).sqrt().max(0.001);
-                        (x + dx / len * 3.0, y + dy / len * 3.0)
-                    }
-                    None => (x, y),
-                }
-            })
-            .collect();
-        let tile_of = |p: (f64, f64)| {
-            tiles.iter().position(|t| {
-                p.0 >= t.x - 1.0 && p.0 <= t.x + t.w + 1.0 && p.1 >= t.y - 1.0 && p.1 <= t.y + t.h + 1.0
-            })
-        };
-        for w in exits.windows(2) {
-            if tile_of(w[0]) == tile_of(w[1]) {
-                continue;
-            }
-            flat_wire(root_graph.bid, w[0].0, w[0].1, w[1].0, w[1].1, &mut e);
-        }
-        // One board-level name on the run, where it reads best.
-        let (fx, fy) = exits[0];
-        let (lx, ly) = exits[exits.len() - 1];
-        text_label(
-            root_graph.bid,
-            &net.name,
-            (fx + lx) / 2.0,
-            (fy + ly) / 2.0,
-            &mut e,
-        );
     }
 
     for (i, xf, lib_of_box) in &tiling {
@@ -2141,6 +2208,30 @@ fn flat_port_anchor(
         .iter()
         .find(|n| n.boundary.as_ref().map(|b| b.port_name == port_name).unwrap_or(false))?;
     boundary_tree_endpoint(graph, trees, xf, net)
+}
+
+/// Does a horizontal segment at `y` cross a foreign tile rect?
+fn hseg_hits(x1: f64, x2: f64, y: f64, rects: &[(f64, f64, f64, f64)], skip: &[usize]) -> bool {
+    let (lo, hi) = if x1 <= x2 { (x1, x2) } else { (x2, x1) };
+    rects.iter().enumerate().any(|(i, r)| {
+        !skip.contains(&i)
+            && y > r.1
+            && y < r.1 + r.3
+            && hi > r.0
+            && lo < r.0 + r.2
+    })
+}
+
+/// Vertical counterpart of [`hseg_hits`].
+fn vseg_hits(x: f64, y1: f64, y2: f64, rects: &[(f64, f64, f64, f64)], skip: &[usize]) -> bool {
+    let (lo, hi) = if y1 <= y2 { (y1, y2) } else { (y2, y1) };
+    rects.iter().enumerate().any(|(i, r)| {
+        !skip.contains(&i)
+            && x > r.0
+            && x < r.0 + r.2
+            && hi > r.1
+            && lo < r.1 + r.3
+    })
 }
 
 /// One wire between two sheet-mm points, Z-routed through the horizontal
