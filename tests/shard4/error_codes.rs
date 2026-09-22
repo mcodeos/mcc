@@ -573,6 +573,36 @@ fn def_ercode__parser_errors_reachable() {
     }
 }
 
+/// U177: a grammar-reserved word (direction/power/nc) at an `@key(…)` value
+/// position is not a name — the parser's dedicated arm names the real problem
+/// (2120, anchored on the word) instead of the generic invalid-pin recovery
+/// (2083), and the pin row survives so the empty-pins cascade (2116) never
+/// fires. Ruling: reserved words are nowhere in the name space; no word-form
+/// exemption (the tattr is dropped, values stay unaccepted).
+#[test]
+fn def_ercode__tattr_reserved_word_value() {
+    let _lock = common::lock();
+
+    common::reset();
+    let uri = "/mcc/parser-tattr-resword.mc".to_string();
+    let src = "component OPTO {\n    pins = [\n        1 = ANODE @barrier(in), \"A\"\n        2 = CATH @role(out), \"C\"\n    ]\n}\nmodule main { io VDD }";
+    mcc::mcc_load_from_string(&uri, src);
+    let _ = mcc::mcc_build(&mcc::McIds::from("main"), &uri);
+    let codes: HashSet<u32> = mcc::mcc_diagnose_all().iter().map(|d| d.code).collect();
+    assert!(
+        codes.contains(&mcc::errcodes::PARSER_TATTR_RESERVED_WORD),
+        "2120 not emitted for reserved-word values; got {codes:?}"
+    );
+    assert!(
+        !codes.contains(&mcc::errcodes::PARSER_PIN_INVALID),
+        "generic 2083 must not fire for the reserved-word shape; got {codes:?}"
+    );
+    assert!(
+        !codes.contains(&mcc::errcodes::PARSER_EMPTY_PINS),
+        "pin rows must survive (no 2116 cascade); got {codes:?}"
+    );
+}
+
 /// Reorg-doc §9.3 G3: the reachable PARSER *warning* codes each need a positive
 /// fixture. 2115 guards empty bodies; 2111/2112 warn when a single `|` / `±` is
 /// used as a binary operator outside its pin / tolerance context (here inside a
