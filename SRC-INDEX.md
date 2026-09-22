@@ -43,12 +43,13 @@ range (threshold 40KB).
 | `db/defregistry.rs` | 147 KB | 179 |
 | `cmds/show.rs` | 144 KB | 116 |
 | `viz/layout/equi_audit.rs` | 137 KB | 103 |
-| `rpc/handlers/mod.rs` | 126 KB | 103 |
+| `rpc/handlers/mod.rs` | 130 KB | 106 |
 | `semantic/mc_inst.rs` | 122 KB | 88 |
 | `instant/mc_mod/phases.rs` | 121 KB | 28 |
 | `instant/mc_mod/points.rs` | 117 KB | 20 |
 | `semantic/module/mod.rs` | 114 KB | 80 |
 | `semantic/basic/mc_fcall.rs` | 110 KB | 22 |
+| `export/kicad_sch.rs` | 105 KB | 102 |
 | `vector/graph/fromblock.rs` | 101 KB | 35 |
 
 ## Modules
@@ -64,13 +65,13 @@ range (threshold 40KB).
 | `cmds/` | 28 | 492 KB |
 | `db/` | 27 | 909 KB |
 | `eval/` | 2 | 48 KB |
-| `export/` | 7 | 150 KB |
+| `export/` | 7 | 162 KB |
 | `instant/` | 40 | 1554 KB |
 | `lsp/` | 7 | 66 KB |
 | `output/` | 7 | 107 KB |
 | `query/` | 9 | 157 KB |
 | `refdef/` | 7 | 118 KB |
-| `rpc/` | 16 | 297 KB |
+| `rpc/` | 16 | 301 KB |
 | `semantic/` | 89 | 2605 KB |
 | `stages/` | 11 | 311 KB |
 | `vector/` | 25 | 475 KB |
@@ -2433,73 +2434,78 @@ export/kicad_sch.rs#L383  fn emit_sheet
 export/kicad_sch.rs#L487  fn component_boxes
 export/kicad_sch.rs#L503  fn collect_layer_libs
 export/kicad_sch.rs#L554  fn emit_flat_sheet
-export/kicad_sch.rs#L635  struct FlatTile
-export/kicad_sch.rs#L712  const FLAT_GAP_MM
-export/kicad_sch.rs#L890  fn emit_flat_boundary_labels
-export/kicad_sch.rs#L924  fn emit_tree_nets
-export/kicad_sch.rs#L937  fn emit_tree_nets_opt
-export/kicad_sch.rs#L1065  fn boundary_net_ids
-export/kicad_sch.rs#L1074  fn longest_midpoint
-export/kicad_sch.rs#L1085  fn emit_wire
-export/kicad_sch.rs#L1106  fn text_label
-export/kicad_sch.rs#L1130  fn emit_block_edges
-export/kicad_sch.rs#L1234  fn emit_root_passive_nets
-export/kicad_sch.rs#L1278  fn key_of
-export/kicad_sch.rs#L1283  fn middle_of
-export/kicad_sch.rs#L1294  fn power_symbol
-export/kicad_sch.rs#L1346  fn emit_instances
-export/kicad_sch.rs#L1360  fn power_flag
-export/kicad_sch.rs#L1413  fn emit_symbol_instance
-export/kicad_sch.rs#L1457  fn property
-export/kicad_sch.rs#L1472  fn unique_ref
-export/kicad_sch.rs#L1490  fn emit_rail_decorations
-export/kicad_sch.rs#L1502  fn emit_rail_decorations_opt
-export/kicad_sch.rs#L1571  fn rail_name_of_pin
-export/kicad_sch.rs#L1586  fn emit_no_connects
-export/kicad_sch.rs#L1620  fn emit_sheet_instance
-export/kicad_sch.rs#L1748  fn bridge_pins
-export/kicad_sch.rs#L1803  fn d2
-export/kicad_sch.rs#L1810  fn pin_placement
-export/kicad_sch.rs#L1827  fn anchor_px
-export/kicad_sch.rs#L1841  fn emit_boundary_labels
-export/kicad_sch.rs#L1920  fn boundary_tree_endpoint
-export/kicad_sch.rs#L1953  fn shape_of_io
-export/kicad_sch.rs#L1962  fn is_anon
-export/kicad_sch.rs#L1970  fn island_name_of_net
-export/kicad_sch.rs#L1992  fn lib_signature
-export/kicad_sch.rs#L2017  fn side_letter
-export/kicad_sch.rs#L2030  fn lib_symbol_body
-export/kicad_sch.rs#L2144  fn internal_pin
-export/kicad_sch.rs#L2155  fn pin_text
-export/kicad_sch.rs#L2165  fn polyline
-export/kicad_sch.rs#L2182  fn pin_elec_type
-export/kicad_sch.rs#L2195  fn lib_gnd_body
-export/kicad_sch.rs#L2238  fn lib_pwr_body
-export/kicad_sch.rs#L2280  fn lib_flag_body
-export/kicad_sch.rs#L2327  fn has_power_symbols
-export/kicad_sch.rs#L2338  fn paper_for
-export/kicad_sch.rs#L2363  const SIZES
-export/kicad_sch.rs#L2382  fn det_uuid
-export/kicad_sch.rs#L2400  fn q
-export/kicad_sch.rs#L2405  fn mm
-export/kicad_sch.rs#L2415  fn escape
-export/kicad_sch.rs#L2419  fn sanitize_file_stem
-export/kicad_sch.rs#L2431  fn sanitize_lib_id
-export/kicad_sch.rs#L2438  mod tests
-export/kicad_sch.rs#L2444  fn two_pin_box
-export/kicad_sch.rs#L2465  fn add_pin
-export/kicad_sch.rs#L2483  fn net
-export/kicad_sch.rs#L2504  fn block_graph
-export/kicad_sch.rs#L2530  fn one_layer
-export/kicad_sch.rs#L2540  fn uuid_is_deterministic_and_shaped
-export/kicad_sch.rs#L2551  fn mm_trims_trailing_zeros
-export/kicad_sch.rs#L2559  fn block_layer_wires_land_on_pin_anchors
-export/kicad_sch.rs#L2588  fn no_connect_lands_on_unwired_anchor
-export/kicad_sch.rs#L2596  fn wire_anchors_match_internal_pin_math
-export/kicad_sch.rs#L2615  fn hierarchy_emits_sheet_pins_and_hierarchical_labels
-export/kicad_sch.rs#L2771  fn flat_sheet_has_no_hierarchy
-export/kicad_sch.rs#L2836  fn dummy_table
-export/kicad_sch.rs#L2841  fn s_expression_parens_balance
+export/kicad_sch.rs#L639  struct FlatTile
+export/kicad_sch.rs#L716  const FLAT_GAP_MM
+export/kicad_sch.rs#L835  struct FlatRun
+export/kicad_sch.rs#L1112  fn emit_flat_boundary_labels
+export/kicad_sch.rs#L1146  fn emit_tree_nets
+export/kicad_sch.rs#L1159  fn emit_tree_nets_opt
+export/kicad_sch.rs#L1287  fn boundary_net_ids
+export/kicad_sch.rs#L1296  fn longest_midpoint
+export/kicad_sch.rs#L1307  fn emit_wire
+export/kicad_sch.rs#L1328  fn text_label
+export/kicad_sch.rs#L1352  fn emit_block_edges
+export/kicad_sch.rs#L1456  fn emit_root_passive_nets
+export/kicad_sch.rs#L1500  fn key_of
+export/kicad_sch.rs#L1505  fn middle_of
+export/kicad_sch.rs#L1516  fn power_symbol
+export/kicad_sch.rs#L1568  fn emit_instances
+export/kicad_sch.rs#L1582  fn power_flag
+export/kicad_sch.rs#L1635  fn emit_symbol_instance
+export/kicad_sch.rs#L1679  fn property
+export/kicad_sch.rs#L1694  fn unique_ref
+export/kicad_sch.rs#L1712  fn emit_rail_decorations
+export/kicad_sch.rs#L1724  fn emit_rail_decorations_opt
+export/kicad_sch.rs#L1793  fn rail_name_of_pin
+export/kicad_sch.rs#L1808  fn emit_no_connects
+export/kicad_sch.rs#L1842  fn emit_sheet_instance
+export/kicad_sch.rs#L1970  fn bridge_pins
+export/kicad_sch.rs#L2025  fn d2
+export/kicad_sch.rs#L2032  fn pin_placement
+export/kicad_sch.rs#L2049  fn anchor_px
+export/kicad_sch.rs#L2063  fn emit_boundary_labels
+export/kicad_sch.rs#L2142  fn boundary_tree_endpoint
+export/kicad_sch.rs#L2175  fn shape_of_io
+export/kicad_sch.rs#L2184  fn is_anon
+export/kicad_sch.rs#L2191  fn flat_port_anchor
+export/kicad_sch.rs#L2214  fn hseg_hits
+export/kicad_sch.rs#L2226  fn vseg_hits
+export/kicad_sch.rs#L2239  fn flat_wire
+export/kicad_sch.rs#L2269  fn island_name_of_net
+export/kicad_sch.rs#L2291  fn lib_signature
+export/kicad_sch.rs#L2316  fn side_letter
+export/kicad_sch.rs#L2329  fn lib_symbol_body
+export/kicad_sch.rs#L2443  fn internal_pin
+export/kicad_sch.rs#L2454  fn pin_text
+export/kicad_sch.rs#L2464  fn polyline
+export/kicad_sch.rs#L2481  fn pin_elec_type
+export/kicad_sch.rs#L2494  fn lib_gnd_body
+export/kicad_sch.rs#L2537  fn lib_pwr_body
+export/kicad_sch.rs#L2579  fn lib_flag_body
+export/kicad_sch.rs#L2626  fn has_power_symbols
+export/kicad_sch.rs#L2637  fn paper_for
+export/kicad_sch.rs#L2662  const SIZES
+export/kicad_sch.rs#L2681  fn det_uuid
+export/kicad_sch.rs#L2699  fn q
+export/kicad_sch.rs#L2704  fn mm
+export/kicad_sch.rs#L2714  fn escape
+export/kicad_sch.rs#L2718  fn sanitize_file_stem
+export/kicad_sch.rs#L2730  fn sanitize_lib_id
+export/kicad_sch.rs#L2737  mod tests
+export/kicad_sch.rs#L2743  fn two_pin_box
+export/kicad_sch.rs#L2764  fn add_pin
+export/kicad_sch.rs#L2782  fn net
+export/kicad_sch.rs#L2803  fn block_graph
+export/kicad_sch.rs#L2829  fn one_layer
+export/kicad_sch.rs#L2839  fn uuid_is_deterministic_and_shaped
+export/kicad_sch.rs#L2850  fn mm_trims_trailing_zeros
+export/kicad_sch.rs#L2858  fn block_layer_wires_land_on_pin_anchors
+export/kicad_sch.rs#L2887  fn no_connect_lands_on_unwired_anchor
+export/kicad_sch.rs#L2895  fn wire_anchors_match_internal_pin_math
+export/kicad_sch.rs#L2914  fn hierarchy_emits_sheet_pins_and_hierarchical_labels
+export/kicad_sch.rs#L3070  fn flat_sheet_has_no_hierarchy
+export/kicad_sch.rs#L3135  fn dummy_table
+export/kicad_sch.rs#L3140  fn s_expression_parens_balance
 export/mod.rs#L8  mod bom
 export/mod.rs#L9  mod instlist
 export/mod.rs#L10  mod kicad
@@ -4560,14 +4566,14 @@ rpc/handlers/lsp.rs#L116  fn handle_project_symbols
 rpc/handlers/lsp.rs#L172  fn handle_init
 rpc/handlers/lsp.rs#L183  fn handle_add_file
 rpc/handlers/lsp.rs#L185  struct AddFileParams
-rpc/handlers/lsp.rs#L195  fn handle_remove_file
-rpc/handlers/lsp.rs#L197  struct RemoveFileParams
-rpc/handlers/lsp.rs#L207  fn handle_completion
-rpc/handlers/lsp.rs#L209  struct CompletionParams
-rpc/handlers/lsp.rs#L248  fn handle_hover
-rpc/handlers/lsp.rs#L250  struct HoverParams
-rpc/handlers/lsp.rs#L266  fn handle_gotodef
-rpc/handlers/lsp.rs#L268  struct GotodefParams
+rpc/handlers/lsp.rs#L199  fn handle_remove_file
+rpc/handlers/lsp.rs#L201  struct RemoveFileParams
+rpc/handlers/lsp.rs#L211  fn handle_completion
+rpc/handlers/lsp.rs#L213  struct CompletionParams
+rpc/handlers/lsp.rs#L252  fn handle_hover
+rpc/handlers/lsp.rs#L254  struct HoverParams
+rpc/handlers/lsp.rs#L270  fn handle_gotodef
+rpc/handlers/lsp.rs#L272  struct GotodefParams
 rpc/handlers/mod.rs#L51  mod params
 rpc/handlers/mod.rs#L54  fn mcc_system_root
 rpc/handlers/mod.rs#L61  fn projects_dir
@@ -4643,34 +4649,37 @@ rpc/handlers/mod.rs#L2256  fn dump_module_json
 rpc/handlers/mod.rs#L2310  fn dump_interface_json
 rpc/handlers/mod.rs#L2344  fn dump_enum_json
 rpc/handlers/mod.rs#L2361  fn instances_json
-rpc/handlers/mod.rs#L2410  fn auto_load_from_file_path
-rpc/handlers/mod.rs#L2449  fn find_project_root
-rpc/handlers/mod.rs#L2523  fn path_is_under
-rpc/handlers/mod.rs#L2540  fn ensure_library_loaded
-rpc/handlers/mod.rs#L2579  fn extract_lib_dependencies
-rpc/handlers/mod.rs#L2664  mod admin
-rpc/handlers/mod.rs#L2665  mod aicontract
-rpc/handlers/mod.rs#L2666  mod buildcmd
-rpc/handlers/mod.rs#L2667  mod defs
-rpc/handlers/mod.rs#L2668  mod exportcmd
-rpc/handlers/mod.rs#L2669  mod impact
-rpc/handlers/mod.rs#L2670  mod import
-rpc/handlers/mod.rs#L2671  mod libcmd
-rpc/handlers/mod.rs#L2672  mod lsp
-rpc/handlers/mod.rs#L2673  mod rulescmd
-rpc/handlers/mod.rs#L2674  mod show
-rpc/handlers/mod.rs#L2691  struct MethodMeta
-rpc/handlers/mod.rs#L2697  static METHODS
-rpc/handlers/mod.rs#L3005  fn caps_json
-rpc/handlers/mod.rs#L3055  fn register_all
-rpc/handlers/mod.rs#L3148  mod tests
-rpc/handlers/mod.rs#L3153  fn cli_rpc__find_project_root_prefers_configured_root
-rpc/handlers/mod.rs#L3185  fn cli_rpc__find_project_root_does_not_claim_files_outside_it
-rpc/handlers/mod.rs#L3209  fn cli_rpc__find_project_root_detects_project_manifest
-rpc/handlers/mod.rs#L3231  fn cli_rpc__pin_id_cmp_orders_numeric_then_natural
-rpc/handlers/mod.rs#L3256  fn cli_rpc__diag_in_system_lib_classifies_by_source_domain
-rpc/handlers/mod.rs#L3300  fn cli_rpc__handle_check_scopes_to_candidate_overlay
-rpc/handlers/mod.rs#L3384  fn cli_rpc__handle_check_reuses_one_overlay_uri
+rpc/handlers/mod.rs#L2408  fn switch_to_file_workspace
+rpc/handlers/mod.rs#L2427  fn file_path_from_uri_param
+rpc/handlers/mod.rs#L2443  fn auto_load_from_file_path
+rpc/handlers/mod.rs#L2470  fn find_project_root
+rpc/handlers/mod.rs#L2544  fn path_is_under
+rpc/handlers/mod.rs#L2561  fn ensure_library_loaded
+rpc/handlers/mod.rs#L2600  fn extract_lib_dependencies
+rpc/handlers/mod.rs#L2685  mod admin
+rpc/handlers/mod.rs#L2686  mod aicontract
+rpc/handlers/mod.rs#L2687  mod buildcmd
+rpc/handlers/mod.rs#L2688  mod defs
+rpc/handlers/mod.rs#L2689  mod exportcmd
+rpc/handlers/mod.rs#L2690  mod impact
+rpc/handlers/mod.rs#L2691  mod import
+rpc/handlers/mod.rs#L2692  mod libcmd
+rpc/handlers/mod.rs#L2693  mod lsp
+rpc/handlers/mod.rs#L2694  mod rulescmd
+rpc/handlers/mod.rs#L2695  mod show
+rpc/handlers/mod.rs#L2712  struct MethodMeta
+rpc/handlers/mod.rs#L2718  static METHODS
+rpc/handlers/mod.rs#L3026  fn caps_json
+rpc/handlers/mod.rs#L3076  fn register_all
+rpc/handlers/mod.rs#L3169  mod tests
+rpc/handlers/mod.rs#L3174  fn cli_rpc__find_project_root_prefers_configured_root
+rpc/handlers/mod.rs#L3206  fn cli_rpc__find_project_root_does_not_claim_files_outside_it
+rpc/handlers/mod.rs#L3230  fn cli_rpc__find_project_root_detects_project_manifest
+rpc/handlers/mod.rs#L3254  fn cli_rpc__load_project_keeps_sibling_projects_in_separate_worlds
+rpc/handlers/mod.rs#L3317  fn cli_rpc__pin_id_cmp_orders_numeric_then_natural
+rpc/handlers/mod.rs#L3342  fn cli_rpc__diag_in_system_lib_classifies_by_source_domain
+rpc/handlers/mod.rs#L3386  fn cli_rpc__handle_check_scopes_to_candidate_overlay
+rpc/handlers/mod.rs#L3470  fn cli_rpc__handle_check_reuses_one_overlay_uri
 rpc/handlers/params.rs#L9  fn default_true
 rpc/handlers/params.rs#L14  struct LibraryShowParams
 rpc/handlers/params.rs#L19  struct LibInstallParams
@@ -10971,4 +10980,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-401 files, 10890 declarations.
+401 files, 10898 declarations.
