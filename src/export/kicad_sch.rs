@@ -840,6 +840,24 @@ fn emit_flat_sheet(
     let mut unrouted: Vec<(String, String, String)> = Vec::new();
     let rects: Vec<(f64, f64, f64, f64)> =
         tiles.iter().map(|t| (t.x, t.y, t.w, t.h)).collect();
+    if std::env::var("MCC_KSCH_DEBUG").is_ok() {
+        for n in &root_graph.nets {
+            for ep in &n.endpoints {
+                match root_graph.boxes.iter().find(|b| b.id == ep.box_id) {
+                    None => eprintln!("[ksch] net {} ep box_id={} NOT FOUND", n.name, ep.box_id),
+                    Some(b) => {
+                        if !b.pins.iter().any(|p| p.id == ep.pin_id) {
+                            eprintln!(
+                                "[ksch] net {} ep {} pin_id={} MISSING in box pins {:?}",
+                                n.name, b.name, ep.pin_id,
+                                b.pins.iter().map(|p| (p.id, p.pin_id.as_str())).take(9).collect::<Vec<_>>()
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
     let mut port_at: HashMap<(usize, String), (f64, f64)> = HashMap::new();
     for (i, xf, _) in &tiling {
         let graph = &layers[*i].graph;
