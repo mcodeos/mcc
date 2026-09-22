@@ -860,7 +860,7 @@ fn emit_flat_sheet(
         .iter()
         .position(|(i, _, _)| layers[*i].parent.is_none());
     for net in &root_graph.nets {
-        if net.kind == crate::vector::graph::NetKind::Ground || is_anon(&net.name) {
+        if net.kind == crate::vector::graph::NetKind::Ground {
             continue;
         }
         let mut anchors: Vec<((f64, f64), String, Option<usize>)> = Vec::new();
@@ -952,7 +952,10 @@ fn emit_flat_sheet(
         for w in exits.windows(2) {
             let (p1, d1, t1) = (&w[0].0, &w[0].1, &w[0].2);
             let (p2, d2, t2) = (&w[1].0, &w[1].1, &w[1].2);
-            if t1 == t2 {
+            // Same child tile: the child's trees already drew that net. Same
+            // ROOT tile: nothing else ever draws root-internal nets, so the
+            // run is the only copper those parts get.
+            if t1 == t2 && *t1 != root_tile {
                 continue;
             }
             let mut skip: Vec<usize> = Vec::new();
@@ -2009,7 +2012,10 @@ fn bridge_pins(graph: &McVecGraph, t: &EquiTree, xf: &Xform, e: &mut Emit) {
         else {
             continue;
         };
-        if (ex - ax).abs() + (ey - ay).abs() > 48.0 {
+        // A tall IC spreads its pins across the whole body; the tap end can
+        // sit hundreds of px from the anchor. Any same-net end within reach
+        // bridges - Manhattan, so the L detour stays orthogonal.
+        if (ex - ax).abs() + (ey - ay).abs() > 220.0 {
             continue;
         }
         if (ex - ax).abs() < 0.05 || (ey - ay).abs() < 0.05 {
