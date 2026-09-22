@@ -4276,6 +4276,28 @@ fn chain_origins(
             }
         }
         for (bid, _) in xs {
+            // ★ U162 residual: an arm already placed by its own net's run
+            // keeps that slot when the shared column would violate its rank
+            // window — the run put it where its net's reading order wants it
+            // (UC `_C3`, tail of `_net9`, placed east of the anchor at 310;
+            // collapsing it onto the ground column at −116 hung it back west
+            // of the anchor and inverted the chain). The collapse stays the
+            // default: an arm with no reading-order stake still shares the
+            // node's vertical.
+            if let Some(&(_, own)) = series_x.iter().find(|&(b, _)| *b == bid) {
+                let aw = graph.boxes.iter().find(|b| b.id == bid).map(|b| b.w);
+                if let Some(aw) = aw.filter(|w| *w > 0.0) {
+                    let placed = base_placed_set(graph, &series_x, layer_anchor);
+                    let (lo, hi) = rank_window(graph, bid, g.nid, &placed);
+                    let own_ok = lo.is_none_or(|l| own - aw / 2.0 >= l - 0.5)
+                        && hi.is_none_or(|h| own + aw / 2.0 <= h + 0.5);
+                    let col_ok = lo.is_none_or(|l| x_col - aw / 2.0 >= l - 0.5)
+                        && hi.is_none_or(|h| x_col + aw / 2.0 <= h + 0.5);
+                    if own_ok && !col_ok {
+                        continue;
+                    }
+                }
+            }
             series_x.push((bid, x_col));
         }
     }
@@ -4465,6 +4487,83 @@ fn flip_shunts_clear_of_rows(graph: &mut McVecGraph, topos: &[NetTopology], laye
     }
 }
 
+/// ★ M22 (U162 residual): rank-window edges for one member — the x-interval
+/// its R0 reading order demands, judged against EVERY net it belongs to.
+///
+/// Bounds come from ALREADY-PLACED co-endpoints only: run joints/tails, the
+/// layer anchor's P2 rect, and (in the reconciliation sweep below) members
+/// this same pass has already allocated. `placed` maps a co-endpoint's box id
+/// to its `(x, w)`. Windows from different nets INTERSECT (the stricter bound
+/// wins) — a shared member must satisfy all of its nets' R0 orders at once.
+/// On an empty intersection the OWNING topo's own window is the fallback: the
+/// net whose pass allocates the box gets the decisive say.
+fn rank_window(
+    graph: &McVecGraph,
+    box_id: i64,
+    owner_nid: i64,
+    placed: &std::collections::BTreeMap<i64, (f64, f64)>,
+) -> (Option<f64>, Option<f64>) {
+    let mut lo: Option<f64> = None;
+    let mut hi: Option<f64> = None;
+    let mut own_lo: Option<f64> = None;
+    let mut own_hi: Option<f64> = None;
+    for n in &graph.nets {
+        let Some(my) = n.endpoints.iter().position(|e| e.box_id == box_id) else {
+            continue;
+        };
+        let mut n_lo: Option<f64> = None;
+        let mut n_hi: Option<f64> = None;
+        for (r, e) in n.endpoints.iter().enumerate() {
+            if r == my {
+                continue;
+            }
+            let Some(&(ex, ew)) = placed.get(&e.box_id) else {
+                continue;
+            };
+            if ew <= 0.0 {
+                continue;
+            }
+            if r < my {
+                n_lo = Some(n_lo.map_or(ex + ew, |v| v.max(ex + ew)));
+            } else {
+                n_hi = Some(n_hi.map_or(ex, |v| v.min(ex)));
+            }
+        }
+        lo = lo.map_or(n_lo, |v| n_lo.map_or(Some(v), |n| Some(v.max(n))));
+        hi = hi.map_or(n_hi, |v| n_hi.map_or(Some(v), |n| Some(v.min(n))));
+        if n.nid == owner_nid {
+            own_lo = n_lo;
+            own_hi = n_hi;
+        }
+    }
+    if let (Some(l), Some(h)) = (lo, hi) {
+        if l > h && (own_lo.is_some() || own_hi.is_some()) {
+            lo = own_lo;
+            hi = own_hi;
+        }
+    }
+    (lo, hi)
+}
+
+/// Co-endpoints placed before the member loop runs: run joints/tails (final
+/// since the `series_x` application above) and the layer anchor's P2 rect.
+fn base_placed_set(
+    graph: &McVecGraph,
+    series_x: &[(i64, f64)],
+    layer_anchor: i64,
+) -> std::collections::BTreeMap<i64, (f64, f64)> {
+    let mut placed: std::collections::BTreeMap<i64, (f64, f64)> = std::collections::BTreeMap::new();
+    for &(bid, cx) in series_x {
+        if let Some(b) = graph.boxes.iter().find(|b| b.id == bid) {
+            placed.insert(bid, (cx - b.w / 2.0, b.w));
+        }
+    }
+    if let Some(a) = graph.boxes.iter().find(|b| b.id == layer_anchor) {
+        placed.insert(layer_anchor, (a.x, a.w));
+    }
+    placed
+}
+
 fn resolve_columns_for_side(graph: &mut McVecGraph, topos: &[NetTopology], layer_anchor: i64) {
     use crate::viz::layout::equi_column::{allocate_columns_for_side, SideMember};
     // ★ M8.4: every net grows from its own place along the run, not from the
@@ -4503,6 +4602,7 @@ fn resolve_columns_for_side(graph: &mut McVecGraph, topos: &[NetTopology], layer
             member_owned.insert(g.box_id);
         }
     }
+    let base_placed = base_placed_set(graph, &series_x, layer_anchor);
     for (ti, topo) in topos.iter().enumerate() {
         let is_east = match topo.lane.region {
             Region::West => false,
@@ -4628,78 +4728,13 @@ fn resolve_columns_for_side(graph: &mut McVecGraph, topos: &[NetTopology], layer
                 .find(|n| n.nid == topos[ti].nid)
                 .and_then(|n| n.endpoints.iter().position(|e| e.box_id == group.box_id))
                 .unwrap_or(usize::MAX);
-            // ★ M22 (U162 residual): rank-window edges for this member —
-            // see the long comment inside the block.
-            let (min_edge, max_edge) = {
-                // ★ M22 (U162 residual): rank-window edges from EVERY net this
-                // box belongs to — a shared member must satisfy all of its
-                // nets' R0 orders at once, so the windows INTERSECT (the
-                // stricter bound wins). A single-net window dragged mcexpl
-                // `004-button-pullup`'s shared `PWR` east past `R_PULLUP`
-                // (GND's order) and inverted V3V3's chain.
-                //
-                // Bounds come from ALREADY-PLACED co-endpoints only: run
-                // joints/tails (final since the `series_x` application above)
-                // and the layer anchor's P2 rect; boxes this same loop
-                // allocates are NOT bounds (the greedy's occupancy table
-                // orders them). X6's load cap `_C4` (last rank of its net)
-                // hung west of the crystal run's R442 joint because the band
-                // walks west; with the window it allocates east of R442, back
-                // in reading order.
-                let mut lo: Option<f64> = None;
-                let mut hi: Option<f64> = None;
-                // The owning topo's own contribution — the tiebreak stake when
-                // the intersection comes out empty.
-                let mut own_lo: Option<f64> = None;
-                let mut own_hi: Option<f64> = None;
-                for n in &graph.nets {
-                    let Some(my) = n.endpoints.iter().position(|e| e.box_id == group.box_id)
-                    else {
-                        continue;
-                    };
-                    let mut n_lo: Option<f64> = None;
-                    let mut n_hi: Option<f64> = None;
-                    for (r, e) in n.endpoints.iter().enumerate() {
-                        if r == my {
-                            continue;
-                        }
-                        let placed = series_x.iter().any(|&(bid, _)| bid == e.box_id)
-                            || e.box_id == layer_anchor;
-                        if !placed {
-                            continue;
-                        }
-                        let Some(eb) = graph.boxes.iter().find(|b| b.id == e.box_id) else {
-                            continue;
-                        };
-                        if eb.w <= 0.0 {
-                            continue;
-                        }
-                        if r < my {
-                            n_lo = Some(n_lo.map_or(eb.x + eb.w, |v| v.max(eb.x + eb.w)));
-                        } else {
-                            n_hi = Some(n_hi.map_or(eb.x, |v| v.min(eb.x)));
-                        }
-                    }
-                    lo = lo.map_or(n_lo, |v| n_lo.map_or(Some(v), |n| Some(v.max(n))));
-                    hi = hi.map_or(n_hi, |v| n_hi.map_or(Some(v), |n| Some(v.min(n))));
-                    if n.nid == topos[ti].nid {
-                        own_lo = n_lo;
-                        own_hi = n_hi;
-                    }
-                }
-                // ★ Conflicting windows: two nets rank this box on OPPOSITE
-                // sides of placed co-endpoints (UC `_R6`: east of the SDA
-                // chain's anchor pull, west of `_net44`'s), so no spot
-                // satisfies both. Fall back to the OWNING topo's own window —
-                // the net whose pass allocates the box gets the decisive say.
-                if let (Some(l), Some(h)) = (lo, hi) {
-                    if l > h && (own_lo.is_some() || own_hi.is_some()) {
-                        lo = own_lo;
-                        hi = own_hi;
-                    }
-                }
-                (lo, hi)
-            };
+            // ★ M22 (U162 residual): rank-window edges for this member — see
+            // `rank_window`. X6's load cap `_C4` (last rank of its net) hung
+            // west of the crystal run's R442 joint because the band walks
+            // west; with the window it allocates east of R442, back in
+            // reading order.
+            let (min_edge, max_edge) =
+                rank_window(graph, group.box_id, topos[ti].nid, &base_placed);
             let m = SideMember {
                 idx: Some((ti, gi)),
                 role,
@@ -4743,12 +4778,80 @@ fn resolve_columns_for_side(graph: &mut McVecGraph, topos: &[NetTopology], layer
     }
     let out_west = allocate_columns_for_side(&west, -1.0);
     let out_east = allocate_columns_for_side(&east, 1.0);
-    for (ti, gi, x) in out_west.into_iter().chain(out_east) {
+    let outs: Vec<(usize, usize, f64)> = out_west.into_iter().chain(out_east).collect();
+    for &(ti, gi, x) in &outs {
         let Some(g) = topos.get(ti).and_then(|t| t.groups.get(gi)) else {
             continue;
         };
         if let Some(b) = graph.boxes.iter_mut().find(|b| b.id == g.box_id) {
             b.x = x - b.w / 2.0;
+        }
+    }
+    // ★ U162 residual: same-pass co-member windows. The windows above see only
+    // run joints/tails and the layer anchor, so two members of ONE net take
+    // their columns in list order, not reading order (DCDC `_C2`, rank 2,
+    // landed west of `_R1`, rank 1 — both claimed from the same windowless
+    // anchor bound). Walk the allocations in placement order, grow the placed
+    // set with every member as it lands, and re-place a windowed member whose
+    // assigned column violates its recomputed window: the second of any
+    // same-net pair always defers to the first, so the net reads monotone
+    // regardless of list order.
+    let mut placed_now = base_placed;
+    for &(ti, gi, _) in &outs {
+        let Some(g) = topos.get(ti).and_then(|t| t.groups.get(gi)) else {
+            continue;
+        };
+        let bid = g.box_id;
+        let (bx, bw) = match graph.boxes.iter().find(|b| b.id == bid) {
+            Some(b) if b.w > 0.0 => (b.x, b.w),
+            _ => continue,
+        };
+        let (lo, hi) = rank_window(graph, bid, topos[ti].nid, &placed_now);
+        // A CONFLICTING window (both bounds, wrong way round) is not an order —
+        // two of the net's placed co-endpoints already disagree. Moving to
+        // either edge would break the other net's reading order blindly, so
+        // the member keeps the allocator's slot.
+        let conflicting = matches!((lo, hi), (Some(l), Some(h)) if l > h);
+        let viol_lo = !conflicting && lo.is_some_and(|l| bx < l - 0.5);
+        let viol_hi = !conflicting && hi.is_some_and(|h| bx + bw > h + 0.5);
+        let new_x = if viol_lo {
+            Some(lo.unwrap())
+        } else if viol_hi {
+            Some(hi.unwrap() - bw)
+        } else {
+            None
+        };
+        // The candidate must also be CLEAR: the allocator's occupancy table
+        // ordered the assigned slots, and a snug window spot that lands on an
+        // already-placed body would only be scattered east again by
+        // `separate_overlaps_x` — the very move that inverts the chain
+        // (DCDC `_R1` pushed past `_C2` while clearing a mis-placed `_C1`).
+        let clear = new_x.is_none_or(|nx| {
+            placed_now
+                .iter()
+                .all(|(&pid, &(px, pw))| pid == bid || pw <= 0.0 || nx + bw <= px + 0.5 || px + pw <= nx + 0.5)
+        });
+        if let Some(new_x) = new_x.filter(|_| clear) {
+            let nm = graph
+                .boxes
+                .iter()
+                .find(|b| b.id == bid)
+                .map(|b| b.designator.clone().unwrap_or_else(|| b.name.clone()))
+                .unwrap_or_default();
+            crate::vlog!(
+                "[reconcile] '{}' x {:.0} -> {:.0} (window min={:?} max={:?})",
+                nm,
+                bx,
+                new_x,
+                lo,
+                hi,
+            );
+            if let Some(bb) = graph.boxes.iter_mut().find(|b| b.id == bid) {
+                bb.x = new_x;
+            }
+            placed_now.insert(bid, (new_x, bw));
+        } else {
+            placed_now.insert(bid, (bx, bw));
         }
     }
 }
