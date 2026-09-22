@@ -41,7 +41,6 @@ pub(crate) const REFDES_PREFIXES: &[RefdesPrefixDef] = &[
     row("XFR", "T"),
     row("RELAY", "K"),
     row("SWITCH", "S"),
-    row("BUTTON", "SW"),
     row("TP", "TP"),
     row("ANT", "E"),
     // Semiconductors, emitters, sensors.
@@ -96,7 +95,7 @@ mod tests {
 
     #[test]
     fn unregistered_class_has_no_prefix() {
-        for class in ["", "RES_0603", "res", "Cap", "FLASH", "uC"] {
+        for class in ["", "RES_0603", "res", "Cap", "FLASH", "uC", "BUTTON"] {
             assert_eq!(prefix_for_class(class), None, "class {class:?}");
         }
     }
@@ -104,8 +103,9 @@ mod tests {
     #[test]
     fn table_names_every_class_once_and_keeps_m_reserved() {
         // One row per top-level class; the HDR family collapsed from 27
-        // per-face rows to its single family row (b3815).
-        assert_eq!(REFDES_PREFIXES.len(), 33);
+        // per-face rows to its single family row (b3815), and the stale
+        // BUTTON row went with the SWITCH.BUTTON rename (b3815 H1).
+        assert_eq!(REFDES_PREFIXES.len(), 32);
         let mut classes: Vec<&str> = REFDES_PREFIXES.iter().map(|d| d.class).collect();
         classes.sort_unstable();
         let rows = classes.len();
