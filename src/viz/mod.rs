@@ -37,7 +37,8 @@
 pub mod api;
 pub mod connectivity;
 pub mod debug;
-pub mod digest;
+// pub mod digest; // WIP: concurrent session — file never landed (U191); re-land
+// the declaration together with the module file.
 pub mod doc;
 // pub mod flatten; // WIP: concurrent session
 pub mod idiom;
