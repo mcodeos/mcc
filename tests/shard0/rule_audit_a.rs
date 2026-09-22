@@ -489,7 +489,8 @@ fn audit_u150_respell_member_access() {
         r#"
 component F {
     pins = [
-        [1, 2, 5, 6] = SPI{CS, SO, SI, SCLK}::SPI(Slave)
+        // b3804 Slave face: written order [SCLK, SI, SO, CS]; pin 1 = _CS
+        [6, 5, 2, 1] = SPI{SCLK, SI, SO, CS}::SPI(Slave)
     ]
 }
 component M {
@@ -511,8 +512,8 @@ module main {
         "written member name must resolve on a re-spelled adoption, got {stray:?}"
     );
     assert!(
-        p.paths.contains("flash_i.1") && p.paths.contains("inst_m.1"),
-        "member access SPI.CS must reach the CS pin (pid 1), got {:?}",
+        p.paths.contains("flash_i.1") && p.paths.contains("inst_m.4"),
+        "member access SPI.CS must reach the CS pin on both sides (flash pin 1, master pin 4), got {:?}",
         p.paths
     );
 }
