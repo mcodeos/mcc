@@ -3149,24 +3149,27 @@ pub(crate) fn check_return_leg_undeclared(table: &InstTable, results: &mut Vec<N
     }
 }
 
-/// Pin expectation (pin-expectation-design.md §3 v0.1, §3.1/§4 v0.3): a
-/// component pin row carries an expectation — `@role(<word>)` on the
-/// copper-identity axis or `@class(analog|digital)` on the signal-class axis
-/// — and the module layer's binding is the witness: the landed net's
-/// potential class ([`eff_class`]) must anchor what the row declares. The
-/// identity axis anchors through a declared domain face (the §1.4 read,
-/// [`faces::DomainFaces`]) or through the copper conduit's own `@role` word;
-/// the class axis through the same face read's class side — a quiet face
-/// carries the analog class, a declared digital/noisy world the digital one
-/// ([`faces::DomainFaces::digital_world`]). `quiet` and the two class words
-/// are the only expectations with a net-side reading; the other role words
-/// pass the write-site vocabulary (5360) and carry no verdict yet — a branch
-/// with no reading is silence, never a guess. A net that resolves a class
-/// but no class word is the unanchored half too (info), not a mismatch:
-/// unprovable is not violated. An unwired pin is the unwired-pin rule's
-/// object. A contradicted expectation is always Warning (the former @req
-/// strength tier is retired — group-wise physical facts move to the barrier
-/// axis, U175).
+/// Pin expectation (pin-expectation-design.md §3 v0.1, §3.1/§4 v0.3, v0.4
+/// radio U182): a component pin row carries an expectation — `@role(<word>)`
+/// on the copper-identity axis or `@class(analog|digital|radio)` on the
+/// signal-class axis — and the module layer's binding is the witness: the
+/// landed net's potential class ([`eff_class`]) must anchor what the row
+/// declares. The identity axis anchors through a declared domain face (the
+/// §1.4 read, [`faces::DomainFaces`]) or through the copper conduit's own
+/// `@role` word; the class axis through the same face read's class side,
+/// specialization first — a declared radio world carries the radio class, a
+/// quiet face the analog one, a declared digital/noisy world the digital one
+/// ([`faces::DomainFaces::radio_world`]/`digital_world`) — and the verdict
+/// is subtype-wise (radio ⊑ analog, U182): an analog expectation accepts a
+/// radio net, a radio expectation accepts nothing coarser. `quiet` and the
+/// class words are the only expectations with a net-side reading; the other
+/// role words pass the write-site vocabulary (5360) and carry no verdict
+/// yet — a branch with no reading is silence, never a guess. A net that
+/// resolves a class but no class word is the unanchored half too (info),
+/// not a mismatch: unprovable is not violated. An unwired pin is the
+/// unwired-pin rule's object. A contradicted expectation is always Warning
+/// (the former @req strength tier is retired — group-wise physical facts
+/// move to the barrier axis, U175).
 pub(crate) fn check_pin_copper_expectation(table: &InstTable, results: &mut Vec<NetCheckResult>) {
     let idx = crate::instant::island::NetIslandIndex::build(table);
     let faces = faces::DomainFaces::read(table);
@@ -3202,15 +3205,12 @@ pub(crate) fn check_pin_copper_expectation(table: &InstTable, results: &mut Vec<
             // single-end comparison and one tier; no fourth reading exists.
             let role_word = pin.exp_role.first().cloned();
             let class_word = pin.exp_class.first().cloned();
-            // The class words normalize through the registry's own set, so a
-            // word here is always one of the two the axis reads.
-            let class_exp = class_word.map(|w| {
-                if w == attr_keys::WORD_ANALOG {
-                    attr_keys::WORD_ANALOG
-                } else {
-                    attr_keys::WORD_DIGITAL
-                }
-            });
+            // The class words decode through the axis enum (U182): a word of
+            // the registry's class set is one of its variants; anything else
+            // decodes to nothing and the row carries no class verdict —
+            // silence, never a guess (the old `else digital` fallback would
+            // have read `radio` as digital).
+            let class_exp = class_word.as_deref().and_then(class_axis_of_word);
             if let Some(w) = role_word {
                 // v0.1's ruling, kept: `quiet` is the one role word with a
                 // net-side reading — the other four pass the write-site
@@ -3228,7 +3228,7 @@ pub(crate) fn check_pin_copper_expectation(table: &InstTable, results: &mut Vec<
                     );
                 }
             }
-            if let Some(w) = class_exp {
+            if let Some(axis) = class_exp {
                 judge_expectation(
                     table,
                     &idx,
@@ -3236,7 +3236,7 @@ pub(crate) fn check_pin_copper_expectation(table: &InstTable, results: &mut Vec<
                     &conduit_role,
                     pin,
                     comp,
-                    Expectation::Class(w),
+                    Expectation::Class(axis),
                     results,
                 );
             }
@@ -3246,10 +3246,47 @@ pub(crate) fn check_pin_copper_expectation(table: &InstTable, results: &mut Vec<
 
 /// One expectation of one pin row, on one of the two axes (§4). `Identity`
 /// carries the role word as written (`quiet` — the one with a reading);
-/// `Class` carries the normalized class word.
+/// `Class` carries the decoded class axis.
 enum Expectation {
     Identity(String),
-    Class(&'static str),
+    Class(ClassAxis),
+}
+
+/// The signal-class axis as an enum (U182): a new class word is a new
+/// variant, every read site arms explicitly, and a word outside the set
+/// decodes to nothing — the string fallback that read `radio` as `digital`
+/// is gone. `Radio` specializes `Analog` (radio ⊑ analog): RF-grade copper
+/// is analog copper whose RF quality a domain declaration witnesses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ClassAxis {
+    Digital,
+    Analog,
+    Radio,
+}
+
+/// Decode a written class word into its axis variant; `None` for a word the
+/// axis does not read (the write-site vocabulary 5360 judges those).
+fn class_axis_of_word(w: &str) -> Option<ClassAxis> {
+    match w {
+        attr_keys::WORD_DIGITAL => Some(ClassAxis::Digital),
+        attr_keys::WORD_ANALOG => Some(ClassAxis::Analog),
+        attr_keys::WORD_RADIO => Some(ClassAxis::Radio),
+        _ => None,
+    }
+}
+
+impl ClassAxis {
+    /// Subtype semantics (U182): the expectation is met when the landed
+    /// class is the same axis or a specialization. `Analog` accepts `Radio`
+    /// (radio is analog copper); `Radio` accepts nothing coarser — an RF
+    /// expectation on plain analog copper is exactly the un-witnessed
+    /// declaration the word exists to catch; `Digital` is unchanged.
+    fn subsumes(self, landed: ClassAxis) -> bool {
+        match (self, landed) {
+            (ClassAxis::Analog, ClassAxis::Radio) => true,
+            (a, b) => a == b,
+        }
+    }
 }
 
 /// Judge one pin-row expectation against the net it landed on, pushing the
@@ -3287,19 +3324,27 @@ fn judge_expectation(
                         .get(&(scope, cls.id.clone()))
                         .is_some_and(|cw| *cw == *w)
             }
-            Expectation::Class(w) => {
+            Expectation::Class(exp) => {
+                // The net-side read order is specialization-first (U182): a
+                // declared radio world carries the radio class even though it
+                // also sits on the analog side of the §1.4 model.
                 let reading = faces
-                    .quiet_world(table, scope, &cls.worlds)
-                    .map(|_| attr_keys::WORD_ANALOG)
+                    .radio_world(table, scope, &cls.worlds)
+                    .map(|_| ClassAxis::Radio)
+                    .or_else(|| {
+                        faces
+                            .quiet_world(table, scope, &cls.worlds)
+                            .map(|_| ClassAxis::Analog)
+                    })
                     .or_else(|| {
                         faces
                             .digital_world(table, scope, &cls.worlds)
-                            .map(|_| attr_keys::WORD_DIGITAL)
+                            .map(|_| ClassAxis::Digital)
                     });
                 // A class with no class word at all is the unanchored half
                 // (§4: the net resolves no *class* to compare against), not
                 // a contradiction — reported as such below.
-                return reading.map(|r| (r == *w, cls.id.clone()));
+                return reading.map(|r| (exp.subsumes(r), cls.id.clone()));
             }
         };
         Some((verdict, cls.id.clone()))
@@ -3356,8 +3401,9 @@ fn push_unanchored(
 fn exp_phrase(exp: &Expectation) -> String {
     match exp {
         Expectation::Identity(w) => format!("a {w} copper"),
-        Expectation::Class(attr_keys::WORD_ANALOG) => "an analog signal net".to_string(),
-        Expectation::Class(_) => "a digital signal net".to_string(),
+        Expectation::Class(ClassAxis::Analog) => "an analog signal net".to_string(),
+        Expectation::Class(ClassAxis::Digital) => "a digital signal net".to_string(),
+        Expectation::Class(ClassAxis::Radio) => "a radio signal net".to_string(),
     }
 }
 

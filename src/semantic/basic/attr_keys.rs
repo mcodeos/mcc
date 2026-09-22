@@ -269,6 +269,10 @@ pub(crate) const WORD_EARTH: &str = "earth";
 pub(crate) const WORD_ISOLATED: &str = "isolated";
 pub(crate) const WORD_DIGITAL: &str = "digital";
 pub(crate) const WORD_ANALOG: &str = "analog";
+/// The RF specialization of the class axis (U182): radio-grade copper is
+/// analog copper with a witnessed RF declaration — the word rides `@class`,
+/// the gate reads it subtype-wise (radio ⊑ analog).
+pub(crate) const WORD_RADIO: &str = "radio";
 pub(crate) const WORD_NOISY: &str = "noisy";
 pub(crate) const WORD_SENSITIVE: &str = "sensitive";
 pub(crate) const WORD_AC: &str = "ac";
@@ -288,7 +292,7 @@ const ROLE_WORDS: &[&str] = &[
     WORD_EARTH,
     WORD_ISOLATED,
 ];
-const CLASS_WORDS: &[&str] = &[WORD_DIGITAL, WORD_ANALOG];
+const CLASS_WORDS: &[&str] = &[WORD_DIGITAL, WORD_ANALOG, WORD_RADIO];
 const NATURE_WORDS: &[&str] = &[WORD_AC, WORD_DC];
 const NOISE_WORDS: &[&str] = &[WORD_NOISY, WORD_QUIET, WORD_SENSITIVE];
 const EXPOSED_WORDS: &[&str] = &[

@@ -6150,6 +6150,10 @@ const AMP: &str = "component AMP {\n    pins = [\n        1 = INP @class(analog)
 /// A comparator-like part: two signal rows carrying the digital expectation.
 const CMP: &str = "component CMP {\n    pins = [\n        1 = OUT @class(digital)\n        2 = CLK @class(digital)\n    ]\n}\n";
 
+/// A radio-front-end part: two signal rows carrying the radio expectation —
+/// the RF specialization of the analog class (U182).
+const RFA: &str = "component RFA {\n    pins = [\n        1 = ANT @class(radio)\n        2 = RF @class(radio)\n    ]\n}\n";
+
 /// The diagnostic levels of one code, in emission order — the tier face.
 fn levels_of(code: u32, src: &str) -> Vec<mcc::DiagnosticLevel> {
     let _lock = common::lock();
@@ -6260,6 +6264,129 @@ fn digital_class_expectation_on_quiet_face_fires_6051() {
         .filter(|&&c| c == mcc::errcodes::PIN_COPPER_EXPECTATION_MISMATCH)
         .count();
     assert_eq!(n, 2, "digital expectation on a quiet face → 6051 ×2; got codes: {codes:?}");
+}
+
+// ── v0.4 (U182): the radio word, subtype semantics (radio ⊑ analog) ──
+
+/// Anchored at the specialization: `@class(radio)` rows land on a rail member
+/// of a domain declared `@class(radio)` — the net-side read is radio-first,
+/// expectation and reading agree, no code.
+#[test]
+fn radio_class_expectation_on_radio_domain_stays_silent() {
+    let src = format!(
+        "{RFA}\nmodule main {{\n    \
+         domain RF @class(radio) {{ rail [VDDR, GNDR]::DC(3V3) }}\n    \
+         RFA u1\n    u1.1 - GNDR\n    u1.2 - GNDR\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::PIN_COPPER_EXPECTATION_MISMATCH),
+        "the radio declaration witnesses the radio expectation — no 6051; got codes: {codes:?}"
+    );
+    assert!(
+        !codes.contains(&mcc::errcodes::PIN_COPPER_EXPECTATION_UNANCHORED),
+        "the rail member resolves a class — no 6052; got codes: {codes:?}"
+    );
+}
+
+/// The subtype verdict's coarse half: `@class(radio)` rows land on a domain
+/// declared `@class(analog)` — the read is analog, the expectation asks for
+/// the RF specialization a declaration does not witness here. 6051 ×2, both
+/// Warning (the same tier as every contradicted expectation).
+#[test]
+fn radio_class_expectation_on_analog_world_fires_6051_warning() {
+    let src = format!(
+        "{RFA}\nmodule main {{\n    \
+         domain AV @class(analog) {{ rail [VDDA, GNDA]::DC(3V3) }}\n    \
+         RFA u1\n    u1.1 - GNDA\n    u1.2 - GNDA\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let n = codes
+        .iter()
+        .filter(|&&c| c == mcc::errcodes::PIN_COPPER_EXPECTATION_MISMATCH)
+        .count();
+    assert_eq!(n, 2, "radio expectation on a plain analog world → 6051 ×2; got codes: {codes:?}");
+    let levels = levels_of(mcc::errcodes::PIN_COPPER_EXPECTATION_MISMATCH, &src);
+    assert!(
+        levels.iter().all(|l| *l == mcc::DiagnosticLevel::Warning),
+        "a contradicted expectation is always Warning; got {levels:?}"
+    );
+}
+
+/// The old binary read would have called this net digital and stayed half
+/// right by accident; the verdict is the same either way: radio rows on a
+/// `@class(digital)` domain → 6051 ×2.
+#[test]
+fn radio_class_expectation_on_digital_world_fires_6051() {
+    let src = format!(
+        "{RFA}\nmodule main {{\n    \
+         domain DV @class(digital) {{ rail [VDD_3V3, GND]::DC(3V3) }}\n    \
+         RFA u1\n    u1.1 - VDD_3V3\n    u1.2 - VDD_3V3\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let n = codes
+        .iter()
+        .filter(|&&c| c == mcc::errcodes::PIN_COPPER_EXPECTATION_MISMATCH)
+        .count();
+    assert_eq!(n, 2, "radio expectation on a digital world → 6051 ×2; got codes: {codes:?}");
+}
+
+/// The subtype verdict's fine half: `@class(analog)` rows land on a domain
+/// declared `@class(radio)` — radio is analog copper with a witnessed RF
+/// declaration, so the analog expectation is met. No 6051, no 6052.
+#[test]
+fn analog_class_expectation_on_radio_world_stays_silent() {
+    let src = format!(
+        "{AMP}\nmodule main {{\n    \
+         domain RF @class(radio) {{ rail [VDDR, GNDR]::DC(3V3) }}\n    \
+         AMP u1\n    u1.1 - GNDR\n    u1.2 - GNDR\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::PIN_COPPER_EXPECTATION_MISMATCH),
+        "radio ⊑ analog — the analog expectation accepts a radio net; got codes: {codes:?}"
+    );
+    assert!(
+        !codes.contains(&mcc::errcodes::PIN_COPPER_EXPECTATION_UNANCHORED),
+        "the radio declaration resolves a class — no 6052; got codes: {codes:?}"
+    );
+}
+
+/// Digital is unchanged by the specialization: `@class(digital)` rows on a
+/// radio world read radio, which digital does not subsume → 6051 ×2.
+#[test]
+fn digital_class_expectation_on_radio_world_fires_6051() {
+    let src = format!(
+        "{CMP}\nmodule main {{\n    \
+         domain RF @class(radio) {{ rail [VDDR, GNDR]::DC(3V3) }}\n    \
+         CMP u1\n    u1.1 - GNDR\n    u1.2 - GNDR\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let n = codes
+        .iter()
+        .filter(|&&c| c == mcc::errcodes::PIN_COPPER_EXPECTATION_MISMATCH)
+        .count();
+    assert_eq!(n, 2, "digital expectation on a radio world → 6051 ×2; got codes: {codes:?}");
+}
+
+/// Unanchored on the new word too: `@class(radio)` rows on bare nets resolve
+/// no class — 6052 Info, never 6051.
+#[test]
+fn radio_class_expectation_on_bare_net_fires_6052_not_6051() {
+    let src = format!(
+        "{RFA}\nmodule main {{\n    \
+         RFA u1\n    u1.1 - BARE1\n    u1.2 - BARE2\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let n = codes
+        .iter()
+        .filter(|&&c| c == mcc::errcodes::PIN_COPPER_EXPECTATION_UNANCHORED)
+        .count();
+    assert_eq!(n, 2, "bare nets carry no class word → 6052 ×2; got codes: {codes:?}");
+    assert!(
+        !codes.contains(&mcc::errcodes::PIN_COPPER_EXPECTATION_MISMATCH),
+        "unprovable is not violated — no 6051; got codes: {codes:?}"
+    );
 }
 
 /// Unanchored on the class axis: the rows land on bare nets — no class, so
