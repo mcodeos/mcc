@@ -330,6 +330,21 @@ fn render_layer_recursive(
         // (including negative-x West trunks and upward-reading vertical labels)
         // into the SVG viewBox, starting at the TRUE content top.
         let cv = crate::viz::layout::equipotential_tree::fit_content_to_canvas(&mut graph);
+        // ★ U173: the device wires ARE the trees, so the route audit above never
+        // saw them. Count cross-net collinear overlaps on the drawn geometry —
+        // the yardstick for the "same-row overlap" visual short; zero = clean.
+        let trees = crate::viz::layout::equipotential_tree::build_all_trees(&graph);
+        let row_rep = crate::viz::route::audit::audit_tree_row_overlaps(&trees);
+        crate::vlog!(
+            "[viz::audit] layer {} '{}': row-overlap={} ({} trees)",
+            bid,
+            name,
+            row_rep.row_overlap,
+            trees.len()
+        );
+        for d in &row_rep.details {
+            crate::vlog!("[viz::audit] detail: {d}");
+        }
         // ★ Module-port drawing: a module's own layer gets its boundary drawn —
         // a dashed frame with the module's ports on it. Drawn from `BoundaryInfo`,
         // named by the port. No-op for layers that are not a module's schematic.
