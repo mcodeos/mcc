@@ -54,7 +54,7 @@ pub struct RailSpec {
 pub enum AttrRole {
     /// The net **is** declared, and what it was declared to be holds no supply
     /// position: a member of a declared **differential pair** (an interface
-    /// body's `diff_pair`). Consumers must not judge or draw it as a power net
+    /// member row's `@pair` tag). Consumers must not judge or draw it as a power net
     /// — reading a pair belongs to the signal axis.
     ///
     /// Not to be read as "nothing was declared": an undeclared net has no
@@ -69,12 +69,13 @@ pub enum AttrRole {
     Reference,
 }
 
-/// One face of a declared differential pair (an interface body's
-/// `diff_pair = [P, N]`).
+/// One leg of a declared differential pair (an interface member row's
+/// `@pair` tag).
 ///
 /// The pair is a property of the declaration, never of a net name: the
-/// interface names two of its own pins, and the first-declared face is the
-/// positive one. Both nets born at the two faces carry the same `group`, which
+/// interface's `@pair` group names two of its own rows, and the first member
+/// is the derived leg A. Both nets born at the two legs carry the same
+/// `group`, which
 /// is all it takes to pair them — so a pair named `SCLK` / `SCLK2` is
 /// recognized and a coincidence named `A_P` / `A_N` is not.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -127,8 +128,8 @@ pub struct NetAttrMirror {
     /// the drawing side so an opt-in can draw the same-bundle return lane
     /// without re-guessing a name.
     pub ret: Option<String>,
-    /// The differential-pair face this net was born at, when its endpoint is a
-    /// port member the interface's `diff_pair` names. `None` = not a declared
+    /// The differential-pair leg this net was born at, when its endpoint is a
+    /// port member an interface `@pair` group names. `None` = not a declared
     /// face. The two faces of one declaration share `group`, which is what
     /// pairs them — never the spelling of the net name.
     pub diff: Option<DiffFace>,

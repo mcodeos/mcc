@@ -11,6 +11,7 @@
 //!   HW5 — Interface role with dangling peer reference
 //!   HW6 — Component with only single-type IO pins (all inputs, all outputs)
 //!   HW9/HW10 — Interface role peer not mutual (E5508) / peer width mismatch (E5509)
+//!   HW11/HW12 — @pair group without two legs (E5512) / retired diff_pair key (E5513)
 
 use super::{CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, ValidationCheck};
 use crate::semantic::pwrid::{self, DeclaredFaces, Face};
@@ -37,6 +38,7 @@ impl ValidationCheck for HwCheck {
         check_single_ioc_type_component(acc); // HW6
         check_func_param_pin_shadow(acc); // HW8
         check_role_peer_mutual_and_width(acc); // HW9/HW10
+        check_iface_pair_groups(acc); // HW11/HW12
     }
 }
 
@@ -492,6 +494,92 @@ fn check_role_peer_mutual_and_width(acc: &mut CheckAccumulator) {
                     }
                 }
             }
+        }
+    }
+}
+
+/// HW11/HW12: the differential-pair declaration checks (diff-pair-design.md,
+/// ruled 2026-09-23 — the pair is declared by tagging member rows, never read
+/// off a name):
+///
+///   * a `@pair(group)` group on an interface member table must hold **two**
+///     legs (E5512, Error): a differential signal has exactly two faces.
+///   * the retired `diff_pair` body key still written (E5513, Warning): tag
+///     the member rows with `@pair(group)` instead.
+///
+/// Both are definition-space facts, reported where they are declared — the
+/// same D10 scan scope as the peer checks above. A group whose legs are fine
+/// declares its pair and is not reported; an interface with no `@pair` rows
+/// is not differential and that is the normal case, never a disease.
+fn check_iface_pair_groups(acc: &mut CheckAccumulator) {
+    let ifaces = crate::definition_space().all_interfaces();
+    for (sn, iface) in ifaces.iter() {
+        let uri = sn.uri.to_string();
+        if super::is_test_file(&uri) {
+            continue;
+        }
+
+        // E5513: the retired body key, one warning per written attribute.
+        for attr in iface.attrs.iter() {
+            if attr.id.to_string() != "diff_pair" {
+                continue;
+            }
+            acc.push(CheckResult {
+                check_name: "hw",
+                severity: CheckSeverity::Warning,
+                uri: Some(uri.clone()),
+                span: attr.key_span.clone(),
+                message: format!(
+                    "Interface '{}': the diff_pair key is retired; \
+                     tag the member rows with @pair(group) instead",
+                    iface.name,
+                ),
+                code: crate::errcodes::HW_IFACE_DIFF_PAIR_RETIRED,
+            });
+        }
+
+        // E5512: group the member rows by their `@pair` tag. The group name
+        // is the author's own identifier — equality of the tag is the only
+        // operation, the spelling is never read. First-seen group order,
+        // member order as declared.
+        let pair_key = crate::semantic::basic::attr_keys::KEY_PAIR;
+        let mut groups: Vec<(String, usize, Option<std::ops::Range<usize>>)> = Vec::new();
+        for (_name, id) in iface.pins.member_entries() {
+            let Some(pin) = iface.pins.pins.get(&id) else {
+                continue;
+            };
+            // One read per row: the first tag's text names the group, the
+            // same tag's key span anchors the report.
+            let Some(group) = crate::semantic::module::pi::attr_texts(&pin.attrs, pair_key)
+                .into_iter()
+                .next()
+            else {
+                continue;
+            };
+            let Some(attr) = pin.attrs.iter().find(|a| a.id.to_string() == pair_key) else {
+                continue;
+            };
+            match groups.iter_mut().find(|(g, ..)| *g == group) {
+                Some((_, count, _)) => *count += 1,
+                None => groups.push((group, 1, attr.key_span.clone())),
+            }
+        }
+        for (group, count, span) in groups {
+            if count == 2 {
+                continue;
+            }
+            acc.push(CheckResult {
+                check_name: "hw",
+                severity: CheckSeverity::Error,
+                uri: Some(uri.clone()),
+                span,
+                message: format!(
+                    "Interface '{}': @pair group '{}' has {} leg(s); \
+                     a differential pair has exactly two",
+                    iface.name, group, count,
+                ),
+                code: crate::errcodes::HW_IFACE_PAIR_NOT_TWO,
+            });
         }
     }
 }

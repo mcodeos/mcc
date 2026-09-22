@@ -145,9 +145,9 @@ pub struct MemberInfo {
     /// opt-in can anchor a return lane. `None` for any member the pair does not
     /// name (component DC pins, inferred roles).
     pub pair: Option<String>,
-    /// The differential-pair face this member is, when its port's interface
-    /// declares `diff_pair = [P, N]` and this member is one of the two names.
-    /// Set at flatten from `port.diff_pair`; viz/project.rs mirrors it onto the
+    /// The differential-pair leg this member is, when its port's interface
+    /// declares a `@pair(group)` group naming this member's row. Set at
+    /// flatten from `port.diff_pair`; viz/project.rs mirrors it onto the
     /// nets born from the pair. `None` for every member the declaration does
     /// not name — including every member of an interface that declares none.
     pub diff: Option<DiffFace>,
@@ -1894,14 +1894,15 @@ impl InstTable {
             // golden references like "vin.VCC" and "USB_VBUS_1.VDD_3V".
             for (mi, member) in port.bus_members.iter().enumerate() {
                 let member_path = format!("{my_path}.{}", suffixes.members[mi]);
-                // U61: a member the interface's `diff_pair` names is a face of
-                // one declared pair. Both faces carry the port's own path as
-                // their group — that shared value is the whole pairing rule,
-                // so a pair is recognized whatever its nets are called. The
-                // declaration is positional: the first name is the positive
-                // face. Recorded whatever the inferred role is, since a
+                // diff-pair-design.md (ruled 2026-09-23, was U61): a member
+                // one of the interface's `@pair` tuples names is a leg of one
+                // declared pair. Both legs carry the port's own path as their
+                // group — that shared value is the whole pairing rule, so a
+                // pair is recognized whatever its nets are called. The tuple
+                // order is member order: the first member is the derived
+                // leg A. Recorded whatever the inferred role is, since a
                 // differential pair is a signal by nature.
-                let diff = port.diff_pair.as_ref().and_then(|(pos, neg)| {
+                let diff = port.diff_pair.iter().find_map(|(pos, neg)| {
                     let positive = if member == pos {
                         true
                     } else if member == neg {

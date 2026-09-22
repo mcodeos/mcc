@@ -1947,7 +1947,7 @@ mod tests {
     /// first-emission source order. This is the lock that keeps
     /// `POSTPARSE_RULES` byte-identical to the `validation/*` emission set;
     /// the object hosts stay the executor, so this anchors the catalog copy.
-    const POSTPARSE_ORDER: [u32; 95] = [
+    const POSTPARSE_ORDER: [u32; 97] = [
         // duplicate
         crate::errcodes::DUP_CMIE_CROSS_FILE,
         // dupwithin
@@ -2056,6 +2056,8 @@ mod tests {
         crate::errcodes::HW_IFACE_PEER_DANGLING,
         crate::errcodes::HW_IFACE_PEER_NOT_MUTUAL,
         crate::errcodes::HW_IFACE_PEER_WIDTH_MISMATCH,
+        crate::errcodes::HW_IFACE_PAIR_NOT_TWO,
+        crate::errcodes::HW_IFACE_DIFF_PAIR_RETIRED,
         crate::errcodes::HW_ALL_SAME_IO_TYPE,
         crate::errcodes::HW_FUNC_PARAM_SHADOWS_PIN,
         // types
@@ -2465,7 +2467,8 @@ mod tests {
         // placeholder now carry concrete tests/lock_pp_*.rs anchors, so the
         // doc partition is empty and every one of them counts as strong.
         // 164 = +CROSS_BARRIER_NET (barrier-design.md §3, its own lock file).
-        assert_eq!((strong, doc, note), (164, 0, 3));
+        // 166 = +5512/5513 (the @pair group gates, tests/shard3/declared_diff_pair.rs).
+        assert_eq!((strong, doc, note), (166, 0, 3));
         assert_eq!(strong + doc + note, rule_count());
     }
 
@@ -3538,6 +3541,26 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         host = "hw",
         doc = "Interface role and its declared peer declare different member widths (interface-connect-rule-design.md §3.3 B).",
         lock = "tests/shard7/iface_connect_rule.rs",
+    },
+    declare_post_parse_rule! {
+        code = crate::errcodes::HW_IFACE_PAIR_NOT_TWO,
+        name = "hw-iface-pair-not-two",
+        title = "a @pair group does not have two legs",
+        severity = Error,
+        domain = PinDecl,
+        host = "hw",
+        doc = "A differential pair has exactly two faces: the interface member rows sharing a @pair(group) tag must be two rows.",
+        lock = "tests/shard3/declared_diff_pair.rs",
+    },
+    declare_post_parse_rule! {
+        code = crate::errcodes::HW_IFACE_DIFF_PAIR_RETIRED,
+        name = "hw-iface-diff-pair-retired",
+        title = "the diff_pair key is retired",
+        severity = Warning,
+        domain = PinDecl,
+        host = "hw",
+        doc = "The interface body still writes the retired diff_pair key; tag the member rows with @pair(group) instead.",
+        lock = "tests/shard3/declared_diff_pair.rs",
     },
     declare_post_parse_rule! {
         code = crate::errcodes::HW_ALL_SAME_IO_TYPE,
