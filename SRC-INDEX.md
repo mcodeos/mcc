@@ -33,7 +33,7 @@ range (threshold 40KB).
 | `viz/layout/equipotential_tree.rs` | 409 KB | 204 |
 | `db/infra/mc_code.rs` | 343 KB | 95 |
 | `semantic/basic/mc_phrase.rs` | 315 KB | 68 |
-| `semantic/component/mc_pins/mod.rs` | 226 KB | 104 |
+| `semantic/component/mc_pins/mod.rs` | 230 KB | 105 |
 | `instant/mc_mod/stmt.rs` | 195 KB | 77 |
 | `semantic/validation/nets/mod.rs` | 192 KB | 126 |
 | `db/diagnostic/errcodes.rs` | 183 KB | 438 |
@@ -73,7 +73,7 @@ range (threshold 40KB).
 | `query/` | 9 | 161 KB |
 | `refdef/` | 7 | 118 KB |
 | `rpc/` | 16 | 302 KB |
-| `semantic/` | 89 | 2626 KB |
+| `semantic/` | 89 | 2630 KB |
 | `stages/` | 12 | 321 KB |
 | `vector/` | 25 | 476 KB |
 | `viz/` | 97 | 2451 KB |
@@ -3741,11 +3741,11 @@ instant/read.rs#L93  fn module_subtree
 instant/refdes.rs#L18  struct RefdesPrefixDef
 instant/refdes.rs#L23  const fn
 instant/refdes.rs#L31  const REFDES_PREFIXES
-instant/refdes.rs#L75  fn prefix_for_class
-instant/refdes.rs#L84  mod tests
-instant/refdes.rs#L88  fn root_segment_answers_for_dotted_variants
-instant/refdes.rs#L98  fn unregistered_class_has_no_prefix
-instant/refdes.rs#L105  fn table_names_every_class_once_and_keeps_m_reserved
+instant/refdes.rs#L74  fn prefix_for_class
+instant/refdes.rs#L83  mod tests
+instant/refdes.rs#L87  fn root_segment_answers_for_dotted_variants
+instant/refdes.rs#L97  fn unregistered_class_has_no_prefix
+instant/refdes.rs#L104  fn table_names_every_class_once_and_keeps_m_reserved
 instant/reverse.rs#L48  struct Hit
 instant/reverse.rs#L67  impl Hit
 instant/reverse.rs#L69  fn class_pair
@@ -6119,70 +6119,71 @@ semantic/component/mc_pins/mod.rs#L685  fn value_text
 semantic/component/mc_pins/mod.rs#L724  fn leaf_text
 semantic/component/mc_pins/mod.rs#L740  fn member_names
 semantic/component/mc_pins/mod.rs#L748  fn member_entries
-semantic/component/mc_pins/mod.rs#L770  fn resolve_dynamic_pins
-semantic/component/mc_pins/mod.rs#L786  fn parse_dynamic_pin_line
-semantic/component/mc_pins/mod.rs#L850  fn is_bus
-semantic/component/mc_pins/mod.rs#L858  fn is_interface
-semantic/component/mc_pins/mod.rs#L866  fn get_bus_members
-semantic/component/mc_pins/mod.rs#L884  fn power_pair_member_refs
-semantic/component/mc_pins/mod.rs#L908  fn parse
-semantic/component/mc_pins/mod.rs#L2072  fn parse_pinid
-semantic/component/mc_pins/mod.rs#L2281  enum PinPart
-semantic/component/mc_pins/mod.rs#L2532  fn insert_values
-semantic/component/mc_pins/mod.rs#L2542  fn attach_row_attrs
-semantic/component/mc_pins/mod.rs#L2566  fn group_entry
-semantic/component/mc_pins/mod.rs#L2583  fn note_group_member
-semantic/component/mc_pins/mod.rs#L2594  fn register_pin
-semantic/component/mc_pins/mod.rs#L2697  fn merge_into_base
-semantic/component/mc_pins/mod.rs#L2730  fn extract_common_base
-semantic/component/mc_pins/mod.rs#L2747  fn find_pin
-semantic/component/mc_pins/mod.rs#L2764  fn addressable_members
-semantic/component/mc_pins/mod.rs#L2785  fn register_member_id_alias
-semantic/component/mc_pins/mod.rs#L2805  fn iface_member_pin_id
-semantic/component/mc_pins/mod.rs#L2827  fn pin_of_ref
-semantic/component/mc_pins/mod.rs#L2837  fn get_all_pins
-semantic/component/mc_pins/mod.rs#L2841  fn count
-semantic/component/mc_pins/mod.rs#L2845  fn get_pins_by_io
-semantic/component/mc_pins/mod.rs#L2874  fn get_pin_io
-semantic/component/mc_pins/mod.rs#L2883  fn build_interface_param_bindings
-semantic/component/mc_pins/mod.rs#L2921  fn leading_ident_span
-semantic/component/mc_pins/mod.rs#L2959  impl std::fmt::Display for McPins
-semantic/component/mc_pins/mod.rs#L2960  fn fmt
-semantic/component/mc_pins/mod.rs#L3095  struct McPinNames
-semantic/component/mc_pins/mod.rs#L3113  impl McPinNames
-semantic/component/mc_pins/mod.rs#L3118  fn push_option
-semantic/component/mc_pins/mod.rs#L3125  fn push_option_with_span
-semantic/component/mc_pins/mod.rs#L3136  fn has_param_ref
-semantic/component/mc_pins/mod.rs#L3155  fn new
-semantic/component/mc_pins/mod.rs#L3165  fn new_power_row
-semantic/component/mc_pins/mod.rs#L3169  fn new_inner
-semantic/component/mc_pins/mod.rs#L4079  fn derive_interface_subnames
-semantic/component/mc_pins/mod.rs#L4120  mod subname_tests
-semantic/component/mc_pins/mod.rs#L4126  fn ida
-semantic/component/mc_pins/mod.rs#L4133  fn bus_ids
-semantic/component/mc_pins/mod.rs#L4150  fn list_ids
-semantic/component/mc_pins/mod.rs#L4165  fn plain_ids
-semantic/component/mc_pins/mod.rs#L4177  fn sem_mcpins__bus_form_xtal_regression
-semantic/component/mc_pins/mod.rs#L4186  fn sem_mcpins__bus_form_dc2
-semantic/component/mc_pins/mod.rs#L4195  fn sem_mcpins__list_form_no_prefix
-semantic/component/mc_pins/mod.rs#L4204  fn sem_mcpins__plain_form_crosses_with_iface_pins
-semantic/component/mc_pins/mod.rs#L4213  fn sem_mcpins__plain_form_empty_iface_pins
-semantic/component/mc_pins/mod.rs#L4222  fn sem_mcpins__embedded_square_gpio_interface
-semantic/component/mc_pins/mod.rs#L4232  mod pwr_capture_tests
-semantic/component/mc_pins/mod.rs#L4239  fn parse_component_pins
-semantic/component/mc_pins/mod.rs#L4256  const LDO
-semantic/component/mc_pins/mod.rs#L4269  fn captures_psnk_sink_pair_with_nominal
-semantic/component/mc_pins/mod.rs#L4288  fn captures_psrc_source_with_tol_text
-semantic/component/mc_pins/mod.rs#L4306  fn plain_power_and_signal_pins_are_not_contracts
-semantic/component/mc_pins/mod.rs#L4307  const SRC
-semantic/component/mc_pins/mod.rs#L4335  fn captures_ac_row_beside_the_dc_axis
-semantic/component/mc_pins/mod.rs#L4336  const SRC
-semantic/component/mc_pins/mod.rs#L4368  fn generic_io_row_identity_attrs_carry_to_pins
-semantic/component/mc_pins/mod.rs#L4369  const SRC
-semantic/component/mc_pins/mod.rs#L4409  fn row_attrs_merge_into_reused_pin_without_duplicate_keys
-semantic/component/mc_pins/mod.rs#L4410  const SRC
-semantic/component/mc_pins/mod.rs#L4434  fn dynamic_pin_row_identity_attrs_carry_on_the_line
-semantic/component/mc_pins/mod.rs#L4435  const SRC
+semantic/component/mc_pins/mod.rs#L773  fn member_directions
+semantic/component/mc_pins/mod.rs#L791  fn resolve_dynamic_pins
+semantic/component/mc_pins/mod.rs#L807  fn parse_dynamic_pin_line
+semantic/component/mc_pins/mod.rs#L871  fn is_bus
+semantic/component/mc_pins/mod.rs#L879  fn is_interface
+semantic/component/mc_pins/mod.rs#L887  fn get_bus_members
+semantic/component/mc_pins/mod.rs#L905  fn power_pair_member_refs
+semantic/component/mc_pins/mod.rs#L929  fn parse
+semantic/component/mc_pins/mod.rs#L2136  fn parse_pinid
+semantic/component/mc_pins/mod.rs#L2345  enum PinPart
+semantic/component/mc_pins/mod.rs#L2596  fn insert_values
+semantic/component/mc_pins/mod.rs#L2606  fn attach_row_attrs
+semantic/component/mc_pins/mod.rs#L2630  fn group_entry
+semantic/component/mc_pins/mod.rs#L2647  fn note_group_member
+semantic/component/mc_pins/mod.rs#L2658  fn register_pin
+semantic/component/mc_pins/mod.rs#L2761  fn merge_into_base
+semantic/component/mc_pins/mod.rs#L2794  fn extract_common_base
+semantic/component/mc_pins/mod.rs#L2811  fn find_pin
+semantic/component/mc_pins/mod.rs#L2828  fn addressable_members
+semantic/component/mc_pins/mod.rs#L2849  fn register_member_id_alias
+semantic/component/mc_pins/mod.rs#L2869  fn iface_member_pin_id
+semantic/component/mc_pins/mod.rs#L2891  fn pin_of_ref
+semantic/component/mc_pins/mod.rs#L2901  fn get_all_pins
+semantic/component/mc_pins/mod.rs#L2905  fn count
+semantic/component/mc_pins/mod.rs#L2909  fn get_pins_by_io
+semantic/component/mc_pins/mod.rs#L2938  fn get_pin_io
+semantic/component/mc_pins/mod.rs#L2947  fn build_interface_param_bindings
+semantic/component/mc_pins/mod.rs#L2985  fn leading_ident_span
+semantic/component/mc_pins/mod.rs#L3023  impl std::fmt::Display for McPins
+semantic/component/mc_pins/mod.rs#L3024  fn fmt
+semantic/component/mc_pins/mod.rs#L3159  struct McPinNames
+semantic/component/mc_pins/mod.rs#L3177  impl McPinNames
+semantic/component/mc_pins/mod.rs#L3182  fn push_option
+semantic/component/mc_pins/mod.rs#L3189  fn push_option_with_span
+semantic/component/mc_pins/mod.rs#L3200  fn has_param_ref
+semantic/component/mc_pins/mod.rs#L3219  fn new
+semantic/component/mc_pins/mod.rs#L3229  fn new_power_row
+semantic/component/mc_pins/mod.rs#L3233  fn new_inner
+semantic/component/mc_pins/mod.rs#L4143  fn derive_interface_subnames
+semantic/component/mc_pins/mod.rs#L4184  mod subname_tests
+semantic/component/mc_pins/mod.rs#L4190  fn ida
+semantic/component/mc_pins/mod.rs#L4197  fn bus_ids
+semantic/component/mc_pins/mod.rs#L4214  fn list_ids
+semantic/component/mc_pins/mod.rs#L4229  fn plain_ids
+semantic/component/mc_pins/mod.rs#L4241  fn sem_mcpins__bus_form_xtal_regression
+semantic/component/mc_pins/mod.rs#L4250  fn sem_mcpins__bus_form_dc2
+semantic/component/mc_pins/mod.rs#L4259  fn sem_mcpins__list_form_no_prefix
+semantic/component/mc_pins/mod.rs#L4268  fn sem_mcpins__plain_form_crosses_with_iface_pins
+semantic/component/mc_pins/mod.rs#L4277  fn sem_mcpins__plain_form_empty_iface_pins
+semantic/component/mc_pins/mod.rs#L4286  fn sem_mcpins__embedded_square_gpio_interface
+semantic/component/mc_pins/mod.rs#L4296  mod pwr_capture_tests
+semantic/component/mc_pins/mod.rs#L4303  fn parse_component_pins
+semantic/component/mc_pins/mod.rs#L4320  const LDO
+semantic/component/mc_pins/mod.rs#L4333  fn captures_psnk_sink_pair_with_nominal
+semantic/component/mc_pins/mod.rs#L4352  fn captures_psrc_source_with_tol_text
+semantic/component/mc_pins/mod.rs#L4370  fn plain_power_and_signal_pins_are_not_contracts
+semantic/component/mc_pins/mod.rs#L4371  const SRC
+semantic/component/mc_pins/mod.rs#L4399  fn captures_ac_row_beside_the_dc_axis
+semantic/component/mc_pins/mod.rs#L4400  const SRC
+semantic/component/mc_pins/mod.rs#L4432  fn generic_io_row_identity_attrs_carry_to_pins
+semantic/component/mc_pins/mod.rs#L4433  const SRC
+semantic/component/mc_pins/mod.rs#L4473  fn row_attrs_merge_into_reused_pin_without_duplicate_keys
+semantic/component/mc_pins/mod.rs#L4474  const SRC
+semantic/component/mc_pins/mod.rs#L4498  fn dynamic_pin_row_identity_attrs_carry_on_the_line
+semantic/component/mc_pins/mod.rs#L4499  const SRC
 semantic/component/mod.rs#L5  mod mc_attr
 semantic/component/mod.rs#L6  mod mc_attr_view
 semantic/component/mod.rs#L7  mod mc_layout
@@ -11100,4 +11101,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-403 files, 11017 declarations.
+403 files, 11018 declarations.

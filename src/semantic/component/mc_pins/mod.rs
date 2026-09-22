@@ -761,6 +761,27 @@ impl McPins {
             .collect()
     }
 
+    /// Direction words of the member sequence, parallel to
+    /// [`McPins::member_names`] (same `decl_order` walk as
+    /// [`McPins::member_entries`], so the slots line up 1:1).
+    ///
+    /// U208 direction bridge (gate-group-design.md §4, ruled b3819): only
+    /// `in/out/io` carry a transmissible direction. `psrc/psnk/psbi` are
+    /// power terminals in the net model (semantic/common.rs `IOType::new`);
+    /// `nc`/`return`/`label`/anonymous rows own no direction to hand down —
+    /// those slots read `None` and the adopting pin stays direction-less.
+    pub fn member_directions(&self) -> Vec<Option<IOType>> {
+        self.decl_order
+            .iter()
+            .filter_map(|id| {
+                self.pins.get(id).map(|p| match p.iotype {
+                    IOType::In | IOType::Out | IOType::InOut => Some(p.iotype.clone()),
+                    _ => None,
+                })
+            })
+            .collect()
+    }
+
     /// The stable member id of a pin is owned by the definition registry
     /// (T4): each component def's pins are a [`MemberLedger`](crate::db::defmember::MemberLedger)
     /// keyed by pin id inside `RegistryState`, merged by name across re-parse
@@ -1171,6 +1192,15 @@ impl McPins {
             }
 
             let iotype = iotype.unwrap_or(IOType::None);
+            // U208 direction bridge: the row's own direction word as an
+            // Option — `None` variant (no word written) is the only state
+            // that pulls a member direction down from the adopted interface
+            // view; any written word (`in/out/io`, `psrc/…`, `nc`, …) is the
+            // author's statement and overrides.
+            let row_dir = match iotype {
+                IOType::None => None,
+                ref other => Some(other.clone()),
+            };
             let names = pinnames.unwrap_or_default();
             let values = values.unwrap_or_default();
 
@@ -1600,11 +1630,21 @@ impl McPins {
                         // Priority: parsed_pins (from conditional evaluation) > role pins >
                         // base.pins
                         let mut iface_pins: Vec<String> = Vec::new();
+                        // U208 direction bridge (gate-group-design.md §4, ruled
+                        // b3819): each member's `in/out/io` rides down to the
+                        // adopting pin from the SAME view that resolved the
+                        // member list above — role view when the row names a
+                        // role, else the role-less conductor view. Slots stay
+                        // parallel to `iface_pins` (both read declaration
+                        // order). A row-level direction word overrides; only
+                        // its absence pulls a member direction down.
+                        let mut member_dirs: Vec<Option<IOType>> = Vec::new();
 
                         // First priority: use parsed_pins if available (from conditional evaluation
                         // with params)
                         if let Some(parsed) = &declare.parsed_pins {
                             iface_pins = parsed.member_names();
+                            member_dirs = parsed.member_directions();
                         }
 
                         // Second priority: get pins from the specified role parameter (e.g.,
@@ -1618,6 +1658,7 @@ impl McPins {
                                         // §11.1: role pins member names in declaration order
                                         // (never the BTreeMap pinid key order).
                                         iface_pins = role.pins.member_names();
+                                        member_dirs = role.pins.member_directions();
                                         break;
                                     }
                                 }
@@ -1627,6 +1668,7 @@ impl McPins {
                         // Fallback: get pins from interface top-level definition
                         if iface_pins.is_empty() {
                             iface_pins = declare.base.pins.member_names();
+                            member_dirs = declare.base.pins.member_directions();
                         }
 
                         // ★ Dynamic pins: resolve parameter-based ranges like 1:count
@@ -1634,6 +1676,13 @@ impl McPins {
                             let bindings = Self::build_interface_param_bindings(declare);
                             let resolved = declare.base.pins.resolve_dynamic_pins(&bindings);
                             iface_pins = resolved.iter().map(|(_, name, _)| name.clone()).collect();
+                            member_dirs = resolved
+                                .iter()
+                                .map(|(_, _, io)| match io {
+                                    IOType::In | IOType::Out | IOType::InOut => Some(io.clone()),
+                                    _ => None,
+                                })
+                                .collect();
                         }
 
                         // 1305: interface top-level has no pin definitions (all pins are in role,
@@ -1824,7 +1873,12 @@ impl McPins {
                                 for (pi, pid) in pids.iter().enumerate() {
                                     let mi = slot[pi].unwrap_or(pi); // safety: same index
                                     self.register_pin(
-                                        iotype.clone(),
+                                        // Direction bridge: row word wins, else the
+                                        // bound view's member direction rides down.
+                                        row_dir
+                                            .clone()
+                                            .or_else(|| member_dirs.get(mi).cloned().flatten())
+                                            .unwrap_or(IOType::None),
                                         pid,
                                         &[subname[mi].clone()],
                                         &values,
@@ -1955,7 +2009,13 @@ impl McPins {
                                         for pid in grp.iter() {
                                             all_pids.push(pid.clone());
                                             self.register_pin(
-                                                iotype.clone(),
+                                                // Direction bridge (group i ↔ member i):
+                                                row_dir
+                                                    .clone()
+                                                    .or_else(|| {
+                                                        member_dirs.get(gi).cloned().flatten()
+                                                    })
+                                                    .unwrap_or(IOType::None),
                                                 pid,
                                                 &[name.clone()],
                                                 &values,
@@ -1999,7 +2059,11 @@ impl McPins {
                             McPinPort::Single(pid) => {
                                 let name = subname.first().cloned().unwrap_or_else(|| pid.clone());
                                 self.register_pin(
-                                    iotype.clone(),
+                                    // Direction bridge: single-member interface, slot 0.
+                                    row_dir
+                                        .clone()
+                                        .or_else(|| member_dirs.first().cloned().flatten())
+                                        .unwrap_or(IOType::None),
                                     pid,
                                     &[name.clone()],
                                     &values,
