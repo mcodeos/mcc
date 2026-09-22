@@ -41,6 +41,7 @@ pub mod top_ver;
 pub mod trace;
 pub mod vec;
 pub mod viz;
+pub mod vizdiff;
 pub mod world_ver;
 
 use serde_json::{json, Value};

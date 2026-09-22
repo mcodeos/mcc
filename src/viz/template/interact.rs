@@ -451,6 +451,54 @@ document.getElementById('canvas').addEventListener('click', function (ev) {
     hostTarget.postMessage({ type: 'viz:classSelect', class: cls }, '*');
 }, true);
 
+// AI/agent selection: a plain click reports WHAT was touched - pin first
+// (its stage key), then the box, then the wire's net - and swallows
+// nothing, so expand-onclick and modifier navigation keep working. The
+// host turns this into an editor selection; an agent turns it into a
+// query.
+document.getElementById('canvas').addEventListener('click', function (ev) {
+    const pinG = ev.target.closest ? ev.target.closest('#canvas g[data-point]') : null;
+    const boxG = ev.target.closest ? ev.target.closest('#canvas g[data-name]') : null;
+    const netEl = ev.target.closest ? ev.target.closest('#canvas [data-net]') : null;
+    let msg = null;
+    if (pinG) {
+        msg = { type: 'viz:select', kind: 'pin', point: pinG.getAttribute('data-point') };
+    } else if (boxG) {
+        msg = {
+            type: 'viz:select',
+            kind: 'box',
+            name: boxG.getAttribute('data-name'),
+            class: boxG.getAttribute('data-class') || '',
+            uri: boxG.getAttribute('data-src-uri') || '',
+            offset: parseInt(boxG.getAttribute('data-src-offset') || '0', 10) || 0,
+        };
+    } else if (netEl) {
+        msg = { type: 'viz:select', kind: 'net', net: netEl.getAttribute('data-net') };
+    }
+    if (msg && hostTarget) hostTarget.postMessage(msg, '*');
+});
+
+// Whole-net highlight: wires stamp data-net, so one selector marks every
+// segment of the net on the current layer; the count echoes back so the
+// host knows whether the net exists here.
+window.addEventListener('message', function (e) {
+    const m = e.data;
+    if (!m || m.type !== 'viz:highlightNet') return;
+    document.querySelectorAll('#canvas .net-focused').forEach(function (el) {
+        el.classList.remove('net-focused');
+    });
+    const net = m.net || '';
+    let count = 0;
+    if (net) {
+        document.querySelectorAll('#canvas [data-net="' + net + '"]').forEach(function (el) {
+            el.classList.add('net-focused');
+            count += 1;
+        });
+    }
+    const host = mcodeHost || ((window.parent && window.parent !== window) ? window.parent : null);
+    host && host.postMessage({ type: 'viz:netHighlighted', net: net, count: count }, '*');
+});
+
 // S4: double-click a named box = the drill gesture. The artifact stays a
 // read-only projection — it only *reports* the box; the host decides what the
 // committed viewframe is (workbench: focus `inst:<name>` + highlight).
@@ -658,6 +706,37 @@ mod tests {
         ] {
             assert!(js.contains(msg), "protocol message {msg} missing");
         }
+    }
+
+    /// The agent-facing pair: a plain click reports what was touched (pin
+    /// key, box, or net) without swallowing expand/navigation, and the host
+    /// can light up a whole net by name because wires carry data-net.
+    #[test]
+    fn select_reports_touch_and_net_highlight_answers() {
+        let js = js();
+        assert!(
+            js.contains("type: 'viz:select'"),
+            "no select message emitted"
+        );
+        assert!(
+            js.contains("closest('#canvas g[data-point]')"),
+            "pin identity never read"
+        );
+        assert!(
+            js.contains("'viz:highlightNet'"),
+            "net highlight not received"
+        );
+        assert!(
+            js.contains("viz:netHighlighted"),
+            "highlight echo missing"
+        );
+        // The select listener must not stop propagation: expand-onclick and
+        // modifier navigation share the same click.
+        let sel_at = js.find("closest('#canvas g[data-point]')").expect("sel handler");
+        assert!(
+            !js[sel_at..].starts_with("stopPropagation"),
+            "select must not swallow the click"
+        );
     }
 
     /// The VS Code-native keeper: zoom writes into the webview state store and
