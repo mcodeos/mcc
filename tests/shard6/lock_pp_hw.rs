@@ -8,7 +8,7 @@
 //!   E5502 HW_PIN_NUMBER_GAP         - component pin numbers skip a value
 //!   E5503 HW_PIN_COUNT_HIGH         - component with an implausibly high pin count
 //!   E5504 HW_ZERO_PINS_WITH_PARAMS  - component with parameters but zero pins
-//!   E5507 HW_ALL_SAME_IO_TYPE       - all pins share one IO type
+//!   E5507 HW_ALL_SAME_IO_TYPE       - only one active IO type across the pins
 //!   E5510 HW_FUNC_PARAM_SHADOWS_PIN - a func parameter shadows a pin name
 //! Each test runs `mcc parse --code <src> --local --pass1 --pass2 --top main
 //! -f json` through the real binary and asserts the presence of its target
