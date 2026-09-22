@@ -830,10 +830,28 @@ fn emit_flat_sheet(
         pts: Vec<(f64, f64)>,
         net: String,
     }
+    // Ground glyphs deferred to the draw phase (sheet mm + port tag).
+    let mut gnd_glyphs: Vec<(f64, f64, String)> = Vec::new();
     let mut runs: Vec<FlatRun> = Vec::new();
     let mut unrouted: Vec<(String, String, String)> = Vec::new();
     let rects: Vec<(f64, f64, f64, f64)> =
         tiles.iter().map(|t| (t.x, t.y, t.w, t.h)).collect();
+    // Component bodies are obstacles too: a corridor run that crosses a part
+    // reads as a connection to it. Ends sit on pin stubs OUTSIDE bodies, so
+    // no endpoint exemption is needed.
+    let parts: Vec<(f64, f64, f64, f64)> = {
+        let mut v = Vec::new();
+        for (i, xf, _) in &tiling {
+            let g = &layers[*i].graph;
+            for b in component_boxes(g) {
+                v.push((xf.x(b.x), xf.y(b.y), b.w * MM_PER_PX, b.h * MM_PER_PX));
+            }
+            if let Some(f) = &g.module_frame {
+                v.push((xf.x(f.x), xf.y(f.y), f.w * MM_PER_PX, f.h * MM_PER_PX));
+            }
+        }
+        v
+    };
     if std::env::var("MCC_KSCH_DEBUG").is_ok() {
         for n in &root_graph.nets {
             for ep in &n.endpoints {
@@ -873,6 +891,37 @@ fn emit_flat_sheet(
         .position(|(i, _, _)| layers[*i].parent.is_none());
     for net in &root_graph.nets {
         if net.kind == crate::vector::graph::NetKind::Ground {
+            // Ground runs are not drawn; one GND glyph per ground net names
+            // the copper globally, which is what the drawn line would do.
+            let Some((li, port)) = net.endpoints.iter().find_map(|ep| {
+                let b = root_graph.boxes.iter().find(|b| b.id == ep.box_id)?;
+                if b.kind != BoxKind::SubModule {
+                    return None;
+                }
+                let port = b
+                    .boundary_ports
+                    .iter()
+                    .find(|p| p.entry_pin_id == ep.pin_id)
+                    .map(|p| p.port_name.clone())?;
+                let child_bid = root_graph.clickable_subs.iter().copied().find(|bid| *bid == b.id)?;
+                Some((child_bid, port))
+            }) else {
+                continue;
+            };
+            let (li, port) = (li, port.clone());
+            let Some(&ci) = set.by_bid.get(&li) else { continue };
+            let cg = &layers[ci].graph;
+            let trees = build_all_trees(cg);
+            let Some(xf) = tiling
+                .iter()
+                .find(|(i, _, _)| *i == ci)
+                .map(|(_, xf, _)| xf)
+            else {
+                continue;
+            };
+            if let Some((x, y)) = flat_port_anchor(cg, &trees, xf, &port) {
+                gnd_glyphs.push((x, y, port));
+            }
             continue;
         }
         let mut anchors: Vec<((f64, f64), String, Option<usize>)> = Vec::new();
@@ -989,11 +1038,20 @@ fn emit_flat_sheet(
             let hits = |pts: &Vec<(f64, f64)>| {
                 pts.windows(2).any(|s| {
                     let (a, b) = (s[0], s[1]);
-                    if (a.1 - b.1).abs() < 0.01 {
-                        hseg_hits(a.0, b.0, a.1, &rects, &skip)
-                    } else {
-                        vseg_hits(a.0, a.1, b.1, &rects, &skip)
-                    }
+                    let crossed = |r: &(f64, f64, f64, f64)| {
+                        if (a.1 - b.1).abs() < 0.01 {
+                            let (lo, hi) = if a.0 <= b.0 { (a.0, b.0) } else { (b.0, a.0) };
+                            a.1 > r.1 && a.1 < r.1 + r.3 && hi > r.0 && lo < r.0 + r.2
+                        } else {
+                            let (lo, hi) = if a.1 <= b.1 { (a.1, b.1) } else { (b.1, a.1) };
+                            a.0 > r.0 && a.0 < r.0 + r.2 && hi > r.1 && lo < r.1 + r.3
+                        }
+                    };
+                    rects
+                        .iter()
+                        .enumerate()
+                        .any(|(i, r)| !skip.contains(&i) && crossed(r))
+                        || parts.iter().any(|r| crossed(r))
                 })
             };
             match cand.iter().find(|c| !hits(c)) {
@@ -1124,6 +1182,27 @@ fn emit_flat_sheet(
         let b = *run.pts.last().unwrap();
         text_label(root_graph.bid, &run.net, (a.0 + b.0) / 2.0, (a.1 + b.1) / 2.0, &mut e);
     }
+    for (x, y, port) in &gnd_glyphs {
+        state.pwr_seq += 1;
+        let seed = format!("{}#gnd#{}", root_graph.bid, port);
+        e.open("symbol");
+        line!(e, "(lib_id \"mcc:GND\")");
+        line!(e, "(at {} {} 0)", mm(*x), mm(*y));
+        line!(e, "(unit 1)");
+        line!(e, "(exclude_from_sim no)");
+        line!(e, "(in_bom yes)");
+        line!(e, "(on_board yes)");
+        line!(e, "(dnp no)");
+        line!(e, "(uuid \"{}\")", det_uuid(&seed));
+        property(&mut e, "Reference", &format!("#PWR{}", state.pwr_seq), x - 5.08, y - 2.54, true);
+        property(&mut e, "Value", "GND", x - 5.08, y + 2.54, false);
+        property(&mut e, "Footprint", "", *x, *y, true);
+        e.open("(pin \"1\"");
+        line!(e, "(uuid \"{}\")", det_uuid(&format!("{seed}#pin")));
+        e.close();
+        emit_instances(&mut e, &set.root_uuid, &set.top, &format!("#PWR{}", state.pwr_seq));
+        e.close();
+    }
     if !unrouted.is_empty() {
         let lx = tiles.iter().map(|t| t.x + t.w).fold(0.0f64, f64::max) + 15.0;
         let mut ly = 30.0;
@@ -1206,9 +1285,11 @@ fn emit_flat_boundary_labels(
 ) {
     for net in &graph.nets {
         let Some(bi) = &net.boundary else { continue };
+        // An anon parent crossing would print `_netN` — meaningless on a
+        // drawing. The port's own name is the honest fallback.
         let name = port_net
             .get(&bi.port_name)
-            .cloned()
+            .map(|n| if is_anon(n) { bi.port_name.clone() } else { n.clone() })
             .unwrap_or_else(|| bi.port_name.clone());
         if is_anon(&name) {
             continue;
@@ -2132,6 +2213,25 @@ fn emit_pin_rescue(
             if dbg {
                 eprintln!("[ksch] rescue {} ep pin_id={} UNJOINED", b.name, ep.pin_id);
             }
+            // The id chain failed, but a wired pin's ENTRY names the net its
+            // wire carries: that entry is the crossing this endpoint means.
+            if named {
+                if let Some(entry) = b
+                    .entry_points
+                    .iter()
+                    .find(|e| e.pin_name == net.name)
+                {
+                    let (ax, ay) = anchor_mm(xf, b, entry.side, entry.offset);
+                    let (sx, sy) = match entry.side {
+                        EntrySide::Left => (ax - 10.0, ay),
+                        EntrySide::Right => (ax + 10.0, ay),
+                        EntrySide::Top => (ax, ay - 10.0),
+                        EntrySide::Bottom => (ax, ay + 10.0),
+                    };
+                    emit_wire(graph.bid, xf, ax, ay, sx, sy, e);
+                    text_label(graph.bid, display, xf.x(sx), xf.y(sy), e);
+                }
+            }
             continue;
         };
         let (side, offset) = pin_placement(b, pin);
@@ -2367,7 +2467,13 @@ fn shape_of_io(io: IoDirection) -> &'static str {
 }
 
 fn is_anon(name: &str) -> bool {
-    name.is_empty() || crate::instant::mc_net::is_anon_net_name(name)
+    name.is_empty() || crate::instant::mc_net::is_anon_net_name(name) || name.starts_with("_net")
+}
+
+/// A name fit for printing on the drawing: anonymous copper (whatever
+/// spelling the engine or the island namer gave it) never is.
+fn displayable(name: &str) -> bool {
+    !is_anon(name)
 }
 
 /// Drawn anchor of one boundary port on a flat tile: the port terminal's pin,
