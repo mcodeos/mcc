@@ -1737,6 +1737,24 @@ impl McPins {
                             })
                             .collect();
 
+                        // D3 (interface-inventory-design.md §7): an expectation on
+                        // the *interface member* row is the library default — the
+                        // adopting component's row overrides by key. Union the
+                        // member rows' attrs into this row's attr run before the
+                        // attach below; `attach_row_attrs` keeps the first word
+                        // per key, so an adoption row that writes `@class(...)`
+                        // itself wins and a silent row inherits the member
+                        // default. Multi-member interfaces union every member's
+                        // default onto each lane (per-lane refinement is a later
+                        // step; today's axis vocabulary is one word per iface).
+                        for member in declare.base.pins.pins.values() {
+                            for a in member.attrs.iter() {
+                                if line_attrs.find(&a.id).is_none() {
+                                    line_attrs.push(a.clone());
+                                }
+                            }
+                        }
+
                         match &pinids {
                             // n pids vs n interface pins, pinid and interface member count 1:1,
                             // register 1:1
