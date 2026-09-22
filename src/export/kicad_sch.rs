@@ -2229,7 +2229,7 @@ fn emit_pin_rescue(
                         EntrySide::Bottom => (ax, ay + 10.0),
                     };
                     emit_wire(graph.bid, xf, ax, ay, sx, sy, e);
-                    text_label(graph.bid, display, xf.x(sx), xf.y(sy), ledger, e);
+                    text_label(graph.bid, display, xf.x(sx), xf.y(sy), e);
                 }
             }
             continue;
