@@ -274,10 +274,40 @@ fn eval_comparison(
         if matches!(kind, Some("module") | Some("enum")) {
             return false;
         }
+        // An attribute declares a value SET (one id, many pairs —
+        // `maxspeed = [25MHz@0.1m, ...]`). Eq/regex/ordered hold when ANY
+        // declared value satisfies; Ne holds when the declared set contains
+        // no match (and is non-empty — a missing field stays false, per
+        // spec). Scalar fields keep the single-value path below.
+        if let Field::Attr(n) = &c.field {
+            let vals: Vec<&str> = attrs
+                .iter()
+                .filter(|(k, _)| k == n)
+                .map(|(_, v)| v.as_str())
+                .collect();
+            if vals.is_empty() {
+                return false;
+            }
+            return match c.op {
+                // value_match(Ne) reads "value differs from the needle", so
+                // "the declared set contains no match" is exactly `all`.
+                ComparisonOp::Ne => vals.iter().all(|v| single_value_cmp(c, v)),
+                _ => vals.iter().any(|v| single_value_cmp(c, v)),
+            };
+        }
     }
 
     let lhs = field_value(&c.field, kind, name, class, uri, attrs);
+    value_match(c, lhs)
+}
 
+/// One declared value against one comparison — the shared atom behind the
+/// scalar-field path and the per-value loop of the attr path.
+fn single_value_cmp(c: &Comparison, lhs: &str) -> bool {
+    value_match(c, Some(lhs))
+}
+
+fn value_match(c: &Comparison, lhs: Option<&str>) -> bool {
     match c.op {
         ComparisonOp::Eq => match &c.value {
             QueryValue::Number { value, .. } => match lhs.and_then(|s| s.parse::<f64>().ok()) {
@@ -403,26 +433,49 @@ fn collect_attrs(
     let mut out = Vec::new();
     for a in attrs.iter() {
         let id = a.id.to_string();
-        for v in &a.values {
-            if let Some(s) = attrval_to_string(v) {
-                out.push((id.clone(), s));
-            }
+        for s in attrval_value_set(&a.values) {
+            out.push((id.clone(), s));
         }
     }
     out
 }
 
-fn attrval_to_string(v: &crate::McAttrVal) -> Option<String> {
-    use crate::McAttrVal::*;
-    match v {
-        AttrLiteral(crate::McLiteral::String(s)) => Some(s.value.clone()),
-        AttrLiteral(crate::McLiteral::Int(i)) => Some(i.to_string()),
-        AttrLiteral(crate::McLiteral::Hex(h)) => Some(h.to_string()),
-        AttrLiteral(crate::McLiteral::Float(f)) => Some(f.to_string()),
-        AttrLiteral(crate::McLiteral::Const(c)) => Some(c.to_string()),
-        AttrLiteral(crate::McLiteral::Uval(u)) => Some(format!("{}", u.value())),
-        _ => None,
+/// The declared value set of one attribute occurrence, for the query face.
+/// A `Set` expression flattens to its items (quotes stripped) — the same
+/// reading `iface_attr_value_set` gives the connect gates, so both faces
+/// share one spelling of "what did the definition declare". Any other value
+/// reads as written. Without the flattening, set-valued declarations — the
+/// dominant spelling in the interface library (`maxspeed = [25MHz@0.1m,
+/// ...]`) — are invisible to `attr(...)` filters.
+fn attrval_value_set(values: &[crate::McAttrVal]) -> Vec<String> {
+    use crate::McAttrVal::AttrExpr;
+    let mut out = Vec::new();
+    for val in values {
+        if let AttrExpr(crate::semantic::basic::mc_expr::McExpression::Set(items)) = val {
+            out.extend(
+                items
+                    .iter()
+                    .map(|e| {
+                        crate::semantic::basic::mc_literal::strip_string_quotes(
+                            e.to_string().trim(),
+                        )
+                        .trim()
+                        .to_string()
+                    })
+                    .filter(|s| !s.is_empty()),
+            );
+        } else {
+            let s = crate::semantic::basic::mc_literal::strip_string_quotes(
+                format!("{}", val).trim(),
+            )
+            .trim()
+            .to_string();
+            if !s.is_empty() {
+                out.push(s);
+            }
+        }
     }
+    out
 }
 
 /// Internal helper for callers that want `McIds`-based attribute lookup
@@ -1320,5 +1373,79 @@ mod tests {
         let other = serde_json::json!({ "name": "v1X0" });
         assert!(matches_json_record(&q, &literal));
         assert!(!matches_json_record(&q, &other));
+    }
+
+    /// A `Set`-valued attribute flattens to its items (quotes stripped) —
+    /// the library's dominant operating-point spelling
+    /// (`maxspeed = [25MHz@0.1m, ...]`) must be visible to `attr(...)`.
+    #[test]
+    fn svc_dsl__attrval_set_flattens_to_items() {
+        let vals = vec![crate::McAttrVal::AttrExpr(
+            crate::semantic::basic::mc_expr::McExpression::Set(vec![
+                crate::semantic::basic::mc_expr::McExpression::String(
+                    crate::semantic::basic::mc_literal::McString {
+                        value: "25MHz@0.1m".into(),
+                    },
+                ),
+                crate::semantic::basic::mc_expr::McExpression::String(
+                    crate::semantic::basic::mc_literal::McString {
+                        value: "point to point".into(),
+                    },
+                ),
+            ]),
+        )];
+        assert_eq!(
+            attrval_value_set(&vals),
+            vec!["25MHz@0.1m".to_string(), "point to point".to_string()]
+        );
+    }
+
+    /// An attribute declares a value set: Eq holds when ANY declared value
+    /// matches; Ne holds when NONE does (and the field is present); a
+    /// missing field stays false on every op.
+    #[test]
+    fn svc_dsl__attr_multi_value_any_eq_none_ne() {
+        let attrs = vec![
+            ("maxspeed".to_string(), "10kbps@10km".to_string()),
+            ("maxspeed".to_string(), "1Mbps@40m".to_string()),
+        ];
+        let q = compile(r#"attr(maxspeed)="1Mbps@40m""#).unwrap();
+        assert!(matches_definition_with_attrs(
+            &q,
+            Some("interface"),
+            Some("CAN"),
+            None,
+            None,
+            &attrs
+        ));
+        let q = compile(r#"attr(maxspeed)!="500kbps""#).unwrap();
+        assert!(matches_definition_with_attrs(
+            &q,
+            Some("interface"),
+            Some("CAN"),
+            None,
+            None,
+            &attrs
+        ));
+        let q = compile(r#"attr(maxspeed)="1Mbps@40m""#).unwrap();
+        let q_ne = compile(r#"attr(maxspeed)!="1Mbps@40m""#).unwrap();
+        let q_other = compile("attr(other)=x").unwrap();
+        // Declared set contains the needle → Ne false; missing field → false.
+        assert!(!matches_definition_with_attrs(
+            &q_ne,
+            Some("interface"),
+            Some("CAN"),
+            None,
+            None,
+            &attrs
+        ));
+        assert!(!matches_definition_with_attrs(
+            &q_other,
+            Some("interface"),
+            Some("CAN"),
+            None,
+            None,
+            &attrs
+        ));
     }
 }
