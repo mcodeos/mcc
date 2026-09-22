@@ -7,6 +7,7 @@
 //! This only declares command structures, does not contain any business logic.
 //! Business logic is in `crate::cmds::*` modules.
 
+pub mod caps;
 pub mod config;
 pub mod datadir;
 pub mod manifest;
@@ -219,8 +220,8 @@ pub enum Command {
     /// Check-rule registry catalog (list / detail / severity / allow / accept)
     Rules(RulesArgs),
 
-    /// Show compiler capabilities — self-describing API for AI
-    Caps,
+    /// Show compiler capabilities (M6) — self-describing API for AI
+    Caps(caps::CapsArgs),
 
     /// Go-to-definition for a symbol
     Def(DefArgs),
@@ -1079,8 +1080,7 @@ pub struct BuildArgs {
     #[arg(long, default_value_t = false)]
     pub include_system: bool,
 
-    /// Lock to a single layouter for viz
-    /// (flow|schematic_radial|schematic_sub|hierarchical|radial|layered)
+    /// Lock to a single layouter for viz (only "flow" is supported)
     #[arg(long, value_name = "NAME")]
     pub layouter: Option<String>,
 

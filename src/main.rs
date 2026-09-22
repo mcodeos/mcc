@@ -108,7 +108,7 @@ fn main() -> ExitCode {
         Some(Command::Proj(_)) => false,
         Some(Command::Explain(_)) => false,
         Some(Command::Rules(_)) => false,
-        Some(Command::Caps) => false,
+        Some(Command::Caps { .. }) => false,
         Some(Command::Def(_)) => false,
         Some(Command::Erc(_)) => false,
         Some(Command::Refs(_)) => false,
@@ -356,7 +356,7 @@ fn dispatch(cli: Cli) -> Result<ExitCode> {
             Ok(ExitCode::SUCCESS)
         }
         Some(Command::Import(args)) => cmds::import::run(&args),
-        Some(Command::Caps) => {
+        Some(Command::Caps { .. }) => {
             // Capabilities is self-describing; call the handler directly.
             let result =
                 mcc::rpc::handlers::handle_caps(None).map_err(|e| anyhow::anyhow!("{e:?}"))?;
