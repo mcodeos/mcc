@@ -185,9 +185,18 @@ Debug interfaces are grouped under the `DBG` namespace:
 | `LOGIC.OR` | OR gate | de facto (Boolean algebra) |
 | `LOGIC.NOT` | NOT gate | de facto (Boolean algebra) |
 | `LOGIC.NAND` | NAND gate | de facto (Boolean algebra) |
+| `LOGIC.NAND.3` | NAND gate, 3-input (fan-in variant) | de facto (74HC10 class) |
+| `LOGIC.NAND.4` | NAND gate, 4-input (fan-in variant) | de facto (74HC20 class) |
+| `LOGIC.NAND.8` | NAND gate, 8-input (fan-in variant) | de facto (74HC30 class) |
 | `LOGIC.NOR` | NOR gate | de facto (Boolean algebra) |
 | `LOGIC.XOR` | XOR gate | de facto (Boolean algebra) |
 | `LOGIC.XNOR` | XNOR gate | de facto (Boolean algebra) |
+
+Gate member names follow the 74-family data-book gate names (`A`/`B`/…/`Y`);
+the default logical name equals the member name, so a plain adoption needs no
+rename braces. Inverting outputs carry the `_` prefix on the member (`_AB`,
+`_A`) while the logical name stays `Y`. Each fan-in lane count is its own
+dotted family point, never a parameter (S3 R-CV3).
 
 ### 3.6 Infrastructure Interfaces
 
