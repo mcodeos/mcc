@@ -898,7 +898,8 @@ mod tests {
     fn hover_cards_read_the_layout_manifest() {
         let js = js();
         assert!(js.contains("typeof LAYOUT !== 'undefined'"), "no LAYOUT gate");
-        assert!(js.contains("closest('#canvas g[data-mcc-path]')"), "box identity not routed");
+        assert!(js.contains("closest('#canvas g[data-name]')"), "box identity not routed");
+        assert!(js.contains("data-mcc-path"), "box path never read");
         assert!(js.contains("closest('#canvas g[data-point]')"), "pin identity not routed");
         assert!(js.contains("closest('#canvas [data-net]')"), "net identity not routed");
         assert!(js.contains("componentCard("), "component card missing");
