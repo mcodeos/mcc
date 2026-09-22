@@ -68,9 +68,10 @@ pub fn render_box(b: &McVecBox, is_root: bool, clickable_subs: &[i64]) -> String
     // never leaks into the DOM either.
     let label = box_name_label(b);
     let name = escape_xml_attr(label);
+    let cls = escape_xml_attr(&b.class_name);
     if let Some(sp) = &b.source_span {
         format!(
-            r##"  <g data-name="{name}" data-src-uri="{}" data-src-offset="{}">{}
+            r##"  <g data-name="{name}" data-class="{cls}" data-src-uri="{}" data-src-offset="{}">{}
   </g>
 "##,
             escape_xml_attr(&sp.uri),
@@ -78,9 +79,11 @@ pub fn render_box(b: &McVecBox, is_root: bool, clickable_subs: &[i64]) -> String
             inner
         )
     } else if !label.is_empty() {
-        format!(r##"  <g data-name="{name}">{inner}
+        format!(
+            r##"  <g data-name="{name}">{inner}
   </g>
-"##)
+"##
+        )
     } else {
         inner
     }
