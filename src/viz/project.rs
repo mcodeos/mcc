@@ -1178,7 +1178,8 @@ fn is_child_module_psrc_port(pid: i64, table: &InstTable) -> bool {
 ///      `Power` → `Hot`.
 ///
 /// A third declaration rides along without giving the net a supply role: the
-/// interface-declared differential face (`diff_pair`, CIMP §1 U61), carried on
+/// interface-declared differential leg (member-row `@pair` tags, was U61),
+/// carried on
 /// `member_info.diff` — a pair member with no supply role stays `Signal`, but
 /// is still a declared net.
 ///

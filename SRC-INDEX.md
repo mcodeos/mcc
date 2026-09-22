@@ -36,8 +36,8 @@ range (threshold 40KB).
 | `semantic/component/mc_pins/mod.rs` | 230 KB | 105 |
 | `instant/mc_mod/stmt.rs` | 195 KB | 77 |
 | `semantic/validation/nets/mod.rs` | 192 KB | 126 |
-| `db/diagnostic/errcodes.rs` | 183 KB | 438 |
-| `rules.rs` | 177 KB | 83 |
+| `db/diagnostic/errcodes.rs` | 184 KB | 440 |
+| `rules.rs` | 178 KB | 83 |
 | `instant/insttab.rs` | 158 KB | 113 |
 | `instant/mc_mod/fcallinst.rs` | 147 KB | 26 |
 | `db/defregistry.rs` | 147 KB | 179 |
@@ -57,23 +57,23 @@ range (threshold 40KB).
 
 | Directory | Files | Size |
 |---|---|---|
-| `(root)/` | 8 | 365 KB |
+| `(root)/` | 8 | 366 KB |
 | `ast/` | 7 | 78 KB |
 | `bin/` | 2 | 36 KB |
 | `build/` | 5 | 75 KB |
 | `builder/` | 1 | 0 KB |
 | `cli/` | 7 | 111 KB |
 | `cmds/` | 28 | 493 KB |
-| `db/` | 27 | 913 KB |
+| `db/` | 27 | 914 KB |
 | `eval/` | 2 | 48 KB |
 | `export/` | 7 | 183 KB |
-| `instant/` | 40 | 1561 KB |
+| `instant/` | 40 | 1562 KB |
 | `lsp/` | 7 | 66 KB |
 | `output/` | 7 | 107 KB |
 | `query/` | 9 | 161 KB |
 | `refdef/` | 7 | 118 KB |
 | `rpc/` | 16 | 302 KB |
-| `semantic/` | 89 | 2630 KB |
+| `semantic/` | 89 | 2635 KB |
 | `stages/` | 12 | 321 KB |
 | `vector/` | 25 | 476 KB |
 | `viz/` | 97 | 2451 KB |
@@ -1942,58 +1942,60 @@ db/diagnostic/errcodes.rs#L1522  const HW_IFACE_PEER_NOT_MUTUAL
 db/diagnostic/errcodes.rs#L1525  const HW_IFACE_PEER_WIDTH_MISMATCH
 db/diagnostic/errcodes.rs#L1528  const HW_FUNC_PARAM_SHADOWS_PIN
 db/diagnostic/errcodes.rs#L1532  const IFACE_DIR_CONFLICT
-db/diagnostic/errcodes.rs#L1537  const TYPE_INCOMPATIBLE
-db/diagnostic/errcodes.rs#L1542  const UNUSED_PARAM_OR_PORT
-db/diagnostic/errcodes.rs#L1545  const PORT_NEVER_USED
-db/diagnostic/errcodes.rs#L1548  const UNTYPED_PARAM
-db/diagnostic/errcodes.rs#L1553  const ABSTRACT_PART_UNSELECTED
-db/diagnostic/errcodes.rs#L1564  const VARIANT_SPEC_UNSET
-db/diagnostic/errcodes.rs#L1568  const POWER_BRIDGE_LOOP
-db/diagnostic/errcodes.rs#L1572  const CLAMP_REF_NOT_PROTECTIVE
-db/diagnostic/errcodes.rs#L1578  const POWER_RAIL_DECODE
-db/diagnostic/errcodes.rs#L1583  const POWER_RAIL_TWO_ROOTS
-db/diagnostic/errcodes.rs#L1593  const POWER_SINK_NOMINAL_MISMATCH
-db/diagnostic/errcodes.rs#L1602  const POWER_PIN_DECODE
-db/diagnostic/errcodes.rs#L1612  const POWER_SOURCE_CONTENTION
-db/diagnostic/errcodes.rs#L1624  const ISOLATED_DC_BRIDGE
-db/diagnostic/errcodes.rs#L1633  const PROTECTIVE_MULTI_BRIDGE
-db/diagnostic/errcodes.rs#L1643  const EARTH_DC_LEAK
-db/diagnostic/errcodes.rs#L1655  const REFERENCE_ISLAND_ROOT
-db/diagnostic/errcodes.rs#L1665  const ROLE_REF_MISSING_BRIDGE
-db/diagnostic/errcodes.rs#L1676  const SINK_NET_NO_SOURCE
-db/diagnostic/errcodes.rs#L1684  const COMBINE_OUTPUT_TOL
-db/diagnostic/errcodes.rs#L1693  const NET_BUDGET_EXCEEDED
-db/diagnostic/errcodes.rs#L1706  const RETURN_LEG_UNDECLARED
-db/diagnostic/errcodes.rs#L1716  const POWER_CONVERTER_GATE
-db/diagnostic/errcodes.rs#L1725  const POWER_SINK_WINDOW_MISMATCH
-db/diagnostic/errcodes.rs#L1737  const POWER_CONVERTER_SPEC_INCOMPLETE
-db/diagnostic/errcodes.rs#L1748  const POWER_CONVERTER_OUTPUT_RAIL_WINDOW
-db/diagnostic/errcodes.rs#L1766  const DEVICE_RETURN_SPAN_UNDECLARED
-db/diagnostic/errcodes.rs#L1778  const DC_BINDING_DIR_MISMATCH
-db/diagnostic/errcodes.rs#L1782  const PORT_BIND_ROLE_MISMATCH
-db/diagnostic/errcodes.rs#L1795  const POWER_PIN_RETURN_MISSING
-db/diagnostic/errcodes.rs#L1807  const EXPOSED_NET_NO_CLAMP
-db/diagnostic/errcodes.rs#L1818  const PROTECT_SHUNT_NO_REFERENCE
-db/diagnostic/errcodes.rs#L1831  const PROTECT_SERIES_NOT_IN_PATH
-db/diagnostic/errcodes.rs#L1843  const RAIL_NATURE_MISMATCH
-db/diagnostic/errcodes.rs#L1878  const BRIDGE_LOAD_DECOUPLING_MISSING
-db/diagnostic/errcodes.rs#L1897  const SHUNT_DISSIPATION_OVER_RATING
-db/diagnostic/errcodes.rs#L1922  const DECOUPLING_RETURN_MISMATCH
-db/diagnostic/errcodes.rs#L1949  const SINK_PIN_NO_DECOUPLING
-db/diagnostic/errcodes.rs#L1974  const SENSITIVE_RETURN_ON_NOISY
-db/diagnostic/errcodes.rs#L1997  const ANALOG_RETURN_MISMATCH
-db/diagnostic/errcodes.rs#L2031  const SHARED_RETURN_BRIDGE
-db/diagnostic/errcodes.rs#L2065  const FILTER_SUBFACE_OVERREACH
-db/diagnostic/errcodes.rs#L2101  const EXPOSED_NET_DOWNSTREAM_UNPROTECTED
-db/diagnostic/errcodes.rs#L2115  const DOMAIN_ENDPOINT_NAME_COLLISION
-db/diagnostic/errcodes.rs#L2130  const PIN_COPPER_EXPECTATION_MISMATCH
-db/diagnostic/errcodes.rs#L2140  const PIN_COPPER_EXPECTATION_UNANCHORED
-db/diagnostic/errcodes.rs#L2155  const CROSS_BARRIER_NET
-db/diagnostic/errcodes.rs#L2168  const DOMAIN_NET_MIXED_BRIDGE
-db/diagnostic/errcodes.rs#L2181  const DOMAIN_BRIDGE_DIRECTION_REVERSED
-db/diagnostic/errcodes.rs#L2193  const DOMAIN_BRIDGE_LEG_INCONSISTENT
-db/diagnostic/errcodes.rs#L2204  const DOMAIN_BRIDGE_DANGLING
-db/diagnostic/errcodes.rs#L2206  static ALL_CODES
+db/diagnostic/errcodes.rs#L1536  const HW_IFACE_PAIR_NOT_TWO
+db/diagnostic/errcodes.rs#L1540  const HW_IFACE_DIFF_PAIR_RETIRED
+db/diagnostic/errcodes.rs#L1545  const TYPE_INCOMPATIBLE
+db/diagnostic/errcodes.rs#L1550  const UNUSED_PARAM_OR_PORT
+db/diagnostic/errcodes.rs#L1553  const PORT_NEVER_USED
+db/diagnostic/errcodes.rs#L1556  const UNTYPED_PARAM
+db/diagnostic/errcodes.rs#L1561  const ABSTRACT_PART_UNSELECTED
+db/diagnostic/errcodes.rs#L1572  const VARIANT_SPEC_UNSET
+db/diagnostic/errcodes.rs#L1576  const POWER_BRIDGE_LOOP
+db/diagnostic/errcodes.rs#L1580  const CLAMP_REF_NOT_PROTECTIVE
+db/diagnostic/errcodes.rs#L1586  const POWER_RAIL_DECODE
+db/diagnostic/errcodes.rs#L1591  const POWER_RAIL_TWO_ROOTS
+db/diagnostic/errcodes.rs#L1601  const POWER_SINK_NOMINAL_MISMATCH
+db/diagnostic/errcodes.rs#L1610  const POWER_PIN_DECODE
+db/diagnostic/errcodes.rs#L1620  const POWER_SOURCE_CONTENTION
+db/diagnostic/errcodes.rs#L1632  const ISOLATED_DC_BRIDGE
+db/diagnostic/errcodes.rs#L1641  const PROTECTIVE_MULTI_BRIDGE
+db/diagnostic/errcodes.rs#L1651  const EARTH_DC_LEAK
+db/diagnostic/errcodes.rs#L1663  const REFERENCE_ISLAND_ROOT
+db/diagnostic/errcodes.rs#L1673  const ROLE_REF_MISSING_BRIDGE
+db/diagnostic/errcodes.rs#L1684  const SINK_NET_NO_SOURCE
+db/diagnostic/errcodes.rs#L1692  const COMBINE_OUTPUT_TOL
+db/diagnostic/errcodes.rs#L1701  const NET_BUDGET_EXCEEDED
+db/diagnostic/errcodes.rs#L1714  const RETURN_LEG_UNDECLARED
+db/diagnostic/errcodes.rs#L1724  const POWER_CONVERTER_GATE
+db/diagnostic/errcodes.rs#L1733  const POWER_SINK_WINDOW_MISMATCH
+db/diagnostic/errcodes.rs#L1745  const POWER_CONVERTER_SPEC_INCOMPLETE
+db/diagnostic/errcodes.rs#L1756  const POWER_CONVERTER_OUTPUT_RAIL_WINDOW
+db/diagnostic/errcodes.rs#L1774  const DEVICE_RETURN_SPAN_UNDECLARED
+db/diagnostic/errcodes.rs#L1786  const DC_BINDING_DIR_MISMATCH
+db/diagnostic/errcodes.rs#L1790  const PORT_BIND_ROLE_MISMATCH
+db/diagnostic/errcodes.rs#L1803  const POWER_PIN_RETURN_MISSING
+db/diagnostic/errcodes.rs#L1815  const EXPOSED_NET_NO_CLAMP
+db/diagnostic/errcodes.rs#L1826  const PROTECT_SHUNT_NO_REFERENCE
+db/diagnostic/errcodes.rs#L1839  const PROTECT_SERIES_NOT_IN_PATH
+db/diagnostic/errcodes.rs#L1851  const RAIL_NATURE_MISMATCH
+db/diagnostic/errcodes.rs#L1886  const BRIDGE_LOAD_DECOUPLING_MISSING
+db/diagnostic/errcodes.rs#L1905  const SHUNT_DISSIPATION_OVER_RATING
+db/diagnostic/errcodes.rs#L1930  const DECOUPLING_RETURN_MISMATCH
+db/diagnostic/errcodes.rs#L1957  const SINK_PIN_NO_DECOUPLING
+db/diagnostic/errcodes.rs#L1982  const SENSITIVE_RETURN_ON_NOISY
+db/diagnostic/errcodes.rs#L2005  const ANALOG_RETURN_MISMATCH
+db/diagnostic/errcodes.rs#L2039  const SHARED_RETURN_BRIDGE
+db/diagnostic/errcodes.rs#L2073  const FILTER_SUBFACE_OVERREACH
+db/diagnostic/errcodes.rs#L2109  const EXPOSED_NET_DOWNSTREAM_UNPROTECTED
+db/diagnostic/errcodes.rs#L2123  const DOMAIN_ENDPOINT_NAME_COLLISION
+db/diagnostic/errcodes.rs#L2138  const PIN_COPPER_EXPECTATION_MISMATCH
+db/diagnostic/errcodes.rs#L2148  const PIN_COPPER_EXPECTATION_UNANCHORED
+db/diagnostic/errcodes.rs#L2163  const CROSS_BARRIER_NET
+db/diagnostic/errcodes.rs#L2176  const DOMAIN_NET_MIXED_BRIDGE
+db/diagnostic/errcodes.rs#L2189  const DOMAIN_BRIDGE_DIRECTION_REVERSED
+db/diagnostic/errcodes.rs#L2201  const DOMAIN_BRIDGE_LEG_INCONSISTENT
+db/diagnostic/errcodes.rs#L2212  const DOMAIN_BRIDGE_DANGLING
+db/diagnostic/errcodes.rs#L2214  static ALL_CODES
 db/diagnostic/mod.rs#L2  mod diagnostic
 db/diagnostic/mod.rs#L3  mod errcodes
 db/diagnostic/mod.rs#L4  mod override_store
@@ -2904,27 +2906,27 @@ instant/insttab.rs#L1650  fn net_count
 instant/insttab.rs#L1677  fn backfill_port_decl_pos
 instant/insttab.rs#L1695  fn port_decl_span_of
 instant/insttab.rs#L1703  fn flatten_module
-instant/insttab.rs#L2721  fn flatten_nets
-instant/insttab.rs#L2918  fn resolve_netpoint_path
-instant/insttab.rs#L2954  fn resolve_single_path
-instant/insttab.rs#L3001  fn dump
-instant/insttab.rs#L3087  fn write_known_missing
-instant/insttab.rs#L3136  fn collect_failed_records
-instant/insttab.rs#L3170  fn expand_bracket_list
-instant/insttab.rs#L3201  mod tests
-instant/insttab.rs#L3205  fn mat_insttab__register_and_lookup
-instant/insttab.rs#L3220  fn mat_insttab__no_duplicate_registration
-instant/insttab.rs#L3241  fn mat_insttab__children_of
-instant/insttab.rs#L3277  fn mat_insttab__id_uniqueness
-instant/insttab.rs#L3297  fn mat_insttab__resolve_bus_member_path_fallback
-instant/insttab.rs#L3332  fn mat_insttab__resolve_plain_dot_path_still_works
-instant/insttab.rs#L3362  fn mat_insttab__resolve_top_level_port_no_prefix
-instant/insttab.rs#L3385  fn mat_insttab__resolve_bracket_list_expands
-instant/insttab.rs#L3423  fn mat_insttab__resolve_bracket_partial_miss
-instant/insttab.rs#L3454  fn mat_insttab__resolve_missing_path_returns_empty
-instant/insttab.rs#L3469  fn mat_insttab__expand_bracket_list_syntax
-instant/insttab.rs#L3499  fn mat_insttab__element_class_comes_from_the_definition_spec_table
-instant/insttab.rs#L3501  const SRC
+instant/insttab.rs#L2722  fn flatten_nets
+instant/insttab.rs#L2919  fn resolve_netpoint_path
+instant/insttab.rs#L2955  fn resolve_single_path
+instant/insttab.rs#L3002  fn dump
+instant/insttab.rs#L3088  fn write_known_missing
+instant/insttab.rs#L3137  fn collect_failed_records
+instant/insttab.rs#L3171  fn expand_bracket_list
+instant/insttab.rs#L3202  mod tests
+instant/insttab.rs#L3206  fn mat_insttab__register_and_lookup
+instant/insttab.rs#L3221  fn mat_insttab__no_duplicate_registration
+instant/insttab.rs#L3242  fn mat_insttab__children_of
+instant/insttab.rs#L3278  fn mat_insttab__id_uniqueness
+instant/insttab.rs#L3298  fn mat_insttab__resolve_bus_member_path_fallback
+instant/insttab.rs#L3333  fn mat_insttab__resolve_plain_dot_path_still_works
+instant/insttab.rs#L3363  fn mat_insttab__resolve_top_level_port_no_prefix
+instant/insttab.rs#L3386  fn mat_insttab__resolve_bracket_list_expands
+instant/insttab.rs#L3424  fn mat_insttab__resolve_bracket_partial_miss
+instant/insttab.rs#L3455  fn mat_insttab__resolve_missing_path_returns_empty
+instant/insttab.rs#L3470  fn mat_insttab__expand_bracket_list_syntax
+instant/insttab.rs#L3500  fn mat_insttab__element_class_comes_from_the_definition_spec_table
+instant/insttab.rs#L3502  const SRC
 instant/island.rs#L45  enum NetRole
 instant/island.rs#L60  impl NetRole
 instant/island.rs#L61  fn as_str
@@ -3283,34 +3285,34 @@ instant/mc_mod/mod.rs#L579  impl std::fmt::Display for McModuleInst
 instant/mc_mod/mod.rs#L580  fn fmt
 instant/mc_mod/mod.rs#L645  mod tests
 instant/mc_mod/mod.rs#L664  fn mat_aname__sequence_lock
-instant/mc_mod/phases.rs#L34  impl InstantiationBuilder
-instant/mc_mod/phases.rs#L145  fn instantiate_interface
-instant/mc_mod/phases.rs#L456  fn inject_port_member_labels
-instant/mc_mod/phases.rs#L595  fn instantiate_declarations_resilient
-instant/mc_mod/phases.rs#L893  fn resolve_component_nc_pins
-instant/mc_mod/phases.rs#L962  fn resolve_module_nc_ports
-instant/mc_mod/phases.rs#L1028  fn report_nc_operand_miss
-instant/mc_mod/phases.rs#L1053  fn instantiate_stmts_resilient
-instant/mc_mod/phases.rs#L1160  fn dedup_connections
-instant/mc_mod/phases.rs#L1205  fn member_anchor
-instant/mc_mod/phases.rs#L1225  fn is_internal_member
-instant/mc_mod/phases.rs#L1261  fn validate_expanded_net_points
-instant/mc_mod/phases.rs#L1427  fn arg_declared_volt
-instant/mc_mod/phases.rs#L1448  fn bind_actual_args_to_ports
-instant/mc_mod/phases.rs#L1659  fn bind_call_args_to_ports
-instant/mc_mod/phases.rs#L1887  fn check_unbound_param_ports
-instant/mc_mod/phases.rs#L1969  fn run_component_constructor
-instant/mc_mod/phases.rs#L2156  fn iface_ordinal_member_names
-instant/mc_mod/phases.rs#L2172  fn extract_port_bus_members
-instant/mc_mod/phases.rs#L2244  fn read_iface_diff_pair
-instant/mc_mod/phases.rs#L2270  fn port_base_name
-instant/mc_mod/phases.rs#L2290  fn port_members
-instant/mc_mod/phases.rs#L2322  fn is_power_terminal
-instant/mc_mod/phases.rs#L2334  fn bindable_formals
-instant/mc_mod/phases.rs#L2364  fn declared_volt_of_params
-instant/mc_mod/phases.rs#L2386  fn declared_volt_of_texts
-instant/mc_mod/phases.rs#L2416  fn nc_port_hits
-instant/mc_mod/phases.rs#L2430  fn nc_port_range_hits
+instant/mc_mod/phases.rs#L32  impl InstantiationBuilder
+instant/mc_mod/phases.rs#L143  fn instantiate_interface
+instant/mc_mod/phases.rs#L454  fn inject_port_member_labels
+instant/mc_mod/phases.rs#L593  fn instantiate_declarations_resilient
+instant/mc_mod/phases.rs#L891  fn resolve_component_nc_pins
+instant/mc_mod/phases.rs#L960  fn resolve_module_nc_ports
+instant/mc_mod/phases.rs#L1026  fn report_nc_operand_miss
+instant/mc_mod/phases.rs#L1051  fn instantiate_stmts_resilient
+instant/mc_mod/phases.rs#L1158  fn dedup_connections
+instant/mc_mod/phases.rs#L1203  fn member_anchor
+instant/mc_mod/phases.rs#L1223  fn is_internal_member
+instant/mc_mod/phases.rs#L1259  fn validate_expanded_net_points
+instant/mc_mod/phases.rs#L1425  fn arg_declared_volt
+instant/mc_mod/phases.rs#L1446  fn bind_actual_args_to_ports
+instant/mc_mod/phases.rs#L1657  fn bind_call_args_to_ports
+instant/mc_mod/phases.rs#L1885  fn check_unbound_param_ports
+instant/mc_mod/phases.rs#L1967  fn run_component_constructor
+instant/mc_mod/phases.rs#L2154  fn iface_ordinal_member_names
+instant/mc_mod/phases.rs#L2170  fn extract_port_bus_members
+instant/mc_mod/phases.rs#L2244  fn read_iface_diff_groups
+instant/mc_mod/phases.rs#L2282  fn port_base_name
+instant/mc_mod/phases.rs#L2302  fn port_members
+instant/mc_mod/phases.rs#L2334  fn is_power_terminal
+instant/mc_mod/phases.rs#L2346  fn bindable_formals
+instant/mc_mod/phases.rs#L2376  fn declared_volt_of_params
+instant/mc_mod/phases.rs#L2398  fn declared_volt_of_texts
+instant/mc_mod/phases.rs#L2428  fn nc_port_hits
+instant/mc_mod/phases.rs#L2442  fn nc_port_range_hits
 instant/mc_mod/points.rs#L42  fn parse_curly_select
 instant/mc_mod/points.rs#L56  fn expand_member_ida
 instant/mc_mod/points.rs#L95  fn resolve_bare_member_pid
@@ -3566,44 +3568,44 @@ instant/mc_net.rs#L457  fn is_anon_net_name
 instant/mc_net.rs#L461  impl fmt::Display for ConnectionInst
 instant/mc_net.rs#L462  fn fmt
 instant/mc_net.rs#L482  struct PortInst
-instant/mc_net.rs#L557  impl PortInst
-instant/mc_net.rs#L559  fn new
-instant/mc_net.rs#L576  fn with_members
-instant/mc_net.rs#L592  fn is_bus_port
-instant/mc_net.rs#L604  fn path_suffixes
-instant/mc_net.rs#L651  struct PortPathSuffixes
-instant/mc_net.rs#L660  impl fmt::Display for PortInst
-instant/mc_net.rs#L661  fn fmt
-instant/mc_net.rs#L676  enum InstError
-instant/mc_net.rs#L716  impl fmt::Display for InstError
-instant/mc_net.rs#L717  fn fmt
-instant/mc_net.rs#L761  impl std::error::Error for InstError
-instant/mc_net.rs#L767  enum InstDiagLevel
-instant/mc_net.rs#L783  struct InstDiagnostic
-instant/mc_net.rs#L795  impl InstDiagnostic
-instant/mc_net.rs#L797  fn error
-instant/mc_net.rs#L807  fn warning
-instant/mc_net.rs#L817  impl fmt::Display for InstDiagnostic
-instant/mc_net.rs#L818  fn fmt
-instant/mc_net.rs#L841  fn normalize_pin_segments
-instant/mc_net.rs#L884  fn canonicalize_path
-instant/mc_net.rs#L926  struct NetTable
-instant/mc_net.rs#L940  impl NetTable
-instant/mc_net.rs#L941  fn new
-instant/mc_net.rs#L954  fn register_port
-instant/mc_net.rs#L1016  fn add_connection
-instant/mc_net.rs#L1158  fn tie_paths
-instant/mc_net.rs#L1189  fn batch_union_shared_nodes
-instant/mc_net.rs#L1228  fn into_nets
-instant/mc_net.rs#L1358  fn ensure_point
-instant/mc_net.rs#L1385  fn find
-instant/mc_net.rs#L1393  fn union
-instant/mc_net.rs#L1410  mod tests
-instant/mc_net.rs#L1414  fn dlu_net__canonicalize_arrow_residual
-instant/mc_net.rs#L1422  fn dlu_net__canonicalize_no_change
-instant/mc_net.rs#L1449  fn dlu_net__repeated_segment_is_identity
-instant/mc_net.rs#L1480  fn dlu_net__batch_union_merges_shared_nodes
-instant/mc_net.rs#L1522  fn dlu_net__duplicate_suffix_paths_stay_apart
+instant/mc_net.rs#L559  impl PortInst
+instant/mc_net.rs#L561  fn new
+instant/mc_net.rs#L578  fn with_members
+instant/mc_net.rs#L594  fn is_bus_port
+instant/mc_net.rs#L606  fn path_suffixes
+instant/mc_net.rs#L653  struct PortPathSuffixes
+instant/mc_net.rs#L662  impl fmt::Display for PortInst
+instant/mc_net.rs#L663  fn fmt
+instant/mc_net.rs#L678  enum InstError
+instant/mc_net.rs#L718  impl fmt::Display for InstError
+instant/mc_net.rs#L719  fn fmt
+instant/mc_net.rs#L763  impl std::error::Error for InstError
+instant/mc_net.rs#L769  enum InstDiagLevel
+instant/mc_net.rs#L785  struct InstDiagnostic
+instant/mc_net.rs#L797  impl InstDiagnostic
+instant/mc_net.rs#L799  fn error
+instant/mc_net.rs#L809  fn warning
+instant/mc_net.rs#L819  impl fmt::Display for InstDiagnostic
+instant/mc_net.rs#L820  fn fmt
+instant/mc_net.rs#L843  fn normalize_pin_segments
+instant/mc_net.rs#L886  fn canonicalize_path
+instant/mc_net.rs#L928  struct NetTable
+instant/mc_net.rs#L942  impl NetTable
+instant/mc_net.rs#L943  fn new
+instant/mc_net.rs#L956  fn register_port
+instant/mc_net.rs#L1018  fn add_connection
+instant/mc_net.rs#L1160  fn tie_paths
+instant/mc_net.rs#L1191  fn batch_union_shared_nodes
+instant/mc_net.rs#L1230  fn into_nets
+instant/mc_net.rs#L1360  fn ensure_point
+instant/mc_net.rs#L1387  fn find
+instant/mc_net.rs#L1395  fn union
+instant/mc_net.rs#L1412  mod tests
+instant/mc_net.rs#L1416  fn dlu_net__canonicalize_arrow_residual
+instant/mc_net.rs#L1424  fn dlu_net__canonicalize_no_change
+instant/mc_net.rs#L1451  fn dlu_net__repeated_segment_is_identity
+instant/mc_net.rs#L1482  fn dlu_net__batch_union_merges_shared_nodes
+instant/mc_net.rs#L1524  fn dlu_net__duplicate_suffix_paths_stay_apart
 instant/mod.rs#L5  mod arena
 instant/mod.rs#L6  mod deps
 instant/mod.rs#L7  mod descriptions
@@ -4854,28 +4856,28 @@ rules.rs#L1874  const FLAT_ERC_ORDER
 rules.rs#L1935  const GATE_ORDER
 rules.rs#L1943  const DECL_ORDER
 rules.rs#L1950  const POSTPARSE_ORDER
-rules.rs#L2071  fn flat_erc_first_rule_is_e4101_pilot
-rules.rs#L2083  fn declaration_order_is_execution_order
-rules.rs#L2091  fn owner_is_a_typed_fn_pointer_to_the_host_check
-rules.rs#L2103  fn catalog_queries_work
-rules.rs#L2147  fn declaration_rules_reproduce_the_pin_check_sequence
-rules.rs#L2178  fn flat_erc_governance_defaults_match_severity
-rules.rs#L2191  fn gate_rules_reproduce_the_report_row_set
-rules.rs#L2210  fn gate_report_levels_match_the_preregistry_levels
-rules.rs#L2245  fn assembly_gate_blocking_set_is_the_error_rows
-rules.rs#L2261  fn gate_tag_lookup_and_severity_query_work
-rules.rs#L2277  fn codes_and_names_unique_across_every_scope
-rules.rs#L2294  fn post_parse_rules_reproduce_the_registration_order
-rules.rs#L2308  fn post_parse_governance_defaults_match_the_semantic_layer
-rules.rs#L2334  fn every_rule_names_its_owner_severity_and_family_consistently
-rules.rs#L2348  const VIZ_LAYOUT_ORDER
-rules.rs#L2355  fn viz_layout_rows_are_aggregated_read_only
-rules.rs#L2378  fn viz_layout_governance_defaults_are_locked
-rules.rs#L2414  fn lock_ledger_projects_every_numeric_code_exactly_once
-rules.rs#L2443  fn lock_ledger_anchors_are_strong_or_documented_and_pinned
-rules.rs#L2473  fn query_rules_filters_axes_and_preserves_table_order
-rules.rs#L2548  struct PostParseRule
-rules.rs#L2609  static POSTPARSE_RULES
+rules.rs#L2073  fn flat_erc_first_rule_is_e4101_pilot
+rules.rs#L2085  fn declaration_order_is_execution_order
+rules.rs#L2093  fn owner_is_a_typed_fn_pointer_to_the_host_check
+rules.rs#L2105  fn catalog_queries_work
+rules.rs#L2149  fn declaration_rules_reproduce_the_pin_check_sequence
+rules.rs#L2180  fn flat_erc_governance_defaults_match_severity
+rules.rs#L2193  fn gate_rules_reproduce_the_report_row_set
+rules.rs#L2212  fn gate_report_levels_match_the_preregistry_levels
+rules.rs#L2247  fn assembly_gate_blocking_set_is_the_error_rows
+rules.rs#L2263  fn gate_tag_lookup_and_severity_query_work
+rules.rs#L2279  fn codes_and_names_unique_across_every_scope
+rules.rs#L2296  fn post_parse_rules_reproduce_the_registration_order
+rules.rs#L2310  fn post_parse_governance_defaults_match_the_semantic_layer
+rules.rs#L2336  fn every_rule_names_its_owner_severity_and_family_consistently
+rules.rs#L2350  const VIZ_LAYOUT_ORDER
+rules.rs#L2357  fn viz_layout_rows_are_aggregated_read_only
+rules.rs#L2380  fn viz_layout_governance_defaults_are_locked
+rules.rs#L2416  fn lock_ledger_projects_every_numeric_code_exactly_once
+rules.rs#L2445  fn lock_ledger_anchors_are_strong_or_documented_and_pinned
+rules.rs#L2476  fn query_rules_filters_axes_and_preserves_table_order
+rules.rs#L2551  struct PostParseRule
+rules.rs#L2612  static POSTPARSE_RULES
 semantic/basic/attr_keys.rs#L48  enum AttrFace
 semantic/basic/attr_keys.rs#L62  enum AttrValueKind
 semantic/basic/attr_keys.rs#L93  enum ElementClass
@@ -4901,65 +4903,66 @@ semantic/basic/attr_keys.rs#L253  const KEY_STAR
 semantic/basic/attr_keys.rs#L254  const KEY_PROTECT
 semantic/basic/attr_keys.rs#L259  const KEY_BARRIER
 semantic/basic/attr_keys.rs#L260  const KEY_BOND
-semantic/basic/attr_keys.rs#L265  const WORD_MAIN
-semantic/basic/attr_keys.rs#L266  const WORD_QUIET
-semantic/basic/attr_keys.rs#L267  const WORD_PROTECTIVE
-semantic/basic/attr_keys.rs#L268  const WORD_EARTH
-semantic/basic/attr_keys.rs#L269  const WORD_ISOLATED
-semantic/basic/attr_keys.rs#L270  const WORD_DIGITAL
-semantic/basic/attr_keys.rs#L271  const WORD_ANALOG
-semantic/basic/attr_keys.rs#L275  const WORD_RADIO
-semantic/basic/attr_keys.rs#L276  const WORD_NOISY
-semantic/basic/attr_keys.rs#L277  const WORD_SENSITIVE
-semantic/basic/attr_keys.rs#L278  const WORD_AC
-semantic/basic/attr_keys.rs#L279  const WORD_DC
-semantic/basic/attr_keys.rs#L280  const WORD_SHUNT
-semantic/basic/attr_keys.rs#L281  const WORD_SERIES
-semantic/basic/attr_keys.rs#L282  const WORD_ESD_CONTACT
-semantic/basic/attr_keys.rs#L283  const WORD_ESD_AIR
-semantic/basic/attr_keys.rs#L284  const WORD_EFT
-semantic/basic/attr_keys.rs#L285  const WORD_SURGE
-semantic/basic/attr_keys.rs#L286  const WORD_LIGHTNING
-semantic/basic/attr_keys.rs#L288  const ROLE_WORDS
-semantic/basic/attr_keys.rs#L295  const CLASS_WORDS
-semantic/basic/attr_keys.rs#L296  const NATURE_WORDS
-semantic/basic/attr_keys.rs#L297  const NOISE_WORDS
-semantic/basic/attr_keys.rs#L298  const EXPOSED_WORDS
-semantic/basic/attr_keys.rs#L305  const PROTECT_WORDS
-semantic/basic/attr_keys.rs#L313  const ATTR_KEYS
-semantic/basic/attr_keys.rs#L527  const fn
-semantic/basic/attr_keys.rs#L545  const fn
-semantic/basic/attr_keys.rs#L564  const fn
-semantic/basic/attr_keys.rs#L587  const fn
-semantic/basic/attr_keys.rs#L608  const fn
-semantic/basic/attr_keys.rs#L627  const fn
-semantic/basic/attr_keys.rs#L645  const fn
-semantic/basic/attr_keys.rs#L665  fn lookup
-semantic/basic/attr_keys.rs#L675  fn value_kind
-semantic/basic/attr_keys.rs#L686  fn arity_of
-semantic/basic/attr_keys.rs#L696  fn element_of_key
-semantic/basic/attr_keys.rs#L704  fn element_of_spec_key
-semantic/basic/attr_keys.rs#L715  fn vocab_of
-semantic/basic/attr_keys.rs#L736  const SPEC_TABLE_KEY
-semantic/basic/attr_keys.rs#L738  fn is_table_namespace
-semantic/basic/attr_keys.rs#L746  fn is_reserved
-semantic/basic/attr_keys.rs#L754  fn is_known_key
-semantic/basic/attr_keys.rs#L759  mod tests
-semantic/basic/attr_keys.rs#L763  fn attrkeys__spec_key_carries_its_unit
-semantic/basic/attr_keys.rs#L780  fn attrkeys__standalone_key_carries_its_kind
-semantic/basic/attr_keys.rs#L789  fn attrkeys__lookup_is_exact_and_whole
-semantic/basic/attr_keys.rs#L804  fn attrkeys__face_decides_which_namespace_answers
-semantic/basic/attr_keys.rs#L823  fn attrkeys__contract_half_pairs_demand_with_supply
-semantic/basic/attr_keys.rs#L847  fn attrkeys__clipped_spec_key_is_not_registered
-semantic/basic/attr_keys.rs#L872  fn attrkeys__bom_field_has_no_spec_row
-semantic/basic/attr_keys.rs#L882  fn attrkeys__unregistered_device_key_is_silent
-semantic/basic/attr_keys.rs#L891  fn attrkeys__registered_spec_key_is_not_reserved
-semantic/basic/attr_keys.rs#L899  fn attrkeys__element_column_marks_the_keys_that_decide_the_class
-semantic/basic/attr_keys.rs#L930  fn attrkeys__element_lookup_is_whole_and_exact
-semantic/basic/attr_keys.rs#L946  fn attrkeys__vocab_column_registers_the_closed_word_sets
-semantic/basic/attr_keys.rs#L965  fn attrkeys__vocab_is_absent_where_values_are_open
-semantic/basic/attr_keys.rs#L981  fn attrkeys__open_vocab_judges_presence_not_spelling
-semantic/basic/attr_keys.rs#L999  fn attrkeys__spec_namespace_is_derived_from_the_rows
+semantic/basic/attr_keys.rs#L265  const KEY_PAIR
+semantic/basic/attr_keys.rs#L270  const WORD_MAIN
+semantic/basic/attr_keys.rs#L271  const WORD_QUIET
+semantic/basic/attr_keys.rs#L272  const WORD_PROTECTIVE
+semantic/basic/attr_keys.rs#L273  const WORD_EARTH
+semantic/basic/attr_keys.rs#L274  const WORD_ISOLATED
+semantic/basic/attr_keys.rs#L275  const WORD_DIGITAL
+semantic/basic/attr_keys.rs#L276  const WORD_ANALOG
+semantic/basic/attr_keys.rs#L280  const WORD_RADIO
+semantic/basic/attr_keys.rs#L281  const WORD_NOISY
+semantic/basic/attr_keys.rs#L282  const WORD_SENSITIVE
+semantic/basic/attr_keys.rs#L283  const WORD_AC
+semantic/basic/attr_keys.rs#L284  const WORD_DC
+semantic/basic/attr_keys.rs#L285  const WORD_SHUNT
+semantic/basic/attr_keys.rs#L286  const WORD_SERIES
+semantic/basic/attr_keys.rs#L287  const WORD_ESD_CONTACT
+semantic/basic/attr_keys.rs#L288  const WORD_ESD_AIR
+semantic/basic/attr_keys.rs#L289  const WORD_EFT
+semantic/basic/attr_keys.rs#L290  const WORD_SURGE
+semantic/basic/attr_keys.rs#L291  const WORD_LIGHTNING
+semantic/basic/attr_keys.rs#L293  const ROLE_WORDS
+semantic/basic/attr_keys.rs#L300  const CLASS_WORDS
+semantic/basic/attr_keys.rs#L301  const NATURE_WORDS
+semantic/basic/attr_keys.rs#L302  const NOISE_WORDS
+semantic/basic/attr_keys.rs#L303  const EXPOSED_WORDS
+semantic/basic/attr_keys.rs#L310  const PROTECT_WORDS
+semantic/basic/attr_keys.rs#L318  const ATTR_KEYS
+semantic/basic/attr_keys.rs#L538  const fn
+semantic/basic/attr_keys.rs#L556  const fn
+semantic/basic/attr_keys.rs#L575  const fn
+semantic/basic/attr_keys.rs#L598  const fn
+semantic/basic/attr_keys.rs#L619  const fn
+semantic/basic/attr_keys.rs#L638  const fn
+semantic/basic/attr_keys.rs#L656  const fn
+semantic/basic/attr_keys.rs#L676  fn lookup
+semantic/basic/attr_keys.rs#L686  fn value_kind
+semantic/basic/attr_keys.rs#L697  fn arity_of
+semantic/basic/attr_keys.rs#L707  fn element_of_key
+semantic/basic/attr_keys.rs#L715  fn element_of_spec_key
+semantic/basic/attr_keys.rs#L726  fn vocab_of
+semantic/basic/attr_keys.rs#L747  const SPEC_TABLE_KEY
+semantic/basic/attr_keys.rs#L749  fn is_table_namespace
+semantic/basic/attr_keys.rs#L757  fn is_reserved
+semantic/basic/attr_keys.rs#L765  fn is_known_key
+semantic/basic/attr_keys.rs#L770  mod tests
+semantic/basic/attr_keys.rs#L774  fn attrkeys__spec_key_carries_its_unit
+semantic/basic/attr_keys.rs#L791  fn attrkeys__standalone_key_carries_its_kind
+semantic/basic/attr_keys.rs#L800  fn attrkeys__lookup_is_exact_and_whole
+semantic/basic/attr_keys.rs#L815  fn attrkeys__face_decides_which_namespace_answers
+semantic/basic/attr_keys.rs#L837  fn attrkeys__contract_half_pairs_demand_with_supply
+semantic/basic/attr_keys.rs#L861  fn attrkeys__clipped_spec_key_is_not_registered
+semantic/basic/attr_keys.rs#L886  fn attrkeys__bom_field_has_no_spec_row
+semantic/basic/attr_keys.rs#L896  fn attrkeys__unregistered_device_key_is_silent
+semantic/basic/attr_keys.rs#L905  fn attrkeys__registered_spec_key_is_not_reserved
+semantic/basic/attr_keys.rs#L913  fn attrkeys__element_column_marks_the_keys_that_decide_the_class
+semantic/basic/attr_keys.rs#L944  fn attrkeys__element_lookup_is_whole_and_exact
+semantic/basic/attr_keys.rs#L960  fn attrkeys__vocab_column_registers_the_closed_word_sets
+semantic/basic/attr_keys.rs#L979  fn attrkeys__vocab_is_absent_where_values_are_open
+semantic/basic/attr_keys.rs#L995  fn attrkeys__open_vocab_judges_presence_not_spelling
+semantic/basic/attr_keys.rs#L1019  fn attrkeys__spec_namespace_is_derived_from_the_rows
 semantic/basic/equivalent.rs#L27  fn member_set
 semantic/basic/equivalent.rs#L38  fn canonical_single
 semantic/basic/equivalent.rs#L51  fn are_equivalent
@@ -7130,21 +7133,22 @@ semantic/validation/gate.rs#L107  fn run_post_parse
 semantic/validation/gate.rs#L113  fn check_gate_candidates
 semantic/validation/gate.rs#L184  fn recheck_owner
 semantic/validation/gate.rs#L261  fn base_declared_by_finish
-semantic/validation/hw.rs#L19  struct HwCheck
-semantic/validation/hw.rs#L21  impl ValidationCheck for HwCheck
-semantic/validation/hw.rs#L22  fn name
-semantic/validation/hw.rs#L25  fn phase
-semantic/validation/hw.rs#L28  fn default_severity
-semantic/validation/hw.rs#L32  fn run_post_parse
-semantic/validation/hw.rs#L45  fn check_power_pin_no_voltage
-semantic/validation/hw.rs#L209  fn check_pin_id_gaps
-semantic/validation/hw.rs#L282  fn check_pin_count_extremes
-semantic/validation/hw.rs#L340  fn check_role_peer_dangling
-semantic/validation/hw.rs#L419  fn check_role_peer_mutual_and_width
-semantic/validation/hw.rs#L503  fn is_relay_peer_decl
-semantic/validation/hw.rs#L519  fn peer_role_names
-semantic/validation/hw.rs#L548  fn check_single_ioc_type_component
-semantic/validation/hw.rs#L630  fn check_func_param_pin_shadow
+semantic/validation/hw.rs#L20  struct HwCheck
+semantic/validation/hw.rs#L22  impl ValidationCheck for HwCheck
+semantic/validation/hw.rs#L23  fn name
+semantic/validation/hw.rs#L26  fn phase
+semantic/validation/hw.rs#L29  fn default_severity
+semantic/validation/hw.rs#L33  fn run_post_parse
+semantic/validation/hw.rs#L47  fn check_power_pin_no_voltage
+semantic/validation/hw.rs#L211  fn check_pin_id_gaps
+semantic/validation/hw.rs#L284  fn check_pin_count_extremes
+semantic/validation/hw.rs#L342  fn check_role_peer_dangling
+semantic/validation/hw.rs#L421  fn check_role_peer_mutual_and_width
+semantic/validation/hw.rs#L514  fn check_iface_pair_groups
+semantic/validation/hw.rs#L591  fn is_relay_peer_decl
+semantic/validation/hw.rs#L607  fn peer_role_names
+semantic/validation/hw.rs#L636  fn check_single_ioc_type_component
+semantic/validation/hw.rs#L718  fn check_func_param_pin_shadow
 semantic/validation/iface_role_arg.rs#L29  struct IfaceRoleArgCheck
 semantic/validation/iface_role_arg.rs#L31  impl ValidationCheck for IfaceRoleArgCheck
 semantic/validation/iface_role_arg.rs#L32  fn name
@@ -8414,26 +8418,26 @@ vector/model/mod.rs#L15  mod vec
 vector/model/net.rs#L27  enum RailClass
 vector/model/net.rs#L41  struct RailSpec
 vector/model/net.rs#L54  enum AttrRole
-vector/model/net.rs#L81  struct DiffFace
-vector/model/net.rs#L89  impl DiffFace
-vector/model/net.rs#L90  fn new
-vector/model/net.rs#L105  struct NetAttrMirror
-vector/model/net.rs#L145  enum ConnectionType
-vector/model/net.rs#L163  impl fmt::Display for ConnectionType
-vector/model/net.rs#L164  fn fmt
-vector/model/net.rs#L180  struct McVecNet
-vector/model/net.rs#L221  enum PortFlow
-vector/model/net.rs#L234  struct BoundaryInfo
-vector/model/net.rs#L256  impl McVecNet
-vector/model/net.rs#L258  fn new
-vector/model/net.rs#L274  fn with_shape
-vector/model/net.rs#L306  fn connection_type
-vector/model/net.rs#L338  fn shape_type_key
-vector/model/net.rs#L379  fn shape_type_name
-vector/model/net.rs#L393  fn all_point_ids
-vector/model/net.rs#L406  fn total_points
-vector/model/net.rs#L411  impl fmt::Display for McVecNet
-vector/model/net.rs#L412  fn fmt
+vector/model/net.rs#L82  struct DiffFace
+vector/model/net.rs#L90  impl DiffFace
+vector/model/net.rs#L91  fn new
+vector/model/net.rs#L106  struct NetAttrMirror
+vector/model/net.rs#L146  enum ConnectionType
+vector/model/net.rs#L164  impl fmt::Display for ConnectionType
+vector/model/net.rs#L165  fn fmt
+vector/model/net.rs#L181  struct McVecNet
+vector/model/net.rs#L222  enum PortFlow
+vector/model/net.rs#L235  struct BoundaryInfo
+vector/model/net.rs#L257  impl McVecNet
+vector/model/net.rs#L259  fn new
+vector/model/net.rs#L275  fn with_shape
+vector/model/net.rs#L307  fn connection_type
+vector/model/net.rs#L339  fn shape_type_key
+vector/model/net.rs#L380  fn shape_type_name
+vector/model/net.rs#L394  fn all_point_ids
+vector/model/net.rs#L407  fn total_points
+vector/model/net.rs#L412  impl fmt::Display for McVecNet
+vector/model/net.rs#L413  fn fmt
 vector/model/netshape.rs#L68  struct LaneRef
 vector/model/netshape.rs#L75  impl LaneRef
 vector/model/netshape.rs#L76  fn new
@@ -10146,16 +10150,16 @@ viz/project.rs#L1052  fn endpoint_is_out_power
 viz/project.rs#L1067  fn endpoint_is_component_pwr_source
 viz/project.rs#L1089  fn endpoint_is_fed_passive_hop
 viz/project.rs#L1140  fn is_child_module_psrc_port
-viz/project.rs#L1190  fn detect_net_attr
-viz/project.rs#L1299  fn is_rail_source_in_subblock
-viz/project.rs#L1334  struct Dsu
-viz/project.rs#L1338  impl Dsu
-viz/project.rs#L1339  fn new
-viz/project.rs#L1344  fn find
-viz/project.rs#L1351  fn union
-viz/project.rs#L1361  mod tests
-viz/project.rs#L1371  fn entry_uri
-viz/project.rs#L1409  fn hbl1_root_net_ret_lineage
+viz/project.rs#L1191  fn detect_net_attr
+viz/project.rs#L1300  fn is_rail_source_in_subblock
+viz/project.rs#L1335  struct Dsu
+viz/project.rs#L1339  impl Dsu
+viz/project.rs#L1340  fn new
+viz/project.rs#L1345  fn find
+viz/project.rs#L1352  fn union
+viz/project.rs#L1362  mod tests
+viz/project.rs#L1372  fn entry_uri
+viz/project.rs#L1410  fn hbl1_root_net_ret_lineage
 viz/render/capacitor.rs#L23  struct CapacitorShape
 viz/render/capacitor.rs#L25  impl BoxShape for CapacitorShape
 viz/render/capacitor.rs#L26  fn render
@@ -11101,4 +11105,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-403 files, 11018 declarations.
+403 files, 11022 declarations.

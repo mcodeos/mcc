@@ -14,14 +14,12 @@ use super::{InstantiationBuilder, McModuleInst};
 use crate::instant::mc_comp::McComponentInst;
 use crate::instant::mc_net::{canonicalize_path, ConnectionInst, InstError, NetPoint, PortInst};
 use crate::instant::provenance::ExpansionKind;
-use crate::semantic::basic::mc_expr::McExpression;
 use crate::semantic::basic::mc_ids::IdsSegment;
 use crate::semantic::basic::mc_param::{McParamBindings, McParamValue};
 use crate::semantic::basic::mc_param_type::{McIoTy, McParamTypeKind};
 use crate::semantic::basic::mc_paramd::McParamDeclareKind;
 use crate::semantic::basic::mc_uval::McUnit;
 use crate::semantic::common::{ConnDir, ConnOp, IOType};
-use crate::semantic::component::mc_attr::McAttrVal;
 use crate::semantic::component::McComponent;
 use crate::semantic::mc_ifs::{Mc2Interface, McInterface};
 use crate::semantic::mc_inst::McInstance;
@@ -282,15 +280,15 @@ impl InstantiationBuilder {
                 _ => None,
             };
 
-            // Interface-declared differential pair (CIMP §1 U61). The interface
-            // body names which two of its own pins are the faces of one pair
-            // (`diff_pair = [P, N]`), 1st = positive. Like the DC pair, the
-            // pair is a property of the DECLARATION: a port whose interface
-            // declares none carries `None`, and no spelling of a net name is
-            // ever consulted.
-            let diff_pair: Option<(String, String)> = match inst {
-                McInstance::Interface(iface) => read_iface_diff_pair(&iface.base),
-                _ => None,
+            // Interface-declared differential pairs (diff-pair-design.md,
+            // ruled 2026-09-23). The interface's member rows carry `@pair`
+            // tags; the two rows sharing a group are the faces of one pair,
+            // in member order. Like the DC pair, the pair is a property of
+            // the DECLARATION: a port whose interface declares none carries
+            // none, and no spelling of a net name is ever consulted.
+            let diff_pair: Vec<(String, String)> = match inst {
+                McInstance::Interface(iface) => read_iface_diff_groups(&iface.base),
+                _ => Vec::new(),
             };
 
             // Phase C1: intern the port's canonical path before it enters the
@@ -2234,31 +2232,45 @@ fn extract_port_bus_members(inst: &McInstance, _port_name: &str) -> Vec<String> 
     }
 }
 
-/// Read an interface body's `diff_pair = [A, B]` declaration as its two faces,
-/// in declaration order — the first is the positive one.
+/// Read an interface body's `@pair(group)` member-row tags as the pairs they
+/// declare: one `(leg_a, leg_b)` tuple per group, legs in member order (the
+/// language declares no polarity; the first member is the derived leg A).
 ///
-/// `None` unless the key is written with exactly two member names, so an
-/// incomplete or oversized declaration declares no pair rather than a guessed
-/// one. The names are the interface's own pin names; nothing here compares
-/// them with a net name.
-fn read_iface_diff_pair(base: &McInterface) -> Option<(String, String)> {
-    let attr = base.attrs.find(&crate::McIds::from("diff_pair"))?;
-    for val in &attr.values {
-        let McAttrVal::AttrExpr(McExpression::Set(faces)) = val else {
+/// The group name is the interface author's own identifier — equality of the
+/// tag is the only operation. Only a group with exactly two legs becomes a
+/// tuple; a diseased count is the definition-side gate's verdict
+/// (HW_IFACE_PAIR_NOT_TWO), never flattened into a guessed pair. Nothing here
+/// compares a member name with a net name.
+fn read_iface_diff_groups(base: &McInterface) -> Vec<(String, String)> {
+    let pair_key = crate::semantic::basic::attr_keys::KEY_PAIR;
+    let mut groups: Vec<(String, Vec<String>)> = Vec::new();
+    for (name, id) in base.pins.member_entries() {
+        let Some(pin) = base.pins.pins.get(&id) else {
             continue;
         };
-        let mut names = Vec::new();
-        for face in faces {
-            let McExpression::Variable(opd) = face else {
-                return None;
-            };
-            names.push(opd.to_string());
-        }
-        if names.len() == 2 {
-            return Some((names[0].clone(), names[1].clone()));
+        let Some(group) = crate::semantic::module::pi::attr_texts(&pin.attrs, pair_key)
+            .into_iter()
+            .next()
+        else {
+            continue;
+        };
+        match groups.iter_mut().find(|(g, _)| *g == group) {
+            Some((_, members)) => members.push(name),
+            None => groups.push((group, vec![name])),
         }
     }
-    None
+    groups
+        .into_iter()
+        .filter_map(|(_, members)| {
+            if members.len() != 2 {
+                return None;
+            }
+            let mut it = members.into_iter();
+            let a = it.next()?;
+            let b = it.next()?;
+            Some((a, b))
+        })
+        .collect()
 }
 
 /// Get port base name: strip `{...}` / `[...]` suffix.

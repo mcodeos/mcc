@@ -258,6 +258,11 @@ pub(crate) const KEY_PROTECT: &str = "protect";
 /// (§4: a branch with no member is not landed).
 pub(crate) const KEY_BARRIER: &str = "barrier";
 pub(crate) const KEY_BOND: &str = "bond";
+/// The differential-pair axis (diff-pair-design.md, ruled 2026-09-23): the
+/// two member rows sharing a `pair` group are the legs of one differential
+/// signal. The group name is the interface author's own identifier, so the
+/// row registers Open like its barrier/bond siblings.
+pub(crate) const KEY_PAIR: &str = "pair";
 
 /// The words of the closed sets the rows below register. `role` and `bind_role`
 /// share one set, which is what the canon says of them: `bind_role` takes the
@@ -367,6 +372,11 @@ pub(crate) const ATTR_KEYS: &[AttrKeyDef] = &[
     // later). Reserving the row now keeps the two twin keys one shape, so the
     // day a reverse gate lands the ledger does not move.
     open_row(KEY_BOND, PIN, AttrValueKind::Text),
+    // `pair` (diff-pair-design.md, ruled 2026-09-23) is the row-attr twin the
+    // same shape rides: the two interface member rows sharing a group are the
+    // legs of one differential signal. Open vocabulary, PinRow face, and the
+    // retired `diff_pair` body key is its predecessor, not a synonym.
+    open_row(KEY_PAIR, PIN, AttrValueKind::Text),
     // Voltage words a component body may state its supply voltage with.
     voltage_row(
         "voltage",
@@ -519,9 +529,10 @@ pub(crate) const ATTR_KEYS: &[AttrKeyDef] = &[
         AttrValueKind::Quantity(McUnit::Volt),
         AttrContract::Supply,
     ),
-    // The differential pair an interface body declares (`mcode/ifs/adcdiff.mc`):
-    // two of its own pins, the first named being the positive face.
-    value_row("diff_pair", IFACE, AttrValueKind::Text),
+    // The differential pair an interface declares now lives on its member
+    // rows (`@pair(group)`, diff-pair-design.md ruled 2026-09-23); the old
+    // `diff_pair` body key is retired and warns from the definition-side
+    // gate (hw.rs). No row here on purpose.
 ];
 
 const fn row(key: &'static str, faces: &'static [AttrFace], general: bool) -> AttrKeyDef {
@@ -815,8 +826,11 @@ mod tests {
         assert_eq!(lookup("output").map(|d| d.faces), Some(IFACE));
         assert_eq!(lookup("spec.output").map(|d| d.faces), Some(SPEC));
         assert!(!lookup("spec.output").is_some_and(|d| d.faces.contains(&AttrFace::Interface)));
-        // `diff_pair` is written by an interface body and by nothing else.
-        assert_eq!(lookup("diff_pair").map(|d| d.faces), Some(IFACE));
+        // `pair` is written on interface member rows and by nothing else
+        // (diff-pair-design.md, ruled 2026-09-23); the retired `diff_pair`
+        // body key keeps no row at all.
+        assert_eq!(lookup(KEY_PAIR).map(|d| d.faces), Some(PIN));
+        assert!(lookup("diff_pair").is_none());
     }
 
     #[test]
@@ -984,6 +998,7 @@ mod tests {
         // presence is judged, the spelling never is.
         assert_eq!(vocab_of(KEY_BARRIER), Some(AttrVocab::Open));
         assert_eq!(vocab_of(KEY_BOND), Some(AttrVocab::Open));
+        assert_eq!(vocab_of(KEY_PAIR), Some(AttrVocab::Open));
         // PinRow face only, and the row form is the only write form: the word
         // is not a general body key (N1), the value kind is a name.
         assert!(lookup(KEY_BARRIER)
@@ -993,6 +1008,11 @@ mod tests {
         assert!(!lookup(KEY_BARRIER).unwrap().faces.contains(&AttrFace::Body));
         assert!(is_reserved(KEY_BARRIER));
         assert_eq!(value_kind(KEY_BARRIER), Some(AttrValueKind::Text));
+        // `pair` shares the shape: PinRow face, reserved, open group name.
+        assert!(lookup(KEY_PAIR).unwrap().faces.contains(&AttrFace::PinRow));
+        assert!(!lookup(KEY_PAIR).unwrap().faces.contains(&AttrFace::Body));
+        assert!(is_reserved(KEY_PAIR));
+        assert_eq!(value_kind(KEY_PAIR), Some(AttrValueKind::Text));
     }
 
     #[test]

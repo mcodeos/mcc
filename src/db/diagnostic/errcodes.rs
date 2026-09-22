@@ -1531,6 +1531,14 @@ pub const HW_FUNC_PARAM_SHADOWS_PIN: u32 = 5510;
 /// `out` direction word at their adoption rows.
 pub const IFACE_DIR_CONFLICT: u32 = 5511;
 
+/// A `@pair(group)` group on an interface member table has other than two
+/// legs — a differential signal has exactly two faces.
+pub const HW_IFACE_PAIR_NOT_TWO: u32 = 5512;
+
+/// The retired `diff_pair` interface-body key is still written; the member
+/// rows must carry `@pair(group)` tags instead.
+pub const HW_IFACE_DIFF_PAIR_RETIRED: u32 = 5513;
+
 // Pass3: type / unit compatibility (5550-5599)
 
 /// Incompatible types or unit types.
@@ -2594,6 +2602,8 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(HW_ALL_SAME_IO_TYPE, "Only one active IO type across all pins.", "Only one active IO type is present across the component's pins; the remaining pins declare no direction. Verify the pin definitions are complete."),
     entry!(HW_IFACE_PEER_NOT_MUTUAL, "Interface role peer is not mutual.", "Interface role names a peer that does not name it back; peer pairs must be mutual (interface-connect-rule-design.md §3.3 A). Exempt when either side declares a multi-peer relay set (D8)."),
     entry!(HW_IFACE_PEER_WIDTH_MISMATCH, "Interface role peer width mismatch.", "Interface role and its declared peer declare different member widths (interface-connect-rule-design.md §3.3 B). Exempt when either side declares a multi-peer relay set (D8)."),
+    entry!(HW_IFACE_PAIR_NOT_TWO, "A @pair group does not have two legs.", "A differential pair has exactly two faces: the interface member rows sharing a @pair(group) tag must be two rows, no more and no fewer (diff-pair-design.md §3.2)."),
+    entry!(HW_IFACE_DIFF_PAIR_RETIRED, "The diff_pair key is retired.", "The interface body still writes `diff_pair = [A, B]`; tag the member rows with @pair(group) instead — the two rows sharing a group are the legs of one differential signal (diff-pair-design.md, ruled 2026-09-23)."),
 
     entry!(HW_FUNC_PARAM_SHADOWS_PIN, "Function parameter shadows a pin name.", "Function parameter shadows a pin name."),
     // section
