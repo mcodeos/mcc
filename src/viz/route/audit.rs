@@ -19,7 +19,7 @@
 //! (a pin touching the box edge is normal).
 
 use crate::vector::graph::{McVecGraph, Segment};
-use crate::viz::layout::equipotential_tree::{EquiTree, Segment as TreeSeg};
+use crate::viz::layout::equipotential_tree::{EquiTree, RowOverlap, seg_row_overlap};
 
 const EPS: f64 = 0.5; // Tolerance for floating-point comparison
 const BOX_INFLATE: f64 = 2.0; // Inflation for box collision detection
@@ -193,26 +193,16 @@ pub fn audit_tree_row_overlaps(trees: &[EquiTree]) -> TreeOverlapReport {
         for j in (i + 1)..trees.len() {
             for a in &trees[i].segments {
                 for b in &trees[j].segments {
-                    if !collinear_overlap(a, b) {
+                    // Same predicate the reconciler fixes with — one definition.
+                    let Some(ov) = seg_row_overlap(a, b) else {
                         continue;
-                    }
+                    };
                     rep.row_overlap += 1;
                     if rep.details.len() < 200 {
-                        let a_h = (a.y1 - a.y2).abs() < EPS;
-                        let (pos, lo, hi) = if a_h {
-                            (
-                                a.y1,
-                                a.x1.min(a.x2).max(b.x1.min(b.x2)),
-                                a.x1.max(a.x2).min(b.x1.max(b.x2)),
-                            )
-                        } else {
-                            (
-                                a.x1,
-                                a.y1.min(a.y2).max(b.y1.min(b.y2)),
-                                a.y1.max(a.y2).min(b.y1.max(b.y2)),
-                            )
+                        let (axis, pos, lo, hi) = match ov {
+                            RowOverlap::Horizontal { y, lo, hi } => ("y", y, lo, hi),
+                            RowOverlap::Vertical { x, lo, hi } => ("x", x, lo, hi),
                         };
-                        let axis = if a_h { "y" } else { "x" };
                         rep.details.push(format!(
                             "row-overlap: '{}' × '{}' on {}={:.0} span {:.0}..{:.0}",
                             trees[i].net_name,
@@ -230,29 +220,6 @@ pub fn audit_tree_row_overlaps(trees: &[EquiTree]) -> TreeOverlapReport {
     rep
 }
 
-fn collinear_overlap(a: &TreeSeg, b: &TreeSeg) -> bool {
-    let a_h = (a.y1 - a.y2).abs() < EPS;
-    let b_h = (b.y1 - b.y2).abs() < EPS;
-    if a_h && b_h {
-        (a.y1 - b.y1).abs() < EPS
-            && ranges_overlap(
-                a.x1.min(a.x2),
-                a.x1.max(a.x2),
-                b.x1.min(b.x2),
-                b.x1.max(b.x2),
-            )
-    } else if !a_h && !b_h {
-        (a.x1 - b.x1).abs() < EPS
-            && ranges_overlap(
-                a.y1.min(a.y2),
-                a.y1.max(a.y2),
-                b.y1.min(b.y2),
-                b.y1.max(b.y2),
-            )
-    } else {
-        false
-    }
-}
 
 /// Whether the net at `net_index` crosses wires of **other nets**, or passes through
 /// boxes of **non-own endpoints** (geometric check, doesn't rely on reservation
@@ -416,6 +383,7 @@ fn ranges_overlap(a0: f64, a1: f64, b0: f64, b1: f64) -> bool {
 mod tests {
     use super::*;
     use crate::vector::graph::Point;
+    use crate::viz::layout::equipotential_tree::Segment as TreeSeg;
 
     fn seg(x0: f64, y0: f64, x1: f64, y1: f64) -> Segment {
         Segment {
