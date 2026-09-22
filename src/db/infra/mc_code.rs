@@ -85,6 +85,11 @@ pub struct McCode {
     pub(crate) content: String,
     pub(crate) pass1_complete: bool,
     pub(crate) modules_parsed: bool,
+    /// Disk mtime captured when the file was read (`McCode::new`); `None` for
+    /// in-memory sources (`new_from_string` / `new_empty`), whose content is
+    /// authoritative regardless of what disk holds. The loader compares it
+    /// against the current mtime to decide whether a re-read is needed.
+    pub(crate) disk_mtime: Option<std::time::SystemTime>,
     /// ★ §7.6: Use table needs refresh because a `use`d file changed.
     pub(crate) use_table_dirty: bool,
     /// ★ Cross-file class ref targets cached from create_lapper() for consolidate_ref_def_map().
@@ -260,10 +265,14 @@ impl McCode {
         //case2: mcode abs
         //case3: mcb_add  abs
         //case4: cmie (name -> abs path)
-        if fs::metadata(Path::new(&uri)).is_err() {
-            tracing::debug!(target: "mcc::code", uri = %uri, "file not found");
-            return None;
-        }
+        let meta = match fs::metadata(Path::new(&uri)) {
+            Ok(m) => m,
+            Err(_) => {
+                tracing::debug!(target: "mcc::code", uri = %uri, "file not found");
+                return None;
+            }
+        };
+        let disk_mtime = meta.modified().ok();
 
         let canonical_uri = crate::build::pass1::canonicalize_project_uri(uri);
         Some(McCode {
@@ -279,6 +288,7 @@ impl McCode {
             content: String::new(),
             pass1_complete: false,
             modules_parsed: false,
+            disk_mtime,
             use_table_dirty: false,
             cross_file_targets: Vec::new(),
         })
@@ -297,6 +307,7 @@ impl McCode {
             content: String::new(),
             pass1_complete: false,
             modules_parsed: false,
+            disk_mtime: None,
             use_table_dirty: false,
             cross_file_targets: Vec::new(),
         }
@@ -317,6 +328,7 @@ impl McCode {
             content: content.to_string(),
             pass1_complete: false,
             modules_parsed: false,
+            disk_mtime: None,
             use_table_dirty: false,
             cross_file_targets: Vec::new(),
         })
