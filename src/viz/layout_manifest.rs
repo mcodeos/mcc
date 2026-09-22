@@ -19,8 +19,71 @@ use crate::vector::graph::{EntrySide, LayerStyle, McVecGraph};
 use crate::viz::api::RenderedLayer;
 use crate::viz::layout::equipotential_tree::build_all_trees;
 
+/// Component parameters keyed by hierarchical instance path (`main.R1`):
+/// value (first positional parameter as written), partno, package — the same
+/// resolution chain the KiCad netlist export uses, so the drawing and the
+/// netlist cannot disagree about what a part is.
+pub fn collect_params(
+    tree: &crate::McModuleInst,
+    arena: &crate::instant::arena::NodeArena,
+    store: &crate::instant::inststore::InstanceStore,
+) -> std::collections::BTreeMap<String, Value> {
+    use crate::instant::inststore::TreeView;
+    use crate::instant::mc_comp::McComponentInst;
+    let view = TreeView::new(arena, store);
+    let mut out: std::collections::BTreeMap<String, Value> = std::collections::BTreeMap::new();
+    fn attr_text(c: &McComponentInst, key: &str) -> Option<String> {
+        use crate::semantic::component::mc_attr::attr_values_text;
+        for attr in &c.resolved_attrs {
+            if attr.id.segments.len() == 1 && attr.id.segments[0].to_string() == key {
+                if let Some(t) = attr_values_text(attr.values.iter()) {
+                    return Some(t);
+                }
+            }
+        }
+        None
+    }
+    fn walk(
+        m: &crate::McModuleInst,
+        view: &TreeView,
+        path: &str,
+        out: &mut std::collections::BTreeMap<String, Value>,
+    ) {
+        for c in view.components(m) {
+            if c.name.starts_with("__") {
+                continue;
+            }
+            let value = c
+                .raw_params
+                .iter()
+                .map(|p| p.to_string())
+                .find(|t| !t.is_empty() && t != "_" && t != "NC")
+                .or_else(|| attr_text(c, "partno"))
+                .unwrap_or_else(|| c.def.name.to_string());
+            out.insert(
+                format!("{path}.{}", c.name),
+                json!({
+                    "value": value,
+                    "partno": attr_text(c, "partno"),
+                    "package": attr_text(c, "package"),
+                    "dnp": c.nc,
+                }),
+            );
+        }
+        for sub in view.sub_modules(m) {
+            walk(sub, view, &format!("{path}.{}", sub.name), out);
+        }
+    }
+    walk(tree, &view, &tree.name.clone(), &mut out);
+    out
+}
+
 /// Build the manifest for a whole rendered hierarchy (pre-order, root first).
-pub fn build_manifest(layers: &[RenderedLayer], top: &str) -> Value {
+pub fn build_manifest(
+    layers: &[RenderedLayer],
+    params: &std::collections::BTreeMap<String, Value>,
+    top: &str,
+) -> Value {
     // bid -> instance path, built from the parent chain.
     let mut paths: std::collections::HashMap<i64, String> = std::collections::HashMap::new();
     for l in layers {
@@ -67,6 +130,7 @@ pub fn build_manifest(layers: &[RenderedLayer], top: &str) -> Value {
                         Some(EntrySide::Right) => (b.x + b.w, b.y + b.h * entry.unwrap().offset),
                         None => (b.x + b.w / 2.0, b.y + b.h / 2.0),
                     };
+                    let src = p.src_span.as_ref();
                     json!({
                         "num": p.pin_id,
                         "name": p.description,
@@ -75,6 +139,7 @@ pub fn build_manifest(layers: &[RenderedLayer], top: &str) -> Value {
                         "offset": entry.map(|e| e.offset),
                         "at": [px, py],
                         "point": p.point.map(|pt| pt.to_string()),
+                        "src": src.map(|sp| json!({"uri": sp.uri, "offset": sp.offset})),
                     })
                 })
                 .collect();
@@ -90,6 +155,7 @@ pub fn build_manifest(layers: &[RenderedLayer], top: &str) -> Value {
                 "size": [b.w, b.h],
                 "orientation": orientation_of(b),
                 "dnp": b.not_fitted,
+                "params": params.get(&b.inst_path).cloned().unwrap_or(Value::Null),
                 "pins": pins,
             }));
         }
@@ -256,7 +322,8 @@ mod tests {
             canvas: (500.0, 300.0),
             audited: true,
         }];
-        let m = build_manifest(&layers, "main");
+        let params = std::collections::BTreeMap::new();
+        let m = build_manifest(&layers, &params, "main");
         assert_eq!(m["schema"], "viz.layout.1");
         assert_eq!(m["layers"][0]["path"], "main");
         let b = &m["boxes"][0];
