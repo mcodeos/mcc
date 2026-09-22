@@ -35,7 +35,7 @@ range (threshold 40KB).
 | `semantic/basic/mc_phrase.rs` | 315 KB | 68 |
 | `semantic/component/mc_pins/mod.rs` | 225 KB | 104 |
 | `instant/mc_mod/stmt.rs` | 194 KB | 76 |
-| `semantic/validation/nets/mod.rs` | 186 KB | 121 |
+| `semantic/validation/nets/mod.rs` | 187 KB | 121 |
 | `db/diagnostic/errcodes.rs` | 181 KB | 436 |
 | `rules.rs` | 176 KB | 83 |
 | `instant/insttab.rs` | 154 KB | 111 |
@@ -72,7 +72,7 @@ range (threshold 40KB).
 | `query/` | 9 | 157 KB |
 | `refdef/` | 7 | 118 KB |
 | `rpc/` | 16 | 302 KB |
-| `semantic/` | 89 | 2613 KB |
+| `semantic/` | 89 | 2614 KB |
 | `stages/` | 12 | 321 KB |
 | `vector/` | 25 | 475 KB |
 | `viz/` | 96 | 2412 KB |
@@ -7399,35 +7399,35 @@ semantic/validation/nets/mod.rs#L2938  fn edge_endpoint
 semantic/validation/nets/mod.rs#L2964  fn leg_sites
 semantic/validation/nets/mod.rs#L3002  fn check_return_leg_undeclared
 semantic/validation/nets/mod.rs#L3171  fn check_pin_copper_expectation
-semantic/validation/nets/mod.rs#L3264  enum Expectation
-semantic/validation/nets/mod.rs#L3273  fn judge_expectation
-semantic/validation/nets/mod.rs#L3348  fn push_unanchored
-semantic/validation/nets/mod.rs#L3372  fn exp_phrase
-semantic/validation/nets/mod.rs#L3385  fn def_pin_of
-semantic/validation/nets/mod.rs#L3407  fn domain_edge_covers
-semantic/validation/nets/mod.rs#L3424  fn comp_def_uri
-semantic/validation/nets/mod.rs#L3434  struct DeviceReturnClass
-semantic/validation/nets/mod.rs#L3467  fn check_device_return_span
-semantic/validation/nets/mod.rs#L3669  fn check_port_bind_role
-semantic/validation/nets/mod.rs#L3754  fn resolve_bind_role
-semantic/validation/nets/mod.rs#L3842  fn exposed_hosts
-semantic/validation/nets/mod.rs#L3870  fn check_exposed_clamp_coverage
-semantic/validation/nets/mod.rs#L3913  fn segment_is_clamped
-semantic/validation/nets/mod.rs#L3972  fn clamp_declaration_plane
-semantic/validation/nets/mod.rs#L4013  const NO_SKIP
-semantic/validation/nets/mod.rs#L4019  fn role_excluded
-semantic/validation/nets/mod.rs#L4044  fn copper_region_into
-semantic/validation/nets/mod.rs#L4131  fn check_exposed_clamp_downstream
-semantic/validation/nets/mod.rs#L4241  fn fmt_amps
-semantic/validation/nets/mod.rs#L4250  fn fmt_round
-semantic/validation/nets/mod.rs#L4265  fn sink_contract_for
-semantic/validation/nets/mod.rs#L4286  fn source_contract_for
-semantic/validation/nets/mod.rs#L4311  fn member_net_of
-semantic/validation/nets/mod.rs#L4329  fn net_name
-semantic/validation/nets/mod.rs#L4337  mod tests
-semantic/validation/nets/mod.rs#L4344  fn net_result
-semantic/validation/nets/mod.rs#L4356  fn diag_key
-semantic/validation/nets/mod.rs#L4361  fn net_results_to_diagnostics_is_identity_under_any_store_today
+semantic/validation/nets/mod.rs#L3272  enum Expectation
+semantic/validation/nets/mod.rs#L3281  fn judge_expectation
+semantic/validation/nets/mod.rs#L3356  fn push_unanchored
+semantic/validation/nets/mod.rs#L3380  fn exp_phrase
+semantic/validation/nets/mod.rs#L3393  fn def_pin_of
+semantic/validation/nets/mod.rs#L3415  fn domain_edge_covers
+semantic/validation/nets/mod.rs#L3432  fn comp_def_uri
+semantic/validation/nets/mod.rs#L3442  struct DeviceReturnClass
+semantic/validation/nets/mod.rs#L3475  fn check_device_return_span
+semantic/validation/nets/mod.rs#L3677  fn check_port_bind_role
+semantic/validation/nets/mod.rs#L3762  fn resolve_bind_role
+semantic/validation/nets/mod.rs#L3850  fn exposed_hosts
+semantic/validation/nets/mod.rs#L3878  fn check_exposed_clamp_coverage
+semantic/validation/nets/mod.rs#L3921  fn segment_is_clamped
+semantic/validation/nets/mod.rs#L3980  fn clamp_declaration_plane
+semantic/validation/nets/mod.rs#L4021  const NO_SKIP
+semantic/validation/nets/mod.rs#L4027  fn role_excluded
+semantic/validation/nets/mod.rs#L4052  fn copper_region_into
+semantic/validation/nets/mod.rs#L4139  fn check_exposed_clamp_downstream
+semantic/validation/nets/mod.rs#L4249  fn fmt_amps
+semantic/validation/nets/mod.rs#L4258  fn fmt_round
+semantic/validation/nets/mod.rs#L4273  fn sink_contract_for
+semantic/validation/nets/mod.rs#L4294  fn source_contract_for
+semantic/validation/nets/mod.rs#L4319  fn member_net_of
+semantic/validation/nets/mod.rs#L4337  fn net_name
+semantic/validation/nets/mod.rs#L4345  mod tests
+semantic/validation/nets/mod.rs#L4352  fn net_result
+semantic/validation/nets/mod.rs#L4364  fn diag_key
+semantic/validation/nets/mod.rs#L4369  fn net_results_to_diagnostics_is_identity_under_any_store_today
 semantic/validation/nets/protect.rs#L49  fn declared_ref_roles
 semantic/validation/nets/protect.rs#L80  fn role_in_chain
 semantic/validation/nets/protect.rs#L99  fn marked_components

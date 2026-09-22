@@ -3182,12 +3182,20 @@ pub(crate) fn check_pin_copper_expectation(table: &InstTable, results: &mut Vec<
             }
         }
     }
-    let workspace: std::collections::HashMap<String, std::sync::Arc<McComponent>> =
+    // Defs come from every live domain: a library part carries expectations
+    // the same as a board-local one (the library-annotation batch's whole
+    // point — the workspace-only read made every system-library annotation
+    // silently invisible). On a name collision the workspace def overwrites:
+    // the project shadows the library, the same resolution everywhere else.
+    let mut workspace: std::collections::HashMap<String, std::sync::Arc<McComponent>> =
         crate::definition_space()
-            .workspace_components()
+            .all_components()
             .into_iter()
             .map(|(sn, c)| (sn.ident.to_string(), c))
             .collect();
+    for (sn, c) in crate::definition_space().workspace_components() {
+        workspace.insert(sn.ident.to_string(), c);
+    }
     for comp in table.get_components() {
         if comp.synthetic || comp.unselected || comp.class_name.is_empty() {
             continue;
