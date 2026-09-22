@@ -105,3 +105,32 @@ fn GHOST_PORT__usage_born_label_still_fires() {
          endpoint and GHOST_PORT must keep firing for it"
     );
 }
+
+#[test]
+fn GHOST_PORT__series_middle_junction_net_with_copper_is_exempt() {
+    // U204: a net born as the middle element of a series statement
+    // (`IN -> F1.1 -> MID`) owns a Bus/Label pseudo entry that C1b F3
+    // deliberately left boxless — the equipotential tree renders the
+    // identity as the trunk label symbol instead. With real copper on
+    // the net (F1.2 and C1.1 both mapped, so the junction exists), the
+    // marker must not fire. Pre-fix this fired at the MID token (the
+    // mcexpl 242 VBUS_5V class); the <2-mapped-endpoint arm of the gate
+    // stays covered by GHOST_PORT__usage_born_label_still_fires above,
+    // whose dangling label has exactly one mapped endpoint.
+    let codes = ghost_codes(
+        &format!(
+            "{CAP2}module mm(in IN, out OUT) {{\n    \
+             CAP2 F1\n    CAP2 C1\n    \
+             IN -> F1.1 -> MID\n    \
+             MID -> C1.1\n    \
+             F1.2 -> OUT\n    \
+             C1.2 -> OUT\n}}\n"
+        ),
+        "mm",
+    );
+    assert!(
+        codes.is_empty(),
+        "a rendered junction net's own pseudo marker is a non-physical \
+         identity tag, not a ghost port, got {codes:?}"
+    );
+}

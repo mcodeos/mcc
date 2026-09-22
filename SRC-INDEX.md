@@ -50,7 +50,7 @@ range (threshold 40KB).
 | `instant/mc_mod/points.rs` | 117 KB | 20 |
 | `semantic/module/mod.rs` | 114 KB | 80 |
 | `semantic/basic/mc_fcall.rs` | 110 KB | 22 |
-| `vector/graph/fromblock.rs` | 101 KB | 35 |
+| `vector/graph/fromblock.rs` | 103 KB | 35 |
 | `viz/metrics/mod.rs` | 100 KB | 156 |
 
 ## Modules
@@ -75,7 +75,7 @@ range (threshold 40KB).
 | `rpc/` | 16 | 302 KB |
 | `semantic/` | 89 | 2626 KB |
 | `stages/` | 12 | 321 KB |
-| `vector/` | 25 | 475 KB |
+| `vector/` | 25 | 476 KB |
 | `viz/` | 97 | 2451 KB |
 
 ## Declaration index
@@ -3741,11 +3741,11 @@ instant/read.rs#L93  fn module_subtree
 instant/refdes.rs#L18  struct RefdesPrefixDef
 instant/refdes.rs#L23  const fn
 instant/refdes.rs#L31  const REFDES_PREFIXES
-instant/refdes.rs#L99  fn prefix_for_class
-instant/refdes.rs#L108  mod tests
-instant/refdes.rs#L112  fn root_segment_answers_for_dotted_variants
-instant/refdes.rs#L122  fn unregistered_class_has_no_prefix
-instant/refdes.rs#L129  fn table_names_every_class_once_and_keeps_m_reserved
+instant/refdes.rs#L75  fn prefix_for_class
+instant/refdes.rs#L84  mod tests
+instant/refdes.rs#L88  fn root_segment_answers_for_dotted_variants
+instant/refdes.rs#L98  fn unregistered_class_has_no_prefix
+instant/refdes.rs#L105  fn table_names_every_class_once_and_keeps_m_reserved
 instant/reverse.rs#L48  struct Hit
 instant/reverse.rs#L67  impl Hit
 instant/reverse.rs#L69  fn class_pair
@@ -8166,16 +8166,16 @@ vector/graph/fromblock.rs#L1433  fn is_own_boundary_port
 vector/graph/fromblock.rs#L1457  fn generate_viznets_from_block
 vector/graph/fromblock.rs#L1491  fn bus_width_from_shape
 vector/graph/fromblock.rs#L1519  fn is_real_bus
-vector/graph/fromblock.rs#L2008  fn probe_node_conservation
-vector/graph/fromblock.rs#L2030  fn build_point_to_box
-vector/graph/fromblock.rs#L2071  fn map_all_descendants
-vector/graph/fromblock.rs#L2112  fn layout_post_adjust_borders
-vector/graph/fromblock.rs#L2164  mod tests
-vector/graph/fromblock.rs#L2169  fn pos
-vector/graph/fromblock.rs#L2173  fn pin_entry
-vector/graph/fromblock.rs#L2212  fn g16_pin_src_span_prefers_wiring_site_over_decl_site
-vector/graph/fromblock.rs#L2220  fn g16_pin_src_span_falls_back_to_decl_site_when_unwired
-vector/graph/fromblock.rs#L2228  fn g16_placeholder_pins_carry_no_src_span
+vector/graph/fromblock.rs#L2038  fn probe_node_conservation
+vector/graph/fromblock.rs#L2060  fn build_point_to_box
+vector/graph/fromblock.rs#L2101  fn map_all_descendants
+vector/graph/fromblock.rs#L2142  fn layout_post_adjust_borders
+vector/graph/fromblock.rs#L2194  mod tests
+vector/graph/fromblock.rs#L2199  fn pos
+vector/graph/fromblock.rs#L2203  fn pin_entry
+vector/graph/fromblock.rs#L2242  fn g16_pin_src_span_prefers_wiring_site_over_decl_site
+vector/graph/fromblock.rs#L2250  fn g16_pin_src_span_falls_back_to_decl_site_when_unwired
+vector/graph/fromblock.rs#L2258  fn g16_placeholder_pins_carry_no_src_span
 vector/graph/graphdef.rs#L25  struct McVecGraph
 vector/graph/graphdef.rs#L117  enum LayerStyle
 vector/graph/graphdef.rs#L124  enum GeomStage
