@@ -49,7 +49,7 @@ range (threshold 40KB).
 | `instant/mc_mod/points.rs` | 117 KB | 20 |
 | `semantic/module/mod.rs` | 114 KB | 80 |
 | `semantic/basic/mc_fcall.rs` | 110 KB | 22 |
-| `export/kicad_sch.rs` | 105 KB | 100 |
+| `export/kicad_sch.rs` | 110 KB | 102 |
 | `vector/graph/fromblock.rs` | 101 KB | 35 |
 
 ## Modules
@@ -65,17 +65,17 @@ range (threshold 40KB).
 | `cmds/` | 28 | 492 KB |
 | `db/` | 27 | 909 KB |
 | `eval/` | 2 | 48 KB |
-| `export/` | 7 | 162 KB |
+| `export/` | 7 | 166 KB |
 | `instant/` | 40 | 1554 KB |
 | `lsp/` | 7 | 66 KB |
 | `output/` | 7 | 107 KB |
 | `query/` | 9 | 157 KB |
 | `refdef/` | 7 | 118 KB |
-| `rpc/` | 16 | 301 KB |
+| `rpc/` | 16 | 302 KB |
 | `semantic/` | 89 | 2605 KB |
 | `stages/` | 11 | 311 KB |
 | `vector/` | 25 | 475 KB |
-| `viz/` | 96 | 2376 KB |
+| `viz/` | 96 | 2377 KB |
 
 ## Declaration index
 
@@ -733,22 +733,22 @@ cli/mod.rs#L1038  fn name
 cli/mod.rs#L1048  fn export_kind
 cli/mod.rs#L1058  fn from_name
 cli/mod.rs#L1070  struct BuildArgs
-cli/mod.rs#L1098  struct LibArgs
-cli/mod.rs#L1104  enum LibAction
-cli/mod.rs#L1160  struct ProjArgs
-cli/mod.rs#L1166  enum ProjAction
-cli/mod.rs#L1177  struct StartArgs
-cli/mod.rs#L1198  struct StopArgs
-cli/mod.rs#L1211  struct StatusArgs
-cli/mod.rs#L1226  struct ConfigArgs
-cli/mod.rs#L1232  enum ConfigAction
-cli/mod.rs#L1262  struct DefArgs
-cli/mod.rs#L1274  struct RefsArgs
-cli/mod.rs#L1296  struct FmtArgs
-cli/mod.rs#L1309  struct ErcArgs
-cli/mod.rs#L1317  struct ExplainArgs
-cli/mod.rs#L1327  struct RulesArgs
-cli/mod.rs#L1333  enum RulesAction
+cli/mod.rs#L1105  struct LibArgs
+cli/mod.rs#L1111  enum LibAction
+cli/mod.rs#L1167  struct ProjArgs
+cli/mod.rs#L1173  enum ProjAction
+cli/mod.rs#L1184  struct StartArgs
+cli/mod.rs#L1205  struct StopArgs
+cli/mod.rs#L1218  struct StatusArgs
+cli/mod.rs#L1233  struct ConfigArgs
+cli/mod.rs#L1239  enum ConfigAction
+cli/mod.rs#L1269  struct DefArgs
+cli/mod.rs#L1281  struct RefsArgs
+cli/mod.rs#L1303  struct FmtArgs
+cli/mod.rs#L1316  struct ErcArgs
+cli/mod.rs#L1324  struct ExplainArgs
+cli/mod.rs#L1334  struct RulesArgs
+cli/mod.rs#L1340  enum RulesAction
 cli/outlet.rs#L31  fn project_root
 cli/outlet.rs#L48  fn intermediate
 cli/outlet.rs#L54  fn ensure_parent
@@ -801,32 +801,32 @@ cmds/build.rs#L792  fn build_browse_dir
 cmds/build.rs#L1166  fn emit_gate_envelope
 cmds/build.rs#L1172  fn emit_err
 cmds/build.rs#L1181  fn build_viz_opts
-cmds/build.rs#L1199  mod phase0_golden
-cmds/build.rs#L1209  fn hbl_project
-cmds/build.rs#L1219  fn build_graph
-cmds/build.rs#L1240  fn render_signature
-cmds/build.rs#L1249  fn cli_build__determinism_render_twice
-cmds/build.rs#L1269  fn cli_build__determinism_two_builds
-cmds/build.rs#L1284  fn cli_build__golden_roundtrip_hbl
-cmds/build.rs#L1305  fn cli_build__metrics_hbl_smoke
-cmds/build.rs#L1326  mod d_detectors
-cmds/build.rs#L1331  static TEST_LOCK
-cmds/build.rs#L1335  fn build_fixture
-cmds/build.rs#L1355  fn build_fixture_or_panic
-cmds/build.rs#L1366  fn build_fixture_with_graph
-cmds/build.rs#L1386  fn has_code
-cmds/build.rs#L1393  fn cli_build__d1_sort_hazard_non_monotonic_pins
-cmds/build.rs#L1425  fn cli_build__d2_floating_placeholder_unbound_lead
-cmds/build.rs#L1443  fn cli_build__d3_merged_short_same_physical_pin
-cmds/build.rs#L1465  fn cli_build__d3_no_fire_for_legit_fanout
-cmds/build.rs#L1506  fn cli_build__d5_same_name_group_redundant_ref_warns
-cmds/build.rs#L1545  fn cli_build__d5_same_name_group_short_ref_warns
-cmds/build.rs#L1580  fn cli_build__d5_same_name_group_single_ref_no_warn
-cmds/build.rs#L1612  fn cli_build__d5_same_name_group_single_side_fan_in_connects_pads
-cmds/build.rs#L1670  fn cli_build__arity_gate_noarg_method_with_args_not_dispatched
-cmds/build.rs#L1729  fn cli_build__d6_dropped_statement_indexed_alias
-cmds/build.rs#L1751  fn cli_build__d7_pullup_degenerate_signal_bridge
-cmds/build.rs#L1785  fn cli_build__d8_array_instance_bracket_reference_relinks
+cmds/build.rs#L1202  mod phase0_golden
+cmds/build.rs#L1212  fn hbl_project
+cmds/build.rs#L1222  fn build_graph
+cmds/build.rs#L1243  fn render_signature
+cmds/build.rs#L1252  fn cli_build__determinism_render_twice
+cmds/build.rs#L1272  fn cli_build__determinism_two_builds
+cmds/build.rs#L1287  fn cli_build__golden_roundtrip_hbl
+cmds/build.rs#L1308  fn cli_build__metrics_hbl_smoke
+cmds/build.rs#L1329  mod d_detectors
+cmds/build.rs#L1334  static TEST_LOCK
+cmds/build.rs#L1338  fn build_fixture
+cmds/build.rs#L1358  fn build_fixture_or_panic
+cmds/build.rs#L1369  fn build_fixture_with_graph
+cmds/build.rs#L1389  fn has_code
+cmds/build.rs#L1396  fn cli_build__d1_sort_hazard_non_monotonic_pins
+cmds/build.rs#L1428  fn cli_build__d2_floating_placeholder_unbound_lead
+cmds/build.rs#L1446  fn cli_build__d3_merged_short_same_physical_pin
+cmds/build.rs#L1468  fn cli_build__d3_no_fire_for_legit_fanout
+cmds/build.rs#L1509  fn cli_build__d5_same_name_group_redundant_ref_warns
+cmds/build.rs#L1548  fn cli_build__d5_same_name_group_short_ref_warns
+cmds/build.rs#L1583  fn cli_build__d5_same_name_group_single_ref_no_warn
+cmds/build.rs#L1615  fn cli_build__d5_same_name_group_single_side_fan_in_connects_pads
+cmds/build.rs#L1673  fn cli_build__arity_gate_noarg_method_with_args_not_dispatched
+cmds/build.rs#L1732  fn cli_build__d6_dropped_statement_indexed_alias
+cmds/build.rs#L1754  fn cli_build__d7_pullup_degenerate_signal_bridge
+cmds/build.rs#L1788  fn cli_build__d8_array_instance_bracket_reference_relinks
 cmds/check.rs#L26  struct CheckOutcome
 cmds/check.rs#L34  struct CheckBatch
 cmds/check.rs#L44  fn check_one_world
@@ -2437,73 +2437,75 @@ export/kicad_sch.rs#L554  fn emit_flat_sheet
 export/kicad_sch.rs#L639  struct FlatTile
 export/kicad_sch.rs#L716  const FLAT_GAP_MM
 export/kicad_sch.rs#L835  struct FlatRun
-export/kicad_sch.rs#L1115  fn emit_flat_boundary_labels
-export/kicad_sch.rs#L1150  fn emit_tree_nets
-export/kicad_sch.rs#L1278  fn boundary_net_ids
-export/kicad_sch.rs#L1287  fn longest_midpoint
-export/kicad_sch.rs#L1298  fn emit_wire
-export/kicad_sch.rs#L1319  fn text_label
-export/kicad_sch.rs#L1343  fn emit_block_edges
-export/kicad_sch.rs#L1447  fn emit_root_passive_nets
-export/kicad_sch.rs#L1491  fn key_of
-export/kicad_sch.rs#L1496  fn middle_of
-export/kicad_sch.rs#L1507  fn power_symbol
-export/kicad_sch.rs#L1559  fn emit_instances
-export/kicad_sch.rs#L1573  fn power_flag
-export/kicad_sch.rs#L1626  fn emit_symbol_instance
-export/kicad_sch.rs#L1670  fn property
-export/kicad_sch.rs#L1685  fn unique_ref
-export/kicad_sch.rs#L1704  fn emit_rail_decorations
-export/kicad_sch.rs#L1773  fn rail_name_of_pin
-export/kicad_sch.rs#L1788  fn emit_no_connects
-export/kicad_sch.rs#L1822  fn emit_sheet_instance
-export/kicad_sch.rs#L1950  fn bridge_pins
-export/kicad_sch.rs#L2008  fn d2
-export/kicad_sch.rs#L2015  fn pin_placement
-export/kicad_sch.rs#L2032  fn anchor_px
-export/kicad_sch.rs#L2046  fn emit_boundary_labels
-export/kicad_sch.rs#L2125  fn boundary_tree_endpoint
-export/kicad_sch.rs#L2158  fn shape_of_io
-export/kicad_sch.rs#L2167  fn is_anon
-export/kicad_sch.rs#L2174  fn flat_port_anchor
-export/kicad_sch.rs#L2197  fn hseg_hits
-export/kicad_sch.rs#L2209  fn vseg_hits
-export/kicad_sch.rs#L2222  fn flat_wire
-export/kicad_sch.rs#L2252  fn island_name_of_net
-export/kicad_sch.rs#L2274  fn lib_signature
-export/kicad_sch.rs#L2299  fn side_letter
-export/kicad_sch.rs#L2312  fn lib_symbol_body
-export/kicad_sch.rs#L2426  fn internal_pin
-export/kicad_sch.rs#L2437  fn pin_text
-export/kicad_sch.rs#L2447  fn polyline
-export/kicad_sch.rs#L2464  fn pin_elec_type
-export/kicad_sch.rs#L2477  fn lib_gnd_body
-export/kicad_sch.rs#L2520  fn lib_pwr_body
-export/kicad_sch.rs#L2562  fn lib_flag_body
-export/kicad_sch.rs#L2609  fn has_power_symbols
-export/kicad_sch.rs#L2620  fn paper_for
-export/kicad_sch.rs#L2645  const SIZES
-export/kicad_sch.rs#L2664  fn det_uuid
-export/kicad_sch.rs#L2682  fn q
-export/kicad_sch.rs#L2687  fn mm
-export/kicad_sch.rs#L2697  fn escape
-export/kicad_sch.rs#L2701  fn sanitize_file_stem
-export/kicad_sch.rs#L2713  fn sanitize_lib_id
-export/kicad_sch.rs#L2720  mod tests
-export/kicad_sch.rs#L2726  fn two_pin_box
-export/kicad_sch.rs#L2747  fn add_pin
-export/kicad_sch.rs#L2765  fn net
-export/kicad_sch.rs#L2786  fn block_graph
-export/kicad_sch.rs#L2812  fn one_layer
-export/kicad_sch.rs#L2822  fn uuid_is_deterministic_and_shaped
-export/kicad_sch.rs#L2833  fn mm_trims_trailing_zeros
-export/kicad_sch.rs#L2841  fn block_layer_wires_land_on_pin_anchors
-export/kicad_sch.rs#L2870  fn no_connect_lands_on_unwired_anchor
-export/kicad_sch.rs#L2878  fn wire_anchors_match_internal_pin_math
-export/kicad_sch.rs#L2897  fn hierarchy_emits_sheet_pins_and_hierarchical_labels
-export/kicad_sch.rs#L3053  fn flat_sheet_has_no_hierarchy
-export/kicad_sch.rs#L3118  fn dummy_table
-export/kicad_sch.rs#L3123  fn s_expression_parens_balance
+export/kicad_sch.rs#L1133  fn emit_flat_boundary_labels
+export/kicad_sch.rs#L1168  fn emit_tree_nets
+export/kicad_sch.rs#L1300  fn boundary_net_ids
+export/kicad_sch.rs#L1309  fn longest_midpoint
+export/kicad_sch.rs#L1320  fn emit_wire
+export/kicad_sch.rs#L1341  fn text_label
+export/kicad_sch.rs#L1365  fn emit_block_edges
+export/kicad_sch.rs#L1469  fn emit_root_passive_nets
+export/kicad_sch.rs#L1513  fn key_of
+export/kicad_sch.rs#L1518  fn middle_of
+export/kicad_sch.rs#L1529  fn power_symbol
+export/kicad_sch.rs#L1581  fn emit_instances
+export/kicad_sch.rs#L1595  fn power_flag
+export/kicad_sch.rs#L1648  fn emit_symbol_instance
+export/kicad_sch.rs#L1692  fn property
+export/kicad_sch.rs#L1707  fn unique_ref
+export/kicad_sch.rs#L1726  fn emit_rail_decorations
+export/kicad_sch.rs#L1795  fn rail_name_of_pin
+export/kicad_sch.rs#L1810  fn emit_no_connects
+export/kicad_sch.rs#L1844  fn emit_sheet_instance
+export/kicad_sch.rs#L1972  fn bridge_pins
+export/kicad_sch.rs#L2035  fn emit_pin_rescue
+export/kicad_sch.rs#L2105  fn d2
+export/kicad_sch.rs#L2114  fn endpoint_pin
+export/kicad_sch.rs#L2129  fn pin_placement
+export/kicad_sch.rs#L2146  fn anchor_px
+export/kicad_sch.rs#L2160  fn emit_boundary_labels
+export/kicad_sch.rs#L2239  fn boundary_tree_endpoint
+export/kicad_sch.rs#L2272  fn shape_of_io
+export/kicad_sch.rs#L2281  fn is_anon
+export/kicad_sch.rs#L2288  fn flat_port_anchor
+export/kicad_sch.rs#L2311  fn hseg_hits
+export/kicad_sch.rs#L2323  fn vseg_hits
+export/kicad_sch.rs#L2336  fn flat_wire
+export/kicad_sch.rs#L2366  fn island_name_of_net
+export/kicad_sch.rs#L2388  fn lib_signature
+export/kicad_sch.rs#L2413  fn side_letter
+export/kicad_sch.rs#L2426  fn lib_symbol_body
+export/kicad_sch.rs#L2540  fn internal_pin
+export/kicad_sch.rs#L2551  fn pin_text
+export/kicad_sch.rs#L2561  fn polyline
+export/kicad_sch.rs#L2578  fn pin_elec_type
+export/kicad_sch.rs#L2591  fn lib_gnd_body
+export/kicad_sch.rs#L2634  fn lib_pwr_body
+export/kicad_sch.rs#L2676  fn lib_flag_body
+export/kicad_sch.rs#L2723  fn has_power_symbols
+export/kicad_sch.rs#L2734  fn paper_for
+export/kicad_sch.rs#L2759  const SIZES
+export/kicad_sch.rs#L2778  fn det_uuid
+export/kicad_sch.rs#L2796  fn q
+export/kicad_sch.rs#L2801  fn mm
+export/kicad_sch.rs#L2811  fn escape
+export/kicad_sch.rs#L2815  fn sanitize_file_stem
+export/kicad_sch.rs#L2827  fn sanitize_lib_id
+export/kicad_sch.rs#L2834  mod tests
+export/kicad_sch.rs#L2840  fn two_pin_box
+export/kicad_sch.rs#L2861  fn add_pin
+export/kicad_sch.rs#L2879  fn net
+export/kicad_sch.rs#L2900  fn block_graph
+export/kicad_sch.rs#L2926  fn one_layer
+export/kicad_sch.rs#L2936  fn uuid_is_deterministic_and_shaped
+export/kicad_sch.rs#L2947  fn mm_trims_trailing_zeros
+export/kicad_sch.rs#L2955  fn block_layer_wires_land_on_pin_anchors
+export/kicad_sch.rs#L2984  fn no_connect_lands_on_unwired_anchor
+export/kicad_sch.rs#L2992  fn wire_anchors_match_internal_pin_math
+export/kicad_sch.rs#L3011  fn hierarchy_emits_sheet_pins_and_hierarchical_labels
+export/kicad_sch.rs#L3167  fn flat_sheet_has_no_hierarchy
+export/kicad_sch.rs#L3232  fn dummy_table
+export/kicad_sch.rs#L3237  fn s_expression_parens_balance
 export/mod.rs#L8  mod bom
 export/mod.rs#L9  mod instlist
 export/mod.rs#L10  mod kicad
@@ -4485,19 +4487,19 @@ rpc/handlers/aicontract.rs#L90  struct ExplainParams
 rpc/handlers/buildcmd.rs#L9  fn handle_build_full
 rpc/handlers/buildcmd.rs#L68  fn handle_build_viz
 rpc/handlers/buildcmd.rs#L238  fn build_viz_render_opts
-rpc/handlers/buildcmd.rs#L249  mod tests
-rpc/handlers/buildcmd.rs#L256  fn parse_lock
-rpc/handlers/buildcmd.rs#L262  fn tmp_file
-rpc/handlers/buildcmd.rs#L275  fn cli_buildcmd__build_viz_component_only_file
-rpc/handlers/buildcmd.rs#L313  fn cli_buildcmd__build_viz_two_pin_passive_hides_u1
-rpc/handlers/buildcmd.rs#L347  fn cli_buildcmd__build_viz_multi_module_file
-rpc/handlers/buildcmd.rs#L371  fn cli_buildcmd__build_viz_standalone_stamps_source_links
-rpc/handlers/buildcmd.rs#L419  fn cli_buildcmd__build_full_directory_batch
-rpc/handlers/buildcmd.rs#L485  fn cli_buildcmd__build_full_directory_batch_reports_net_erc_truth
-rpc/handlers/buildcmd.rs#L557  fn cli_buildcmd__build_full_component_only_file
-rpc/handlers/buildcmd.rs#L595  fn cli_buildcmd__build_full_reports_net_erc_truth
-rpc/handlers/buildcmd.rs#L655  fn cli_buildcmd__build_viz_module_contains_component_shows_pin_labels
-rpc/handlers/buildcmd.rs#L704  fn cli_buildcmd__build_viz_tc275_style_constructs
+rpc/handlers/buildcmd.rs#L252  mod tests
+rpc/handlers/buildcmd.rs#L259  fn parse_lock
+rpc/handlers/buildcmd.rs#L265  fn tmp_file
+rpc/handlers/buildcmd.rs#L278  fn cli_buildcmd__build_viz_component_only_file
+rpc/handlers/buildcmd.rs#L316  fn cli_buildcmd__build_viz_two_pin_passive_hides_u1
+rpc/handlers/buildcmd.rs#L350  fn cli_buildcmd__build_viz_multi_module_file
+rpc/handlers/buildcmd.rs#L374  fn cli_buildcmd__build_viz_standalone_stamps_source_links
+rpc/handlers/buildcmd.rs#L422  fn cli_buildcmd__build_full_directory_batch
+rpc/handlers/buildcmd.rs#L488  fn cli_buildcmd__build_full_directory_batch_reports_net_erc_truth
+rpc/handlers/buildcmd.rs#L560  fn cli_buildcmd__build_full_component_only_file
+rpc/handlers/buildcmd.rs#L598  fn cli_buildcmd__build_full_reports_net_erc_truth
+rpc/handlers/buildcmd.rs#L658  fn cli_buildcmd__build_viz_module_contains_component_shows_pin_labels
+rpc/handlers/buildcmd.rs#L707  fn cli_buildcmd__build_viz_tc275_style_constructs
 rpc/handlers/defs.rs#L9  fn handle_defs_search
 rpc/handlers/defs.rs#L66  fn handle_defs_query
 rpc/handlers/defs.rs#L110  fn handle_defs_reverse
@@ -4690,11 +4692,11 @@ rpc/handlers/params.rs#L83  struct ExportRpcParams
 rpc/handlers/params.rs#L101  struct TraceSetParams
 rpc/handlers/params.rs#L121  struct BuildFullParams
 rpc/handlers/params.rs#L146  struct BuildVizParams
-rpc/handlers/params.rs#L170  struct FileEntry
-rpc/handlers/params.rs#L180  struct CheckRpcParams
-rpc/handlers/params.rs#L204  struct ParseParams
-rpc/handlers/params.rs#L220  struct ShowParams
-rpc/handlers/params.rs#L229  struct SemParams
+rpc/handlers/params.rs#L175  struct FileEntry
+rpc/handlers/params.rs#L185  struct CheckRpcParams
+rpc/handlers/params.rs#L209  struct ParseParams
+rpc/handlers/params.rs#L225  struct ShowParams
+rpc/handlers/params.rs#L234  struct SemParams
 rpc/handlers/rulescmd.rs#L15  fn rule_code_param
 rpc/handlers/rulescmd.rs#L48  fn handle_rules_list
 rpc/handlers/rulescmd.rs#L55  fn handle_rule_detail
@@ -8460,16 +8462,16 @@ vector/model/vec.rs#L48  fn iter
 vector/model/vec.rs#L53  impl fmt::Display for McVec
 vector/model/vec.rs#L54  fn fmt
 viz/api.rs#L38  struct RenderOpts
-viz/api.rs#L46  impl Default for RenderOpts
-viz/api.rs#L47  fn default
-viz/api.rs#L59  fn render
-viz/api.rs#L63  fn render_with
-viz/api.rs#L80  struct RenderedLayer
-viz/api.rs#L100  fn render_with_metrics
-viz/api.rs#L113  fn render_with_metrics_and_sink
-viz/api.rs#L185  fn renderdiff_report
-viz/api.rs#L243  fn render_layer_recursive
-viz/api.rs#L694  fn render_to_html
+viz/api.rs#L53  impl Default for RenderOpts
+viz/api.rs#L54  fn default
+viz/api.rs#L67  fn render
+viz/api.rs#L71  fn render_with
+viz/api.rs#L88  struct RenderedLayer
+viz/api.rs#L108  fn render_with_metrics
+viz/api.rs#L121  fn render_with_metrics_and_sink
+viz/api.rs#L194  fn renderdiff_report
+viz/api.rs#L252  fn render_layer_recursive
+viz/api.rs#L709  fn render_to_html
 viz/connectivity/geometry.rs#L16  const TOUCH_EPSILON
 viz/connectivity/geometry.rs#L19  const NEAR_MISS_EPSILON
 viz/connectivity/geometry.rs#L24  fn point_to_segment_distance
@@ -10977,4 +10979,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-401 files, 10895 declarations.
+401 files, 10897 declarations.
