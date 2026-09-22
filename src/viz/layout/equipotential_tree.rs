@@ -4288,7 +4288,7 @@ fn chain_origins(
                 let aw = graph.boxes.iter().find(|b| b.id == bid).map(|b| b.w);
                 if let Some(aw) = aw.filter(|w| *w > 0.0) {
                     let placed = base_placed_set(graph, &series_x, layer_anchor);
-                    let (lo, hi) = rank_window(graph, bid, g.nid, &placed);
+                    let (lo, hi) = rank_window(graph, topos, bid, g.nid, &placed);
                     let own_ok = lo.is_none_or(|l| own - aw / 2.0 >= l - 0.5)
                         && hi.is_none_or(|h| own + aw / 2.0 <= h + 0.5);
                     let col_ok = lo.is_none_or(|l| x_col - aw / 2.0 >= l - 0.5)
@@ -4497,8 +4497,20 @@ fn flip_shunts_clear_of_rows(graph: &mut McVecGraph, topos: &[NetTopology], laye
 /// wins) — a shared member must satisfy all of its nets' R0 orders at once.
 /// On an empty intersection the OWNING topo's own window is the fallback: the
 /// net whose pass allocates the box gets the decisive say.
+///
+/// ★ b3762: the window is DIRECTIONAL. The region passes can flip a net's
+/// reading direction after the R0 pass — `apply_layout_regions` moves a net
+/// whose anchor pins sit on the declared Left edge to `Region::West`, and the
+/// chain then reads east→west spatially (hub first in statement order, but
+/// east-most on the canvas). For such a net the window mirrors: earlier-ranked
+/// co-endpoints bound the member from the EAST, later-ranked from the WEST.
+/// Direction-blind windows dragged every member east of the anchor while the
+/// trunk ran on the west face, so the trunk had to cross its own body and
+/// deflect around it — the long detour loops (hbl DCDC `vin.VDD_3V3` @45,
+/// LDO `vin.V5V` @215, MIC `MIC.N~0`/`MIC.P~0` @235).
 fn rank_window(
     graph: &McVecGraph,
+    topos: &[NetTopology],
     box_id: i64,
     owner_nid: i64,
     placed: &std::collections::BTreeMap<i64, (f64, f64)>,
@@ -4510,6 +4522,43 @@ fn rank_window(
     for n in &graph.nets {
         let Some(my) = n.endpoints.iter().position(|e| e.box_id == box_id) else {
             continue;
+        };
+        let topo = topos.iter().find(|t| t.nid == n.nid);
+        // A GROUND net draws on the vertical rail/ground column — its endpoint
+        // statement order carries no x meaning, so it imposes no window edge
+        // at all (hbl MIC `C1`: `GNDA`'s ascending-x window fought the West
+        // signal net's mirrored window and dragged the bypass cap east of the
+        // body it decouples, keeping the trunk dip alive).
+        if topo.is_some_and(|t| t.net_kind == NetKind::Ground) {
+            continue;
+        }
+        // The R0 reading direction of THIS net (Pass 2.5's law): the anchor
+        // endpoint first ⇒ the chain reads eastward; last ⇒ westward; mid-chain
+        // ⇒ no reading law.
+        let want = topo.and_then(|t| {
+            let first = n.endpoints.first().is_some_and(|e| e.box_id == t.anchor);
+            let last = n.endpoints.last().is_some_and(|e| e.box_id == t.anchor);
+            if first == last {
+                None
+            } else if first {
+                Some(Region::East)
+            } else {
+                Some(Region::West)
+            }
+        });
+        // ★ b3762: mirror the window ONLY when the declared-edge region
+        // CONTRADICTS the net's own reading direction — a net whose anchor
+        // pins sit on the declared Left edge while its statement order reads
+        // eastward. There the drawing is forced to read the statement order
+        // right-to-left, so earlier-ranked co-endpoints bound the member from
+        // the EAST, later-ranked from the WEST. A net whose region AGREES
+        // with its reading direction (UC `I2C0.SCL`, X6 `_net12~0`) keeps the
+        // plain ascending windows — mirroring it dragged its pull-ups across
+        // the body and reopened trunk dips.
+        let mirrored = match (topo.map(|t| t.lane.region), want) {
+            (Some(Region::West), Some(Region::East)) | (Some(Region::East), Some(Region::West)) => true,
+            (Some(Region::West), None) => true,
+            _ => false,
         };
         let mut n_lo: Option<f64> = None;
         let mut n_hi: Option<f64> = None;
@@ -4523,7 +4572,7 @@ fn rank_window(
             if ew <= 0.0 {
                 continue;
             }
-            if r < my {
+            if (r < my) != mirrored {
                 n_lo = Some(n_lo.map_or(ex + ew, |v| v.max(ex + ew)));
             } else {
                 n_hi = Some(n_hi.map_or(ex, |v| v.min(ex)));
@@ -4537,9 +4586,24 @@ fn rank_window(
         }
     }
     if let (Some(l), Some(h)) = (lo, hi) {
-        if l > h && (own_lo.is_some() || own_hi.is_some()) {
-            lo = own_lo;
-            hi = own_hi;
+        if l > h {
+            // ★ b3762: a conflicting intersection means the net's placed
+            // co-endpoints already disagree — no linear order exists (a
+            // bypass member flanking a hub: dio1 parked west, the mic hub
+            // east). The reconcile sweep's policy rules: a conflicting
+            // window is not an order; the allocator's slot stands. Only a
+            // CLEAN own window gets the decisive say — falling back to a
+            // two-sided own conflict handed the allocator a `min` east of
+            // the tap and it walked the member away east entirely
+            // (hbl MIC `C1`).
+            let own_clean = !matches!((own_lo, own_hi), (Some(l2), Some(h2)) if l2 > h2);
+            if own_clean {
+                lo = own_lo;
+                hi = own_hi;
+            } else {
+                lo = None;
+                hi = None;
+            }
         }
     }
     (lo, hi)
@@ -4734,7 +4798,7 @@ fn resolve_columns_for_side(graph: &mut McVecGraph, topos: &[NetTopology], layer
             // west; with the window it allocates east of R442, back in
             // reading order.
             let (min_edge, max_edge) =
-                rank_window(graph, group.box_id, topos[ti].nid, &base_placed);
+                rank_window(graph, topos, group.box_id, topos[ti].nid, &base_placed);
             let m = SideMember {
                 idx: Some((ti, gi)),
                 role,
@@ -4806,7 +4870,7 @@ fn resolve_columns_for_side(graph: &mut McVecGraph, topos: &[NetTopology], layer
             Some(b) if b.w > 0.0 => (b.x, b.w),
             _ => continue,
         };
-        let (lo, hi) = rank_window(graph, bid, topos[ti].nid, &placed_now);
+        let (lo, hi) = rank_window(graph, topos, bid, topos[ti].nid, &placed_now);
         // A CONFLICTING window (both bounds, wrong way round) is not an order —
         // two of the net's placed co-endpoints already disagree. Moving to
         // either edge would break the other net's reading order blindly, so

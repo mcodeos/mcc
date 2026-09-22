@@ -387,8 +387,16 @@ fn measure_signal_flow(graph: &McVecGraph) -> Axis {
             continue;
         }
         chains += 1;
+        // U162(b): a chain is judged by its own drawing law. A net whose lane
+        // runs WEST (the declared-edge pass flipped its region) reads
+        // east→west on the canvas while its statement order is unchanged —
+        // so accept monotonicity in EITHER direction of the statement order.
+        // A chain drawn LTR passes as before; an RTL chain is not misordered,
+        // it is a West-reading chain.
         let mut all_ltr = true;
+        let mut all_rtl = true;
         let mut prev_x = f64::NEG_INFINITY;
+        let mut next_x = f64::INFINITY;
         // Debug face: the monotone prefix of the chain, `box@center-x`, so a
         // failing chain can be read straight off the dump. The failing
         // endpoint itself is not in the sequence — it broke the order.
@@ -404,9 +412,15 @@ fn measure_signal_flow(graph: &McVecGraph) -> Axis {
                 }
                 if cx < prev_x {
                     all_ltr = false;
+                }
+                if cx > next_x {
+                    all_rtl = false;
+                }
+                if !all_ltr && !all_rtl {
                     break;
                 }
                 prev_x = cx;
+                next_x = cx;
             }
             if dump {
                 let name = graph
@@ -422,7 +436,7 @@ fn measure_signal_flow(graph: &McVecGraph) -> Axis {
                 seq.push_str(&format!("{}/{}@{:.0} ", name, ep.box_id, prev_x));
             }
         }
-        if !all_ltr {
+        if !(all_ltr || all_rtl) {
             crate::vlog!(
                 "[sigflow] layer={} net={}({}) NONLTR seq={} FULL={}",
                 graph.name,
@@ -1953,6 +1967,28 @@ mod tests {
         g.nets.push(real_net(nid, ida, 10, idb, 20));
     }
 
+    /// A three-box chain drawn in NO direction — the statement order runs
+    /// east, west, middle. A two-box chain is always monotone one way (a
+    /// mirrored chain is a West-reading chain, not a violation), so only a
+    /// third box in the middle can break both directions at once.
+    fn scrambled_chain(g: &mut McVecGraph, nid: i64) {
+        let (ida, idb, idc) = (nid * 3, nid * 3 + 1, nid * 3 + 2);
+        g.boxes.push(mk_box(ida, 100.0, 0.0));
+        g.boxes.push(mk_box(idb, 0.0, 0.0));
+        g.boxes.push(mk_box(idc, 50.0, 0.0));
+        g.nets.push(VizNet::new(
+            nid,
+            format!("n{nid}"),
+            NetKind::Signal,
+            NetRole::Signal,
+            vec![
+                EndpointRef::new(ida, 10, format!("P{ida}")),
+                EndpointRef::new(idb, 20, format!("P{idb}")),
+                EndpointRef::new(idc, 30, format!("P{idc}")),
+            ],
+        ));
+    }
+
     /// The merge is a **ratio of sums**, not the mean of the layers' ratios —
     /// the reason [`EngineerStyleCells`] holds counts rather than scores.
     ///
@@ -1964,7 +2000,7 @@ mod tests {
         chain(&mut one, 1, true);
         let mut other = McVecGraph::new(1, "other".into());
         for nid in 1..=3 {
-            chain(&mut other, nid, false);
+            scrambled_chain(&mut other, nid);
         }
 
         let a = EngineerStyleMetrics::compute(&one);
