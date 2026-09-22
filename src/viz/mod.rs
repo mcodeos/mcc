@@ -37,7 +37,9 @@
 pub mod api;
 pub mod connectivity;
 pub mod debug;
+pub mod digest;
 pub mod doc;
+// pub mod flatten; // WIP: concurrent session
 pub mod idiom;
 pub mod labels;
 pub mod layer;

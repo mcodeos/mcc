@@ -1111,6 +1111,26 @@ impl MetricsAccumulator {
         self.renderdiff_layers.push(reading);
     }
 
+    /// ★ M5 (opt-in): serialize the accumulated reports as the machine-side
+    /// report JSON (fidelity / M12 determinism / M13 connectivity snapshots).
+    /// The builder summary is empty here: the builder report is attached by
+    /// the CLI at finish time, not at the viz layer.
+    pub fn report_json(&self) -> String {
+        let quality = self.clone().finish_quality(None);
+        let semantic = match &quality.semantic {
+            Some(s) => SemanticSnapshot::from_summary(s),
+            None => SemanticSnapshot::default(),
+        };
+        let snap = SchematicMetricsSnapshot::from_quality(
+            &quality,
+            semantic,
+            "viz",
+            "",
+            "render_with_metrics",
+        );
+        snap.to_json()
+    }
+
     /// Merge build-phase dropped/partial, produce final two reports.
     pub fn finish(self, report: Option<&BuilderReport>) -> (FidelityReport, ReadabilityScore) {
         let (fidelity, readability, _, _, _, _, _, _) = self.finish_parts(report);

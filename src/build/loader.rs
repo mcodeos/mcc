@@ -216,25 +216,41 @@ pub fn mcb_add_recursive(uri: &McURI, loaded: &mut HashSet<String>, is_system_li
     }
 
     // Optimization: a file whose types are already registered in the workspace
-    // (pass1_complete) needs no disk re-read. Re-reading would replace the
+    // (pass1_complete) needs no disk re-read — unless the file changed on disk
+    // since it was read. An entry with a disk mtime is compared against the
+    // current mtime: unchanged keeps the fast path (repeated server-side
+    // load_project calls stay cheap and synthetic VIRT_* modules survive);
+    // changed falls through to the disk re-read below so external edits (an
+    // agent writing files directly, or the user in an editor) are picked up
+    // instead of serving stale symbol tables. An entry with no disk mtime came
+    // from mcb_add_from_string: its in-memory content is authoritative (the
+    // LSP push flow), so disk never wins for it. Re-reading replaces the
     // in-memory entry with fresh disk state, wiping any synthetic virtual
     // modules (VIRT_*) installed since load and resetting modules_parsed —
-    // which forces mcb_parse_all_modules to re-derive the whole workspace on
-    // every load_project call (the "repeated loads get slower" regression).
-    // The workspace entry is authoritative once loaded; edits arrive through
-    // mcb_add_from_string / mcb_add, not through re-loading from disk. CLI
-    // builds start from a fresh workspace, so nothing is skipped there; this
-    // guard only short-circuits repeated server-side load_project calls.
-    // A workspace entry with pass1_complete == false means an earlier load
-    // aborted mid-parse — fall through and re-load from disk.
-    if workspace::WORKSPACE
-        .mcodes
-        .get(&canonical_uri)
-        .map(|e| e.pass1_complete)
-        .unwrap_or(false)
-    {
-        trace!(target: "mcc::builder", canonical = %canonical_uri, "load: skip (already in workspace, pass1 complete)");
-        return;
+    // which forces mcb_parse_all_modules to re-derive the whole workspace.
+    // That cost is only paid for files that actually changed. A workspace
+    // entry with pass1_complete == false means an earlier load aborted
+    // mid-parse — fall through and re-load from disk either way.
+    if let Some(entry) = workspace::WORKSPACE.mcodes.get(&canonical_uri) {
+        if entry.pass1_complete {
+            match entry.disk_mtime {
+                None => {
+                    trace!(target: "mcc::builder", canonical = %canonical_uri, "load: skip (in-memory entry is authoritative)");
+                    return;
+                }
+                Some(stamped) => {
+                    let unchanged = std::fs::metadata(&canonical_uri)
+                        .and_then(|m| m.modified())
+                        .map(|t| t == stamped)
+                        .unwrap_or(false);
+                    if unchanged {
+                        trace!(target: "mcc::builder", canonical = %canonical_uri, "load: skip (already in workspace, disk unchanged)");
+                        return;
+                    }
+                    trace!(target: "mcc::builder", canonical = %canonical_uri, "load: disk mtime moved, re-reading");
+                }
+            }
+        }
     }
 
     // 2. Construct full file path

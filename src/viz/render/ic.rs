@@ -31,7 +31,7 @@
 use crate::vector::graph::McVecBox;
 
 use super::label_render::{display_name, render_designator_and_value};
-use super::pin_render::{render_nc_pin, render_pin, PinRenderOpts};
+use super::pin_render::{render_nc_pin, render_nc_pin_side, render_pin, PinRenderOpts};
 use super::shape::BoxShape;
 
 pub struct IcShape;
@@ -119,13 +119,35 @@ impl BoxShape for IcShape {
             if nc.is_empty() {
                 String::new()
             } else {
-                let total = nc.len();
+                // Place every NC marker at the pin's own PHYSICAL position along
+                // the box edge — one shared `(i+1)/(n+1)` grid over ALL pins,
+                // connected or not. Spacing only the NC subset stacked its
+                // markers onto the rows of neighbouring connected pins (the
+                // red UART1/JTAG crosses colliding with the SPI labels).
+                let total = b.pins.len().max(nc.len());
                 nc.iter()
-                    .enumerate()
-                    .map(|(i, pin)| {
-                        // Evenly space NC pins on the right side, below connected pins
-                        let offset = (i + 1) as f64 / (total + 1) as f64;
-                        render_nc_pin(b, pin, offset)
+                    .map(|pin| {
+                        // Use the pin's real slot (edge + offset): the layout
+                        // placed every unconnected pin on its own row/edge in
+                        // assign_anchor_slots, so the cross lands exactly where
+                        // the physical pin is. Fall back to the right edge on a
+                        // shared physical grid only when no slot exists.
+                        if let Some(slot) = b.slots.iter().find(|s| s.pin_id == pin.id) {
+                            render_nc_pin_side(b, pin, slot.offset, slot.side.clone())
+                        } else {
+                            let idx = b
+                                .pins
+                                .iter()
+                                .position(|p| p.id == pin.id)
+                                .map(|i| i + 1)
+                                .unwrap_or(0);
+                            let offset = if total > 0 {
+                                idx as f64 / (total + 1) as f64
+                            } else {
+                                0.5
+                            };
+                            render_nc_pin(b, pin, offset)
+                        }
                     })
                     .collect()
             }
