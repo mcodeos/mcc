@@ -45,6 +45,14 @@ pub struct McComponentInst {
     /// Pin names from conditional pin blocks (pin_id -> names)
     pub cond_pin_names: HashMap<String, Vec<String>>,
 
+    /// Row attributes of conditional-branch pins (pin_id -> attrs), recorded
+    /// by `init_cond_pins` when a branch materializes. A parametric
+    /// component's definition stays pinless, so a branch row's declaration
+    /// words — including the adoption defaults the parse unioned onto it
+    /// (interface-inventory-design.md §7 D3) — have no def-level home; this is
+    /// it. Read through [`Self::attrs_of_pin`], never directly.
+    pub cond_pin_attrs: HashMap<String, crate::semantic::component::mc_attr::McAttributes>,
+
     /// Attributes resolved from conditional attribute blocks
     pub cond_attrs: Vec<crate::semantic::component::mc_attr::McAttribute>,
 
@@ -115,6 +123,7 @@ impl McComponentInst {
             raw_params: Vec::new(),
             pins: HashMap::new(),
             cond_pin_names: HashMap::new(),
+            cond_pin_attrs: HashMap::new(),
             cond_attrs: Vec::new(),
             resolved_attrs: Vec::new(),
             nc_pins: BTreeSet::new(),
@@ -140,6 +149,7 @@ impl McComponentInst {
             raw_params: Vec::new(),
             pins: HashMap::new(),
             cond_pin_names: HashMap::new(),
+            cond_pin_attrs: HashMap::new(),
             cond_attrs: Vec::new(),
             resolved_attrs: Vec::new(),
             nc_pins: BTreeSet::new(),
@@ -195,6 +205,7 @@ impl McComponentInst {
             raw_params: param_values.to_vec(),
             pins: HashMap::new(),
             cond_pin_names: HashMap::new(),
+            cond_pin_attrs: HashMap::new(),
             cond_attrs: Vec::new(),
             resolved_attrs: Vec::new(),
             nc_pins: BTreeSet::new(),
@@ -221,6 +232,7 @@ impl McComponentInst {
             raw_params: param_values.to_vec(),
             pins: HashMap::new(),
             cond_pin_names: HashMap::new(),
+            cond_pin_attrs: HashMap::new(),
             cond_attrs: Vec::new(),
             resolved_attrs: Vec::new(),
             nc_pins: BTreeSet::new(),
@@ -329,6 +341,14 @@ impl McComponentInst {
                             if let Some(names) = pins.pin_id_to_names.get(&pin_id) {
                                 self.cond_pin_names.insert(pin_id.clone(), names.clone());
                             }
+                            // The branch row's declaration words ride with the
+                            // pin: the def is pinless for a parametric
+                            // component, so this map is the only home the row's
+                            // attrs have (see `attrs_of_pin`).
+                            if let Some(mp) = pins.pins.get(&pin_id) {
+                                self.cond_pin_attrs
+                                    .insert(pin_id.clone(), mp.attrs.clone());
+                            }
                             if !self.pins.contains_key(&pin_id) {
                                 let path = format!("{}.{}", self.name, pin_id);
                                 let iotype = pins.get_pin_io(&pin_id).unwrap_or(IOType::None);
@@ -360,6 +380,11 @@ impl McComponentInst {
                         if let Some(names) = else_pins.pin_id_to_names.get(&pin_id) {
                             self.cond_pin_names.insert(pin_id.clone(), names.clone());
                         }
+                        // Same attrs carry as the matched branch above.
+                        if let Some(mp) = else_pins.pins.get(&pin_id) {
+                            self.cond_pin_attrs
+                                .insert(pin_id.clone(), mp.attrs.clone());
+                        }
                         if !self.pins.contains_key(&pin_id) {
                             let path = format!("{}.{}", self.name, pin_id);
                             let iotype = else_pins.get_pin_io(&pin_id).unwrap_or(IOType::None);
@@ -370,6 +395,24 @@ impl McComponentInst {
                 }
             }
         }
+    }
+
+    /// The attributes of a materialized pin. Definition-level pins live in
+    /// `def.pins`; a conditional branch's pins materialize only here at
+    /// instantiation (the def stays pinless for a parametric component), so
+    /// their row attributes — including the adoption defaults the parse
+    /// unioned onto the branch row (interface-inventory-design.md §7 D3) —
+    /// are recorded in `cond_pin_attrs`. Every consumer of a pin row's
+    /// declaration words (`@exposed`, `@role`, `@class`) reads through here,
+    /// not the def alone: a def-only read is blind to exactly the components
+    /// whose pinout is a construction parameter.
+    pub fn attrs_of_pin(&self, pin_name: &str) -> Option<&crate::semantic::component::mc_attr::McAttributes> {
+        self.def
+            .pins
+            .pins
+            .get(pin_name)
+            .map(|p| &p.attrs)
+            .or_else(|| self.cond_pin_attrs.get(pin_name))
     }
 
     /// Evaluate conditional attribute blocks stored in the component definition

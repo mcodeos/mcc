@@ -225,7 +225,10 @@ const PIN: &[AttrFace] = &[AttrFace::PinRow];
 /// what the landed copper must anchor). `class` shares the pair for the same
 /// reason: a domain's `@class` is the board's classification decision, a pin
 /// row's `@class` is the library's signal-class *expectation* (§4, v0.3) —
-/// same word, same value table, each face its own layer.
+/// same word, same value table, each face its own layer. `exposed` shares it
+/// too: a body/module io row is the board-boundary port, a connector pin row
+/// is the library's shell/shield electrode at that same boundary
+/// (exposed-protection-design.md §2, both halves of the host).
 const BODY_PIN: &[AttrFace] = &[AttrFace::Body, AttrFace::PinRow];
 const IFACE: &[AttrFace] = &[AttrFace::Interface];
 const SPEC: &[AttrFace] = &[AttrFace::Spec];
@@ -346,7 +349,7 @@ pub(crate) const ATTR_KEYS: &[AttrKeyDef] = &[
     vocab_row(KEY_CLASS, BODY_PIN, true, AttrVocab::Words(CLASS_WORDS)),
     vocab_row(KEY_NATURE, BODY, true, AttrVocab::Words(NATURE_WORDS)),
     vocab_row(KEY_NOISE, BODY, true, AttrVocab::Words(NOISE_WORDS)),
-    vocab_row(KEY_EXPOSED, BODY, true, AttrVocab::Words(EXPOSED_WORDS)),
+    vocab_row(KEY_EXPOSED, BODY_PIN, true, AttrVocab::Words(EXPOSED_WORDS)),
     vocab_row(KEY_BIND_ROLE, BODY, true, AttrVocab::Words(ROLE_WORDS)),
     vocab_row(KEY_STAR, BODY, true, AttrVocab::Flag),
     vocab_row(KEY_PROTECT, BODY, true, AttrVocab::Words(PROTECT_WORDS)),

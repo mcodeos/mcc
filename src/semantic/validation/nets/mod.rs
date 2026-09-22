@@ -3181,41 +3181,27 @@ pub(crate) fn check_pin_copper_expectation(table: &InstTable, results: &mut Vec<
             }
         }
     }
-    // Defs come from every live domain: a library part carries expectations
-    // the same as a board-local one (the library-annotation batch's whole
-    // point — the workspace-only read made every system-library annotation
-    // silently invisible). On a name collision the workspace def overwrites:
-    // the project shadows the library, the same resolution everywhere else.
-    let mut workspace: std::collections::HashMap<String, std::sync::Arc<McComponent>> =
-        crate::definition_space()
-            .all_components()
-            .into_iter()
-            .map(|(sn, c)| (sn.ident.to_string(), c))
-            .collect();
-    for (sn, c) in crate::definition_space().workspace_components() {
-        workspace.insert(sn.ident.to_string(), c);
-    }
     for comp in table.get_components() {
         if comp.synthetic || comp.unselected || comp.class_name.is_empty() {
             continue;
         }
-        let Some(def) = workspace.get(&comp.class_name) else {
-            continue;
-        };
         for pin in table.get_pins_of(comp.id) {
-            let Some(mp) = def_pin_of(def, &comp.path, pin) else {
-                continue;
-            };
+            // v0.3: the words ride the flat pin entry, decoded at flatten
+            // time from the instance's materialized pins — a
+            // conditional-branch row (a parametric component's selected
+            // variant, e.g. a sensor's adopted ADC.SINGLE / I2C / SPI) and
+            // an adoption row (whose interface member defaults were unioned
+            // onto it at parse time, D3) reach this gate the same as a
+            // direct row. The former def-level read was blind to exactly
+            // those: a parametric def has no pins of its own. Library parts
+            // carry expectations the same as board-local ones either way —
+            // the words live on the instance, not in one domain's def table.
+            //
             // One axis per row is the default shape (§4). A row that writes
             // both is judged on each — the axes share one gate, one
             // single-end comparison and one tier; no fourth reading exists.
-            let role_word = crate::semantic::module::pi::attr_texts(&mp.attrs, attr_keys::KEY_ROLE)
-                .into_iter()
-                .next();
-            let class_word =
-                crate::semantic::module::pi::attr_texts(&mp.attrs, attr_keys::KEY_CLASS)
-                    .into_iter()
-                    .next();
+            let role_word = pin.exp_role.first().cloned();
+            let class_word = pin.exp_class.first().cloned();
             // The class words normalize through the registry's own set, so a
             // word here is always one of the two the axis reads.
             let class_exp = class_word.map(|w| {

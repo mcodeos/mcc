@@ -307,17 +307,41 @@ pub(crate) fn exposed_of_pin(
     comp: &crate::instant::mc_comp::McComponentInst,
     pin_name: &str,
 ) -> Vec<String> {
-    comp.def
-        .pins
-        .pins
-        .get(pin_name)
-        .map(|p| {
+    comp.attrs_of_pin(pin_name)
+        .map(|attrs| {
             crate::semantic::module::pi::attr_texts(
-                &p.attrs,
+                attrs,
                 crate::semantic::basic::attr_keys::KEY_EXPOSED,
             )
         })
         .unwrap_or_default()
+}
+
+/// The pin-row expectation words on the two axes (pin-expectation v0.3 §4):
+/// `@role(...)` for the return-identity axis, `@class(...)` for the
+/// signal-class axis. Read through the instance's materialized pins
+/// ([`McComponentInst::attrs_of_pin`]), so a conditional-branch row — a
+/// parametric component's selected variant, e.g. a sensor's adopted
+/// `ADC.SINGLE` / `I2C` / `SPI` interface — carries its words the same as a
+/// direct row, including the member defaults the adoption unioned onto the
+/// row at parse time (interface-inventory-design.md §7 D3).
+pub(crate) fn expectations_of_pin(
+    comp: &crate::instant::mc_comp::McComponentInst,
+    pin_name: &str,
+) -> (Vec<String>, Vec<String>) {
+    match comp.attrs_of_pin(pin_name) {
+        Some(attrs) => (
+            crate::semantic::module::pi::attr_texts(
+                attrs,
+                crate::semantic::basic::attr_keys::KEY_ROLE,
+            ),
+            crate::semantic::module::pi::attr_texts(
+                attrs,
+                crate::semantic::basic::attr_keys::KEY_CLASS,
+            ),
+        ),
+        None => (Vec::new(), Vec::new()),
+    }
 }
 
 /// What this component **is**, as its own `spec` table declares it — the flat
@@ -657,6 +681,19 @@ pub struct InstEntry {
     /// a class name. Empty means the author declared no boundary — which is a
     /// real answer, not a missing one.
     pub exposed: Vec<String>,
+    /// ★ pin-expectation v0.3 (§4): the pin row's own expectation words on
+    /// the two axes — `exp_role` the `@role(...)` words (return identity,
+    /// `quiet` being the one with a net-side reading), `exp_class` the
+    /// `@class(...)` words (analog/digital signal class). A declaration-face
+    /// carry like [`Self::exposed`]: decoded once at flatten time through
+    /// [`expectations_of_pin`], from the instance's materialized pins — so a
+    /// conditional-branch row (the selected variant of a parametric
+    /// component) and an adoption row (whose interface member defaults were
+    /// unioned onto it at parse time, D3) carry their words exactly like a
+    /// direct row. Empty means the author declared no expectation on that
+    /// axis — a real answer, not a missing one.
+    pub exp_role: Vec<String>,
+    pub exp_class: Vec<String>,
     /// ★ PI axis (power-quality-design.md §1.2): the element class this
     /// component's own `spec` table declares it to be — decoupling capacitor,
     /// filter magnetics, or a dissipating pass — so a rule can ask "is this a
@@ -1174,6 +1211,8 @@ impl InstTable {
             unselected: false,
             protection: None,
             exposed: Vec::new(),
+            exp_role: Vec::new(),
+            exp_class: Vec::new(),
             element_class: None,
             resistance_ohm: None,
             power_rated_w: None,
@@ -1245,6 +1284,16 @@ impl InstTable {
     pub fn set_exposed(&mut self, id: u32, levels: Vec<String>) {
         if let Some(entry) = self.entries.get_mut(&id) {
             entry.exposed = levels;
+        }
+    }
+
+    /// Set the declared expectation words of a component pin by ID (see
+    /// [`InstEntry::exp_role`] / [`InstEntry::exp_class`]). Component flatten
+    /// sites only.
+    pub fn set_expectations(&mut self, id: u32, role: Vec<String>, class: Vec<String>) {
+        if let Some(entry) = self.entries.get_mut(&id) {
+            entry.exp_role = role;
+            entry.exp_class = class;
         }
     }
 
@@ -2176,6 +2225,16 @@ impl InstTable {
                         self.set_exposed(pin_id, exposed);
                     }
 
+                    // ★ pin-expectation v0.3: the row's `@role`/`@class` words
+                    // ride the flat pin entry the same way, so the ERC gate
+                    // reads the instance's materialized row — a
+                    // conditional-branch variant and an adoption row (D3
+                    // member defaults) included (§4.1).
+                    let (exp_role, exp_class) = expectations_of_pin(comp, pin_name);
+                    if !exp_role.is_empty() || !exp_class.is_empty() {
+                        self.set_expectations(pin_id, exp_role, exp_class);
+                    }
+
                     // ── Declaration position for pins ──
                     // An unconnected pin never appears in a net, so `flatten_nets`
                     // can't back-fill a wiring site into `src_pos`. Anchor the
@@ -2399,6 +2458,13 @@ impl InstTable {
                     let exposed = exposed_of_pin(comp, pin_name);
                     if !exposed.is_empty() {
                         self.set_exposed(pin_id, exposed);
+                    }
+
+                    // ★ pin-expectation v0.3: `@role`/`@class` carry
+                    // (same rule as pass 1).
+                    let (exp_role, exp_class) = expectations_of_pin(comp, pin_name);
+                    if !exp_role.is_empty() || !exp_class.is_empty() {
+                        self.set_expectations(pin_id, exp_role, exp_class);
                     }
 
                     let (role, _inferred) = infer_member_role(
