@@ -216,6 +216,9 @@ struct SheetState {
     /// names a GLOBAL net, so a second flag elsewhere would read as a second
     /// driver
     flagged: HashSet<String>,
+    /// occupied label boxes (sheet mm): the anti-overlap ledger every text
+    /// label registers with before it lands
+    labels: Vec<(f64, f64, f64, f64)>,
 }
 
 fn emit_sheets(layers: &[RenderedLayer], top: &str) -> Vec<SchFile> {
@@ -251,6 +254,7 @@ fn emit_sheets(layers: &[RenderedLayer], top: &str) -> Vec<SchFile> {
         used_refs: HashMap::new(),
         pwr_seq: 0,
         flagged: HashSet::new(),
+        labels: Vec::new(),
     };
     let mut files = Vec::new();
     for i in 0..layers.len() {
@@ -445,7 +449,7 @@ fn emit_sheet(set: &SheetSet, state: &mut SheetState, idx: usize) -> String {
         emit_tree_nets(graph, &trees, &xf, &path_prefix, set, state, &mut e, &HashMap::new());
     } else {
         emit_block_edges(graph, &xf, set, &mut e);
-        emit_root_passive_nets(graph, &xf, &mut e);
+        emit_root_passive_nets(graph, &xf, &mut Vec::new(), &mut e);
     }
     emit_rail_decorations(graph, &xf, &path_prefix, set, state, &mut e, &HashMap::new());
 
@@ -568,6 +572,7 @@ fn emit_flat_sheet(
         used_refs: HashMap::new(),
         pwr_seq: 0,
         flagged: HashSet::new(),
+        labels: Vec::new(),
     };
 
     // Tile width pass: every layer that will be drawn gets an x offset. A
@@ -732,29 +737,19 @@ fn emit_flat_sheet(
                     + (a.y + a.h / 2.0 - root_center.1).powi(2);
                 let db = (b.x + b.w / 2.0 - root_center.0).powi(2)
                     + (b.y + b.h / 2.0 - root_center.1).powi(2);
-                let (push_idx, dx, dy) = if da >= db {
-                    let (ax, ay) = (a.x + a.w / 2.0, a.y + a.h / 2.0);
-                    let (bx, by) = (b.x + b.w / 2.0, b.y + b.h / 2.0);
-                    (
-                        i,
-                        (ax - bx).abs() * ox,
-                        (ay - by).abs() * oy,
-                    )
-                } else {
-                    let (ax, ay) = (a.x + a.w / 2.0, a.y + a.h / 2.0);
-                    let (bx, by) = (b.x + b.w / 2.0, b.y + b.h / 2.0);
-                    (
-                        j,
-                        (bx - ax).abs() * ox,
-                        (by - ay).abs() * oy,
-                    )
-                };
-                // Normalize: move along the dominant axis by the full gap.
+                // Push the tile farther from the root centre AWAY from it,
+                // along the thinner penetration axis. The sign follows the
+                // tile's own bearing relative to the centre, so a module
+                // seeded right of centre stays right of centre.
+                let (push_idx, axis_x) = if da >= db { (i, ox <= oy) } else { (j, ox <= oy) };
                 let t = &mut tiles[push_idx];
+                let (cx, cy) = (t.x + t.w / 2.0, t.y + t.h / 2.0);
                 if ox <= oy {
-                    t.x += if dx >= 0.0 { ox } else { -ox };
+                    let sgn = if cx >= root_center.0 { 1.0 } else { -1.0 };
+                    t.x += sgn * ox;
                 } else {
-                    t.y += if dy >= 0.0 { oy } else { -oy };
+                    let sgn = if cy >= root_center.1 { 1.0 } else { -1.0 };
+                    t.y += sgn * oy;
                 }
                 moved += 1.0;
             }
@@ -1166,6 +1161,7 @@ fn emit_flat_sheet(
                     &edge.label,
                     (sx + fx) / 2.0,
                     (sy + fy) / 2.0,
+                    &mut state.labels,
                     &mut e,
                 );
             }
@@ -1180,7 +1176,7 @@ fn emit_flat_sheet(
         }
         let a = run.pts[0];
         let b = *run.pts.last().unwrap();
-        text_label(root_graph.bid, &run.net, (a.0 + b.0) / 2.0, (a.1 + b.1) / 2.0, &mut e);
+        text_label(root_graph.bid, &run.net, (a.0 + b.0) / 2.0, (a.1 + b.1) / 2.0, &mut state.labels, &mut e);
     }
     for (x, y, port) in &gnd_glyphs {
         state.pwr_seq += 1;
@@ -1206,10 +1202,10 @@ fn emit_flat_sheet(
     if !unrouted.is_empty() {
         let lx = tiles.iter().map(|t| t.x + t.w).fold(0.0f64, f64::max) + 15.0;
         let mut ly = 30.0;
-        text_label(root_graph.bid, "Unrouted connections", lx, ly, &mut e);
+        text_label(root_graph.bid, "Unrouted connections", lx, ly, &mut state.labels, &mut e);
         ly += 6.0;
         for (n, a, b) in &unrouted {
-            text_label(root_graph.bid, &format!("{n}: {a} - {b}"), lx, ly, &mut e);
+            text_label(root_graph.bid, &format!("{n}: {a} - {b}"), lx, ly, &mut state.labels, &mut e);
             ly += 5.0;
         }
     }
@@ -1230,12 +1226,13 @@ fn emit_flat_sheet(
                 })
                 .collect();
             emit_tree_nets(graph, &trees, xf, &set.root_uuid, &set, &mut state, &mut e, &net_names);
+            emit_wired_pin_guarantee(graph, &trees, &net_names, xf, &mut state.labels, &mut e);
             // Boundary ports become same-name labels joined to the parent's
             // net name; the hierarchical label itself would be meaningless on
             // a sheetless drawing.
-            emit_flat_boundary_labels(graph, &trees, xf, &pn, &mut e);
+            emit_flat_boundary_labels(graph, &trees, xf, &pn, &mut state.labels, &mut e);
         } else {
-            emit_root_passive_nets(graph, xf, &mut e);
+            emit_root_passive_nets(graph, xf, &mut state.labels, &mut e);
         }
         let net_names: HashMap<String, String> = graph
             .nets
@@ -1281,6 +1278,7 @@ fn emit_flat_boundary_labels(
     trees: &[EquiTree],
     xf: &Xform,
     port_net: &HashMap<String, String>,
+    ledger: &mut Vec<(f64, f64, f64, f64)>,
     e: &mut Emit,
 ) {
     for net in &graph.nets {
@@ -1306,7 +1304,7 @@ fn emit_flat_boundary_labels(
         let Some((x, y)) = pos.or_else(|| boundary_tree_endpoint(graph, trees, xf, net)) else {
             continue;
         };
-        text_label(graph.bid, &name, x, y, e);
+        text_label(graph.bid, &name, x, y, ledger, e);
     }
 }
 
@@ -1418,7 +1416,7 @@ fn emit_tree_nets(
                     // the cross-module join, boundary or not.
                     if !is_anon(&t.net_name) && (!is_boundary || flat_mode) {
                         let shown = display_of(&t.net_name);
-                        text_label(graph.bid, &shown, xf.x(s.x), xf.y(s.y), e);
+                        text_label(graph.bid, &shown, xf.x(s.x), xf.y(s.y), &mut state.labels, e);
                     }
                 }
             }
@@ -1433,12 +1431,12 @@ fn emit_tree_nets(
                 longest_midpoint(t.segments.iter().map(|s| ((s.x1, s.y1), (s.x2, s.y2))))
             {
                 let shown = display_of(&t.net_name);
-                text_label(graph.bid, &shown, xf.x(x), xf.y(y), e);
+                text_label(graph.bid, &shown, xf.x(x), xf.y(y), &mut state.labels, e);
             }
         }
         if let Some(net) = graph.nets.iter().find(|n| n.name == t.net_name) {
             let shown = display_of(&t.net_name);
-            emit_pin_rescue(graph, t, net, xf, &shown, !net_names.is_empty(), e);
+            emit_pin_rescue(graph, t, net, xf, &shown, &mut state.labels, e);
         }
     }
     emit_boundary_labels(graph, trees, xf, e);
@@ -1486,9 +1484,51 @@ fn emit_wire(bid: i64, xf: &Xform, x1: f64, y1: f64, x2: f64, y2: f64, e: &mut E
     e.close();
 }
 
-fn text_label(bid: i64, text: &str, x: f64, y: f64, e: &mut Emit) {
+fn text_label(
+    bid: i64,
+    text: &str,
+    x: f64,
+    y: f64,
+    ledger: &mut Vec<(f64, f64, f64, f64)>,
+    e: &mut Emit,
+) {
+    // Anti-overlap: the anchor must stay electrically connected, so it slides
+    // ALONG the wire (the horizontal trunks dominate) before it ever hops
+    // perpendicular.
+    let w = text.len() as f64 * 0.9 + 2.0;
+    let h = 2.0;
+    let hits = |bx: f64, by: f64| {
+        ledger.iter().any(|(ox, oy, ow, oh)| {
+            bx < *ox + *ow && *ox < bx + w && by < *oy + *oh && *oy < by + h
+        })
+    };
+    let mut fx = x;
+    let mut fy = y;
+    if hits(fx, fy) {
+        const OFFS: [(f64, f64); 11] = [
+            (12.0, 0.0),
+            (-12.0, 0.0),
+            (24.0, 0.0),
+            (-24.0, 0.0),
+            (36.0, 0.0),
+            (-36.0, 0.0),
+            (0.0, 3.0),
+            (0.0, -3.0),
+            (0.0, 6.0),
+            (0.0, -6.0),
+            (0.0, 9.0),
+        ];
+        for (dx, dy) in OFFS {
+            if !hits(x + dx, y + dy) {
+                fx = x + dx;
+                fy = y + dy;
+                break;
+            }
+        }
+    }
+    ledger.push((fx, fy, w, 2.0));
     e.open(&format!("label \"{}\"", escape(text)));
-    line!(e, "(at {} {} 0)", mm(x), mm(y));
+    line!(e, "(at {} {} 0)", mm(fx), mm(fy));
     e.open("effects");
     e.open("font");
     line!(e, "(size 1.27 1.27)");
@@ -1605,7 +1645,7 @@ fn emit_block_edges(graph: &McVecGraph, xf: &Xform, set: &SheetSet, e: &mut Emit
             continue;
         }
         let mid = middle_of(path);
-        text_label(graph.bid, &edge.label, xf.x(mid.0), xf.y(mid.1), e);
+        text_label(graph.bid, &edge.label, xf.x(mid.0), xf.y(mid.1), &mut Vec::new(), e);
     }
     let _ = set;
 }
@@ -1614,7 +1654,12 @@ fn emit_block_edges(graph: &McVecGraph, xf: &Xform, set: &SheetSet, e: &mut Emit
 /// downstream needs them on the net. Each pin gets a short stub and the net's
 /// name as a label — same-name labels are what unify a root net across its
 /// block edges and sheet pins.
-fn emit_root_passive_nets(graph: &McVecGraph, xf: &Xform, e: &mut Emit) {
+fn emit_root_passive_nets(
+    graph: &McVecGraph,
+    xf: &Xform,
+    ledger: &mut Vec<(f64, f64, f64, f64)>,
+    e: &mut Emit,
+) {
     if graph.layer_style == LayerStyle::Device {
         return;
     }
@@ -1652,7 +1697,7 @@ fn emit_root_passive_nets(graph: &McVecGraph, xf: &Xform, e: &mut Emit) {
             );
             e.close();
             if !is_anon(&net.name) {
-                text_label(graph.bid, &net.name, sx, sy, e);
+                text_label(graph.bid, &net.name, sx, sy, ledger, e);
             }
         }
     }
@@ -2190,9 +2235,10 @@ fn emit_pin_rescue(
     net: &VizNet,
     xf: &Xform,
     display: &str,
-    named: bool,
+    ledger: &mut Vec<(f64, f64, f64, f64)>,
     e: &mut Emit,
 ) {
+    let named = !is_anon(display);
     let mut ends: Vec<(f64, f64)> = t
         .segments
         .iter()
@@ -2229,7 +2275,7 @@ fn emit_pin_rescue(
                         EntrySide::Bottom => (ax, ay + 10.0),
                     };
                     emit_wire(graph.bid, xf, ax, ay, sx, sy, e);
-                    text_label(graph.bid, display, xf.x(sx), xf.y(sy), e);
+                    text_label(graph.bid, display, xf.x(sx), xf.y(sy), &mut Vec::new(), e);
                 }
             }
             continue;
@@ -2279,7 +2325,7 @@ fn emit_pin_rescue(
                 EntrySide::Bottom => (ax, ay + 10.0),
             };
             emit_wire(graph.bid, xf, ax, ay, sx, sy, e);
-            text_label(graph.bid, display, xf.x(sx), xf.y(sy), e);
+            text_label(graph.bid, display, xf.x(sx), xf.y(sy), &mut Vec::new(), e);
         } else if (ex - ax).abs() < 0.05 || (ey - ay).abs() < 0.05 {
             emit_wire(graph.bid, xf, ax, ay, ex, ey, e);
         } else {
@@ -2287,6 +2333,81 @@ fn emit_pin_rescue(
             emit_wire(graph.bid, xf, ex, ay, ex, ey, e);
         }
         ends.push((ax, ay));
+    }
+}
+
+/// Tile-level wired-pin guarantee: EVERY pin a net references gets copper at
+/// its anchor. Tree taps, bridges and the per-tree rescue can all miss (pins
+/// the placer left without an entry, trees that skip a topology) — this pass
+/// is tree-independent, so nothing a netlist wires can end up floating. Named
+/// nets join by name (stub + label); anonymous ones L-wire to the nearest
+/// same-net tree end.
+fn emit_wired_pin_guarantee(
+    graph: &McVecGraph,
+    trees: &[EquiTree],
+    net_names: &HashMap<String, String>,
+    xf: &Xform,
+    ledger: &mut Vec<(f64, f64, f64, f64)>,
+    e: &mut Emit,
+) {
+    let mut ends: Vec<(f64, f64)> = trees
+        .iter()
+        .flat_map(|t| t.segments.iter())
+        .flat_map(|s| [(s.x1, s.y1), (s.x2, s.y2)])
+        .collect();
+    for net in &graph.nets {
+        let shown = net_names
+            .get(&net.name)
+            .cloned()
+            .unwrap_or_else(|| net.name.clone());
+        let named = !is_anon(&shown);
+        for ep in &net.endpoints {
+            let Some(b) = graph.boxes.iter().find(|b| b.id == ep.box_id) else {
+                continue;
+            };
+            if !matches!(b.kind, BoxKind::TwoPin | BoxKind::MultiPin) {
+                continue;
+            }
+            let Some(pin) = endpoint_pin(b, ep) else { continue };
+            let (side, offset) = pin_placement(b, pin);
+            let (ax, ay) = match side {
+                EntrySide::Left => (b.x, b.y + b.h * offset),
+                EntrySide::Right => (b.x + b.w, b.y + b.h * offset),
+                EntrySide::Top => (b.x + b.w * offset, b.y),
+                EntrySide::Bottom => (b.x + b.w * offset, b.y + b.h),
+            };
+            if ends
+                .iter()
+                .any(|(x, y)| (x - ax).abs() < 0.05 && (y - ay).abs() < 0.05)
+            {
+                continue;
+            }
+            let (sx, sy) = match side {
+                EntrySide::Left => (ax - 10.0, ay),
+                EntrySide::Right => (ax + 10.0, ay),
+                EntrySide::Top => (ax, ay - 10.0),
+                EntrySide::Bottom => (ax, ay + 10.0),
+            };
+            emit_wire(graph.bid, xf, ax, ay, sx, sy, e);
+            if named {
+                text_label(graph.bid, &shown, xf.x(sx), xf.y(sy), &mut Vec::new(), e);
+            } else if let Some(&(ex, ey)) = ends
+                .iter()
+                .min_by(|p, q| {
+                    let dp = (p.0 - ax).powi(2) + (p.1 - ay).powi(2);
+                    let dq = (q.0 - ax).powi(2) + (q.1 - ay).powi(2);
+                    dp.total_cmp(&dq)
+                })
+            {
+                if (ex - sx).abs() < 0.05 || (ey - sy).abs() < 0.05 {
+                    emit_wire(graph.bid, xf, sx, sy, ex, ey, e);
+                } else {
+                    emit_wire(graph.bid, xf, sx, sy, ex, sy, e);
+                    emit_wire(graph.bid, xf, ex, sy, ex, ey, e);
+                }
+            }
+            ends.push((ax, ay));
+        }
     }
 }
 
