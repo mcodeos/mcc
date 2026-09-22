@@ -646,7 +646,25 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
             };
 
             let opts = build_viz_opts(args.layouter.as_deref(), args.viz_frames);
-            let (mut doc, metrics) = mcc::viz::api::render_with_metrics(graph, opts);
+            let mut layers: Vec<mcc::viz::api::RenderedLayer> = Vec::new();
+            let (mut doc, metrics) =
+                mcc::viz::api::render_with_metrics_and_sink(graph, opts, Some(&mut layers));
+            // The machine-readable layout manifest rides beside the HTML: an
+            // agent reads positions, pins and wire geometry from it instead of
+            // parsing the SVG.
+            let manifest = mcc::viz::layout_manifest::build_manifest(&layers, &top_name);
+            let manifest_path = viz_output_path(&project_root).with_extension("layout.json");
+            mcc::cli::outlet::ensure_parent(&manifest_path)?;
+            std::fs::write(
+                &manifest_path,
+                serde_json::to_string_pretty(&manifest).unwrap_or_default(),
+            )
+            .with_context(|| format!("failed to write file: {}", manifest_path.display()))?;
+            eprintln!(
+                "viz-layout: {} bytes written to {}",
+                manifest_path.metadata().map(|m| m.len()).unwrap_or(0),
+                manifest_path.display()
+            );
             let quality = metrics.finish_quality(Some(&build_report));
             // Metrics summary: always shown (this is the acceptance yardstick).
             for line in quality.report_lines() {
