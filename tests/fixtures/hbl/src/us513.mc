@@ -28,7 +28,9 @@ component MCU.US513_20_F
         io [10,11] = I2C1::I2C(Master) | GPIO[9, 10]::GPIO(Controller),
                     ["I2C", "GPIO"], volt:1.2V, amp:100mA
 
-        io [8:11] = SPI{SCLK, MOSI, CSN, MISO}::SPI(Master)
+        // Master wire order [SCLK, MOSI, MISO, CS] (b3804 face): pins
+        // 8=SCLK, 9=MOSI, 11=MISO, 10=CSN
+        io [8, 9, 11, 10] = SPI{SCLK, MOSI, MISO, CSN}::SPI(Master)
 
         io [12,13] = UART1::UART.TTL(DCE)
                     | GPIO[5, 6]::GPIO(Controller)
@@ -100,7 +102,9 @@ component FLASH.GD25Q32E
         7 = _HOLD | IO3
         [8,4] = [VCC,VSS]::DC(3.3V)
         
-        [1, 2, 5, 6] = SPI::SPI(Slave)
+        // Slave wire order [SCLK, SI, SO, CS] (b3804 face): pins
+        // 6=SCLK, 5=SI, 2=SO, 1=_CS
+        [6, 5, 2, 1] = SPI::SPI(Slave)
     ]
         
     func GD25Q32E([V3V3, GND]::DC(3.3V))
