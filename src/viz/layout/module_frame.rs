@@ -19,7 +19,9 @@
 //! consulted, and the renderer recomputes nothing — it draws the rect and the
 //! labels as written.
 
-use crate::vector::graph::{BoxKind, EntrySide, FrameLeadSeg, FramePort, McVecGraph, ModuleFrame};
+use crate::vector::graph::{
+    BoxKind, EntrySide, FrameLeadSeg, FramePort, McVecGraph, ModuleFrame, NetKind,
+};
 use crate::vector::model::PortFlow;
 
 use super::equipotential_tree::{build_all_trees, content_bbox, EquiTree, GUTTER_STEP};
@@ -179,6 +181,14 @@ fn frame_ports(
         bool,
         Option<PortFlow>,
     )> = Vec::new();
+    // A ground net's crossing is the rail's own ground glyph — the glyph is the
+    // label, so the anchor keeps the port dot but no lead is routed back to it.
+    let ground_nets: Vec<i64> = graph
+        .nets
+        .iter()
+        .filter(|n| n.kind == NetKind::Ground)
+        .map(|n| n.nid)
+        .collect();
     for net in &graph.nets {
         let Some(bi) = net.boundary.as_ref() else {
             continue;
@@ -285,6 +295,9 @@ fn frame_ports(
         let mut seg_keys: Vec<(i64, i64, i64, i64)> = Vec::new();
         let mut leads: Vec<Vec<FrameLeadSeg>> = Vec::new();
         for &(nid, tx, ty) in crosses {
+            if ground_nets.contains(&nid) {
+                continue;
+            }
             let Some(raw) = route_lead(port, nid, tx, ty, graph, trees) else {
                 continue;
             };
