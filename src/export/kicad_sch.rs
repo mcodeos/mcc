@@ -509,25 +509,19 @@ fn collect_layer_libs(
     BTreeMap<String, String>,
     bool,
 ) {
-    let mut lib_sig: HashMap<String, String> = HashMap::new();
     let mut lib_of_box: HashMap<i64, String> = HashMap::new();
     let mut variant_count: HashMap<String, usize> = HashMap::new();
     for b in component_boxes(graph) {
-        let sig = lib_signature(b);
-        let name = match lib_sig.get(&sig) {
-            Some(n) => n.clone(),
-            None => {
-                let base = sanitize_lib_id(&b.class_name);
-                let n = variant_count.entry(base.clone()).or_insert(0);
-                *n += 1;
-                let name = if *n == 1 {
-                    base.clone()
-                } else {
-                    format!("{base}_v{n}")
-                };
-                lib_sig.insert(sig, name.clone());
-                name
-            }
+        // One lib symbol per box, keyed by the box id: pin positions in the
+        // lib must be THE positions this box's wires were routed to, and a
+        // class-signature merge let a sibling box's fallback layout leak in.
+        let base = sanitize_lib_id(&b.class_name);
+        let n = variant_count.entry(base.clone()).or_insert(0);
+        *n += 1;
+        let name = if *n == 1 {
+            base.clone()
+        } else {
+            format!("{base}_v{n}")
         };
         lib_of_box.insert(b.id, name);
     }
@@ -1047,6 +1041,79 @@ fn emit_flat_sheet(
 
     // Root rail names by declared voltage — the rename authority for every
     // sub-module's local arm of a shared rail.
+    // Cross-layer block edges whose parent-side part is unwired in the root
+    // graph (a pull-up inside a child's scope reaching a root part): the run
+    // from the part's stub to the child tile's port anchor is the only
+    // copper that connection gets, named by the child net's board name.
+    {
+        let by_id: HashMap<i64, &McVecBox> =
+            root_graph.boxes.iter().map(|b| (b.id, b)).collect();
+        for edge in &root_graph.block_edges {
+            let Some(pin_id) = edge.from_pins.first().or(edge.to_pins.first()) else {
+                continue;
+            };
+            let part_box = edge.from_box;
+            let Some(pb) = by_id.get(&part_box) else { continue };
+            if !matches!(pb.kind, BoxKind::TwoPin | BoxKind::MultiPin) {
+                continue;
+            }
+            let wired = root_graph.nets.iter().any(|n| {
+                n.endpoints
+                    .iter()
+                    .any(|ep| ep.box_id == part_box && ep.pin_id == *pin_id)
+            });
+            if wired {
+                continue;
+            }
+            let Some(pin) = pb.pins.iter().find(|p| p.id == *pin_id) else {
+                continue;
+            };
+            let (side, offset) = pin_placement(pb, pin);
+            let (ax, ay) = anchor_mm(&root_xf, pb, side, offset);
+            let (dx, dy) = match side {
+                EntrySide::Left => (-10.0 * MM_PER_PX, 0.0),
+                EntrySide::Right => (10.0 * MM_PER_PX, 0.0),
+                EntrySide::Top => (0.0, -10.0 * MM_PER_PX),
+                EntrySide::Bottom => (0.0, 10.0 * MM_PER_PX),
+            };
+            // The far end: the child tile that owns the edge's other box.
+            let other_box = if edge.from_box == part_box {
+                edge.to_box
+            } else {
+                edge.from_box
+            };
+            let other_pins = if edge.from_box == part_box {
+                &edge.to_pins
+            } else {
+                &edge.from_pins
+            };
+            let Some(&oi) = set.by_bid.get(&other_box) else { continue };
+            let far = other_pins.iter().find_map(|pid| {
+                let ob = root_graph.boxes.iter().find(|b| b.id == other_box)?;
+                let port = ob
+                    .boundary_ports
+                    .iter()
+                    .find(|p| p.entry_pin_id == *pid)
+                    .map(|p| p.port_name.clone())
+                    .or_else(|| ob.find_entry(*pid).map(|x| x.pin_name.clone()))?;
+                port_at.get(&(oi, port)).copied()
+            });
+            let Some((fx, fy)) = far else { continue };
+            let (sx, sy) = (ax + dx, ay + dy);
+            flat_wire(root_graph.bid, ax, ay, sx, sy, &mut e);
+            flat_wire(root_graph.bid, sx, sy, fx, fy, &mut e);
+            if !is_anon(&edge.label) {
+                text_label(
+                    root_graph.bid,
+                    &edge.label,
+                    (sx + fx) / 2.0,
+                    (sy + fy) / 2.0,
+                    &mut e,
+                );
+            }
+        }
+    }
+
     // Phase 5 - draw the routed runs with their board-level names, then the
     // corner legend for whatever routing could not place.
     for run in &runs {
@@ -1808,6 +1875,7 @@ fn rail_name_of_pin(graph: &McVecGraph, box_id: i64, pin_id: i64) -> Option<Stri
 // === No-connects ===
 
 fn emit_no_connects(graph: &McVecGraph, xf: &Xform, e: &mut Emit) {
+    let dbg = std::env::var("MCC_KSCH_DEBUG").is_ok();
     let wired: HashSet<(i64, i64)> = graph
         .nets
         .iter()
@@ -1823,6 +1891,9 @@ fn emit_no_connects(graph: &McVecGraph, xf: &Xform, e: &mut Emit) {
     for b in component_boxes(graph) {
         for p in &b.pins {
             if wired.contains(&(b.id, p.id)) || decorated.contains(&(b.id, p.id)) {
+                if dbg {
+                    eprintln!("[ksch] nc skip {} pin{} id={} wired={} deco={}", b.name, p.pin_id, p.id, wired.contains(&(b.id, p.id)), decorated.contains(&(b.id, p.id)));
+                }
                 continue;
             }
             let (side, offset) = pin_placement(b, p);
@@ -2049,28 +2120,45 @@ fn emit_pin_rescue(
     if ends.is_empty() {
         return;
     }
+    let dbg = std::env::var("MCC_KSCH_DEBUG").is_ok();
     for ep in &net.endpoints {
         let Some(b) = graph.boxes.iter().find(|b| b.id == ep.box_id) else {
             continue;
         };
-        if b.find_entry(ep.pin_id).is_some() {
-            continue;
-        }
-        let Some(pin) = endpoint_pin(b, ep) else { continue };
         if !matches!(b.kind, BoxKind::TwoPin | BoxKind::MultiPin) {
             continue;
         }
+        let Some(pin) = endpoint_pin(b, ep) else {
+            if dbg {
+                eprintln!("[ksch] rescue {} ep pin_id={} UNJOINED", b.name, ep.pin_id);
+            }
+            continue;
+        };
         let (side, offset) = pin_placement(b, pin);
+        let has_entry = b.find_entry(ep.pin_id).is_some();
+        if dbg && b.name == "UC" {
+            eprintln!(
+                "[ksch] rescue UC pin{} id={} entry={} net={} ends={}",
+                pin.pin_id, ep.pin_id, has_entry, net.name, ends.len()
+            );
+        }
         let (ax, ay) = match side {
             EntrySide::Left => (b.x, b.y + b.h * offset),
             EntrySide::Right => (b.x + b.w, b.y + b.h * offset),
             EntrySide::Top => (b.x + b.w * offset, b.y),
             EntrySide::Bottom => (b.x + b.w * offset, b.y + b.h),
         };
-        if ends
+        // A tap that reached the anchor, or a lead that ends within a stub of
+        // it, means the tree already serves this pin.
+        let served = ends
             .iter()
             .any(|(x, y)| (x - ax).abs() < 0.05 && (y - ay).abs() < 0.05)
-        {
+            || (has_entry
+                && ends.iter().any(|(x, y)| {
+                    ((x - ax).abs() < 0.05 && (y - ay).abs() <= 12.0)
+                        || ((y - ay).abs() < 0.05 && (x - ax).abs() <= 12.0)
+                }));
+        if served {
             continue;
         }
         let Some(&(ex, ey)) = ends
