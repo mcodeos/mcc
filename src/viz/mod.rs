@@ -41,6 +41,7 @@ pub mod doc;
 pub mod idiom;
 pub mod labels;
 pub mod layer;
+pub mod layout_manifest;
 pub mod layout;
 pub mod layout_model;
 pub mod log;
