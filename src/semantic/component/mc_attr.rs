@@ -387,6 +387,23 @@ fn report_value_outside_vocabulary(attribute: &McAttribute, node: &AstNode) {
                 );
             }
         }
+        // The open word set (contract-design.md §1.8's fourth state): the
+        // value is an identifier the author coins, so no spelling is judged —
+        // but a bare `@barrier` names no group and would read as "outside
+        // every group", a silent no-op. The identifier's presence is the one
+        // thing the state judges.
+        AttrVocab::Open => {
+            if written.is_none() {
+                dlog_error(
+                    crate::errcodes::ATTR_VALUE_NOT_IN_VOCABULARY,
+                    node,
+                    &format!(
+                        "Attribute '{key}' declares no value. Its value is a name the author coins \
+                         (any identifier) — a bare '{key}' names no group and claims nothing."
+                    ),
+                );
+            }
+        }
     }
 }
 

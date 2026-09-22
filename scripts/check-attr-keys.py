@@ -42,15 +42,16 @@ DOC_MARKER = "attr-keys-ledger:"
 # instead of `"role"`), so the key a reader asks for and the key the row
 # registers are one spelling: `str_constants` resolves it the way
 # `face_constants` resolves the face argument.
-ROW_KINDS = ("row", "value_row", "voltage_row", "contract_row", "element_row", "vocab_row")
+ROW_KINDS = ("row", "value_row", "voltage_row", "contract_row", "element_row", "vocab_row", "open_row")
 
 COLUMNS = ("key", "faces", "value", "contract", "admission", "arity", "supply", "vocab")
 
-# The three states the word column carries. The words themselves are named by
+# The four states the word column carries. The words themselves are named by
 # constants on the mirror side (`WORD_SHUNT`), so the column is only comparable
 # once the names are resolved to the words they hold.
 VOCAB_UNREGISTERED = "-"
 VOCAB_FLAG = "flag"
+VOCAB_OPEN = "open"
 
 
 def split_args(text):
@@ -107,6 +108,8 @@ def vocab_token(arg, sets, words):
     """Render a row's vocabulary argument the way the doc spells it."""
     if arg == "AttrVocab::Flag":
         return VOCAB_FLAG
+    if arg == "AttrVocab::Open":
+        return VOCAB_OPEN
     listed = re.match(r"AttrVocab::Words\((\w+)\)", arg)
     if listed:
         return ", ".join("`%s`" % words[w] for w in sets[listed.group(1)])
@@ -194,6 +197,15 @@ def read_mirror():
             # (`AttrKeyDef::element`). The ledger has no column for that
             # classification, so only the columns it does carry are compared.
             row["value"] = value_token(args[2])
+        elif kind == "open_row":
+            # An open-vocabulary row (`AttrVocab::Open`, contract-design.md
+            # §1.8's fourth state): the value kind is registered, the word set
+            # is the author's own identifiers, and the word is reserved for the
+            # `@key(word)` row form (`general = false` is fixed in the
+            # constructor, so the scanner carries it, not the source).
+            row["value"] = value_token(args[2])
+            row["vocab"] = VOCAB_OPEN
+            row["admission"] = "reserved"
         rows.append(row)
     return rows
 

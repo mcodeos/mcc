@@ -160,6 +160,16 @@ pub(crate) enum AttrVocab {
     /// No value at all: a flag key is live by being there, and a value written
     /// on it is itself the error (`@star`).
     Flag,
+    /// An open word set: the value is an identifier the declaration's author
+    /// coins (`@barrier(pri)` — a group name only equalities are ever asked
+    /// of, barrier-design.md §3.2). The word set is empty by construction, so
+    /// any identifier is inside it; what is judged is the *presence* of a
+    /// value, because an open key without its identifier claims no group and
+    /// would read as "outside every group" — a silent no-op, not a
+    /// declaration. The consumer side is the whitelist: a row registered
+    /// here carries semantics only for the readers its canon names (for
+    /// `barrier`, the isolation gate alone).
+    Open,
 }
 
 /// One row of the dictionary: a key path and its columns.
@@ -239,6 +249,12 @@ pub(crate) const KEY_BIND_ROLE: &str = "bind_role";
 pub(crate) const KEY_RETURN: &str = "return";
 pub(crate) const KEY_STAR: &str = "star";
 pub(crate) const KEY_PROTECT: &str = "protect";
+/// The barrier axis (barrier-design.md §3): the group a pin row belongs to on
+/// its own component. `bond` is its symmetric twin, registered the same batch
+/// with no gate yet — the ledger holds the key, the corpus holds the verdict
+/// (§4: a branch with no member is not landed).
+pub(crate) const KEY_BARRIER: &str = "barrier";
+pub(crate) const KEY_BOND: &str = "bond";
 
 /// The words of the closed sets the rows below register. `role` and `bind_role`
 /// share one set, which is what the canon says of them: `bind_role` takes the
@@ -334,6 +350,16 @@ pub(crate) const ATTR_KEYS: &[AttrKeyDef] = &[
     vocab_row(KEY_BIND_ROLE, BODY, true, AttrVocab::Words(ROLE_WORDS)),
     vocab_row(KEY_STAR, BODY, true, AttrVocab::Flag),
     vocab_row(KEY_PROTECT, BODY, true, AttrVocab::Words(PROTECT_WORDS)),
+    // The barrier axis (barrier-design.md §3, contract-design.md §1.8's open
+    // ruling): the value is a group name the component's author coins, so no
+    // word set exists — `Open` judges the presence of the identifier, never
+    // its spelling. PinRow face only: the group is a statement about pin rows
+    // of one declaration, and the isolation gate (B5) is its only consumer.
+    open_row(KEY_BARRIER, PIN, AttrValueKind::Text),
+    // `bond` is registered but read by no gate (§4: corpus first, verdict
+    // later). Reserving the row now keeps the two twin keys one shape, so the
+    // day a reverse gate lands the ledger does not move.
+    open_row(KEY_BOND, PIN, AttrValueKind::Text),
     // Voltage words a component body may state its supply voltage with.
     voltage_row(
         "voltage",
@@ -539,6 +565,29 @@ const fn value_row(
         general: true,
         value: Some(value),
         vocab: None,
+        contract: AttrContract::Plain,
+        supply_voltage: false,
+        arity: AttrKeyArity::Single,
+        element: None,
+    }
+}
+
+/// A row for a key whose value is an identifier its author coins
+/// ([`AttrVocab::Open`]) — written through its own constructor so the openness
+/// is visible where the key is registered, like [`vocab_row`] for the closed
+/// side. `general = false`: the word is reserved for the `@key(word)` row
+/// form, never a general body sentence.
+const fn open_row(
+    key: &'static str,
+    faces: &'static [AttrFace],
+    value: AttrValueKind,
+) -> AttrKeyDef {
+    AttrKeyDef {
+        key,
+        faces,
+        general: false,
+        value: Some(value),
+        vocab: Some(AttrVocab::Open),
         contract: AttrContract::Plain,
         supply_voltage: false,
         arity: AttrKeyArity::Single,
@@ -919,6 +968,24 @@ mod tests {
         assert!(is_reserved(KEY_ROLE));
         assert!(!is_reserved(KEY_CLASS));
         assert!(vocab_of(KEY_CLASS).is_some());
+    }
+
+    #[test]
+    fn attrkeys__open_vocab_judges_presence_not_spelling() {
+        // The barrier axis (barrier-design.md §3): the group name is the
+        // component author's own identifier, so the row registers Open —
+        // presence is judged, the spelling never is.
+        assert_eq!(vocab_of(KEY_BARRIER), Some(AttrVocab::Open));
+        assert_eq!(vocab_of(KEY_BOND), Some(AttrVocab::Open));
+        // PinRow face only, and the row form is the only write form: the word
+        // is not a general body key (N1), the value kind is a name.
+        assert!(lookup(KEY_BARRIER)
+            .unwrap()
+            .faces
+            .contains(&AttrFace::PinRow));
+        assert!(!lookup(KEY_BARRIER).unwrap().faces.contains(&AttrFace::Body));
+        assert!(is_reserved(KEY_BARRIER));
+        assert_eq!(value_kind(KEY_BARRIER), Some(AttrValueKind::Text));
     }
 
     #[test]

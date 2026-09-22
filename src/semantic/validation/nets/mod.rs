@@ -3209,10 +3209,9 @@ pub(crate) fn check_pin_copper_expectation(table: &InstTable, results: &mut Vec<
             // One axis per row is the default shape (§4). A row that writes
             // both is judged on each — the axes share one gate, one
             // single-end comparison and one tier; no fourth reading exists.
-            let role_word =
-                crate::semantic::module::pi::attr_texts(&mp.attrs, attr_keys::KEY_ROLE)
-                    .into_iter()
-                    .next();
+            let role_word = crate::semantic::module::pi::attr_texts(&mp.attrs, attr_keys::KEY_ROLE)
+                .into_iter()
+                .next();
             let class_word =
                 crate::semantic::module::pi::attr_texts(&mp.attrs, attr_keys::KEY_CLASS)
                     .into_iter()
@@ -3376,6 +3375,89 @@ fn exp_phrase(exp: &Expectation) -> String {
     }
 }
 
+/// Cross-barrier merge (rules-catalog §2 B5's declarative subject,
+/// barrier-design.md §3): pins of two **different** `@barrier(<group>)` rows on
+/// one component share a net. Isolation is a relation between pin groups, not
+/// a property of any single pin — the shape the two single-ended expectation
+/// axes above cannot express, and the reason this gate reads its own axis and
+/// never theirs (the codes are issued independently; no reader compares
+/// across). The judgment is group-name equality, nothing else: within one
+/// component instance, partition the rows that declare a group by the net
+/// their pins land on, and a net collecting two distinct group names is the
+/// schematic-level fact of a bridged isolation. Unmarked rows are outside
+/// every barrier (XFR.CT taps only its windings, never the CT pin); a
+/// deliberate cross-barrier part (Y capacitor, feedback optocoupler) splits
+/// the net in two and never fires — one net is judged, never a path. Error by
+/// birth: a group-wise physical fact, not a tier of any single-ended verdict.
+pub(crate) fn check_barrier_isolation(table: &InstTable, results: &mut Vec<NetCheckResult>) {
+    // The same def read the expectation gate uses: every live domain, the
+    // workspace shadowing the library on collision.
+    let mut workspace: std::collections::HashMap<String, std::sync::Arc<McComponent>> =
+        crate::definition_space()
+            .all_components()
+            .into_iter()
+            .map(|(sn, c)| (sn.ident.to_string(), c))
+            .collect();
+    for (sn, c) in crate::definition_space().workspace_components() {
+        workspace.insert(sn.ident.to_string(), c);
+    }
+    for comp in table.get_components() {
+        if comp.synthetic || comp.unselected || comp.class_name.is_empty() {
+            continue;
+        }
+        let Some(def) = workspace.get(&comp.class_name) else {
+            continue;
+        };
+        // Group names per landed net, first-seen order. A row may declare its
+        // group twice only as two attribute entries — `attr_texts` reads them
+        // in order and the first wins, the same single-read every other
+        // axis applies to its rows.
+        let mut net_groups: std::collections::HashMap<u32, Vec<String>> =
+            std::collections::HashMap::new();
+        for pin in table.get_pins_of(comp.id) {
+            let Some(mp) = def_pin_of(def, &comp.path, pin) else {
+                continue;
+            };
+            let Some(group) =
+                crate::semantic::module::pi::attr_texts(&mp.attrs, attr_keys::KEY_BARRIER)
+                    .into_iter()
+                    .next()
+            else {
+                continue;
+            };
+            // Every segment the pin's point sits on (a junction point spans
+            // several): a group reaches each of them, so each is judged whole.
+            for net_id in table.nets_of(pin.id) {
+                net_groups.entry(*net_id).or_default().push(group.clone());
+            }
+        }
+        for (net_id, groups) in net_groups {
+            let mut distinct = groups.clone();
+            distinct.sort();
+            distinct.dedup();
+            if distinct.len() < 2 {
+                continue;
+            }
+            let Some(net) = table.get_net(net_id) else {
+                continue;
+            };
+            let (pos, uri) = entry_pos(comp);
+            let group_list = distinct.join(", ");
+            results.push(NetCheckResult {
+                check: "cross-barrier-net",
+                severity: "error",
+                message: crate::errcodes::format_msg(
+                    crate::errcodes::CROSS_BARRIER_NET,
+                    &[&comp.path, &group_list, &net.name],
+                ),
+                net_name: net.name.clone(),
+                code: crate::errcodes::CROSS_BARRIER_NET,
+                pos,
+                uri,
+            });
+        }
+    }
+}
 
 /// Def-side [`McPin`] of a flat pin: resolved by (1) exact physical-id path
 /// tail, (2) exact leaf, (3) a def pin whose registered `names` carry the

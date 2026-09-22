@@ -58,16 +58,16 @@
 
 use crate::instant::insttab::InstTable;
 use crate::semantic::validation::nets::{
-    check_analog_return_reference, check_backfeed, check_bridge_load_decoupling,
-    check_clamp_ref_role, check_combine_output_tol, check_converter_gate_window,
-    check_converter_output_rail_window, check_converter_spec_incomplete,
-    check_decoupling_return_face, check_device_return_span, check_driver_conflict,
-    check_earth_dc_leak, check_element_dissipation, check_exposed_clamp_coverage,
-    check_exposed_clamp_downstream, check_filter_subface_overreach, check_floating_inputs,
-    check_floating_outputs, check_isolated_dc_bridge, check_nc_connected, check_net_budget,
-    check_pin_contract_decode, check_pin_contract_return_member, check_pin_copper_expectation,
-    check_pin_count_mismatch, check_port_bind_role, check_port_io_mismatch,
-    check_power_bridge_loop, check_power_nets, check_power_rail_contract,
+    check_analog_return_reference, check_backfeed, check_barrier_isolation,
+    check_bridge_load_decoupling, check_clamp_ref_role, check_combine_output_tol,
+    check_converter_gate_window, check_converter_output_rail_window,
+    check_converter_spec_incomplete, check_decoupling_return_face, check_device_return_span,
+    check_driver_conflict, check_earth_dc_leak, check_element_dissipation,
+    check_exposed_clamp_coverage, check_exposed_clamp_downstream, check_filter_subface_overreach,
+    check_floating_inputs, check_floating_outputs, check_isolated_dc_bridge, check_nc_connected,
+    check_net_budget, check_pin_contract_decode, check_pin_contract_return_member,
+    check_pin_copper_expectation, check_pin_count_mismatch, check_port_bind_role,
+    check_port_io_mismatch, check_power_bridge_loop, check_power_nets, check_power_rail_contract,
     check_power_rail_two_roots, check_power_source_contention, check_protect_series_path,
     check_protect_shunt_reference, check_protective_multi_bridge, check_pullup_degenerate,
     check_rail_nature_consistency, check_reference_island_root, check_return_leg_undeclared,
@@ -1281,6 +1281,21 @@ pub static FLAT_ERC_RULES: &[FlatErcRule] = &[
         overridable = false,
         owner = check_pin_copper_expectation,
     },
+    // Cross-barrier merge (barrier-design.md §3, rules-catalog §2 B5's
+    // declarative subject, landed 2026-09-22 U175); table tail, tracking the
+    // FLAT_ERC_ORDER append (§5-5).
+    declare_flat_erc_rule! {
+        code = crate::errcodes::CROSS_BARRIER_NET,
+        name = "cross-barrier-net",
+        title = "pins of two different @barrier groups on one component share a net",
+        severity = Error,
+        domain = Power,
+        family = None,
+        doc = "§3 barrier axis (B5's declarative subject — it replaces the dead 'device role or naming strategy' identification the catalog row was parked under, no-hardcoding): a component's pin rows declare isolation groups with @barrier(<group>), group names the part's author coins and compares only by equality. One net touching two different groups of the same instance is the schematic-level fact of a bridged isolation (an isolation transformer wired as an autotransformer, a secondary ground returned on primary copper), so the gate is Error by birth and reads no tier of anything — the single-ended expectation gate (pin-copper-expectation) keeps its own axes and the two never read each other. Unmarked rows are outside every barrier; a deliberate cross-barrier part (Y capacitor, feedback optocoupler) splits the net in two and never fires. The judgment never names copper — it reads only the instance's own landing-net partition, so the part can live in the library (conduit does not cross layers).",
+        lock = "tests/barrier_isolation.rs",
+        overridable = false,
+        owner = check_barrier_isolation,
+    },
 ];
 
 // Declaration scope (pins / declaration semantics)
@@ -1834,13 +1849,14 @@ mod tests {
     use super::*;
     use crate::errcodes::{
         ABSTRACT_PART_UNSELECTED, ANALOG_RETURN_MISMATCH, BRIDGE_LOAD_DECOUPLING_MISSING,
-        CLAMP_REF_NOT_PROTECTIVE, COMBINE_OUTPUT_TOL, DECOUPLING_RETURN_MISMATCH,
-        DEVICE_RETURN_SPAN_UNDECLARED, EARTH_DC_LEAK, EXPOSED_NET_DOWNSTREAM_UNPROTECTED,
-        EXPOSED_NET_NO_CLAMP, FILTER_SUBFACE_OVERREACH, ISOLATED_DC_BRIDGE, NET_BACKFEED_RISK,
-        NET_BIDIR_UNCONNECTED, NET_BUDGET_EXCEEDED, NET_DANGLING_ENDPOINT, NET_INPUT_UNCONNECTED,
-        NET_INSTANCE_UNCONNECTED, NET_MODULE_PORT_UNCONNECTED, NET_MULTI_DRIVE, NET_NC_CONNECTED,
-        NET_NO_DRIVER, NET_OUTPUTS_NO_INPUT, NET_OUTPUT_UNDRIVEN, NET_PARTIAL_CONNECTION,
-        NET_PIN_UNWIRED, NET_POWER_NET_COUNT, NET_VOLTAGE_MISMATCH, PIN_CONFLICTING_OPTIONS,
+        CLAMP_REF_NOT_PROTECTIVE, COMBINE_OUTPUT_TOL, CROSS_BARRIER_NET,
+        DECOUPLING_RETURN_MISMATCH, DEVICE_RETURN_SPAN_UNDECLARED, EARTH_DC_LEAK,
+        EXPOSED_NET_DOWNSTREAM_UNPROTECTED, EXPOSED_NET_NO_CLAMP, FILTER_SUBFACE_OVERREACH,
+        ISOLATED_DC_BRIDGE, NET_BACKFEED_RISK, NET_BIDIR_UNCONNECTED, NET_BUDGET_EXCEEDED,
+        NET_DANGLING_ENDPOINT, NET_INPUT_UNCONNECTED, NET_INSTANCE_UNCONNECTED,
+        NET_MODULE_PORT_UNCONNECTED, NET_MULTI_DRIVE, NET_NC_CONNECTED, NET_NO_DRIVER,
+        NET_OUTPUTS_NO_INPUT, NET_OUTPUT_UNDRIVEN, NET_PARTIAL_CONNECTION, NET_PIN_UNWIRED,
+        NET_POWER_NET_COUNT, NET_VOLTAGE_MISMATCH, PIN_CONFLICTING_OPTIONS,
         PIN_COPPER_EXPECTATION_MISMATCH, PIN_UNCONNECTED, PORT_BIND_ROLE_MISMATCH,
         POWER_BRIDGE_LOOP, POWER_CONVERTER_GATE, POWER_CONVERTER_OUTPUT_RAIL_WINDOW,
         POWER_CONVERTER_SPEC_INCOMPLETE, POWER_PIN_DECODE, POWER_PIN_RETURN_MISSING,
@@ -1855,7 +1871,7 @@ mod tests {
     /// The execution order of the migrated `nets::run_net_checks` call table.
     /// This is the lock that keeps catalog declaration order byte-identical to
     /// the pre-registry runner sequence.
-    const FLAT_ERC_ORDER: [u32; 54] = [
+    const FLAT_ERC_ORDER: [u32; 55] = [
         NET_MULTI_DRIVE,                    // P1
         NET_NO_DRIVER,                      // P2
         NET_INPUT_UNCONNECTED,              // P5
@@ -1910,6 +1926,7 @@ mod tests {
         NET_PIN_UNWIRED,      // P10 every component pad on no net (tail append)
         EXPOSED_NET_DOWNSTREAM_UNPROTECTED, // PWR-6 downstream chain (tail append)
         PIN_COPPER_EXPECTATION_MISMATCH, // pin expectation vs landed copper (tail append)
+        CROSS_BARRIER_NET,    // barrier group vs shared net (tail append)
     ];
 
     /// The report-row tags of the netcheck R-series. This is the lock that
@@ -2447,7 +2464,8 @@ mod tests {
         // The 63 PostParse codes that once shared the validation-module doc
         // placeholder now carry concrete tests/lock_pp_*.rs anchors, so the
         // doc partition is empty and every one of them counts as strong.
-        assert_eq!((strong, doc, note), (163, 0, 3));
+        // 164 = +CROSS_BARRIER_NET (barrier-design.md §3, its own lock file).
+        assert_eq!((strong, doc, note), (164, 0, 3));
         assert_eq!(strong + doc + note, rule_count());
     }
 
