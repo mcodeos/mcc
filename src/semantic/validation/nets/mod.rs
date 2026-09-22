@@ -3164,10 +3164,9 @@ pub(crate) fn check_return_leg_undeclared(table: &InstTable, results: &mut Vec<N
 /// with no reading is silence, never a guess. A net that resolves a class
 /// but no class word is the unanchored half too (info), not a mismatch:
 /// unprovable is not violated. An unwired pin is the unwired-pin rule's
-/// object. Severity follows the part's strength tier (§3.1): `@req` on the
-/// component header — the same header slot the flag is written at, one word
-/// for the whole part — states the part's expectations as physical facts,
-/// and a violated one is an Error.
+/// object. A contradicted expectation is always Warning (the former @req
+/// strength tier is retired — group-wise physical facts move to the barrier
+/// axis, U175).
 pub(crate) fn check_pin_copper_expectation(table: &InstTable, results: &mut Vec<NetCheckResult>) {
     let idx = crate::instant::island::NetIslandIndex::build(table);
     let faces = faces::DomainFaces::read(table);
@@ -3203,10 +3202,6 @@ pub(crate) fn check_pin_copper_expectation(table: &InstTable, results: &mut Vec<
         let Some(def) = workspace.get(&comp.class_name) else {
             continue;
         };
-        // §3.1: the strength tier is a class-level fact — one flag on the
-        // header, read once per part. It lifts only the violated half.
-        let must =
-            crate::semantic::module::pi::has_attr(&def.attrs, crate::semantic::basic::attr_keys::KEY_REQ);
         for pin in table.get_pins_of(comp.id) {
             let Some(mp) = def_pin_of(def, &comp.path, pin) else {
                 continue;
@@ -3243,7 +3238,6 @@ pub(crate) fn check_pin_copper_expectation(table: &InstTable, results: &mut Vec<
                         &conduit_role,
                         pin,
                         comp,
-                        must,
                         Expectation::Identity(w),
                         results,
                     );
@@ -3257,7 +3251,6 @@ pub(crate) fn check_pin_copper_expectation(table: &InstTable, results: &mut Vec<
                     &conduit_role,
                     pin,
                     comp,
-                    must,
                     Expectation::Class(w),
                     results,
                 );
@@ -3285,7 +3278,6 @@ fn judge_expectation(
     conduit_role: &std::collections::HashMap<(u32, String), String>,
     pin: &InstEntry,
     comp: &InstEntry,
-    must: bool,
     exp: Expectation,
     results: &mut Vec<NetCheckResult>,
 ) {
@@ -3337,7 +3329,7 @@ fn judge_expectation(
             let (pos, uri) = entry_pos(comp);
             results.push(NetCheckResult {
                 check: "pin-copper-expectation",
-                severity: if must { "error" } else { "warning" },
+                severity: "warning",
                 message: crate::errcodes::format_msg(
                     crate::errcodes::PIN_COPPER_EXPECTATION_MISMATCH,
                     &[&pin.path, &phrase, &class_id],
@@ -3351,8 +3343,7 @@ fn judge_expectation(
     }
 }
 
-/// The unanchored half (6052, always Info — §3.1: the `@req` tier lifts only
-/// the violated leg, because unprovable is not violated).
+/// The unanchored half (6052, always Info — unprovable is not violated).
 fn push_unanchored(
     pin: &InstEntry,
     comp: &InstEntry,

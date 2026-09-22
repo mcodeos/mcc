@@ -232,7 +232,6 @@ const BODY_PIN_IFACE: &[AttrFace] = &[AttrFace::Body, AttrFace::PinRow, AttrFace
 /// strings itself" (§1.7 G6) is then true of these keys too.
 pub(crate) const KEY_ROLE: &str = "role";
 pub(crate) const KEY_CLASS: &str = "class";
-pub(crate) const KEY_REQ: &str = "req";
 pub(crate) const KEY_NATURE: &str = "nature";
 pub(crate) const KEY_NOISE: &str = "noise";
 pub(crate) const KEY_EXPOSED: &str = "exposed";
@@ -295,13 +294,6 @@ pub(crate) const ATTR_KEYS: &[AttrKeyDef] = &[
     row("pins", BODY, false),
     // `@role`'s values are the ledger's five identity words (R9).
     vocab_row(KEY_ROLE, BODY_PIN, false, AttrVocab::Words(ROLE_WORDS)),
-    // `@req` is the expectation-strength flag (pin-expectation-design.md
-    // §3.1): one bare word on the component header, stating that this part's
-    // declared pin expectations are physical facts — a violated one is an
-    // Error, not a Warning. A flag: live by being there, and a value on it is
-    // itself the error. Never a member of the role word set — R9's closed
-    // five, one word one face one meaning, stay as they are.
-    vocab_row(KEY_REQ, BODY, true, AttrVocab::Flag),
     row("func", BODY, false),
     // `@return` names a return conduit, so its value is a reference rather than
     // a word: no vocabulary is registered for it.
