@@ -5,7 +5,7 @@
 component USB.MINI_B
 {
     partno = "HUM011D-5-S"
-    package = PKG.USB_Mini
+    package = PKG.USB_MINI
     voltage = "5V"                  // VBUS is a 5V power rail
 
     pins = [
