@@ -217,6 +217,12 @@ pub fn handle_build_viz(params: Option<Value>) -> RpcResult {
     // byte-identical artifacts. The wrapper root is the entry's project root
     // — relative source URIs (a `use`d file recorded before
     // canonicalization) resolve against it; absolute ones ignore it.
+    let layout = crate::viz::layout_manifest::build_manifest(
+        &all_layers,
+        &std::collections::BTreeMap::new(),
+        &top_name,
+    );
+    doc.layout = Some(layout.clone());
     let (html, standalone) = if p.standalone {
         (
             crate::viz::sourcelink::wrap_standalone(&mut doc, &symbols_root),
@@ -227,7 +233,6 @@ pub fn handle_build_viz(params: Option<Value>) -> RpcResult {
     };
     tracing::info!(target: "mcc::perf", step = "total", ms = t_all.elapsed().as_millis() as u64, "build.viz step");
 
-    let layout = crate::viz::layout_manifest::build_manifest(&all_layers, &top_name);
 
     Ok(json!({
         "command": "build.viz",

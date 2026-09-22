@@ -27,9 +27,19 @@
 /// - `css`       inline CSS
 /// - `doc_json`  output of `VizDocument::to_json()`
 /// - `js`        interactive JS
-pub fn wrap(title: &str, css: &str, doc_json: &str, js: &str) -> String {
+pub fn wrap(
+    title: &str,
+    css: &str,
+    doc_json: &str,
+    js: &str,
+    layout_json: Option<&str>,
+) -> String {
     // ★ Key fix: HTML-safe embedding
     let safe_json = make_html_safe(doc_json);
+
+    let layout_block = layout_json
+        .map(|lj| format!("const LAYOUT = {lj};"))
+        .unwrap_or_default();
 
     format!(
         r##"<!DOCTYPE html>
@@ -56,6 +66,9 @@ pub fn wrap(title: &str, css: &str, doc_json: &str, js: &str) -> String {
   <div id="stats"></div>
   <script>
     const DOC = {safe_json};
+  </script>
+  <script>
+{layout_block}
   </script>
   <script>
 {js}
