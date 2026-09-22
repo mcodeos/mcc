@@ -35,7 +35,7 @@ range (threshold 40KB).
 | `semantic/basic/mc_phrase.rs` | 315 KB | 68 |
 | `semantic/component/mc_pins/mod.rs` | 226 KB | 104 |
 | `instant/mc_mod/stmt.rs` | 194 KB | 76 |
-| `semantic/validation/nets/mod.rs` | 189 KB | 122 |
+| `semantic/validation/nets/mod.rs` | 192 KB | 126 |
 | `db/diagnostic/errcodes.rs` | 183 KB | 438 |
 | `rules.rs` | 177 KB | 83 |
 | `instant/insttab.rs` | 158 KB | 113 |
@@ -73,7 +73,7 @@ range (threshold 40KB).
 | `query/` | 9 | 161 KB |
 | `refdef/` | 7 | 118 KB |
 | `rpc/` | 16 | 302 KB |
-| `semantic/` | 89 | 2622 KB |
+| `semantic/` | 89 | 2626 KB |
 | `stages/` | 12 | 321 KB |
 | `vector/` | 25 | 475 KB |
 | `viz/` | 97 | 2451 KB |
@@ -4908,57 +4908,58 @@ semantic/basic/attr_keys.rs#L268  const WORD_EARTH
 semantic/basic/attr_keys.rs#L269  const WORD_ISOLATED
 semantic/basic/attr_keys.rs#L270  const WORD_DIGITAL
 semantic/basic/attr_keys.rs#L271  const WORD_ANALOG
-semantic/basic/attr_keys.rs#L272  const WORD_NOISY
-semantic/basic/attr_keys.rs#L273  const WORD_SENSITIVE
-semantic/basic/attr_keys.rs#L274  const WORD_AC
-semantic/basic/attr_keys.rs#L275  const WORD_DC
-semantic/basic/attr_keys.rs#L276  const WORD_SHUNT
-semantic/basic/attr_keys.rs#L277  const WORD_SERIES
-semantic/basic/attr_keys.rs#L278  const WORD_ESD_CONTACT
-semantic/basic/attr_keys.rs#L279  const WORD_ESD_AIR
-semantic/basic/attr_keys.rs#L280  const WORD_EFT
-semantic/basic/attr_keys.rs#L281  const WORD_SURGE
-semantic/basic/attr_keys.rs#L282  const WORD_LIGHTNING
-semantic/basic/attr_keys.rs#L284  const ROLE_WORDS
-semantic/basic/attr_keys.rs#L291  const CLASS_WORDS
-semantic/basic/attr_keys.rs#L292  const NATURE_WORDS
-semantic/basic/attr_keys.rs#L293  const NOISE_WORDS
-semantic/basic/attr_keys.rs#L294  const EXPOSED_WORDS
-semantic/basic/attr_keys.rs#L301  const PROTECT_WORDS
-semantic/basic/attr_keys.rs#L309  const ATTR_KEYS
-semantic/basic/attr_keys.rs#L523  const fn
-semantic/basic/attr_keys.rs#L541  const fn
-semantic/basic/attr_keys.rs#L560  const fn
-semantic/basic/attr_keys.rs#L583  const fn
-semantic/basic/attr_keys.rs#L604  const fn
-semantic/basic/attr_keys.rs#L623  const fn
-semantic/basic/attr_keys.rs#L641  const fn
-semantic/basic/attr_keys.rs#L661  fn lookup
-semantic/basic/attr_keys.rs#L671  fn value_kind
-semantic/basic/attr_keys.rs#L682  fn arity_of
-semantic/basic/attr_keys.rs#L692  fn element_of_key
-semantic/basic/attr_keys.rs#L700  fn element_of_spec_key
-semantic/basic/attr_keys.rs#L711  fn vocab_of
-semantic/basic/attr_keys.rs#L732  const SPEC_TABLE_KEY
-semantic/basic/attr_keys.rs#L734  fn is_table_namespace
-semantic/basic/attr_keys.rs#L742  fn is_reserved
-semantic/basic/attr_keys.rs#L750  fn is_known_key
-semantic/basic/attr_keys.rs#L755  mod tests
-semantic/basic/attr_keys.rs#L759  fn attrkeys__spec_key_carries_its_unit
-semantic/basic/attr_keys.rs#L776  fn attrkeys__standalone_key_carries_its_kind
-semantic/basic/attr_keys.rs#L785  fn attrkeys__lookup_is_exact_and_whole
-semantic/basic/attr_keys.rs#L800  fn attrkeys__face_decides_which_namespace_answers
-semantic/basic/attr_keys.rs#L819  fn attrkeys__contract_half_pairs_demand_with_supply
-semantic/basic/attr_keys.rs#L843  fn attrkeys__clipped_spec_key_is_not_registered
-semantic/basic/attr_keys.rs#L868  fn attrkeys__bom_field_has_no_spec_row
-semantic/basic/attr_keys.rs#L878  fn attrkeys__unregistered_device_key_is_silent
-semantic/basic/attr_keys.rs#L887  fn attrkeys__registered_spec_key_is_not_reserved
-semantic/basic/attr_keys.rs#L895  fn attrkeys__element_column_marks_the_keys_that_decide_the_class
-semantic/basic/attr_keys.rs#L926  fn attrkeys__element_lookup_is_whole_and_exact
-semantic/basic/attr_keys.rs#L942  fn attrkeys__vocab_column_registers_the_closed_word_sets
-semantic/basic/attr_keys.rs#L961  fn attrkeys__vocab_is_absent_where_values_are_open
-semantic/basic/attr_keys.rs#L977  fn attrkeys__open_vocab_judges_presence_not_spelling
-semantic/basic/attr_keys.rs#L995  fn attrkeys__spec_namespace_is_derived_from_the_rows
+semantic/basic/attr_keys.rs#L275  const WORD_RADIO
+semantic/basic/attr_keys.rs#L276  const WORD_NOISY
+semantic/basic/attr_keys.rs#L277  const WORD_SENSITIVE
+semantic/basic/attr_keys.rs#L278  const WORD_AC
+semantic/basic/attr_keys.rs#L279  const WORD_DC
+semantic/basic/attr_keys.rs#L280  const WORD_SHUNT
+semantic/basic/attr_keys.rs#L281  const WORD_SERIES
+semantic/basic/attr_keys.rs#L282  const WORD_ESD_CONTACT
+semantic/basic/attr_keys.rs#L283  const WORD_ESD_AIR
+semantic/basic/attr_keys.rs#L284  const WORD_EFT
+semantic/basic/attr_keys.rs#L285  const WORD_SURGE
+semantic/basic/attr_keys.rs#L286  const WORD_LIGHTNING
+semantic/basic/attr_keys.rs#L288  const ROLE_WORDS
+semantic/basic/attr_keys.rs#L295  const CLASS_WORDS
+semantic/basic/attr_keys.rs#L296  const NATURE_WORDS
+semantic/basic/attr_keys.rs#L297  const NOISE_WORDS
+semantic/basic/attr_keys.rs#L298  const EXPOSED_WORDS
+semantic/basic/attr_keys.rs#L305  const PROTECT_WORDS
+semantic/basic/attr_keys.rs#L313  const ATTR_KEYS
+semantic/basic/attr_keys.rs#L527  const fn
+semantic/basic/attr_keys.rs#L545  const fn
+semantic/basic/attr_keys.rs#L564  const fn
+semantic/basic/attr_keys.rs#L587  const fn
+semantic/basic/attr_keys.rs#L608  const fn
+semantic/basic/attr_keys.rs#L627  const fn
+semantic/basic/attr_keys.rs#L645  const fn
+semantic/basic/attr_keys.rs#L665  fn lookup
+semantic/basic/attr_keys.rs#L675  fn value_kind
+semantic/basic/attr_keys.rs#L686  fn arity_of
+semantic/basic/attr_keys.rs#L696  fn element_of_key
+semantic/basic/attr_keys.rs#L704  fn element_of_spec_key
+semantic/basic/attr_keys.rs#L715  fn vocab_of
+semantic/basic/attr_keys.rs#L736  const SPEC_TABLE_KEY
+semantic/basic/attr_keys.rs#L738  fn is_table_namespace
+semantic/basic/attr_keys.rs#L746  fn is_reserved
+semantic/basic/attr_keys.rs#L754  fn is_known_key
+semantic/basic/attr_keys.rs#L759  mod tests
+semantic/basic/attr_keys.rs#L763  fn attrkeys__spec_key_carries_its_unit
+semantic/basic/attr_keys.rs#L780  fn attrkeys__standalone_key_carries_its_kind
+semantic/basic/attr_keys.rs#L789  fn attrkeys__lookup_is_exact_and_whole
+semantic/basic/attr_keys.rs#L804  fn attrkeys__face_decides_which_namespace_answers
+semantic/basic/attr_keys.rs#L823  fn attrkeys__contract_half_pairs_demand_with_supply
+semantic/basic/attr_keys.rs#L847  fn attrkeys__clipped_spec_key_is_not_registered
+semantic/basic/attr_keys.rs#L872  fn attrkeys__bom_field_has_no_spec_row
+semantic/basic/attr_keys.rs#L882  fn attrkeys__unregistered_device_key_is_silent
+semantic/basic/attr_keys.rs#L891  fn attrkeys__registered_spec_key_is_not_reserved
+semantic/basic/attr_keys.rs#L899  fn attrkeys__element_column_marks_the_keys_that_decide_the_class
+semantic/basic/attr_keys.rs#L930  fn attrkeys__element_lookup_is_whole_and_exact
+semantic/basic/attr_keys.rs#L946  fn attrkeys__vocab_column_registers_the_closed_word_sets
+semantic/basic/attr_keys.rs#L965  fn attrkeys__vocab_is_absent_where_values_are_open
+semantic/basic/attr_keys.rs#L981  fn attrkeys__open_vocab_judges_presence_not_spelling
+semantic/basic/attr_keys.rs#L999  fn attrkeys__spec_namespace_is_derived_from_the_rows
 semantic/basic/equivalent.rs#L27  fn member_set
 semantic/basic/equivalent.rs#L38  fn canonical_single
 semantic/basic/equivalent.rs#L51  fn are_equivalent
@@ -7315,14 +7316,16 @@ semantic/validation/nets/budget_derive.rs#L390  fn derived_charges
 semantic/validation/nets/decouple.rs#L46  fn check_decoupling_return_face
 semantic/validation/nets/faces.rs#L45  enum Face
 semantic/validation/nets/faces.rs#L56  struct DomainFaces
-semantic/validation/nets/faces.rs#L73  fn face_of_words
-semantic/validation/nets/faces.rs#L91  impl DomainFaces
-semantic/validation/nets/faces.rs#L92  fn read
-semantic/validation/nets/faces.rs#L124  fn declares
-semantic/validation/nets/faces.rs#L134  fn is_empty
-semantic/validation/nets/faces.rs#L141  fn digital_world
-semantic/validation/nets/faces.rs#L162  fn world_of
-semantic/validation/nets/faces.rs#L188  fn quiet_world
+semantic/validation/nets/faces.rs#L80  fn face_of_words
+semantic/validation/nets/faces.rs#L98  impl DomainFaces
+semantic/validation/nets/faces.rs#L99  fn read
+semantic/validation/nets/faces.rs#L134  fn declares
+semantic/validation/nets/faces.rs#L144  fn is_empty
+semantic/validation/nets/faces.rs#L152  fn digital_world
+semantic/validation/nets/faces.rs#L163  fn radio_world
+semantic/validation/nets/faces.rs#L174  fn class_world
+semantic/validation/nets/faces.rs#L196  fn world_of
+semantic/validation/nets/faces.rs#L222  fn quiet_world
 semantic/validation/nets/mod.rs#L28  mod window
 semantic/validation/nets/mod.rs#L37  mod budget
 semantic/validation/nets/mod.rs#L43  mod budget_derive
@@ -7414,37 +7417,41 @@ semantic/validation/nets/mod.rs#L2936  type EdgeEndpoint
 semantic/validation/nets/mod.rs#L2938  fn edge_endpoint
 semantic/validation/nets/mod.rs#L2964  fn leg_sites
 semantic/validation/nets/mod.rs#L3002  fn check_return_leg_undeclared
-semantic/validation/nets/mod.rs#L3170  fn check_pin_copper_expectation
+semantic/validation/nets/mod.rs#L3173  fn check_pin_copper_expectation
 semantic/validation/nets/mod.rs#L3250  enum Expectation
-semantic/validation/nets/mod.rs#L3259  fn judge_expectation
-semantic/validation/nets/mod.rs#L3332  fn push_unanchored
-semantic/validation/nets/mod.rs#L3356  fn exp_phrase
-semantic/validation/nets/mod.rs#L3378  fn check_barrier_isolation
-semantic/validation/nets/mod.rs#L3452  fn def_pin_of
-semantic/validation/nets/mod.rs#L3474  fn domain_edge_covers
-semantic/validation/nets/mod.rs#L3491  fn comp_def_uri
-semantic/validation/nets/mod.rs#L3501  struct DeviceReturnClass
-semantic/validation/nets/mod.rs#L3534  fn check_device_return_span
-semantic/validation/nets/mod.rs#L3736  fn check_port_bind_role
-semantic/validation/nets/mod.rs#L3821  fn resolve_bind_role
-semantic/validation/nets/mod.rs#L3909  fn exposed_hosts
-semantic/validation/nets/mod.rs#L3937  fn check_exposed_clamp_coverage
-semantic/validation/nets/mod.rs#L3980  fn segment_is_clamped
-semantic/validation/nets/mod.rs#L4039  fn clamp_declaration_plane
-semantic/validation/nets/mod.rs#L4080  const NO_SKIP
-semantic/validation/nets/mod.rs#L4086  fn role_excluded
-semantic/validation/nets/mod.rs#L4111  fn copper_region_into
-semantic/validation/nets/mod.rs#L4198  fn check_exposed_clamp_downstream
-semantic/validation/nets/mod.rs#L4308  fn fmt_amps
-semantic/validation/nets/mod.rs#L4317  fn fmt_round
-semantic/validation/nets/mod.rs#L4332  fn sink_contract_for
-semantic/validation/nets/mod.rs#L4353  fn source_contract_for
-semantic/validation/nets/mod.rs#L4378  fn member_net_of
-semantic/validation/nets/mod.rs#L4396  fn net_name
-semantic/validation/nets/mod.rs#L4404  mod tests
-semantic/validation/nets/mod.rs#L4411  fn net_result
-semantic/validation/nets/mod.rs#L4423  fn diag_key
-semantic/validation/nets/mod.rs#L4428  fn net_results_to_diagnostics_is_identity_under_any_store_today
+semantic/validation/nets/mod.rs#L3261  enum ClassAxis
+semantic/validation/nets/mod.rs#L3269  fn class_axis_of_word
+semantic/validation/nets/mod.rs#L3278  impl ClassAxis
+semantic/validation/nets/mod.rs#L3284  fn subsumes
+semantic/validation/nets/mod.rs#L3296  fn judge_expectation
+semantic/validation/nets/mod.rs#L3377  fn push_unanchored
+semantic/validation/nets/mod.rs#L3401  fn exp_phrase
+semantic/validation/nets/mod.rs#L3424  fn check_barrier_isolation
+semantic/validation/nets/mod.rs#L3498  fn def_pin_of
+semantic/validation/nets/mod.rs#L3520  fn domain_edge_covers
+semantic/validation/nets/mod.rs#L3537  fn comp_def_uri
+semantic/validation/nets/mod.rs#L3547  struct DeviceReturnClass
+semantic/validation/nets/mod.rs#L3580  fn check_device_return_span
+semantic/validation/nets/mod.rs#L3782  fn check_port_bind_role
+semantic/validation/nets/mod.rs#L3867  fn resolve_bind_role
+semantic/validation/nets/mod.rs#L3955  fn exposed_hosts
+semantic/validation/nets/mod.rs#L3983  fn check_exposed_clamp_coverage
+semantic/validation/nets/mod.rs#L4026  fn segment_is_clamped
+semantic/validation/nets/mod.rs#L4085  fn clamp_declaration_plane
+semantic/validation/nets/mod.rs#L4126  const NO_SKIP
+semantic/validation/nets/mod.rs#L4132  fn role_excluded
+semantic/validation/nets/mod.rs#L4157  fn copper_region_into
+semantic/validation/nets/mod.rs#L4244  fn check_exposed_clamp_downstream
+semantic/validation/nets/mod.rs#L4354  fn fmt_amps
+semantic/validation/nets/mod.rs#L4363  fn fmt_round
+semantic/validation/nets/mod.rs#L4378  fn sink_contract_for
+semantic/validation/nets/mod.rs#L4399  fn source_contract_for
+semantic/validation/nets/mod.rs#L4424  fn member_net_of
+semantic/validation/nets/mod.rs#L4442  fn net_name
+semantic/validation/nets/mod.rs#L4450  mod tests
+semantic/validation/nets/mod.rs#L4457  fn net_result
+semantic/validation/nets/mod.rs#L4469  fn diag_key
+semantic/validation/nets/mod.rs#L4474  fn net_results_to_diagnostics_is_identity_under_any_store_today
 semantic/validation/nets/protect.rs#L49  fn declared_ref_roles
 semantic/validation/nets/protect.rs#L80  fn role_in_chain
 semantic/validation/nets/protect.rs#L99  fn marked_components
@@ -11094,4 +11101,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-403 files, 11011 declarations.
+403 files, 11018 declarations.

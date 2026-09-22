@@ -63,6 +63,13 @@ pub(super) struct DomainFaces {
     /// pin-expectation gate is the only consumer; the SN/PI rules keep
     /// reading the two §1.4 faces only.
     digital: HashMap<u32, HashSet<String>>,
+    /// Worlds a scope declares `@class(radio)` — the RF specialization of the
+    /// class axis (U182). The §1.4 face read is untouched: `@class(radio)`
+    /// names no quiet/noisy face (`face_of_words` maps only the analog side),
+    /// so the SN/PI rules see no face here until a ruling says otherwise; the
+    /// class-axis gate is the only consumer, reading radio first because the
+    /// most specialized declaration wins.
+    radio: HashMap<u32, HashSet<String>>,
 }
 
 /// §1.4's face for **one declaration's words**, wherever they were written: a
@@ -102,6 +109,9 @@ impl DomainFaces {
                 {
                     out.digital.entry(*id).or_default().insert(f.name.clone());
                 }
+                if f.class.as_deref() == Some(attr_keys::WORD_RADIO) {
+                    out.radio.entry(*id).or_default().insert(f.name.clone());
+                }
                 match face_of_words(f.class.as_deref(), f.noise.as_deref()) {
                     Some(Face::Quiet) => {
                         out.quiet.entry(*id).or_default().insert(f.name);
@@ -133,6 +143,7 @@ impl DomainFaces {
     /// guard that keeps a board with no faces at all out of the walk.
     pub(super) fn is_empty(&self) -> bool {
         self.quiet.is_empty() && self.noisy.is_empty() && self.digital.is_empty()
+            && self.radio.is_empty()
     }
 
     /// The digital-class world `worlds` anchors, if any — the signal-class
@@ -144,9 +155,32 @@ impl DomainFaces {
         layer: u32,
         worlds: &[String],
     ) -> Option<String> {
+        self.class_world(table, &self.digital, layer, worlds)
+    }
+
+    /// The radio-class world `worlds` anchors, if any (U182) — same walk, the
+    /// RF specialization's own table.
+    pub(super) fn radio_world(
+        &self,
+        table: &InstTable,
+        layer: u32,
+        worlds: &[String],
+    ) -> Option<String> {
+        self.class_world(table, &self.radio, layer, worlds)
+    }
+
+    /// The shared walk behind `digital_world`/`radio_world`: the first of
+    /// `worlds` some scope on `layer`'s chain declares into `map`.
+    fn class_world(
+        &self,
+        table: &InstTable,
+        map: &HashMap<u32, HashSet<String>>,
+        layer: u32,
+        worlds: &[String],
+    ) -> Option<String> {
         let mut cur = Some(layer);
         while let Some(id) = cur {
-            if let Some(set) = self.digital.get(&id) {
+            if let Some(set) = map.get(&id) {
                 if let Some(w) = worlds.iter().find(|w| set.contains(*w)) {
                     return Some(w.clone());
                 }
