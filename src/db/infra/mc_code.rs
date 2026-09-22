@@ -6274,6 +6274,9 @@ impl McCode {
             2114 => "Caret (^) on a literal has no effect",
             2115 => "Empty body — no clauses defined",
             2116 => "Empty pins declaration",
+            // Per-production precise arms (thread gaps in the shared numeric
+            // space; 2117+ is AST-code territory)
+            2120 => "Reserved word used as an attribute value",
             _ => "Syntax error",
         }
     }

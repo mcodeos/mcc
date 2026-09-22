@@ -417,6 +417,14 @@ pub const PARSER_EMPTY_BODY: u32 = 2115;
 /// Empty pins declaration.
 pub const PARSER_EMPTY_PINS: u32 = 2116;
 
+/// U177: a grammar-reserved word (direction/power/nc) at an `@key(…)` value
+/// position is not a name — reserved words are nowhere in the name space
+/// (declaration positions reject them identically). The parser drops the
+/// tattr, keeps the row, and names the real problem instead of the generic
+/// invalid-pin recovery. Numbering: the parser cluster 2080–2116 is full and
+/// 2117+ belongs to the AST codes, so this threads the nearest gap (2120).
+pub const PARSER_TATTR_RESERVED_WORD: u32 = 2120;
+
 /// AST node is null/empty where a value was expected.
 pub const AST_NODE_EMPTY: u32 = 2117;
 
@@ -2282,6 +2290,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(PARSER_CARET_ON_LITERAL, "Caret (^) on a literal has no effect.", "Caret (^) on a literal has no effect."),
     entry!(PARSER_EMPTY_BODY, "Empty body — no clauses defined.", "Empty body — no clauses defined."),
     entry!(PARSER_EMPTY_PINS, "Empty pins declaration.", "Empty pins declaration."),
+    entry!(PARSER_TATTR_RESERVED_WORD, "Reserved word used as an attribute value.", "A grammar-reserved word (in/out/io/nc/psrc/psnk/psbi) cannot be an attribute value — reserved words are not names anywhere. Pick another spelling (the library uses input/output)."),
     entry!(AST_NODE_EMPTY, "AST node is null/empty where a value was expected.", "AST: Node is empty"),
     entry!(AST_UTF8_ERROR, "AST node contains invalid UTF-8 data.", "Invalid UTF-8 string"),
     entry!(AST_TYPE_MISMATCH, "AST node has an unexpected type.", "AST: Node type mismatch"),
