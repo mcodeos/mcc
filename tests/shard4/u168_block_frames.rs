@@ -18,10 +18,12 @@
 //      statement outside every block is inside none.
 //   2. The frames follow the spans: a layer's frames are exactly the
 //      partitions that own boxes (parents before children), and every member
-//      box's rect lies inside its own frame — while the boxes declared outside
-//      every partition lie inside no frame.
+//      box's rect lies inside its own frame.
 //   3. The twin with no partitions draws nothing: an empty table and an empty
 //      frame list, so boards that write no `block` render exactly as before.
+//   4. The grouping law (CIMP §1 U171): the frame pass is a pure derivation —
+//      it moves no box. Frames may overlap each other or enclose a stranger;
+//      membership is declared by source span, never by geometry.
 //
 // Every branch of the fixture has two members: two top-level partitions, two
 // boxes directly under the module, two under `power`, and two under the nested
@@ -110,7 +112,6 @@ fn run_device_tail(graph: &mut McVecGraph) {
     graph.layer_style = LayerStyle::Device;
     mcc::viz::layout::equipotential_tree::layout_device_layer(graph);
     mcc::viz::layout::overlap::separate_overlaps_x(graph);
-    mcc::viz::layout::block_frame::separate_block_frames_x(graph);
     mcc::viz::layout::equipotential_tree::fit_content_to_canvas(graph);
     let viewbox = (
         0.0,
@@ -218,8 +219,9 @@ fn block_frame__frames_enclose_their_member_boxes_only() {
         "a block frame is a region, not a boundary with terminals"
     );
 
-    // Each member box sits inside its own frame — and the boxes declared
-    // outside every partition sit inside none.
+    // Each member box sits inside its own frame. Whether a frame's rect
+    // *geometrically* encloses a box of no partition is display, not
+    // membership — the grouping law keeps the pass from moving anything.
     let frame_of = |name: &str| {
         graph
             .block_frames
@@ -242,13 +244,6 @@ fn block_frame__frames_enclose_their_member_boxes_only() {
     }
     for name in ["R_z1", "R_z2"] {
         assert!(inside(rect_of(box_by_name(&graph, name)), idle), "{name} inside idle");
-    }
-    for name in ["R_top1", "R_top2"] {
-        let r = rect_of(box_by_name(&graph, name));
-        assert!(
-            !inside(r, power) && !inside(r, trim) && !inside(r, idle),
-            "{name} is declared outside every partition"
-        );
     }
 }
 
@@ -298,89 +293,26 @@ fn block_frame__svg_carries_the_frames_under_the_content() {
     );
 }
 
-/// -- 5. the frames never merge: siblings disjoint, strangers outside --
-
-/// Whether frame rects `a` and `b` partially overlap — intersecting, yet
-/// neither contains the other. Nested frames (parent/child) legitimately
-/// intersect; partial overlap is what reads as one merged frame.
-fn partial_overlap(a: (f64, f64, f64, f64), b: (f64, f64, f64, f64)) -> bool {
-    const EPS: f64 = 0.5;
-    let hit = a.0 < b.0 + b.2 - EPS && b.0 < a.0 + a.2 - EPS && a.1 < b.1 + b.3 - EPS && b.1 < a.1 + a.3 - EPS;
-    let a_in_b = inside(a, b);
-    let b_in_a = inside(b, a);
-    hit && !a_in_b && !b_in_a
-}
+/// -- 5. the grouping law: the frame pass derives, it never moves --
 
 #[test]
-fn block_frame__sibling_frames_never_merge() {
+fn block_frame__frame_pass_moves_no_box() {
     let _guard = common::lock();
     let (mut graph, _) = build(BOARDED);
-    run_device_tail(&mut graph);
-
-    let rects: Vec<(f64, f64, f64, f64)> = graph
-        .block_frames
-        .iter()
-        .map(|f| (f.x, f.y, f.w, f.h))
-        .collect();
-    for i in 0..rects.len() {
-        for j in (i + 1)..rects.len() {
-            assert!(
-                !partial_overlap(rects[i], rects[j]),
-                "frames {:?} and {:?} partially overlap — that reads as one merged frame",
-                graph.block_frames[i].title,
-                graph.block_frames[j].title
-            );
-        }
-    }
-    // Nested still nests: power's frame encloses trim's.
-    let frame_of = |name: &str| {
-        graph
-            .block_frames
-            .iter()
-            .find(|f| f.title == name)
-            .map(|f| (f.x, f.y, f.w, f.h))
-            .unwrap_or_else(|| panic!("frame {name}"))
-    };
-    assert!(
-        inside(frame_of("trim"), frame_of("power")),
-        "a child frame sits inside its parent's"
-    );
-}
-
-#[test]
-fn block_frame__unpartitioned_boxes_stay_outside_every_frame() {
-    let _guard = common::lock();
-    let (mut graph, _) = build(BOARDED);
-    run_device_tail(&mut graph);
-
-    let rects: Vec<(f64, f64, f64, f64)> = graph
-        .block_frames
-        .iter()
-        .map(|f| (f.x, f.y, f.w, f.h))
-        .collect();
-    assert!(!rects.is_empty());
-    // R_top1/R_top2 belong to no partition: the clusters may move around
-    // them, but no frame may end up holding them.
-    for name in ["R_top1", "R_top2"] {
-        let r = rect_of(box_by_name(&graph, name));
-        for f in &rects {
-            assert!(!inside(r, *f), "{name} caught inside a frame");
-        }
-    }
-}
-
-#[test]
-fn block_frame__separation_is_a_noop_without_partitions() {
-    let _guard = common::lock();
-    let (mut graph, _) = build(UNPARTITIONED);
+    graph.layer_style = LayerStyle::Device;
+    mcc::viz::layout::equipotential_tree::layout_device_layer(&mut graph);
+    mcc::viz::layout::overlap::separate_overlaps_x(&mut graph);
+    mcc::viz::layout::equipotential_tree::fit_content_to_canvas(&mut graph);
     let before: Vec<(f64, f64, f64, f64)> =
         graph.boxes.iter().map(|b| (b.x, b.y, b.w, b.h)).collect();
-    assert_eq!(
-        mcc::viz::layout::block_frame::separate_block_frames_x(&mut graph),
-        0,
-        "no partitions, nothing to separate"
-    );
+
+    mcc::viz::layout::block_frame::layout_block_frames(&mut graph);
+
     let after: Vec<(f64, f64, f64, f64)> =
         graph.boxes.iter().map(|b| (b.x, b.y, b.w, b.h)).collect();
-    assert_eq!(before, after, "the twin's geometry is untouched");
+    assert_eq!(before, after, "a block frame occupies no volume: it moves nothing");
+    assert!(
+        !graph.block_frames.is_empty(),
+        "the fixture does draw frames, so the immutability claim is not vacuous"
+    );
 }
