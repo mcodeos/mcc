@@ -30,7 +30,7 @@ range (threshold 40KB).
 
 | File | Size | Declarations |
 |---|---|---|
-| `viz/layout/equipotential_tree.rs` | 362 KB | 178 |
+| `viz/layout/equipotential_tree.rs` | 367 KB | 178 |
 | `db/infra/mc_code.rs` | 342 KB | 95 |
 | `semantic/basic/mc_phrase.rs` | 315 KB | 68 |
 | `semantic/component/mc_pins/mod.rs` | 225 KB | 104 |
@@ -75,7 +75,7 @@ range (threshold 40KB).
 | `semantic/` | 89 | 2605 KB |
 | `stages/` | 11 | 311 KB |
 | `vector/` | 25 | 475 KB |
-| `viz/` | 96 | 2366 KB |
+| `viz/` | 96 | 2379 KB |
 
 ## Declaration index
 
@@ -8983,22 +8983,27 @@ viz/layout/equi_column.rs#L82  fn is_spanning
 viz/layout/equi_column.rs#L87  fn is_shunt
 viz/layout/equi_column.rs#L102  fn allocate_columns
 viz/layout/equi_column.rs#L186  struct SideMember
-viz/layout/equi_column.rs#L217  const TOOTH_EPS
-viz/layout/equi_column.rs#L221  fn side_priority
-viz/layout/equi_column.rs#L241  fn allocate_columns_for_side
-viz/layout/equi_column.rs#L342  fn reduce_crossings
-viz/layout/equi_column.rs#L414  fn box_y_extent
-viz/layout/equi_column.rs#L418  fn rects_overlap
-viz/layout/equi_column.rs#L423  mod tests
-viz/layout/equi_column.rs#L426  fn mv
-viz/layout/equi_column.rs#L437  fn same_anchor_members_do_not_collide
-viz/layout/equi_column.rs#L476  fn x_monotonic_and_span_covers_first_last
-viz/layout/equi_column.rs#L522  fn columns_are_distinct
-viz/layout/equi_column.rs#L536  fn empty_is_safe
-viz/layout/equi_column.rs#L547  fn reduce_crossings_fixes_inverted_anchor_order
-viz/layout/equi_column.rs#L607  fn reduce_crossings_keeps_clean_order_untouched
-viz/layout/equi_column.rs#L659  fn same_anchor_members_follow_reading_rank
-viz/layout/equi_column.rs#L704  fn unknown_ranks_keep_input_order
+viz/layout/equi_column.rs#L227  const TOOTH_EPS
+viz/layout/equi_column.rs#L231  fn side_priority
+viz/layout/equi_column.rs#L251  fn allocate_columns_for_side
+viz/layout/equi_column.rs#L389  fn reduce_crossings
+viz/layout/equi_column.rs#L470  fn box_y_extent
+viz/layout/equi_column.rs#L474  fn rects_overlap
+viz/layout/equi_column.rs#L479  mod tests
+viz/layout/equi_column.rs#L482  fn mv
+viz/layout/equi_column.rs#L493  fn same_anchor_members_do_not_collide
+viz/layout/equi_column.rs#L536  fn x_monotonic_and_span_covers_first_last
+viz/layout/equi_column.rs#L582  fn columns_are_distinct
+viz/layout/equi_column.rs#L596  fn empty_is_safe
+viz/layout/equi_column.rs#L607  fn reduce_crossings_fixes_inverted_anchor_order
+viz/layout/equi_column.rs#L671  fn reduce_crossings_keeps_clean_order_untouched
+viz/layout/equi_column.rs#L727  fn same_anchor_members_follow_reading_rank
+viz/layout/equi_column.rs#L778  fn min_edge_window_places_member_east_of_placed_joint_on_west_band
+viz/layout/equi_column.rs#L809  fn max_edge_window_places_member_west_of_placed_endpoint
+viz/layout/equi_column.rs#L835  fn reduce_crossings_never_swaps_windowed_member
+viz/layout/equi_column.rs#L883  fn unknown_ranks_keep_input_order
+viz/layout/equi_column.rs#L933  fn satisfied_rank_window_does_not_move_the_member
+viz/layout/equi_column.rs#L962  fn violated_rank_window_clamps_to_the_reading_side
 viz/layout/equi_place.rs#L58  struct CompView
 viz/layout/equi_place.rs#L67  struct Satellite
 viz/layout/equi_place.rs#L106  fn plan_satellites
@@ -9110,84 +9115,84 @@ viz/layout/equipotential_tree.rs#L4082  fn chain_groups
 viz/layout/equipotential_tree.rs#L4089  fn chain_origins
 viz/layout/equipotential_tree.rs#L4371  fn flip_shunts_clear_of_rows
 viz/layout/equipotential_tree.rs#L4468  fn resolve_columns_for_side
-viz/layout/equipotential_tree.rs#L4673  fn resolve_member_collisions
-viz/layout/equipotential_tree.rs#L4756  enum TapRole
-viz/layout/equipotential_tree.rs#L4782  impl TapRole
-viz/layout/equipotential_tree.rs#L4785  fn short
-viz/layout/equipotential_tree.rs#L4798  struct PartnerInfo
-viz/layout/equipotential_tree.rs#L4820  fn partner_info
-viz/layout/equipotential_tree.rs#L4843  fn find_partner
-viz/layout/equipotential_tree.rs#L4864  fn tap_role
-viz/layout/equipotential_tree.rs#L4994  fn assign_shunt_slots
-viz/layout/equipotential_tree.rs#L5044  fn place_members_for_topo
-viz/layout/equipotential_tree.rs#L5400  fn opposite_side
-viz/layout/equipotential_tree.rs#L5411  fn side_label_width
-viz/layout/equipotential_tree.rs#L5440  fn assign_anchor_slots
-viz/layout/equipotential_tree.rs#L5637  fn dedupe_pin_offset
-viz/layout/equipotential_tree.rs#L5659  fn assign_side_slots
-viz/layout/equipotential_tree.rs#L5726  fn assign_pin_slots
-viz/layout/equipotential_tree.rs#L5757  fn slot_of
-viz/layout/equipotential_tree.rs#L5788  fn sink_pin_sides
-viz/layout/equipotential_tree.rs#L5837  fn sink_box_size
-viz/layout/equipotential_tree.rs#L5854  fn assign_sink_slots
-viz/layout/equipotential_tree.rs#L5926  struct Segment
-viz/layout/equipotential_tree.rs#L5935  enum TreeSymbolKind
-viz/layout/equipotential_tree.rs#L5946  struct TreeSymbol
-viz/layout/equipotential_tree.rs#L5983  fn text_side_away_from
-viz/layout/equipotential_tree.rs#L5994  struct EquiTree
-viz/layout/equipotential_tree.rs#L6010  const GUTTER_BASE
-viz/layout/equipotential_tree.rs#L6013  const GUTTER_STEP
-viz/layout/equipotential_tree.rs#L6017  const JOG_OFFSET
-viz/layout/equipotential_tree.rs#L6021  const GUTTER_MERGE_GAP
-viz/layout/equipotential_tree.rs#L6032  struct DeflectAlloc
-viz/layout/equipotential_tree.rs#L6039  impl DeflectAlloc
-viz/layout/equipotential_tree.rs#L6040  fn new
-viz/layout/equipotential_tree.rs#L6050  fn alloc
-viz/layout/equipotential_tree.rs#L6102  fn realize_all
-viz/layout/equipotential_tree.rs#L6120  fn realize
-viz/layout/equipotential_tree.rs#L6845  const BAND
-viz/layout/equipotential_tree.rs#L6963  fn pick_stub_dir
-viz/layout/equipotential_tree.rs#L6979  fn stub_dir_is_free
-viz/layout/equipotential_tree.rs#L7026  fn terminal_stub
-viz/layout/equipotential_tree.rs#L7060  fn segment_hits_box
-viz/layout/equipotential_tree.rs#L7094  fn segments_overlap
-viz/layout/equipotential_tree.rs#L7149  fn member_pin_point
-viz/layout/equipotential_tree.rs#L7167  fn add_segment
-viz/layout/equipotential_tree.rs#L7200  fn point_on_segment
-viz/layout/equipotential_tree.rs#L7221  fn symbol_node
-viz/layout/equipotential_tree.rs#L7230  fn symbol_alt_node
-viz/layout/equipotential_tree.rs#L7237  fn build_symbols
-viz/layout/equipotential_tree.rs#L7331  const LAYOUT_ANCHOR_X
-viz/layout/equipotential_tree.rs#L7332  const LAYOUT_ANCHOR_Y
-viz/layout/equipotential_tree.rs#L7341  fn layout_box_dims
-viz/layout/equipotential_tree.rs#L7376  fn seed_layout_boxes
-viz/layout/equipotential_tree.rs#L7423  fn layout_anchor_rect
-viz/layout/equipotential_tree.rs#L7431  fn layout_device_layer
-viz/layout/equipotential_tree.rs#L7647  fn fallback_box_dims
-viz/layout/equipotential_tree.rs#L7702  fn build_all_trees
-viz/layout/equipotential_tree.rs#L7739  fn fit_content_to_canvas
-viz/layout/equipotential_tree.rs#L7799  fn content_bbox
-viz/layout/equipotential_tree.rs#L7853  const R
-viz/layout/equipotential_tree.rs#L7889  mod tests
-viz/layout/equipotential_tree.rs#L7897  fn mk_ic
-viz/layout/equipotential_tree.rs#L7925  fn mk_two_pin
-viz/layout/equipotential_tree.rs#L7953  fn mk_net
-viz/layout/equipotential_tree.rs#L7969  fn build_test_graph
-viz/layout/equipotential_tree.rs#L7991  fn lanes_layout_match_render
-viz/layout/equipotential_tree.rs#L8018  fn lanes_are_per_topology
-viz/layout/equipotential_tree.rs#L8034  fn no_dangling_segments
-viz/layout/equipotential_tree.rs#L8057  fn terminal_wires_clear_of_boxes
-viz/layout/equipotential_tree.rs#L8107  fn span_envelops_member_taps
-viz/layout/equipotential_tree.rs#L8149  fn trunk_reaches_member_beyond_anchor_range
-viz/layout/equipotential_tree.rs#L8197  fn dangling_segments
-viz/layout/equipotential_tree.rs#L8260  fn anchor_side_not_overloaded
-viz/layout/equipotential_tree.rs#L8292  fn ground_pins_on_south
-viz/layout/equipotential_tree.rs#L8321  fn layout_box_seeded_in_device_layer
-viz/layout/equipotential_tree.rs#L8392  fn no_region_fallback
-viz/layout/equipotential_tree.rs#L8403  fn shunt_cap_hangs_vertical
-viz/layout/equipotential_tree.rs#L8460  fn decoupling_cap_to_own_ground_lies_horizontal
-viz/layout/equipotential_tree.rs#L8501  fn ground_drop_not_flipped_up_across_row
-viz/layout/equipotential_tree.rs#L8565  fn two_device_pin_net_blocks_series
+viz/layout/equipotential_tree.rs#L4764  fn resolve_member_collisions
+viz/layout/equipotential_tree.rs#L4847  enum TapRole
+viz/layout/equipotential_tree.rs#L4873  impl TapRole
+viz/layout/equipotential_tree.rs#L4876  fn short
+viz/layout/equipotential_tree.rs#L4889  struct PartnerInfo
+viz/layout/equipotential_tree.rs#L4911  fn partner_info
+viz/layout/equipotential_tree.rs#L4934  fn find_partner
+viz/layout/equipotential_tree.rs#L4955  fn tap_role
+viz/layout/equipotential_tree.rs#L5085  fn assign_shunt_slots
+viz/layout/equipotential_tree.rs#L5135  fn place_members_for_topo
+viz/layout/equipotential_tree.rs#L5491  fn opposite_side
+viz/layout/equipotential_tree.rs#L5502  fn side_label_width
+viz/layout/equipotential_tree.rs#L5531  fn assign_anchor_slots
+viz/layout/equipotential_tree.rs#L5728  fn dedupe_pin_offset
+viz/layout/equipotential_tree.rs#L5750  fn assign_side_slots
+viz/layout/equipotential_tree.rs#L5817  fn assign_pin_slots
+viz/layout/equipotential_tree.rs#L5848  fn slot_of
+viz/layout/equipotential_tree.rs#L5879  fn sink_pin_sides
+viz/layout/equipotential_tree.rs#L5928  fn sink_box_size
+viz/layout/equipotential_tree.rs#L5945  fn assign_sink_slots
+viz/layout/equipotential_tree.rs#L6017  struct Segment
+viz/layout/equipotential_tree.rs#L6026  enum TreeSymbolKind
+viz/layout/equipotential_tree.rs#L6037  struct TreeSymbol
+viz/layout/equipotential_tree.rs#L6074  fn text_side_away_from
+viz/layout/equipotential_tree.rs#L6085  struct EquiTree
+viz/layout/equipotential_tree.rs#L6101  const GUTTER_BASE
+viz/layout/equipotential_tree.rs#L6104  const GUTTER_STEP
+viz/layout/equipotential_tree.rs#L6108  const JOG_OFFSET
+viz/layout/equipotential_tree.rs#L6112  const GUTTER_MERGE_GAP
+viz/layout/equipotential_tree.rs#L6123  struct DeflectAlloc
+viz/layout/equipotential_tree.rs#L6130  impl DeflectAlloc
+viz/layout/equipotential_tree.rs#L6131  fn new
+viz/layout/equipotential_tree.rs#L6141  fn alloc
+viz/layout/equipotential_tree.rs#L6193  fn realize_all
+viz/layout/equipotential_tree.rs#L6211  fn realize
+viz/layout/equipotential_tree.rs#L6936  const BAND
+viz/layout/equipotential_tree.rs#L7054  fn pick_stub_dir
+viz/layout/equipotential_tree.rs#L7070  fn stub_dir_is_free
+viz/layout/equipotential_tree.rs#L7117  fn terminal_stub
+viz/layout/equipotential_tree.rs#L7151  fn segment_hits_box
+viz/layout/equipotential_tree.rs#L7185  fn segments_overlap
+viz/layout/equipotential_tree.rs#L7240  fn member_pin_point
+viz/layout/equipotential_tree.rs#L7258  fn add_segment
+viz/layout/equipotential_tree.rs#L7291  fn point_on_segment
+viz/layout/equipotential_tree.rs#L7312  fn symbol_node
+viz/layout/equipotential_tree.rs#L7321  fn symbol_alt_node
+viz/layout/equipotential_tree.rs#L7328  fn build_symbols
+viz/layout/equipotential_tree.rs#L7422  const LAYOUT_ANCHOR_X
+viz/layout/equipotential_tree.rs#L7423  const LAYOUT_ANCHOR_Y
+viz/layout/equipotential_tree.rs#L7432  fn layout_box_dims
+viz/layout/equipotential_tree.rs#L7467  fn seed_layout_boxes
+viz/layout/equipotential_tree.rs#L7514  fn layout_anchor_rect
+viz/layout/equipotential_tree.rs#L7522  fn layout_device_layer
+viz/layout/equipotential_tree.rs#L7738  fn fallback_box_dims
+viz/layout/equipotential_tree.rs#L7793  fn build_all_trees
+viz/layout/equipotential_tree.rs#L7830  fn fit_content_to_canvas
+viz/layout/equipotential_tree.rs#L7890  fn content_bbox
+viz/layout/equipotential_tree.rs#L7944  const R
+viz/layout/equipotential_tree.rs#L7980  mod tests
+viz/layout/equipotential_tree.rs#L7988  fn mk_ic
+viz/layout/equipotential_tree.rs#L8016  fn mk_two_pin
+viz/layout/equipotential_tree.rs#L8044  fn mk_net
+viz/layout/equipotential_tree.rs#L8060  fn build_test_graph
+viz/layout/equipotential_tree.rs#L8082  fn lanes_layout_match_render
+viz/layout/equipotential_tree.rs#L8109  fn lanes_are_per_topology
+viz/layout/equipotential_tree.rs#L8125  fn no_dangling_segments
+viz/layout/equipotential_tree.rs#L8148  fn terminal_wires_clear_of_boxes
+viz/layout/equipotential_tree.rs#L8198  fn span_envelops_member_taps
+viz/layout/equipotential_tree.rs#L8240  fn trunk_reaches_member_beyond_anchor_range
+viz/layout/equipotential_tree.rs#L8288  fn dangling_segments
+viz/layout/equipotential_tree.rs#L8351  fn anchor_side_not_overloaded
+viz/layout/equipotential_tree.rs#L8383  fn ground_pins_on_south
+viz/layout/equipotential_tree.rs#L8412  fn layout_box_seeded_in_device_layer
+viz/layout/equipotential_tree.rs#L8483  fn no_region_fallback
+viz/layout/equipotential_tree.rs#L8494  fn shunt_cap_hangs_vertical
+viz/layout/equipotential_tree.rs#L8551  fn decoupling_cap_to_own_ground_lies_horizontal
+viz/layout/equipotential_tree.rs#L8592  fn ground_drop_not_flipped_up_across_row
+viz/layout/equipotential_tree.rs#L8656  fn two_device_pin_net_blocks_series
 viz/layout/facade.rs#L36  fn pin_facade
 viz/layout/facade.rs#L51  fn pin_facade_root
 viz/layout/facade.rs#L114  fn pin_facade_sub
@@ -10980,4 +10985,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-401 files, 10898 declarations.
+401 files, 10903 declarations.
