@@ -212,7 +212,10 @@ const PIN: &[AttrFace] = &[AttrFace::PinRow];
 /// `role` is written at two declaration sites: a body conduit row (the copper's
 /// own identity) and a component pin row (the pin's identity *expectation* —
 /// pin-expectation-design.md §3; the row cannot name a conduit, so the word is
-/// what the landed copper must anchor).
+/// what the landed copper must anchor). `class` shares the pair for the same
+/// reason: a domain's `@class` is the board's classification decision, a pin
+/// row's `@class` is the library's signal-class *expectation* (§4, v0.3) —
+/// same word, same value table, each face its own layer.
 const BODY_PIN: &[AttrFace] = &[AttrFace::Body, AttrFace::PinRow];
 const IFACE: &[AttrFace] = &[AttrFace::Interface];
 const SPEC: &[AttrFace] = &[AttrFace::Spec];
@@ -229,6 +232,7 @@ const BODY_PIN_IFACE: &[AttrFace] = &[AttrFace::Body, AttrFace::PinRow, AttrFace
 /// strings itself" (§1.7 G6) is then true of these keys too.
 pub(crate) const KEY_ROLE: &str = "role";
 pub(crate) const KEY_CLASS: &str = "class";
+pub(crate) const KEY_REQ: &str = "req";
 pub(crate) const KEY_NATURE: &str = "nature";
 pub(crate) const KEY_NOISE: &str = "noise";
 pub(crate) const KEY_EXPOSED: &str = "exposed";
@@ -291,6 +295,13 @@ pub(crate) const ATTR_KEYS: &[AttrKeyDef] = &[
     row("pins", BODY, false),
     // `@role`'s values are the ledger's five identity words (R9).
     vocab_row(KEY_ROLE, BODY_PIN, false, AttrVocab::Words(ROLE_WORDS)),
+    // `@req` is the expectation-strength flag (pin-expectation-design.md
+    // §3.1): one bare word on the component header, stating that this part's
+    // declared pin expectations are physical facts — a violated one is an
+    // Error, not a Warning. A flag: live by being there, and a value on it is
+    // itself the error. Never a member of the role word set — R9's closed
+    // five, one word one face one meaning, stay as they are.
+    vocab_row(KEY_REQ, BODY, true, AttrVocab::Flag),
     row("func", BODY, false),
     // `@return` names a return conduit, so its value is a reference rather than
     // a word: no vocabulary is registered for it.
@@ -324,7 +335,7 @@ pub(crate) const ATTR_KEYS: &[AttrKeyDef] = &[
     // `star` is the one flag: it carries no value, and a value on it is the
     // error — which is the vocabulary check's verdict, so the key is a general
     // one (the reserved column would report the word instead of the value).
-    vocab_row(KEY_CLASS, BODY, true, AttrVocab::Words(CLASS_WORDS)),
+    vocab_row(KEY_CLASS, BODY_PIN, true, AttrVocab::Words(CLASS_WORDS)),
     vocab_row(KEY_NATURE, BODY, true, AttrVocab::Words(NATURE_WORDS)),
     vocab_row(KEY_NOISE, BODY, true, AttrVocab::Words(NOISE_WORDS)),
     vocab_row(KEY_EXPOSED, BODY, true, AttrVocab::Words(EXPOSED_WORDS)),

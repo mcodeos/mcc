@@ -956,7 +956,7 @@ fn first_text(attrs: &McAttributes, key: &str) -> Option<String> {
 }
 
 /// Whether an attribute with key `key` is present (bare flags like `@star`).
-fn has_attr(attrs: &McAttributes, key: &str) -> bool {
+pub(crate) fn has_attr(attrs: &McAttributes, key: &str) -> bool {
     attrs.iter().any(|a| a.id.to_string() == key)
 }
 
