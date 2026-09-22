@@ -2678,6 +2678,14 @@ impl McPins {
 
         // If pinid already exists, append names instead of overwriting
         if let Some(existing) = self.pins.get_mut(pinid) {
+            // U208 direction bridge, merge face: an adoption row over an
+            // already-declared pin (the pin-book + bare-ordinal form,
+            // flash.mc precedent) fills the member direction into the
+            // None slot only - a written word (the book row's own, or an
+            // earlier adoption) keeps priority.
+            if existing.iotype == IOType::None && iotype != IOType::None {
+                existing.iotype = iotype.clone();
+            }
             for name in names {
                 if !existing.names.contains(name) {
                     existing.names.push(name.clone());
