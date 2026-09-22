@@ -6209,6 +6209,20 @@ pub(crate) const GUTTER_STEP: f64 = 10.0;
 /// net's wire perpendicularly (a clean non-connection) instead of landing on a
 /// foreign pin (which would read as a junction).
 pub(crate) const JOG_OFFSET: f64 = 8.0;
+/// A gutter level must clear the edge of every box in the deflected x-range by
+/// at least this much. The level candidate list is axis-relative
+/// (`GUTTER_BASE + k*GUTTER_STEP` from the row axis), so when the blocker is a
+/// tall body — a device anchor 120px tall — the first level outside its edge
+/// used to land `box_bottom + 5`, visually hugging the box (hbl LDO/DCDC
+/// device layers deflected whole trunks along the anchor body's bottom edge).
+pub(crate) const GUTTER_BOX_CLEAR: f64 = 10.0;
+/// Instance name (baseline `box.y - 14`, font 12–13) and class name (baseline
+/// `box.y - 2`, font 9) render ABOVE every box top. A gutter passing above a
+/// box must clear that text band, not just the edge — the first free level
+/// above a tall blocker otherwise strikes through the designator (hbl
+/// POWER_DCDC `vin.VDD_3V3` detoured just above the box, between the
+/// instance name and the class name lines).
+pub(crate) const GUTTER_TEXT_BAND: f64 = 26.0;
 /// Foreign bodies closer than this (in x) share ONE gutter run. Dipping down
 /// and back up per component would zigzag the rail through every gap between
 /// the series parts.
@@ -6246,10 +6260,15 @@ impl DeflectAlloc {
         let entries = self.by_row.entry(key).or_default();
         // Prefer the BELOW-row side for every level before stepping above the
         // row (where the designator labels sit); a hanging member typically
-        // leaves room below, above is label country.
+        // leaves room below, above is label country. Sixteen levels per side:
+        // a tall blocker (a device anchor 120px tall) eats the near dozen
+        // levels by itself (its interior plus the edge clearance), and the
+        // first free one must not be pushed over the box into the text band
+        // (hbl POWER_DCDC `vin.VDD_3V3` ran its whole trunk just above the
+        // designator before the budget grew).
         let levels: Vec<f64> = (0..2)
             .flat_map(|pass| {
-                (1..12).map(move |k| {
+                (1..17).map(move |k| {
                     let b = GUTTER_BASE + (k - 1) as f64 * GUTTER_STEP;
                     if pass == 0 {
                         axis + b
@@ -6264,14 +6283,20 @@ impl DeflectAlloc {
             if self.row_axes.iter().any(|&ra| (ra as f64 - y).abs() < 12.0) {
                 continue;
             }
-            // Clear of every box in the deflected x-range.
+            // Clear of every box in the deflected x-range: below a box by the
+            // edge margin, above it by the designator text band (a level a few
+            // px outside a tall body's edge hugs it, or strikes its name).
             let box_hit = graph.boxes.iter().any(|b| {
                 b.w > 0.0
                     && b.h > 0.0
                     && x_lo < b.x + b.w
                     && b.x < x_hi
-                    && b.y <= y
-                    && y <= b.y + b.h
+                    && (if y < b.y {
+                        b.y - GUTTER_TEXT_BAND
+                    } else {
+                        b.y - GUTTER_BOX_CLEAR
+                    }) <= y
+                    && y <= b.y + b.h + GUTTER_BOX_CLEAR
             });
             if box_hit {
                 continue;
@@ -6372,8 +6397,12 @@ fn alloc_horizontal_row(
                     && b.h > 0.0
                     && x_lo < b.x + b.w
                     && b.x < x_hi
-                    && b.y <= cand
-                    && cand <= b.y + b.h
+                    && (if cand < b.y {
+                        b.y - GUTTER_TEXT_BAND
+                    } else {
+                        b.y - GUTTER_BOX_CLEAR
+                    }) <= cand
+                    && cand <= b.y + b.h + GUTTER_BOX_CLEAR
             });
             if box_hit {
                 continue;
@@ -6422,8 +6451,8 @@ fn alloc_vertical_column(
             let box_hit = graph.boxes.iter().any(|b| {
                 b.w > 0.0
                     && b.h > 0.0
-                    && b.x <= cand
-                    && cand <= b.x + b.w
+                    && b.x - GUTTER_BOX_CLEAR <= cand
+                    && cand <= b.x + b.w + GUTTER_BOX_CLEAR
                     && b.y < y_hi
                     && y_lo < b.y + b.h
             });
@@ -7311,6 +7340,48 @@ pub(crate) fn realize(
         // lead collinear with it) and add a zero-length vertical that pollutes
         // `degree_map` (and can spawn a spurious junction dot).
         if (py - axis).abs() < 0.5 {
+            // ★ M15: unless the trunk is DEFLECTED away at this x — the pin
+            // then keeps no wire at all (hbl LDO `vin.V5V`: VIN sat on the row
+            // while the trunk jogged down west of it into the gutter). Step
+            // off the face (M3.5) when the stepped x lands back on an on-axis
+            // piece; otherwise drop straight from the pin to the gutter run
+            // (the drop's top end IS the pin, its bottom lands inside the
+            // run — F4 dots the tee).
+            let gy = trunk_y(px);
+            if (gy - axis).abs() > 0.5 {
+                let tx = px + tooth_offset_x(side);
+                let stepped_to_axis = (tx - px).abs() > 0.5
+                    && (trunk_y(tx) - axis).abs() < 0.5
+                    && segments.iter().any(|s| {
+                        (s.y1 - s.y2).abs() < 0.5
+                            && (s.y1 - axis).abs() < 0.5
+                            && s.x1.min(s.x2) - 0.5 <= tx
+                            && tx <= s.x1.max(s.x2) + 0.5
+                    });
+                if stepped_to_axis {
+                    add_segment(
+                        &Segment {
+                            x1: px,
+                            y1: axis,
+                            x2: tx,
+                            y2: axis,
+                        },
+                        &mut segments,
+                        &mut degree_map,
+                    );
+                } else {
+                    add_segment(
+                        &Segment {
+                            x1: px,
+                            y1: axis,
+                            x2: px,
+                            y2: gy,
+                        },
+                        &mut segments,
+                        &mut degree_map,
+                    );
+                }
+            }
             continue;
         }
         let tx = px + tooth_offset_x(side);
@@ -7326,11 +7397,17 @@ pub(crate) fn realize(
                 &mut degree_map,
             );
         }
+        // The vertical runs at `tx`, so its target must be the trunk's level at
+        // `tx`, not at the pin. M3.5 steps a Left/Right pin OUT of its face by
+        // `TOOTH_GAP` — which can carry `tx` outside a deflected run that `px`
+        // sits in (hbl LDO `vin.V5V`: pin x=80 inside the gutter region, tooth
+        // stepped to x=60 outside it, but the tooth descended to the gutter
+        // level anyway and dangled 13px west of the gutter's jog).
         let seg = Segment {
             x1: tx,
             y1: py,
             x2: tx,
-            y2: trunk_y(px),
+            y2: trunk_y(tx),
         };
         add_segment(&seg, &mut segments, &mut degree_map);
     }
@@ -9535,6 +9612,152 @@ mod tests {
         let snap: Vec<_> = trees.iter().map(flat).collect();
         assert_eq!(reconcile_row_overlaps(&mut trees, &mut build_test_graph()), (0, 0));
         assert_eq!(snap, trees.iter().map(flat).collect::<Vec<_>>());
+    }
+
+    /// ★ M15 gutter hygiene: a gutter level must clear the EDGE of every box in
+    /// the deflected x-range by `GUTTER_BOX_CLEAR`, not merely lie outside the
+    /// box. The candidate list is axis-relative, so a tall blocker (a device
+    /// anchor 120px tall) used to accept `box_bottom + 5` — the run hugged the
+    /// whole body's bottom edge (hbl LDO/DCDC device layers).
+    #[test]
+    fn gutter_level_clears_the_blocker_box_edge() {
+        let mut g = McVecGraph::new(100, "t".into());
+        let mut blk = mk_ic(9, 3, &[91, 92, 93]);
+        blk.x = 0.0;
+        blk.y = 40.0;
+        blk.w = 200.0;
+        blk.h = 160.0; // row 120 inside; bottom edge 200
+        g.boxes.push(blk);
+        let mut alloc = DeflectAlloc::new(std::collections::BTreeSet::from([120]));
+        // 135..195 are inside the box; 205 lies only 5px below its bottom
+        // edge. The first level clearing it by GUTTER_BOX_CLEAR is 215.
+        assert_eq!(alloc.alloc(&g, 120.0, 10.0, 190.0), 215.0);
+    }
+
+    /// ★ M15 tooth/deflect coherence (hbl LDO `vin.V5V`): with the trunk
+    /// deflected around the anchor body, an off-row pin's stepped tooth must
+    /// target the trunk level at the TOOTH's x — stepping out of the region
+    /// means the axis piece, not the gutter — and an on-row pin the deflection
+    /// walked away from must step back onto the axis piece instead of keeping
+    /// no wire at all.
+    #[test]
+    fn teeth_reach_the_trunk_when_it_deflects_around_the_anchor() {
+        let mut g = McVecGraph::new(100, "t".into());
+        g.layer_style = LayerStyle::Device;
+        // Anchor IC with two Left-face pins: pin 11 on the row (y=120), pin 12
+        // off-row 40 below it. The declared layout keeps assign_anchor_slots
+        // from re-spreading the sides.
+        let mut ic = mk_ic(1, 2, &[11, 12]);
+        ic.x = 80.0;
+        ic.y = 80.0;
+        ic.w = 160.0;
+        ic.h = 120.0;
+        ic.slots = vec![
+            PinSlot {
+                pin_id: 11,
+                number: 0,
+                name: "VIN".into(),
+                side: EntrySide::Left,
+                offset: 1.0 / 3.0,
+                connected: true,
+            },
+            PinSlot {
+                pin_id: 12,
+                number: 1,
+                name: "CE".into(),
+                side: EntrySide::Left,
+                offset: 2.0 / 3.0,
+                connected: true,
+            },
+        ];
+        // Two drop caps stretch the trunk span across the anchor body, so the
+        // trunk deflects around it: the gutter region covers both pins' x but
+        // not the tooth's stepped x (80 - TOOTH_GAP = 60).
+        let mut cap_w = mk_two_pin(2, "CIN", &[21]);
+        cap_w.x = 40.0;
+        cap_w.y = 140.0;
+        cap_w.w = 20.0;
+        cap_w.h = 60.0;
+        cap_w.slots = vec![PinSlot {
+            pin_id: 21,
+            number: 0,
+            name: "1".into(),
+            side: EntrySide::Top,
+            offset: 0.5,
+            connected: true,
+        }];
+        let mut cap_e = mk_two_pin(3, "CBYP", &[31]);
+        cap_e.x = 250.0;
+        cap_e.y = 140.0;
+        cap_e.w = 20.0;
+        cap_e.h = 60.0;
+        cap_e.slots = vec![PinSlot {
+            pin_id: 31,
+            number: 0,
+            name: "1".into(),
+            side: EntrySide::Top,
+            offset: 0.5,
+            connected: true,
+        }];
+        g.boxes.push(ic);
+        g.boxes.push(cap_w);
+        g.boxes.push(cap_e);
+        g.nets.push(mk_net(
+            201,
+            "V5V",
+            NetKind::Power,
+            &[(1, 11), (1, 12), (2, 21), (3, 31)],
+        ));
+
+        let mut topos = build_topology(&g);
+        assign_regions(&g, &mut topos);
+        let anchor = layer_anchor_id(&topos);
+        assign_rows(&g, &mut topos, anchor);
+        resolve_lanes(&g, &mut topos);
+        envelop_lanes(&g, &mut topos);
+        let trees = realize_all(&topos, &g);
+        let tree = &trees[0];
+        let axis = topos[0].lane.axis;
+
+        // Off-row pin: step to x=60, then vertical onto the trunk level AT
+        // x=60 — the axis piece west of the jog, not the gutter.
+        let ce = tree
+            .segments
+            .iter()
+            .find(|s| {
+                (s.x1 - 60.0).abs() < 0.5
+                    && (s.x2 - 60.0).abs() < 0.5
+                    && ((s.y1 - 160.0).abs() < 0.5 || (s.y2 - 160.0).abs() < 0.5)
+            })
+            .expect("off-row pin's tooth at the stepped x");
+        let far = if (ce.y1 - 160.0).abs() < 0.5 { ce.y2 } else { ce.y1 };
+        assert_eq!(far, axis, "tooth must land on the axis piece, not the gutter");
+        // On-row pin the jog walked away from: horizontal step back onto the
+        // axis piece (80 → 60).
+        tree.segments
+            .iter()
+            .find(|s| {
+                (s.y1 - 120.0).abs() < 0.5
+                    && (s.y2 - 120.0).abs() < 0.5
+                    && ((s.x1 - 80.0).abs() < 0.5 && (s.x2 - 60.0).abs() < 0.5
+                        || (s.x1 - 60.0).abs() < 0.5 && (s.x2 - 80.0).abs() < 0.5)
+            })
+            .expect("on-row pin's step onto the axis piece");
+        // Gutter run clears the blocker's bottom edge (200) by the margin.
+        let run = tree
+            .segments
+            .iter()
+            .find(|s| {
+                (s.y1 - s.y2).abs() < 0.5
+                    && s.y1 > 200.0 + GUTTER_BOX_CLEAR
+                    && (s.x1.max(s.x2) - s.x1.min(s.x2)) > 100.0
+            })
+            .expect("deflected gutter run below the anchor body");
+        assert!(run.y1 >= 200.0 + GUTTER_BOX_CLEAR);
+
+        // And nothing dangles: every endpoint lands on a pin or a segment.
+        let dangling = dangling_segments(&topos[0], tree, &g);
+        assert!(dangling.is_empty(), "dangling: {:?}", dangling);
     }
 }
 
