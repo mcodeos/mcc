@@ -316,3 +316,40 @@ fn block_frame__frame_pass_moves_no_box() {
         "the fixture does draw frames, so the immutability claim is not vacuous"
     );
 }
+
+/// -- 6. the switch: the frames are display, off unless asked (U171) --
+
+#[test]
+fn block_frame__frames_off_by_default_opt_in_draws() {
+    let _guard = common::lock();
+
+    // Default options: no frame pass runs, the SVG carries no frame group.
+    let (graph, _) = build(BOARDED);
+    let doc = mcc::viz::api::render_with(graph, mcc::viz::api::RenderOpts::default());
+    let svg = doc
+        .layers
+        .iter()
+        .map(|(_, l)| l.svg.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        !svg.contains("block-frame"),
+        "frames default off: the base drawing carries no frame"
+    );
+
+    // Opt in: the same board draws them.
+    let (graph, _) = build(BOARDED);
+    let mut opts = mcc::viz::api::RenderOpts::default();
+    opts.show_block_frames = true;
+    let doc = mcc::viz::api::render_with(graph, opts);
+    let svg = doc
+        .layers
+        .iter()
+        .map(|(_, l)| l.svg.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        svg.contains("data-block=\"power\""),
+        "opt in draws the frames (and the boxes stay drawn either way)"
+    );
+}

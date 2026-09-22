@@ -159,6 +159,11 @@ pub(crate) struct BuildVizParams {
     /// (flow|schematic_radial|schematic_sub|hierarchical|radial|layered).
     #[serde(default)]
     pub(crate) layouter: Option<String>,
+    /// Draw the scope dashed frames (source `block` partitions; `func` frames
+    /// when they gain a producer). Default off — the frame is a grouping
+    /// annotation, not part of the drawing's base.
+    #[serde(default)]
+    pub(crate) frames: bool,
     /// Wrap for a standalone file on disk: stamp the vscode source links and
     /// wrap through `wrap_standalone`, exactly what the CLI's local face
     /// writes. The webview consumers keep the default (false): they get
