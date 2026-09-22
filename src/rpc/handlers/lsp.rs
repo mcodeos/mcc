@@ -187,6 +187,10 @@ pub fn handle_add_file(params: Option<Value>) -> RpcResult {
     }
 
     let p: AddFileParams = parse_strict(params)?;
+    // Same gate as load_project: the file's own root decides the world.
+    if let Some(path) = super::file_path_from_uri_param(&p.uri) {
+        super::switch_to_file_workspace(&path);
+    }
     crate::mcc_add(&McURI::from(p.uri.as_str()));
     Ok(serde_json::json!({ "ok": true }))
 }
