@@ -100,12 +100,22 @@ fn check_reserved_attr_name(comp: &crate::McComponent, uri: &str, acc: &mut Chec
     }
 }
 
-/// N2: Dotted attribute name where first segment is neither the component name
+/// N2: Dotted attribute name whose leading segments name neither the component
 /// nor a registered first-level attribute key.
 ///
-/// The first segment is resolved against the key registry
+/// Two name witnesses resolve the leading segments, each as a *segment
+/// prefix* — the attribute id spells the name and keeps at least one key
+/// segment after it (`TTL.D.partno` on `component TTL.D.SN74LVC1G175`):
+/// the component's own full dotted name, and — on a materialized variant
+/// copy — the declared base name, whose attributes ride the clone
+/// (adoption.rs `materialize_variant`). Comparing the first segment against
+/// the full name string can never hold for a dotted name (U194): `TTL` !=
+/// `TTL.D.SN74LVC1G175` made every multi-point attribute on a named
+/// component — and its re-report on every variant clone — an error.
+///
+/// Anything else is resolved against the key registry
 /// (`semantic::basic::attr_keys`, contract-design.md §1.7) — a *closed* set, so
-/// the check can actually fire. The previous form collected the first segments
+/// the check can actually fire. An earlier form collected the first segments
 /// of the component's own attributes as the known set, which always contained
 /// the segment under test and made the predicate a tautology.
 fn check_unresolvable_dotted_name(
@@ -113,17 +123,23 @@ fn check_unresolvable_dotted_name(
     uri: &str,
     acc: &mut CheckAccumulator,
 ) {
-    let comp_name = entry_key_ident(comp);
+    let mut witnesses: Vec<&crate::semantic::basic::mc_ids::McIds> = vec![&comp.name];
+    if let Some(base) = &comp.variant_base {
+        witnesses.push(base);
+    }
 
     for attr in comp.attrs.iter() {
         if attr.id.segments.len() <= 1 {
             continue;
         }
-        let first_seg = attr.id.segments[0].to_string();
-        if first_seg.is_empty() || first_seg == comp_name {
+        if witnesses
+            .iter()
+            .any(|w| spells_name_prefix(&attr.id, w))
+        {
             continue;
         }
-        if crate::semantic::basic::attr_keys::is_known_key(&first_seg) {
+        let first_seg = attr.id.segments[0].to_string();
+        if first_seg.is_empty() || crate::semantic::basic::attr_keys::is_known_key(&first_seg) {
             continue;
         }
         acc.push(CheckResult {
@@ -134,7 +150,9 @@ fn check_unresolvable_dotted_name(
             message: format!(
                 "Attribute '{}' starts with '{}', which is neither the name of component '{}' \
                  nor a registered attribute key.",
-                attr.id, first_seg, comp_name
+                attr.id,
+                first_seg,
+                entry_key_ident(comp)
             ),
             code: crate::errcodes::ATTR_DOTTED_NAME_UNRESOLVED,
         });
@@ -246,4 +264,15 @@ fn check_pins_overlap(comp: &crate::McComponent, uri: &str, acc: &mut CheckAccum
 /// We don't have direct access to the key from the value, so we use the name field.
 fn entry_key_ident(comp: &crate::McComponent) -> String {
     comp.name.to_string()
+}
+
+/// `id` spells `name` as its leading segments and keeps at least one segment
+/// beyond it (`TTL.D.partno` against `TTL.D`) — the segment-prefix form of
+/// "this attribute belongs to that named definition" (N2's name witnesses).
+fn spells_name_prefix(
+    id: &crate::semantic::basic::mc_ids::McIds,
+    name: &crate::semantic::basic::mc_ids::McIds,
+) -> bool {
+    let n = name.segments.len();
+    id.segments.len() > n && id.segments[..n] == name.segments[..]
 }

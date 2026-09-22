@@ -159,3 +159,131 @@ module main
         "single-segment attribute names must not report E{CODE}, got: {hits:?}"
     );
 }
+
+#[test]
+fn sem_attrdotted__dotted_name_prefix_is_silent() {
+    // U194: a dotted component's multi-point attributes spell the full name
+    // as their leading segments. First-segment equality against the full
+    // name string (`TTL` != `TTL.D.SN74LVC1G175`) could never hold, so every
+    // such attribute was an error.
+    let hits = diags_for(
+        r#"
+component BUS.DRIVER.DW01
+{
+    BUS.DRIVER.DW01.doc_features = "octal driver"
+    BUS.DRIVER.DW01.doc_overall = "auto grade"
+}
+
+module main
+{
+    io VDD
+    BUS.DRIVER.DW01 u1
+}
+"#,
+    );
+    assert!(
+        hits.is_empty(),
+        "attributes prefixed by the component's full dotted name must not report \
+         E{CODE}, got: {hits:?}"
+    );
+}
+
+#[test]
+fn sem_attrdotted__partial_name_prefix_still_errors() {
+    // The name witness is the *full* segment sequence: a leading run that
+    // stops short of the component's own last segment names a family, not
+    // this component, and stays an error (nothing else resolves it).
+    let hits = diags_for(
+        r#"
+component BUS.DRIVER.DW01
+{
+    BUS.DRIVER.doc_features = "octal driver"
+}
+
+module main
+{
+    io VDD
+    BUS.DRIVER.DW01 u1
+}
+"#,
+    );
+    assert_eq!(
+        hits.len(),
+        1,
+        "a family-prefix attribute on a dotted component must report E{CODE} \
+         exactly once, got: {hits:?}"
+    );
+}
+
+#[test]
+fn sem_attrdotted__variant_clone_of_base_attrs_is_silent() {
+    // U194 amplification: a materialized variant rides the base's cloned
+    // attributes (adoption.rs materialize_variant). The base resolves its own
+    // prefixed attrs by name; the clone resolves them through the declared
+    // variant base — including when the variant name does not extend the
+    // base name (the mcpub `USB.HUM011D_5_S : USB.MINIB` shape). Old
+    // behavior: one error on the base plus one per variant clone.
+    let hits = diags_for(
+        r#"
+abstract component DEV.BASE
+{
+    DEV.BASE.doc_features = "base doc"
+}
+
+component DEV.BASE.X1 : DEV.BASE
+{
+    partno = "X1"
+}
+
+component OTHER.SIBLING : DEV.BASE
+{
+    partno = "S1"
+}
+
+module main
+{
+    io VDD
+    DEV.BASE.X1 u1
+    OTHER.SIBLING u2
+}
+"#,
+    );
+    assert!(
+        hits.is_empty(),
+        "base name-prefixed attrs must stay silent on the base and on every \
+         variant clone, got: {hits:?}"
+    );
+}
+
+#[test]
+fn sem_attrdotted__variant_own_bad_attr_still_errors_once() {
+    // The clone witness covers the base's attrs, not the variant's own: a
+    // variant-declared unregistered dotted name is its own error, reported
+    // once on the variant — not per definition in the binding pair.
+    let hits = diags_for(
+        r#"
+abstract component DEV.BASE
+{
+    DEV.BASE.doc_features = "base doc"
+}
+
+component DEV.BASE.X1 : DEV.BASE
+{
+    partno = "X1"
+    bogus.thing = 7
+}
+
+module main
+{
+    io VDD
+    DEV.BASE.X1 u1
+}
+"#,
+    );
+    assert_eq!(
+        hits.len(),
+        1,
+        "a variant's own unregistered dotted attr must report E{CODE} exactly \
+         once, got: {hits:?}"
+    );
+}
