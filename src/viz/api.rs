@@ -41,6 +41,13 @@ pub struct RenderOpts {
     pub renderer: Box<dyn Renderer>,
     /// Whether to promote at top level (P1)
     pub apply_promote: bool,
+    /// Whether the scope dashed frames are drawn at all (CIMP §1 U171 switch).
+    ///
+    /// The frame is a grouping annotation — device-layer-drawing-design §12's
+    /// grouping law keeps it from ever moving a box — so it is display, off
+    /// unless asked. Today it gates the `block` frames; a `func` frame, when
+    /// it gains a producer, obeys the same law and the same switch.
+    pub show_block_frames: bool,
 }
 
 impl Default for RenderOpts {
@@ -50,6 +57,7 @@ impl Default for RenderOpts {
             sub_layouter: Box::new(FlowLayouter::sub()),
             renderer: Box::new(DefaultRenderer),
             apply_promote: true,
+            show_block_frames: false,
         }
     }
 }
@@ -147,6 +155,7 @@ pub fn render_with_metrics_and_sink(
         &*opts.top_layouter,
         &*opts.sub_layouter,
         &*opts.renderer,
+        opts.show_block_frames,
         &mut metrics,
         sink,
     );
@@ -248,6 +257,7 @@ fn render_layer_recursive(
     top_layouter: &dyn Layouter,
     sub_layouter: &dyn Layouter,
     renderer: &dyn Renderer,
+    show_block_frames: bool,
     metrics: &mut crate::viz::metrics::MetricsAccumulator,
     mut sink: Option<&mut Vec<RenderedLayer>>,
 ) {
@@ -327,10 +337,14 @@ fn render_layer_recursive(
             &mut graph,
             (cv.0, cv.1, cv.2, cv.3),
         );
-        // ★ U168: dashed frames around the module's in-body `block` partitions
-        // — a box belongs to the partition whose source span declares it. Runs
-        // last: it only reads final geometry and never grows the viewBox.
-        crate::viz::layout::block_frame::layout_block_frames(&mut graph);
+        // ★ U168/U171: dashed frames around the module's in-body `block`
+        // partitions — a box belongs to the partition whose source span
+        // declares it. Runs last: it only reads final geometry and never
+        // grows the viewBox. **Off unless asked** (`show_block_frames`): the
+        // frame is a grouping annotation, not part of the drawing's base.
+        if show_block_frames {
+            crate::viz::layout::block_frame::layout_block_frames(&mut graph);
+        }
         crate::vlog!(
             "[viz::api] layer {} '{}' device canvas={}x{} origin=({},{})",
             bid,
@@ -683,6 +697,7 @@ fn render_layer_recursive(
             top_layouter,
             sub_layouter,
             renderer,
+            show_block_frames,
             metrics,
             sink.as_deref_mut(),
         );

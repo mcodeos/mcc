@@ -525,7 +525,7 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
 
                         total_boxes += graph.boxes.len();
 
-                        let opts = build_viz_opts(args.layouter.as_deref());
+                        let opts = build_viz_opts(args.layouter.as_deref(), args.viz_frames);
                         let doc = mcc::viz::api::render_with(graph, opts);
 
                         if let Some(root_layer) = doc.root_layer() {
@@ -645,7 +645,7 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
                 mcc::build_mc_vec_graph(&vec_block, &table)
             };
 
-            let opts = build_viz_opts(args.layouter.as_deref());
+            let opts = build_viz_opts(args.layouter.as_deref(), args.viz_frames);
             let (mut doc, metrics) = mcc::viz::api::render_with_metrics(graph, opts);
             let quality = metrics.finish_quality(Some(&build_report));
             // Metrics summary: always shown (this is the acceptance yardstick).
@@ -953,7 +953,7 @@ fn build_browse_dir(
                     mcc::build_mc_vec_graph(&vec_block, &mod_table)
                 };
                 *total_boxes += graph.boxes.len();
-                let opts = build_viz_opts(layouter);
+                let opts = build_viz_opts(layouter, args.viz_frames);
                 let doc = mcc::viz::api::render_with(graph, opts);
                 if let Some(root_layer) = doc.root_layer() {
                     let label = if is_virtual {
@@ -1178,8 +1178,11 @@ fn emit_err(fmt: &OutputFormat, err: RpcError) -> Result<()> {
     }
 }
 
-fn build_viz_opts(layouter_name: Option<&str>) -> mcc::viz::api::RenderOpts {
-    let opts = mcc::viz::api::RenderOpts::default();
+fn build_viz_opts(layouter_name: Option<&str>, show_frames: bool) -> mcc::viz::api::RenderOpts {
+    let mut opts = mcc::viz::api::RenderOpts::default();
+    // Scope dashed frames (`block` today, `func` when it lands): off unless
+    // asked (--viz-frames).
+    opts.show_block_frames = show_frames;
     if let Some(name) = layouter_name {
         if name != "flow" {
             mcc_dbg!(
@@ -1238,7 +1241,7 @@ mod phase0_golden {
 
     /// Fingerprint = VizDocument::to_json() (structure + per-layer SVG).
     fn render_signature(graph: mcc::vector::graph::McVecGraph) -> String {
-        let opts = build_viz_opts(None); // default = FlowLayouter
+        let opts = build_viz_opts(None, false); // default = FlowLayouter, frames off
         mcc::viz::api::render_with(graph, opts).to_json()
     }
 

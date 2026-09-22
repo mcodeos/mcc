@@ -32,7 +32,7 @@
 use std::collections::HashMap;
 
 use crate::semantic::common::BlockPartition;
-use crate::vector::graph::{BoxKind, McVecBox, McVecGraph, ModuleFrame};
+use crate::vector::graph::{BoxKind, McVecGraph, ModuleFrame};
 
 /// Gutter between the member boxes and the frame.
 const BLOCK_FRAME_PAD: f64 = 10.0;

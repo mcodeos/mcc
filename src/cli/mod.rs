@@ -1084,6 +1084,13 @@ pub struct BuildArgs {
     #[arg(long, value_name = "NAME")]
     pub layouter: Option<String>,
 
+    /// Draw the scope dashed frames (source `block` partitions; `func` frames
+    /// when they gain a producer) in `--viz` output. Default off — the frame
+    /// is a grouping annotation, not part of the drawing's base
+    /// (device-layer-drawing-design §12).
+    #[arg(long = "viz-frames", default_value_t = false)]
+    pub viz_frames: bool,
+
     /// Write file products into `<project-root>/build/` (build-design §3.4).
     /// The ids are the `mcc export <KIND>` tokens, because a product's bytes
     /// must not depend on which entry produced them (§3.6 contract 1). Omitted

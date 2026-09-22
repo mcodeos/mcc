@@ -164,7 +164,7 @@ pub fn handle_build_viz(params: Option<Value>) -> RpcResult {
         };
         tracing::info!(target: "mcc::perf", step = "vec_graph", ms = t3.elapsed().as_millis() as u64, "build.viz step");
 
-        let opts = build_viz_render_opts(p.layouter.as_deref());
+        let opts = build_viz_render_opts(p.layouter.as_deref(), p.frames);
         let t4 = std::time::Instant::now();
         let doc = crate::viz::api::render_with(graph, opts);
         tracing::info!(target: "mcc::perf", step = "render", ms = t4.elapsed().as_millis() as u64, "build.viz step");
@@ -235,8 +235,11 @@ pub fn handle_build_viz(params: Option<Value>) -> RpcResult {
 /// ★ P7-era cleanup: the experimental layouters (hierarchical / layered /
 /// radial / schematic_radial / schematic_sub) were removed as dead code;
 /// only `flow` remains selectable.
-fn build_viz_render_opts(layouter_name: Option<&str>) -> crate::viz::api::RenderOpts {
-    let opts = crate::viz::api::RenderOpts::default();
+fn build_viz_render_opts(layouter_name: Option<&str>, show_frames: bool) -> crate::viz::api::RenderOpts {
+    let mut opts = crate::viz::api::RenderOpts::default();
+    // Scope dashed frames (`block` today, `func` when it lands): off unless
+    // the request asks (params.frames).
+    opts.show_block_frames = show_frames;
     if let Some(name) = layouter_name {
         if name != "flow" {
             return opts;
