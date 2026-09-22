@@ -1343,6 +1343,25 @@ fn iface_topo__two_endpoints_fit_point_to_point() {
     );
 }
 
+/// U200: element-wise group-to-group wiring (`a.IF -> b.IF`, two rows a side)
+/// emits two nets of two endpoints each. The pre-split junction carries four
+/// family endpoints, but criterion 4 is judged per emitted net — quiet, not
+/// E4122 (the hbl crystal idiom: resonator group wired to oscillator group).
+#[test]
+fn iface_topo__element_wise_group_pairing_is_judged_per_net() {
+    let (codes, nets) = build_topo("    p1.IF -> q1.IF", "/mcc/iface-topo-group.mc");
+    assert_eq!(
+        rule139_codes(&codes),
+        Vec::<u32>::new(),
+        "element-wise group wiring lands two endpoints per net; got {codes:?}"
+    );
+    assert_eq!(
+        nets.len(),
+        2,
+        "the statement emits two nets, one per row pair; got {nets:?}"
+    );
+}
+
 /// Control: `multi-point` families take n endpoints — the attribute is judged
 /// only where declared, and a declared `multi-point` never fires E4122.
 #[test]

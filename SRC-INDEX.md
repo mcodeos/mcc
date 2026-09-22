@@ -34,7 +34,7 @@ range (threshold 40KB).
 | `db/infra/mc_code.rs` | 343 KB | 95 |
 | `semantic/basic/mc_phrase.rs` | 315 KB | 68 |
 | `semantic/component/mc_pins/mod.rs` | 226 KB | 104 |
-| `instant/mc_mod/stmt.rs` | 194 KB | 76 |
+| `instant/mc_mod/stmt.rs` | 195 KB | 77 |
 | `semantic/validation/nets/mod.rs` | 192 KB | 126 |
 | `db/diagnostic/errcodes.rs` | 183 KB | 438 |
 | `rules.rs` | 177 KB | 83 |
@@ -67,7 +67,7 @@ range (threshold 40KB).
 | `db/` | 27 | 913 KB |
 | `eval/` | 2 | 48 KB |
 | `export/` | 7 | 183 KB |
-| `instant/` | 40 | 1560 KB |
+| `instant/` | 40 | 1561 KB |
 | `lsp/` | 7 | 66 KB |
 | `output/` | 7 | 107 KB |
 | `query/` | 9 | 161 KB |
@@ -3221,10 +3221,10 @@ instant/mc_mod/funccall.rs#L917  fn resolve_face_from_buses
 instant/mc_mod/funccall.rs#L1001  fn rebind_submodule_params
 instant/mc_mod/group.rs#L21  impl InstantiationBuilder
 instant/mc_mod/group.rs#L35  fn create_connection
-instant/mc_mod/group.rs#L472  fn make_conn_with_provenance
-instant/mc_mod/group.rs#L560  fn try_member_passthrough_scalar
-instant/mc_mod/group.rs#L749  fn trunk_from_points
-instant/mc_mod/group.rs#L795  fn refine_lane_trunk
+instant/mc_mod/group.rs#L486  fn make_conn_with_provenance
+instant/mc_mod/group.rs#L574  fn try_member_passthrough_scalar
+instant/mc_mod/group.rs#L763  fn trunk_from_points
+instant/mc_mod/group.rs#L809  fn refine_lane_trunk
 instant/mc_mod/iterated.rs#L23  impl InstantiationBuilder
 instant/mc_mod/iterated.rs#L46  fn check_and_expand_iterated_call
 instant/mc_mod/iterated.rs#L307  fn resolve_indexed_params
@@ -3390,23 +3390,24 @@ instant/mc_mod/stmt.rs#L2124  fn extract_trunk_kind
 instant/mc_mod/stmt.rs#L2177  fn extract_trunk_iface
 instant/mc_mod/stmt.rs#L2196  fn iface_class_of
 instant/mc_mod/stmt.rs#L2238  fn check_iface_connect_points
-instant/mc_mod/stmt.rs#L2266  fn check_iface_connect_net
-instant/mc_mod/stmt.rs#L2288  fn check_iface_topology
-instant/mc_mod/stmt.rs#L2330  fn iface_pair_diag
-instant/mc_mod/stmt.rs#L2465  fn iface_endpoint_of_point
-instant/mc_mod/stmt.rs#L2501  fn role_of
-instant/mc_mod/stmt.rs#L2525  fn iface_attr_value_set
-instant/mc_mod/stmt.rs#L2592  fn connect_adjacent_pair
-instant/mc_mod/stmt.rs#L2641  fn normalize_branch_elem
-instant/mc_mod/stmt.rs#L2659  fn process_series_branch_inplace
-instant/mc_mod/stmt.rs#L2701  fn stash_pass_through
-instant/mc_mod/stmt.rs#L2708  fn process_member_internal
-instant/mc_mod/stmt.rs#L3633  fn assign_phrase_ids
-instant/mc_mod/stmt.rs#L3676  fn reset_phrase_ids
-instant/mc_mod/stmt.rs#L3714  fn member_key
-instant/mc_mod/stmt.rs#L3739  fn extract_caller_inst_name
-instant/mc_mod/stmt.rs#L3821  fn resolve_array_caller_to_existing
-instant/mc_mod/stmt.rs#L3883  fn phrase_contains_failed_class
+instant/mc_mod/stmt.rs#L2266  fn check_net_topology
+instant/mc_mod/stmt.rs#L2277  fn check_iface_connect_net
+instant/mc_mod/stmt.rs#L2301  fn check_iface_topology
+instant/mc_mod/stmt.rs#L2343  fn iface_pair_diag
+instant/mc_mod/stmt.rs#L2478  fn iface_endpoint_of_point
+instant/mc_mod/stmt.rs#L2514  fn role_of
+instant/mc_mod/stmt.rs#L2538  fn iface_attr_value_set
+instant/mc_mod/stmt.rs#L2605  fn connect_adjacent_pair
+instant/mc_mod/stmt.rs#L2654  fn normalize_branch_elem
+instant/mc_mod/stmt.rs#L2672  fn process_series_branch_inplace
+instant/mc_mod/stmt.rs#L2714  fn stash_pass_through
+instant/mc_mod/stmt.rs#L2721  fn process_member_internal
+instant/mc_mod/stmt.rs#L3646  fn assign_phrase_ids
+instant/mc_mod/stmt.rs#L3689  fn reset_phrase_ids
+instant/mc_mod/stmt.rs#L3727  fn member_key
+instant/mc_mod/stmt.rs#L3752  fn extract_caller_inst_name
+instant/mc_mod/stmt.rs#L3834  fn resolve_array_caller_to_existing
+instant/mc_mod/stmt.rs#L3896  fn phrase_contains_failed_class
 instant/mc_mod/subst.rs#L31  impl InstantiationBuilder
 instant/mc_mod/subst.rs#L38  fn param_value_to_node_elements
 instant/mc_mod/subst.rs#L108  fn phrase_to_node_elements
@@ -11099,4 +11100,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-403 files, 11016 declarations.
+403 files, 11017 declarations.
