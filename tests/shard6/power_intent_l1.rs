@@ -6281,3 +6281,91 @@ fn class_expectation_on_bare_net_fires_6052_not_6051() {
         "unprovable is not violated — no 6051; got codes: {codes:?}"
     );
 }
+
+// ── v0.3: expectations ride instantiation (pin-expectation-design.md §4.1) ──
+//
+// The gate reads the flat pin entry's words, decoded at flatten time from the
+// instance's materialized pins. A parametric component's definition stays
+// pinless — the selected conditional branch materializes only at
+// instantiation — so these locks pin the shapes a def-level read was blind
+// to: the branch row's own words, and the words an adopted interface's
+// member rows union onto the adoption row at parse time (D3).
+
+/// A two-variant part whose pinout is a construction parameter, in the
+/// sensor-rework shape: the analog branch adopts ADC.SINGLE, the bus branch
+/// adopts I2C. Branch-local rows only.
+const VARIANT: &str = "\
+interface ADC.SINGLE(role) {\n    pins = [ 1 = IN @class(analog) ]\n    \
+    role Transmitter { peer = Receiver }\n    role Receiver { peer = Transmitter }\n}\n\
+interface I2C(role) {\n    pins = [ 1 = SDA @class(digital) ]\n    \
+    role Master { peer = Slave }\n    role Slave { peer = Master }\n}\n\
+component SENS(mode::STRING) {\n    \
+    if mode == \"i2c\"\n        pins = [ 1 = BUS::I2C(Slave) ]\n    \
+    else\n        pins = [ 1 = AOUT::ADC.SINGLE(Transmitter) ]\n}\n";
+
+/// The adopted interface's member default rides the adoption row through the
+/// conditional branch: the analog variant's pin expects analog, and landing
+/// it on a digital world fires 6051 — the exact SENSOR.TEMP("analog") shape.
+#[test]
+fn adoption_default_through_conditional_branch_fires_6051() {
+    let src = format!(
+        "{VARIANT}\nmodule main {{\n    \
+         domain DV @class(digital) {{ rail [VDD_3V3, GND]::DC(3.3V) }}\n    \
+         SENS(\"analog\") t1\n    t1.AOUT.IN - VDD_3V3\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        codes.contains(&mcc::errcodes::PIN_COPPER_EXPECTATION_MISMATCH),
+        "the adopted @class(analog) default must ride the branch row → 6051; got codes: {codes:?}"
+    );
+}
+
+/// Same part, bus variant: I2C's member default is digital, and landing it
+/// on an analog world fires — the positive proof that the digital default
+/// rode the branch (a silent read could not tell "rode and anchored" from
+/// "never arrived").
+#[test]
+fn adoption_default_through_conditional_branch_digital_side_fires_6051() {
+    let src = format!(
+        "{VARIANT}\nmodule main {{\n    \
+         domain AV @class(analog) {{ rail [VDDA, GNDA]::DC(3.3V) }}\n    \
+         SENS(\"i2c\") t1\n    t1.BUS.SDA - GNDA\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        codes.contains(&mcc::errcodes::PIN_COPPER_EXPECTATION_MISMATCH),
+        "the adopted @class(digital) default must ride the branch row → 6051; got codes: {codes:?}"
+    );
+}
+
+/// A branch row that writes its own word overrides the adopted member
+/// default (D3: the adoption row wins per key). The same wiring with and
+/// without the row-level word is the contrast: the plain row inherits the
+/// analog default and anchors on the analog rail (silent), the
+/// `@class(digital)` row is contradicted by it (6051).
+#[test]
+fn branch_row_override_wins_over_adopted_default() {
+    let src = "\
+interface ADC.SINGLE(role) {\n    pins = [ 1 = IN @class(analog) ]\n    \
+    role Transmitter { peer = Receiver }\n    role Receiver { peer = Transmitter }\n}\n\
+component SENS(mode::STRING) {\n    \
+    if mode == \"ovr\"\n        pins = [ 1 = AOUT::ADC.SINGLE(Transmitter) @class(digital) ]\n    \
+    else\n        pins = [ 1 = AOUT::ADC.SINGLE(Transmitter) ]\n}\n";
+    let src = format!(
+        "{src}\nmodule main {{\n    \
+         domain AV @class(analog) {{ rail [VDDA, GNDA]::DC(3.3V) }}\n    \
+         SENS(\"ovr\") t1\n    t1.AOUT.IN - GNDA\n    \
+         SENS(\"plain\") t2\n    t2.AOUT.IN - GNDA\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let msgs = msgs_of(mcc::errcodes::PIN_COPPER_EXPECTATION_MISMATCH, &src);
+    assert_eq!(
+        msgs.len(),
+        1,
+        "the written word is contradicted (t1), the inherited default anchors (t2); got codes: {codes:?}"
+    );
+    assert!(
+        msgs[0].contains("t1"),
+        "6051 must name the overriding instance: {msgs:?}"
+    );
+}
