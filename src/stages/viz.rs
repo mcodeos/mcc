@@ -226,11 +226,81 @@ pub fn build_viz(
         for (i, e) in r.graph.block_edges.iter().enumerate() {
             items.push(edge_item(e, table, &path, i, &mut sources));
         }
+        // Device layers draw through the equipotential trees, so their wire
+        // geometry lives in a tree replay, not in `net.route`. Publishing it
+        // gives an agent the same segment face on every layer style.
+        let tree_segments: Vec<(String, Vec<(f64, f64, f64, f64)>)> =
+            if r.graph.layer_style == crate::vector::graph::LayerStyle::Device {
+                crate::viz::layout::equipotential_tree::build_all_trees(&r.graph)
+                    .iter()
+                    .map(|t| {
+                        (
+                            t.net_name.clone(),
+                            t.segments
+                                .iter()
+                                .map(|g| (g.x1, g.y1, g.x2, g.y2))
+                                .collect(),
+                        )
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            };
         for net in &r.graph.nets {
             if let Some(route) = &net.route {
                 for (i, seg) in route.segments.iter().enumerate() {
                     items.push(segment_item(seg, net, &path, i));
                 }
+            }
+            if let Some((_, segs)) =
+                tree_segments.iter().find(|(name, _)| *name == net.name)
+            {
+                for (i, (x1, y1, x2, y2)) in segs.iter().enumerate() {
+                    items.push(json!({
+                        "class": "segment",
+                        "key": Value::Null,
+                        "point": Value::Null,
+                        "path": Value::Null,
+                        "canon_key": Value::Null,
+                        "kind": "wire",
+                        "net": net.name,
+                        "nid": net.nid,
+                        "index": i,
+                        "edge_kind": Value::Null,
+                        "lanes": Value::Null,
+                        "trunk": Value::Null,
+                        "ret": Value::Null,
+                        "from": Value::Null,
+                        "to": Value::Null,
+                        "from_at": [x1, y1],
+                        "to_at": [x2, y2],
+                        "length": ((x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1)).sqrt(),
+                        "layer": path,
+                        "loc": Value::Null,
+                    }));
+                }
+            }
+            // One digest row per net: the endpoints a query starts from, so
+            // an agent asks "what does this net join" without traversing the
+            // per-pin items.
+            let ends: Vec<String> = net
+                .endpoints
+                .iter()
+                .filter_map(|e| {
+                    let b = r.graph.boxes.iter().find(|b| b.id == e.box_id)?;
+                    Some(format!("{}.{}", b.inst_path, e.pin_name))
+                })
+                .collect();
+            if !ends.is_empty() {
+                items.push(json!({
+                    "class": "digest",
+                    "kind": "net",
+                    "layer": path,
+                    "net": net.name,
+                    "nid": net.nid,
+                    "style": style_str(r.graph.layer_style),
+                    "endpoints": ends,
+                }));
             }
             // The declared face is read off the projected graph, never
             // recomputed: `VizNet.attr` is what viz/project.rs resolved from the
