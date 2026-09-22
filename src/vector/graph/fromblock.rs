@@ -2231,6 +2231,8 @@ mod tests {
             origin: InstOrigin::Declared,
             synthetic: false,
             alias_of: None,
+            exp_role: Vec::new(),
+            exp_class: Vec::new(),
             node_id: None,
             class_def: None,
             point: None,

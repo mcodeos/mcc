@@ -16,7 +16,7 @@
 4. **Industry-standard acronyms are preferred** over fully-spelled words — `LDO` not `LOW_DROPOUT`, `SMD` not `SURFACE_MOUNT_DEVICE`.
 5. **Proper nouns, model numbers, and standard codes are kept intact** (no underscore insertion) — `XT60`, `DIN41612`, `ANDERSON`, `SPEAKON`.
 6. **Manufacturer series names use underscore** between manufacturer and series — `JST_XH`, `MOLEX_KK`.
-7. **Digits may appear as part of a name** — `TRS_35MM`, `HDR_1x10`, `SPI.3WIRE`.
+7. **Digits may appear as part of a name** — `TRS_35MM`, `HDR.1X10`, `SPI.3WIRE`.
 
 ---
 
@@ -91,11 +91,13 @@ Connectors are categorized by physical interface type as top-level namespaces:
 | `POWER` | Power connectors | `POWER.DC_JACK`, `POWER.XT60`, `POWER.ATX` | de facto (DC jack), Amass XT60, Intel ATX |
 | `WTB` | Wire-to-board connectors | `WTB.JST_XH`, `WTB.MOLEX_KK` | JST XH series, Molex KK 254 series |
 | `B2B` | Board-to-board connectors | `B2B`, `MEZZANINE` | de facto |
-| `HDR` | Pin headers | `HDR_1x10`, `HDR_2x5` | de facto (0.1″ / 2.54 mm pitch) |
+| `HDR` | Pin headers | `HDR.1X10`, `HDR.2X5` | de facto (0.1″ / 2.54 mm pitch) |
 
-**Note on `HDR`**: Pin headers use underscore (`_`) instead of dot for the pin-count suffix
-(`HDR_1x10`, `HDR_2x5`) because the count is a parametric dimension, not a subtype.
-The `x` format (`1x10` = 1 row × 10 pins) is the industry-standard shorthand.
+**Note on `HDR`**: Pin headers follow the family.face law (`HDR.1X10`, `HDR.2X5`); the
+face is all-uppercase (`1X10`, not `1x10` — case is not significant in the industry
+shorthand, and library faces are uppercase). The generic parametric faces are
+`HDR.SINGLE(cols)` / `HDR.MULTI(rows, cols)`; the concrete `1XN`/`2XN` faces are
+fixed-size variants in the `IEC.C8`/`C14` style.
 
 ---
 
