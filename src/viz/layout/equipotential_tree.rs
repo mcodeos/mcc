@@ -6306,6 +6306,518 @@ pub(crate) fn realize_all(topo_list: &[NetTopology], graph: &McVecGraph) -> Vec<
     trees
 }
 
+// ── U173: cross-net same-row overlap reconciliation ──
+
+/// How two segments of different nets overlap on one shared axis, if they do.
+/// This is the single definition of the "same-row overlap" short: the route
+/// audit counts with it and the reconciler below fixes with it, so the
+/// yardstick and the fixer can never disagree.
+pub(crate) enum RowOverlap {
+    /// Both segments horizontal on one row; `[lo, hi]` is the shared span in x.
+    Horizontal { y: f64, lo: f64, hi: f64 },
+    /// Both segments vertical on one column; `[lo, hi]` is the shared span in y.
+    Vertical { x: f64, lo: f64, hi: f64 },
+}
+
+const ROW_EPS: f64 = 0.5;
+
+/// The pairwise overlap predicate over realized segments. Parallel but apart,
+/// perpendicular, and touch-only pairs are `None`.
+pub(crate) fn seg_row_overlap(a: &Segment, b: &Segment) -> Option<RowOverlap> {
+    let a_h = (a.y1 - a.y2).abs() < ROW_EPS;
+    let b_h = (b.y1 - b.y2).abs() < ROW_EPS;
+    if a_h && b_h {
+        if (a.y1 - b.y1).abs() >= ROW_EPS {
+            return None;
+        }
+        let lo = a.x1.min(a.x2).max(b.x1.min(b.x2));
+        let hi = a.x1.max(a.x2).min(b.x1.max(b.x2));
+        (lo < hi - ROW_EPS).then_some(RowOverlap::Horizontal {
+            y: a.y1,
+            lo,
+            hi,
+        })
+    } else if !a_h && !b_h {
+        if (a.x1 - b.x1).abs() >= ROW_EPS {
+            return None;
+        }
+        let lo = a.y1.min(a.y2).max(b.y1.min(b.y2));
+        let hi = a.y1.max(a.y2).min(b.y1.max(b.y2));
+        (lo < hi - ROW_EPS).then_some(RowOverlap::Vertical { x: a.x1, lo, hi })
+    } else {
+        None
+    }
+}
+
+/// Pick a gutter level for a horizontal dodge: the same clearance rules as
+/// `DeflectAlloc` (clear of every drawn row, clear of every box in the dodged
+/// x-range, not claimed by an overlapping interval) but scanned twice as deep —
+/// a dense layer can fill the first eleven levels with parts.
+fn alloc_horizontal_row(
+    graph: &McVecGraph,
+    h_axes: &BTreeSet<i64>,
+    claims: &mut Vec<(f64, f64, f64)>,
+    y: f64,
+    x_lo: f64,
+    x_hi: f64,
+) -> Option<f64> {
+    for k in 0..24 {
+        for sign in [1.0, -1.0] {
+            let cand = y + sign * (GUTTER_BASE + k as f64 * GUTTER_STEP);
+            if h_axes.iter().any(|&ha| (ha as f64 - cand).abs() < 12.0) {
+                continue;
+            }
+            let box_hit = graph.boxes.iter().any(|b| {
+                b.w > 0.0
+                    && b.h > 0.0
+                    && x_lo < b.x + b.w
+                    && b.x < x_hi
+                    && b.y <= cand
+                    && cand <= b.y + b.h
+            });
+            if box_hit {
+                continue;
+            }
+            let claimed = claims
+                .iter()
+                .any(|&(cy, clo, chi)| (cy - cand).abs() < 0.5 && clo < x_hi && x_lo < chi);
+            if claimed {
+                continue;
+            }
+            claims.push((cand, x_lo, x_hi));
+            return Some(cand);
+        }
+    }
+    None
+}
+
+/// One accepted dodge: the yielding tree dips its run over `[e0, e1]` into a
+/// gutter level, keeping every endpoint fixed. `run` holds the indices of the
+/// yielding tree's collinear segments the dodge spans (contiguous, gap-free).
+struct DodgePlan {
+    /// The shared row y (horizontal) or column x (vertical).
+    axis: f64,
+    e0: f64,
+    e1: f64,
+    horizontal: bool,
+}
+
+/// Pick the gutter level for a vertical dodge: the mirror of `DeflectAlloc`'s
+/// row logic — clear of every drawn vertical column, clear of every box in the
+/// dodged y-range, not claimed by an overlapping interval at this level.
+fn alloc_vertical_column(
+    graph: &McVecGraph,
+    v_axes: &BTreeSet<i64>,
+    claims: &mut Vec<(f64, f64, f64)>,
+    x: f64,
+    y_lo: f64,
+    y_hi: f64,
+) -> Option<f64> {
+    for k in 0..12 {
+        for sign in [1.0, -1.0] {
+            let cand = x + sign * (GUTTER_BASE + k as f64 * GUTTER_STEP);
+            if v_axes.iter().any(|&va| (va as f64 - cand).abs() < 12.0) {
+                continue;
+            }
+            let box_hit = graph.boxes.iter().any(|b| {
+                b.w > 0.0
+                    && b.h > 0.0
+                    && b.x <= cand
+                    && cand <= b.x + b.w
+                    && b.y < y_hi
+                    && y_lo < b.y + b.h
+            });
+            if box_hit {
+                continue;
+            }
+            let claimed = claims
+                .iter()
+                .any(|&(cx, clo, chi)| (cx - cand).abs() < 0.5 && clo < y_hi && y_lo < chi);
+            if claimed {
+                continue;
+            }
+            claims.push((cand, y_lo, y_hi));
+            return Some(cand);
+        }
+    }
+    None
+}
+
+/// Gather the yielding tree's contiguous collinear run that covers the overlap,
+/// and the dodge span: the foreign segment's whole extent plus a jog margin on
+/// each side, clamped to the run. The jogs must land OUTSIDE the foreign wire
+/// so they cross it perpendicularly (a clean non-connection), never touch it
+/// with a corner. Returns `None` when the run has a gap inside the dodge span
+/// or the clamped span is too short to jog.
+fn dodge_plan(tree: &EquiTree, foreign: &Segment, ov: &RowOverlap) -> Option<DodgePlan> {
+    let (axis, lo, hi, horizontal) = match ov {
+        RowOverlap::Horizontal { y, lo, hi } => (*y, *lo, *hi, true),
+        RowOverlap::Vertical { x, lo, hi } => (*x, *lo, *hi, false),
+    };
+    let on_axis = |s: &Segment| {
+        if horizontal {
+            (s.y1 - s.y2).abs() < ROW_EPS && (s.y1 - axis).abs() < ROW_EPS
+        } else {
+            (s.x1 - s.x2).abs() < ROW_EPS && (s.x1 - axis).abs() < ROW_EPS
+        }
+    };
+    let (f_lo, f_hi) = if foreign.x1 > foreign.x2 {
+        (foreign.x2, foreign.x1)
+    } else {
+        (foreign.x1, foreign.x2)
+    };
+    let (f_lo, f_hi) = if horizontal {
+        (f_lo, f_hi)
+    } else {
+        let (a0, a1) = if foreign.y1 > foreign.y2 {
+            (foreign.y2, foreign.y1)
+        } else {
+            (foreign.y1, foreign.y2)
+        };
+        (a0, a1)
+    };
+    // Expand from the overlapping segment along the axis while neighbours touch.
+    let cov = |s: &Segment| {
+        if horizontal {
+            (s.x1.min(s.x2), s.x1.max(s.x2))
+        } else {
+            (s.y1.min(s.y2), s.y1.max(s.y2))
+        }
+    };
+    // Keep the contiguous chain of on-axis segments that covers [lo, hi].
+    let mut chain: Vec<&Segment> = Vec::new();
+    for s in tree.segments.iter().filter(|s| on_axis(s)) {
+        let (slo, shi) = cov(s);
+        if shi < lo - ROW_EPS || slo > hi + ROW_EPS {
+            continue;
+        }
+        chain.push(s);
+    }
+    chain.sort_by(|a, b| cov(a).0.partial_cmp(&cov(b).0).unwrap());
+    let run_lo = chain.first().map(|s| cov(s).0)?;
+    let run_hi = chain.iter().map(|s| cov(s).1).fold(f64::NAN, f64::max);
+    // Jog margin: land outside the foreign wire by JOG_OFFSET on each side.
+    let e0 = (f_lo - JOG_OFFSET).max(run_lo);
+    let e1 = (f_hi + JOG_OFFSET).min(run_hi);
+    if e1 - e0 < 4.0 {
+        return None;
+    }
+    // The chain must cover the whole dodge span without a gap.
+    let mut cursor = e0;
+    for s in &chain {
+        let (slo, shi) = cov(s);
+        if slo > cursor + ROW_EPS {
+            return None;
+        }
+        cursor = cursor.max(shi);
+        if cursor >= e1 {
+            break;
+        }
+    }
+    if cursor < e1 - ROW_EPS {
+        return None;
+    }
+    Some(DodgePlan {
+        axis,
+        e0,
+        e1,
+        horizontal,
+    })
+}
+
+/// Rewrite the yielding tree: collinear run segments keep their outside pieces
+/// and lose their interior pieces; one gutter run with two jogs replaces them.
+/// A junction dot strictly inside the dodge span FOLLOWS the run down to the
+/// gutter level and its off-axis tap segments are stretched to reach it — so a
+/// same-net tap stays connected. Returns `false` only when such a tap ends in
+/// another junction dot (a chained tap cannot follow) — the caller then tries
+/// another candidate.
+fn apply_dodge(tree: &mut EquiTree, plan: &DodgePlan, level: f64) -> bool {
+    let on_run = |d: (f64, f64)| {
+        let (d_along, d_axis) = if plan.horizontal {
+            (d.0, d.1)
+        } else {
+            (d.1, d.0)
+        };
+        (d_axis - plan.axis).abs() < ROW_EPS
+            && d_along > plan.e0 + ROW_EPS
+            && d_along < plan.e1 - ROW_EPS
+    };
+    let near = |p: (f64, f64), q: (f64, f64)| {
+        (p.0 - q.0).abs() < ROW_EPS && (p.1 - q.1).abs() < ROW_EPS
+    };
+    for (di, &d) in tree.junction_dots.iter().enumerate() {
+        if !on_run(d) {
+            continue;
+        }
+        for s in &tree.segments {
+            let at_start = near((s.x1, s.y1), d);
+            let at_end = near((s.x2, s.y2), d);
+            if !at_start && !at_end {
+                continue;
+            }
+            let on_axis_seg = if plan.horizontal {
+                (s.y1 - s.y2).abs() < ROW_EPS
+            } else {
+                (s.x1 - s.x2).abs() < ROW_EPS
+            };
+            if on_axis_seg {
+                continue; // a run neighbour, handled by the run rewrite
+            }
+            let far = if at_start { (s.x2, s.y2) } else { (s.x1, s.y1) };
+            if tree
+                .junction_dots
+                .iter()
+                .enumerate()
+                .any(|(ei, &e)| ei != di && near(e, far))
+            {
+                return false; // tap chain: the far dot would be stranded
+            }
+        }
+    }
+    let mut out: Vec<Segment> = Vec::with_capacity(tree.segments.len() + 3);
+    let mut segs = std::mem::take(&mut tree.segments);
+    for s in segs.drain(..) {
+        let on_axis = if plan.horizontal {
+            (s.y1 - s.y2).abs() < ROW_EPS && (s.y1 - plan.axis).abs() < ROW_EPS
+        } else {
+            (s.x1 - s.x2).abs() < ROW_EPS && (s.x1 - plan.axis).abs() < ROW_EPS
+        };
+        if !on_axis {
+            out.push(s);
+            continue;
+        }
+        let (slo, shi) = if plan.horizontal {
+            (s.x1.min(s.x2), s.x1.max(s.x2))
+        } else {
+            (s.y1.min(s.y2), s.y1.max(s.y2))
+        };
+        if shi <= plan.e0 + ROW_EPS || slo >= plan.e1 - ROW_EPS {
+            out.push(s);
+            continue;
+        }
+        if plan.horizontal {
+            if slo < plan.e0 - ROW_EPS {
+                out.push(Segment {
+                    x1: slo,
+                    y1: plan.axis,
+                    x2: plan.e0,
+                    y2: plan.axis,
+                });
+            }
+            if shi > plan.e1 + ROW_EPS {
+                out.push(Segment {
+                    x1: plan.e1,
+                    y1: plan.axis,
+                    x2: shi,
+                    y2: plan.axis,
+                });
+            }
+        } else {
+            if slo < plan.e0 - ROW_EPS {
+                out.push(Segment {
+                    x1: plan.axis,
+                    y1: slo,
+                    x2: plan.axis,
+                    y2: plan.e0,
+                });
+            }
+            if shi > plan.e1 + ROW_EPS {
+                out.push(Segment {
+                    x1: plan.axis,
+                    y1: plan.e0,
+                    x2: plan.axis,
+                    y2: shi,
+                });
+            }
+        }
+    }
+    // The gutter run with a jog at each end; endpoints stay fixed.
+    if plan.horizontal {
+        out.push(Segment {
+            x1: plan.e0,
+            y1: plan.axis,
+            x2: plan.e0,
+            y2: level,
+        });
+        out.push(Segment {
+            x1: plan.e0,
+            y1: level,
+            x2: plan.e1,
+            y2: level,
+        });
+        out.push(Segment {
+            x1: plan.e1,
+            y1: level,
+            x2: plan.e1,
+            y2: plan.axis,
+        });
+    } else {
+        out.push(Segment {
+            x1: plan.axis,
+            y1: plan.e0,
+            x2: level,
+            y2: plan.e0,
+        });
+        out.push(Segment {
+            x1: level,
+            y1: plan.e0,
+            x2: level,
+            y2: plan.e1,
+        });
+        out.push(Segment {
+            x1: level,
+            y1: plan.e1,
+            x2: plan.axis,
+            y2: plan.e1,
+        });
+    }
+    // Dots inside the span follow the run; their off-axis taps stretch to it.
+    let dots = std::mem::take(&mut tree.junction_dots);
+    for mut d in dots {
+        if on_run(d) {
+            for seg in out.iter_mut() {
+                let at_start = near((seg.x1, seg.y1), d);
+                let at_end = near((seg.x2, seg.y2), d);
+                if !at_start && !at_end {
+                    continue;
+                }
+                if plan.horizontal {
+                    if at_start {
+                        seg.y1 = level;
+                    }
+                    if at_end {
+                        seg.y2 = level;
+                    }
+                } else {
+                    if at_start {
+                        seg.x1 = level;
+                    }
+                    if at_end {
+                        seg.x2 = level;
+                    }
+                }
+            }
+            if plan.horizontal {
+                d.1 = level;
+            } else {
+                d.0 = level;
+            }
+        }
+        tree.junction_dots.push(d);
+    }
+    tree.segments = out;
+    true
+}
+
+/// U173 post-pass over the realized trees: dodge every cross-net same-row
+/// overlap into a gutter. Runs inside `build_all_trees` after `realize_all`,
+/// so render, export, frames and the audit all derive the same reconciled
+/// geometry. For each overlap the smaller dodge yields (minimal damage; tie →
+/// the later tree). Returns `(dodged, residual)` — the audit keeps counting
+/// after this pass, so a residual is reported, never hidden.
+pub(crate) fn reconcile_row_overlaps(
+    trees: &mut [EquiTree],
+    graph: &McVecGraph,
+) -> (usize, usize) {
+    let h_axes: BTreeSet<i64> = trees
+        .iter()
+        .flat_map(|t| t.segments.iter())
+        .filter(|s| (s.y1 - s.y2).abs() < ROW_EPS)
+        .map(|s| s.y1.round() as i64)
+        .collect();
+    let v_axes: BTreeSet<i64> = trees
+        .iter()
+        .flat_map(|t| t.segments.iter())
+        .filter(|s| (s.x1 - s.x2).abs() < ROW_EPS)
+        .map(|s| s.x1.round() as i64)
+        .collect();
+    let mut h_claims: Vec<(f64, f64, f64)> = Vec::new();
+    let mut v_claims: Vec<(f64, f64, f64)> = Vec::new();
+    let mut attempted: BTreeSet<(usize, usize, bool, i64, i64, i64)> = BTreeSet::new();
+    let mut dodged = 0;
+    let mut residual = 0;
+    for _pass in 0..32 {
+        // First unresolved pair on the current geometry.
+        let mut found = None;
+        'scan: for ti in 0..trees.len() {
+            for tj in (ti + 1)..trees.len() {
+                for (si, a) in trees[ti].segments.iter().enumerate() {
+                    for (sj, b) in trees[tj].segments.iter().enumerate() {
+                        if let Some(ov) = seg_row_overlap(a, b) {
+                            let (axis, lo, hi, horizontal) = match ov {
+                                RowOverlap::Horizontal { y, lo, hi } => (y, lo, hi, true),
+                                RowOverlap::Vertical { x, lo, hi } => (x, lo, hi, false),
+                            };
+                            let key = (
+                                ti,
+                                tj,
+                                horizontal,
+                                (axis * 2.0).round() as i64,
+                                (lo * 2.0).round() as i64,
+                                (hi * 2.0).round() as i64,
+                            );
+                            if attempted.contains(&key) {
+                                continue;
+                            }
+                            found = Some((ti, tj, si, sj, ov, key));
+                            break 'scan;
+                        }
+                    }
+                }
+            }
+        }
+        let Some((ti, tj, si, sj, ov, key)) = found else {
+            break;
+        };
+        attempted.insert(key);
+        let ni = trees[ti].net_name.clone();
+        let nj = trees[tj].net_name.clone();
+        let foreign_of_j = trees[ti].segments[si].clone();
+        let foreign_of_i = trees[tj].segments[sj].clone();
+        let plan_j = dodge_plan(&trees[tj], &foreign_of_j, &ov);
+        let plan_i = dodge_plan(&trees[ti], &foreign_of_i, &ov);
+        // The smaller dodge yields; tie → the later tree.
+        let span = |p: &Option<DodgePlan>| match p {
+            Some(d) => d.e1 - d.e0,
+            None => f64::INFINITY,
+        };
+        let order: Vec<(usize, Option<DodgePlan>)> = if span(&plan_j) <= span(&plan_i) {
+            vec![(tj, plan_j), (ti, plan_i)]
+        } else {
+            vec![(ti, plan_i), (tj, plan_j)]
+        };
+        let mut done = false;
+        let mut why = "no-plan";
+        for (tk, plan) in order {
+            let Some(plan) = plan else { continue };
+            let level = if plan.horizontal {
+                alloc_horizontal_row(graph, &h_axes, &mut h_claims, plan.axis, plan.e0, plan.e1)
+            } else {
+                alloc_vertical_column(graph, &v_axes, &mut v_claims, plan.axis, plan.e0, plan.e1)
+            };
+            let Some(level) = level else {
+                why = "no-gutter-level";
+                continue;
+            };
+            if apply_dodge(&mut trees[tk], &plan, level) {
+                dodged += 1;
+                done = true;
+                break;
+            }
+            why = "chained-tap";
+        }
+        if !done {
+            crate::vlog!(
+                "[equi-tree] row-overlap residual: '{ni}' × '{nj}' ({})",
+                why
+            );
+            residual += 1;
+        }
+    }
+    (dodged, residual)
+}
+
 /// Compute geometry from topology + placed graph. Zero judgment.
 /// ★ P5 is read-only for coordinates: trunk axis and span come exclusively from
 /// `topo.lane` (axis written by P3 resolve_lanes, span re-enveloped over all
@@ -7912,7 +8424,19 @@ pub fn build_all_trees(graph: &McVecGraph) -> Vec<EquiTree> {
     // (layout phase), so the recomputed span (anchor + member taps) matches the
     // layout phase exactly; realize then reads only this enveloped Lane.
     envelop_lanes(graph, &mut topos);
-    realize_all(&topos, graph)
+    let mut trees = realize_all(&topos, graph);
+    // ★ U173: dodge cross-net same-row overlaps before any consumer reads the
+    // geometry. Deterministic (same topos, same order), so the render side and
+    // the audit side still derive identical trees.
+    let (dodged, residual) = reconcile_row_overlaps(&mut trees, graph);
+    if dodged > 0 || residual > 0 {
+        crate::vlog!(
+            "[equi-tree] row-overlap reconcile: {} dodged, {} residual",
+            dodged,
+            residual
+        );
+    }
+    trees
 }
 
 /// ★ Content-adaptive canvas (fix "circuit clipped at negative coordinates").
@@ -8817,4 +9341,200 @@ mod tests {
             "two-pin passive whose partner has 2 device pins must NOT be Series: {role2:?}"
         );
     }
+    // ── U173 reconciliation ──
+
+    fn rtree(name: &str, segs: Vec<Segment>) -> EquiTree {
+        EquiTree {
+            net_name: name.to_string(),
+            net_kind: NetKind::Signal,
+            segments: segs,
+            junction_dots: Vec::new(),
+            symbols: Vec::new(),
+        }
+    }
+
+    fn rseg(x1: f64, y1: f64, x2: f64, y2: f64) -> Segment {
+        Segment { x1, y1, x2, y2 }
+    }
+
+    /// The audit's own pairwise count over the reconciled geometry.
+    fn residual_overlaps(trees: &[EquiTree]) -> usize {
+        let mut n = 0;
+        for i in 0..trees.len() {
+            for j in (i + 1)..trees.len() {
+                for a in &trees[i].segments {
+                    for b in &trees[j].segments {
+                        if seg_row_overlap(a, b).is_some() {
+                            n += 1;
+                        }
+                    }
+                }
+            }
+        }
+        n
+    }
+
+    fn flat(t: &EquiTree) -> Vec<(f64, f64, f64, f64)> {
+        t.segments
+            .iter()
+            .map(|s| (s.x1, s.y1, s.x2, s.y2))
+            .collect()
+    }
+
+    #[test]
+    fn reconcile_dodges_the_shorter_run_and_keeps_endpoints() {
+        let mut trees = vec![
+            rtree("axis", vec![rseg(0.0, 100.0, 200.0, 100.0)]),
+            rtree("stub", vec![rseg(90.0, 100.0, 120.0, 100.0)]),
+        ];
+        let (dodged, residual) = reconcile_row_overlaps(&mut trees, &mut build_test_graph());
+        assert_eq!((dodged, residual), (1, 0));
+        assert_eq!(residual_overlaps(&trees), 0);
+        // The stub yielded (smaller dodge); both endpoints stay fixed and the
+        // run moves to the first gutter level below the row.
+        assert_eq!(
+            flat(&trees[1]),
+            vec![
+                (90.0, 100.0, 90.0, 115.0),
+                (90.0, 115.0, 120.0, 115.0),
+                (120.0, 115.0, 120.0, 100.0),
+            ]
+        );
+        // The long axis is untouched.
+        assert_eq!(flat(&trees[0]), vec![(0.0, 100.0, 200.0, 100.0)]);
+    }
+
+    #[test]
+    fn reconcile_partial_overlap_keeps_the_outside_pieces() {
+        let mut trees = vec![
+            rtree("axis", vec![rseg(120.0, 50.0, 300.0, 50.0)]),
+            rtree("run", vec![rseg(100.0, 50.0, 240.0, 50.0)]),
+        ];
+        let (dodged, residual) = reconcile_row_overlaps(&mut trees, &mut build_test_graph());
+        assert_eq!((dodged, residual), (1, 0));
+        assert_eq!(residual_overlaps(&trees), 0);
+        // The dodge span starts 8px before the foreign wire; the piece left of
+        // it stays on the row.
+        assert!(
+            flat(&trees[1]).contains(&(100.0, 50.0, 112.0, 50.0)),
+            "prefix piece kept: {:?}",
+            flat(&trees[1])
+        );
+    }
+
+    #[test]
+    fn reconcile_vertical_overlap_runs_a_parallel_column() {
+        let mut trees = vec![
+            rtree("long", vec![rseg(7.0, 0.0, 7.0, 100.0)]),
+            rtree("short", vec![rseg(7.0, 40.0, 7.0, 60.0)]),
+        ];
+        let (dodged, residual) = reconcile_row_overlaps(&mut trees, &mut build_test_graph());
+        assert_eq!((dodged, residual), (1, 0));
+        assert_eq!(residual_overlaps(&trees), 0);
+        assert_eq!(
+            flat(&trees[1]),
+            vec![
+                (7.0, 40.0, 22.0, 40.0),
+                (22.0, 40.0, 22.0, 60.0),
+                (22.0, 60.0, 7.0, 60.0),
+            ]
+        );
+    }
+
+    #[test]
+    fn reconcile_tap_dot_inside_the_span_follows_the_run() {
+        let mut tapped = rtree(
+            "tapped",
+            vec![
+                rseg(100.0, 50.0, 240.0, 50.0),
+                // a same-net tap hanging off the run at the dot
+                rseg(170.0, 50.0, 170.0, 90.0),
+            ],
+        );
+        tapped.junction_dots = vec![(170.0, 50.0)];
+        let mut trees = vec![rtree("axis", vec![rseg(0.0, 50.0, 300.0, 50.0)]), tapped];
+        let (dodged, residual) = reconcile_row_overlaps(&mut trees, &mut build_test_graph());
+        assert_eq!((dodged, residual), (1, 0));
+        assert_eq!(residual_overlaps(&trees), 0);
+        // The run dodged to the first gutter level below the row; the dot and
+        // its tap followed, so the tap stays connected to the moving run.
+        assert_eq!(trees[1].junction_dots, vec![(170.0, 65.0)]);
+        assert!(
+            flat(&trees[1]).contains(&(170.0, 65.0, 170.0, 90.0)),
+            "tap stretched to the moved run: {:?}",
+            flat(&trees[1])
+        );
+        assert!(
+            flat(&trees[1]).contains(&(100.0, 65.0, 240.0, 65.0)),
+            "run on the gutter level: {:?}",
+            flat(&trees[1])
+        );
+        assert_eq!(trees[0].segments.len(), 1);
+    }
+
+    #[test]
+    fn reconcile_chained_tap_rejects_the_candidate() {
+        // A tap whose far end carries ANOTHER dot cannot follow the run (that
+        // second dot would be stranded), so the dodge must hand over to the
+        // other tree.
+        let mut chained = rtree(
+            "chained",
+            vec![
+                rseg(100.0, 50.0, 240.0, 50.0),
+                rseg(170.0, 50.0, 170.0, 90.0),
+                rseg(170.0, 90.0, 210.0, 90.0),
+            ],
+        );
+        chained.junction_dots = vec![(170.0, 50.0), (170.0, 90.0)];
+        let mut trees = vec![rtree("axis", vec![rseg(0.0, 50.0, 300.0, 50.0)]), chained];
+        let (dodged, residual) = reconcile_row_overlaps(&mut trees, &mut build_test_graph());
+        assert_eq!((dodged, residual), (1, 0));
+        assert_eq!(residual_overlaps(&trees), 0);
+        // "chained" is unchanged; the other tree dodged instead.
+        assert_eq!(trees[1].segments.len(), 3);
+        assert_eq!(trees[1].junction_dots.len(), 2);
+        assert_eq!(trees[0].segments.len(), 5);
+    }
+
+    #[test]
+    fn reconcile_gives_up_when_no_gutter_level_is_free() {
+        let mut g = build_test_graph();
+        // Tall blockers cover every gutter level above and below the row.
+        let mut above = mk_two_pin(9, "BLK_A", &[91, 92]);
+        above.x = -50.0;
+        above.y = 110.0;
+        above.w = 400.0;
+        above.h = 400.0;
+        let mut below = mk_two_pin(10, "BLK_B", &[93, 94]);
+        below.x = -50.0;
+        below.y = -260.0;
+        below.w = 400.0;
+        below.h = 350.0;
+        g.boxes.push(above);
+        g.boxes.push(below);
+        let mut trees = vec![
+            rtree("axis", vec![rseg(0.0, 100.0, 200.0, 100.0)]),
+            rtree("stub", vec![rseg(90.0, 100.0, 120.0, 100.0)]),
+        ];
+        let before: Vec<_> = trees.iter().map(flat).collect();
+        let (dodged, residual) = reconcile_row_overlaps(&mut trees, &mut g);
+        assert_eq!((dodged, residual), (0, 1));
+        // A through-wire beats a broken connection: geometry unchanged, and the
+        // audit keeps counting the overlap (never hidden).
+        assert_eq!(before, trees.iter().map(flat).collect::<Vec<_>>());
+        assert_eq!(residual_overlaps(&trees), 1);
+    }
+
+    #[test]
+    fn reconcile_is_idempotent_once_clean() {
+        let mut trees = vec![
+            rtree("axis", vec![rseg(0.0, 100.0, 200.0, 100.0)]),
+            rtree("stub", vec![rseg(90.0, 100.0, 120.0, 100.0)]),
+        ];
+        assert_eq!(reconcile_row_overlaps(&mut trees, &mut build_test_graph()).0, 1);
+        let snap: Vec<_> = trees.iter().map(flat).collect();
+        assert_eq!(reconcile_row_overlaps(&mut trees, &mut build_test_graph()), (0, 0));
+        assert_eq!(snap, trees.iter().map(flat).collect::<Vec<_>>());
+    }
 }
+
