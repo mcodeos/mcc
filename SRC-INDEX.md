@@ -30,7 +30,7 @@ range (threshold 40KB).
 
 | File | Size | Declarations |
 |---|---|---|
-| `viz/layout/equipotential_tree.rs` | 396 KB | 200 |
+| `viz/layout/equipotential_tree.rs` | 406 KB | 204 |
 | `db/infra/mc_code.rs` | 342 KB | 95 |
 | `semantic/basic/mc_phrase.rs` | 315 KB | 68 |
 | `semantic/component/mc_pins/mod.rs` | 225 KB | 104 |
@@ -62,7 +62,7 @@ range (threshold 40KB).
 | `build/` | 5 | 74 KB |
 | `builder/` | 1 | 0 KB |
 | `cli/` | 7 | 111 KB |
-| `cmds/` | 28 | 492 KB |
+| `cmds/` | 28 | 493 KB |
 | `db/` | 27 | 910 KB |
 | `eval/` | 2 | 48 KB |
 | `export/` | 7 | 179 KB |
@@ -75,7 +75,7 @@ range (threshold 40KB).
 | `semantic/` | 89 | 2614 KB |
 | `stages/` | 12 | 321 KB |
 | `vector/` | 25 | 475 KB |
-| `viz/` | 96 | 2412 KB |
+| `viz/` | 97 | 2431 KB |
 
 ## Declaration index
 
@@ -796,37 +796,37 @@ cmds/build.rs#L198  fn run_rpc
 cmds/build.rs#L243  fn write_delegated_viz
 cmds/build.rs#L280  fn emit_build_result
 cmds/build.rs#L312  fn run_local
-cmds/build.rs#L756  fn build_failure_diag
-cmds/build.rs#L792  fn build_browse_dir
-cmds/build.rs#L1166  fn emit_gate_envelope
-cmds/build.rs#L1172  fn emit_err
-cmds/build.rs#L1181  fn build_viz_opts
-cmds/build.rs#L1202  mod phase0_golden
-cmds/build.rs#L1212  fn hbl_project
-cmds/build.rs#L1222  fn build_graph
-cmds/build.rs#L1243  fn render_signature
-cmds/build.rs#L1252  fn cli_build__determinism_render_twice
-cmds/build.rs#L1272  fn cli_build__determinism_two_builds
-cmds/build.rs#L1287  fn cli_build__golden_roundtrip_hbl
-cmds/build.rs#L1308  fn cli_build__metrics_hbl_smoke
-cmds/build.rs#L1329  mod d_detectors
-cmds/build.rs#L1334  static TEST_LOCK
-cmds/build.rs#L1338  fn build_fixture
-cmds/build.rs#L1358  fn build_fixture_or_panic
-cmds/build.rs#L1369  fn build_fixture_with_graph
-cmds/build.rs#L1389  fn has_code
-cmds/build.rs#L1396  fn cli_build__d1_sort_hazard_non_monotonic_pins
-cmds/build.rs#L1428  fn cli_build__d2_floating_placeholder_unbound_lead
-cmds/build.rs#L1446  fn cli_build__d3_merged_short_same_physical_pin
-cmds/build.rs#L1468  fn cli_build__d3_no_fire_for_legit_fanout
-cmds/build.rs#L1509  fn cli_build__d5_same_name_group_redundant_ref_warns
-cmds/build.rs#L1548  fn cli_build__d5_same_name_group_short_ref_warns
-cmds/build.rs#L1583  fn cli_build__d5_same_name_group_single_ref_no_warn
-cmds/build.rs#L1615  fn cli_build__d5_same_name_group_single_side_fan_in_connects_pads
-cmds/build.rs#L1673  fn cli_build__arity_gate_noarg_method_with_args_not_dispatched
-cmds/build.rs#L1732  fn cli_build__d6_dropped_statement_indexed_alias
-cmds/build.rs#L1754  fn cli_build__d7_pullup_degenerate_signal_bridge
-cmds/build.rs#L1788  fn cli_build__d8_array_instance_bracket_reference_relinks
+cmds/build.rs#L774  fn build_failure_diag
+cmds/build.rs#L810  fn build_browse_dir
+cmds/build.rs#L1184  fn emit_gate_envelope
+cmds/build.rs#L1190  fn emit_err
+cmds/build.rs#L1199  fn build_viz_opts
+cmds/build.rs#L1220  mod phase0_golden
+cmds/build.rs#L1230  fn hbl_project
+cmds/build.rs#L1240  fn build_graph
+cmds/build.rs#L1261  fn render_signature
+cmds/build.rs#L1270  fn cli_build__determinism_render_twice
+cmds/build.rs#L1290  fn cli_build__determinism_two_builds
+cmds/build.rs#L1305  fn cli_build__golden_roundtrip_hbl
+cmds/build.rs#L1326  fn cli_build__metrics_hbl_smoke
+cmds/build.rs#L1347  mod d_detectors
+cmds/build.rs#L1352  static TEST_LOCK
+cmds/build.rs#L1356  fn build_fixture
+cmds/build.rs#L1376  fn build_fixture_or_panic
+cmds/build.rs#L1387  fn build_fixture_with_graph
+cmds/build.rs#L1407  fn has_code
+cmds/build.rs#L1414  fn cli_build__d1_sort_hazard_non_monotonic_pins
+cmds/build.rs#L1446  fn cli_build__d2_floating_placeholder_unbound_lead
+cmds/build.rs#L1464  fn cli_build__d3_merged_short_same_physical_pin
+cmds/build.rs#L1486  fn cli_build__d3_no_fire_for_legit_fanout
+cmds/build.rs#L1527  fn cli_build__d5_same_name_group_redundant_ref_warns
+cmds/build.rs#L1566  fn cli_build__d5_same_name_group_short_ref_warns
+cmds/build.rs#L1601  fn cli_build__d5_same_name_group_single_ref_no_warn
+cmds/build.rs#L1633  fn cli_build__d5_same_name_group_single_side_fan_in_connects_pads
+cmds/build.rs#L1691  fn cli_build__arity_gate_noarg_method_with_args_not_dispatched
+cmds/build.rs#L1750  fn cli_build__d6_dropped_statement_indexed_alias
+cmds/build.rs#L1772  fn cli_build__d7_pullup_degenerate_signal_bridge
+cmds/build.rs#L1806  fn cli_build__d8_array_instance_bracket_reference_relinks
 cmds/check.rs#L26  struct CheckOutcome
 cmds/check.rs#L34  struct CheckBatch
 cmds/check.rs#L44  fn check_one_world
@@ -4489,20 +4489,20 @@ rpc/handlers/aicontract.rs#L88  fn handle_explain
 rpc/handlers/aicontract.rs#L90  struct ExplainParams
 rpc/handlers/buildcmd.rs#L9  fn handle_build_full
 rpc/handlers/buildcmd.rs#L68  fn handle_build_viz
-rpc/handlers/buildcmd.rs#L238  fn build_viz_render_opts
-rpc/handlers/buildcmd.rs#L252  mod tests
-rpc/handlers/buildcmd.rs#L259  fn parse_lock
-rpc/handlers/buildcmd.rs#L265  fn tmp_file
-rpc/handlers/buildcmd.rs#L278  fn cli_buildcmd__build_viz_component_only_file
-rpc/handlers/buildcmd.rs#L316  fn cli_buildcmd__build_viz_two_pin_passive_hides_u1
-rpc/handlers/buildcmd.rs#L350  fn cli_buildcmd__build_viz_multi_module_file
-rpc/handlers/buildcmd.rs#L374  fn cli_buildcmd__build_viz_standalone_stamps_source_links
-rpc/handlers/buildcmd.rs#L422  fn cli_buildcmd__build_full_directory_batch
-rpc/handlers/buildcmd.rs#L488  fn cli_buildcmd__build_full_directory_batch_reports_net_erc_truth
-rpc/handlers/buildcmd.rs#L560  fn cli_buildcmd__build_full_component_only_file
-rpc/handlers/buildcmd.rs#L598  fn cli_buildcmd__build_full_reports_net_erc_truth
-rpc/handlers/buildcmd.rs#L658  fn cli_buildcmd__build_viz_module_contains_component_shows_pin_labels
-rpc/handlers/buildcmd.rs#L707  fn cli_buildcmd__build_viz_tc275_style_constructs
+rpc/handlers/buildcmd.rs#L248  fn build_viz_render_opts
+rpc/handlers/buildcmd.rs#L262  mod tests
+rpc/handlers/buildcmd.rs#L269  fn parse_lock
+rpc/handlers/buildcmd.rs#L275  fn tmp_file
+rpc/handlers/buildcmd.rs#L288  fn cli_buildcmd__build_viz_component_only_file
+rpc/handlers/buildcmd.rs#L326  fn cli_buildcmd__build_viz_two_pin_passive_hides_u1
+rpc/handlers/buildcmd.rs#L360  fn cli_buildcmd__build_viz_multi_module_file
+rpc/handlers/buildcmd.rs#L384  fn cli_buildcmd__build_viz_standalone_stamps_source_links
+rpc/handlers/buildcmd.rs#L432  fn cli_buildcmd__build_full_directory_batch
+rpc/handlers/buildcmd.rs#L498  fn cli_buildcmd__build_full_directory_batch_reports_net_erc_truth
+rpc/handlers/buildcmd.rs#L570  fn cli_buildcmd__build_full_component_only_file
+rpc/handlers/buildcmd.rs#L608  fn cli_buildcmd__build_full_reports_net_erc_truth
+rpc/handlers/buildcmd.rs#L668  fn cli_buildcmd__build_viz_module_contains_component_shows_pin_labels
+rpc/handlers/buildcmd.rs#L717  fn cli_buildcmd__build_viz_tc275_style_constructs
 rpc/handlers/defs.rs#L9  fn handle_defs_search
 rpc/handlers/defs.rs#L66  fn handle_defs_query
 rpc/handlers/defs.rs#L110  fn handle_defs_reverse
@@ -9161,76 +9161,80 @@ viz/layout/equipotential_tree.rs#L6188  struct EquiTree
 viz/layout/equipotential_tree.rs#L6204  const GUTTER_BASE
 viz/layout/equipotential_tree.rs#L6207  const GUTTER_STEP
 viz/layout/equipotential_tree.rs#L6211  const JOG_OFFSET
-viz/layout/equipotential_tree.rs#L6215  const GUTTER_MERGE_GAP
-viz/layout/equipotential_tree.rs#L6226  struct DeflectAlloc
-viz/layout/equipotential_tree.rs#L6233  impl DeflectAlloc
-viz/layout/equipotential_tree.rs#L6234  fn new
-viz/layout/equipotential_tree.rs#L6244  fn alloc
-viz/layout/equipotential_tree.rs#L6296  fn realize_all
-viz/layout/equipotential_tree.rs#L6315  enum RowOverlap
-viz/layout/equipotential_tree.rs#L6322  const ROW_EPS
-viz/layout/equipotential_tree.rs#L6326  fn seg_row_overlap
-viz/layout/equipotential_tree.rs#L6356  fn alloc_horizontal_row
-viz/layout/equipotential_tree.rs#L6397  struct DodgePlan
-viz/layout/equipotential_tree.rs#L6408  fn alloc_vertical_column
-viz/layout/equipotential_tree.rs#L6452  fn dodge_plan
-viz/layout/equipotential_tree.rs#L6535  fn apply_dodge
-viz/layout/equipotential_tree.rs#L6719  fn reconcile_row_overlaps
-viz/layout/equipotential_tree.rs#L6826  fn realize
-viz/layout/equipotential_tree.rs#L7551  const BAND
-viz/layout/equipotential_tree.rs#L7669  fn pick_stub_dir
-viz/layout/equipotential_tree.rs#L7685  fn stub_dir_is_free
-viz/layout/equipotential_tree.rs#L7732  fn terminal_stub
-viz/layout/equipotential_tree.rs#L7766  fn segment_hits_box
-viz/layout/equipotential_tree.rs#L7800  fn segments_overlap
-viz/layout/equipotential_tree.rs#L7855  fn member_pin_point
-viz/layout/equipotential_tree.rs#L7873  fn add_segment
-viz/layout/equipotential_tree.rs#L7906  fn point_on_segment
-viz/layout/equipotential_tree.rs#L7927  fn symbol_node
-viz/layout/equipotential_tree.rs#L7936  fn symbol_alt_node
-viz/layout/equipotential_tree.rs#L7943  fn build_symbols
-viz/layout/equipotential_tree.rs#L8037  const LAYOUT_ANCHOR_X
-viz/layout/equipotential_tree.rs#L8038  const LAYOUT_ANCHOR_Y
-viz/layout/equipotential_tree.rs#L8047  fn layout_box_dims
-viz/layout/equipotential_tree.rs#L8082  fn seed_layout_boxes
-viz/layout/equipotential_tree.rs#L8129  fn layout_anchor_rect
-viz/layout/equipotential_tree.rs#L8137  fn layout_device_layer
-viz/layout/equipotential_tree.rs#L8353  fn fallback_box_dims
-viz/layout/equipotential_tree.rs#L8408  fn build_all_trees
-viz/layout/equipotential_tree.rs#L8457  fn fit_content_to_canvas
-viz/layout/equipotential_tree.rs#L8517  fn content_bbox
-viz/layout/equipotential_tree.rs#L8571  const R
-viz/layout/equipotential_tree.rs#L8607  mod tests
-viz/layout/equipotential_tree.rs#L8615  fn mk_ic
-viz/layout/equipotential_tree.rs#L8643  fn mk_two_pin
-viz/layout/equipotential_tree.rs#L8671  fn mk_net
-viz/layout/equipotential_tree.rs#L8687  fn build_test_graph
-viz/layout/equipotential_tree.rs#L8709  fn lanes_layout_match_render
-viz/layout/equipotential_tree.rs#L8736  fn lanes_are_per_topology
-viz/layout/equipotential_tree.rs#L8752  fn no_dangling_segments
-viz/layout/equipotential_tree.rs#L8775  fn terminal_wires_clear_of_boxes
-viz/layout/equipotential_tree.rs#L8825  fn span_envelops_member_taps
-viz/layout/equipotential_tree.rs#L8867  fn trunk_reaches_member_beyond_anchor_range
-viz/layout/equipotential_tree.rs#L8915  fn dangling_segments
-viz/layout/equipotential_tree.rs#L8978  fn anchor_side_not_overloaded
-viz/layout/equipotential_tree.rs#L9010  fn ground_pins_on_south
-viz/layout/equipotential_tree.rs#L9039  fn layout_box_seeded_in_device_layer
-viz/layout/equipotential_tree.rs#L9110  fn no_region_fallback
-viz/layout/equipotential_tree.rs#L9121  fn shunt_cap_hangs_vertical
-viz/layout/equipotential_tree.rs#L9178  fn decoupling_cap_to_own_ground_lies_horizontal
-viz/layout/equipotential_tree.rs#L9219  fn ground_drop_not_flipped_up_across_row
-viz/layout/equipotential_tree.rs#L9283  fn two_device_pin_net_blocks_series
-viz/layout/equipotential_tree.rs#L9346  fn rtree
-viz/layout/equipotential_tree.rs#L9356  fn rseg
-viz/layout/equipotential_tree.rs#L9361  fn residual_overlaps
-viz/layout/equipotential_tree.rs#L9377  fn flat
-viz/layout/equipotential_tree.rs#L9385  fn reconcile_dodges_the_shorter_run_and_keeps_endpoints
-viz/layout/equipotential_tree.rs#L9408  fn reconcile_partial_overlap_keeps_the_outside_pieces
-viz/layout/equipotential_tree.rs#L9426  fn reconcile_vertical_overlap_runs_a_parallel_column
-viz/layout/equipotential_tree.rs#L9445  fn reconcile_tap_dot_inside_the_span_follows_the_run
-viz/layout/equipotential_tree.rs#L9476  fn reconcile_chained_tap_rejects_the_candidate
-viz/layout/equipotential_tree.rs#L9500  fn reconcile_gives_up_when_no_gutter_level_is_free
-viz/layout/equipotential_tree.rs#L9529  fn reconcile_is_idempotent_once_clean
+viz/layout/equipotential_tree.rs#L6218  const GUTTER_BOX_CLEAR
+viz/layout/equipotential_tree.rs#L6225  const GUTTER_TEXT_BAND
+viz/layout/equipotential_tree.rs#L6229  const GUTTER_MERGE_GAP
+viz/layout/equipotential_tree.rs#L6240  struct DeflectAlloc
+viz/layout/equipotential_tree.rs#L6247  impl DeflectAlloc
+viz/layout/equipotential_tree.rs#L6248  fn new
+viz/layout/equipotential_tree.rs#L6258  fn alloc
+viz/layout/equipotential_tree.rs#L6321  fn realize_all
+viz/layout/equipotential_tree.rs#L6340  enum RowOverlap
+viz/layout/equipotential_tree.rs#L6347  const ROW_EPS
+viz/layout/equipotential_tree.rs#L6351  fn seg_row_overlap
+viz/layout/equipotential_tree.rs#L6381  fn alloc_horizontal_row
+viz/layout/equipotential_tree.rs#L6426  struct DodgePlan
+viz/layout/equipotential_tree.rs#L6437  fn alloc_vertical_column
+viz/layout/equipotential_tree.rs#L6481  fn dodge_plan
+viz/layout/equipotential_tree.rs#L6564  fn apply_dodge
+viz/layout/equipotential_tree.rs#L6748  fn reconcile_row_overlaps
+viz/layout/equipotential_tree.rs#L6855  fn realize
+viz/layout/equipotential_tree.rs#L7628  const BAND
+viz/layout/equipotential_tree.rs#L7746  fn pick_stub_dir
+viz/layout/equipotential_tree.rs#L7762  fn stub_dir_is_free
+viz/layout/equipotential_tree.rs#L7809  fn terminal_stub
+viz/layout/equipotential_tree.rs#L7843  fn segment_hits_box
+viz/layout/equipotential_tree.rs#L7877  fn segments_overlap
+viz/layout/equipotential_tree.rs#L7932  fn member_pin_point
+viz/layout/equipotential_tree.rs#L7950  fn add_segment
+viz/layout/equipotential_tree.rs#L7983  fn point_on_segment
+viz/layout/equipotential_tree.rs#L8004  fn symbol_node
+viz/layout/equipotential_tree.rs#L8013  fn symbol_alt_node
+viz/layout/equipotential_tree.rs#L8020  fn build_symbols
+viz/layout/equipotential_tree.rs#L8114  const LAYOUT_ANCHOR_X
+viz/layout/equipotential_tree.rs#L8115  const LAYOUT_ANCHOR_Y
+viz/layout/equipotential_tree.rs#L8124  fn layout_box_dims
+viz/layout/equipotential_tree.rs#L8159  fn seed_layout_boxes
+viz/layout/equipotential_tree.rs#L8206  fn layout_anchor_rect
+viz/layout/equipotential_tree.rs#L8214  fn layout_device_layer
+viz/layout/equipotential_tree.rs#L8430  fn fallback_box_dims
+viz/layout/equipotential_tree.rs#L8485  fn build_all_trees
+viz/layout/equipotential_tree.rs#L8534  fn fit_content_to_canvas
+viz/layout/equipotential_tree.rs#L8594  fn content_bbox
+viz/layout/equipotential_tree.rs#L8648  const R
+viz/layout/equipotential_tree.rs#L8684  mod tests
+viz/layout/equipotential_tree.rs#L8692  fn mk_ic
+viz/layout/equipotential_tree.rs#L8720  fn mk_two_pin
+viz/layout/equipotential_tree.rs#L8748  fn mk_net
+viz/layout/equipotential_tree.rs#L8764  fn build_test_graph
+viz/layout/equipotential_tree.rs#L8786  fn lanes_layout_match_render
+viz/layout/equipotential_tree.rs#L8813  fn lanes_are_per_topology
+viz/layout/equipotential_tree.rs#L8829  fn no_dangling_segments
+viz/layout/equipotential_tree.rs#L8852  fn terminal_wires_clear_of_boxes
+viz/layout/equipotential_tree.rs#L8902  fn span_envelops_member_taps
+viz/layout/equipotential_tree.rs#L8944  fn trunk_reaches_member_beyond_anchor_range
+viz/layout/equipotential_tree.rs#L8992  fn dangling_segments
+viz/layout/equipotential_tree.rs#L9055  fn anchor_side_not_overloaded
+viz/layout/equipotential_tree.rs#L9087  fn ground_pins_on_south
+viz/layout/equipotential_tree.rs#L9116  fn layout_box_seeded_in_device_layer
+viz/layout/equipotential_tree.rs#L9187  fn no_region_fallback
+viz/layout/equipotential_tree.rs#L9198  fn shunt_cap_hangs_vertical
+viz/layout/equipotential_tree.rs#L9255  fn decoupling_cap_to_own_ground_lies_horizontal
+viz/layout/equipotential_tree.rs#L9296  fn ground_drop_not_flipped_up_across_row
+viz/layout/equipotential_tree.rs#L9360  fn two_device_pin_net_blocks_series
+viz/layout/equipotential_tree.rs#L9423  fn rtree
+viz/layout/equipotential_tree.rs#L9433  fn rseg
+viz/layout/equipotential_tree.rs#L9438  fn residual_overlaps
+viz/layout/equipotential_tree.rs#L9454  fn flat
+viz/layout/equipotential_tree.rs#L9462  fn reconcile_dodges_the_shorter_run_and_keeps_endpoints
+viz/layout/equipotential_tree.rs#L9485  fn reconcile_partial_overlap_keeps_the_outside_pieces
+viz/layout/equipotential_tree.rs#L9503  fn reconcile_vertical_overlap_runs_a_parallel_column
+viz/layout/equipotential_tree.rs#L9522  fn reconcile_tap_dot_inside_the_span_follows_the_run
+viz/layout/equipotential_tree.rs#L9553  fn reconcile_chained_tap_rejects_the_candidate
+viz/layout/equipotential_tree.rs#L9577  fn reconcile_gives_up_when_no_gutter_level_is_free
+viz/layout/equipotential_tree.rs#L9606  fn reconcile_is_idempotent_once_clean
+viz/layout/equipotential_tree.rs#L9623  fn gutter_level_clears_the_blocker_box_edge
+viz/layout/equipotential_tree.rs#L9644  fn teeth_reach_the_trunk_when_it_deflects_around_the_anchor
 viz/layout/facade.rs#L36  fn pin_facade
 viz/layout/facade.rs#L51  fn pin_facade_root
 viz/layout/facade.rs#L114  fn pin_facade_sub
@@ -9785,6 +9789,11 @@ viz/layout/two_lane_ladder.rs#L41  fn try_two_lane_ladder
 viz/layout/two_lane_ladder.rs#L186  fn place_lane
 viz/layout/two_lane_ladder.rs#L270  fn pin_toward
 viz/layout/two_lane_ladder.rs#L284  fn freeze_side
+viz/layout_manifest.rs#L23  fn build_manifest
+viz/layout_manifest.rs#L163  fn side_str
+viz/layout_manifest.rs#L174  fn orientation_of
+viz/layout_manifest.rs#L195  mod tests
+viz/layout_manifest.rs#L201  fn manifest_carries_geometry_and_containment
 viz/layout_model/mod.rs#L35  enum BoxLayoutRole
 viz/layout_model/mod.rs#L47  struct LayoutBoxEntry
 viz/layout_model/mod.rs#L58  enum IdiomKind
@@ -10034,21 +10043,22 @@ viz/mod.rs#L40  mod doc
 viz/mod.rs#L41  mod idiom
 viz/mod.rs#L42  mod labels
 viz/mod.rs#L43  mod layer
-viz/mod.rs#L44  mod layout
-viz/mod.rs#L45  mod layout_model
-viz/mod.rs#L46  mod log
-viz/mod.rs#L47  mod metrics
-viz/mod.rs#L48  mod pins
-viz/mod.rs#L49  mod project
-viz/mod.rs#L50  mod render
-viz/mod.rs#L51  mod route
-viz/mod.rs#L52  mod semantic
-viz/mod.rs#L53  mod sourcelink
-viz/mod.rs#L54  mod special
-viz/mod.rs#L55  mod stability
-viz/mod.rs#L56  mod template
-viz/mod.rs#L57  mod traits
-viz/mod.rs#L63  static SYNTHETIC_PIN_COUNT
+viz/mod.rs#L44  mod layout_manifest
+viz/mod.rs#L45  mod layout
+viz/mod.rs#L46  mod layout_model
+viz/mod.rs#L47  mod log
+viz/mod.rs#L48  mod metrics
+viz/mod.rs#L49  mod pins
+viz/mod.rs#L50  mod project
+viz/mod.rs#L51  mod render
+viz/mod.rs#L52  mod route
+viz/mod.rs#L53  mod semantic
+viz/mod.rs#L54  mod sourcelink
+viz/mod.rs#L55  mod special
+viz/mod.rs#L56  mod stability
+viz/mod.rs#L57  mod template
+viz/mod.rs#L58  mod traits
+viz/mod.rs#L64  static SYNTHETIC_PIN_COUNT
 viz/pins/mod.rs#L44  struct PinKey
 viz/pins/mod.rs#L49  impl PinKey
 viz/pins/mod.rs#L50  fn new
@@ -11039,4 +11049,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-402 files, 10957 declarations.
+403 files, 10967 declarations.
