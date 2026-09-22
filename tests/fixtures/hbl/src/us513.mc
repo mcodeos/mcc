@@ -70,7 +70,7 @@ component MCU.US513_20_F
 component Crystal2.DST310S
 {
     partno = "DST310S"
-    package = PKG.Xtal_3215
+    package = PKG.XTAL_3215
     spec = [
         frequency = 32kHz
     ]
