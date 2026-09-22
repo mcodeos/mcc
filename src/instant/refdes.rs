@@ -9,8 +9,8 @@
 //! class name's root segment: `CAP.ELEC` and `CAP.MLCC` answer with the `CAP`
 //! row. A class with no row has no prefix -- no consumer may derive one from
 //! the spelling, nor from an instance name. Rows cover the mcode system
-//! library's 57 top-level classes (`XTAL2`/`XTAL4` and every `HDR_*` are
-//! classes in their own right, not variants); a project or third-party class
+//! library's top-level classes (`XTAL2`/`XTAL4` are classes in their own
+//! right, not variants); a project or third-party class
 //! stays unregistered until a row names it.
 
 /// One row of the table: a top-level class name and the prefix its instances
@@ -59,31 +59,7 @@ pub(crate) const REFDES_PREFIXES: &[RefdesPrefixDef] = &[
     row("CIRC", "J"),
     row("AUDIO", "JA"),
     row("VIDEO", "JV"),
-    row("HDR_SINGLE", "J"),
-    row("HDR_MULTI", "J"),
-    row("HDR_1x1", "J"),
-    row("HDR_1x2", "J"),
-    row("HDR_1x3", "J"),
-    row("HDR_1x4", "J"),
-    row("HDR_1x5", "J"),
-    row("HDR_1x6", "J"),
-    row("HDR_1x7", "J"),
-    row("HDR_1x8", "J"),
-    row("HDR_1x9", "J"),
-    row("HDR_1x10", "J"),
-    row("HDR_1x12", "J"),
-    row("HDR_1x14", "J"),
-    row("HDR_1x16", "J"),
-    row("HDR_1x20", "J"),
-    row("HDR_2x2", "J"),
-    row("HDR_2x3", "J"),
-    row("HDR_2x4", "J"),
-    row("HDR_2x5", "J"),
-    row("HDR_2x6", "J"),
-    row("HDR_2x7", "J"),
-    row("HDR_2x8", "J"),
-    row("HDR_2x9", "J"),
-    row("HDR_2x10", "J"),
+    row("HDR", "J"),
     // ICs, power sources, function blocks.
     row("REG", "U"),
     row("AMP", "U"),
@@ -114,7 +90,7 @@ mod tests {
         assert_eq!(prefix_for_class("CAP.MLCC"), Some("C"));
         assert_eq!(prefix_for_class("DIO.ZEN"), Some("D"));
         assert_eq!(prefix_for_class("FET.MOSFET.N"), Some("QF"));
-        assert_eq!(prefix_for_class("HDR_1x9"), Some("J"));
+        assert_eq!(prefix_for_class("HDR.1X9"), Some("J"));
         assert_eq!(prefix_for_class("TP"), Some("TP"));
     }
 
@@ -127,7 +103,9 @@ mod tests {
 
     #[test]
     fn table_names_every_class_once_and_keeps_m_reserved() {
-        assert_eq!(REFDES_PREFIXES.len(), 57);
+        // One row per top-level class; the HDR family collapsed from 27
+        // per-face rows to its single family row (b3815).
+        assert_eq!(REFDES_PREFIXES.len(), 33);
         let mut classes: Vec<&str> = REFDES_PREFIXES.iter().map(|d| d.class).collect();
         classes.sort_unstable();
         let rows = classes.len();

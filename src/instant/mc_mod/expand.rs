@@ -558,6 +558,7 @@ mod inst_scope_tests {
             raw_params: Vec::new(),
             pins: HashMap::new(),
             cond_pin_names: HashMap::new(),
+            cond_pin_attrs: HashMap::new(),
             cond_attrs: Vec::new(),
             resolved_attrs: Vec::new(),
             nc_pins: Default::default(),
