@@ -1811,6 +1811,9 @@ fn generate_viznets_from_block(
         //   Star/MultiDriver. Endpoints with no box mapping (make_endpoint = None) are discarded
         //   here, and which ones are lost is uniformly reported by net_probe at the boundary.
         let mut endpoints = Vec::new();
+        // D4c (U204): own-net marker ghosts, deferred to after the loop.
+        let mut deferred_ghosts: Vec<(String, crate::semantic::common::SourcePos)> =
+            Vec::new();
         for pid in net.all_point_ids() {
             if let Some(e) = make_endpoint(pid) {
                 endpoints.push(e);
@@ -1823,6 +1826,59 @@ fn generate_viznets_from_block(
                     crate::errcodes::GHOST_PORT,
                     &[&net.name, &pid as &dyn std::fmt::Display],
                 );
+                let entry = table.get_entry(pid as u32);
+                // D4c (U204): the net's OWN pseudo entry (a Bus/Label child
+                // whose parent chain reaches this block — a declared net or
+                // bus member, or a usage-born label) is a non-physical
+                // marker by construction: C1b F3 removed its label box from
+                // the drawing on purpose, and the equipotential tree
+                // carries the net's identity as the trunk label symbol
+                // (build_one_topology mints Terminal::NetLabel for it). It
+                // can never map to a box, so firing on it is a false
+                // positive whenever the net itself renders. Defer and
+                // exempt once the net shows >= 2 mapped endpoints (a
+                // junction exists because branches meet). Below that the
+                // net is dangling or renders nothing at all — a genuinely
+                // unmapped endpoint class D4 exists for — and the ghost
+                // stays loud (endpoint-level exemption must not swallow a
+                // whole-net failure).
+                // Gate on the net name resolving in this module's origin
+                // map: a boundary pin ghost (e.g. `usb.vin/GND`) never
+                // appears there, so those keep the wiring/declaration chain
+                // below.
+                let is_net_pseudo = entry.as_ref().is_some_and(|e| {
+                    matches!(
+                        e.kind,
+                        crate::instant::insttab::InstKind::Bus
+                            | crate::instant::insttab::InstKind::Label
+                    )
+                });
+                let net_origin_off = if is_net_pseudo {
+                    table
+                        .net_origin()
+                        .get(&(block.bid as u32))
+                        .and_then(|m| m.get(&net.name))
+                        .copied()
+                } else {
+                    None
+                };
+                if let Some(off) = net_origin_off {
+                    // Anchor on the net's own defining token (its
+                    // declaration, or its earliest net-name reference for a
+                    // usage-born label) — the wiring chain can only reach a
+                    // statement head shared by every segment net on the
+                    // line, which may name a different net.
+                    let uri = entry
+                        .as_ref()
+                        .map(|e| e.def_uri.clone())
+                        .or_else(|| net.source_span.as_ref().map(|s| s.uri.clone()))
+                        .unwrap_or_default();
+                    deferred_ghosts.push((
+                        msg,
+                        crate::semantic::common::SourcePos::new(uri, off),
+                    ));
+                    continue;
+                }
                 // Anchor at the failing endpoint's own source position (the
                 // declared pin/port/net) instead of pos 0 (renders as file:1:1,
                 // un-navigable). The endpoint may live in a *different* file
@@ -1832,50 +1888,8 @@ fn generate_viznets_from_block(
                 // only an approximation). Wiring site wins, declaration site is
                 // the fallback; if the entry is synthesized with no position,
                 // anchor on the net's own origin span before giving up.
-                let entry = table.get_entry(pid as u32);
-                // D4b: module-net origin override
-                // When the failing endpoint is the module's OWN net pseudo
-                // entry (a Bus/Label child of this block — the net has no
-                // physical box anywhere in the layer), the wiring/declaration
-                // chain below can only reach a *statement head* token (all the
-                // segment nets of a series statement share it), which may be a
-                // different net's name on the same line or an unrelated line.
-                // Prefer the net's defining token: its declaration (conduit
-                // `ref`, io/port bus-member row) when declared, else its
-                // earliest net-name reference (a usage-born `[A, B]` label's
-                // own token). Real boundary-crossing pins keep the chain.
-                let module_net_origin = {
-                    // Any Bus/Label pseudo entry under this block is the net's
-                    // own non-physical marker (direct net label, or a declared
-                    // bus member child of a Bus) — real physical pins / ports
-                    // are Pin/Port kinds and never match. Gate on the net name
-                    // resolving in this module's origin map: a boundary pin
-                    // ghost (e.g. `usb.vin/GND`) never appears there, so those
-                    // keep the wiring/declaration chain below.
-                    let is_net_pseudo = entry.as_ref().is_some_and(|e| {
-                        matches!(
-                            e.kind,
-                            crate::instant::insttab::InstKind::Bus
-                                | crate::instant::insttab::InstKind::Label
-                        )
-                    });
-                    let uri = entry
-                        .as_ref()
-                        .map(|e| e.def_uri.clone())
-                        .or_else(|| net.source_span.as_ref().map(|s| s.uri.clone()))
-                        .unwrap_or_default();
-                    if is_net_pseudo {
-                        table
-                            .net_origin()
-                            .get(&(block.bid as u32))
-                            .and_then(|m| m.get(&net.name))
-                            .map(|off| crate::semantic::common::SourcePos::new(uri, *off))
-                    } else {
-                        None
-                    }
-                };
-                let anchor = module_net_origin
-                    .or_else(|| entry.and_then(|e| e.anchor_pos().cloned()))
+                let anchor = entry
+                    .and_then(|e| e.anchor_pos().cloned())
                     .or_else(|| net.source_span.clone());
                 match anchor {
                     Some(sp) => crate::db::diagnostic::diagnostic::diagnostic_log_at(
@@ -1896,6 +1910,22 @@ fn generate_viznets_from_block(
                         &[],
                     ),
                 }
+            }
+        }
+        // D4c: fewer than two mapped endpoints means the net is dangling
+        // or renders nothing — emit the deferred marker ghosts so the
+        // failure stays findable.
+        if endpoints.len() < 2 {
+            for (msg, sp) in &deferred_ghosts {
+                crate::db::diagnostic::diagnostic::diagnostic_log_at(
+                    crate::errcodes::GHOST_PORT,
+                    crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
+                    sp.uri.clone(),
+                    sp.offset,
+                    1,
+                    msg,
+                    &[],
+                )
             }
         }
 
