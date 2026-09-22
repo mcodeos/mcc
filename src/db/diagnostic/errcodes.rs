@@ -2131,6 +2131,21 @@ pub const PIN_COPPER_EXPECTATION_MISMATCH: u32 = 6051;
 /// is not forced into it).
 pub const PIN_COPPER_EXPECTATION_UNANCHORED: u32 = 6052;
 
+/// Cross-barrier merge (rules-catalog §2 B5's declarative subject,
+/// barrier-design.md §3): pins of two **different** `@barrier` groups on one
+/// component share a net. Isolation is a relation between pin groups —
+/// `@barrier(pri)` on the primary rows and `@barrier(sec)` on the secondary
+/// rows say "no net of this part may touch both groups" — so one net reaching
+/// two groups is the schematic-level fact that the isolation is bridged (an
+/// isolation transformer wired as an autotransformer, a secondary ground
+/// returned on primary copper). Group names are compared by equality only;
+/// unmarked pins are outside every barrier and judge nothing. Error by birth
+/// (a physical fact between groups), never a tier of anything: the gate reads
+/// its own axis and never the single-ended expectation axes (6051/6052).
+/// A deliberate cross-barrier part (Y capacitor, feedback optocoupler) splits
+/// the net in two and never fires — the gate judges one net, not a path.
+pub const CROSS_BARRIER_NET: u32 = 6053;
+
 /// R3 **mixed bridge identity** (intent-reference-layer-design.md §10.4 bridge
 /// identity three-state): a `@bridge(X, Y)` whose two arguments disagree on
 /// kind — one names a whole-referenceable domain of the owning module, the
@@ -2642,4 +2657,5 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(CONN_REPLICATION_COUNT, "U155 — a connection replication count must be an int >= 2.", "replication count: {0}"),
     entry!(PIN_COPPER_EXPECTATION_MISMATCH, "A pin row declares an identity or signal-class expectation the net it lands on contradicts.", "pin '{0}' expects {1} but lands on class '{2}' — the class anchors neither a matching declared face nor a matching copper identity: bind the pin to a net of the expected identity, or change the expectation (pin-expectation-design.md §3-§4)"),
     entry!(PIN_COPPER_EXPECTATION_UNANCHORED, "A pin row declares an expectation but its net resolves no identity at all.", "pin '{0}' expects {1} but its net carries no declared identity — a bare net is no face at all: declare the copper (conduit or domain rail) in the owning module, or the expectation stays a wish (pin-expectation-design.md §3-§4)"),
+    entry!(CROSS_BARRIER_NET, "Pins of two different @barrier groups on one component share a net — the declared isolation is bridged.", "component '{0}' carries barrier groups {1} on one net '{2}' — a group-wise isolation fact, physical by birth: split the net so no copper of this part reaches two groups, or drop the @barrier rows that overstate the part (barrier-design.md §3)"),
 ];

@@ -419,3 +419,84 @@ module main
         "pin row: @class(anlog)",
     );
 }
+
+// 9. The open word set (`AttrVocab::Open`, barrier-design.md §3.2 landed in
+// contract-design.md §1.8 as the fourth vocabulary state): the value is an
+// identifier the declaration's author coins, so no spelling is judged — what
+// is judged is that there *is* one, because a bare `@barrier` names no group
+// and would read as "outside every barrier" (a silent no-op).
+
+#[test]
+fn sem_attrvocab__open_key_takes_any_identifier() {
+    // Two spellings, two parts: anything the author coins is inside the set.
+    assert_silent(
+        r#"
+component XISO
+{
+    pins = [
+        1 = PRI_P @barrier(pri)
+        2 = SEC_P @barrier(sec)
+    ]
+}
+
+component SIDE
+{
+    pins = [
+        1:2 = IN[A, B] @barrier(Side_1)
+    ]
+}
+
+module main
+{
+    io VDD
+    XISO u1
+    SIDE s1
+}
+"#,
+        "any identifier is inside the open set",
+    );
+}
+
+#[test]
+fn sem_attrvocab__bare_open_key_reports_on_both_twin_keys() {
+    assert_reports(
+        r#"
+component XISO
+{
+    pins = [
+        1 = PRI @barrier
+        2 = SEC @barrier(sec)
+    ]
+}
+
+module main
+{
+    io VDD
+    XISO u1
+}
+"#,
+        "barrier",
+        "pin row: bare @barrier",
+    );
+    // `bond` is registered the same batch with no gate yet — its write-site
+    // shape is the twin's, so the bare form is judged the same way.
+    assert_reports(
+        r#"
+component EPART
+{
+    pins = [
+        1 = PAD @bond
+        2 = GND
+    ]
+}
+
+module main
+{
+    io VDD
+    EPART e1
+}
+"#,
+        "bond",
+        "pin row: bare @bond",
+    );
+}
