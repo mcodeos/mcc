@@ -2560,7 +2560,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(HW_PIN_COUNT_HIGH, "Pin count is unusually high.", "Pin count is unusually high."),
     entry!(HW_ZERO_PINS_WITH_PARAMS, "Component has zero pins but parameter attributes.", "Component has zero pins but parameter attributes."),
     entry!(HW_IFACE_PEER_DANGLING, "Interface role references an undefined peer.", "Interface role names a peer that is not defined in this interface (interface-connect-rule-design.md §3.3 C)."),
-    entry!(HW_ALL_SAME_IO_TYPE, "All pins have the same IO type.", "All pins have the same IO type."),
+    entry!(HW_ALL_SAME_IO_TYPE, "Only one active IO type across all pins.", "Only one active IO type is present across the component's pins; the remaining pins declare no direction. Verify the pin definitions are complete."),
     entry!(HW_IFACE_PEER_NOT_MUTUAL, "Interface role peer is not mutual.", "Interface role names a peer that does not name it back; peer pairs must be mutual (interface-connect-rule-design.md §3.3 A). Exempt when either side declares a multi-peer relay set (D8)."),
     entry!(HW_IFACE_PEER_WIDTH_MISMATCH, "Interface role peer width mismatch.", "Interface role and its declared peer declare different member widths (interface-connect-rule-design.md §3.3 B). Exempt when either side declares a multi-peer relay set (D8)."),
 

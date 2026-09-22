@@ -559,40 +559,43 @@ fn check_single_ioc_type_component(acc: &mut CheckAccumulator) {
         }
 
         use crate::IOType;
-        let mut has_in = false;
-        let mut has_out = false;
-        let mut has_ps = false;
-        let mut has_nc = false;
-        let mut has_io = false;
+        let mut in_count = 0usize;
+        let mut out_count = 0usize;
+        let mut ps_count = 0usize;
+        let mut nc_count = 0usize;
+        let mut io_count = 0usize;
 
         for pin in comp.pins.pins.values() {
             match pin.iotype {
-                IOType::In => has_in = true,
-                IOType::Out => has_out = true,
-                IOType::Power => has_ps = true,
-                IOType::NonCon => has_nc = true,
-                IOType::InOut => has_io = true,
+                IOType::In => in_count += 1,
+                IOType::Out => out_count += 1,
+                IOType::Power => ps_count += 1,
+                IOType::NonCon => nc_count += 1,
+                IOType::InOut => io_count += 1,
                 IOType::Return | IOType::None | IOType::Label => {} // these don't indicate direction
             }
         }
 
-        let active_types = [has_in, has_out, has_ps, has_nc, has_io]
+        let active_types = [in_count, out_count, ps_count, nc_count, io_count]
             .iter()
-            .filter(|&&x| x)
+            .filter(|&&x| x > 0)
             .count();
 
-        // If all pins are the same active type (excluding passive), that's unusual
+        // If only one active type is present (excluding passive), that's unusual
         if active_types == 1 && pin_count >= 4 {
             // A chip whose every pin is a power pin (e.g. an LDO like AMS1117
             // with IN/OUT/ADJ/GND) is the normal shape of a power component,
             // not an incomplete definition — don't flag it.
-            if has_ps {
+            if ps_count > 0 {
                 return;
             }
-            let io_desc = if has_in {
-                "Input"
-            } else if has_out {
-                "Output"
+            // Report the active type's actual coverage: the remaining pins are
+            // direction-less (Return/None/Label), not members of the named
+            // type — e.g. an explicit-`in` load beside bare shield-GND pins.
+            let (io_desc, active_count) = if in_count > 0 {
+                ("Input", in_count)
+            } else if out_count > 0 {
+                ("Output", out_count)
             } else {
                 return; // NC-only or passive-only, skip
             };
@@ -603,10 +606,15 @@ fn check_single_ioc_type_component(acc: &mut CheckAccumulator) {
                 uri: Some(uri.clone()),
                 span: Some(comp.span.start..comp.span.end),
                 message: format!(
-                    "Component '{}': all {} pins are type '{}'. \
+                    "Component '{}': only one active IO type ('{}', {} of {} pins); \
+                     the remaining {} declare no direction. \
                      Most components have mixed IO types (input, output, power). \
                      Verify the pin definitions are complete.",
-                    comp.name, pin_count, io_desc
+                    comp.name,
+                    io_desc,
+                    active_count,
+                    pin_count,
+                    pin_count - active_count
                 ),
                 code: crate::errcodes::HW_ALL_SAME_IO_TYPE,
             });

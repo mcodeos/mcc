@@ -3524,11 +3524,11 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
     declare_post_parse_rule! {
         code = crate::errcodes::HW_ALL_SAME_IO_TYPE,
         name = "hw-all-same-io-type",
-        title = "all pins share one IO type",
+        title = "only one active IO type across the pins",
         severity = Info,
         domain = IO,
         host = "hw",
-        doc = "All pins have the same IO type.",
+        doc = "Only one active IO type across the pins; the rest declare no direction.",
         lock = "tests/lock_pp_hw.rs",
     },
     declare_post_parse_rule! {
