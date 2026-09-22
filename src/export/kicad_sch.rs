@@ -840,6 +840,24 @@ fn emit_flat_sheet(
     let mut unrouted: Vec<(String, String, String)> = Vec::new();
     let rects: Vec<(f64, f64, f64, f64)> =
         tiles.iter().map(|t| (t.x, t.y, t.w, t.h)).collect();
+    if std::env::var("MCC_KSCH_DEBUG").is_ok() {
+        for n in &root_graph.nets {
+            for ep in &n.endpoints {
+                match root_graph.boxes.iter().find(|b| b.id == ep.box_id) {
+                    None => eprintln!("[ksch] net {} ep box_id={} NOT FOUND", n.name, ep.box_id),
+                    Some(b) => {
+                        if !b.pins.iter().any(|p| p.id == ep.pin_id) {
+                            eprintln!(
+                                "[ksch] net {} ep {} pin_id={} MISSING in box pins {:?}",
+                                n.name, b.name, ep.pin_id,
+                                b.pins.iter().map(|p| (p.id, p.pin_id.as_str())).take(9).collect::<Vec<_>>()
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
     let mut port_at: HashMap<(usize, String), (f64, f64)> = HashMap::new();
     for (i, xf, _) in &tiling {
         let graph = &layers[*i].graph;
@@ -886,7 +904,7 @@ fn emit_flat_sheet(
                 }
                 BoxKind::TwoPin | BoxKind::MultiPin => {
                     let Some(ri) = root_tile else { continue };
-                    let Some(pin) = b.pins.iter().find(|p| p.id == ep.pin_id) else {
+                    let Some(pin) = endpoint_pin(b, ep) else {
                         continue;
                     };
                     let xf = &tiling[ri].1;
@@ -1269,6 +1287,10 @@ fn emit_tree_nets(
                 let shown = display_of(&t.net_name);
                 text_label(graph.bid, &shown, xf.x(x), xf.y(y), e);
             }
+        }
+        if let Some(net) = graph.nets.iter().find(|n| n.name == t.net_name) {
+            let shown = display_of(&t.net_name);
+            emit_pin_rescue(graph, t, net, xf, &shown, !net_names.is_empty(), e);
         }
     }
     emit_boundary_labels(graph, trees, xf, e);
@@ -1963,7 +1985,7 @@ fn bridge_pins(graph: &McVecGraph, t: &EquiTree, xf: &Xform, e: &mut Emit) {
         if !matches!(b.kind, BoxKind::TwoPin | BoxKind::MultiPin) {
             continue;
         }
-        let Some(pin) = b.pins.iter().find(|p| p.id == ep.pin_id) else {
+        let Some(pin) = endpoint_pin(b, ep) else {
             continue;
         };
         let (side, offset) = pin_placement(b, pin);
@@ -2005,8 +2027,100 @@ fn bridge_pins(graph: &McVecGraph, t: &EquiTree, xf: &Xform, e: &mut Emit) {
     }
 }
 
+/// Last-resort connection for net-endpoint pins whose anchor no tap and no
+/// bridge ever reached (pins the placer left without an entry point): a stub
+/// plus the net's name joins the copper by name; an anonymous net draws a
+/// direct L-wire to its nearest tree end instead, since it has no name to
+/// join by.
+fn emit_pin_rescue(
+    graph: &McVecGraph,
+    t: &EquiTree,
+    net: &VizNet,
+    xf: &Xform,
+    display: &str,
+    named: bool,
+    e: &mut Emit,
+) {
+    let mut ends: Vec<(f64, f64)> = t
+        .segments
+        .iter()
+        .flat_map(|s| [(s.x1, s.y1), (s.x2, s.y2)])
+        .collect();
+    if ends.is_empty() {
+        return;
+    }
+    for ep in &net.endpoints {
+        let Some(b) = graph.boxes.iter().find(|b| b.id == ep.box_id) else {
+            continue;
+        };
+        if b.find_entry(ep.pin_id).is_some() {
+            continue;
+        }
+        let Some(pin) = endpoint_pin(b, ep) else { continue };
+        if !matches!(b.kind, BoxKind::TwoPin | BoxKind::MultiPin) {
+            continue;
+        }
+        let (side, offset) = pin_placement(b, pin);
+        let (ax, ay) = match side {
+            EntrySide::Left => (b.x, b.y + b.h * offset),
+            EntrySide::Right => (b.x + b.w, b.y + b.h * offset),
+            EntrySide::Top => (b.x + b.w * offset, b.y),
+            EntrySide::Bottom => (b.x + b.w * offset, b.y + b.h),
+        };
+        if ends
+            .iter()
+            .any(|(x, y)| (x - ax).abs() < 0.05 && (y - ay).abs() < 0.05)
+        {
+            continue;
+        }
+        let Some(&(ex, ey)) = ends
+            .iter()
+            .min_by(|p, q| {
+                let dp = d2(**p, (ax, ay));
+                let dq = d2(**q, (ax, ay));
+                dp.total_cmp(&dq)
+            })
+        else {
+            continue;
+        };
+        if named {
+            let (sx, sy) = match side {
+                EntrySide::Left => (ax - 10.0, ay),
+                EntrySide::Right => (ax + 10.0, ay),
+                EntrySide::Top => (ax, ay - 10.0),
+                EntrySide::Bottom => (ax, ay + 10.0),
+            };
+            emit_wire(graph.bid, xf, ax, ay, sx, sy, e);
+            text_label(graph.bid, display, xf.x(sx), xf.y(sy), e);
+        } else if (ex - ax).abs() < 0.05 || (ey - ay).abs() < 0.05 {
+            emit_wire(graph.bid, xf, ax, ay, ex, ey, e);
+        } else {
+            emit_wire(graph.bid, xf, ax, ay, ex, ay, e);
+            emit_wire(graph.bid, xf, ex, ay, ex, ey, e);
+        }
+        ends.push((ax, ay));
+    }
+}
+
 fn d2(p: (f64, f64), q: (f64, f64)) -> f64 {
     (p.0 - q.0) * (p.0 - q.0) + (p.1 - q.1) * (p.1 - q.1)
+}
+
+/// The physical pin a net endpoint attaches to. `EndpointRef.pin_id` and
+/// `BoxPin.id` agree for most boxes, but pins that entered the table through
+/// a different path (typed chips, expansion products) drift apart; when the
+/// id join fails, the pin NUMBER is the same identity spelled as a string —
+/// the endpoint carries it as `pin_number` and the box as `pin_id`.
+fn endpoint_pin<'a>(b: &'a McVecBox, ep: &crate::vector::graph::EndpointRef) -> Option<&'a crate::vector::graph::boxdef::BoxPin> {
+    if let Some(p) = b.pins.iter().find(|p| p.id == ep.pin_id) {
+        return Some(p);
+    }
+    if let Some(n) = ep.pin_number {
+        if let Some(p) = b.pins.iter().find(|p| p.pin_id == n.to_string()) {
+            return Some(p);
+        }
+    }
+    b.pins.iter().find(|p| p.pin_id == ep.pin_name && !ep.pin_name.is_empty())
 }
 
 /// Side and offset of a physical pin: the layout's anchor when it assigned
