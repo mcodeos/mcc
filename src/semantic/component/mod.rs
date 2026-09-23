@@ -971,10 +971,15 @@ impl Mc2Component {
         values
     }
 
-    fn pins_contain(pins: &McPins, id: &str, integer_bindings: &[(String, i64)]) -> bool {
+    fn pins_contain(
+        pins: &McPins,
+        id: &str,
+        integer_bindings: &[(String, i64)],
+        values: &[(String, String)],
+    ) -> bool {
         pins.find_pin(id).is_some()
             || pins
-                .resolve_dynamic_pins(integer_bindings)
+                .resolve_dynamic_pins(integer_bindings, values)
                 .iter()
                 .any(|(pin_id, pin_name, _)| pin_id.to_string() == id || pin_name == id)
     }
@@ -996,7 +1001,14 @@ impl Mc2Component {
         let bindings = McParamBindings::bind_quiet(&self.base.params, &self.params)
             .unwrap_or_else(|_| McParamBindings::new());
         let integer_bindings = Self::integer_param_bindings(&bindings);
-        if Self::pins_contain(&self.base.pins, id, &integer_bindings) {
+        // The same environment as text: a computed pin name (U211) resolves
+        // against the values the call site bound, defaults included (U54).
+        let values: Vec<(String, String)> = bindings
+            .to_params_for_eval()
+            .iter()
+            .map(|(ids, text)| (ids.to_string(), text.clone()))
+            .collect();
+        if Self::pins_contain(&self.base.pins, id, &integer_bindings, &values) {
             return Some(id.to_string());
         }
 
@@ -1018,7 +1030,9 @@ impl Mc2Component {
                 .map(|(_, pins)| pins)
                 .or(conditional.else_pins.as_ref());
 
-            if active.is_some_and(|pins| Self::pins_contain(pins, id, &integer_bindings)) {
+            if active.is_some_and(|pins| {
+                Self::pins_contain(pins, id, &integer_bindings, &values)
+            }) {
                 return Some(id.to_string());
             }
         }

@@ -791,11 +791,17 @@ impl McPins {
     pub fn resolve_dynamic_pins(
         &self,
         param_bindings: &[(String, i64)],
+        values: &[(String, String)],
     ) -> Vec<(i64, String, IOType)> {
         let mut results = Vec::new();
 
         for dyn_pin in &self.dynamic_pins {
-            let resolved = dyn_pin.resolve(param_bindings);
+            // Def-level lookups stay quiet: a row whose parameters are not
+            // bound here resolves to nothing, and the judgment belongs to the
+            // instantiation site (U211 reporting lives in `init_dynamic_pins`).
+            let resolved = dyn_pin
+                .resolve_checked(param_bindings, values)
+                .unwrap_or_default();
             for (pin_id, pin_name) in resolved {
                 results.push((pin_id, pin_name, dyn_pin.iotype.clone()));
             }
@@ -1674,7 +1680,34 @@ impl McPins {
                         // ★ Dynamic pins: resolve parameter-based ranges like 1:count
                         if iface_pins.is_empty() && declare.base.pins.has_dynamic_pins() {
                             let bindings = Self::build_interface_param_bindings(declare);
-                            let resolved = declare.base.pins.resolve_dynamic_pins(&bindings);
+                            // Text bindings for computed pin names (U211): the
+                            // explicit argument as written, else the declared default.
+                            let defaults: std::collections::HashMap<String, String> = declare
+                                .base
+                                .params
+                                .get_params_with_defaults()
+                                .into_iter()
+                                .filter_map(|(name, default)| {
+                                    name.get_primary_name().map(|n| (n, default))
+                                })
+                                .collect();
+                            let values: Vec<(String, String)> = declare
+                                .base
+                                .params
+                                .names()
+                                .iter()
+                                .enumerate()
+                                .filter_map(|(i, name)| {
+                                    let text = declare
+                                        .params
+                                        .get(i)
+                                        .map(|v| format!("{v}"))
+                                        .or_else(|| defaults.get(name).cloned())?;
+                                    Some((name.clone(), text))
+                                })
+                                .collect();
+                            let resolved =
+                                declare.base.pins.resolve_dynamic_pins(&bindings, &values);
                             iface_pins = resolved.iter().map(|(_, name, _)| name.clone()).collect();
                             member_dirs = resolved
                                 .iter()
@@ -3640,21 +3673,47 @@ impl McPinNames {
                                 }
                             }
                         }
-                        // An arithmetic expression is not a pin name. The live
-                        // parameter-driven templates are the colon range
-                        // (`1:count`) and the bracketed name (`R[1:rows]C[1:cols]`),
-                        // both handled above; a bare identifier alone is a parameter
-                        // reference, but `A - B` is not a dynamic row and would
-                        // materialize no pin at all.
+                        // U211: an arithmetic expression in the name slot is a
+                        // *computed* name, not an unsupported shape. One that
+                        // reads a parameter resolves per instantiation on the
+                        // dynamic-pin line (the row routes there through
+                        // `has_param_ref`, same as the colon/bracket templates
+                        // above); a parameter-free one resolves right now on
+                        // the value engine (`Str + value` interpolates). What
+                        // still has no reading here is an expression that
+                        // parses but does not evaluate.
                         MCAST_OPD_MULTI | MCAST_OPD_DIVID | MCAST_OPD_PLUS | MCAST_OPD_MINUS => {
-                            dlog_error(
-                                crate::errcodes::PIN_NAME_TYPE_UNSUPPORTED,
-                                &exp_node,
-                                &crate::errcodes::format_msg(
+                            match McExpression::new(&exp_node) {
+                                Some(expr) if dynamic::DynamicPinExpr::check_param_ref(&expr) => {
+                                    myself.has_param_ref = true;
+                                }
+                                Some(expr) => {
+                                    match dynamic::DynamicPinExpr::eval_text(&expr, &[]) {
+                                        Some(text) if !text.is_empty() => {
+                                            myself.push_option(
+                                                McPinPort::Single(text),
+                                                err_node,
+                                            );
+                                        }
+                                        _ => dlog_error(
+                                            crate::errcodes::PIN_NAME_EXPR_UNRESOLVED,
+                                            &exp_node,
+                                            &crate::errcodes::format_msg(
+                                                crate::errcodes::PIN_NAME_EXPR_UNRESOLVED,
+                                                &[&expr.to_string()],
+                                            ),
+                                        ),
+                                    }
+                                }
+                                None => dlog_error(
                                     crate::errcodes::PIN_NAME_TYPE_UNSUPPORTED,
-                                    &[],
+                                    &exp_node,
+                                    &crate::errcodes::format_msg(
+                                        crate::errcodes::PIN_NAME_TYPE_UNSUPPORTED,
+                                        &[],
+                                    ),
                                 ),
-                            );
+                            }
                         }
                         MCAST_DECLARE | MCAST_DECLARE_UV => {
                             // Parse MCAST_DECLARE directly to get class and instance names
