@@ -17,6 +17,7 @@ use crate::semantic::basic::mc_paramd::{McParamDeclare, McParamDeclareKind};
 use crate::semantic::common::IOType;
 use crate::semantic::component::CondError;
 use crate::semantic::component::McComponent;
+use crate::semantic::component::mc_pins::dynamic;
 use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 
@@ -797,19 +798,50 @@ impl McComponentInst {
     /// at instantiation time based on actual parameter values
     fn init_dynamic_pins(&mut self) {
         let bindings = self.get_param_bindings();
-        let dynamic_pins = self.def.pins.resolve_dynamic_pins(&bindings);
+        // Text bindings for computed pin names (U211): every bound parameter
+        // contributes the value as written (`3.3V`, `WIDE`), defaults
+        // included (U54) — the same environment the conditional blocks read.
+        let values: Vec<(String, String)> = self
+            .params
+            .to_params_for_eval()
+            .iter()
+            .map(|(ids, text)| (ids.to_string(), text.clone()))
+            .collect();
 
-        for (pin_id, pin_name, iotype) in dynamic_pins {
-            let path = format!("{}.{}", self.name, pin_id);
-            let net_point = NetPoint::with_owner(&path, &self.name, iotype, None);
-            self.pins.insert(pin_id.to_string(), net_point);
+        for line in &self.def.pins.dynamic_pins {
+            match line.resolve_checked(&bindings, &values) {
+                Ok(resolved) => {
+                    for (pin_id, pin_name, iotype) in
+                        resolved.into_iter().map(|(id, name)| (id, name, line.iotype.clone()))
+                    {
+                        let path = format!("{}.{}", self.name, pin_id);
+                        let net_point = NetPoint::with_owner(&path, &self.name, iotype, None);
+                        self.pins.insert(pin_id.to_string(), net_point);
 
-            // Register resolved pin name so it can be looked up later
-            if !pin_name.is_empty() {
-                self.cond_pin_names
-                    .entry(pin_id.to_string())
-                    .or_default()
-                    .push(pin_name);
+                        // Register resolved pin name so it can be looked up later
+                        if !pin_name.is_empty() {
+                            self.cond_pin_names
+                                .entry(pin_id.to_string())
+                                .or_default()
+                                .push(pin_name);
+                        }
+                    }
+                }
+                // U211: a row that cannot resolve reports here instead of
+                // dropping without a word. Anchored at this declaration by the
+                // same channel the U212 `error()` clauses ride.
+                Err(reason) => {
+                    let what = match reason {
+                        dynamic::DynPinFail::IdExpr => "pin id range",
+                        dynamic::DynPinFail::NameExpr => "pin name expression",
+                    };
+                    self.cond_author_errors.push((
+                        crate::errcodes::PIN_NAME_EXPR_UNRESOLVED,
+                        format!(
+                            "dynamic pin row `{line}`: {what} did not resolve against the parameters bound here; the row registers no pin."
+                        ),
+                    ));
+                }
             }
         }
     }

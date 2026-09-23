@@ -3,6 +3,7 @@
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
 use crate::ast::node::AstNode;
+use crate::eval;
 use crate::semantic::basic::mc_expr::McExpression;
 use crate::semantic::basic::mc_opd::McOpd;
 use crate::semantic::common::IOType;
@@ -174,6 +175,65 @@ impl DynamicPinExpr {
         let substituted = self.substitute_recursive(expr, bindings);
         substituted.eval_int().ok()
     }
+
+    /// Evaluate an expression to text on the value engine (doc/eval V2/V7):
+    /// `Str + value` interpolates, a quantity echoes the author's notation
+    /// (`"VCC" + volt` with `volt = 3.3V` reads `VCC3.3V`). `None` when a
+    /// variable is not bound in `values` or an operation fails — U211, the
+    /// name-slot door for exactly this shape.
+    pub fn eval_text(expr: &McExpression, values: &[(String, String)]) -> Option<String> {
+        eval_value(expr, values).map(|v| v.text())
+    }
+}
+
+/// Recursive value-engine evaluation backing [`DynamicPinExpr::eval_text`].
+fn eval_value(expr: &McExpression, values: &[(String, String)]) -> Option<eval::Value> {
+    match expr {
+        McExpression::Int(i) => Some(eval::Value::Int(i.value)),
+        McExpression::Float(f) => Some(eval::Value::Float(f.value)),
+        McExpression::String(s) => Some(eval::Value::Str(s.value.clone())),
+        McExpression::UnitValue(u) => Some(eval::Value::Quantity(u.clone())),
+        McExpression::Variable(opd) => {
+            let names = opd.expand();
+            if names.len() != 1 {
+                return None;
+            }
+            let text = values
+                .iter()
+                .find(|(n, _)| n == &names[0])
+                .map(|(_, v)| v.clone())?;
+            // The bound text is re-read as a value, so a quantity argument
+            // (`3.3V`) carries its family into the operation, not just digits.
+            Some(eval::Value::from_text(&text))
+        }
+        McExpression::Plus(l, r) => {
+            eval::apply(eval::Op::Add, &eval_value(l, values)?, &eval_value(r, values)?).ok()
+        }
+        McExpression::Minus(l, r) => {
+            eval::apply(eval::Op::Sub, &eval_value(l, values)?, &eval_value(r, values)?).ok()
+        }
+        McExpression::Multiply(l, r) => {
+            eval::apply(eval::Op::Mul, &eval_value(l, values)?, &eval_value(r, values)?).ok()
+        }
+        McExpression::Divide(l, r) => {
+            eval::apply(eval::Op::Div, &eval_value(l, values)?, &eval_value(r, values)?).ok()
+        }
+        // Ranges/sets are pin-id shapes, not names; a const has no value here.
+        _ => None,
+    }
+}
+
+/// Why a dynamic row materialized nothing — U211: the two causes the old
+/// `resolve` folded into one empty Vec are distinguishable here, so the
+/// caller can report an unresolvable row instead of dropping it silently.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DynPinFail {
+    /// The id expression reads a parameter that is not bound to an integer
+    /// here.
+    IdExpr,
+    /// The name expression reads a parameter that is not bound here, or
+    /// mixes operands the value engine refuses.
+    NameExpr,
 }
 
 #[derive(Debug, Clone)]
@@ -237,43 +297,54 @@ impl DynamicPinLine {
     }
 
     pub fn resolve(&self, bindings: &[(String, i64)]) -> Vec<(i64, String)> {
-        let mut results: Vec<(i64, String)> = Vec::new();
+        self.resolve_checked(bindings, &[]).unwrap_or_default()
+    }
 
+    /// [`Self::resolve`] with the failure mode made visible, plus the
+    /// value-engine name path: a text-shaped name (`"VCC" + volt`, U211)
+    /// resolves against the string parameter bindings `values` — the integer
+    /// path below cannot read a quantity parameter at all. The quiet `resolve`
+    /// keeps the pre-U211 behavior for def-level id lookups.
+    pub fn resolve_checked(
+        &self,
+        bindings: &[(String, i64)],
+        values: &[(String, String)],
+    ) -> Result<Vec<(i64, String)>, DynPinFail> {
         let pin_ids: Vec<i64> = match &self.pin_id_expr {
-            Some(expr) => {
-                if let Some(ids) = expr.expand_range(bindings) {
-                    ids
-                } else {
-                    return results;
-                }
-            }
-            None => return results,
+            Some(expr) => expr.expand_range(bindings).ok_or(DynPinFail::IdExpr)?,
+            None => return Ok(Vec::new()),
         };
 
         let pin_names: Vec<String> = match &self.pin_name_expr {
             Some(expr) => {
-                // For Variable expressions (e.g. R[1:rows]C[1:cols]), use expand_with_bindings
-                // which handles string Cartesian product expansion with parameter substitution.
-                // For numeric expressions, use expand_range.
-                if matches!(&expr.expr, McExpression::Variable(_)) {
+                // Text evaluation first: it is the only path that reads a
+                // quantity parameter (`volt = 3.3V`), and for it to answer at
+                // all every variable the expression reads must be bound.
+                if let Some(text) = DynamicPinExpr::eval_text(&expr.expr, values) {
+                    vec![text]
+                    // For Variable expressions (e.g. R[1:rows]C[1:cols]), use expand_with_bindings
+                    // which handles string Cartesian product expansion with parameter substitution.
+                    // For numeric expressions, use expand_range.
+                } else if matches!(&expr.expr, McExpression::Variable(_)) {
                     expr.expand_with_bindings(bindings)
                 } else if let Some(names) = expr.expand_range(bindings) {
                     names.iter().map(|v| v.to_string()).collect()
                 } else {
-                    return results;
+                    return Err(DynPinFail::NameExpr);
                 }
             }
             None => {
-                return pin_ids.iter().map(|id| (*id, String::new())).collect();
+                return Ok(pin_ids.iter().map(|id| (*id, String::new())).collect());
             }
         };
 
+        let mut results: Vec<(i64, String)> = Vec::new();
         for (i, pin_id) in pin_ids.iter().enumerate() {
             let pin_name = pin_names.get(i).cloned().unwrap_or_default();
             results.push((*pin_id, pin_name));
         }
 
-        results
+        Ok(results)
     }
 
     /// Number of pins this dynamic line materializes under `bindings`, or

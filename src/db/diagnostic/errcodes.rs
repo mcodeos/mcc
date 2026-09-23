@@ -768,6 +768,11 @@ pub const BUS_MEMBER_ON_SCALAR_PORT: u32 = 3183;
 /// are module-internal (name-space-global.md §3.2.3, U151).
 pub const LABEL_NOT_EXPORTABLE: u32 = 3184;
 
+/// A computed pin name (U211: an expression in the name slot) did not resolve
+/// against the parameters bound at this site — the row carries no name rather
+/// than dropping without a word.
+pub const PIN_NAME_EXPR_UNRESOLVED: u32 = 3185;
+
 // Pass2: connection / shape (4000-4049)
 
 /// Transposed connection size mismatch.
@@ -2407,6 +2412,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(INSTANCE_REF_UNDECLARED, "A structured instance/member reference resolves to no declared instance in scope.", "The base name '{0}' of the structured reference '{1}' resolves to no declared instance in this component/module; declare it or fix the name."),
     entry!(BUS_MEMBER_ON_SCALAR_PORT, "Member/lane access on a module port declared without members (scalar io/out/in).", "Port '{0}' is declared scalar (no members); member/lane access '{1}' is not allowed. Declare its members or an interface type, or reference the whole port."),
     entry!(LABEL_NOT_EXPORTABLE, "Module-internal label accessed from outside its module.", "'{0}' is module-internal in '{1}' (declared without a direction word) and cannot be accessed through an instance path. Declare it with a direction word ('in'/'out'/'io') to put it on the module boundary — 'io' is the neutral choice."),
+    entry!(PIN_NAME_EXPR_UNRESOLVED, "A pin name expression did not resolve against the bound parameters.", "Pin name expression '{0}' did not resolve against the parameters bound here; the row registers no name. Bind every parameter the expression reads, or write the name as plain text."),
     // section
     entry!(CONN_TRANSPOSE_SIZE_MISMATCH, "Transposed connection size mismatch.", "Transposed connection size mismatch"),
     entry!(CONN_LEFT_ARROW_SHAPE_MISMATCH, "Shape mismatch in a <- connection.", "Shape mismatch in a <- connection"),
