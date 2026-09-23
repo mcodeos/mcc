@@ -310,6 +310,21 @@ impl InstantiationBuilder {
                 _ => None,
             };
             port.node_id = Some(port_id);
+            // ★ U217 (ac-interface-design.md §5): the AC mains face's declared
+            // region nominal rides the port the same way `volt` does for DC —
+            // decoded once, from the row's own `::AC.*(...)` arguments, for
+            // exactly the rows whose interface family is `AC` (the dotted
+            // variants included). The empty form `::AC.1P()` decodes to
+            // `None`/`None`: a region-neutral face states no nominal, which is
+            // a real answer the AC gates stay silent on.
+            port.ac_face = match inst {
+                McInstance::Interface(iface) if crate::instant::insttab::is_ac_family(&iface.base_name()) => {
+                    let crate::instant::insttab::AcFaceCarryVolts { volts, hz } =
+                        crate::instant::insttab::declared_ac_face_of_params(&iface.params);
+                    Some(crate::instant::mc_net::AcPortFace { volts, hz })
+                }
+                _ => None,
+            };
             // Phase C S3: lay the port's arena node down beside the Vec push
             // (the arena is the structural store; `ports` stays on the tree).
             self.append_port_arena(&port);

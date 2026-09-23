@@ -64,7 +64,8 @@ use crate::semantic::validation::nets::{
     check_converter_spec_incomplete, check_decoupling_return_face, check_device_return_span,
     check_driver_conflict, check_earth_dc_leak, check_element_dissipation,
     check_exposed_clamp_coverage, check_exposed_clamp_downstream, check_filter_subface_overreach,
-    check_floating_inputs, check_floating_outputs, check_iface_exclusive_peer,
+    check_ac_face_return, check_ac_nominal_conflict, check_floating_inputs,
+    check_floating_outputs, check_iface_exclusive_peer, check_protective_pin_copper,
     check_isolated_dc_bridge, check_nc_connected,
     check_net_budget, check_pin_contract_decode, check_pin_contract_return_member,
     check_pin_copper_expectation, check_pin_count_mismatch, check_port_bind_role,
@@ -1311,6 +1312,44 @@ pub static FLAT_ERC_RULES: &[FlatErcRule] = &[
         overridable = false,
         owner = check_iface_exclusive_peer,
     },
+    // U217 AC mains face gates (ac-interface-design.md §7); table tail,
+    // tracking the FLAT_ERC_ORDER append (§5-5).
+    declare_flat_erc_rule! {
+        code = crate::errcodes::AC_FACE_RETURN_MISSING,
+        name = "ac-face-return",
+        title = "an energized AC mains face leaves one of its two members unconnected",
+        severity = Error,
+        domain = Power,
+        family = None,
+        doc = "U217 ② (ac-interface-design.md §7): a direction-word psrc/psnk/psbi row declares an ::AC.* face whose two members are the pair — the supply face plus the return it closes over. One member wired while its partner reaches no net is a single-line supply. Judged per face over the flat table through the flatten-time face carry (the defect is the absent net, so a net walk cannot see it); only where a direction word declares the face, and silent when all of the face's members dangle (an unused declaration, the same silence law the exclusive-peer gate keeps). Unwired pins stay the unconnected-pin warning's object.",
+        lock = "tests/shard7/ac_face_gates.rs",
+        overridable = false,
+        owner = check_ac_face_return,
+    },
+    declare_flat_erc_rule! {
+        code = crate::errcodes::AC_NOMINAL_CONFLICT,
+        name = "ac-nominal-conflict",
+        title = "two AC mains faces state different region nominals on one copper",
+        severity = Error,
+        domain = Power,
+        family = None,
+        doc = "U217 ④ (ac-interface-design.md §7): two ::AC.* faces on one copper stating different region nominals is a contract contradiction — 230 V / 50 Hz and 120 V / 60 Hz are not one mains. The nominal is read from each face's own ::AC.*(...) arguments (the same per-axis decode the declaration carries); volts inherit the declared-voltage mismatch gate's 0.5 V band, hertz compares exactly. The empty form ::AC.1P() states no nominal — a region-neutral face conflicts with nothing and is outside the judge (§5: the region nominal belongs to the consumer).",
+        lock = "tests/shard7/ac_face_gates.rs",
+        overridable = false,
+        owner = check_ac_nominal_conflict,
+    },
+    declare_flat_erc_rule! {
+        code = crate::errcodes::PROTECTIVE_PIN_NO_COPPER,
+        name = "protective-pin-copper",
+        title = "a pin declaring @role(protective) or @role(earth) shares a net with no protective conductor",
+        severity = Error,
+        domain = Power,
+        family = None,
+        doc = "U217 ③ (ac-interface-design.md §7, the beta ruling's ERC half): a pin row's @role(protective)/@role(earth) word demands protective copper — the net the pin lands on must touch a conductor the owning scope declares with that role. The word is the demand, never the witness: another role-marked pin on the same net satisfies nothing, only a declared protective/earth conduit or port does. This gives the identity-axis words their first net-side verdict (pin-expectation v0.1 gave only quiet one). An unwired pin stays the unconnected-pin family's object.",
+        lock = "tests/shard7/ac_face_gates.rs",
+        overridable = false,
+        owner = check_protective_pin_copper,
+    },
 ];
 
 // Declaration scope (pins / declaration semantics)
@@ -1863,7 +1902,8 @@ pub fn assembly_gate_blocking_tags() -> Vec<&'static str> {
 mod tests {
     use super::*;
     use crate::errcodes::{
-        ABSTRACT_PART_UNSELECTED, ANALOG_RETURN_MISMATCH, BRIDGE_LOAD_DECOUPLING_MISSING,
+        ABSTRACT_PART_UNSELECTED, AC_FACE_RETURN_MISSING, AC_NOMINAL_CONFLICT,
+        ANALOG_RETURN_MISMATCH, BRIDGE_LOAD_DECOUPLING_MISSING,
         CLAMP_REF_NOT_PROTECTIVE, COMBINE_OUTPUT_TOL, CROSS_BARRIER_NET,
         DECOUPLING_RETURN_MISMATCH, DEVICE_RETURN_SPAN_UNDECLARED, EARTH_DC_LEAK,
         EXPOSED_NET_DOWNSTREAM_UNPROTECTED, EXPOSED_NET_NO_CLAMP, FILTER_SUBFACE_OVERREACH,
@@ -1878,6 +1918,7 @@ mod tests {
         POWER_CONVERTER_SPEC_INCOMPLETE, POWER_PIN_DECODE, POWER_PIN_RETURN_MISSING,
         POWER_RAIL_DECODE, POWER_RAIL_TWO_ROOTS, POWER_SINK_NOMINAL_MISMATCH,
         POWER_SINK_WINDOW_MISMATCH, POWER_SOURCE_CONTENTION, PROTECTIVE_MULTI_BRIDGE,
+        PROTECTIVE_PIN_NO_COPPER,
         PROTECT_SERIES_NOT_IN_PATH, PROTECT_SHUNT_NO_REFERENCE, PULLUP_DEGENERATE,
         RAIL_NATURE_MISMATCH, REFERENCE_ISLAND_ROOT, RETURN_LEG_UNDECLARED,
         ROLE_REF_MISSING_BRIDGE, SENSITIVE_RETURN_ON_NOISY, SHARED_RETURN_BRIDGE,
@@ -1887,7 +1928,7 @@ mod tests {
     /// The execution order of the migrated `nets::run_net_checks` call table.
     /// This is the lock that keeps catalog declaration order byte-identical to
     /// the pre-registry runner sequence.
-    const FLAT_ERC_ORDER: [u32; 56] = [
+    const FLAT_ERC_ORDER: [u32; 59] = [
         NET_MULTI_DRIVE,                    // P1
         NET_NO_DRIVER,                      // P2
         NET_INPUT_UNCONNECTED,              // P5
@@ -1944,6 +1985,9 @@ mod tests {
         PIN_COPPER_EXPECTATION_MISMATCH, // pin expectation vs landed copper (tail append)
         CROSS_BARRIER_NET,    // barrier group vs shared net (tail append)
         IFACE_EXCLUSIVE_PEER_CONFLICT, // exclusive role lane vs peer instances (tail append)
+        AC_FACE_RETURN_MISSING,  // U217 AC face return gate (tail append)
+        AC_NOMINAL_CONFLICT,     // U217 AC region-nominal gate (tail append)
+        PROTECTIVE_PIN_NO_COPPER, // U217 protective-word gate (tail append)
     ];
 
     /// The report-row tags of the netcheck R-series. This is the lock that
@@ -2486,7 +2530,8 @@ mod tests {
         // 164 = +CROSS_BARRIER_NET (barrier-design.md §3, its own lock file).
         // 166 = +5512/5513 (the @pair group gates, tests/shard3/declared_diff_pair.rs).
         // 167 = +6054 (the exclusive-peer gate, tests/shard7/iface_exclusive_peer.rs).
-        assert_eq!((strong, doc, note), (167, 0, 3));
+        // 170 = +6057/6058/6059 (the AC face gates, tests/shard7/ac_face_gates.rs).
+        assert_eq!((strong, doc, note), (170, 0, 3));
         assert_eq!(strong + doc + note, rule_count());
     }
 

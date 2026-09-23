@@ -554,6 +554,26 @@ pub struct PortInst {
     /// (`::DC(2.5V~5.5V)` — a range is not a value, so it pairs with nothing).
     /// Set at `instantiate_interface`.
     pub volt: Option<f64>,
+
+    /// U217: the AC mains face this port row declares — the `::AC.*` contract's
+    /// region nominal, decoded from the same `::Iface(...)` declaration `volt`
+    /// reads (`psnk mains{L, N}::AC.1P(230V, 50Hz)` → volts `Some(230)`,
+    /// hz `Some(50)`). A declaration-face carry like [`Self::dc_pair`]: set at
+    /// `instantiate_interface` for exactly the rows whose interface family is
+    /// `AC` (the dotted variants included), `None` for every other row — a DC
+    /// row, a signal interface, or a bare port. The empty form `::AC.1P()`
+    /// carries `None`/`None` (a region-neutral face states no nominal), which
+    /// is a real answer the nominal gate stays silent on.
+    pub ac_face: Option<AcPortFace>,
+}
+
+/// The declared region nominal of an `::AC.*` port row (U217
+/// ac-interface-design.md §5: the nominal is a (volt, frequency) pair). Both
+/// halves optional: the empty form states neither, a partial form states one.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AcPortFace {
+    pub volts: Option<f64>,
+    pub hz: Option<f64>,
 }
 
 impl PortInst {
@@ -569,6 +589,7 @@ impl PortInst {
             dc_pair: None,
             diff_pair: Vec::new(),
             volt: None,
+            ac_face: None,
         }
     }
 
@@ -586,6 +607,7 @@ impl PortInst {
             dc_pair: None,
             diff_pair: Vec::new(),
             volt: None,
+            ac_face: None,
         }
     }
 

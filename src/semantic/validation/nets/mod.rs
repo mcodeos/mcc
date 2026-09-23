@@ -164,6 +164,10 @@ pub(crate) use thermal::check_element_dissipation;
 // single net passes the point-to-point count), so the judge is whole-net and
 // reads the flatten-time lane carry. The trigger is the role's own
 // declaration, never a family name.
+mod ac_face;
+pub(crate) use ac_face::{
+    check_ac_face_return, check_ac_nominal_conflict, check_protective_pin_copper,
+};
 mod iface_peer;
 pub(crate) use iface_peer::check_iface_exclusive_peer;
 

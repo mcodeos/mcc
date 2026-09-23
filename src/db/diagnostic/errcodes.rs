@@ -2196,6 +2196,36 @@ pub const CROSS_BARRIER_NET: u32 = 6053;
 /// at all is the single-side silence law, not this gate's defect.
 pub const IFACE_EXCLUSIVE_PEER_CONFLICT: u32 = 6054;
 
+/// U217 ② (ac-interface-design.md §7, the AC return gate): a direction-word
+/// `psrc/psnk/psbi` row declares an `::AC.*` face whose two members are the
+/// pair — the supply face plus the return it closes over. One member wired
+/// while its partner reaches no net is a single-line supply: the return is
+/// the conductor the working current comes home on, and no consumer of the
+/// face can read a half of it. Judged per face over the flat table (the
+/// defect *is* the absent net, so a net walk cannot see it), only where a
+/// direction word declares the face; a face whose members are all dangling
+/// is an unused declaration and stays silent, and unwired *pins* stay the
+/// unconnected-pin warning's object.
+pub const AC_FACE_RETURN_MISSING: u32 = 6057;
+
+/// U217 ④ (ac-interface-design.md §7, the AC nominal gate): two `::AC.*`
+/// faces on one copper state different region nominals — 230 V / 50 Hz and
+/// 120 V / 60 Hz are not one mains, and the copper cannot be both. The DC
+/// twin is the declared-voltage mismatch gate (the 0.5 V band included); the
+/// frequency axis compares exactly. The empty form `::AC.1P()` states no
+/// nominal — a region-neutral face conflicts with nothing and is outside the
+/// judge.
+pub const AC_NOMINAL_CONFLICT: u32 = 6058;
+
+/// U217 ③ (ac-interface-design.md §7, the protective-word gate): a pin row's
+/// `@role(protective)`/`@role(earth)` word demands protective copper — the
+/// net the pin lands on must touch a conductor the owning scope declares
+/// with that role. The word is the demand, never the witness: another
+/// role-marked pin on the same net does not satisfy it, only a declared
+/// protective/earth conductor does. An unwired pin is the unconnected-pin
+/// family's object, never this gate's.
+pub const PROTECTIVE_PIN_NO_COPPER: u32 = 6059;
+
 /// R3 **mixed bridge identity** (intent-reference-layer-design.md §10.4 bridge
 /// identity three-state): a `@bridge(X, Y)` whose two arguments disagree on
 /// kind — one names a whole-referenceable domain of the owning module, the
@@ -2717,4 +2747,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(PIN_COPPER_EXPECTATION_UNANCHORED, "A pin row declares an expectation but its net resolves no identity at all.", "pin '{0}' expects {1} but its net carries no declared identity — a bare net is no face at all: declare the copper (conduit or domain rail) in the owning module, or the expectation stays a wish (pin-expectation-design.md §3-§4)"),
     entry!(CROSS_BARRIER_NET, "Pins of two different @barrier groups on one component share a net — the declared isolation is bridged.", "component '{0}' carries barrier groups {1} on one net '{2}' — a group-wise isolation fact, physical by birth: split the net so no copper of this part reaches two groups, or drop the @barrier rows that overstate the part (barrier-design.md §3)"),
     entry!(IFACE_EXCLUSIVE_PEER_CONFLICT, "An exclusive interface role lane reaches more than one peer instance.", "interface '{0}' lane '{1}' on '{2}' adopts role '{3}', which declares `exclusive = true` — the lane's terminals must all pair with one peer instance, but they reach {4}: {5}. An exclusive pairing is one body to one body (a resonator body meets one oscillator body); wire the lane's terminals to a single peer, or drop the `exclusive` declaration if multi-peer pairing is intended (xtal-oscillator-design.md §2, U201 ①②)."),
+    entry!(AC_FACE_RETURN_MISSING, "An energized AC mains face leaves one of its two members unconnected.", "AC face '{0}' declares the pair ({1}), but only '{2}' reaches a net — '{3}' is on no net at all, which makes the face a single-line supply: the return is the conductor the working current comes home on. Wire the return member to the face's return conductor, or drop the whole row if the face is not used (ac-interface-design.md §7, U217)."),
+    entry!(AC_NOMINAL_CONFLICT, "Two AC mains faces state different region nominals on one copper.", "the net '{0}' carries two declared AC region nominals on one copper: '{2}' states {3}, while '{4}' states {5} — different {1}, not one mains, and the copper cannot be both. State the region nominal at the consumer faces and keep the region-neutral empty form on the inlet components (ac-interface-design.md §5/§7, U217)."),
+    entry!(PROTECTIVE_PIN_NO_COPPER, "A pin declaring @role(protective) or @role(earth) shares a net with no protective conductor.", "the pin '{0}' declares @role({1}), but its net '{2}' touches no conductor the owning scope declares protective or earth — the role word is a promise about the copper, and a plain net does not keep it. Wire the pin to a `conduit`/port declared `@role(protective)`/`@role(earth)` (the single-point the clamp rules read), or drop the role word if the terminal is not protective (ac-interface-design.md §4/§7, U217; the beta ruling: PE is not an interface member, it lives in the role machinery)."),
 ];
