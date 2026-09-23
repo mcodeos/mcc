@@ -385,7 +385,7 @@ fn check_pin_io_context(acc: &mut CheckAccumulator) {
                     span: Some(pin_span.clone()),
                     message: format!(
                         "Component '{}': pin '{}' ({}) is declared NC (not-connected) at \
-                         the component level. NC is typically used at instantiation.",
+                         the component level; the pin is excluded from net and voltage checks.",
                         comp.name, names, pin_id
                     ),
                     code: crate::errcodes::PIN_NC_COMPONENT_LEVEL,

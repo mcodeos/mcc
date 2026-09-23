@@ -452,14 +452,14 @@ fn dlu_flatchk__nc_connected_by_pin_id_locked() {
     let diags = build_flat_diags(&src);
     // The 5453 Info fires on the direction word alone: with names carrying no
     // NC semantics, the `nc` word is the only definition-site declaration and
-    // it always earns the "typically used at instantiation" nudge — the pin's
-    // name spelling no longer silences it.
+    // every such pin earns the Info stating what the declaration exempts it
+    // from — the pin's name spelling no longer silences it.
     let expected = [
         (
             5453,
             60,
             "/mcc/flat-diag.mc",
-            "Component 'TW': pin 'NC' (2) is declared NC (not-connected) at the component level. NC is typically used at instantiation.",
+            "Component 'TW': pin 'NC' (2) is declared NC (not-connected) at the component level; the pin is excluded from net and voltage checks.",
         ),
         (
             4109,
