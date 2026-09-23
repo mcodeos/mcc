@@ -2229,6 +2229,17 @@ pub const AC_NOMINAL_CONFLICT: u32 = 6058;
 /// family's object, never this gate's.
 pub const PROTECTIVE_PIN_NO_COPPER: u32 = 6059;
 
+/// BOM overlay value names a class that is not a `:` descendant of the
+/// slot's declared abstract class (param-authoring-design.md section 4,
+/// U245). Covers an unresolvable value name too: a name the defs do not
+/// know cannot be a descendant either.
+pub const BOM_OVERLAY_VALUE_NOT_DESCENDANT: u32 = 6060;
+
+/// BOM overlay key does not designate an abstract-declared slot: either the
+/// instance at that path declares a concrete class, or no instance lives at
+/// the path at all (param-authoring-design.md section 4, U245).
+pub const BOM_OVERLAY_KEY_NOT_SLOT: u32 = 6061;
+
 /// R3 **mixed bridge identity** (intent-reference-layer-design.md §10.4 bridge
 /// identity three-state): a `@bridge(X, Y)` whose two arguments disagree on
 /// kind — one names a whole-referenceable domain of the owning module, the
@@ -2753,4 +2764,6 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(AC_FACE_RETURN_MISSING, "An energized AC mains face leaves one of its members unconnected.", "AC face '{0}' declares the member group ({1}), but only '{2}' reaches a net — '{3}' is on no net at all, which makes the face a single-line supply: the return is the conductor the working current comes home on. Wire the return member to the face's return conductor, or drop the whole row if the face is not used (ac-interface-design.md §7, U217)."),
     entry!(AC_NOMINAL_CONFLICT, "Two AC mains faces state different region nominals on one copper.", "the net '{0}' carries two declared AC region nominals on one copper: '{2}' states {3}, while '{4}' states {5} — different {1}, not one mains, and the copper cannot be both. State the region nominal at the consumer faces and keep the region-neutral empty form on the inlet components (ac-interface-design.md §5/§7, U217)."),
     entry!(PROTECTIVE_PIN_NO_COPPER, "A pin declaring @role(protective) or @role(earth) shares a net with no protective conductor.", "the pin '{0}' declares @role({1}), but its net '{2}' touches no conductor the owning scope declares protective or earth — the role word is a promise about the copper, and a plain net does not keep it. Wire the pin to a `conduit`/port declared `@role(protective)`/`@role(earth)` (the single-point the clamp rules read), or drop the role word if the terminal is not protective (ac-interface-design.md §4/§7, U217; the beta ruling: PE is not an interface member, it lives in the role machinery)."),
+    entry!(BOM_OVERLAY_VALUE_NOT_DESCENDANT, "A bom.overlay.toml value names a class that is not a `:` descendant of the slot's declared class.", "overlay key '{0}' names '{1}', which is not a `:` descendant of the slot's declared class '{2}' — the overlay picks a variant of the declared base, it does not retype the slot. Name a variant whose `: base` chain reaches '{2}', or change the module face to declare the base the overlay value derives from (param-authoring-design.md section 4)."),
+    entry!(BOM_OVERLAY_KEY_NOT_SLOT, "A bom.overlay.toml key does not designate an abstract-declared instance.", "overlay key '{0}' does not designate an abstract-declared slot ({1}) — the overlay binds part selections to slots, and a slot is an instance whose module declares it on an `abstract component` base. Remove the key, or make the module face declare the base and let the overlay pick the variant (param-authoring-design.md section 4)."),
 ];

@@ -155,6 +155,10 @@ fn do_instantiate(
     crate::instant::mc_net::reset_literal_points();
 
     let (matched_uri, target_module_def) = resolve_entry_module(entry)?;
+    // Open the BOM overlay build window: bind outcomes are per-build, and the
+    // overlay checks speak only for builds entering through the project that
+    // owns the overlay file.
+    crate::instant::bom_overlay::begin_build(&matched_uri);
 
     let mut inst = McModuleInst::new(&entry.ident.to_string(), target_module_def);
 

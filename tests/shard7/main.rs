@@ -10,6 +10,7 @@ pub mod common;
 
 mod ac_face_gates;
 mod bom_nc_classified;
+mod bom_overlay_hbl;
 mod build_dir_net_checks;
 mod build_products;
 mod dedup_id_coverage;

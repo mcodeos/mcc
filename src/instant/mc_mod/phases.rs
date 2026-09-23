@@ -671,6 +671,18 @@ impl InstantiationBuilder {
                         c.base.uri.clone(),
                         c.base.span.start as u32,
                     ));
+                    // BOM overlay: an abstract-declared slot picks up the
+                    // engineering-level variant here, so the whole downstream
+                    // surface (pins, spec, unselected marker, class name) reads
+                    // the bound def. A failed bind records its outcome for the
+                    // ERC checks and keeps the declared base.
+                    let bound = crate::instant::bom_overlay::apply_binding(
+                        &self.current_path,
+                        &c.name.to_string(),
+                        &c.base,
+                        &self.def_uri,
+                    )
+                    .unwrap_or_else(|| c.base.clone());
                     let eidx = self.expansion.begin(
                         ExpansionKind::Declare,
                         None,
@@ -682,7 +694,7 @@ impl InstantiationBuilder {
                         // No arguments: plain instance. An NC-marked declaration
                         // with no parameter list keeps the not-connected flag.
                         if c.nc {
-                            McComponentInst::with_nc(&c.name.to_string(), c.base.clone(), &c.params)
+                            McComponentInst::with_nc(&c.name.to_string(), bound.clone(), &c.params)
                         } else {
                             // An empty argument list is still a resolved
                             // parameter list: a formal whose declaration
@@ -690,9 +702,9 @@ impl InstantiationBuilder {
                             // the instance's conditional blocks read (CIMP
                             // U54). A genuinely required formal left unbound
                             // binds nothing rather than failing the list.
-                            McComponentInst::with_params(&c.name.to_string(), c.base.clone(), &[])
+                            McComponentInst::with_params(&c.name.to_string(), bound.clone(), &[])
                                 .unwrap_or_else(|_| {
-                                    McComponentInst::new(&c.name.to_string(), c.base.clone())
+                                    McComponentInst::new(&c.name.to_string(), bound.clone())
                                 })
                         }
                     } else {
@@ -708,7 +720,7 @@ impl InstantiationBuilder {
                         // reason is reported so the author sees it.
                         match McComponentInst::with_params(
                             &c.name.to_string(),
-                            c.base.clone(),
+                            bound.clone(),
                             &c.params,
                         ) {
                             Ok(inst) => inst,

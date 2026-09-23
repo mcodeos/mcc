@@ -1283,6 +1283,91 @@ pub(crate) fn check_unselected_abstract(table: &InstTable, results: &mut Vec<Net
     }
 }
 
+// BOM overlay binds (param-authoring-design.md section 4, U245). The overlay
+// replaces an abstract slot's class identity only; these two checks police the
+// two ways a key can fail. Anchors reuse the declaration span the flat table
+// already carries (entry_pos); a dangling key has no .mc position at all, so
+// the message carries the key text and the report anchors nowhere.
+use crate::instant::bom_overlay::BindOutcome;
+
+fn overlay_entry<'t>(table: &'t InstTable, path: &str) -> Option<&'t crate::instant::insttab::InstEntry> {
+    table
+        .iter()
+        .find(|(_, e)| matches!(e.kind, crate::instant::insttab::InstKind::Component) && e.path == path)
+        .map(|(_, e)| e)
+}
+
+pub(crate) fn check_overlay_value_descendant(table: &InstTable, results: &mut Vec<NetCheckResult>) {
+    for (key, path, outcome) in crate::instant::bom_overlay::bind_outcomes() {
+        let value = match &outcome {
+            BindOutcome::ValueUnresolved | BindOutcome::ValueNotDescendant => {
+                crate::instant::bom_overlay::overlay_value(&key)
+            }
+            _ => continue,
+        };
+        let Some(value) = value else { continue };
+        let declared = overlay_entry(table, &path)
+            .map(|e| e.class_name.clone())
+            .unwrap_or_default();
+        let (pos, uri) = overlay_entry(table, &path)
+            .map(entry_pos)
+            .unwrap_or((0, String::new()));
+        results.push(NetCheckResult {
+            check: "overlay-value-descendant",
+            severity: "error",
+            message: crate::errcodes::format_msg(
+                crate::errcodes::BOM_OVERLAY_VALUE_NOT_DESCENDANT,
+                &[&key, &value, &declared],
+            ),
+            net_name: path,
+            code: crate::errcodes::BOM_OVERLAY_VALUE_NOT_DESCENDANT,
+            pos,
+            uri,
+        });
+    }
+}
+
+pub(crate) fn check_overlay_key_slot(table: &InstTable, results: &mut Vec<NetCheckResult>) {
+    for (key, path, outcome) in crate::instant::bom_overlay::bind_outcomes() {
+        if !matches!(outcome, BindOutcome::KeyNotSlot) {
+            continue;
+        }
+        let detail = match overlay_entry(table, &path) {
+            Some(e) => format!("the instance declares concrete class '{}'", e.class_name),
+            None => "no instance lives at this path".to_string(),
+        };
+        let (pos, uri) = overlay_entry(table, &path)
+            .map(entry_pos)
+            .unwrap_or((0, String::new()));
+        results.push(NetCheckResult {
+            check: "overlay-key-slot",
+            severity: "error",
+            message: crate::errcodes::format_msg(
+                crate::errcodes::BOM_OVERLAY_KEY_NOT_SLOT,
+                &[&key, &detail],
+            ),
+            net_name: path,
+            code: crate::errcodes::BOM_OVERLAY_KEY_NOT_SLOT,
+            pos,
+            uri,
+        });
+    }
+    for key in crate::instant::bom_overlay::dangling_keys() {
+        results.push(NetCheckResult {
+            check: "overlay-key-slot",
+            severity: "error",
+            message: crate::errcodes::format_msg(
+                crate::errcodes::BOM_OVERLAY_KEY_NOT_SLOT,
+                &[&key, &"no instance lives at this path".to_string()],
+            ),
+            net_name: key,
+            code: crate::errcodes::BOM_OVERLAY_KEY_NOT_SLOT,
+            pos: 0,
+            uri: String::new(),
+        });
+    }
+}
+
 // ── Floating outputs (output variant of floating input check) ──
 pub(crate) fn check_floating_outputs(table: &InstTable, results: &mut Vec<NetCheckResult>) {
     let connected: HashSet<u32> = table
