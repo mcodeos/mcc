@@ -570,10 +570,18 @@ pub struct PortInst {
 /// The declared region nominal of an `::AC.*` port row (U217
 /// ac-interface-design.md §5: the nominal is a (volt, frequency) pair). Both
 /// halves optional: the empty form states neither, a partial form states one.
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// `member_words` is the variant's positional terminal group — per member,
+/// the role the **registry** assigns that position (ac-terminal-group law:
+/// the shape comes from the variant, never from counting or reading the
+/// written names). `None` for a row whose variant the registry does not
+/// hold (an unregistered family name states no positions); the two-member
+/// row keeps its pair reading at the flatten site, which is where this
+/// field is consumed.
+#[derive(Debug, Clone, PartialEq)]
 pub struct AcPortFace {
     pub volts: Option<f64>,
     pub hz: Option<f64>,
+    pub member_words: Option<Vec<crate::instant::insttab::AcFaceMember>>,
 }
 
 impl PortInst {

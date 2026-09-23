@@ -8,10 +8,11 @@
 //! states, never a name or a family table.
 //!
 //! - **6057 `AC_FACE_RETURN_MISSING`** — a direction-word `psrc/psnk` row
-//!   declares a two-member face and the face *is* the pair: one member wired
-//!   while its partner reaches no net is a single-line supply. Judged per
-//!   face; the all-dangling face is the unused-declaration silence law, and
-//!   unwired *pins* stay E4119's object.
+//!   declares a face whose members the variant's registry group positions:
+//!   a wired phase while the declared return reaches no net is a torn face
+//!   (the four-wire `AC.3P` group judges by the same law as the pair).
+//!   Judged per face; the all-dangling face is the unused-declaration
+//!   silence law, and unwired *pins* stay E4119's object.
 //! - **6058 `AC_NOMINAL_CONFLICT`** — two `::AC.*` faces stating different
 //!   region nominals on one copper (230 V/50 Hz vs 120 V/60 Hz) is a contract
 //!   contradiction. The empty form states no nominal and conflicts with
@@ -60,12 +61,33 @@ component INLET
 }
 "#;
 
+/// The three-phase family, the same inline shape the canon states (members
+/// L1..L3 + N, no roles, PE is not a member) — the four-wire Y face.
+const AC3P: &str = r#"
+interface AC.3P(volt::UV.VOLT, freq::UV.HZ)
+{
+    topology = "point to point"
+    pins = [
+        1 = L1
+        2 = L2
+        3 = L3
+        4 = N
+    ]
+}
+"#;
+
 /// Build `main` with the body statements and return the sorted diagnostic
 /// codes.
 fn build(body: &str) -> Vec<u32> {
+    build_with(body, "")
+}
+
+/// The same harness with an extra interface family declared beside `AC.1P` —
+/// the three-phase tests glue [`AC3P`] in.
+fn build_with(body: &str, extra_iface: &str) -> Vec<u32> {
     let _lock = common::lock();
     common::reset();
-    let src = format!("{ACP}{INLET}module main {{\n{body}\n}}\n");
+    let src = format!("{ACP}{extra_iface}{INLET}module main {{\n{body}\n}}\n");
     let uri: McURI = "/mcc/ac-face-gates.mc".to_string();
     mcc::mcc_load_from_string(&uri, &src);
     let _ = mcc::mcc_build_flat(&McIds::from("main"), &uri, 1000).expect("flat build");
@@ -76,6 +98,10 @@ fn build(body: &str) -> Vec<u32> {
 
 fn count(code: u32, body: &str) -> usize {
     build(body).iter().filter(|&&c| c == code).count()
+}
+
+fn count3(code: u32, body: &str) -> usize {
+    build_with(body, AC3P).iter().filter(|&&c| c == code).count()
 }
 
 /// The wired inlet chain: both interface members reach the inlet, PE left
@@ -123,6 +149,47 @@ fn ac_face_return__both_members_dangling_is_silent() {
         0,
         "an unused face is not a torn face; got {:#?}",
         build(body)
+    );
+}
+
+/// The four-wire Y face judges by the same law as the pair: all four members
+/// wired face-to-face — the face is complete, the gate says nothing. This is
+/// the branch the two-member guard used to skip silently: the multi-member
+/// group must enter the gate, not pass beside it.
+#[test]
+fn ac_face_return_3p__all_four_members_wired_is_quiet() {
+    let body = "\
+    psrc feed{L1, L2, L3, N}::AC.3P(400V, 50Hz)\n\
+    psnk load{L1, L2, L3, N}::AC.3P(400V, 50Hz)\n\
+    feed.L1 -> load.L1\n\
+    feed.L2 -> load.L2\n\
+    feed.L3 -> load.L3\n\
+    feed.N -> load.N";
+    assert_eq!(
+        count3(mcc::errcodes::AC_FACE_RETURN_MISSING, body),
+        0,
+        "a complete three-phase face is quiet; got {:#?}",
+        build_with(body, AC3P)
+    );
+}
+
+/// The three-phase defect: phases wired, the shared return dangling on both
+/// faces — one fire per face, each anchored on its own `N` member. The
+/// return is the position the registry's group puts `Neutral` in (position
+/// 4), never a read of the written name.
+#[test]
+fn ac_face_return_3p__return_dangling_fires_once_per_face() {
+    let body = "\
+    psrc feed{L1, L2, L3, N}::AC.3P(400V, 50Hz)\n\
+    psnk load{L1, L2, L3, N}::AC.3P(400V, 50Hz)\n\
+    feed.L1 -> load.L1\n\
+    feed.L2 -> load.L2\n\
+    feed.L3 -> load.L3";
+    assert_eq!(
+        count3(mcc::errcodes::AC_FACE_RETURN_MISSING, body),
+        2,
+        "each face's dangling return fires once → two 6057; got {:#?}",
+        build_with(body, AC3P)
     );
 }
 
