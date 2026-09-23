@@ -404,7 +404,6 @@ impl InstantiationBuilder {
                 Some(McIoTy::Output) => IOType::Out,
                 Some(McIoTy::InOut) => IOType::InOut,
                 Some(McIoTy::NotConnected) => IOType::NonCon,
-                Some(McIoTy::Label) => IOType::Label,
                 None => IOType::InOut,
             };
 

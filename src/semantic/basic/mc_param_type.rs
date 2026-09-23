@@ -190,7 +190,6 @@ pub enum McIoTy {
     Output,
     InOut,
     NotConnected,
-    Label,
 }
 
 impl McIoTy {
@@ -202,7 +201,6 @@ impl McIoTy {
             MCAST_IOTYPE_OUT => Some(Self::Output),
             MCAST_IOTYPE_IO => Some(Self::InOut),
             MCAST_IOTYPE_NC => Some(Self::NotConnected),
-            MCAST_IOTYPE_LABEL => Some(Self::Label),
             _ => None,
         }
     }
@@ -213,7 +211,6 @@ impl McIoTy {
             Self::Output => "out",
             Self::InOut => "io",
             Self::NotConnected => "nc",
-            Self::Label => "label",
         }
     }
 }

@@ -9,9 +9,9 @@ use crate::semantic::mc_enum::McEnumDef;
 use crate::semantic::mc_ifs::McInterface;
 use crate::semantic::module::McModule;
 use crate::{
-    McIds, MCAST_BODY, MCAST_IOTYPE, MCAST_IOTYPE_IN, MCAST_IOTYPE_IO, MCAST_IOTYPE_LABEL,
-    MCAST_IOTYPE_NC, MCAST_IOTYPE_OUT, MCAST_IOTYPE_PSBI, MCAST_IOTYPE_PSNK, MCAST_IOTYPE_PSRC,
-    MCAST_IOTYPE_RETURN, MCAST_PARTITION,
+    MCAST_BODY, MCAST_IOTYPE, MCAST_IOTYPE_IN, MCAST_IOTYPE_IO, MCAST_IOTYPE_NC, MCAST_IOTYPE_OUT,
+    MCAST_IOTYPE_PSBI, MCAST_IOTYPE_PSNK, MCAST_IOTYPE_PSRC, MCAST_IOTYPE_RETURN, MCAST_PARTITION,
+    McIds,
 };
 use std::collections::HashMap;
 use std::ops::Range;
@@ -25,7 +25,6 @@ pub enum IOType {
     Power,
     Return,
     NonCon,
-    Label,
     None,
 }
 
@@ -49,7 +48,6 @@ impl IOType {
                 }
                 MCAST_IOTYPE_RETURN => return Some(IOType::Return),
                 MCAST_IOTYPE_NC => return Some(IOType::NonCon),
-                MCAST_IOTYPE_LABEL => return Some(IOType::Label),
                 _ => return Some(IOType::None),
             }
         }
@@ -1049,7 +1047,7 @@ mod shape_tests {
     fn sem_common__representative_rule() {
         let lhs = Shape::node(); // 1*1
         let rhs = Shape::vvec(2); // 2*1, distinct from lhs
-                                  // `->` (Series + LtoR): result takes operand 2
+        // `->` (Series + LtoR): result takes operand 2
         assert_eq!(representative(ConnOp::Series, ConnDir::LtoR, lhs, rhs), rhs);
         // `-` (Series + Undirected): result takes operand 2, same as `->` (§5.2)
         assert_eq!(

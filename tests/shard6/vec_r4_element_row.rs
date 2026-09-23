@@ -11,7 +11,7 @@
 //! R4 stacks one row per written element, whatever its declaration pinned
 //! down. Letting the empty element drop out of the merge made the row count
 //! depend on how many elements happened to have a *visible* width, so a lone
-//! `label V5V` turned the legal `[V5V, GND] -> LDO{vin | vout}` into a 1-row
+//! declared `V5V` turned the legal `[V5V, GND] -> LDO{vin | vout}` into a 1-row
 //! vs 2-row `SeriesRowsMismatch` (E4007 + E3132), while the very same
 //! statement with an undeclared `V5V` passed.
 //!
@@ -40,24 +40,24 @@ fn rejects_shape(codes: &[u32]) -> bool {
         || codes.contains(&mcc::errcodes::CONN_STMT_PARSE_FAILED)
 }
 
-/// `label A` + `[A, B] -> [C, D]`: both sides stack two rows, so the pair is
-/// legal. Declaring `A` must not shrink its side to one row.
+/// A declared `A` + `[A, B] -> [C, D]`: both sides stack two rows, so the
+/// pair is legal. Declaring `A` must not shrink its side to one row.
 #[test]
 fn declared_element_keeps_its_row_on_the_left() {
-    let codes = build_codes("module top {\n    label A\n    [A, B] -> [C, D]\n}\n");
+    let codes = build_codes("module top(A) {\n    [A, B] -> [C, D]\n}\n");
     assert!(
         !rejects_shape(&codes),
-        "`label A` + `[A, B] -> [C, D]` is a legal 2-row pair; got codes: {codes:?}"
+        "a declared `A` + `[A, B] -> [C, D]` is a legal 2-row pair; got codes: {codes:?}"
     );
 }
 
 /// The symmetric case — the declared name written on the **right** list.
 #[test]
 fn declared_element_keeps_its_row_on_the_right() {
-    let codes = build_codes("module top {\n    label C\n    [A, B] -> [C, D]\n}\n");
+    let codes = build_codes("module top(C) {\n    [A, B] -> [C, D]\n}\n");
     assert!(
         !rejects_shape(&codes),
-        "`label C` + `[A, B] -> [C, D]` is a legal 2-row pair; got codes: {codes:?}"
+        "a declared `C` + `[A, B] -> [C, D]` is a legal 2-row pair; got codes: {codes:?}"
     );
 }
 
@@ -65,33 +65,42 @@ fn declared_element_keeps_its_row_on_the_right() {
 /// an unknown-width wildcard on both sides.
 #[test]
 fn all_declared_elements_are_still_counted() {
-    let codes = build_codes(
-        "module top {\n    label A\n    label B\n    label C\n    label D\n    [A, B] -> [C, D]\n}\n",
-    );
+    let codes = build_codes("module top(A, B, C, D) {\n    [A, B] -> [C, D]\n}\n");
     assert!(
         !rejects_shape(&codes),
         "four declared names still stack to a legal 2-row pair; got codes: {codes:?}"
     );
 }
 
-/// A declared element reads exactly like a bare name: `[A, B]` is two rows
-/// against a single point, so the mismatch is reported — the same E4007 the
-/// undeclared spelling has always produced. Declaration is not a shape.
+/// A declared element reads exactly like a bare name on the shape face:
+/// `[A, B]` is two rows against a single point, so the mismatch is reported —
+/// the same E4007 the undeclared spelling has always produced. Declaration is
+/// not a shape.
 #[test]
 fn declared_element_reads_like_a_bare_name() {
-    let declared = build_codes("module top {\n    label A\n    [A, B] -> C\n}\n");
+    let declared = build_codes("module top(A) {\n    [A, B] -> C\n}\n");
     let bare = build_codes("module top {\n    [A, B] -> C\n}\n");
     assert!(
         rejects_shape(&declared),
-        "`label A` + `[A, B] -> C` is 2 rows against 1 and must be rejected; got: {declared:?}"
+        "a declared `A` + `[A, B] -> C` is 2 rows against 1 and must be rejected; got: {declared:?}"
     );
     assert!(
         rejects_shape(&bare),
         "the undeclared spelling has always been rejected; got: {bare:?}"
     );
+    // The declared spelling is a header row, so `top` also carries an unused
+    // port (E5162) — a module-port face diagnostic, orthogonal to the list's
+    // row counting. Beyond that one extra the two spellings agree.
+    let mut extra = declared.clone();
+    for code in &bare {
+        if let Some(i) = extra.iter().position(|c| c == code) {
+            extra.remove(i);
+        }
+    }
     assert_eq!(
-        declared, bare,
-        "declaring `A` must not change the list's diagnostics"
+        extra,
+        vec![mcc::errcodes::MODULE_PORT_UNUSED],
+        "declaring `A` must not change the list's diagnostics beyond the unused-port face"
     );
 }
 
@@ -99,8 +108,7 @@ fn declared_element_reads_like_a_bare_name() {
 /// not silently passed as an unmeasurable wildcard.
 #[test]
 fn declared_lists_of_unequal_width_are_rejected() {
-    let codes =
-        build_codes("module top {\n    label A\n    label B\n    label C\n    [A, B] -> [C]\n}\n");
+    let codes = build_codes("module top(A, B, C) {\n    [A, B] -> [C]\n}\n");
     assert!(
         rejects_shape(&codes),
         "`[A, B] -> [C]` is 2 rows against 1 and must be rejected; got: {codes:?}"

@@ -415,10 +415,7 @@ fn enumerate_component(c: &McComponent, out: &mut Vec<MemberItem>) {
         });
     }
     for (name, (io_type, _)) in c.insts.insts() {
-        if matches!(
-            io_type,
-            crate::IOType::None | crate::IOType::NonCon | crate::IOType::Label
-        ) {
+        if matches!(io_type, crate::IOType::None | crate::IOType::NonCon) {
             continue;
         }
         let span = c.insts.get_port_span(name).unwrap_or(0..0);

@@ -848,7 +848,7 @@ fn check_single_ioc_type_component(acc: &mut CheckAccumulator) {
                 IOType::Power => ps_count += 1,
                 IOType::NonCon => nc_count += 1,
                 IOType::InOut => io_count += 1,
-                IOType::Return | IOType::None | IOType::Label => {} // these don't indicate direction
+                IOType::Return | IOType::None => {} // these don't indicate direction
             }
         }
 
