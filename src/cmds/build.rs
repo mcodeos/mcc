@@ -56,10 +56,11 @@ fn finish_build(mut builder: ResultBuilder) -> Envelope {
 /// The bodies come from the single funnel the `mcc export` face also uses, so
 /// the **content** of a product does not depend on which entry produced it
 /// (§3.6 contract 1). What does depend on the entry is the *wrapper*: `mcc
-/// export -f json` answers with its A-tier envelope, whereas a build product
-/// file is the payload itself — a file product in `build/` is not a readout,
-/// and §3.4's names (`netlist.txt`, `design.spice`) are content artifacts. That
-/// asymmetry is recorded, not papered over; it is an open item in the design.
+/// export --json` answers on stdout with the bare payload (U277), whereas a
+/// build product file is the items value alone — a file product in `build/` is
+/// not a readout, and §3.4's names (`netlist.txt`, `design.spice`) are content
+/// artifacts. That asymmetry is recorded, not papered over; it is an open item
+/// in the design.
 ///
 /// The **envelope** is not in this list: it is the report face and keeps its own
 /// outlet (`-o`, else stdout), which is why the default set here is empty.

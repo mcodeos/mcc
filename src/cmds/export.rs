@@ -12,7 +12,7 @@
 use crate::cmds::common;
 use crate::cmds::manifest;
 use crate::output::envelope::ExportData;
-use crate::output::{self, builder::ResultBuilder, envelope::Envelope};
+use crate::output;
 use anyhow::Result;
 use mcc::cli::{rpcclient::RpcClient, ExportArgs, ExportKind, OutputFormat};
 use mcc::export;
@@ -26,9 +26,15 @@ pub fn run(args: &ExportArgs) -> Result<()> {
     // Pattern B: probe + rpc_mapping + fallthrough to local.
     if let Some(c) = RpcClient::probe() {
         if let Some((method, params)) = rpc_mapping(args, target.as_deref()) {
-            match c.call(method, params) {
-                Ok(result) => {
-                    println!("{}", serde_json::to_string_pretty(&result)?);
+            // The RPC result deserializes into the same `ExportData` the local
+            // arm builds, and both emit through [`emit_json`] — one face, one
+            // byte stream, whichever entry point answered (U277).
+            match c.call(method, params).and_then(|result| {
+                serde_json::from_value::<ExportData>(result)
+                    .map_err(|e| anyhow::anyhow!("export payload: {e}"))
+            }) {
+                Ok(data) => {
+                    emit_json(&data, effective_format(args))?;
                     return Ok(());
                 }
                 Err(e) => tracing::debug!(
@@ -42,9 +48,38 @@ pub fn run(args: &ExportArgs) -> Result<()> {
     run_local(args, target.as_deref())
 }
 
-/// Map CLI args → RPC method + params. Returns `None` for now (export is
-/// local-only on the CLI; `export` server method exists for direct RPC users).
+/// The format the export face answers on: `--json` pins JSON, otherwise the
+/// global `--format`. The RPC params and both emitters read it here, so the
+/// two entry points always speak the same format.
+fn effective_format(args: &ExportArgs) -> OutputFormat {
+    if args.json {
+        OutputFormat::Json
+    } else {
+        mcc::cli::globals().format
+    }
+}
+
+/// The one JSON face both entry points emit through (U277: two entries, one
+/// byte stream). The bare payload is the whole answer — no envelope — and `-o`
+/// is honored exactly as on the raw-artifact faces.
+fn emit_json(data: &ExportData, format: OutputFormat) -> Result<()> {
+    let target = mcc::cli::globals().output.clone();
+    output::emit_payload_json(data, format, target.as_deref().map(Path::new))
+}
+
+/// Map CLI args → RPC method + params. Gated behind `MCC_RPC_EXPORT`; without
+/// it export is local-only on the CLI (the `export` server method still exists
+/// for direct RPC users).
+///
+/// Only the payload face maps: the server drops the raw artifact (`raw_text`
+/// never crosses RPC), so a text/csv/yaml request would come back with
+/// `items: null` — those faces answer locally, where the artifact exists.
 fn rpc_mapping(args: &ExportArgs, target: Option<&str>) -> Option<(&'static str, Value)> {
+    // The graphical face writes one file per sheet and only the CLI can take
+    // that dispatch — the server's own payload for it is a redirect notice.
+    if args.kind == ExportKind::KiCadSch || !effective_format(args).is_jsonish() {
+        return None;
+    }
     if std::env::var("MCC_RPC_EXPORT").is_ok() {
         Some((
             "export",
@@ -52,7 +87,7 @@ fn rpc_mapping(args: &ExportArgs, target: Option<&str>) -> Option<(&'static str,
                 "kind":   args.kind.name(),
                 "entry":  target,
                 "top":    mcc::cli::globals().top,
-                "format": mcc::cli::globals().format.name(),
+                "format": effective_format(args).name(),
                 "libs":   mcc::cli::globals().lib,
             }),
         ))
@@ -77,11 +112,7 @@ fn run_local(args: &ExportArgs, target: Option<&str>) -> Result<()> {
         mcc::cli::globals().entry.as_deref(),
     )?;
 
-    let format = if args.json {
-        OutputFormat::Json
-    } else {
-        mcc::cli::globals().format
-    };
+    let format = effective_format(args);
 
     let (tree, table, arena, inst_store) = match export::build_tree(
         &entry_uri,
@@ -110,7 +141,14 @@ fn run_local(args: &ExportArgs, target: Option<&str>) -> Result<()> {
 
     let kind_str = args.kind.name();
     let kind_tag = args.kind.id();
-    let format_tag = format.id();
+    // Both JSON spellings read the same structured payload: the pretty
+    // spelling is a serialization choice made at emit time, not a different
+    // export format — the exporters fill `items` for the JSON tag only.
+    let format_tag = if format.is_jsonish() {
+        OutputFormat::Json.id()
+    } else {
+        format.id()
+    };
     let (raw_text, items, count) = export::build_payload(
         &tree,
         &table,
@@ -121,22 +159,17 @@ fn run_local(args: &ExportArgs, target: Option<&str>) -> Result<()> {
         format_tag,
     );
 
-    if format == OutputFormat::Json {
+    if format == OutputFormat::Json || format == OutputFormat::JsonPretty {
+        // The JSON face is the bare payload (U277): the envelope around it is
+        // retired, and `json-pretty` joins the same face so both JSON
+        // spellings serialize the payload, not the raw artifact.
         let data = ExportData {
             kind: kind_str.to_string(),
-            format: "json".to_string(),
+            format: format.name().to_string(),
             count,
             items,
         };
-        let mut builder = ResultBuilder::start(format!("mcc export {}", kind_str));
-        builder.set_export(data);
-        let env = Envelope::ok(builder.finish());
-        output::emit_envelope(
-            &env,
-            format,
-            mcc::cli::globals().output.as_deref().map(Path::new),
-            false,
-        )?;
+        emit_json(&data, format)?;
     } else {
         // Raw text/CSV → stdout or file.
         match &mcc::cli::globals().output {

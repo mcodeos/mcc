@@ -77,11 +77,6 @@ impl ResultBuilder {
         self
     }
 
-    pub fn set_export(&mut self, e: ExportData) -> &mut Self {
-        self.result.export = Some(e);
-        self
-    }
-
     /// Attach the failure ledger report (resolve-gate-design.md §7.1-2).
     pub fn set_ledger(&mut self, l: mcc::ledger::LedgerReport) -> &mut Self {
         self.result.ledger = Some(l);

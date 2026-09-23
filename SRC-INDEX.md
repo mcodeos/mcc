@@ -63,7 +63,7 @@ range (threshold 40KB).
 | `build/` | 5 | 75 KB |
 | `builder/` | 1 | 0 KB |
 | `cli/` | 7 | 113 KB |
-| `cmds/` | 28 | 501 KB |
+| `cmds/` | 28 | 502 KB |
 | `db/` | 28 | 965 KB |
 | `eval/` | 2 | 50 KB |
 | `export/` | 7 | 183 KB |
@@ -72,7 +72,7 @@ range (threshold 40KB).
 | `output/` | 7 | 107 KB |
 | `query/` | 9 | 162 KB |
 | `refdef/` | 7 | 119 KB |
-| `rpc/` | 16 | 305 KB |
+| `rpc/` | 16 | 306 KB |
 | `semantic/` | 91 | 2724 KB |
 | `stages/` | 12 | 322 KB |
 | `vector/` | 25 | 478 KB |
@@ -795,46 +795,46 @@ cli/servercfg.rs#L126  fn save_config
 cli/servercfg.rs#L142  fn create_default_config
 cmds/build.rs#L38  struct BuildOutcome
 cmds/build.rs#L49  fn finish_build
-cmds/build.rs#L70  fn write_build_products
-cmds/build.rs#L114  fn cli_entry
-cmds/build.rs#L121  fn run
-cmds/build.rs#L152  fn resolve_project_root
-cmds/build.rs#L191  fn viz_output_path
-cmds/build.rs#L198  fn run_rpc
-cmds/build.rs#L243  fn write_delegated_viz
-cmds/build.rs#L280  fn emit_build_result
-cmds/build.rs#L312  fn run_local
-cmds/build.rs#L776  fn build_failure_diag
-cmds/build.rs#L812  fn build_browse_dir
-cmds/build.rs#L1186  fn emit_gate_envelope
-cmds/build.rs#L1192  fn emit_err
-cmds/build.rs#L1201  fn build_viz_opts
-cmds/build.rs#L1222  mod phase0_golden
-cmds/build.rs#L1232  fn hbl_project
-cmds/build.rs#L1242  fn build_graph
-cmds/build.rs#L1263  fn render_signature
-cmds/build.rs#L1272  fn cli_build__determinism_render_twice
-cmds/build.rs#L1292  fn cli_build__determinism_two_builds
-cmds/build.rs#L1307  fn cli_build__golden_roundtrip_hbl
-cmds/build.rs#L1328  fn cli_build__metrics_hbl_smoke
-cmds/build.rs#L1349  mod d_detectors
-cmds/build.rs#L1354  static TEST_LOCK
-cmds/build.rs#L1358  fn build_fixture
-cmds/build.rs#L1378  fn build_fixture_or_panic
-cmds/build.rs#L1389  fn build_fixture_with_graph
-cmds/build.rs#L1409  fn has_code
-cmds/build.rs#L1416  fn cli_build__d1_sort_hazard_non_monotonic_pins
-cmds/build.rs#L1448  fn cli_build__d2_floating_placeholder_unbound_lead
-cmds/build.rs#L1466  fn cli_build__d3_merged_short_same_physical_pin
-cmds/build.rs#L1488  fn cli_build__d3_no_fire_for_legit_fanout
-cmds/build.rs#L1529  fn cli_build__d5_same_name_group_redundant_ref_warns
-cmds/build.rs#L1568  fn cli_build__d5_same_name_group_short_ref_warns
-cmds/build.rs#L1603  fn cli_build__d5_same_name_group_single_ref_no_warn
-cmds/build.rs#L1635  fn cli_build__d5_same_name_group_single_side_fan_in_connects_pads
-cmds/build.rs#L1693  fn cli_build__arity_gate_noarg_method_with_args_not_dispatched
-cmds/build.rs#L1752  fn cli_build__d6_dropped_statement_indexed_alias
-cmds/build.rs#L1774  fn cli_build__d7_pullup_degenerate_signal_bridge
-cmds/build.rs#L1808  fn cli_build__d8_array_instance_bracket_reference_relinks
+cmds/build.rs#L71  fn write_build_products
+cmds/build.rs#L115  fn cli_entry
+cmds/build.rs#L122  fn run
+cmds/build.rs#L153  fn resolve_project_root
+cmds/build.rs#L192  fn viz_output_path
+cmds/build.rs#L199  fn run_rpc
+cmds/build.rs#L244  fn write_delegated_viz
+cmds/build.rs#L281  fn emit_build_result
+cmds/build.rs#L313  fn run_local
+cmds/build.rs#L777  fn build_failure_diag
+cmds/build.rs#L813  fn build_browse_dir
+cmds/build.rs#L1187  fn emit_gate_envelope
+cmds/build.rs#L1193  fn emit_err
+cmds/build.rs#L1202  fn build_viz_opts
+cmds/build.rs#L1223  mod phase0_golden
+cmds/build.rs#L1233  fn hbl_project
+cmds/build.rs#L1243  fn build_graph
+cmds/build.rs#L1264  fn render_signature
+cmds/build.rs#L1273  fn cli_build__determinism_render_twice
+cmds/build.rs#L1293  fn cli_build__determinism_two_builds
+cmds/build.rs#L1308  fn cli_build__golden_roundtrip_hbl
+cmds/build.rs#L1329  fn cli_build__metrics_hbl_smoke
+cmds/build.rs#L1350  mod d_detectors
+cmds/build.rs#L1355  static TEST_LOCK
+cmds/build.rs#L1359  fn build_fixture
+cmds/build.rs#L1379  fn build_fixture_or_panic
+cmds/build.rs#L1390  fn build_fixture_with_graph
+cmds/build.rs#L1410  fn has_code
+cmds/build.rs#L1417  fn cli_build__d1_sort_hazard_non_monotonic_pins
+cmds/build.rs#L1449  fn cli_build__d2_floating_placeholder_unbound_lead
+cmds/build.rs#L1467  fn cli_build__d3_merged_short_same_physical_pin
+cmds/build.rs#L1489  fn cli_build__d3_no_fire_for_legit_fanout
+cmds/build.rs#L1530  fn cli_build__d5_same_name_group_redundant_ref_warns
+cmds/build.rs#L1569  fn cli_build__d5_same_name_group_short_ref_warns
+cmds/build.rs#L1604  fn cli_build__d5_same_name_group_single_ref_no_warn
+cmds/build.rs#L1636  fn cli_build__d5_same_name_group_single_side_fan_in_connects_pads
+cmds/build.rs#L1694  fn cli_build__arity_gate_noarg_method_with_args_not_dispatched
+cmds/build.rs#L1753  fn cli_build__d6_dropped_statement_indexed_alias
+cmds/build.rs#L1775  fn cli_build__d7_pullup_degenerate_signal_bridge
+cmds/build.rs#L1809  fn cli_build__d8_array_instance_bracket_reference_relinks
 cmds/check.rs#L26  struct CheckOutcome
 cmds/check.rs#L34  struct CheckBatch
 cmds/check.rs#L44  fn check_one_world
@@ -878,10 +878,12 @@ cmds/explain.rs#L19  fn run
 cmds/explain.rs#L62  fn emit_explain
 cmds/explain.rs#L75  fn run_local
 cmds/export.rs#L22  fn run
-cmds/export.rs#L47  fn rpc_mapping
-cmds/export.rs#L64  fn run_local
-cmds/export.rs#L158  fn write_kicad_sch
-cmds/export.rs#L208  fn sanitize_stem
+cmds/export.rs#L54  fn effective_format
+cmds/export.rs#L65  fn emit_json
+cmds/export.rs#L77  fn rpc_mapping
+cmds/export.rs#L99  fn run_local
+cmds/export.rs#L191  fn write_kicad_sch
+cmds/export.rs#L241  fn sanitize_stem
 cmds/filter.rs#L18  type CompiledFilter
 cmds/filter.rs#L21  fn compile
 cmds/filter.rs#L27  fn apply_to_names
@@ -4075,17 +4077,16 @@ output/builder.rs#L59  fn set_view
 output/builder.rs#L64  fn set_viz
 output/builder.rs#L70  fn set_stage
 output/builder.rs#L75  fn set_query
-output/builder.rs#L80  fn set_export
-output/builder.rs#L86  fn set_ledger
-output/builder.rs#L93  fn set_projection
-output/builder.rs#L113  fn print_diagnostics_summary
-output/builder.rs#L165  fn error_count
-output/builder.rs#L183  fn finish
-output/builder.rs#L223  fn count_instances
-output/builder.rs#L240  mod tests
-output/builder.rs#L244  fn cli_outbuilder__empty_finish_has_zero_counts_and_some_elapsed
-output/builder.rs#L252  fn cli_outbuilder__pass2_instance_count_walks_subtree
-output/builder.rs#L289  fn cli_outbuilder__pass2_synthetic_wrapper_counts_as_zero
+output/builder.rs#L81  fn set_ledger
+output/builder.rs#L88  fn set_projection
+output/builder.rs#L108  fn print_diagnostics_summary
+output/builder.rs#L160  fn error_count
+output/builder.rs#L178  fn finish
+output/builder.rs#L218  fn count_instances
+output/builder.rs#L235  mod tests
+output/builder.rs#L239  fn cli_outbuilder__empty_finish_has_zero_counts_and_some_elapsed
+output/builder.rs#L247  fn cli_outbuilder__pass2_instance_count_walks_subtree
+output/builder.rs#L284  fn cli_outbuilder__pass2_synthetic_wrapper_counts_as_zero
 output/compact.rs#L28  fn render_entity
 output/compact.rs#L75  fn params
 output/compact.rs#L110  fn pins
@@ -4126,45 +4127,45 @@ output/envelope.rs#L88  fn build_error
 output/envelope.rs#L97  fn invalid_params
 output/envelope.rs#L106  fn internal_error
 output/envelope.rs#L118  struct CommandResult
-output/envelope.rs#L204  struct WorkspaceRef
-output/envelope.rs#L209  impl WorkspaceRef
-output/envelope.rs#L210  fn project
-output/envelope.rs#L220  enum WorkspaceKind
-output/envelope.rs#L234  struct Pass0Report
-output/envelope.rs#L242  struct Pass1Report
-output/envelope.rs#L248  impl Pass1Report
-output/envelope.rs#L258  fn merge
-output/envelope.rs#L280  fn same_diagnostic
-output/envelope.rs#L288  struct LoadedFile
-output/envelope.rs#L302  struct DefinitionsIndex
-output/envelope.rs#L312  impl DefinitionsIndex
-output/envelope.rs#L314  fn merge
-output/envelope.rs#L347  struct PortRef
-output/envelope.rs#L355  struct DefinitionRef
-output/envelope.rs#L363  struct Pass2Report
-output/envelope.rs#L381  struct InstanceNode
-output/envelope.rs#L402  struct PortInfo
-output/envelope.rs#L409  struct ComponentInfo
-output/envelope.rs#L418  struct PinInfo
-output/envelope.rs#L424  struct NetEntry
-output/envelope.rs#L433  struct ConnectionEntry
-output/envelope.rs#L451  struct ViewData
-output/envelope.rs#L463  struct VizData
-output/envelope.rs#L476  struct QueryData
-output/envelope.rs#L490  struct ExportData
-output/envelope.rs#L504  struct Summary
-output/envelope.rs#L518  struct Diagnostic
-output/envelope.rs#L535  enum Phase
-output/envelope.rs#L545  enum Severity
-output/envelope.rs#L553  struct DiagLocation
-output/envelope.rs#L569  struct DiagnosticSuggestion
-output/envelope.rs#L580  struct DiagnosticRelated
-output/envelope.rs#L588  mod tests
-output/envelope.rs#L592  fn cli_envelope__envelope_ok_minimal_serializes_clean
-output/envelope.rs#L610  fn cli_envelope__envelope_err_serializes_with_code
-output/envelope.rs#L619  fn cli_envelope__pass1_pass2_are_sibling_keys
-output/envelope.rs#L642  fn cli_envelope__merge_folds_a_shared_file_into_one_row
-output/envelope.rs#L643  fn world
+output/envelope.rs#L201  struct WorkspaceRef
+output/envelope.rs#L206  impl WorkspaceRef
+output/envelope.rs#L207  fn project
+output/envelope.rs#L217  enum WorkspaceKind
+output/envelope.rs#L231  struct Pass0Report
+output/envelope.rs#L239  struct Pass1Report
+output/envelope.rs#L245  impl Pass1Report
+output/envelope.rs#L255  fn merge
+output/envelope.rs#L277  fn same_diagnostic
+output/envelope.rs#L285  struct LoadedFile
+output/envelope.rs#L299  struct DefinitionsIndex
+output/envelope.rs#L309  impl DefinitionsIndex
+output/envelope.rs#L311  fn merge
+output/envelope.rs#L344  struct PortRef
+output/envelope.rs#L352  struct DefinitionRef
+output/envelope.rs#L360  struct Pass2Report
+output/envelope.rs#L378  struct InstanceNode
+output/envelope.rs#L399  struct PortInfo
+output/envelope.rs#L406  struct ComponentInfo
+output/envelope.rs#L415  struct PinInfo
+output/envelope.rs#L421  struct NetEntry
+output/envelope.rs#L430  struct ConnectionEntry
+output/envelope.rs#L448  struct ViewData
+output/envelope.rs#L460  struct VizData
+output/envelope.rs#L473  struct QueryData
+output/envelope.rs#L487  struct ExportData
+output/envelope.rs#L501  struct Summary
+output/envelope.rs#L515  struct Diagnostic
+output/envelope.rs#L532  enum Phase
+output/envelope.rs#L542  enum Severity
+output/envelope.rs#L550  struct DiagLocation
+output/envelope.rs#L566  struct DiagnosticSuggestion
+output/envelope.rs#L577  struct DiagnosticRelated
+output/envelope.rs#L585  mod tests
+output/envelope.rs#L589  fn cli_envelope__envelope_ok_minimal_serializes_clean
+output/envelope.rs#L607  fn cli_envelope__envelope_err_serializes_with_code
+output/envelope.rs#L616  fn cli_envelope__pass1_pass2_are_sibling_keys
+output/envelope.rs#L639  fn cli_envelope__merge_folds_a_shared_file_into_one_row
+output/envelope.rs#L640  fn world
 output/mod.rs#L17  mod builder
 output/mod.rs#L18  mod compact
 output/mod.rs#L19  mod diagnostic
@@ -4182,32 +4183,33 @@ output/mod.rs#L89  fn render_payload
 output/mod.rs#L94  fn emit_payload
 output/mod.rs#L126  fn emit_failure_envelope
 output/mod.rs#L172  fn emit_envelope
-output/mod.rs#L210  enum ProjectionKey
-output/mod.rs#L220  impl ProjectionKey
-output/mod.rs#L221  fn name
-output/mod.rs#L243  fn emit_projection
-output/mod.rs#L259  fn emit_projection_sub
-output/mod.rs#L269  fn emit_projection_as
-output/mod.rs#L290  fn emit_envelope_brief
-output/mod.rs#L312  fn render_envelope_brief
-output/mod.rs#L437  fn render_envelope_text
-output/mod.rs#L774  fn partition_defs
-output/mod.rs#L783  fn render_definition_space
-output/mod.rs#L822  fn render_table_instance_node
-output/mod.rs#L921  struct TreeTallies
-output/mod.rs#L938  fn is_system_uri
-output/mod.rs#L946  fn tally_tree
-output/mod.rs#L953  fn walk
-output/mod.rs#L1005  fn format_diagnostic
-output/mod.rs#L1024  fn write_out
-output/mod.rs#L1047  trait OutputFormatExt
-output/mod.rs#L1049  fn is_structured
-output/mod.rs#L1052  impl OutputFormatExt for OutputFormat
-output/mod.rs#L1053  fn is_structured
-output/mod.rs#L1062  mod tests
-output/mod.rs#L1067  fn cli_output__structured_check
-output/mod.rs#L1075  fn cli_output__text_renders_minimal_envelope
-output/mod.rs#L1090  fn cli_output__text_renders_error
+output/mod.rs#L199  fn emit_payload_json
+output/mod.rs#L229  enum ProjectionKey
+output/mod.rs#L239  impl ProjectionKey
+output/mod.rs#L240  fn name
+output/mod.rs#L262  fn emit_projection
+output/mod.rs#L278  fn emit_projection_sub
+output/mod.rs#L288  fn emit_projection_as
+output/mod.rs#L309  fn emit_envelope_brief
+output/mod.rs#L331  fn render_envelope_brief
+output/mod.rs#L450  fn render_envelope_text
+output/mod.rs#L781  fn partition_defs
+output/mod.rs#L790  fn render_definition_space
+output/mod.rs#L829  fn render_table_instance_node
+output/mod.rs#L928  struct TreeTallies
+output/mod.rs#L945  fn is_system_uri
+output/mod.rs#L953  fn tally_tree
+output/mod.rs#L960  fn walk
+output/mod.rs#L1012  fn format_diagnostic
+output/mod.rs#L1031  fn write_out
+output/mod.rs#L1054  trait OutputFormatExt
+output/mod.rs#L1056  fn is_structured
+output/mod.rs#L1059  impl OutputFormatExt for OutputFormat
+output/mod.rs#L1060  fn is_structured
+output/mod.rs#L1069  mod tests
+output/mod.rs#L1074  fn cli_output__structured_check
+output/mod.rs#L1082  fn cli_output__text_renders_minimal_envelope
+output/mod.rs#L1097  fn cli_output__text_renders_error
 output/net_check.rs#L22  fn render_section
 output/renderer.rs#L10  trait OutputRenderer
 output/renderer.rs#L11  fn pass1_header
@@ -11236,4 +11238,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-406 files, 11153 declarations.
+406 files, 11155 declarations.
