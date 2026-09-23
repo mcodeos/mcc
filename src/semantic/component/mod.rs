@@ -580,9 +580,18 @@ impl McComponent {
                             }
                             block_pins
                         });
-                        let has_conditional_pins =
-                            if_pin_blocks.iter().any(|(_, block)| block.count() > 0)
-                                || else_pins.as_ref().is_some_and(|block| block.count() > 0);
+                        // U230: a branch of param-domain rows alone
+                        // (`1:cols = 1:cols`) counts zero static pins but is
+                        // still a conditional pin block — its rows expand at
+                        // instantiation. Dropping it here left such a chain
+                        // with no CondPins entry at all, so the instance-side
+                        // expansion (mc_comp `init_cond_pins`) never ran.
+                        let has_conditional_pins = if_pin_blocks
+                            .iter()
+                            .any(|(_, block)| block.count() > 0 || block.has_dynamic_pins())
+                            || else_pins
+                                .as_ref()
+                                .is_some_and(|block| block.count() > 0 || block.has_dynamic_pins());
                         if has_conditional_pins {
                             cond_pins.push(CondPins {
                                 if_blocks: if_pin_blocks,

@@ -67,13 +67,13 @@ range (threshold 40KB).
 | `db/` | 28 | 930 KB |
 | `eval/` | 2 | 50 KB |
 | `export/` | 7 | 183 KB |
-| `instant/` | 40 | 1592 KB |
+| `instant/` | 40 | 1594 KB |
 | `lsp/` | 7 | 66 KB |
 | `output/` | 7 | 107 KB |
 | `query/` | 9 | 161 KB |
 | `refdef/` | 7 | 118 KB |
 | `rpc/` | 16 | 302 KB |
-| `semantic/` | 91 | 2704 KB |
+| `semantic/` | 91 | 2705 KB |
 | `stages/` | 12 | 321 KB |
 | `vector/` | 25 | 476 KB |
 | `viz/` | 97 | 2451 KB |
@@ -3038,41 +3038,42 @@ instant/mc_comp.rs#L267  fn set_nc_pins
 instant/mc_comp.rs#L277  fn init_pins
 instant/mc_comp.rs#L313  fn init_call_pin_rows
 instant/mc_comp.rs#L330  fn init_cond_pins
-instant/mc_comp.rs#L423  fn init_cond_errors
-instant/mc_comp.rs#L480  fn attrs_of_pin
-instant/mc_comp.rs#L490  fn init_cond_attrs
-instant/mc_comp.rs#L549  fn condition_reads_unreduced_param
-instant/mc_comp.rs#L573  fn init_resolved_attrs
-instant/mc_comp.rs#L591  fn resolve_attr_value
-instant/mc_comp.rs#L651  fn lookup_param_value
-instant/mc_comp.rs#L703  fn resolve_expr_to_literal
-instant/mc_comp.rs#L754  fn resolve_expr_to_int
-instant/mc_comp.rs#L767  fn resolve_expr_to_value
-instant/mc_comp.rs#L797  fn apply_operands
-instant/mc_comp.rs#L806  fn init_dynamic_pins
-instant/mc_comp.rs#L857  fn get_param_bindings
-instant/mc_comp.rs#L902  fn find_conditional_pin_id
-instant/mc_comp.rs#L919  fn pin_name
-instant/mc_comp.rs#L934  fn get_pin
-instant/mc_comp.rs#L944  fn get_left_pin
-instant/mc_comp.rs#L969  fn get_right_pin
-instant/mc_comp.rs#L998  fn get_input_pins
-instant/mc_comp.rs#L1005  fn get_output_pins
-instant/mc_comp.rs#L1010  fn get_power_pins
-instant/mc_comp.rs#L1018  fn get_pins_by_io
-instant/mc_comp.rs#L1029  fn get_pins_grouped
-instant/mc_comp.rs#L1059  fn get_all_pins
-instant/mc_comp.rs#L1069  fn sorted_pin_ids
-instant/mc_comp.rs#L1076  fn is_two_port
-instant/mc_comp.rs#L1081  fn is_multi_pin
-instant/mc_comp.rs#L1089  fn has_io_annotations
-instant/mc_comp.rs#L1096  fn pin_count
-instant/mc_comp.rs#L1139  fn find_bus_port_pin_ids
-instant/mc_comp.rs#L1412  fn pin_id_cmp
-instant/mc_comp.rs#L1428  fn natural_cmp
-instant/mc_comp.rs#L1469  fn numeric_str_cmp
-instant/mc_comp.rs#L1478  impl std::fmt::Display for McComponentInst
-instant/mc_comp.rs#L1479  fn fmt
+instant/mc_comp.rs#L449  fn init_cond_errors
+instant/mc_comp.rs#L506  fn attrs_of_pin
+instant/mc_comp.rs#L516  fn init_cond_attrs
+instant/mc_comp.rs#L575  fn condition_reads_unreduced_param
+instant/mc_comp.rs#L599  fn init_resolved_attrs
+instant/mc_comp.rs#L617  fn resolve_attr_value
+instant/mc_comp.rs#L677  fn lookup_param_value
+instant/mc_comp.rs#L729  fn resolve_expr_to_literal
+instant/mc_comp.rs#L780  fn resolve_expr_to_int
+instant/mc_comp.rs#L793  fn resolve_expr_to_value
+instant/mc_comp.rs#L823  fn apply_operands
+instant/mc_comp.rs#L832  fn init_dynamic_pins
+instant/mc_comp.rs#L862  fn expand_dynamic_line
+instant/mc_comp.rs#L902  fn get_param_bindings
+instant/mc_comp.rs#L947  fn find_conditional_pin_id
+instant/mc_comp.rs#L964  fn pin_name
+instant/mc_comp.rs#L979  fn get_pin
+instant/mc_comp.rs#L989  fn get_left_pin
+instant/mc_comp.rs#L1014  fn get_right_pin
+instant/mc_comp.rs#L1043  fn get_input_pins
+instant/mc_comp.rs#L1050  fn get_output_pins
+instant/mc_comp.rs#L1055  fn get_power_pins
+instant/mc_comp.rs#L1063  fn get_pins_by_io
+instant/mc_comp.rs#L1074  fn get_pins_grouped
+instant/mc_comp.rs#L1104  fn get_all_pins
+instant/mc_comp.rs#L1114  fn sorted_pin_ids
+instant/mc_comp.rs#L1121  fn is_two_port
+instant/mc_comp.rs#L1126  fn is_multi_pin
+instant/mc_comp.rs#L1134  fn has_io_annotations
+instant/mc_comp.rs#L1141  fn pin_count
+instant/mc_comp.rs#L1184  fn find_bus_port_pin_ids
+instant/mc_comp.rs#L1457  fn pin_id_cmp
+instant/mc_comp.rs#L1473  fn natural_cmp
+instant/mc_comp.rs#L1514  fn numeric_str_cmp
+instant/mc_comp.rs#L1523  impl std::fmt::Display for McComponentInst
+instant/mc_comp.rs#L1524  fn fmt
 instant/mc_mod/builder.rs#L71  struct InstantiationBuilder
 instant/mc_mod/builder.rs#L200  impl Deref for InstantiationBuilder
 instant/mc_mod/builder.rs#L201  type Target
@@ -6265,45 +6266,45 @@ semantic/component/mod.rs#L211  fn has_pin_defs
 semantic/component/mod.rs#L225  fn two_pin_verdict
 semantic/component/mod.rs#L238  fn new
 semantic/component/mod.rs#L426  fn parse_cond_blocks
-semantic/component/mod.rs#L684  fn collect_param_refs_in_body
-semantic/component/mod.rs#L692  fn collect_param_refs_in_node
-semantic/component/mod.rs#L738  impl HasFindInst for McComponent
-semantic/component/mod.rs#L739  fn find_inst
-semantic/component/mod.rs#L743  fn find_inst_mut
-semantic/component/mod.rs#L747  fn find_inst_with_span
-semantic/component/mod.rs#L761  fn find_terminal
-semantic/component/mod.rs#L767  fn add_label_at
-semantic/component/mod.rs#L777  fn add_bus
-semantic/component/mod.rs#L783  fn add_list
-semantic/component/mod.rs#L789  fn add_bus_member
-semantic/component/mod.rs#L793  fn add_interface_member
-semantic/component/mod.rs#L802  fn check_bus_member
-semantic/component/mod.rs#L809  fn is_component_bus
-semantic/component/mod.rs#L813  fn uri
-semantic/component/mod.rs#L817  fn parse_declare
-semantic/component/mod.rs#L837  fn add_component
-semantic/component/mod.rs#L852  fn add_module
-semantic/component/mod.rs#L860  fn gen_anon_name
-semantic/component/mod.rs#L871  fn upgrade_label_to_bus
-semantic/component/mod.rs#L875  fn record_declareb_def
-semantic/component/mod.rs#L884  fn scope_name
-semantic/component/mod.rs#L890  struct Mc2Component
-semantic/component/mod.rs#L905  impl std::fmt::Display for McComponent
-semantic/component/mod.rs#L906  fn fmt
-semantic/component/mod.rs#L912  impl Mc2Component
-semantic/component/mod.rs#L913  fn new
-semantic/component/mod.rs#L924  fn with_nc
-semantic/component/mod.rs#L935  fn with_params
-semantic/component/mod.rs#L950  fn integer_param_bindings
-semantic/component/mod.rs#L974  fn pins_contain
-semantic/component/mod.rs#L989  fn find_pin
-semantic/component/mod.rs#L1054  fn resolved_pin_count
-semantic/component/mod.rs#L1068  fn find_port
-semantic/component/mod.rs#L1082  fn port_to_instance
-semantic/component/mod.rs#L1118  fn find_scoped_enum_value
-semantic/component/mod.rs#L1153  fn lookup_enum_class_id
-semantic/component/mod.rs#L1160  impl std::fmt::Display for Mc2Component
-semantic/component/mod.rs#L1161  fn fmt
+semantic/component/mod.rs#L693  fn collect_param_refs_in_body
+semantic/component/mod.rs#L701  fn collect_param_refs_in_node
+semantic/component/mod.rs#L747  impl HasFindInst for McComponent
+semantic/component/mod.rs#L748  fn find_inst
+semantic/component/mod.rs#L752  fn find_inst_mut
+semantic/component/mod.rs#L756  fn find_inst_with_span
+semantic/component/mod.rs#L770  fn find_terminal
+semantic/component/mod.rs#L776  fn add_label_at
+semantic/component/mod.rs#L786  fn add_bus
+semantic/component/mod.rs#L792  fn add_list
+semantic/component/mod.rs#L798  fn add_bus_member
+semantic/component/mod.rs#L802  fn add_interface_member
+semantic/component/mod.rs#L811  fn check_bus_member
+semantic/component/mod.rs#L818  fn is_component_bus
+semantic/component/mod.rs#L822  fn uri
+semantic/component/mod.rs#L826  fn parse_declare
+semantic/component/mod.rs#L846  fn add_component
+semantic/component/mod.rs#L861  fn add_module
+semantic/component/mod.rs#L869  fn gen_anon_name
+semantic/component/mod.rs#L880  fn upgrade_label_to_bus
+semantic/component/mod.rs#L884  fn record_declareb_def
+semantic/component/mod.rs#L893  fn scope_name
+semantic/component/mod.rs#L899  struct Mc2Component
+semantic/component/mod.rs#L914  impl std::fmt::Display for McComponent
+semantic/component/mod.rs#L915  fn fmt
+semantic/component/mod.rs#L921  impl Mc2Component
+semantic/component/mod.rs#L922  fn new
+semantic/component/mod.rs#L933  fn with_nc
+semantic/component/mod.rs#L944  fn with_params
+semantic/component/mod.rs#L959  fn integer_param_bindings
+semantic/component/mod.rs#L983  fn pins_contain
+semantic/component/mod.rs#L998  fn find_pin
+semantic/component/mod.rs#L1063  fn resolved_pin_count
+semantic/component/mod.rs#L1077  fn find_port
+semantic/component/mod.rs#L1091  fn port_to_instance
+semantic/component/mod.rs#L1127  fn find_scoped_enum_value
+semantic/component/mod.rs#L1162  fn lookup_enum_class_id
+semantic/component/mod.rs#L1169  impl std::fmt::Display for Mc2Component
+semantic/component/mod.rs#L1170  fn fmt
 semantic/context.rs#L26  fn resolve_cmie
 semantic/context.rs#L39  trait NameResolver
 semantic/context.rs#L42  fn resolve
@@ -11192,4 +11193,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-406 files, 11109 declarations.
+406 files, 11110 declarations.
