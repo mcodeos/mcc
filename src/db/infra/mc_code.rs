@@ -3522,8 +3522,7 @@ impl McCode {
             match k {
                 McParamTypeKind::Label | McParamTypeKind::Idx => SymbolKind::LabelDef,
                 McParamTypeKind::Interface { .. }
-                | McParamTypeKind::InterfaceWithRole { .. }
-                | McParamTypeKind::ComponentInstance { .. } => SymbolKind::PortDef,
+                | McParamTypeKind::InterfaceWithRole { .. } => SymbolKind::PortDef,
                 McParamTypeKind::Unknown => SymbolKind::UnknownDef,
                 _ => SymbolKind::ParamDef,
             }

@@ -130,9 +130,6 @@ pub enum McParamTypeKind {
         /// the `2` here — the mixed-arg escape, U144).
         literals: Vec<String>,
     },
-    /// A5: component-instance typed with inline attributes
-    ComponentInstance { class_name: String },
-
     // ── Category B: Numeric Values ──
     // Explicitly Annotated — has physical unit type
     /// B1: physical unit typed — `id::UV.VOLT`, `id::UV.CAP`, ...
@@ -381,7 +378,6 @@ impl McParamType {
         let mut role_val = String::new();
         let mut literals: Vec<String> = Vec::new();
         let mut params: Vec<String> = Vec::new();
-        let mut has_inline_attrs = false;
 
         if let Some(first_child) = node.get_sub_node() {
             for child in first_child.iter() {
@@ -409,11 +405,9 @@ impl McParamType {
                                             // Inline attribute argument: `id::Class(k = v)`.
                                             // The grammar wraps it as
                                             // MCAST_PARAMS > MCAST_PARAM > MCAST_ATTRIBUTE, i.e.
-                                            // NOT as a direct child of MCAST_CLASS — so the
-                                            // `MCAST_BODY` arm above never sees it. Detect it
-                                            // here, otherwise the declaration falls through to
-                                            // `Interface` and the attributes are dropped with
-                                            // no diagnostic (E3112 is raised by the caller).
+                                            // NOT as a direct child of MCAST_CLASS. It is not a
+                                            // constructor arg — skip it (the former A5
+                                            // component-instance arm retired with E3112, U271).
                                             if param.get_type() == MCAST_ATTRIBUTE
                                                 || param
                                                     .get_sub_node()
@@ -423,7 +417,6 @@ impl McParamType {
                                                     })
                                                     .unwrap_or(false)
                                             {
-                                                has_inline_attrs = true;
                                                 continue;
                                             }
                                             if let Some(ids) = McIds::new(&param) {
@@ -455,9 +448,6 @@ impl McParamType {
                             }
                         }
                     }
-                    MCAST_BODY => {
-                        has_inline_attrs = true;
-                    }
                     _ => {}
                 }
             }
@@ -467,12 +457,7 @@ impl McParamType {
             return Self::unknown();
         }
 
-        if has_inline_attrs {
-            Self {
-                kind: McParamTypeKind::ComponentInstance { class_name },
-                direction: None,
-            }
-        } else if has_role_arg {
+        if has_role_arg {
             Self {
                 kind: McParamTypeKind::InterfaceWithRole {
                     class_name,
@@ -599,7 +584,6 @@ impl McParamType {
                 | McParamTypeKind::Idx
                 | McParamTypeKind::Interface { .. }
                 | McParamTypeKind::InterfaceWithRole { .. }
-                | McParamTypeKind::ComponentInstance { .. }
         )
     }
 
@@ -623,7 +607,6 @@ impl McParamType {
             McParamTypeKind::Idx => "A2-IDX",
             McParamTypeKind::Interface { .. } => "A3-Interface",
             McParamTypeKind::InterfaceWithRole { .. } => "A4-Interface+Role",
-            McParamTypeKind::ComponentInstance { .. } => "A5-Component+Attrs",
             McParamTypeKind::UnitValue { .. } => "B1-UnitValue",
             McParamTypeKind::UnitValueDefault { .. } => "B2-UnitValue+Default",
             McParamTypeKind::CompoundUnit { .. } => "B4-CompoundUnit",

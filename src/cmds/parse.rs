@@ -1350,7 +1350,6 @@ fn param_cls(d: &McParamDeclare) -> Option<String> {
         McParamTypeKind::EnumClassDefault { class_name, .. } => Some(class_name.clone()),
         McParamTypeKind::Interface { class_name, .. } => Some(class_name.clone()),
         McParamTypeKind::InterfaceWithRole { class_name, .. } => Some(class_name.clone()),
-        McParamTypeKind::ComponentInstance { class_name } => Some(class_name.clone()),
         McParamTypeKind::BasicString { .. } => Some("STRING".into()),
         McParamTypeKind::BasicInt { .. } => Some("INT".into()),
         McParamTypeKind::BasicHex { .. } => Some("HEX".into()),
