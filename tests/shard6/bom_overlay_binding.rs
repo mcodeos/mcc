@@ -6,7 +6,8 @@
 //! mc-carrier rework U267①): a key binds an abstract slot to a `:` descendant
 //! variant (the class name rides the variant, the unselected W clears,
 //! 5067/5068 stay silent), and every failed shape reports — value not a
-//! descendant (E5067), value unresolved (E5067), key on a concrete instance
+//! descendant (E5067), value unresolved (E5067), value naming the base
+//! itself (①a, E5067), cross-family variant (①b, E5067), key on a concrete instance
 //! (b2 E5068 Error), key repeating the concrete class (b1 E5068 Warning),
 //! duplicate key same value (b1 W), duplicate key conflicting values (b2 E),
 //! dangling key (b3 E5068), header top mismatch (all rows dangle into b3),
@@ -44,6 +45,11 @@ component OTHER.THING
         in 1 = A
         out 2 = Y
     ]
+}
+
+component OTHER.V2 : OTHER.THING
+{
+    partno = "OT-V2"
 }
 
 module BOARD
@@ -171,6 +177,32 @@ fn bomovl__value_not_descendant_fires_5067() {
 fn bomovl__value_unresolved_fires_5067() {
     let (_, diags) = build_with(Some(&overlay_block(
         "    b.slot = PART.NOPE\n",
+    )));
+    assert_eq!(
+        count_code(&diags, mcc::errcodes::BOM_OVERLAY_VALUE_NOT_DESCENDANT),
+        1
+    );
+}
+
+/// ①a: naming the abstract base itself resolves but is no selection — the
+/// row would leave the slot dangling under a concrete name, so E5067 fires.
+#[test]
+fn bomovl__value_naming_the_base_itself_fires_5067() {
+    let (_, diags) = build_with(Some(&overlay_block(
+        "    b.slot = PART.SHAPE\n",
+    )));
+    assert_eq!(
+        count_code(&diags, mcc::errcodes::BOM_OVERLAY_VALUE_NOT_DESCENDANT),
+        1
+    );
+}
+
+/// ①b: a variant of another base is a real selection for the wrong slot —
+/// E5067 fires and the slot keeps its declared base.
+#[test]
+fn bomovl__value_cross_family_variant_fires_5067() {
+    let (_, diags) = build_with(Some(&overlay_block(
+        "    b.slot = OTHER.V2\n",
     )));
     assert_eq!(
         count_code(&diags, mcc::errcodes::BOM_OVERLAY_VALUE_NOT_DESCENDANT),
