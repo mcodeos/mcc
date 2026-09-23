@@ -514,12 +514,17 @@ pub fn validate_inst_reference(
     // using the component's own pin table
     // to resolve interface sub-pins (ADC.P / ADC.N), going through the same
     // validate_* system as mic{1,2}/MIC{P,N}, not depending on module-side add_interface_member.
-    if ids.as_bus().is_none() {
-        if let Some((component, interface, members)) = ids.as_component_member() {
-            if context.find_inst(&component).is_some() {
-                return validate_component_interface_ref(
-                    &component, &interface, &members, context, node,
-                );
+    // U249: `uC{ADC.P}` (curly member itself a dot chain) joins this reading
+    // through the same `as_component_member` arm, so all three spellings
+    // (`uC.ADC.P` / `uC.ADC{P}` / `uC{ADC.P}`) land in the same validator.
+    // The intercept falls through when the component-side validation yields
+    // nothing, leaving the plain bus reading intact.
+    if let Some((component, interface, members)) = ids.as_component_member() {
+        if context.find_inst(&component).is_some() {
+            if let Some(phrase) =
+                validate_component_interface_ref(&component, &interface, &members, context, node)
+            {
+                return Some(phrase);
             }
         }
     }
