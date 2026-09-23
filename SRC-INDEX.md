@@ -31,7 +31,7 @@ range (threshold 40KB).
 | File | Size | Declarations |
 |---|---|---|
 | `viz/layout/equipotential_tree.rs` | 409 KB | 203 |
-| `db/infra/mc_code.rs` | 367 KB | 106 |
+| `db/infra/mc_code.rs` | 377 KB | 110 |
 | `semantic/basic/mc_phrase.rs` | 338 KB | 80 |
 | `semantic/component/mc_pins/mod.rs` | 236 KB | 109 |
 | `semantic/validation/nets/mod.rs` | 205 KB | 134 |
@@ -64,14 +64,14 @@ range (threshold 40KB).
 | `builder/` | 1 | 0 KB |
 | `cli/` | 7 | 113 KB |
 | `cmds/` | 28 | 502 KB |
-| `db/` | 28 | 986 KB |
+| `db/` | 28 | 1000 KB |
 | `eval/` | 2 | 50 KB |
 | `export/` | 7 | 183 KB |
 | `instant/` | 41 | 1623 KB |
 | `lsp/` | 7 | 68 KB |
 | `output/` | 7 | 107 KB |
 | `query/` | 9 | 163 KB |
-| `refdef/` | 7 | 120 KB |
+| `refdef/` | 7 | 123 KB |
 | `rpc/` | 16 | 306 KB |
 | `semantic/` | 91 | 2746 KB |
 | `stages/` | 12 | 323 KB |
@@ -474,24 +474,24 @@ bin/mcviz.rs#L209  fn build_opts
 bin/mcviz.rs#L230  fn print_usage
 bin/mcviz.rs#L250  fn find_entry_uri
 build/loader.rs#L21  fn mcb_add
-build/loader.rs#L70  fn mcb_add_from_string
-build/loader.rs#L149  static CURRENT_LIB_NAME
-build/loader.rs#L152  static LIB_FILES_PARSED
-build/loader.rs#L155  static LAST_PROGRESS_LEN
-build/loader.rs#L158  fn set_current_lib
-build/loader.rs#L168  fn print_lib_progress
-build/loader.rs#L193  fn clear_lib_progress
-build/loader.rs#L218  fn mcb_add_recursive
-build/loader.rs#L395  struct BuildEntry
-build/loader.rs#L430  fn discover_entries
-build/loader.rs#L470  fn walk_entries
-build/loader.rs#L515  fn absolute
-build/loader.rs#L526  fn collect_mc_files
-build/loader.rs#L527  fn walk
-build/loader.rs#L553  fn mcb_loaded_file_count
-build/loader.rs#L559  fn mcb_print_loaded_files
-build/loader.rs#L565  fn mcb_remove
-build/loader.rs#L610  fn remove_defines
+build/loader.rs#L74  fn mcb_add_from_string
+build/loader.rs#L153  static CURRENT_LIB_NAME
+build/loader.rs#L156  static LIB_FILES_PARSED
+build/loader.rs#L159  static LAST_PROGRESS_LEN
+build/loader.rs#L162  fn set_current_lib
+build/loader.rs#L172  fn print_lib_progress
+build/loader.rs#L197  fn clear_lib_progress
+build/loader.rs#L222  fn mcb_add_recursive
+build/loader.rs#L399  struct BuildEntry
+build/loader.rs#L434  fn discover_entries
+build/loader.rs#L474  fn walk_entries
+build/loader.rs#L519  fn absolute
+build/loader.rs#L530  fn collect_mc_files
+build/loader.rs#L531  fn walk
+build/loader.rs#L557  fn mcb_loaded_file_count
+build/loader.rs#L563  fn mcb_print_loaded_files
+build/loader.rs#L569  fn mcb_remove
+build/loader.rs#L614  fn remove_defines
 build/mod.rs#L2  mod loader
 build/mod.rs#L3  mod pass1
 build/mod.rs#L4  mod pass2
@@ -2219,54 +2219,58 @@ db/infra/mc_code.rs#L2630  fn with_def_file_gt
 db/infra/mc_code.rs#L2668  fn class_def_name
 db/infra/mc_code.rs#L2688  fn enum_value_def_name
 db/infra/mc_code.rs#L2719  fn consolidate_ref_def_map
-db/infra/mc_code.rs#L3279  fn uris_same_file
-db/infra/mc_code.rs#L3308  fn create_lapper
-db/infra/mc_code.rs#L3492  fn upgrade_unknown_defs
-db/infra/mc_code.rs#L3617  fn resolve_class_ref_at_span
-db/infra/mc_code.rs#L3685  fn lapper_global_classes
-db/infra/mc_code.rs#L3988  fn lapper_instance_decls_and_refs
-db/infra/mc_code.rs#L4131  fn lapper_interfaces
-db/infra/mc_code.rs#L4298  fn lapper_module_ports
-db/infra/mc_code.rs#L4658  fn chain_def_scope
-db/infra/mc_code.rs#L4676  fn register_chain_base_ref
-db/infra/mc_code.rs#L4727  fn lapper_function_params
-db/infra/mc_code.rs#L4866  fn lapper_component_defs_register
-db/infra/mc_code.rs#L5009  fn lapper_component_defs
-db/infra/mc_code.rs#L5299  fn lapper_component_func_pin_refs
-db/infra/mc_code.rs#L5404  fn find_enum_class_cross_file
-db/infra/mc_code.rs#L5480  fn lapper_enum_refs
-db/infra/mc_code.rs#L5677  fn lapper_scoped_enum_bare_refs
-db/infra/mc_code.rs#L5827  fn build_scope_walk
-db/infra/mc_code.rs#L5934  fn lapper_func_define_role
-db/infra/mc_code.rs#L6305  fn extract_class_name
-db/infra/mc_code.rs#L6339  fn extract_chain_base_instance
-db/infra/mc_code.rs#L6391  fn find_instance_class_name
-db/infra/mc_code.rs#L6416  fn dlog_parser_message
-db/infra/mc_code.rs#L6464  fn extract_dot_pair
-db/infra/mc_code.rs#L6507  mod tests
-db/infra/mc_code.rs#L6525  fn def_mccode__func_entries_mirror_host_funcs_across_reload
-db/infra/mc_code.rs#L6738  fn def_mccode__declareb_inline_inst_registers_lsp_declaration
-db/infra/mc_code.rs#L6839  fn def_mccode__module_member_chain_refs_resolve_in_lapper
-db/infra/mc_code.rs#L6936  fn def_mccode__fcall_chain_member_resolves_to_instance_pin
-db/infra/mc_code.rs#L7024  fn def_mccode__position_hover_resolves_same_name_enum_and_component
-db/infra/mc_code.rs#L7031  enum CAP
-db/infra/mc_code.rs#L7095  fn def_mccode__position_goto_def_resolves_same_name_enum_and_component
-db/infra/mc_code.rs#L7102  enum CAP
-db/infra/mc_code.rs#L7151  fn def_mccode__completion_keeps_same_name_enum_and_component_candidates
-db/infra/mc_code.rs#L7158  enum CAP
-db/infra/mc_code.rs#L7219  fn def_mccode__ref_def_map_entries_carry_ast_def_names
-db/infra/mc_code.rs#L7329  fn def_mccode__visibility_table_matches_import_forms
-db/infra/mc_code.rs#L7507  fn def_mccode__refgraph_records_cross_file_resolution_edges
-db/infra/mc_code.rs#L7590  fn def_mccode__refgraph_edges_survive_reparse_without_stale_hits
-db/infra/mc_code.rs#L7644  fn refgraph_two_file_project
-db/infra/mc_code.rs#L7674  fn refgraph_edge_pair
-db/infra/mc_code.rs#L7693  fn def_mccode__refgraph_locked_resolution_records_edges
-db/infra/mc_code.rs#L7727  fn def_mccode__refgraph_declare_class_registration_records_edges
-db/infra/mc_code.rs#L7752  fn def_mccode__refgraph_gotodef_records_edges
-db/infra/mc_code.rs#L7782  fn def_defres__func_local_declaration_shadows_container_name_in_the_index
-db/infra/mc_code.rs#L7859  fn def_mccode__parse_level_reparse_diff_reports_edited_def_only
-db/infra/mc_code.rs#L7938  fn def_mccode__module_port_ledger_stable_across_mid_insert_reparse
-db/infra/mc_code.rs#L8011  fn def_mccode__alias_p4_name_index_and_gotodef_agree_with_phase6
+db/infra/mc_code.rs#L3282  fn uris_same_file
+db/infra/mc_code.rs#L3311  fn create_lapper
+db/infra/mc_code.rs#L3495  fn upgrade_unknown_defs
+db/infra/mc_code.rs#L3620  fn resolve_class_ref_at_span
+db/infra/mc_code.rs#L3688  fn lapper_global_classes
+db/infra/mc_code.rs#L3991  fn lapper_instance_decls_and_refs
+db/infra/mc_code.rs#L4134  fn lapper_interfaces
+db/infra/mc_code.rs#L4301  fn lapper_module_ports
+db/infra/mc_code.rs#L4661  fn chain_def_scope
+db/infra/mc_code.rs#L4679  fn register_chain_base_ref
+db/infra/mc_code.rs#L4730  fn lapper_function_params
+db/infra/mc_code.rs#L4869  fn lapper_component_defs_register
+db/infra/mc_code.rs#L5012  fn lapper_component_defs
+db/infra/mc_code.rs#L5302  fn lapper_component_func_pin_refs
+db/infra/mc_code.rs#L5407  fn find_enum_class_cross_file
+db/infra/mc_code.rs#L5483  fn lapper_enum_refs
+db/infra/mc_code.rs#L5680  fn lapper_scoped_enum_bare_refs
+db/infra/mc_code.rs#L5830  fn build_scope_walk
+db/infra/mc_code.rs#L5937  fn lapper_func_define_role
+db/infra/mc_code.rs#L6308  fn extract_class_name
+db/infra/mc_code.rs#L6342  fn extract_chain_base_instance
+db/infra/mc_code.rs#L6394  fn find_instance_class_name
+db/infra/mc_code.rs#L6419  fn dlog_parser_message
+db/infra/mc_code.rs#L6467  fn extract_dot_pair
+db/infra/mc_code.rs#L6510  mod tests
+db/infra/mc_code.rs#L6528  fn def_mccode__func_entries_mirror_host_funcs_across_reload
+db/infra/mc_code.rs#L6741  fn def_mccode__declareb_inline_inst_registers_lsp_declaration
+db/infra/mc_code.rs#L6842  fn def_mccode__module_member_chain_refs_resolve_in_lapper
+db/infra/mc_code.rs#L6939  fn def_mccode__fcall_chain_member_resolves_to_instance_pin
+db/infra/mc_code.rs#L7027  fn def_mccode__position_hover_resolves_same_name_enum_and_component
+db/infra/mc_code.rs#L7034  enum CAP
+db/infra/mc_code.rs#L7098  fn def_mccode__position_goto_def_resolves_same_name_enum_and_component
+db/infra/mc_code.rs#L7105  enum CAP
+db/infra/mc_code.rs#L7154  fn def_mccode__completion_keeps_same_name_enum_and_component_candidates
+db/infra/mc_code.rs#L7161  enum CAP
+db/infra/mc_code.rs#L7222  fn def_mccode__ref_def_map_entries_carry_ast_def_names
+db/infra/mc_code.rs#L7332  fn def_mccode__visibility_table_matches_import_forms
+db/infra/mc_code.rs#L7510  fn def_mccode__refgraph_records_cross_file_resolution_edges
+db/infra/mc_code.rs#L7593  fn def_mccode__refgraph_edges_survive_reparse_without_stale_hits
+db/infra/mc_code.rs#L7647  fn refgraph_two_file_project
+db/infra/mc_code.rs#L7677  fn refgraph_edge_pair
+db/infra/mc_code.rs#L7696  fn def_mccode__refgraph_locked_resolution_records_edges
+db/infra/mc_code.rs#L7730  fn def_mccode__refgraph_declare_class_registration_records_edges
+db/infra/mc_code.rs#L7755  fn def_mccode__refgraph_gotodef_records_edges
+db/infra/mc_code.rs#L7782  fn refgraph_inst_label_project
+db/infra/mc_code.rs#L7819  fn def_mccode__refgraph_whitelisted_def_to_refs_entries_are_edge_backed
+db/infra/mc_code.rs#L7876  fn def_mccode__find_at_graph_prefilter_matches_the_full_scan
+db/infra/mc_code.rs#L7989  fn def_mccode__refgraph_readd_keeps_freshly_recorded_edges
+db/infra/mc_code.rs#L8018  fn def_defres__func_local_declaration_shadows_container_name_in_the_index
+db/infra/mc_code.rs#L8095  fn def_mccode__parse_level_reparse_diff_reports_edited_def_only
+db/infra/mc_code.rs#L8174  fn def_mccode__module_port_ledger_stable_across_mid_insert_reparse
+db/infra/mc_code.rs#L8247  fn def_mccode__alias_p4_name_index_and_gotodef_agree_with_phase6
 db/infra/mc_use.rs#L15  enum McUsePrefix
 db/infra/mc_use.rs#L22  impl std::fmt::Display for McUsePrefix
 db/infra/mc_use.rs#L23  fn fmt
@@ -2319,29 +2323,31 @@ db/mod.rs#L12  mod infra
 db/mod.rs#L13  mod refgraph
 db/mod.rs#L14  mod resolve
 db/mod.rs#L15  mod symbol
-db/refgraph.rs#L51  struct DefRefGraph
-db/refgraph.rs#L56  impl DefRefGraph
-db/refgraph.rs#L57  fn new
-db/refgraph.rs#L64  fn record
-db/refgraph.rs#L78  fn referenced
-db/refgraph.rs#L85  fn dependents
-db/refgraph.rs#L91  fn has_dependents
-db/refgraph.rs#L100  fn def_id_of
-db/refgraph.rs#L110  fn dependents_of
-db/refgraph.rs#L120  fn has_dependents_of
-db/refgraph.rs#L129  fn out_pairs
-db/refgraph.rs#L136  fn clear
-db/refgraph.rs#L149  fn purge_file
-db/refgraph.rs#L156  fn purge_files
-db/refgraph.rs#L166  fn purge_side
-db/refgraph.rs#L177  mod tests
-db/refgraph.rs#L181  fn sn
-db/refgraph.rs#L189  fn def_refgraph__records_out_and_rev_edges
-db/refgraph.rs#L218  fn def_refgraph__purge_file_drops_edges_touching_the_uri
-db/refgraph.rs#L252  fn def_refgraph__purge_files_matches_the_lib_sweep_shape
-db/refgraph.rs#L283  fn def_refgraph__def_id_queries_answer_through_the_registry
-db/refgraph.rs#L290  const NAME
-db/refgraph.rs#L291  const URI
+db/refgraph.rs#L57  struct DefRefGraph
+db/refgraph.rs#L68  impl DefRefGraph
+db/refgraph.rs#L69  fn new
+db/refgraph.rs#L77  fn record
+db/refgraph.rs#L99  fn dependent_files_of_file
+db/refgraph.rs#L108  fn referenced
+db/refgraph.rs#L115  fn dependents
+db/refgraph.rs#L121  fn has_dependents
+db/refgraph.rs#L130  fn def_id_of
+db/refgraph.rs#L140  fn dependents_of
+db/refgraph.rs#L150  fn has_dependents_of
+db/refgraph.rs#L159  fn out_pairs
+db/refgraph.rs#L166  fn clear
+db/refgraph.rs#L181  fn purge_file
+db/refgraph.rs#L187  fn purge_files
+db/refgraph.rs#L195  fn purge_ref_points
+db/refgraph.rs#L209  mod tests
+db/refgraph.rs#L213  fn sn
+db/refgraph.rs#L221  fn def_refgraph__records_out_and_rev_edges
+db/refgraph.rs#L253  fn def_refgraph__purge_file_drops_ref_points_keeps_incoming_edges
+db/refgraph.rs#L299  fn def_refgraph__purge_files_matches_the_lib_sweep_shape
+db/refgraph.rs#L330  fn def_refgraph__file_projection_records_and_dedups
+db/refgraph.rs#L354  fn def_refgraph__def_id_queries_answer_through_the_registry
+db/refgraph.rs#L361  const NAME
+db/refgraph.rs#L362  const URI
 db/resolve/member.rs#L21  fn resolve_cmie_member_locked
 db/resolve/member.rs#L47  fn member_of
 db/resolve/mod.rs#L26  mod member
@@ -4077,12 +4083,11 @@ lsp/mod.rs#L12  mod gotodef
 lsp/mod.rs#L13  mod hover
 lsp/mod.rs#L14  mod references
 lsp/mod.rs#L15  mod sem
-lsp/references.rs#L30  fn is_whitelisted_ref_kind
-lsp/references.rs#L47  fn find
-lsp/references.rs#L70  fn find_at
-lsp/references.rs#L180  mod tests
-lsp/references.rs#L189  fn find_at_respects_refs_whitelist
-lsp/references.rs#L198  enum PKG
+lsp/references.rs#L31  fn find
+lsp/references.rs#L54  fn find_at
+lsp/references.rs#L181  mod tests
+lsp/references.rs#L190  fn find_at_respects_refs_whitelist
+lsp/references.rs#L199  enum PKG
 lsp/sem.rs#L12  fn classify_token_by_symbol
 lsp/sem.rs#L72  const LANGUAGE_KEYWORDS
 lsp/sem.rs#L105  fn is_lexer_keyword
@@ -4596,22 +4601,24 @@ refdef/types.rs#L379  impl NameIndexCandidate
 refdef/types.rs#L397  fn policy_key
 refdef/types.rs#L413  fn is_def_at
 refdef/types.rs#L424  struct RefDefMap
-refdef/types.rs#L441  impl RefDefMap
-refdef/types.rs#L442  fn new
-refdef/types.rs#L446  fn insert
-refdef/types.rs#L465  fn insert_with_name
-refdef/types.rs#L490  fn get
-refdef/types.rs#L501  fn add_name_candidate
-refdef/types.rs#L528  fn name_winner
-refdef/types.rs#L541  fn get_by_name
-refdef/types.rs#L549  fn name_candidates
-refdef/types.rs#L557  fn get_refs_for_def
-refdef/types.rs#L573  fn intern_file
-refdef/types.rs#L578  fn intern_container
-refdef/types.rs#L593  mod tests
-refdef/types.rs#L596  fn entry
-refdef/types.rs#L617  fn uri
-refdef/types.rs#L626  fn svc_types__name_index_keeps_all_candidates_and_winner_is_deterministic
+refdef/types.rs#L457  fn is_whitelisted_ref_kind
+refdef/types.rs#L471  impl RefDefMap
+refdef/types.rs#L472  fn new
+refdef/types.rs#L476  fn insert
+refdef/types.rs#L504  fn record_ref_edge
+refdef/types.rs#L535  fn insert_with_name
+refdef/types.rs#L560  fn get
+refdef/types.rs#L571  fn add_name_candidate
+refdef/types.rs#L598  fn name_winner
+refdef/types.rs#L611  fn get_by_name
+refdef/types.rs#L619  fn name_candidates
+refdef/types.rs#L627  fn get_refs_for_def
+refdef/types.rs#L643  fn intern_file
+refdef/types.rs#L648  fn intern_container
+refdef/types.rs#L663  mod tests
+refdef/types.rs#L666  fn entry
+refdef/types.rs#L687  fn uri
+refdef/types.rs#L696  fn svc_types__name_index_keeps_all_candidates_and_winner_is_deterministic
 rpc/handlers/admin.rs#L9  fn handle_project_list
 rpc/handlers/admin.rs#L33  fn handle_project_info
 rpc/handlers/admin.rs#L55  fn handle_library_list
@@ -11351,4 +11358,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-409 files, 11268 declarations.
+409 files, 11275 declarations.

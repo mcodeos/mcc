@@ -20,26 +20,10 @@ use crate::McURI;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-/// P1 refs whitelist — reference kinds worth showing in the refs panel.
-///
-/// Netlist-meaningful symbols: component/module classes, instances, enum
-/// values and net labels (both def and ref sides). Type-level noise — pin
-/// interfaces (`cap::UV.CAP`), params, ports, funcs, bus members — never
-/// reaches the panel, so "find references" stays on the circuit structure
-/// instead of the type system.
-pub fn is_whitelisted_ref_kind(kind: SymbolKind) -> bool {
-    matches!(
-        kind,
-        SymbolKind::ClassDef
-            | SymbolKind::ClassRef
-            | SymbolKind::InstDef
-            | SymbolKind::InstRef
-            | SymbolKind::EnumDef
-            | SymbolKind::EnumRef
-            | SymbolKind::LabelDef
-            | SymbolKind::LabelRef
-    )
-}
+/// P1 refs whitelist — see [`crate::refdef::types::is_whitelisted_ref_kind`]
+/// (canonical home since U234 tier ②; the kinds double as the def-edge
+/// coverage contract behind the graph prefilter below).
+pub use crate::refdef::types::is_whitelisted_ref_kind;
 
 /// Legacy name-based find-references (kept for `mcc refs <name>` and the
 /// name-only RPC path). Scans the workspace local symbol tables for instance
@@ -116,11 +100,23 @@ pub fn find_at(uri: &str, offset: usize, name_hint: Option<&str>) -> Vec<Value> 
     let def_file_id = uri_intern(&def_uri).0;
 
     // ② Reverse index: every (ref_kind, ref_id) that resolved to the def.
-    // P1: the whitelist gates which ref kinds enter the panel — type-level
-    // noise (pin interfaces, params, ...) is dropped here so the frontend
-    // only renders circuit-meaningful references.
+    // U234 tier ②: the scan is prefiltered to the def-refgraph's file
+    // projection — every file with a recorded ref-point into the def's file
+    // (plus the def file itself). The projection over-approximates by
+    // construction (edge coverage = the whitelist, at RefDefMap::insert;
+    // purge is ref-point-side so a not-yet-rebuilt referencing file keeps
+    // its edges), and the exact def-key match below post-filters, so the
+    // prefilter cannot drop results — including the Inst/Label refs the
+    // whitelist lets through (D4). P1: the whitelist gates which ref kinds
+    // enter the panel — type-level noise is dropped here.
+    let mut candidate_files: std::collections::HashSet<String> =
+        WORKSPACE.refgraph.dependent_files_of_file(&def_uri).into_iter().collect();
+    candidate_files.insert(def_uri.clone());
     let mut refs: BTreeSet<(u8, u32)> = BTreeSet::new();
     for entry in WORKSPACE.mcodes.iter() {
+        if !candidate_files.contains(entry.key().as_str()) {
+            continue;
+        }
         if let Ok(s) = entry.value().symbols.lock() {
             if let Some(m) = s.ref_def_map.as_ref() {
                 for &(rk, rid) in m.get_refs_for_def(def_kind, def_file_id, def_start, def_end) {
@@ -134,9 +130,14 @@ pub fn find_at(uri: &str, offset: usize, name_hint: Option<&str>) -> Vec<Value> 
 
     // ③ Source spans: (kind, id) → [(uri, start, stop)] via each file's
     // lapper. Interval ids are workspace-unique DeclareIds, so the key is
-    // global and the same symbol maps to its span in every file.
+    // global and the same symbol maps to its span in every file. Same
+    // candidate-file prefilter as ② — a ref's span can only live in a file
+    // whose map contributed the ref.
     let mut index: HashMap<(u8, u32), Vec<(String, usize, usize)>> = HashMap::new();
     for entry in WORKSPACE.mcodes.iter() {
+        if !candidate_files.contains(entry.key().as_str()) {
+            continue;
+        }
         let file_uri = entry.key().to_string();
         if let Ok(s) = entry.value().symbols.lock() {
             for iv in s.symbol_lapper.iter() {
