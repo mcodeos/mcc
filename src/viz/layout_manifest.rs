@@ -146,8 +146,8 @@ pub fn build_manifest(
             box_rows.push(json!({
                 "layer": graph.bid,
                 "layer_path": path,
-                "path": b.inst_path,
-                "name": b.name,
+                "path": crate::viz::render::label_render::visible_path(b),
+                "name": crate::viz::render::label_render::visible_name(b),
                 "class": b.class_name,
                 "kind": format!("{:?}", b.kind).to_lowercase(),
                 "symbol": format!("{:?}", b.symbol).to_lowercase(),

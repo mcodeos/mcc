@@ -74,9 +74,9 @@ range (threshold 40KB).
 | `refdef/` | 7 | 120 KB |
 | `rpc/` | 16 | 306 KB |
 | `semantic/` | 91 | 2735 KB |
-| `stages/` | 12 | 322 KB |
+| `stages/` | 12 | 323 KB |
 | `vector/` | 26 | 497 KB |
-| `viz/` | 98 | 2465 KB |
+| `viz/` | 98 | 2467 KB |
 
 ## Declaration index
 
@@ -7899,12 +7899,12 @@ stages/join.rs#L2054  fn join_by_member_set
 stages/join.rs#L2073  fn find
 stages/join.rs#L2116  fn zero_classes
 stages/join.rs#L2125  fn bump
-stages/join.rs#L2135  fn partition
-stages/join.rs#L2170  fn branch_obj
-stages/join.rs#L2191  fn own_text
-stages/join.rs#L2203  fn build_hop
-stages/join.rs#L2304  fn string_tally
-stages/join.rs#L2315  fn push_item
+stages/join.rs#L2137  fn partition
+stages/join.rs#L2177  fn branch_obj
+stages/join.rs#L2198  fn own_text
+stages/join.rs#L2210  fn build_hop
+stages/join.rs#L2320  fn string_tally
+stages/join.rs#L2331  fn push_item
 stages/mod.rs#L35  mod join
 stages/mod.rs#L36  mod p2
 stages/mod.rs#L37  mod payload
@@ -10409,26 +10409,28 @@ viz/render/label_render.rs#L24  struct LabelBounds
 viz/render/label_render.rs#L42  fn render_designator_and_value
 viz/render/label_render.rs#L143  fn designator_value_label_bounds
 viz/render/label_render.rs#L231  fn display_name
-viz/render/label_render.rs#L235  fn label_bounds
-viz/render/label_render.rs#L254  fn escape_xml
-viz/render/label_render.rs#L262  fn render_placed_labels
-viz/render/label_render.rs#L327  mod tests
-viz/render/label_render.rs#L331  fn mk_box
-viz/render/label_render.rs#L353  fn resistor_shows_both
-viz/render/label_render.rs#L361  fn capacitor_no_value_skipped
-viz/render/label_render.rs#L369  fn ic_uses_one_line
-viz/render/label_render.rs#L376  fn powerrail_empty
-viz/render/label_render.rs#L382  fn nothing_filled_empty
-viz/render/label_render.rs#L390  fn anonymous_passive_shows_name_fallback
-viz/render/label_render.rs#L408  fn virtual_passive_shows_class_name_not_instance_name
-viz/render/label_render.rs#L425  fn virtual_passive_keeps_real_designator
-viz/render/label_render.rs#L438  fn anonymous_passive_keeps_non_underscore_name
-viz/render/label_render.rs#L450  fn named_passive_keeps_designator
-viz/render/label_render.rs#L459  fn anonymous_ic_does_not_duplicate_name
-viz/render/label_render.rs#L467  fn label_bounds_for_passive_designator_and_value
-viz/render/label_render.rs#L479  fn label_bounds_anonymous_name_strips_underscore
-viz/render/label_render.rs#L488  fn label_bounds_for_ic_inside_box
-viz/render/label_render.rs#L499  fn xml_escaping
+viz/render/label_render.rs#L239  fn visible_name
+viz/render/label_render.rs#L252  fn visible_path
+viz/render/label_render.rs#L262  fn label_bounds
+viz/render/label_render.rs#L281  fn escape_xml
+viz/render/label_render.rs#L289  fn render_placed_labels
+viz/render/label_render.rs#L354  mod tests
+viz/render/label_render.rs#L358  fn mk_box
+viz/render/label_render.rs#L380  fn resistor_shows_both
+viz/render/label_render.rs#L388  fn capacitor_no_value_skipped
+viz/render/label_render.rs#L396  fn ic_uses_one_line
+viz/render/label_render.rs#L403  fn powerrail_empty
+viz/render/label_render.rs#L409  fn nothing_filled_empty
+viz/render/label_render.rs#L417  fn anonymous_passive_shows_name_fallback
+viz/render/label_render.rs#L435  fn virtual_passive_shows_class_name_not_instance_name
+viz/render/label_render.rs#L452  fn virtual_passive_keeps_real_designator
+viz/render/label_render.rs#L465  fn anonymous_passive_keeps_non_underscore_name
+viz/render/label_render.rs#L477  fn named_passive_keeps_designator
+viz/render/label_render.rs#L486  fn anonymous_ic_does_not_duplicate_name
+viz/render/label_render.rs#L494  fn label_bounds_for_passive_designator_and_value
+viz/render/label_render.rs#L506  fn label_bounds_anonymous_name_strips_underscore
+viz/render/label_render.rs#L515  fn label_bounds_for_ic_inside_box
+viz/render/label_render.rs#L526  fn xml_escaping
 viz/render/mod.rs#L39  const RENDER_VERSION
 viz/render/mod.rs#L41  mod capacitor
 viz/render/mod.rs#L42  mod diode
@@ -10518,24 +10520,24 @@ viz/render/resistor.rs#L165  fn no_rect_body
 viz/render/shape.rs#L43  trait BoxShape
 viz/render/shape.rs#L45  fn render
 viz/render/shape.rs#L61  fn render_box
-viz/render/shape.rs#L96  fn render_box_inner
-viz/render/shape.rs#L184  fn render_custom_symbol
-viz/render/shape.rs#L213  fn escape_xml_attr
-viz/render/shape.rs#L225  fn box_name_label
-viz/render/shape.rs#L239  fn render_test_point
-viz/render/shape.rs#L264  fn render_dot_symbol
-viz/render/shape.rs#L286  fn render_box_legacy
-viz/render/shape.rs#L327  mod tests
-viz/render/shape.rs#L332  fn mk
-viz/render/shape.rs#L357  fn custom_symbol_overrides_system_symbol_in_device_layers
-viz/render/shape.rs#L376  fn no_custom_symbol_uses_system
-viz/render/shape.rs#L389  fn box_body
-viz/render/shape.rs#L411  fn root_box_advertises_drill_down_only_when_the_layer_exists
-viz/render/shape.rs#L457  fn drill_down_does_not_depend_on_the_face
-viz/render/shape.rs#L485  fn virtual_test_point_hides_instance_name
-viz/render/shape.rs#L500  fn real_test_point_keeps_instance_name
-viz/render/shape.rs#L511  fn box_with_source_span_stamps_its_coordinate
-viz/render/shape.rs#L523  fn box_without_source_span_stamps_nothing
+viz/render/shape.rs#L97  fn render_box_inner
+viz/render/shape.rs#L185  fn render_custom_symbol
+viz/render/shape.rs#L214  fn escape_xml_attr
+viz/render/shape.rs#L226  fn box_name_label
+viz/render/shape.rs#L240  fn render_test_point
+viz/render/shape.rs#L265  fn render_dot_symbol
+viz/render/shape.rs#L287  fn render_box_legacy
+viz/render/shape.rs#L328  mod tests
+viz/render/shape.rs#L333  fn mk
+viz/render/shape.rs#L358  fn custom_symbol_overrides_system_symbol_in_device_layers
+viz/render/shape.rs#L377  fn no_custom_symbol_uses_system
+viz/render/shape.rs#L390  fn box_body
+viz/render/shape.rs#L412  fn root_box_advertises_drill_down_only_when_the_layer_exists
+viz/render/shape.rs#L458  fn drill_down_does_not_depend_on_the_face
+viz/render/shape.rs#L486  fn virtual_test_point_hides_instance_name
+viz/render/shape.rs#L501  fn real_test_point_keeps_instance_name
+viz/render/shape.rs#L512  fn box_with_source_span_stamps_its_coordinate
+viz/render/shape.rs#L524  fn box_without_source_span_stamps_nothing
 viz/render/sub_module.rs#L45  fn submodule_pin_opts
 viz/render/sub_module.rs#L66  fn render_submodule_pin
 viz/render/sub_module.rs#L79  fn render_sub_module
@@ -11326,4 +11328,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-409 files, 11243 declarations.
+409 files, 11245 declarations.

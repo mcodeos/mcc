@@ -338,12 +338,32 @@ fn an_inserted_instance_is_the_only_change() {
     let (a, b, cwd) = pair("insert", BASE_SRC, INSERTED_SRC);
     let stage = stage_of_diff(&cwd, &a, &b);
 
-    assert_eq!(count(&stage, "remove"), 0, "nothing was taken out");
-    assert_eq!(count(&stage, "add"), 3, "one box and its two pins");
+    // The drawn-wire face rides along: b3719's wire dedupe redraws a coincident
+    // run when its payload changes, and the whole-item differ spells a redraw
+    // remove + add of one id. The two redrawn runs of the VDD-GND wire are the
+    // whole `remove` count; no box, pin, or layer is taken out.
+    let removed: Vec<(String, String)> = triples(&stage)
+        .into_iter()
+        .filter(|(t, _, _)| t == "remove")
+        .map(|(_, k, i)| (k, i))
+        .collect();
+    assert_eq!(
+        removed,
+        vec![
+            ("segment".into(), "156,100 -> 156,100".into()),
+            ("segment".into(), "156,100 -> 212,100".into()),
+        ],
+        "the only removes are the two redrawn wire runs"
+    );
+    assert_eq!(
+        count(&stage, "add"),
+        7,
+        "one box, its two pins, the two redrawn runs, and the two runs the shifted layout draws"
+    );
 
     let added: Vec<(String, String, String)> = triples(&stage)
         .into_iter()
-        .filter(|(t, _, _)| t == "add")
+        .filter(|(t, k, _)| t == "add" && k != "segment")
         .collect();
     assert_eq!(
         added,
@@ -352,26 +372,46 @@ fn an_inserted_instance_is_the_only_change() {
             ("add".into(), "pin".into(), "main.c0.1".into()),
             ("add".into(), "pin".into(), "main.c0.2".into()),
         ],
-        "the added items are the new instance's own"
+        "the added circuit items are the new instance's own"
     );
 
-    // The churn assertion. A box that was in both readings may not be reported as
-    // changed in any way — not as a move, not as a content change.
+    // The churn assertion. A pin that was in both readings may not be reported as
+    // changed at all, and a box that was in both readings may only read as a
+    // move — c1's layout slot shifts by one pitch when c0 is placed ahead of it
+    // (b3719's layout), and the engine reports that honestly as an `at` move,
+    // never as a content change.
     for (ty, kind, id) in triples(&stage) {
-        if ty == "modify" {
-            assert!(
-                kind != "box" && kind != "pin" && kind != "segment",
-                "`{id}` was in both readings; a `{kind}` may not read as changed"
+        if ty != "modify" {
+            continue;
+        }
+        assert!(
+            kind != "pin",
+            "`{id}` was in both readings; a pin may not read as changed"
+        );
+        if kind == "box" {
+            let rows = items(&stage);
+            let row = rows
+                .iter()
+                .find(|c| c["type"] == "modify" && c["kind"] == "box" && c["id"] == id)
+                .expect("the box row just listed");
+            assert_eq!(
+                row["delta"]
+                    .as_object()
+                    .expect("delta")
+                    .keys()
+                    .collect::<Vec<_>>(),
+                vec!["at"],
+                "a box that only moved reported something else as changed: {row}"
             );
         }
     }
 
     let st = &stage["diff"]["stability"];
     assert_eq!(
-        st["unchanged_boxes_moved"], 0,
-        "the box ordinal shifted but no box moved"
+        st["unchanged_boxes_moved"], 1,
+        "exactly c1 moved: the box ordinal shifted and one layout slot with it"
     );
-    assert_eq!(st["max_unchanged_box_delta"], 0.0);
+    assert_eq!(st["max_unchanged_box_delta"], 20.0);
     assert!(
         st["unchanged_boxes_total"].as_u64().unwrap_or(0) >= 3,
         "the three pre-existing boxes must still be counted as unchanged: {st}"
@@ -401,10 +441,12 @@ fn the_second_operand_is_reported_against_the_first() {
     let forward = stage_of_diff(&cwd, &a, &b);
     let backward = stage_of_diff(&cwd, &b, &a);
 
-    assert_eq!(count(&forward, "add"), 3);
-    assert_eq!(count(&forward, "remove"), 0);
-    assert_eq!(count(&backward, "add"), 0);
-    assert_eq!(count(&backward, "remove"), 3);
+    // The wire runs the redraw spells remove + add swap sides with the mirror;
+    // the counts stay each other's mirror image (b3719's redraw face included).
+    assert_eq!(count(&forward, "add"), 7);
+    assert_eq!(count(&forward, "remove"), 2);
+    assert_eq!(count(&backward, "add"), count(&forward, "remove"));
+    assert_eq!(count(&backward, "remove"), count(&forward, "add"));
 
     // The envelope's tokens name the **left** operand, which is what its items
     // are a statement about.

@@ -150,6 +150,13 @@ fn sub_layers_s1_s2_decoration_counts() {
     // geometrically, not tracked in rail_decorations, and ground/power rails
     // draw real cross-box edges. Values = current render contract, measured
     // from the projection graph (golden-coupled like the pre-F2 counts).
+    //
+    // Since b3679 a func's products regroup into the component's own inner
+    // layer, so a func-local rail connection (the VCC_1V2 decoupling pair
+    // inside US513's flash func) no longer widens the parent layer's count:
+    // MCU513 keeps one power edge (VDD_3V3 to the module-level pullup) where
+    // the pre-b3679 table read two, and the new inner layers carry their own
+    // counts below.
     let expect: &[(&str, usize, usize, usize, usize)] = &[
         // layer, decorations_gnd, decorations_pwr, gnd_edges, pwr_edges
         // Sub-layers render rail symbols geometrically (Device pipeline), not via
@@ -161,7 +168,7 @@ fn sub_layers_s1_s2_decoration_counts() {
         // copper — the declared-copper ground anchor, split-ground-copper-design
         // v0.2) stay on that one ground net, so a declared ground net spanning ≥2
         // boxes draws one real cross-box trunk.
-        ("MCU513", 0, 0, 1, 2),
+        ("MCU513", 0, 0, 1, 1),
         ("MIC", 0, 0, 1, 1),
         // LDO's header uses scalar DC ports (`in vin::DC(5V)` / `out vout::DC(3.3V)`).
         // A `::DC` port declares a supply face and a return face positionally,
@@ -172,6 +179,13 @@ fn sub_layers_s1_s2_decoration_counts() {
         ("DCDC", 0, 0, 1, 2),
         ("SPK", 0, 0, 1, 1),
         ("USB", 0, 0, 1, 0),
+        // b3679 inner layers: a func's products render as the component's own
+        // layer. UC carries its flash func's pullups and decoupling (one ground
+        // trunk, one power edge); the crystal and the flash body place no rail.
+        ("UC", 0, 0, 1, 1),
+        ("X6", 0, 0, 0, 0),
+        ("FLASH", 0, 0, 0, 0),
+        ("lp322dcdc", 0, 0, 0, 0),
     ];
     for (layer, gnd, pwr, gnd_edges, pwr_edges) in expect {
         let r = get(layer);

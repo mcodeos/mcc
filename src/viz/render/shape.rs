@@ -69,7 +69,8 @@ pub fn render_box(b: &McVecBox, is_root: bool, clickable_subs: &[i64]) -> String
     let label = box_name_label(b);
     let name = escape_xml_attr(label);
     let cls = escape_xml_attr(&b.class_name);
-    let path_attr = escape_xml_attr(&b.inst_path);
+    let path_attr =
+        escape_xml_attr(&crate::viz::render::label_render::visible_path(b));
     if let Some(sp) = &b.source_span {
         format!(
             r##"  <g data-name="{name}" data-class="{cls}" data-mcc-path="{path_attr}" data-src-uri="{}" data-src-offset="{}">{}
