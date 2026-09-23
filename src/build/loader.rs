@@ -41,6 +41,11 @@ pub fn mcb_add(uri: &McURI) {
             dashmap::Entry::Occupied(mut occupied_entry) => {
                 // update pass
                 remove_defines(&canonical_uri);
+                // U234: the re-parse invalidates this file's resolution
+                // edges — drop them before the new pass re-records.
+                workspace::WORKSPACE
+                    .refgraph
+                    .purge_file(canonical_uri.as_str());
                 occupied_entry.insert(mcfile);
             }
             dashmap::Entry::Vacant(vacant_entry) => {
@@ -74,6 +79,11 @@ pub fn mcb_add_from_string(uri: &McURI, content: &str) {
         tracing::info!(target: "mcc::lsp", "mcb_add_from_string: already_exists={}", already_exists);
         if already_exists {
             remove_defines(&canonical_uri);
+            // U234: the re-parse invalidates this file's resolution edges —
+            // drop them before the new pass re-records.
+            workspace::WORKSPACE
+                .refgraph
+                .purge_file(canonical_uri.as_str());
             // Also clear diagnostics for this file
             workspace::WORKSPACE
                 .diagnostics
@@ -558,6 +568,12 @@ pub fn mcb_remove(uri: &McURI) {
     remove_defines(uri);
     if canonical_uri != *uri {
         remove_defines(&canonical_uri);
+    }
+    // U234: the removal drops the files' resolution edges from the graph
+    // (both uri spellings, mirroring the double registry removal).
+    workspace::WORKSPACE.refgraph.purge_file(uri.as_str());
+    if canonical_uri != *uri {
+        workspace::WORKSPACE.refgraph.purge_file(canonical_uri.as_str());
     }
 
     let binding = &workspace::WORKSPACE.mcodes;

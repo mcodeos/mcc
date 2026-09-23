@@ -24,9 +24,21 @@
 //! side is a resolved def; D15.3 queries below answer def-scoped questions
 //! (`dependents_of(DefId)`) through one registry hop, so consumers hold
 //! ids, never text.
+//!
+//! Coverage (honest boundary, U234): edges exist only for class resolutions
+//! that go through the `mcb_get_cmie_with_uri` bridge. These sites resolve
+//! without recording and are invisible to the graph — `db/resolve/member.rs`
+//! (member resolution), the RefDefMap consolidation pass
+//! (`mc_code.rs`), `query/refs.rs` (references), the P5 leg of
+//! `lsp/gotodef.rs`, and the re-entrant fallback inside `cmie.rs` itself.
+//! A read face that pre-filters by graph hits would silently drop results
+//! for such resolutions — coverage must widen before goto-def / who-uses
+//! switch to graph-driven scans (and until then `reverse_deps` stays the
+//! invalidation mechanism).
 
 use crate::db::defregistry::{def_id as registry_def_id, kind_of, live_entry_by_id, DefId};
 use crate::McSpaceName;
+use std::collections::HashSet;
 use dashmap::DashMap;
 
 /// Per-world def resolution graph (D14). Nodes are canonical `(ident, uri)`
@@ -122,6 +134,40 @@ impl DefRefGraph {
         self.out.clear();
         self.rev.clear();
     }
+
+    /// Drop every edge touching `uri` (U234) — the re-parse / file-removal
+    /// purge. An edge is stale when either end's file changed: ref-points in
+    /// the edited file may no longer resolve there, and defs in it may have
+    /// changed identity or disappeared. Both faces are swept symmetrically
+    /// (out keys are ref-points / rev keys are defs; each face's values are
+    /// the other end), and empty buckets are removed — the graph never keeps
+    /// shells. Without this, `dependents` answers from edges a re-parse
+    /// already invalidated.
+    pub fn purge_file(&self, uri: &str) {
+        purge_side(&self.out, |u| u == uri);
+        purge_side(&self.rev, |u| u == uri);
+    }
+
+    /// Multi-file form of [`purge_file`] — the lib-unload sweep, which
+    /// tombstones every def under a uri set in one round.
+    pub fn purge_files(&self, uris: &HashSet<String>) {
+        purge_side(&self.out, |u| uris.contains(u));
+        purge_side(&self.rev, |u| uris.contains(u));
+    }
+}
+
+/// One face of the purge: drop keys whose own file matches, drop value
+/// entries whose other end's file matches, drop keys whose values went
+/// empty. Run over both faces (`out` and `rev`) so an edge with either end
+/// in the purged set is gone from both sides.
+fn purge_side(map: &DashMap<McSpaceName, Vec<McSpaceName>>, matches: impl Fn(&str) -> bool) {
+    map.retain(|key, targets| {
+        if matches(key.uri.as_uri().as_ref()) {
+            return false;
+        }
+        targets.retain(|t| !matches(t.uri.as_uri().as_ref()));
+        !targets.is_empty()
+    });
 }
 
 #[cfg(test)]
@@ -161,6 +207,68 @@ mod tests {
             }
         }
         assert_eq!(g.dependents(&to), vec![from]);
+    }
+
+    /// U234: the re-parse / file-removal purge drops every edge touching the
+    /// uri — as either end — and never leaves an empty bucket behind.
+    #[test]
+    fn def_refgraph__purge_file_drops_edges_touching_the_uri() {
+        let g = DefRefGraph::new();
+        let from_a = sn("LED", "proj/a.mc");
+        let from_b = sn("LED", "proj/b.mc");
+        let to_led = sn("LED", "mcode/led.mc");
+        let to_res = sn("RES", "mcode/res.mc");
+
+        g.record(&from_a, &to_led);
+        g.record(&from_a, &to_res);
+        g.record(&from_b, &to_led);
+
+        // Purge by ref-point file: a's out bucket and every rev entry that
+        // names it go; b's edges survive untouched.
+        g.purge_file("proj/a.mc");
+        assert!(g.referenced(&from_a).is_empty(), "out key a is gone");
+        assert_eq!(g.referenced(&from_b), vec![to_led.clone()]);
+        assert_eq!(
+            g.dependents(&to_led),
+            vec![from_b.clone()],
+            "rev[led] keeps only the surviving ref-point"
+        );
+        // res lost its only ref-point: the bucket is dropped, not emptied.
+        assert!(!g.has_dependents(&to_res), "no empty shell for res");
+
+        // Purge by def file: the target side sweeps symmetrically.
+        g.purge_file("mcode/led.mc");
+        assert!(g.referenced(&from_b).is_empty(), "out key b emptied and dropped");
+        assert!(!g.has_dependents(&to_led));
+        assert_eq!(g.dependents(&to_res), Vec::<McSpaceName>::new());
+    }
+
+    /// U234: the lib-unload sweep shape — one call, a uri set, every edge
+    /// touching any of them gone, everything else preserved.
+    #[test]
+    fn def_refgraph__purge_files_matches_the_lib_sweep_shape() {
+        let g = DefRefGraph::new();
+        let from_proj = sn("LED", "proj/a.mc");
+        let from_lib = sn("SUB", "mclibs/sub.mc");
+        let to_led = sn("LED", "mcode/led.mc");
+        let to_sub = sn("SUB", "mcode/sub.mc");
+        let to_keep = sn("RES", "mcode/res.mc");
+
+        g.record(&from_proj, &to_led);
+        g.record(&from_proj, &to_keep);
+        g.record(&from_lib, &to_sub);
+
+        let uris: HashSet<String> = ["mcode/led.mc", "mclibs/sub.mc"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        g.purge_files(&uris);
+
+        assert_eq!(g.referenced(&from_proj), vec![to_keep.clone()]);
+        assert!(g.referenced(&from_lib).is_empty());
+        assert!(!g.has_dependents(&to_led));
+        assert!(!g.has_dependents(&to_sub));
+        assert_eq!(g.dependents(&to_keep), vec![from_proj]);
     }
 
     /// D15.3: a graph hit carries the registry [`DefId`] — one id answers

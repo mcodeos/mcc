@@ -3325,6 +3325,63 @@ mod tests {
         crate::db::infra::init::mcb_set_project_root(&saved_root);
     }
 
+    /// U234 end-to-end: `defs.dependents` answers from the live graph, so a
+    /// re-parse that drops the reference must flip the answer — count 1
+    /// before, `hasDependents: false` after. The purge primitive in the
+    /// loader retires the stale edge at the re-add seam.
+    #[test]
+    fn cli_rpc__defs_dependents_reports_no_dependents_after_reparse() {
+        let _guard = crate::db::infra::init::MCC_TEST_PARSE_LOCK
+            .lock()
+            .expect("test parse lock");
+        crate::mcc_init_no_lib();
+        crate::mcc_set_system_root(std::path::Path::new(""));
+        crate::mcc_clear_workspace();
+
+        let dir = std::env::temp_dir().join(format!("mcc-deps-rpc-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("b.mc"),
+            "component V6LED\n{\n    pins = [\n        1 = A\n        2 = K\n    ]\n}\n",
+        )
+        .unwrap();
+        let b_uri = crate::build::pass1::canonicalize_project_uri(
+            &dir.join("b.mc").to_string_lossy().into_owned(),
+        );
+        let a_uri = crate::build::pass1::canonicalize_project_uri(
+            &dir.join("a.mc").to_string_lossy().into_owned(),
+        );
+
+        crate::mcc_load_from_string(
+            &b_uri,
+            &std::fs::read_to_string(dir.join("b.mc")).unwrap(),
+        );
+        crate::mcc_load_from_string(
+            &a_uri,
+            "use ./b.mc\n\nmodule main\n{\n    io A\n    io GND\n    V6LED led1\n}\n",
+        );
+
+        let q = |uri: &str| {
+            super::handle_defs_dependents(Some(json!({ "name": "V6LED", "uri": uri })))
+                .expect("defs.dependents answers")
+        };
+        let before = q(&b_uri);
+        assert_eq!(before["count"].as_u64(), Some(1), "the live reference counts");
+        assert_eq!(before["hasDependents"].as_bool(), Some(true));
+
+        // Re-parse with the reference gone: the stale edge must not answer.
+        crate::mcc_load_from_string(
+            &a_uri,
+            "use ./b.mc\n\nmodule main\n{\n    io A\n    io GND\n}\n",
+        );
+        let after = q(&b_uri);
+        assert_eq!(after["count"].as_u64(), Some(0), "no stale dependents");
+        assert_eq!(after["hasDependents"].as_bool(), Some(false));
+
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
     /// The `pins` view orders pin IDs naturally (see `pin_id_cmp`): numeric
     /// IDs first in numeric order, then non-numeric IDs with embedded digit
     /// runs compared numerically.

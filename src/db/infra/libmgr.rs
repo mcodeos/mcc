@@ -253,6 +253,8 @@ pub fn mcb_load_lib(name: &str, root: &Path) -> bool {
             .map(|sn| sn.uri.to_string())
             .collect();
         workspace::WORKSPACE.remove_lib_defs_by_uris(&uris);
+        // U234: the unload sweep also drops the libs' resolution edges.
+        workspace::WORKSPACE.refgraph.purge_files(&uris);
         info!(
             target: "mcc::lib",
             name = name,
@@ -370,6 +372,8 @@ pub fn clear_state(scope: ClearScope, uris: Option<&HashSet<String>>) {
         ClearScope::Lib => {
             let uris = uris.expect("ClearScope::Lib requires the library uri set");
             workspace::WORKSPACE.remove_lib_defs_by_uris(uris);
+            // U234: the unload sweep also drops the libs' resolution edges.
+            workspace::WORKSPACE.refgraph.purge_files(uris);
             // T6-②: library-unload round end — stamp one journal version when
             // the sweep tombstoned any definition.
             workspace::WORKSPACE.registry().checkpoint_if_changed();

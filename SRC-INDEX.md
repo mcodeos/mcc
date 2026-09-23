@@ -31,7 +31,7 @@ range (threshold 40KB).
 | File | Size | Declarations |
 |---|---|---|
 | `viz/layout/equipotential_tree.rs` | 409 KB | 203 |
-| `db/infra/mc_code.rs` | 355 KB | 98 |
+| `db/infra/mc_code.rs` | 358 KB | 99 |
 | `semantic/basic/mc_phrase.rs` | 335 KB | 78 |
 | `semantic/component/mc_pins/mod.rs` | 236 KB | 109 |
 | `semantic/validation/nets/mod.rs` | 200 KB | 130 |
@@ -43,7 +43,7 @@ range (threshold 40KB).
 | `db/defregistry.rs` | 151 KB | 181 |
 | `instant/mc_mod/fcallinst.rs` | 147 KB | 26 |
 | `viz/layout/equi_audit.rs` | 137 KB | 103 |
-| `rpc/handlers/mod.rs` | 131 KB | 107 |
+| `rpc/handlers/mod.rs` | 133 KB | 108 |
 | `export/kicad_sch.rs` | 127 KB | 106 |
 | `instant/mc_mod/phases.rs` | 127 KB | 29 |
 | `instant/mc_mod/points.rs` | 121 KB | 20 |
@@ -64,7 +64,7 @@ range (threshold 40KB).
 | `builder/` | 1 | 0 KB |
 | `cli/` | 7 | 113 KB |
 | `cmds/` | 28 | 501 KB |
-| `db/` | 28 | 954 KB |
+| `db/` | 28 | 961 KB |
 | `eval/` | 2 | 50 KB |
 | `export/` | 7 | 183 KB |
 | `instant/` | 40 | 1602 KB |
@@ -72,7 +72,7 @@ range (threshold 40KB).
 | `output/` | 7 | 107 KB |
 | `query/` | 9 | 162 KB |
 | `refdef/` | 7 | 119 KB |
-| `rpc/` | 16 | 303 KB |
+| `rpc/` | 16 | 305 KB |
 | `semantic/` | 91 | 2724 KB |
 | `stages/` | 12 | 321 KB |
 | `vector/` | 25 | 478 KB |
@@ -471,24 +471,24 @@ bin/mcviz.rs#L209  fn build_opts
 bin/mcviz.rs#L230  fn print_usage
 bin/mcviz.rs#L250  fn find_entry_uri
 build/loader.rs#L21  fn mcb_add
-build/loader.rs#L65  fn mcb_add_from_string
-build/loader.rs#L139  static CURRENT_LIB_NAME
-build/loader.rs#L142  static LIB_FILES_PARSED
-build/loader.rs#L145  static LAST_PROGRESS_LEN
-build/loader.rs#L148  fn set_current_lib
-build/loader.rs#L158  fn print_lib_progress
-build/loader.rs#L183  fn clear_lib_progress
-build/loader.rs#L208  fn mcb_add_recursive
-build/loader.rs#L385  struct BuildEntry
-build/loader.rs#L420  fn discover_entries
-build/loader.rs#L460  fn walk_entries
-build/loader.rs#L505  fn absolute
-build/loader.rs#L516  fn collect_mc_files
-build/loader.rs#L517  fn walk
-build/loader.rs#L543  fn mcb_loaded_file_count
-build/loader.rs#L549  fn mcb_print_loaded_files
-build/loader.rs#L555  fn mcb_remove
-build/loader.rs#L594  fn remove_defines
+build/loader.rs#L70  fn mcb_add_from_string
+build/loader.rs#L149  static CURRENT_LIB_NAME
+build/loader.rs#L152  static LIB_FILES_PARSED
+build/loader.rs#L155  static LAST_PROGRESS_LEN
+build/loader.rs#L158  fn set_current_lib
+build/loader.rs#L168  fn print_lib_progress
+build/loader.rs#L193  fn clear_lib_progress
+build/loader.rs#L218  fn mcb_add_recursive
+build/loader.rs#L395  struct BuildEntry
+build/loader.rs#L430  fn discover_entries
+build/loader.rs#L470  fn walk_entries
+build/loader.rs#L515  fn absolute
+build/loader.rs#L526  fn collect_mc_files
+build/loader.rs#L527  fn walk
+build/loader.rs#L553  fn mcb_loaded_file_count
+build/loader.rs#L559  fn mcb_print_loaded_files
+build/loader.rs#L565  fn mcb_remove
+build/loader.rs#L610  fn remove_defines
 build/mod.rs#L2  mod loader
 build/mod.rs#L3  mod pass1
 build/mod.rs#L4  mod pass2
@@ -2134,19 +2134,19 @@ db/infra/libmgr.rs#L95  fn resolve_lib_root
 db/infra/libmgr.rs#L114  fn find_lib_dir
 db/infra/libmgr.rs#L152  fn file_is_system_library
 db/infra/libmgr.rs#L178  fn mcb_load_lib
-db/infra/libmgr.rs#L318  fn mcb_unload_lib
-db/infra/libmgr.rs#L343  enum ClearScope
-db/infra/libmgr.rs#L355  fn clear_state
-db/infra/libmgr.rs#L381  fn mcb_loaded_libs
-db/infra/libmgr.rs#L389  fn format_mc_ids
-db/infra/libmgr.rs#L394  fn mcb_lib_info
-db/infra/libmgr.rs#L457  fn mcb_load_lib_by_name
-db/infra/libmgr.rs#L525  mod tests
-db/infra/libmgr.rs#L530  fn temp_root
-db/infra/libmgr.rs#L540  fn def_libmgr__find_lib_dir_prefers_versioned_dir
-db/infra/libmgr.rs#L548  fn def_libmgr__find_lib_dir_bare_dir_fallback
-db/infra/libmgr.rs#L557  fn def_libmgr__find_lib_dir_mcode_subdir_and_sibling
-db/infra/libmgr.rs#L575  fn def_libmgr__find_lib_dir_absent_returns_none
+db/infra/libmgr.rs#L320  fn mcb_unload_lib
+db/infra/libmgr.rs#L345  enum ClearScope
+db/infra/libmgr.rs#L357  fn clear_state
+db/infra/libmgr.rs#L385  fn mcb_loaded_libs
+db/infra/libmgr.rs#L393  fn format_mc_ids
+db/infra/libmgr.rs#L398  fn mcb_lib_info
+db/infra/libmgr.rs#L461  fn mcb_load_lib_by_name
+db/infra/libmgr.rs#L529  mod tests
+db/infra/libmgr.rs#L534  fn temp_root
+db/infra/libmgr.rs#L544  fn def_libmgr__find_lib_dir_prefers_versioned_dir
+db/infra/libmgr.rs#L552  fn def_libmgr__find_lib_dir_bare_dir_fallback
+db/infra/libmgr.rs#L561  fn def_libmgr__find_lib_dir_mcode_subdir_and_sibling
+db/infra/libmgr.rs#L579  fn def_libmgr__find_lib_dir_absent_returns_none
 db/infra/mc_code.rs#L14  struct DedupLapper
 db/infra/mc_code.rs#L19  impl DedupLapper
 db/infra/mc_code.rs#L20  fn new
@@ -2242,9 +2242,10 @@ db/infra/mc_code.rs#L7157  enum CAP
 db/infra/mc_code.rs#L7218  fn def_mccode__ref_def_map_entries_carry_ast_def_names
 db/infra/mc_code.rs#L7328  fn def_mccode__visibility_table_matches_import_forms
 db/infra/mc_code.rs#L7506  fn def_mccode__refgraph_records_cross_file_resolution_edges
-db/infra/mc_code.rs#L7592  fn def_mccode__parse_level_reparse_diff_reports_edited_def_only
-db/infra/mc_code.rs#L7671  fn def_mccode__module_port_ledger_stable_across_mid_insert_reparse
-db/infra/mc_code.rs#L7744  fn def_mccode__alias_p4_name_index_and_gotodef_agree_with_phase6
+db/infra/mc_code.rs#L7589  fn def_mccode__refgraph_edges_survive_reparse_without_stale_hits
+db/infra/mc_code.rs#L7649  fn def_mccode__parse_level_reparse_diff_reports_edited_def_only
+db/infra/mc_code.rs#L7728  fn def_mccode__module_port_ledger_stable_across_mid_insert_reparse
+db/infra/mc_code.rs#L7801  fn def_mccode__alias_p4_name_index_and_gotodef_agree_with_phase6
 db/infra/mc_use.rs#L15  enum McUsePrefix
 db/infra/mc_use.rs#L22  impl std::fmt::Display for McUsePrefix
 db/infra/mc_use.rs#L23  fn fmt
@@ -2297,24 +2298,29 @@ db/mod.rs#L12  mod infra
 db/mod.rs#L13  mod refgraph
 db/mod.rs#L14  mod resolve
 db/mod.rs#L15  mod symbol
-db/refgraph.rs#L36  struct DefRefGraph
-db/refgraph.rs#L41  impl DefRefGraph
-db/refgraph.rs#L42  fn new
-db/refgraph.rs#L49  fn record
-db/refgraph.rs#L63  fn referenced
-db/refgraph.rs#L70  fn dependents
-db/refgraph.rs#L76  fn has_dependents
-db/refgraph.rs#L85  fn def_id_of
-db/refgraph.rs#L95  fn dependents_of
-db/refgraph.rs#L105  fn has_dependents_of
-db/refgraph.rs#L114  fn out_pairs
-db/refgraph.rs#L121  fn clear
-db/refgraph.rs#L128  mod tests
-db/refgraph.rs#L132  fn sn
-db/refgraph.rs#L140  fn def_refgraph__records_out_and_rev_edges
-db/refgraph.rs#L172  fn def_refgraph__def_id_queries_answer_through_the_registry
-db/refgraph.rs#L179  const NAME
-db/refgraph.rs#L180  const URI
+db/refgraph.rs#L48  struct DefRefGraph
+db/refgraph.rs#L53  impl DefRefGraph
+db/refgraph.rs#L54  fn new
+db/refgraph.rs#L61  fn record
+db/refgraph.rs#L75  fn referenced
+db/refgraph.rs#L82  fn dependents
+db/refgraph.rs#L88  fn has_dependents
+db/refgraph.rs#L97  fn def_id_of
+db/refgraph.rs#L107  fn dependents_of
+db/refgraph.rs#L117  fn has_dependents_of
+db/refgraph.rs#L126  fn out_pairs
+db/refgraph.rs#L133  fn clear
+db/refgraph.rs#L146  fn purge_file
+db/refgraph.rs#L153  fn purge_files
+db/refgraph.rs#L163  fn purge_side
+db/refgraph.rs#L174  mod tests
+db/refgraph.rs#L178  fn sn
+db/refgraph.rs#L186  fn def_refgraph__records_out_and_rev_edges
+db/refgraph.rs#L215  fn def_refgraph__purge_file_drops_edges_touching_the_uri
+db/refgraph.rs#L249  fn def_refgraph__purge_files_matches_the_lib_sweep_shape
+db/refgraph.rs#L280  fn def_refgraph__def_id_queries_answer_through_the_registry
+db/refgraph.rs#L287  const NAME
+db/refgraph.rs#L288  const URI
 db/resolve/member.rs#L21  fn resolve_cmie_member_locked
 db/resolve/member.rs#L47  fn member_of
 db/resolve/mod.rs#L26  mod member
@@ -4767,10 +4773,11 @@ rpc/handlers/mod.rs#L3189  fn cli_rpc__find_project_root_prefers_configured_root
 rpc/handlers/mod.rs#L3221  fn cli_rpc__find_project_root_does_not_claim_files_outside_it
 rpc/handlers/mod.rs#L3245  fn cli_rpc__find_project_root_detects_project_manifest
 rpc/handlers/mod.rs#L3269  fn cli_rpc__load_project_keeps_sibling_projects_in_separate_worlds
-rpc/handlers/mod.rs#L3332  fn cli_rpc__pin_id_cmp_orders_numeric_then_natural
-rpc/handlers/mod.rs#L3357  fn cli_rpc__diag_in_system_lib_classifies_by_source_domain
-rpc/handlers/mod.rs#L3401  fn cli_rpc__handle_check_scopes_to_candidate_overlay
-rpc/handlers/mod.rs#L3485  fn cli_rpc__handle_check_reuses_one_overlay_uri
+rpc/handlers/mod.rs#L3333  fn cli_rpc__defs_dependents_reports_no_dependents_after_reparse
+rpc/handlers/mod.rs#L3389  fn cli_rpc__pin_id_cmp_orders_numeric_then_natural
+rpc/handlers/mod.rs#L3414  fn cli_rpc__diag_in_system_lib_classifies_by_source_domain
+rpc/handlers/mod.rs#L3458  fn cli_rpc__handle_check_scopes_to_candidate_overlay
+rpc/handlers/mod.rs#L3542  fn cli_rpc__handle_check_reuses_one_overlay_uri
 rpc/handlers/params.rs#L9  fn default_true
 rpc/handlers/params.rs#L14  struct LibraryShowParams
 rpc/handlers/params.rs#L19  struct LibInstallParams
@@ -11223,4 +11230,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-406 files, 11140 declarations.
+406 files, 11147 declarations.
