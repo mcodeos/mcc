@@ -22,10 +22,19 @@ pub fn mcb_lookup_instance_decl(uri: &McURI, name: &str, scope: Option<&str>) ->
             if let Some((id, _)) = sem.local_table.lookup_by_scope_name(scope_str, name) {
                 return Some(id);
             }
-            // Fallback: iterate and match by name only (cross-scope within same file)
-            for ((_fid, _scope, n), (id, _)) in sem.local_table.name_to_declare_id.iter() {
-                if n == name {
-                    return Some(*id);
+            // Fallback: match by name only (cross-scope within same file).
+            // Deterministic (P2.4): the reverse name index keeps candidates in
+            // registration order, so same-named defs in different containers
+            // resolve stably instead of HashMap-iteration first-found.
+            if let Some(candidates) = sem.local_table.name_to_declare_ids.get(name) {
+                for (uri_id, scope) in candidates {
+                    if let Some((id, _)) = sem.local_table.name_to_declare_id.get(&(
+                        *uri_id,
+                        scope.clone(),
+                        name.to_string(),
+                    )) {
+                        return Some(*id);
+                    }
                 }
             }
         }
