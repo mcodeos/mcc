@@ -43,7 +43,7 @@ range (threshold 40KB).
 | `db/defregistry.rs` | 151 KB | 181 |
 | `instant/mc_mod/fcallinst.rs` | 147 KB | 26 |
 | `viz/layout/equi_audit.rs` | 137 KB | 103 |
-| `rpc/handlers/mod.rs` | 130 KB | 106 |
+| `rpc/handlers/mod.rs` | 131 KB | 107 |
 | `export/kicad_sch.rs` | 127 KB | 106 |
 | `instant/mc_mod/phases.rs` | 127 KB | 29 |
 | `instant/mc_mod/points.rs` | 121 KB | 20 |
@@ -72,7 +72,7 @@ range (threshold 40KB).
 | `output/` | 7 | 107 KB |
 | `query/` | 9 | 162 KB |
 | `refdef/` | 7 | 119 KB |
-| `rpc/` | 16 | 302 KB |
+| `rpc/` | 16 | 303 KB |
 | `semantic/` | 91 | 2724 KB |
 | `stages/` | 12 | 321 KB |
 | `vector/` | 25 | 478 KB |
@@ -4697,77 +4697,78 @@ rpc/handlers/mod.rs#L1279  fn instance_to_json
 rpc/handlers/mod.rs#L1335  fn extract_nets
 rpc/handlers/mod.rs#L1347  fn walk_nets
 rpc/handlers/mod.rs#L1369  fn iotype_str
-rpc/handlers/mod.rs#L1385  impl FileEntry
-rpc/handlers/mod.rs#L1386  fn new
-rpc/handlers/mod.rs#L1396  fn into_json
-rpc/handlers/mod.rs#L1409  fn is_system_uri
-rpc/handlers/mod.rs#L1421  fn diag_in_system_lib
-rpc/handlers/mod.rs#L1430  fn diag_file_in_system_lib
-rpc/handlers/mod.rs#L1443  fn path_in_system_lib
-rpc/handlers/mod.rs#L1457  fn refs_json
-rpc/handlers/mod.rs#L1479  fn resolve_libs_rpc
-rpc/handlers/mod.rs#L1491  fn load_libs_rpc
-rpc/handlers/mod.rs#L1508  fn make_overlay_uri
-rpc/handlers/mod.rs#L1514  fn remove_overlay
-rpc/handlers/mod.rs#L1529  fn run_erc
-rpc/handlers/mod.rs#L1559  fn parse_strict
-rpc/handlers/mod.rs#L1566  fn parse_or_default
-rpc/handlers/mod.rs#L1575  fn parse_string_param
-rpc/handlers/mod.rs#L1593  fn io_err
-rpc/handlers/mod.rs#L1599  fn is_safe_relative
-rpc/handlers/mod.rs#L1614  fn resolve_project_entry
-rpc/handlers/mod.rs#L1683  fn scan_mc_files_recursive
-rpc/handlers/mod.rs#L1698  fn read_project_entry_from_workspace
-rpc/handlers/mod.rs#L1706  fn read_project_top_from_workspace
-rpc/handlers/mod.rs#L1714  fn parse_manifest_field
-rpc/handlers/mod.rs#L1740  fn resolve_lib_root
-rpc/handlers/mod.rs#L1757  fn resolve_to_abs_uri
-rpc/handlers/mod.rs#L1773  fn filter_items_by_file
-rpc/handlers/mod.rs#L1799  fn find_def_by_name
-rpc/handlers/mod.rs#L1810  fn split_owner_member
-rpc/handlers/mod.rs#L1818  fn find_func_by_path
-rpc/handlers/mod.rs#L1833  fn func_nets_map
-rpc/handlers/mod.rs#L1848  fn pins_json
-rpc/handlers/mod.rs#L2104  fn pinport_json
-rpc/handlers/mod.rs#L2126  fn inst_kind_class
-rpc/handlers/mod.rs#L2156  fn attrval_json
-rpc/handlers/mod.rs#L2171  fn param_declare_to_json
-rpc/handlers/mod.rs#L2190  fn dump_component_json
-rpc/handlers/mod.rs#L2256  fn dump_module_json
-rpc/handlers/mod.rs#L2310  fn dump_interface_json
-rpc/handlers/mod.rs#L2344  fn dump_enum_json
-rpc/handlers/mod.rs#L2361  fn instances_json
-rpc/handlers/mod.rs#L2408  fn switch_to_file_workspace
-rpc/handlers/mod.rs#L2427  fn file_path_from_uri_param
-rpc/handlers/mod.rs#L2443  fn auto_load_from_file_path
-rpc/handlers/mod.rs#L2470  fn find_project_root
-rpc/handlers/mod.rs#L2544  fn path_is_under
-rpc/handlers/mod.rs#L2561  fn ensure_library_loaded
-rpc/handlers/mod.rs#L2600  fn extract_lib_dependencies
-rpc/handlers/mod.rs#L2685  mod admin
-rpc/handlers/mod.rs#L2686  mod aicontract
-rpc/handlers/mod.rs#L2687  mod buildcmd
-rpc/handlers/mod.rs#L2688  mod defs
-rpc/handlers/mod.rs#L2689  mod exportcmd
-rpc/handlers/mod.rs#L2690  mod impact
-rpc/handlers/mod.rs#L2691  mod import
-rpc/handlers/mod.rs#L2692  mod libcmd
-rpc/handlers/mod.rs#L2693  mod lsp
-rpc/handlers/mod.rs#L2694  mod rulescmd
-rpc/handlers/mod.rs#L2695  mod show
-rpc/handlers/mod.rs#L2712  struct MethodMeta
-rpc/handlers/mod.rs#L2718  static METHODS
-rpc/handlers/mod.rs#L3026  fn caps_json
-rpc/handlers/mod.rs#L3076  fn register_all
-rpc/handlers/mod.rs#L3169  mod tests
-rpc/handlers/mod.rs#L3174  fn cli_rpc__find_project_root_prefers_configured_root
-rpc/handlers/mod.rs#L3206  fn cli_rpc__find_project_root_does_not_claim_files_outside_it
-rpc/handlers/mod.rs#L3230  fn cli_rpc__find_project_root_detects_project_manifest
-rpc/handlers/mod.rs#L3254  fn cli_rpc__load_project_keeps_sibling_projects_in_separate_worlds
-rpc/handlers/mod.rs#L3317  fn cli_rpc__pin_id_cmp_orders_numeric_then_natural
-rpc/handlers/mod.rs#L3342  fn cli_rpc__diag_in_system_lib_classifies_by_source_domain
-rpc/handlers/mod.rs#L3386  fn cli_rpc__handle_check_scopes_to_candidate_overlay
-rpc/handlers/mod.rs#L3470  fn cli_rpc__handle_check_reuses_one_overlay_uri
+rpc/handlers/mod.rs#L1384  impl FileEntry
+rpc/handlers/mod.rs#L1385  fn new
+rpc/handlers/mod.rs#L1395  fn into_json
+rpc/handlers/mod.rs#L1408  fn is_system_uri
+rpc/handlers/mod.rs#L1420  fn diag_in_system_lib
+rpc/handlers/mod.rs#L1429  fn diag_file_in_system_lib
+rpc/handlers/mod.rs#L1442  fn path_in_system_lib
+rpc/handlers/mod.rs#L1456  fn refs_json
+rpc/handlers/mod.rs#L1478  fn resolve_libs_rpc
+rpc/handlers/mod.rs#L1490  fn load_libs_rpc
+rpc/handlers/mod.rs#L1507  fn make_overlay_uri
+rpc/handlers/mod.rs#L1513  fn remove_overlay
+rpc/handlers/mod.rs#L1528  fn run_erc
+rpc/handlers/mod.rs#L1558  fn parse_strict
+rpc/handlers/mod.rs#L1565  fn parse_or_default
+rpc/handlers/mod.rs#L1574  fn parse_string_param
+rpc/handlers/mod.rs#L1592  fn io_err
+rpc/handlers/mod.rs#L1598  fn is_safe_relative
+rpc/handlers/mod.rs#L1613  fn resolve_project_entry
+rpc/handlers/mod.rs#L1682  fn scan_mc_files_recursive
+rpc/handlers/mod.rs#L1697  fn read_project_entry_from_workspace
+rpc/handlers/mod.rs#L1705  fn read_project_top_from_workspace
+rpc/handlers/mod.rs#L1713  fn parse_manifest_field
+rpc/handlers/mod.rs#L1739  fn resolve_lib_root
+rpc/handlers/mod.rs#L1756  fn resolve_to_abs_uri
+rpc/handlers/mod.rs#L1772  fn filter_items_by_file
+rpc/handlers/mod.rs#L1798  fn find_def_by_name
+rpc/handlers/mod.rs#L1809  fn split_owner_member
+rpc/handlers/mod.rs#L1817  fn find_func_by_path
+rpc/handlers/mod.rs#L1832  fn func_nets_map
+rpc/handlers/mod.rs#L1847  fn pins_json
+rpc/handlers/mod.rs#L2103  fn pinport_json
+rpc/handlers/mod.rs#L2125  fn inst_kind_class
+rpc/handlers/mod.rs#L2155  fn attrval_json
+rpc/handlers/mod.rs#L2170  fn param_declare_to_json
+rpc/handlers/mod.rs#L2189  fn dump_component_json
+rpc/handlers/mod.rs#L2255  fn dump_module_json
+rpc/handlers/mod.rs#L2309  fn dump_interface_json
+rpc/handlers/mod.rs#L2343  fn dump_enum_json
+rpc/handlers/mod.rs#L2360  fn instances_json
+rpc/handlers/mod.rs#L2407  fn switch_to_file_workspace
+rpc/handlers/mod.rs#L2426  fn file_path_from_uri_param
+rpc/handlers/mod.rs#L2442  fn auto_load_from_file_path
+rpc/handlers/mod.rs#L2469  fn find_project_root
+rpc/handlers/mod.rs#L2543  fn path_is_under
+rpc/handlers/mod.rs#L2560  fn ensure_library_loaded
+rpc/handlers/mod.rs#L2599  fn extract_lib_dependencies
+rpc/handlers/mod.rs#L2684  mod admin
+rpc/handlers/mod.rs#L2685  mod aicontract
+rpc/handlers/mod.rs#L2686  mod buildcmd
+rpc/handlers/mod.rs#L2687  mod defs
+rpc/handlers/mod.rs#L2688  mod exportcmd
+rpc/handlers/mod.rs#L2689  mod impact
+rpc/handlers/mod.rs#L2690  mod import
+rpc/handlers/mod.rs#L2691  mod libcmd
+rpc/handlers/mod.rs#L2692  mod lsp
+rpc/handlers/mod.rs#L2693  mod rulescmd
+rpc/handlers/mod.rs#L2694  mod show
+rpc/handlers/mod.rs#L2711  struct MethodMeta
+rpc/handlers/mod.rs#L2717  static METHODS
+rpc/handlers/mod.rs#L3025  fn caps_json
+rpc/handlers/mod.rs#L3075  fn register_all
+rpc/handlers/mod.rs#L3168  mod tests
+rpc/handlers/mod.rs#L3177  fn cli_rpc__iotype_str_covers_every_variant
+rpc/handlers/mod.rs#L3189  fn cli_rpc__find_project_root_prefers_configured_root
+rpc/handlers/mod.rs#L3221  fn cli_rpc__find_project_root_does_not_claim_files_outside_it
+rpc/handlers/mod.rs#L3245  fn cli_rpc__find_project_root_detects_project_manifest
+rpc/handlers/mod.rs#L3269  fn cli_rpc__load_project_keeps_sibling_projects_in_separate_worlds
+rpc/handlers/mod.rs#L3332  fn cli_rpc__pin_id_cmp_orders_numeric_then_natural
+rpc/handlers/mod.rs#L3357  fn cli_rpc__diag_in_system_lib_classifies_by_source_domain
+rpc/handlers/mod.rs#L3401  fn cli_rpc__handle_check_scopes_to_candidate_overlay
+rpc/handlers/mod.rs#L3485  fn cli_rpc__handle_check_reuses_one_overlay_uri
 rpc/handlers/params.rs#L9  fn default_true
 rpc/handlers/params.rs#L14  struct LibraryShowParams
 rpc/handlers/params.rs#L19  struct LibInstallParams
@@ -8298,9 +8299,9 @@ vector/graph/fromblock.rs#L2142  fn layout_post_adjust_borders
 vector/graph/fromblock.rs#L2194  mod tests
 vector/graph/fromblock.rs#L2199  fn pos
 vector/graph/fromblock.rs#L2203  fn pin_entry
-vector/graph/fromblock.rs#L2246  fn g16_pin_src_span_prefers_wiring_site_over_decl_site
-vector/graph/fromblock.rs#L2254  fn g16_pin_src_span_falls_back_to_decl_site_when_unwired
-vector/graph/fromblock.rs#L2262  fn g16_placeholder_pins_carry_no_src_span
+vector/graph/fromblock.rs#L2247  fn g16_pin_src_span_prefers_wiring_site_over_decl_site
+vector/graph/fromblock.rs#L2255  fn g16_pin_src_span_falls_back_to_decl_site_when_unwired
+vector/graph/fromblock.rs#L2263  fn g16_placeholder_pins_carry_no_src_span
 vector/graph/graphdef.rs#L25  struct McVecGraph
 vector/graph/graphdef.rs#L117  enum LayerStyle
 vector/graph/graphdef.rs#L124  enum GeomStage
@@ -11220,4 +11221,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-406 files, 11137 declarations.
+406 files, 11138 declarations.

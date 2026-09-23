@@ -1375,7 +1375,6 @@ pub(crate) fn iotype_str(io: &crate::IOType) -> &'static str {
         Power => "power",
         Return => "return",
         NonCon => "noncon",
-        Label => "label",
         None => "none",
     }
 }
@@ -3169,6 +3168,22 @@ pub fn register_all(
 mod tests {
     use super::*;
     use std::fs;
+
+    /// Every variant maps to its own wire string. Locks each arm individually:
+    /// when the iotype `label` keyword retired (b3892) the stale `Label` arm
+    /// here degraded into a catch-all binding and every iotype reported
+    /// "label" on the RPC face.
+    #[test]
+    fn cli_rpc__iotype_str_covers_every_variant() {
+        use crate::IOType;
+        assert_eq!(iotype_str(&IOType::In), "in");
+        assert_eq!(iotype_str(&IOType::Out), "out");
+        assert_eq!(iotype_str(&IOType::InOut), "inout");
+        assert_eq!(iotype_str(&IOType::Power), "power");
+        assert_eq!(iotype_str(&IOType::Return), "return");
+        assert_eq!(iotype_str(&IOType::NonCon), "noncon");
+        assert_eq!(iotype_str(&IOType::None), "none");
+    }
 
     #[test]
     fn cli_rpc__find_project_root_prefers_configured_root() {
