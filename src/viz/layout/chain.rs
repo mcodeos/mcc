@@ -7,67 +7,6 @@
 use crate::vector::graph::{naming, BoxKind, EntrySide, McVecGraph, NetKind, VisualRole, VizNet};
 use std::collections::{HashMap, HashSet};
 
-// Part 1: Linear chain detection (existing, unchanged)
-
-pub fn try_linearize_chain(comp: &[i64], adj: &HashMap<i64, Vec<i64>>) -> Option<Vec<i64>> {
-    let mut endpoints: Vec<i64> = Vec::new();
-    let mut middles: Vec<i64> = Vec::new();
-    for &id in comp {
-        let d = adj.get(&id).map(|v| v.len()).unwrap_or(0);
-        match d {
-            0 => return None,
-            1 => endpoints.push(id),
-            2 => middles.push(id),
-            _ => return None,
-        }
-    }
-    if endpoints.len() != 2 || endpoints.len() + middles.len() != comp.len() {
-        return None;
-    }
-    let start = endpoints[0];
-    let mut chain = Vec::with_capacity(comp.len());
-    let mut visited = HashSet::new();
-    chain.push(start);
-    visited.insert(start);
-    let mut cur = start;
-    while chain.len() < comp.len() {
-        let neighbors = adj.get(&cur).cloned().unwrap_or_default();
-        match neighbors.into_iter().find(|n| !visited.contains(n)) {
-            Some(n) => {
-                chain.push(n);
-                visited.insert(n);
-                cur = n;
-            }
-            None => return None,
-        }
-    }
-    Some(chain)
-}
-
-pub fn layout_chain_horizontal(
-    graph: &mut McVecGraph,
-    chain: &[i64],
-    start_x: f64,
-    start_y: f64,
-) -> (f64, f64) {
-    const CHAIN_GAP: f64 = 50.0;
-    let max_h: f64 = chain
-        .iter()
-        .filter_map(|id| graph.boxes.iter().find(|b| b.id == *id))
-        .map(|b| b.h)
-        .fold(0.0f64, f64::max);
-    let row_cy = start_y + max_h / 2.0;
-    let mut cur_x = start_x;
-    for &id in chain {
-        if let Some(b) = graph.boxes.iter_mut().find(|b| b.id == id) {
-            b.x = cur_x;
-            b.y = row_cy - b.h / 2.0;
-            cur_x += b.w + CHAIN_GAP;
-        }
-    }
-    ((cur_x - CHAIN_GAP - start_x).max(0.0), max_h)
-}
-
 // Part 2: Signal chain extraction
 
 #[derive(Debug, Clone)]

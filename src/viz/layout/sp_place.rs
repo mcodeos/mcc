@@ -25,6 +25,7 @@ use crate::vector::graph::{EntryPoint, EntrySide, McVecBox, McVecGraph, Point, R
 use std::collections::HashMap;
 
 use super::entry_points::distribute_terminal_pins;
+use super::size::TERMINAL_PIN_PITCH;
 use super::sp_model::{SpKind, SpModel, SpTree};
 
 // Grid → pixel. Kept close to the flow layout scale; tune to match the rest.
@@ -103,7 +104,6 @@ pub fn apply_sp_model(graph: &mut McVecGraph, m: &SpModel) {
 /// A common size for both terminal ICs so u1 and u2 render at the same scale.
 /// = max(pin-count size, each terminal's current w/h). Never shrinks either.
 fn terminal_size(graph: &McVecGraph, a: i64, b: i64) -> (f64, f64) {
-    const PIN_PITCH: f64 = 28.0;
     const PAD: f64 = 26.0;
     const MIN_W: f64 = COL_W * 1.1;
     let get = |id: i64| graph.boxes.iter().find(|x| x.id == id);
@@ -115,7 +115,7 @@ fn terminal_size(graph: &McVecGraph, a: i64, b: i64) -> (f64, f64) {
     let cur_w = |id: i64| get(id).map(|x| x.w).unwrap_or(0.0);
     let cur_h = |id: i64| get(id).map(|x| x.h).unwrap_or(0.0);
     let n = pins(a).max(pins(b));
-    let h = ((n as f64) * PIN_PITCH + PAD).max(cur_h(a)).max(cur_h(b));
+    let h = ((n as f64) * TERMINAL_PIN_PITCH + PAD).max(cur_h(a)).max(cur_h(b));
     let w = MIN_W.max(cur_w(a)).max(cur_w(b));
     (w, h)
 }

@@ -25,6 +25,7 @@ use std::collections::{HashMap, HashSet};
 use crate::vector::graph::{EntryPoint, EntrySide, McVecGraph, Point};
 
 use super::entry_points::distribute_terminal_pins;
+use super::size::TERMINAL_PIN_PITCH;
 use super::ladder_model::LadderModel;
 use super::ladder_place::apply_ladder_model_at;
 use super::rails::is_rail_box;
@@ -930,7 +931,6 @@ fn terminal_width(graph: &McVecGraph, id: i64) -> f64 {
 
 /// Compute the preferred height (h) for a terminal box given its stack height.
 fn terminal_height(graph: &McVecGraph, id: i64, stack_h: f64) -> f64 {
-    const PIN_PITCH: f64 = 28.0;
     const PAD: f64 = 26.0;
     let pins = graph
         .boxes
@@ -944,7 +944,7 @@ fn terminal_height(graph: &McVecGraph, id: i64, stack_h: f64) -> f64 {
         .find(|x| x.id == id)
         .map(|x| x.h)
         .unwrap_or(0.0);
-    ((pins as f64) * PIN_PITCH + PAD)
+    ((pins as f64) * TERMINAL_PIN_PITCH + PAD)
         .max(stack_h + PAD)
         .max(cur_h)
 }
