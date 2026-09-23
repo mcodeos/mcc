@@ -68,7 +68,7 @@ range (threshold 40KB).
 | `eval/` | 2 | 50 KB |
 | `export/` | 7 | 183 KB |
 | `instant/` | 40 | 1594 KB |
-| `lsp/` | 7 | 66 KB |
+| `lsp/` | 7 | 67 KB |
 | `output/` | 7 | 107 KB |
 | `query/` | 9 | 161 KB |
 | `refdef/` | 7 | 118 KB |
@@ -3984,10 +3984,10 @@ lsp/completion.rs#L445  fn enumerate_module
 lsp/completion.rs#L487  fn enumerate_interface
 lsp/completion.rs#L500  fn enumerate_enum
 lsp/diagnostics.rs#L18  fn collect
-lsp/diagnostics.rs#L26  fn diagnostic_to_json
-lsp/diagnostics.rs#L42  fn diagnostic_to_json_full
-lsp/diagnostics.rs#L81  fn level_str
-lsp/diagnostics.rs#L90  fn location_to_json
+lsp/diagnostics.rs#L32  fn diagnostic_to_json
+lsp/diagnostics.rs#L69  fn diagnostic_to_json_full
+lsp/diagnostics.rs#L108  fn level_str
+lsp/diagnostics.rs#L117  fn location_to_json
 lsp/gotodef.rs#L22  fn find_def_in_refdefmap
 lsp/gotodef.rs#L49  fn find_def_by_name_raw
 lsp/gotodef.rs#L81  fn find_def_by_name_in_file

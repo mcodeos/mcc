@@ -23,8 +23,14 @@ pub fn collect(uri: &McURI) -> Vec<Value> {
 // ── Single diagnostic formatters ──
 
 /// Format a diagnostic for LSP (compact format: code, level, message, location).
+///
+/// Carries the fields the `caps` handshake advertises under
+/// `features.diagnostics` (`end_line`, `end_column`, `suggestions`,
+/// `related`); the `diagnostics` RPC is the only consumer-facing channel
+/// using this form. `related` shares the `suggestions` shape, matching
+/// `diagnostic_to_json_full`.
 pub fn diagnostic_to_json(d: &Diagnostic) -> Value {
-    json!({
+    let mut v = json!({
         "code": d.code,
         "level": level_str(&d.level),
         "message": d.msg,
@@ -33,8 +39,29 @@ pub fn diagnostic_to_json(d: &Diagnostic) -> Value {
             "len": d.loc.len,
             "line": d.loc.row,
             "column": d.loc.col,
-        }
-    })
+        },
+        "end_line": d.loc.end_row,
+        "end_column": d.loc.end_col,
+        "suggestions": [],
+        "related": [],
+    });
+
+    if !d.other.is_empty() {
+        let related: Vec<Value> = d
+            .other
+            .iter()
+            .map(|ri| {
+                json!({
+                    "message": ri.message_template,
+                    "location": location_to_json(&ri.location),
+                })
+            })
+            .collect();
+        v["suggestions"] = json!(related);
+        v["related"] = json!(related);
+    }
+
+    v
 }
 
 /// Format a diagnostic for AI consumers (full format with

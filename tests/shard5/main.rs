@@ -14,6 +14,7 @@ mod bom_nc_hbl;
 mod cond_duplicate;
 mod cond_judge_operand_dropped;
 mod curly_option;
+mod diag_rpc_contract;
 mod defspace_wiring;
 mod dotted_int_component_name;
 mod entry_discovery;
