@@ -336,6 +336,17 @@ impl McComponentInst {
         // literals alone (`if (1 == 1)`) is still a condition, so a definition
         // with no parameters must not skip its conditional blocks.
         let eval_params = self.params.to_params_for_eval();
+        // The same environment the top-level dynamic rows read
+        // (`init_dynamic_pins`): integer bindings for the range side, text
+        // bindings for computed pin names (U211).
+        let dyn_bindings = self.get_param_bindings();
+        let dyn_values: Vec<(String, String)> = eval_params
+            .iter()
+            .map(|(ids, text)| (ids.to_string(), text.clone()))
+            .collect();
+        // Param-domain rows of the branches this instance selects (U230),
+        // accumulated here and expanded after the def borrow below ends.
+        let mut branch_dyn: Vec<dynamic::DynamicPinLine> = Vec::new();
 
         for cond_pins in &self.def.cond_pins {
             let mut matched = false;
@@ -371,6 +382,12 @@ impl McComponentInst {
                                 self.pins.insert(pin_id, net_point);
                             }
                         }
+                        // U230: the selected branch's param-domain rows
+                        // (`1:cols = 1:cols`) expand below against this
+                        // instance's bindings — the same duty the top level
+                        // discharges in `init_dynamic_pins`. Left to
+                        // themselves they register nothing and say nothing.
+                        branch_dyn.extend(pins.dynamic_pins.iter().cloned());
                         matched = true;
                         break;
                     }
@@ -406,8 +423,17 @@ impl McComponentInst {
                             self.pins.insert(pin_id, net_point);
                         }
                     }
+                    // Same expansion duty for a selected `else` branch (U230).
+                    branch_dyn.extend(else_pins.dynamic_pins.iter().cloned());
                 }
             }
+        }
+
+        // Expand the selected branches' param-domain rows (U230). A row that
+        // cannot resolve against this instance's parameters reports through
+        // the shared helper — the selected branch must never fall silent.
+        for line in &branch_dyn {
+            self.expand_dynamic_line(line, &dyn_bindings, &dyn_values);
         }
     }
 
@@ -815,40 +841,59 @@ impl McComponentInst {
             .map(|(ids, text)| (ids.to_string(), text.clone()))
             .collect();
 
-        for line in &self.def.pins.dynamic_pins {
-            match line.resolve_checked(&bindings, &values) {
-                Ok(resolved) => {
-                    for (pin_id, pin_name, iotype) in
-                        resolved.into_iter().map(|(id, name)| (id, name, line.iotype.clone()))
-                    {
-                        let path = format!("{}.{}", self.name, pin_id);
-                        let net_point = NetPoint::with_owner(&path, &self.name, iotype, None);
-                        self.pins.insert(pin_id.to_string(), net_point);
+        // Cloned out first so the expansion can take `&mut self` — the def's
+        // lines are small (an id expr, a name expr, an Arc of values) and the
+        // def is immutable from here on.
+        let lines = self.def.pins.dynamic_pins.clone();
+        for line in &lines {
+            self.expand_dynamic_line(line, &bindings, &values);
+        }
+    }
 
-                        // Register resolved pin name so it can be looked up later
-                        if !pin_name.is_empty() {
-                            self.cond_pin_names
-                                .entry(pin_id.to_string())
-                                .or_default()
-                                .push(pin_name);
-                        }
+    /// Expand one dynamic (parameter-range) pin row against this instance's
+    /// bound parameters, registering the materialized pins. Shared by the
+    /// top-level rows ([`Self::init_dynamic_pins`]) and by a *selected*
+    /// conditional branch's rows (U230, [`Self::init_cond_pins`]) — the
+    /// semantics a row has at the top level of `pins = [...]` are the
+    /// semantics it carries inside a branch that selects this instance. A row
+    /// that cannot resolve reports [`PIN_NAME_EXPR_UNRESOLVED`] here instead
+    /// of dropping without a word (U211), anchored at this declaration by the
+    /// same channel the U212 `error()` clauses ride.
+    fn expand_dynamic_line(
+        &mut self,
+        line: &dynamic::DynamicPinLine,
+        bindings: &[(String, i64)],
+        values: &[(String, String)],
+    ) {
+        match line.resolve_checked(bindings, values) {
+            Ok(resolved) => {
+                for (pin_id, pin_name, iotype) in
+                    resolved.into_iter().map(|(id, name)| (id, name, line.iotype.clone()))
+                {
+                    let path = format!("{}.{}", self.name, pin_id);
+                    let net_point = NetPoint::with_owner(&path, &self.name, iotype, None);
+                    self.pins.insert(pin_id.to_string(), net_point);
+
+                    // Register resolved pin name so it can be looked up later
+                    if !pin_name.is_empty() {
+                        self.cond_pin_names
+                            .entry(pin_id.to_string())
+                            .or_default()
+                            .push(pin_name);
                     }
                 }
-                // U211: a row that cannot resolve reports here instead of
-                // dropping without a word. Anchored at this declaration by the
-                // same channel the U212 `error()` clauses ride.
-                Err(reason) => {
-                    let what = match reason {
-                        dynamic::DynPinFail::IdExpr => "pin id range",
-                        dynamic::DynPinFail::NameExpr => "pin name expression",
-                    };
-                    self.cond_author_errors.push((
-                        crate::errcodes::PIN_NAME_EXPR_UNRESOLVED,
-                        format!(
-                            "dynamic pin row `{line}`: {what} did not resolve against the parameters bound here; the row registers no pin."
-                        ),
-                    ));
-                }
+            }
+            Err(reason) => {
+                let what = match reason {
+                    dynamic::DynPinFail::IdExpr => "pin id range",
+                    dynamic::DynPinFail::NameExpr => "pin name expression",
+                };
+                self.cond_author_errors.push((
+                    crate::errcodes::PIN_NAME_EXPR_UNRESOLVED,
+                    format!(
+                        "dynamic pin row `{line}`: {what} did not resolve against the parameters bound here; the row registers no pin."
+                    ),
+                ));
             }
         }
     }

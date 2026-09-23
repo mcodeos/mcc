@@ -13,6 +13,7 @@ mod attr_key_duplicate;
 mod attr_value_vocabulary;
 mod adopt_dotted_numeric_tail;
 mod computed_pin_names;
+mod cond_branch_dynamic_pins;
 mod ctor_arg_family;
 mod defspace_golden;
 mod dynamic_pin_expansion;
