@@ -41,6 +41,11 @@ pub enum IdsSegment {
     DotInt(Box<McInt>),
     DotIda(Box<McIda>),
     Curly(Vec<IdsSegment>),
+    /// A curly member that is itself a dot chain: the `ADC.P` member of
+    /// `uC{ADC.P}` (U249). The grammar wraps it as a nested `MCAST_IDS`
+    /// node; keeping it as one member preserves the member count, so the
+    /// expansion is `uC.ADC.P` — not two members `uC.ADC` / `uC.P`.
+    Ids(Box<McIds>),
     /// Square bracket segment, contains multiple members, e.g., [VDD, GND]
     Square(Vec<IdsSegment>),
 }
@@ -60,12 +65,45 @@ impl McIds {
     fn normalized_eq_hash(&self) -> Vec<IdsSegment> {
         self.segments
             .iter()
-            .map(|seg| match seg {
-                IdsSegment::DotIda(ida) => IdsSegment::Curly(vec![IdsSegment::Ida(ida.clone())]),
-                IdsSegment::DotInt(n) => IdsSegment::Curly(vec![IdsSegment::Int(n.clone())]),
-                other => other.clone(),
-            })
+            .flat_map(Self::normalize_eq_segment)
             .collect()
+    }
+
+    /// Normalize one segment for Eq/Hash: `DotIda` / `DotInt` become `Curly`,
+    /// so that `DC2.VDD` and `DC2{VDD}` are treated as the same key (Defect
+    /// 88). A `Curly` group that carries a chain member (`uC{ADC.P}` — only
+    /// the U249 grammar produces `Ids`) spreads its members into sibling
+    /// top-level `Curly` segments, so the group carries the same identity as
+    /// the dotted spelling `uC.ADC.P`; each chain part normalizes like its
+    /// own `DotIda` would. A plain group keeps the one-segment shape, so
+    /// `DC2{VDD, VDD2}` stays distinct from the dotted chain. A non-plain
+    /// nested chain keeps its shape.
+    fn normalize_eq_segment(seg: &IdsSegment) -> Vec<IdsSegment> {
+        match seg {
+            IdsSegment::DotIda(ida) => {
+                vec![IdsSegment::Curly(vec![IdsSegment::Ida(ida.clone())])]
+            }
+            IdsSegment::DotInt(n) => vec![IdsSegment::Curly(vec![IdsSegment::Int(n.clone())])],
+            IdsSegment::Ids(ids) => match ids.dot_chain_parts() {
+                Some(parts) => parts
+                    .into_iter()
+                    .map(|p| {
+                        IdsSegment::Curly(vec![IdsSegment::Ida(Box::new(McIda::from(p.as_str())))])
+                    })
+                    .collect(),
+                None => vec![IdsSegment::Ids(ids.clone())],
+            },
+            IdsSegment::Curly(members) if members.iter().any(|m| matches!(m, IdsSegment::Ids(_))) => {
+                members
+                    .iter()
+                    .flat_map(|m| match m {
+                        IdsSegment::Ids(_) => Self::normalize_eq_segment(m),
+                        other => vec![IdsSegment::Curly(vec![other.clone()])],
+                    })
+                    .collect()
+            }
+            other => vec![other.clone()],
+        }
     }
 }
 
@@ -652,6 +690,10 @@ impl McIds {
                     MCAST_ID | MCAST_IDA => {
                         McIda::new(&each).map(|ida| IdsSegment::Ida(Box::new(ida)))
                     }
+                    // U249: a member may itself be a dot chain (`uC{ADC.P}`)
+                    // — keep it as one nested `Ids` member so the member count
+                    // and the expansion (`uC.ADC.P`) stay single-member.
+                    MCAST_IDS => McIds::new(&each).map(|ids| IdsSegment::Ids(Box::new(ids))),
                     // Handle MCAST_OPD_COLON (e.g. 1:10)
                     MCAST_OPD_COLON => (|| -> Option<IdsSegment> {
                         let left = each.get_sub_node()?;
@@ -790,6 +832,7 @@ impl McIds {
                 IdsSegment::Ida(ida) => ida.len(),
                 IdsSegment::DotInt(int) => int.to_string().len() + 1,
                 IdsSegment::DotIda(ida) => ida.to_string().len() + 1,
+                IdsSegment::Ids(ids) => ids.to_string().len(),
                 IdsSegment::Curly(curly_segs) => {
                     curly_segs
                         .iter()
@@ -841,6 +884,10 @@ impl McIds {
                     result.push('.');
                     result.push_str(&ida.to_string());
                 }
+                IdsSegment::Ids(ids) => {
+                    result.push('.');
+                    result.push_str(&ids.to_string());
+                }
                 IdsSegment::Slice { from, to } => {
                     result.push_str(&format!("{}:{}", from.value, to.value));
                 }
@@ -880,6 +927,10 @@ impl McIds {
                 IdsSegment::DotIda(ida) => {
                     result.push('.');
                     result.push_str(&ida.to_string());
+                }
+                IdsSegment::Ids(ids) => {
+                    result.push('.');
+                    result.push_str(&ids.to_string());
                 }
                 IdsSegment::Slice { from, to } => {
                     result.push_str(&format!("{}:{}", from.value, to.value));
@@ -921,11 +972,14 @@ impl McIds {
 
     /// Any dot access (`A.B` → DotIda/DotInt), anywhere in the segment list.
     /// Exactly equivalent to `to_string().contains('.')` for outer segments,
-    /// without re-parsing display output (AST-driven guideline).
+    /// without re-parsing display output (AST-driven guideline). A curly
+    /// member that is itself a dot chain (`uC{ADC.P}`) counts too.
     pub fn has_dot(&self) -> bool {
-        self.segments
-            .iter()
-            .any(|seg| matches!(seg, IdsSegment::DotIda(_) | IdsSegment::DotInt(_)))
+        self.segments.iter().any(|seg| match seg {
+            IdsSegment::DotIda(_) | IdsSegment::DotInt(_) | IdsSegment::Ids(_) => true,
+            IdsSegment::Curly(segs) => segs.iter().any(|s| matches!(s, IdsSegment::Ids(_))),
+            _ => false,
+        })
     }
 
     /// The path after the first segment, separators dropped: `spec.input_req`
@@ -999,6 +1053,10 @@ impl McIds {
                     IdsSegment::DotInt(num) => {
                         vec![format!(".{}", num.value)]
                     }
+                    // U249: a curly member that is itself a dot chain expands
+                    // as one member (`ADC.P` → [".ADC.P"] after the Curly
+                    // wrapper adds its separator).
+                    IdsSegment::Ids(ids) => ids.expand(),
                     IdsSegment::Curly(curly_segs) => {
                         // For multiple segments inside curly braces, first expand each segment
                         // Example DC4{VDD, GND} -> DC4.VDD, DC4.GND
@@ -1164,6 +1222,7 @@ impl McIds {
             IdsSegment::Ida(ida) => ida.expand(),
             IdsSegment::DotIda(ida) => ida.expand().into_iter().map(|s| format!(".{s}")).collect(),
             IdsSegment::DotInt(num) => vec![format!(".{}", num.value)],
+            IdsSegment::Ids(ids) => ids.expand(),
             IdsSegment::Curly(curly_segs) => {
                 let mut curly_results: Vec<String> = Vec::new();
                 for curly_seg in curly_segs {
@@ -1462,6 +1521,39 @@ impl McIds {
                 }
             }
         }
+
+        // U249: `uC{ADC.P}` — a two-segment ids whose curly members are
+        // themselves dot chains. Each member contributes its own chain: the
+        // first part names the interface, the remaining parts join as the
+        // sub-member, so `uC{ADC.P}` reads exactly like `uC.ADC{P}` (the
+        // equivalence ruling in resolve-gate §2.13.6). A member that is not
+        // a plain chain, or chains naming different interfaces, is not this
+        // pattern.
+        if self.segments.len() == 2 {
+            if let (IdsSegment::Ida(base_ida), IdsSegment::Curly(curly_segs)) =
+                (&self.segments[0], &self.segments[1])
+            {
+                let component = base_ida.expand().first()?.clone();
+                let mut interface: Option<String> = None;
+                let mut members: Vec<String> = Vec::new();
+                for seg in curly_segs {
+                    let IdsSegment::Ids(ids) = seg else {
+                        return None;
+                    };
+                    let parts = ids.dot_chain_parts()?;
+                    let first = parts.first()?.clone();
+                    match &interface {
+                        Some(named) if *named != first => return None,
+                        None => interface = Some(first),
+                        _ => {}
+                    }
+                    members.push(parts[1..].join("."));
+                }
+                if let (Some(named), false) = (interface, members.is_empty()) {
+                    return Some((component, named, members));
+                }
+            }
+        }
         None
     }
 
@@ -1654,6 +1746,7 @@ impl std::fmt::Display for IdsSegment {
             IdsSegment::DotInt(num) => {
                 write!(f, ".{}", num.value)
             }
+            IdsSegment::Ids(ids) => write!(f, "{ids}"),
             IdsSegment::Curly(curly_segs) => {
                 write!(f, "{{")?;
                 for (i, opdc) in curly_segs.iter().enumerate() {
@@ -1682,6 +1775,55 @@ impl std::fmt::Display for IdsSegment {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Build the AST shape of `uC{ADC.P}`: a base id plus a curly member that
+    /// is itself a dot chain (the U249 `Ids` segment).
+    fn curly_chain_ids() -> McIds {
+        McIds {
+            segments: vec![
+                IdsSegment::Ida(Box::new(McIda::from("uC"))),
+                IdsSegment::Curly(vec![IdsSegment::Ids(Box::new(McIds {
+                    segments: vec![
+                        IdsSegment::Ida(Box::new(McIda::from("ADC"))),
+                        IdsSegment::DotIda(Box::new(McIda::from("P"))),
+                    ],
+                }))]),
+            ],
+        }
+    }
+
+    #[test]
+    fn sem_mcids__curly_chain_member_normalizes_to_dotted_identity() {
+        // `uC{ADC.P}` carries the same eq/hash identity as `uC.ADC.P` and
+        // `uC.ADC{P}` (U249 equivalence, Defect 88 alignment): each chain
+        // part normalizes like its own `DotIda` would.
+        let dotted = McIds {
+            segments: vec![
+                IdsSegment::Ida(Box::new(McIda::from("uC"))),
+                IdsSegment::DotIda(Box::new(McIda::from("ADC"))),
+                IdsSegment::DotIda(Box::new(McIda::from("P"))),
+            ],
+        };
+        let dot_curly = McIds {
+            segments: vec![
+                IdsSegment::Ida(Box::new(McIda::from("uC"))),
+                IdsSegment::DotIda(Box::new(McIda::from("ADC"))),
+                IdsSegment::Curly(vec![IdsSegment::Ida(Box::new(McIda::from("P")))]),
+            ],
+        };
+        assert_eq!(curly_chain_ids(), dotted);
+        assert_eq!(curly_chain_ids(), dot_curly);
+    }
+
+    #[test]
+    fn sem_mcids__curly_chain_member_expands_and_displays_as_one_member() {
+        // One member, not two: the expansion is the full chain `uC.ADC.P`,
+        // and the display round-trips to the source spelling.
+        let ids = curly_chain_ids();
+        assert_eq!(ids.expand(), vec!["uC.ADC.P".to_string()]);
+        assert_eq!(ids.to_string(), "uC{ADC.P}");
+        assert!(ids.has_dot());
+    }
 
     #[test]
     fn sem_mcids__sub_path_reads_the_member_names() {
