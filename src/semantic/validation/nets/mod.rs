@@ -158,6 +158,15 @@ pub(crate) use subface::check_filter_subface_overreach;
 mod thermal;
 pub(crate) use thermal::check_element_dissipation;
 
+// U201 ①② — the role-anchored exclusive-peer gate (xtal-oscillator-design.md
+// §2). One adoption lane of a role declaring `exclusive = true` must reach one
+// peer-role instance across its terminals: the defect lives across nets (each
+// single net passes the point-to-point count), so the judge is whole-net and
+// reads the flatten-time lane carry. The trigger is the role's own
+// declaration, never a family name.
+mod iface_peer;
+pub(crate) use iface_peer::check_iface_exclusive_peer;
+
 /// Run all electrical net checks and return diagnostics.
 ///
 /// FlatErc rules are declared — and ordered — in `crate::rules`

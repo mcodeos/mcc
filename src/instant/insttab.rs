@@ -344,6 +344,139 @@ pub(crate) fn expectations_of_pin(
     }
 }
 
+/// The interface-adoption face of one flat component pin (U201 ①②, the
+/// role-anchored exclusive-peer gate): which interface family the pin's
+/// adoption row names, which declared role the instantiation selected, which
+/// role that role names as its `peer`, whether the role declares the adoption
+/// lane exclusive to one peer instance, and the lane itself — the `NAME::` of
+/// the adoption row, the declared **body identity**.
+///
+/// A declaration-face carry, like [`expectations_of_pin`]: decoded once at
+/// flatten time through the same def-side reading the connection-time judge
+/// uses (`stmt.rs` `iface_endpoint_of_point`: pin id → port name through
+/// `pin_id_to_names`, port name → the `Mc2Interface` through `names_to_id`),
+/// so the flat rule never re-derives adoption from a pin shape or a name and
+/// the two readers cannot drift. `None` = the pin adopts no interface — a
+/// real answer, not a missing one: the gate says nothing about the pin.
+#[derive(Debug, Clone)]
+pub(crate) struct IfaceLane {
+    /// Interface family name — the definition's own name (`XTAL`, not the
+    /// adoption row's instance spelling).
+    pub family: String,
+    /// The role the instantiation selected (`::XTAL(Resonator)` →
+    /// `Resonator`). `None` for a roleless adoption, which is never
+    /// exclusive.
+    pub role: Option<String>,
+    /// The selected role's declared `peer` role, if it names one.
+    pub peer_role: Option<String>,
+    /// The role's `exclusive = true` declaration (U201 ①②): the lane's
+    /// terminals pair with exactly **one** peer instance — a resonator body
+    /// meets one oscillator body, not two. Roles that declare nothing pair
+    /// unrestricted (a multi-input receiver lane is a legal shape).
+    pub exclusive: bool,
+    /// The adoption lane: the `NAME::` of the adoption row. One lane is one
+    /// declared body — the author groups one body's terminals on one row, so
+    /// two crystals on one part are two lanes (`XTAL_A::` / `XTAL_B::`).
+    pub lane: String,
+}
+
+/// One role attribute's declared value set, read the way the connection-time
+/// judge reads it (`stmt.rs` `iface_attr_value_set`): a `Set` expression
+/// flattens to its items, anything else reads as written, quotes stripped.
+pub(crate) fn iface_role_attr_values(
+    values: &[crate::McAttrVal],
+) -> Vec<String> {
+    let mut out = Vec::new();
+    for val in values {
+        if let crate::McAttrVal::AttrExpr(crate::semantic::basic::mc_expr::McExpression::Set(
+            items,
+        )) = val
+        {
+            out.extend(
+                items
+                    .iter()
+                    .map(|e| {
+                        crate::semantic::basic::mc_literal::strip_string_quotes(
+                            e.to_string().trim(),
+                        )
+                        .trim()
+                        .to_string()
+                    })
+                    .filter(|s| !s.is_empty()),
+            );
+        } else {
+            let s = crate::semantic::basic::mc_literal::strip_string_quotes(
+                format!("{}", val).trim(),
+            )
+            .trim()
+            .to_string();
+            if !s.is_empty() {
+                out.push(s);
+            }
+        }
+    }
+    out
+}
+
+/// Decode one component pin's interface-adoption face ([`IfaceLane`]) from
+/// the instance's materialized definition — the flatten-time twin of the
+/// connection-time endpoint resolver, kept to the same three lookups
+/// (`pin_id_to_names` → port name, `names_to_id` → `Mc2Interface`, params →
+/// role) so neither side can read a different adoption.
+pub(crate) fn iface_lane_of_pin(
+    comp: &crate::instant::mc_comp::McComponentInst,
+    pin_name: &str,
+) -> Option<IfaceLane> {
+    let names = comp.def.pins.pin_id_to_names.get(pin_name)?;
+    let port_name = names.first()?.split('.').next()?;
+    if port_name.is_empty() {
+        return None;
+    }
+    let port = comp.def.pins.names_to_id.get(port_name)?;
+    let crate::semantic::component::mc_pins::McPinPort::Interface(iface) = port else {
+        return None;
+    };
+    let role = iface.params.iter().find_map(|p| match p {
+        crate::semantic::basic::mc_param::McParamValue::Ids(ids) => {
+            let name = ids.to_string();
+            iface
+                .base
+                .roles
+                .iter()
+                .map(|r| r.name.to_string())
+                .find(|rn| *rn == name)
+        }
+        _ => None,
+    });
+    let role_def = role.as_ref().and_then(|rn| {
+        iface
+            .base
+            .roles
+            .iter()
+            .find(|r| &r.name.to_string() == rn)
+    });
+    let first_values = |id: &str| -> Vec<String> {
+        role_def
+            .map(|r| {
+                r.attrs
+                    .iter()
+                    .filter(|a| a.id.to_string() == id)
+                    .flat_map(|a| iface_role_attr_values(&a.values))
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    let peer_role = first_values("peer").into_iter().next();
+    let exclusive = first_values("exclusive").iter().any(|v| v == "true");
+    Some(IfaceLane {
+        family: iface.base.name.to_string(),
+        role,
+        peer_role,
+        exclusive,
+        lane: port_name.to_string(),
+    })
+}
+
 /// What this component **is**, as its own `spec` table declares it — the flat
 /// carry [`InstEntry::element_class`] and the power-quality axis's answer to
 /// "a decoupling capacitor? a filter? a series pass?" (power-quality-design.md
@@ -694,6 +827,15 @@ pub struct InstEntry {
     /// axis — a real answer, not a missing one.
     pub exp_role: Vec<String>,
     pub exp_class: Vec<String>,
+    /// ★ U201 ①②: the pin's interface-adoption face — family, selected
+    /// role, that role's `peer`, the role's `exclusive` declaration, and the
+    /// adoption lane (the `NAME::` of the row). A declaration-face carry like
+    /// [`Self::exp_role`]: decoded once at flatten time by
+    /// [`iface_lane_of_pin`] from the instance's materialized definition —
+    /// the same three lookups the connection-time endpoint resolver makes —
+    /// so the flat exclusive-peer gate never re-derives adoption. `None` =
+    /// the pin adopts no interface, a real answer the gate stays silent on.
+    pub iface_lane: Option<IfaceLane>,
     /// ★ PI axis (power-quality-design.md §1.2): the element class this
     /// component's own `spec` table declares it to be — decoupling capacitor,
     /// filter magnetics, or a dissipating pass — so a rule can ask "is this a
@@ -1213,6 +1355,7 @@ impl InstTable {
             exposed: Vec::new(),
             exp_role: Vec::new(),
             exp_class: Vec::new(),
+            iface_lane: None,
             element_class: None,
             resistance_ohm: None,
             power_rated_w: None,
@@ -1294,6 +1437,14 @@ impl InstTable {
         if let Some(entry) = self.entries.get_mut(&id) {
             entry.exp_role = role;
             entry.exp_class = class;
+        }
+    }
+
+    /// Set the declared interface-adoption face of a component pin by ID
+    /// (see [`InstEntry::iface_lane`]). Component flatten sites only.
+    pub fn set_iface_lane(&mut self, id: u32, lane: IfaceLane) {
+        if let Some(entry) = self.entries.get_mut(&id) {
+            entry.iface_lane = Some(lane);
         }
     }
 
@@ -2236,6 +2387,15 @@ impl InstTable {
                         self.set_expectations(pin_id, exp_role, exp_class);
                     }
 
+                    // ★ U201 ①②: the pin's interface-adoption face rides the
+                    // flat entry the same way, so the exclusive-peer gate
+                    // reads the instance's materialized adoption row — the
+                    // flatten-time twin of the connection-time endpoint
+                    // resolver, not a second opinion.
+                    if let Some(lane) = iface_lane_of_pin(comp, pin_name) {
+                        self.set_iface_lane(pin_id, lane);
+                    }
+
                     // ── Declaration position for pins ──
                     // An unconnected pin never appears in a net, so `flatten_nets`
                     // can't back-fill a wiring site into `src_pos`. Anchor the
@@ -2466,6 +2626,15 @@ impl InstTable {
                     let (exp_role, exp_class) = expectations_of_pin(comp, pin_name);
                     if !exp_role.is_empty() || !exp_class.is_empty() {
                         self.set_expectations(pin_id, exp_role, exp_class);
+                    }
+
+                    // ★ U201 ①②: the pin's interface-adoption face rides the
+                    // flat entry the same way, so the exclusive-peer gate
+                    // reads the instance's materialized adoption row — the
+                    // flatten-time twin of the connection-time endpoint
+                    // resolver, not a second opinion.
+                    if let Some(lane) = iface_lane_of_pin(comp, pin_name) {
+                        self.set_iface_lane(pin_id, lane);
                     }
 
                     let (role, _inferred) = infer_member_role(

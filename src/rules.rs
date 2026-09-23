@@ -64,7 +64,8 @@ use crate::semantic::validation::nets::{
     check_converter_spec_incomplete, check_decoupling_return_face, check_device_return_span,
     check_driver_conflict, check_earth_dc_leak, check_element_dissipation,
     check_exposed_clamp_coverage, check_exposed_clamp_downstream, check_filter_subface_overreach,
-    check_floating_inputs, check_floating_outputs, check_isolated_dc_bridge, check_nc_connected,
+    check_floating_inputs, check_floating_outputs, check_iface_exclusive_peer,
+    check_isolated_dc_bridge, check_nc_connected,
     check_net_budget, check_pin_contract_decode, check_pin_contract_return_member,
     check_pin_copper_expectation, check_pin_count_mismatch, check_port_bind_role,
     check_port_io_mismatch, check_power_bridge_loop, check_power_nets, check_power_rail_contract,
@@ -1296,6 +1297,20 @@ pub static FLAT_ERC_RULES: &[FlatErcRule] = &[
         overridable = false,
         owner = check_barrier_isolation,
     },
+    // Role-anchored exclusive-peer gate (xtal-oscillator-design.md §2, U201
+    // ①②); table tail, tracking the FLAT_ERC_ORDER append (§5-5).
+    declare_flat_erc_rule! {
+        code = crate::errcodes::IFACE_EXCLUSIVE_PEER_CONFLICT,
+        name = "iface-exclusive-peer",
+        title = "an exclusive interface role lane reaches more than one peer instance",
+        severity = Error,
+        domain = Connectivity,
+        family = None,
+        doc = "U201 ①② (xtal-oscillator-design.md §2, the role-anchored exclusive-peer gate): one adoption lane of a role declaring `exclusive = true` must reach one peer-role instance across its terminals — a resonator body meets one oscillator body, and a lane wired X1 onto one MCU and X2 onto another is a torn pairing each of whose single nets quietly passes the point-to-point count (E4122). The trigger is the role's own declaration, never a family or role name (no-hardcoding): the XTAL pair declares it, a multi-input receiver role declares nothing and pairs unrestricted. Judged from the flat table over whole nets through the flatten-time lane carry — the same def-side lookups the connection-time endpoint resolver makes. One terminal with no peer at all is the single-side silence law, not this gate's defect.",
+        lock = "tests/shard7/iface_exclusive_peer.rs",
+        overridable = false,
+        owner = check_iface_exclusive_peer,
+    },
 ];
 
 // Declaration scope (pins / declaration semantics)
@@ -1852,7 +1867,8 @@ mod tests {
         CLAMP_REF_NOT_PROTECTIVE, COMBINE_OUTPUT_TOL, CROSS_BARRIER_NET,
         DECOUPLING_RETURN_MISMATCH, DEVICE_RETURN_SPAN_UNDECLARED, EARTH_DC_LEAK,
         EXPOSED_NET_DOWNSTREAM_UNPROTECTED, EXPOSED_NET_NO_CLAMP, FILTER_SUBFACE_OVERREACH,
-        ISOLATED_DC_BRIDGE, NET_BACKFEED_RISK, NET_BIDIR_UNCONNECTED, NET_BUDGET_EXCEEDED,
+        IFACE_EXCLUSIVE_PEER_CONFLICT, ISOLATED_DC_BRIDGE, NET_BACKFEED_RISK,
+        NET_BIDIR_UNCONNECTED, NET_BUDGET_EXCEEDED,
         NET_DANGLING_ENDPOINT, NET_INPUT_UNCONNECTED, NET_INSTANCE_UNCONNECTED,
         NET_MODULE_PORT_UNCONNECTED, NET_MULTI_DRIVE, NET_NC_CONNECTED, NET_NO_DRIVER,
         NET_OUTPUTS_NO_INPUT, NET_OUTPUT_UNDRIVEN, NET_PARTIAL_CONNECTION, NET_PIN_UNWIRED,
@@ -1871,7 +1887,7 @@ mod tests {
     /// The execution order of the migrated `nets::run_net_checks` call table.
     /// This is the lock that keeps catalog declaration order byte-identical to
     /// the pre-registry runner sequence.
-    const FLAT_ERC_ORDER: [u32; 55] = [
+    const FLAT_ERC_ORDER: [u32; 56] = [
         NET_MULTI_DRIVE,                    // P1
         NET_NO_DRIVER,                      // P2
         NET_INPUT_UNCONNECTED,              // P5
@@ -1927,6 +1943,7 @@ mod tests {
         EXPOSED_NET_DOWNSTREAM_UNPROTECTED, // PWR-6 downstream chain (tail append)
         PIN_COPPER_EXPECTATION_MISMATCH, // pin expectation vs landed copper (tail append)
         CROSS_BARRIER_NET,    // barrier group vs shared net (tail append)
+        IFACE_EXCLUSIVE_PEER_CONFLICT, // exclusive role lane vs peer instances (tail append)
     ];
 
     /// The report-row tags of the netcheck R-series. This is the lock that
@@ -2468,7 +2485,8 @@ mod tests {
         // doc partition is empty and every one of them counts as strong.
         // 164 = +CROSS_BARRIER_NET (barrier-design.md §3, its own lock file).
         // 166 = +5512/5513 (the @pair group gates, tests/shard3/declared_diff_pair.rs).
-        assert_eq!((strong, doc, note), (166, 0, 3));
+        // 167 = +6054 (the exclusive-peer gate, tests/shard7/iface_exclusive_peer.rs).
+        assert_eq!((strong, doc, note), (167, 0, 3));
         assert_eq!(strong + doc + note, rule_count());
     }
 

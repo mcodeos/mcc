@@ -2185,6 +2185,17 @@ pub const PIN_COPPER_EXPECTATION_UNANCHORED: u32 = 6052;
 /// the net in two and never fires — the gate judges one net, not a path.
 pub const CROSS_BARRIER_NET: u32 = 6053;
 
+/// U201 ①② (xtal-oscillator-design.md §2, role-anchored exclusive-peer
+/// gate): one adoption lane of a role declaring `exclusive = true` reaches
+/// more than one peer-role instance across its terminals. The law is a body
+/// fact — a resonator body's terminals meet exactly one oscillator body
+/// (`X1` onto one MCU and `X2` onto another is a torn pairing, each single
+/// net quietly passing the point-to-point count). Judged from the flat table
+/// over whole nets, and only where the declaration states the exclusivity:
+/// a role without `exclusive` pairs unrestricted. One terminal with no peer
+/// at all is the single-side silence law, not this gate's defect.
+pub const IFACE_EXCLUSIVE_PEER_CONFLICT: u32 = 6054;
+
 /// R3 **mixed bridge identity** (intent-reference-layer-design.md §10.4 bridge
 /// identity three-state): a `@bridge(X, Y)` whose two arguments disagree on
 /// kind — one names a whole-referenceable domain of the owning module, the
@@ -2705,4 +2716,5 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(PIN_COPPER_EXPECTATION_MISMATCH, "A pin row declares an identity or signal-class expectation the net it lands on contradicts.", "pin '{0}' expects {1} but lands on class '{2}' — the class anchors neither a matching declared face nor a matching copper identity: bind the pin to a net of the expected identity, or change the expectation (pin-expectation-design.md §3-§4)"),
     entry!(PIN_COPPER_EXPECTATION_UNANCHORED, "A pin row declares an expectation but its net resolves no identity at all.", "pin '{0}' expects {1} but its net carries no declared identity — a bare net is no face at all: declare the copper (conduit or domain rail) in the owning module, or the expectation stays a wish (pin-expectation-design.md §3-§4)"),
     entry!(CROSS_BARRIER_NET, "Pins of two different @barrier groups on one component share a net — the declared isolation is bridged.", "component '{0}' carries barrier groups {1} on one net '{2}' — a group-wise isolation fact, physical by birth: split the net so no copper of this part reaches two groups, or drop the @barrier rows that overstate the part (barrier-design.md §3)"),
+    entry!(IFACE_EXCLUSIVE_PEER_CONFLICT, "An exclusive interface role lane reaches more than one peer instance.", "interface '{0}' lane '{1}' on '{2}' adopts role '{3}', which declares `exclusive = true` — the lane's terminals must all pair with one peer instance, but they reach {4}: {5}. An exclusive pairing is one body to one body (a resonator body meets one oscillator body); wire the lane's terminals to a single peer, or drop the `exclusive` declaration if multi-peer pairing is intended (xtal-oscillator-design.md §2, U201 ①②)."),
 ];
