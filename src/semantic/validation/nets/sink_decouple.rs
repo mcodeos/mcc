@@ -66,10 +66,26 @@ pub(crate) fn check_sink_pin_decoupling(table: &InstTable, results: &mut Vec<Net
         return;
     }
     let workspace = crate::definition_space().workspace_components();
-    let defs: HashMap<String, &McComponent> = workspace
+    let mut defs: HashMap<String, &McComponent> = workspace
         .iter()
         .map(|(sn, c)| (sn.ident.to_string(), c.as_ref()))
         .collect();
+    // U266 ①: same adoption gate as `PowerScan::build` — system-library
+    // declarations with pwr rows join the sink-carrying domain only when the
+    // project explicitly adopted them; the workspace def wins a collision.
+    // Owned first (the map borrows the defs, so the Arcs must outlive it).
+    let system = if crate::cli::config::include_system_contracts() {
+        crate::definition_space()
+            .system_components()
+            .into_iter()
+            .filter(|(_, c)| !c.pins.pwr.is_empty())
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+    for (sn, c) in &system {
+        defs.entry(sn.ident.to_string()).or_insert(c.as_ref());
+    }
     let judged: Vec<(u32, u32, String, String)> = sites
         .into_iter()
         .filter_map(|(site, net)| {

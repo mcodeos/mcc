@@ -769,6 +769,8 @@ async fn main() -> anyhow::Result<()> {
     // 3b. Seed the process-wide rule override store from the merged config
     //     (identity when nothing is configured).
     mcc::load_rule_overrides(std::env::current_dir().ok().as_deref());
+    // Seed the power-contract adoption switch (U266 ①) from the merged config.
+    mcc::load_contract_adoption(std::env::current_dir().ok().as_deref());
 
     // 4. Serve MCP over stdio.
     let server = MccMcpServer::new().serve(rmcp::transport::stdio()).await?;

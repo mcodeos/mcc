@@ -33,7 +33,7 @@ use crate::semantic::common::IOType;
 use crate::semantic::component::mc_attr::{McAttrVal, McAttribute};
 use crate::semantic::component::mc_pins::PwrDir;
 use crate::semantic::component::McComponent;
-use crate::semantic::module::pi::{decode_pwr_pin, L1PwrPin};
+use crate::semantic::module::pi::L1PwrPin;
 use std::collections::{HashMap, HashSet};
 
 /// Closed supply/spec window `[lo, hi]`, volts. Endpoint comparisons use the
@@ -312,7 +312,7 @@ impl<'a> WindowDeriv<'a> {
             if !drivers.contains(&cid) {
                 drivers.push(cid);
             }
-            faces.push((cid, decode_pwr_pin(contract)));
+            faces.push((cid, super::decode_pwr_entry(contract, entry)));
         }
         match drivers.len() {
             0 => self.resolve_rootless(net),

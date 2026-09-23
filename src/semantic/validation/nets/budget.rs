@@ -29,7 +29,6 @@ use super::window::{classify_supply_def, SupplyClass};
 use super::NetCheckResult;
 use crate::instant::insttab::{InstKind, InstTable, NetEntry};
 use crate::semantic::common::IOType;
-use crate::semantic::module::pi::decode_pwr_pin;
 use std::collections::{HashMap, HashSet};
 
 /// Budget-root outcome for one flat net.
@@ -284,7 +283,7 @@ pub(crate) fn check_net_budget(table: &InstTable, results: &mut Vec<NetCheckResu
             let Some(contract) = super::sink_contract_for(def, entry) else {
                 continue;
             };
-            let dec = decode_pwr_pin(contract);
+            let dec = super::decode_pwr_entry(contract, entry);
             let Some(a) = dec.amp else {
                 continue; // sink draws unknown current — not counted (opt-in)
             };

@@ -674,6 +674,23 @@ pub fn load_rule_overrides(project_root: Option<&std::path::Path>) {
     install_store(store);
 }
 
+/// Load the `libs.include_system_contracts` switch (U266 ①) from the merged
+/// global + project config and seed the process-wide flag the power-contract
+/// scans read. Call once at CLI/server/MCP startup next to
+/// [`load_rule_overrides`]; where this is never called the flag stays false —
+/// the off-by-default narrow gate: a library upgrade must never silently
+/// change a board's readouts, so adopting system-library power contracts into
+/// the carrying determination is a project's explicit decision.
+pub fn load_contract_adoption(project_root: Option<&std::path::Path>) {
+    use crate::cli::config::{
+        load_global_config, load_project_config, merge_configs, set_include_system_contracts,
+    };
+    let global = load_global_config().unwrap_or_default();
+    let local = project_root.and_then(|p| load_project_config(p).ok().flatten());
+    let merged = merge_configs(&global, local.as_ref());
+    set_include_system_contracts(merged.libs.include_system_contracts.unwrap_or(false));
+}
+
 /// Clear workspace state (for test isolation).
 pub fn mcc_clear_workspace() {
     crate::db::cmie::tables::WORKSPACE.clear_active();

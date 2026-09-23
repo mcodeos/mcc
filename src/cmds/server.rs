@@ -217,6 +217,8 @@ pub fn run_server_internal(host: &str, port: u16, libs: &[String]) -> Result<()>
     // Seed the process-wide rule override store from the merged config
     // (identity when nothing is configured).
     mcc::load_rule_overrides(std::env::current_dir().ok().as_deref());
+    // Seed the power-contract adoption switch (U266 ①) from the merged config.
+    mcc::load_contract_adoption(std::env::current_dir().ok().as_deref());
 
     // Initialize logging to file (env var set by run_start)
     let log_file = std::env::var("MCC_LOG_FILE").ok();

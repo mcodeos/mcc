@@ -267,6 +267,43 @@ pub(crate) fn pwr_row_for_pin<'a>(
         .find(|c| names.iter().any(|n| *n == c.hot))
 }
 
+/// The instance-bound nominal of a flat power pin's contract row (U266 ②):
+/// the row's positional `::DC(NAME)` nominal spells a declared constructor
+/// formal, resolved here against the instance's bound argument. `text` is the
+/// argument as bound (the written default stands in where the call site bound
+/// nothing — the same substitution conditions get, U54); `v` carries its DC
+/// volts when the argument decodes as one. A window or still-symbolic
+/// argument is an honest undecided value, not an error — the value layer
+/// keeps window forms undecoded by design (doc/eval), so `v` stays `None`
+/// while `text` speaks with the instance's voice.
+#[derive(Debug, Clone)]
+pub(crate) struct DeclaredNominal {
+    pub text: String,
+    pub v: Option<f64>,
+}
+
+/// Resolve the contract row that owns this flat pin against the instance's
+/// constructor arguments. `None` unless the row's positional nominal is
+/// exactly a declared formal's name — a literal nominal decodes from the
+/// declaration alone and carries nothing instance-bound.
+pub(crate) fn pwr_nominal_for_pin(
+    comp: &crate::instant::mc_comp::McComponentInst,
+    pin_id: &str,
+) -> Option<DeclaredNominal> {
+    use crate::semantic::basic::mc_ids::McIds;
+    use crate::semantic::basic::mc_uval::McUnit;
+    let row = pwr_row_for_pin(comp, pin_id)?;
+    let text = row.params.iter().find(|p| p.key.is_none())?.text.clone();
+    let arg = comp
+        .params
+        .to_params_for_eval()
+        .into_iter()
+        .find(|(n, _)| *n == McIds::from(text.as_str()))?
+        .1;
+    let v = crate::eval::quantity_in(&arg, &McUnit::Volt);
+    Some(DeclaredNominal { text: arg, v })
+}
+
 /// The class's own protection declaration, decoded for the flat carry
 /// ([`InstEntry::protection`]) — exposed-protection-design.md §4, PWR-5.
 ///
@@ -860,6 +897,14 @@ pub struct InstEntry {
     /// module, Label, Bus, Module, Component, …) and for a power pin whose
     /// function name matches no `hot` row.
     pub pwr_dir: Option<PwrDir>,
+    /// ★ Instance-bound nominal of this endpoint's power contract (U266 ②):
+    /// the owning row's positional `::DC(NAME)` nominal spells a declared
+    /// constructor formal, resolved at flatten time against the instance's
+    /// bound argument — see [`DeclaredNominal`]. Recorded only on the row's
+    /// hot terminal, the same endpoint [`Self::pwr_dir`] lands on. `None`
+    /// for a literal nominal (the declaration decodes it alone) and for
+    /// every non-power endpoint.
+    pub pwr_nom: Option<DeclaredNominal>,
     /// ★ Declared power-face identity of this endpoint: which side of a written
     /// `[hot, ret]` contract it is, spelled as the declaration spelled it, under
     /// the declaration that owns it (see [`crate::semantic::pwrid`]).
@@ -1465,6 +1510,7 @@ impl InstTable {
             def_uri,
             member_info: None,
             pwr_dir: None,
+            pwr_nom: None,
             pwr_member: None,
             vector_info: None,
             not_fitted: false,
@@ -1539,6 +1585,14 @@ impl InstTable {
     pub fn set_pwr_dir(&mut self, id: u32, dir: PwrDir) {
         if let Some(entry) = self.entries.get_mut(&id) {
             entry.pwr_dir = Some(dir);
+        }
+    }
+
+    /// Set the instance-bound nominal carry for a component power pin by ID
+    /// (see [`InstEntry::pwr_nom`]). Component flatten sites only.
+    pub fn set_pwr_nom(&mut self, id: u32, nom: DeclaredNominal) {
+        if let Some(entry) = self.entries.get_mut(&id) {
+            entry.pwr_nom = Some(nom);
         }
     }
 
@@ -2619,6 +2673,11 @@ impl InstTable {
                     if let Some(dir) = dir {
                         self.set_pwr_dir(pin_id, dir);
                     }
+                    // U266 ②: instance-bound nominal — a `::DC(formal)` row
+                    // speaks with the instance's argument, not the bare name.
+                    if let Some(nom) = pwr_nominal_for_pin(comp, pin_name) {
+                        self.set_pwr_nom(pin_id, nom);
+                    }
                     // Record the declared contract under every member spelling
                     // the net table may use for this pin (`ldo33{VOUT}` →
                     // `ldo33.VOUT.Vout`), so `flatten_nets` folds that spelling
@@ -2839,6 +2898,11 @@ impl InstTable {
                     let dir = pwr_row_for_pin(comp, pin_name).map(|row| row.dir);
                     if let Some(dir) = dir {
                         self.set_pwr_dir(pin_id, dir);
+                    }
+                    // U266 ②: instance-bound nominal — a `::DC(formal)` row
+                    // speaks with the instance's argument, not the bare name.
+                    if let Some(nom) = pwr_nominal_for_pin(comp, pin_name) {
+                        self.set_pwr_nom(pin_id, nom);
                     }
                     // Record the declared contract under every member spelling
                     // the net table may use for this pin (`ldo33{VOUT}` →
