@@ -259,7 +259,8 @@ pub fn render_pin_named(
     let src_attrs = match pin.and_then(|p| p.src_span.as_ref()) {
         Some(sp) => format!(
             r##" data-src-uri="{}" data-src-offset="{}""##,
-            escape_xml(&sp.uri),
+            // U274: root-relative display form, never machine-absolute.
+            escape_xml(&crate::viz::srcuri::display(&sp.uri)),
             sp.offset
         ),
         None => String::new(),
@@ -460,14 +461,21 @@ pub fn render_nc_pin_side(
 
     let horizontal = matches!(side, Left | Right);
     let anchor = if horizontal {
-        if dx > 0.0 { "start" } else { "end" }
+        if dx > 0.0 {
+            "start"
+        } else {
+            "end"
+        }
     } else if dy > 0.0 {
         "middle"
     } else {
         "middle"
     };
     // Number sits just outside the edge; name sits just inside.
-    let (nx, ny) = (px + dx * 6.0, py + dy * 10.0 - if horizontal { 6.0 } else { 0.0 });
+    let (nx, ny) = (
+        px + dx * 6.0,
+        py + dy * 10.0 - if horizontal { 6.0 } else { 0.0 },
+    );
     let number_svg = if !number.is_empty() {
         format!(
             r##"<text x="{nx:.1}" y="{ny:.1}" font-size="8" fill="#C0392B"
@@ -483,7 +491,11 @@ pub fn render_nc_pin_side(
     };
     let (lx, ly) = (px - dx * 6.0, py - dy * 4.0);
     let inner_anchor = if horizontal {
-        if dx > 0.0 { "end" } else { "start" }
+        if dx > 0.0 {
+            "end"
+        } else {
+            "start"
+        }
     } else {
         "middle"
     };
@@ -617,7 +629,9 @@ mod tests {
         // `&gt;`, so this is unambiguous) and closes before the nc cross mark.
         let open_end = svg.find('>').expect("open tag closes");
         let open_tag = &svg[..=open_end];
-        assert!(open_tag.trim_start().starts_with(r##"<g class="pin nc" data-pin-id="1003""##));
+        assert!(open_tag
+            .trim_start()
+            .starts_with(r##"<g class="pin nc" data-pin-id="1003""##));
         assert!(svg.contains(r#""><line"#)); // first child is a sibling, not an attribute
     }
 
