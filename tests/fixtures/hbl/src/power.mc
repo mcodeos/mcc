@@ -32,11 +32,8 @@ module POWER_USB()
     (usbsock.5 + usbsock.6 + usbsock.7 + usbsock.SHIELD3 + usbsock.SHIELD4) + TP3 -> vin.GND
 }
 
-component LDO.SGM2019_33YN5G_TR
+abstract component LDO.SOT23_5
 {
-    partno = "SGM2019-3.3YN5G/TR"
-    package = PKG.SOT_23_5
-
     pins = [
         in [1,2] = VIN{Vin, GND}::DC(2.5V~5.5V)
         in 3 = CE
@@ -49,12 +46,18 @@ component LDO.SGM2019_33YN5G_TR
     }
 }
 
+component LDO.SGM2019_33YN5G_TR : LDO.SOT23_5
+{
+    partno = "SGM2019-3.3YN5G/TR"
+    package = PKG.SOT_23_5
+}
+
 module POWER_LDO()
 {
     in vin::DC(5V)
     out vout::DC(3.3V)
 
-    LDO.SGM2019_33YN5G_TR   ldo
+    LDO.SOT23_5             ldo
     ldo.enable()
 
     vin -> ldo.VIN =>
