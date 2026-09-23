@@ -74,7 +74,7 @@ range (threshold 40KB).
 | `refdef/` | 7 | 119 KB |
 | `rpc/` | 16 | 305 KB |
 | `semantic/` | 91 | 2724 KB |
-| `stages/` | 12 | 321 KB |
+| `stages/` | 12 | 322 KB |
 | `vector/` | 25 | 478 KB |
 | `viz/` | 97 | 2450 KB |
 
@@ -1106,15 +1106,15 @@ cmds/show.rs#L575  fn gather_rows
 cmds/show.rs#L606  fn show_defs
 cmds/show.rs#L693  fn def_row_json
 cmds/show.rs#L705  fn show_ast
-cmds/show.rs#L746  fn show_lapper
-cmds/show.rs#L816  fn show_component
-cmds/show.rs#L827  fn show_module
-cmds/show.rs#L840  fn show_interface
-cmds/show.rs#L857  fn show_enum
-cmds/show.rs#L873  fn show_net
-cmds/show.rs#L902  fn show_dianlu
-cmds/show.rs#L1004  fn show_pwr
-cmds/show.rs#L1086  fn show_sim
+cmds/show.rs#L743  fn show_lapper
+cmds/show.rs#L813  fn show_component
+cmds/show.rs#L824  fn show_module
+cmds/show.rs#L837  fn show_interface
+cmds/show.rs#L854  fn show_enum
+cmds/show.rs#L870  fn show_net
+cmds/show.rs#L899  fn show_dianlu
+cmds/show.rs#L1001  fn show_pwr
+cmds/show.rs#L1083  fn show_sim
 cmds/show.rs#L1270  fn tier_word
 cmds/show.rs#L1289  fn show_pwrflow
 cmds/show.rs#L1382  fn build_stage_view
@@ -4815,25 +4815,25 @@ rpc/handlers/show.rs#L251  fn handle_show_interface
 rpc/handlers/show.rs#L288  fn handle_show_net
 rpc/handlers/show.rs#L358  fn handle_show_all
 rpc/handlers/show.rs#L388  fn handle_show_org_units
-rpc/handlers/show.rs#L399  fn handle_show_file
-rpc/handlers/show.rs#L442  fn handle_show_files
-rpc/handlers/show.rs#L446  struct FileInfo
-rpc/handlers/show.rs#L485  fn handle_show_enum_list
-rpc/handlers/show.rs#L502  fn handle_show_enum
-rpc/handlers/show.rs#L531  fn handle_show_pins
-rpc/handlers/show.rs#L560  fn component_funcs_json
-rpc/handlers/show.rs#L575  fn handle_show_ports
-rpc/handlers/show.rs#L604  fn handle_show_ports_list
-rpc/handlers/show.rs#L616  fn handle_show_labels
-rpc/handlers/show.rs#L646  fn handle_show_instances
-rpc/handlers/show.rs#L731  fn handle_show_nets
-rpc/handlers/show.rs#L798  fn handle_show_attrs
-rpc/handlers/show.rs#L830  fn handle_show_funcs
-rpc/handlers/show.rs#L859  fn handle_show_params
-rpc/handlers/show.rs#L918  fn handle_show_roles
-rpc/handlers/show.rs#L969  fn handle_show_values
-rpc/handlers/show.rs#L994  fn handle_show_dump
-rpc/handlers/show.rs#L1021  fn handle_show_dump_all
+rpc/handlers/show.rs#L400  fn handle_show_file
+rpc/handlers/show.rs#L443  fn handle_show_files
+rpc/handlers/show.rs#L447  struct FileInfo
+rpc/handlers/show.rs#L486  fn handle_show_enum_list
+rpc/handlers/show.rs#L503  fn handle_show_enum
+rpc/handlers/show.rs#L532  fn handle_show_pins
+rpc/handlers/show.rs#L561  fn component_funcs_json
+rpc/handlers/show.rs#L576  fn handle_show_ports
+rpc/handlers/show.rs#L605  fn handle_show_ports_list
+rpc/handlers/show.rs#L617  fn handle_show_labels
+rpc/handlers/show.rs#L647  fn handle_show_instances
+rpc/handlers/show.rs#L732  fn handle_show_nets
+rpc/handlers/show.rs#L799  fn handle_show_attrs
+rpc/handlers/show.rs#L831  fn handle_show_funcs
+rpc/handlers/show.rs#L860  fn handle_show_params
+rpc/handlers/show.rs#L919  fn handle_show_roles
+rpc/handlers/show.rs#L970  fn handle_show_values
+rpc/handlers/show.rs#L995  fn handle_show_dump
+rpc/handlers/show.rs#L1022  fn handle_show_dump_all
 rpc/mod.rs#L9  mod handlers
 rpc/mod.rs#L10  mod protocol
 rpc/mod.rs#L11  mod server
@@ -7883,34 +7883,36 @@ stages/mod.rs#L80  impl StageSeg
 stages/mod.rs#L82  fn parse
 stages/mod.rs#L96  fn view_name
 stages/mod.rs#L107  fn count_words
-stages/mod.rs#L125  struct StageView
-stages/mod.rs#L185  impl StageView
-stages/mod.rs#L189  fn new
-stages/mod.rs#L209  fn with_view
-stages/mod.rs#L215  fn assemble
-stages/mod.rs#L239  fn carrying_drawing_contract
-stages/mod.rs#L249  fn header_line
-stages/mod.rs#L273  fn counts_line
-stages/mod.rs#L292  fn revision_tokens
-stages/mod.rs#L306  fn counts
-stages/mod.rs#L342  fn sort_items
-stages/mod.rs#L364  fn sort_key
-stages/mod.rs#L384  fn loc_value
-stages/mod.rs#L401  fn loc_cell
-stages/mod.rs#L424  fn render_table
-stages/mod.rs#L462  fn cell
-stages/mod.rs#L474  fn def_of
-stages/mod.rs#L489  fn canon_instance
-stages/mod.rs#L514  enum NetOrigin
-stages/mod.rs#L520  impl NetOrigin
-stages/mod.rs#L521  fn as_str
-stages/mod.rs#L532  fn net_origin
-stages/mod.rs#L550  fn net_key
-stages/mod.rs#L561  fn loc_of
-stages/mod.rs#L576  struct SourceText
-stages/mod.rs#L580  impl SourceText
-stages/mod.rs#L581  fn new
-stages/mod.rs#L585  fn text
+stages/mod.rs#L121  const ORG_UNITS_VIEW
+stages/mod.rs#L132  fn published_views
+stages/mod.rs#L157  struct StageView
+stages/mod.rs#L217  impl StageView
+stages/mod.rs#L221  fn new
+stages/mod.rs#L241  fn with_view
+stages/mod.rs#L247  fn assemble
+stages/mod.rs#L271  fn carrying_drawing_contract
+stages/mod.rs#L281  fn header_line
+stages/mod.rs#L305  fn counts_line
+stages/mod.rs#L324  fn revision_tokens
+stages/mod.rs#L338  fn counts
+stages/mod.rs#L374  fn sort_items
+stages/mod.rs#L396  fn sort_key
+stages/mod.rs#L416  fn loc_value
+stages/mod.rs#L433  fn loc_cell
+stages/mod.rs#L456  fn render_table
+stages/mod.rs#L494  fn cell
+stages/mod.rs#L506  fn def_of
+stages/mod.rs#L521  fn canon_instance
+stages/mod.rs#L546  enum NetOrigin
+stages/mod.rs#L552  impl NetOrigin
+stages/mod.rs#L553  fn as_str
+stages/mod.rs#L564  fn net_origin
+stages/mod.rs#L582  fn net_key
+stages/mod.rs#L593  fn loc_of
+stages/mod.rs#L608  struct SourceText
+stages/mod.rs#L612  impl SourceText
+stages/mod.rs#L613  fn new
+stages/mod.rs#L617  fn text
 stages/p2.rs#L56  fn build_p2
 stages/p2.rs#L187  fn render_p2_text
 stages/p2.rs#L222  fn net_names
@@ -11230,4 +11232,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-406 files, 11147 declarations.
+406 files, 11149 declarations.

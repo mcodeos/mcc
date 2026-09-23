@@ -114,6 +114,38 @@ impl StageSeg {
     }
 }
 
+/// `mcc show org-units` names its own vocabulary (a definitions-space census,
+/// not a pipeline stage), and until now that name existed only as a literal at
+/// its two producers. Named here so the registry below lists every published
+/// `view` value from one place.
+pub const ORG_UNITS_VIEW: &str = "org-units";
+
+/// Every `view` value any read face publishes today, the whole inventory in
+/// one place. The vocabulary ruling (b3907, CIMP U280) makes the six words of
+/// `schema/projection.cddl`'s `view-name` the canonical read projections; not
+/// one of them has a serde payload group behind it yet (the CDDL carries them
+/// as v1 reservations), so a face publishing one would be impersonating a
+/// projection that does not exist. The lock `tests/shard7/view_vocabulary.rs`
+/// reads the canonical words from the CDDL and holds them disjoint from this
+/// list, and holds this list equal to what the producers actually stamp — a
+/// new face adds its name here; no face invents a name anywhere else.
+pub fn published_views() -> Vec<&'static str> {
+    vec![
+        StageSeg::P1.view_name(),
+        StageSeg::P2.view_name(),
+        StageSeg::Vec.view_name(),
+        StageSeg::Viz.view_name(),
+        join::SRC_P2_VIEW,
+        join::P2_VEC_VIEW,
+        join::VEC_VIZ_VIEW,
+        trace::TRACE_VIEW,
+        ORG_UNITS_VIEW,
+        stage_diff::DIFF_P2_VIEW,
+        stage_diff::DIFF_VEC_VIEW,
+        stage_diff::DIFF_VIZ_VIEW,
+    ]
+}
+
 /// The projection envelope, field names per
 /// `mcd/doc/world/projection-schema-design.md` §1.
 ///
