@@ -73,7 +73,7 @@ range (threshold 40KB).
 | `query/` | 9 | 162 KB |
 | `refdef/` | 7 | 120 KB |
 | `rpc/` | 16 | 306 KB |
-| `semantic/` | 91 | 2725 KB |
+| `semantic/` | 91 | 2732 KB |
 | `stages/` | 12 | 322 KB |
 | `vector/` | 25 | 478 KB |
 | `viz/` | 97 | 2450 KB |
@@ -5318,86 +5318,90 @@ semantic/basic/mc_ida.rs#L429  fn from
 semantic/basic/mc_ids.rs#L15  fn expand_numeric_slice
 semantic/basic/mc_ids.rs#L25  fn expand_char_slice
 semantic/basic/mc_ids.rs#L34  enum IdsSegment
-semantic/basic/mc_ids.rs#L48  impl IdsSegment
-semantic/basic/mc_ids.rs#L51  struct McIds
-semantic/basic/mc_ids.rs#L55  impl McIds
-semantic/basic/mc_ids.rs#L60  fn normalized_eq_hash
-semantic/basic/mc_ids.rs#L72  impl PartialEq for McIds
-semantic/basic/mc_ids.rs#L73  fn eq
-semantic/basic/mc_ids.rs#L78  impl Eq for McIds
-semantic/basic/mc_ids.rs#L80  impl std::hash::Hash for McIds
-semantic/basic/mc_ids.rs#L81  fn hash
-semantic/basic/mc_ids.rs#L86  impl From<&str> for McIds
-semantic/basic/mc_ids.rs#L87  fn from
-semantic/basic/mc_ids.rs#L94  impl From<String> for McIds
-semantic/basic/mc_ids.rs#L95  fn from
-semantic/basic/mc_ids.rs#L100  impl From<&String> for McIds
-semantic/basic/mc_ids.rs#L101  fn from
-semantic/basic/mc_ids.rs#L114  impl From<McIda> for McIds
-semantic/basic/mc_ids.rs#L115  fn from
-semantic/basic/mc_ids.rs#L140  fn parse_display
-semantic/basic/mc_ids.rs#L220  fn text_run_segment
-semantic/basic/mc_ids.rs#L235  fn curly_body_segments
-semantic/basic/mc_ids.rs#L259  fn push_curly_token
-semantic/basic/mc_ids.rs#L293  fn curly_base_members
-semantic/basic/mc_ids.rs#L318  fn curly_member_names
-semantic/basic/mc_ids.rs#L350  fn display_base_members
-semantic/basic/mc_ids.rs#L395  impl McIds
-semantic/basic/mc_ids.rs#L396  fn new
-semantic/basic/mc_ids.rs#L596  fn new_with_dot
-semantic/basic/mc_ids.rs#L604  fn append
-semantic/basic/mc_ids.rs#L637  fn parse_curly
-semantic/basic/mc_ids.rs#L700  fn parse_square
-semantic/basic/mc_ids.rs#L785  fn len
-semantic/basic/mc_ids.rs#L825  fn base_name
-semantic/basic/mc_ids.rs#L855  fn has_square
-semantic/basic/mc_ids.rs#L866  fn prefix_only
-semantic/basic/mc_ids.rs#L895  fn is_square_only
-semantic/basic/mc_ids.rs#L900  fn last_segment
-semantic/basic/mc_ids.rs#L905  fn is_curly_bracket
-semantic/basic/mc_ids.rs#L910  fn is_square_bracket
-semantic/basic/mc_ids.rs#L916  fn has_curly
-semantic/basic/mc_ids.rs#L925  fn has_dot
-semantic/basic/mc_ids.rs#L939  fn sub_path
-semantic/basic/mc_ids.rs#L960  fn square_segment_count
-semantic/basic/mc_ids.rs#L977  fn from_dot_pair
-semantic/basic/mc_ids.rs#L986  fn expand
-semantic/basic/mc_ids.rs#L1117  fn expand_with_bindings
-semantic/basic/mc_ids.rs#L1147  fn substitute_segment
-semantic/basic/mc_ids.rs#L1161  fn expand_single_segment
-semantic/basic/mc_ids.rs#L1216  fn count
-semantic/basic/mc_ids.rs#L1221  fn has_param_ref
-semantic/basic/mc_ids.rs#L1236  fn is_bus
-semantic/basic/mc_ids.rs#L1252  fn is_list
-semantic/basic/mc_ids.rs#L1274  fn embedded_square_members
-semantic/basic/mc_ids.rs#L1322  fn list_members
-semantic/basic/mc_ids.rs#L1362  fn as_bus
-semantic/basic/mc_ids.rs#L1429  fn as_component_member
-semantic/basic/mc_ids.rs#L1469  fn match_name
-semantic/basic/mc_ids.rs#L1474  fn is_empty
-semantic/basic/mc_ids.rs#L1479  fn get_primary_name
-semantic/basic/mc_ids.rs#L1491  fn root_name
-semantic/basic/mc_ids.rs#L1504  fn all_name_forms
-semantic/basic/mc_ids.rs#L1537  fn get_members
-semantic/basic/mc_ids.rs#L1545  fn get_base_name
-semantic/basic/mc_ids.rs#L1577  fn dot_chain_parts
-semantic/basic/mc_ids.rs#L1600  fn as_dot_access
-semantic/basic/mc_ids.rs#L1620  impl std::fmt::Display for McIds
-semantic/basic/mc_ids.rs#L1621  fn fmt
-semantic/basic/mc_ids.rs#L1632  impl Ord for McIds
-semantic/basic/mc_ids.rs#L1633  fn cmp
-semantic/basic/mc_ids.rs#L1638  impl PartialOrd for McIds
-semantic/basic/mc_ids.rs#L1639  fn partial_cmp
-semantic/basic/mc_ids.rs#L1644  impl std::fmt::Display for IdsSegment
-semantic/basic/mc_ids.rs#L1645  fn fmt
-semantic/basic/mc_ids.rs#L1683  mod tests
-semantic/basic/mc_ids.rs#L1687  fn sem_mcids__sub_path_reads_the_member_names
-semantic/basic/mc_ids.rs#L1703  fn sem_mcids__display_base_members_scalar
-semantic/basic/mc_ids.rs#L1715  fn sem_mcids__display_base_members_curly_group
-semantic/basic/mc_ids.rs#L1734  fn sem_mcids__display_base_members_square_group
-semantic/basic/mc_ids.rs#L1755  fn sem_mcids__display_base_members_slice_token_is_single_member
-semantic/basic/mc_ids.rs#L1765  fn sem_mcids__display_base_members_empty_group_keeps_base
-semantic/basic/mc_ids.rs#L1773  fn sem_mcids__display_base_members_bare_curly
+semantic/basic/mc_ids.rs#L53  impl IdsSegment
+semantic/basic/mc_ids.rs#L56  struct McIds
+semantic/basic/mc_ids.rs#L60  impl McIds
+semantic/basic/mc_ids.rs#L65  fn normalized_eq_hash
+semantic/basic/mc_ids.rs#L81  fn normalize_eq_segment
+semantic/basic/mc_ids.rs#L110  impl PartialEq for McIds
+semantic/basic/mc_ids.rs#L111  fn eq
+semantic/basic/mc_ids.rs#L116  impl Eq for McIds
+semantic/basic/mc_ids.rs#L118  impl std::hash::Hash for McIds
+semantic/basic/mc_ids.rs#L119  fn hash
+semantic/basic/mc_ids.rs#L124  impl From<&str> for McIds
+semantic/basic/mc_ids.rs#L125  fn from
+semantic/basic/mc_ids.rs#L132  impl From<String> for McIds
+semantic/basic/mc_ids.rs#L133  fn from
+semantic/basic/mc_ids.rs#L138  impl From<&String> for McIds
+semantic/basic/mc_ids.rs#L139  fn from
+semantic/basic/mc_ids.rs#L152  impl From<McIda> for McIds
+semantic/basic/mc_ids.rs#L153  fn from
+semantic/basic/mc_ids.rs#L178  fn parse_display
+semantic/basic/mc_ids.rs#L258  fn text_run_segment
+semantic/basic/mc_ids.rs#L273  fn curly_body_segments
+semantic/basic/mc_ids.rs#L297  fn push_curly_token
+semantic/basic/mc_ids.rs#L331  fn curly_base_members
+semantic/basic/mc_ids.rs#L356  fn curly_member_names
+semantic/basic/mc_ids.rs#L388  fn display_base_members
+semantic/basic/mc_ids.rs#L433  impl McIds
+semantic/basic/mc_ids.rs#L434  fn new
+semantic/basic/mc_ids.rs#L634  fn new_with_dot
+semantic/basic/mc_ids.rs#L642  fn append
+semantic/basic/mc_ids.rs#L675  fn parse_curly
+semantic/basic/mc_ids.rs#L742  fn parse_square
+semantic/basic/mc_ids.rs#L827  fn len
+semantic/basic/mc_ids.rs#L868  fn base_name
+semantic/basic/mc_ids.rs#L902  fn has_square
+semantic/basic/mc_ids.rs#L913  fn prefix_only
+semantic/basic/mc_ids.rs#L946  fn is_square_only
+semantic/basic/mc_ids.rs#L951  fn last_segment
+semantic/basic/mc_ids.rs#L956  fn is_curly_bracket
+semantic/basic/mc_ids.rs#L961  fn is_square_bracket
+semantic/basic/mc_ids.rs#L967  fn has_curly
+semantic/basic/mc_ids.rs#L977  fn has_dot
+semantic/basic/mc_ids.rs#L993  fn sub_path
+semantic/basic/mc_ids.rs#L1014  fn square_segment_count
+semantic/basic/mc_ids.rs#L1031  fn from_dot_pair
+semantic/basic/mc_ids.rs#L1040  fn expand
+semantic/basic/mc_ids.rs#L1175  fn expand_with_bindings
+semantic/basic/mc_ids.rs#L1205  fn substitute_segment
+semantic/basic/mc_ids.rs#L1219  fn expand_single_segment
+semantic/basic/mc_ids.rs#L1275  fn count
+semantic/basic/mc_ids.rs#L1280  fn has_param_ref
+semantic/basic/mc_ids.rs#L1295  fn is_bus
+semantic/basic/mc_ids.rs#L1311  fn is_list
+semantic/basic/mc_ids.rs#L1333  fn embedded_square_members
+semantic/basic/mc_ids.rs#L1381  fn list_members
+semantic/basic/mc_ids.rs#L1421  fn as_bus
+semantic/basic/mc_ids.rs#L1488  fn as_component_member
+semantic/basic/mc_ids.rs#L1561  fn match_name
+semantic/basic/mc_ids.rs#L1566  fn is_empty
+semantic/basic/mc_ids.rs#L1571  fn get_primary_name
+semantic/basic/mc_ids.rs#L1583  fn root_name
+semantic/basic/mc_ids.rs#L1596  fn all_name_forms
+semantic/basic/mc_ids.rs#L1629  fn get_members
+semantic/basic/mc_ids.rs#L1637  fn get_base_name
+semantic/basic/mc_ids.rs#L1669  fn dot_chain_parts
+semantic/basic/mc_ids.rs#L1692  fn as_dot_access
+semantic/basic/mc_ids.rs#L1712  impl std::fmt::Display for McIds
+semantic/basic/mc_ids.rs#L1713  fn fmt
+semantic/basic/mc_ids.rs#L1724  impl Ord for McIds
+semantic/basic/mc_ids.rs#L1725  fn cmp
+semantic/basic/mc_ids.rs#L1730  impl PartialOrd for McIds
+semantic/basic/mc_ids.rs#L1731  fn partial_cmp
+semantic/basic/mc_ids.rs#L1736  impl std::fmt::Display for IdsSegment
+semantic/basic/mc_ids.rs#L1737  fn fmt
+semantic/basic/mc_ids.rs#L1776  mod tests
+semantic/basic/mc_ids.rs#L1781  fn curly_chain_ids
+semantic/basic/mc_ids.rs#L1796  fn sem_mcids__curly_chain_member_normalizes_to_dotted_identity
+semantic/basic/mc_ids.rs#L1819  fn sem_mcids__curly_chain_member_expands_and_displays_as_one_member
+semantic/basic/mc_ids.rs#L1829  fn sem_mcids__sub_path_reads_the_member_names
+semantic/basic/mc_ids.rs#L1845  fn sem_mcids__display_base_members_scalar
+semantic/basic/mc_ids.rs#L1857  fn sem_mcids__display_base_members_curly_group
+semantic/basic/mc_ids.rs#L1876  fn sem_mcids__display_base_members_square_group
+semantic/basic/mc_ids.rs#L1897  fn sem_mcids__display_base_members_slice_token_is_single_member
+semantic/basic/mc_ids.rs#L1907  fn sem_mcids__display_base_members_empty_group_keeps_base
+semantic/basic/mc_ids.rs#L1915  fn sem_mcids__display_base_members_bare_curly
 semantic/basic/mc_kvs.rs#L15  enum KVSValue
 semantic/basic/mc_kvs.rs#L21  impl std::fmt::Display for KVSValue
 semantic/basic/mc_kvs.rs#L22  fn fmt
@@ -6365,7 +6369,7 @@ semantic/instref.rs#L84  fn validate_component_pin_ref
 semantic/instref.rs#L312  fn validate_module_port_ref
 semantic/instref.rs#L413  fn validate_interface_member_ref
 semantic/instref.rs#L499  fn validate_inst_reference
-semantic/instref.rs#L568  fn validate_component_interface_ref
+semantic/instref.rs#L573  fn validate_component_interface_ref
 semantic/mc_define.rs#L11  struct McDefineDef
 semantic/mc_define.rs#L19  impl McDefineDef
 semantic/mc_define.rs#L20  fn new
@@ -11239,4 +11243,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-406 files, 11156 declarations.
+406 files, 11160 declarations.
