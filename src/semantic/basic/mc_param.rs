@@ -1986,7 +1986,8 @@ mod tests {
     /// Phase 5 keeps system defs in the per-world registry, not the global
     /// tables).
     fn register_test_enum() {
-        use crate::db::defregistry::{insert, DefValue, LoadDomain};
+        use crate::db::cmie::tables::WORKSPACE;
+        use crate::db::defregistry::{DefValue, LoadDomain};
         use crate::semantic::common::uri_intern;
         use crate::semantic::mc_enum::{McEnumDef, McEnumValue};
         use std::sync::Arc;
@@ -2006,7 +2007,7 @@ mod tests {
             ],
             uri: String::from("test.mc"),
         };
-        insert(
+        WORKSPACE.insert_def(
             &McSpaceName {
                 ident: McIds::from("CAP"),
                 uri: uri_intern("test.mc"),

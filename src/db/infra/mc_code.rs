@@ -1761,7 +1761,7 @@ impl McCode {
                             ident: ifs.name.clone(),
                             uri: crate::semantic::common::uri_intern(&self.uri),
                         };
-                        if crate::db::defregistry::insert(
+                        if workspace::WORKSPACE.insert_def(
                             &space_name,
                             domain.clone(),
                             DefValue::Interface(Arc::new(ifs)),
@@ -1847,7 +1847,7 @@ impl McCode {
                             ident: comp.name.clone(),
                             uri: crate::semantic::common::uri_intern(&self.uri),
                         };
-                        if crate::db::defregistry::insert(
+                        if workspace::WORKSPACE.insert_def(
                             &space_name,
                             domain.clone(),
                             DefValue::Component(Arc::new(comp)),
@@ -1895,7 +1895,7 @@ impl McCode {
                             ident: enum_def.name.clone(),
                             uri: crate::semantic::common::uri_intern(&self.uri),
                         };
-                        if crate::db::defregistry::insert(
+                        if workspace::WORKSPACE.insert_def(
                             &space_name,
                             domain.clone(),
                             DefValue::Enum(Arc::new(enum_def)),
@@ -1917,7 +1917,7 @@ impl McCode {
                             ident: def.name.clone(),
                             uri: crate::semantic::common::uri_intern(&self.uri),
                         };
-                        if crate::db::defregistry::insert(
+                        if workspace::WORKSPACE.insert_def(
                             &space_name,
                             domain.clone(),
                             DefValue::Define(Arc::new(def)),
@@ -1946,7 +1946,7 @@ impl McCode {
                             ident: cap.name.clone(),
                             uri: crate::semantic::common::uri_intern(&self.uri),
                         };
-                        if crate::db::defregistry::insert(
+                        if workspace::WORKSPACE.insert_def(
                             &space_name,
                             domain.clone(),
                             DefValue::Capability(Arc::new(cap)),
@@ -2265,7 +2265,7 @@ impl McCode {
                         // re-parse is a re-derive, not a duplicate. The key
                         // (ident, uri) can only collide with this file's own
                         // prior registration.
-                        crate::db::defregistry::insert(
+                        workspace::WORKSPACE.insert_def(
                             &key,
                             domain.clone(),
                             DefValue::Module(Arc::new(module)),

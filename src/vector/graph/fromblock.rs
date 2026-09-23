@@ -2219,6 +2219,7 @@ mod tests {
             member_info: None,
             pwr_dir: None,
             pwr_member: None,
+            pwr_nom: None,
             vector_info: None,
             not_fitted: false,
             nc_marked: false,
