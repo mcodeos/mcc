@@ -524,6 +524,11 @@ fn check_role_peer_mutual_and_width(acc: &mut CheckAccumulator) {
 /// same D10 scan scope as the peer checks above. A group whose legs are fine
 /// declares its pair and is not reported; an interface with no `@pair` rows
 /// is not differential and that is the normal case, never a disease.
+///
+/// Every pin table of the interface is its own scope: the conductor view AND
+/// each role's rows (U205② ruled 2026-09-23 — the adoption reads the pair
+/// from the adopted role's rows, so the gate must accept declarations there;
+/// one role's group never merges with another role's or the view's).
 fn check_iface_pair_groups(acc: &mut CheckAccumulator) {
     let ifaces = crate::definition_space().all_interfaces();
     for (sn, iface) in ifaces.iter() {
@@ -551,54 +556,58 @@ fn check_iface_pair_groups(acc: &mut CheckAccumulator) {
             });
         }
 
-        // E5512 + the constraint gates: group the member rows by their
-        // `@pair` tag. The group name is the author's own identifier —
-        // equality of the tag is the only operation, the spelling is never
-        // read. First-seen group order, member order as declared.
+        // E5512 + the constraint gates, per pin table: group the member rows
+        // by their `@pair` tag. The group name is the author's own
+        // identifier — equality of the tag is the only operation, the
+        // spelling is never read. First-seen group order, member order as
+        // declared.
         let pair_key = crate::semantic::basic::attr_keys::KEY_PAIR;
-        let mut groups: Vec<PairGroup> = Vec::new();
-        for (_name, id) in iface.pins.member_entries() {
-            let Some(pin) = iface.pins.pins.get(&id) else {
-                continue;
-            };
-            let Some(attr) = pin.attrs.iter().find(|a| a.id.to_string() == pair_key) else {
-                continue;
-            };
-            // One read per row: the attr's plain values name the group (a
-            // constraint slot is a KVS value and never names one), the same
-            // tag's key span anchors the report. A row whose tag carries a
-            // slot but no group already drew E5516 inside the read — there is
-            // no group to attach it to; a bare `@pair` with neither is inert.
-            let slot = read_pair_constraint(attr, &uri, acc);
-            if slot.group_text.is_empty() {
-                continue;
+        let tables = std::iter::once(&iface.pins).chain(iface.roles.iter().map(|r| &r.pins));
+        for pins in tables {
+            let mut groups: Vec<PairGroup> = Vec::new();
+            for (_name, id) in pins.member_entries() {
+                let Some(pin) = pins.pins.get(&id) else {
+                    continue;
+                };
+                let Some(attr) = pin.attrs.iter().find(|a| a.id.to_string() == pair_key) else {
+                    continue;
+                };
+                // One read per row: the attr's plain values name the group (a
+                // constraint slot is a KVS value and never names one), the same
+                // tag's key span anchors the report. A row whose tag carries a
+                // slot but no group already drew E5516 inside the read — there is
+                // no group to attach it to; a bare `@pair` with neither is inert.
+                let slot = read_pair_constraint(attr, &uri, acc);
+                if slot.group_text.is_empty() {
+                    continue;
+                }
+                match groups.iter_mut().find(|g| g.name == slot.group_text) {
+                    Some(g) => g.legs.push(slot),
+                    None => groups.push(PairGroup {
+                        name: slot.group_text.clone(),
+                        legs: vec![slot],
+                        span: attr.key_span.clone(),
+                    }),
+                }
             }
-            match groups.iter_mut().find(|g| g.name == slot.group_text) {
-                Some(g) => g.legs.push(slot),
-                None => groups.push(PairGroup {
-                    name: slot.group_text.clone(),
-                    legs: vec![slot],
-                    span: attr.key_span.clone(),
-                }),
+            for group in groups {
+                let count = group.legs.len();
+                if count != 2 {
+                    acc.push(CheckResult {
+                        check_name: "hw",
+                        severity: CheckSeverity::Error,
+                        uri: Some(uri.clone()),
+                        span: group.span.clone(),
+                        message: format!(
+                            "Interface '{}': @pair group '{}' has {} leg(s); \
+                             a differential pair has exactly two",
+                            iface.name, group.name, count,
+                        ),
+                        code: crate::errcodes::HW_IFACE_PAIR_NOT_TWO,
+                    });
+                }
+                check_pair_constraint_equality(&iface.name.to_string(), &group, &uri, acc);
             }
-        }
-        for group in groups {
-            let count = group.legs.len();
-            if count != 2 {
-                acc.push(CheckResult {
-                    check_name: "hw",
-                    severity: CheckSeverity::Error,
-                    uri: Some(uri.clone()),
-                    span: group.span.clone(),
-                    message: format!(
-                        "Interface '{}': @pair group '{}' has {} leg(s); \
-                         a differential pair has exactly two",
-                        iface.name, group.name, count,
-                    ),
-                    code: crate::errcodes::HW_IFACE_PAIR_NOT_TWO,
-                });
-            }
-            check_pair_constraint_equality(&iface.name.to_string(), &group, &uri, acc);
         }
     }
 }

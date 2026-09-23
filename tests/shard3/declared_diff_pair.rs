@@ -189,6 +189,93 @@ module main {
 }
 "#;
 
+/// U205② (ruled 2026-09-23): the adoption reads the pair from the rows its
+/// members actually came from. An RS422.2-shape interface — anonymous
+/// conductor rows, role rows named A/B — declares on the ROLE rows, and the
+/// role adoption carries the faces to the nets. Before the ruling the read
+/// only covered the conductor view, whose anonymous rows (`_(1)`) can never
+/// match a role-expanded member list: the declaration was unreachable data.
+const ROLE_ROW_DECLARED: &str = r#"
+interface ANON2(role)
+{
+    pins = [ 1 = _; 2 = _ ]
+    role Receiver {
+        pins = [ in 1 = A @pair(ab); in 2 = B @pair(ab) ]
+        peer = Transmitter
+    }
+    role Transmitter {
+        pins = [ out 1 = A @pair(ab); out 2 = B @pair(ab) ]
+        peer = Receiver
+    }
+}
+
+component RCV {
+    pins = [ io [1:2] = PINS[1:2] ]
+}
+
+module main {
+    io link::ANON2(Receiver)
+    RCV u1
+    RCV u2
+    link.A -> u1.1
+    link.B -> u2.1
+    u1.2 -> u2.2
+}
+"#;
+
+/// U205③ (ruled 2026-09-23): two groups resolving to the same pair of member
+/// names (USB.C's A-side and B-side `USB2_D±`) are declarable, and the
+/// name-level consumer collapses them into one pair — the connector uses one
+/// side at a time, so the collapse is the defined behavior, never a disease.
+const DUAL_SAME_NAME_GROUPS: &str = r#"
+interface USBCD(role)
+{
+    pins = [
+        A6 = USB2_D\+ @pair(dA); A7 = USB2_D\- @pair(dA);
+        B6 = USB2_D\+ @pair(dB); B7 = USB2_D\- @pair(dB)
+    ]
+    role Device {
+        name = "dual-side device"
+    }
+}
+
+component RCV {
+    pins = [ io [1:2] = PINS[1:2] ]
+}
+
+module main {
+    io dev::USBCD(Device)
+    RCV u1
+    RCV u2
+    dev.USB2_D\+ -> u1.1
+    dev.USB2_D\- -> u2.1
+    u1.2 -> u2.2
+}
+"#;
+
+/// The widened gate covers the role tables too: a role-row group with other
+/// than two legs is E5512, the same as a conductor-view one.
+const ROLE_ROW_ONE_LEG: &str = r#"
+interface ANON3(role)
+{
+    pins = [ 1 = _; 2 = _ ]
+    role Receiver {
+        pins = [ in 1 = A @pair(ab); in 2 = B @pair(ab); in 3 = C @pair(ab) ]
+        peer = Transmitter
+    }
+}
+
+component RCV {
+    pins = [ io [1:2] = PINS[1:2] ]
+}
+
+module main {
+    io link::ANON3(Receiver)
+    RCV u1
+    link.A -> u1.1
+}
+"#;
+
 fn graph_of(src: &str) -> McVecGraph {
     let _lock = common::lock();
     common::reset();
@@ -373,4 +460,72 @@ fn escaped_connector_names_pair_through_the_tag() {
             .collect::<Vec<_>>()
     );
     assert_eq!(faces[0].1.group, faces[1].1.group);
+}
+
+#[test]
+fn role_row_declaration_reaches_the_nets() {
+    let graph = graph_of(ROLE_ROW_DECLARED);
+
+    let faces = nets_with_faces(&graph);
+    assert_eq!(
+        faces.len(),
+        2,
+        "the role rows carry the declaration the adoption consumes, got: {:?}",
+        faces
+            .iter()
+            .map(|(n, f)| (n.name.as_str(), f))
+            .collect::<Vec<_>>()
+    );
+    let (net_a, face_a) = faces[0];
+    let (net_b, face_b) = faces[1];
+    assert_eq!(face_a.group, face_b.group);
+    assert_ne!(face_a.positive, face_b.positive);
+    assert_eq!(
+        (net_a.name.as_str(), net_b.name.as_str()),
+        if face_a.positive {
+            ("link.A", "link.B")
+        } else {
+            ("link.B", "link.A")
+        },
+        "the leg order is the role table's member order"
+    );
+}
+
+#[test]
+fn same_name_groups_collapse_into_one_pair() {
+    let graph = graph_of(DUAL_SAME_NAME_GROUPS);
+
+    let faces = nets_with_faces(&graph);
+    assert_eq!(
+        faces.len(),
+        2,
+        "two same-name groups name one pair on the nets, got: {:?}",
+        faces
+            .iter()
+            .map(|(n, f)| (n.name.as_str(), f))
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(faces[0].1.group, faces[1].1.group);
+    assert_ne!(faces[0].1.positive, faces[1].1.positive);
+
+    let mut layers = Vec::new();
+    all_layers(&graph, &mut layers);
+    let pairs: Vec<_> = layers
+        .iter()
+        .flat_map(|l| analyze(l))
+        .filter(|m| m.kind == IdiomKind::DiffPair)
+        .collect();
+    assert_eq!(
+        pairs.len(),
+        1,
+        "the collapse is the defined behavior: exactly one drawn pair"
+    );
+}
+
+#[test]
+fn role_row_group_width_is_gated() {
+    assert!(
+        codes_of(ROLE_ROW_ONE_LEG).contains(&5512),
+        "a three-leg @pair group on role rows is the same pair-width disease"
+    );
 }

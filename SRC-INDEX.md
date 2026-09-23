@@ -45,7 +45,7 @@ range (threshold 40KB).
 | `viz/layout/equi_audit.rs` | 137 KB | 103 |
 | `rpc/handlers/mod.rs` | 130 KB | 106 |
 | `export/kicad_sch.rs` | 127 KB | 106 |
-| `instant/mc_mod/phases.rs` | 123 KB | 28 |
+| `instant/mc_mod/phases.rs` | 124 KB | 29 |
 | `semantic/mc_inst.rs` | 122 KB | 88 |
 | `instant/mc_mod/points.rs` | 117 KB | 20 |
 | `semantic/module/mod.rs` | 114 KB | 80 |
@@ -67,13 +67,13 @@ range (threshold 40KB).
 | `db/` | 27 | 916 KB |
 | `eval/` | 2 | 48 KB |
 | `export/` | 7 | 183 KB |
-| `instant/` | 40 | 1571 KB |
+| `instant/` | 40 | 1572 KB |
 | `lsp/` | 7 | 66 KB |
 | `output/` | 7 | 107 KB |
 | `query/` | 9 | 161 KB |
 | `refdef/` | 7 | 118 KB |
 | `rpc/` | 16 | 302 KB |
-| `semantic/` | 89 | 2662 KB |
+| `semantic/` | 89 | 2663 KB |
 | `stages/` | 12 | 321 KB |
 | `vector/` | 25 | 476 KB |
 | `viz/` | 97 | 2451 KB |
@@ -3292,34 +3292,35 @@ instant/mc_mod/mod.rs#L579  impl std::fmt::Display for McModuleInst
 instant/mc_mod/mod.rs#L580  fn fmt
 instant/mc_mod/mod.rs#L645  mod tests
 instant/mc_mod/mod.rs#L664  fn mat_aname__sequence_lock
-instant/mc_mod/phases.rs#L32  impl InstantiationBuilder
-instant/mc_mod/phases.rs#L143  fn instantiate_interface
-instant/mc_mod/phases.rs#L454  fn inject_port_member_labels
-instant/mc_mod/phases.rs#L593  fn instantiate_declarations_resilient
-instant/mc_mod/phases.rs#L921  fn resolve_component_nc_pins
-instant/mc_mod/phases.rs#L990  fn resolve_module_nc_ports
-instant/mc_mod/phases.rs#L1056  fn report_nc_operand_miss
-instant/mc_mod/phases.rs#L1081  fn instantiate_stmts_resilient
-instant/mc_mod/phases.rs#L1188  fn dedup_connections
-instant/mc_mod/phases.rs#L1233  fn member_anchor
-instant/mc_mod/phases.rs#L1253  fn is_internal_member
-instant/mc_mod/phases.rs#L1289  fn validate_expanded_net_points
-instant/mc_mod/phases.rs#L1455  fn arg_declared_volt
-instant/mc_mod/phases.rs#L1476  fn bind_actual_args_to_ports
-instant/mc_mod/phases.rs#L1687  fn bind_call_args_to_ports
-instant/mc_mod/phases.rs#L1915  fn check_unbound_param_ports
-instant/mc_mod/phases.rs#L1997  fn run_component_constructor
-instant/mc_mod/phases.rs#L2184  fn iface_ordinal_member_names
-instant/mc_mod/phases.rs#L2200  fn extract_port_bus_members
-instant/mc_mod/phases.rs#L2274  fn read_iface_diff_groups
-instant/mc_mod/phases.rs#L2312  fn port_base_name
-instant/mc_mod/phases.rs#L2332  fn port_members
-instant/mc_mod/phases.rs#L2364  fn is_power_terminal
-instant/mc_mod/phases.rs#L2376  fn bindable_formals
-instant/mc_mod/phases.rs#L2406  fn declared_volt_of_params
-instant/mc_mod/phases.rs#L2428  fn declared_volt_of_texts
-instant/mc_mod/phases.rs#L2458  fn nc_port_hits
-instant/mc_mod/phases.rs#L2472  fn nc_port_range_hits
+instant/mc_mod/phases.rs#L33  impl InstantiationBuilder
+instant/mc_mod/phases.rs#L144  fn instantiate_interface
+instant/mc_mod/phases.rs#L460  fn inject_port_member_labels
+instant/mc_mod/phases.rs#L599  fn instantiate_declarations_resilient
+instant/mc_mod/phases.rs#L927  fn resolve_component_nc_pins
+instant/mc_mod/phases.rs#L996  fn resolve_module_nc_ports
+instant/mc_mod/phases.rs#L1062  fn report_nc_operand_miss
+instant/mc_mod/phases.rs#L1087  fn instantiate_stmts_resilient
+instant/mc_mod/phases.rs#L1194  fn dedup_connections
+instant/mc_mod/phases.rs#L1239  fn member_anchor
+instant/mc_mod/phases.rs#L1259  fn is_internal_member
+instant/mc_mod/phases.rs#L1295  fn validate_expanded_net_points
+instant/mc_mod/phases.rs#L1461  fn arg_declared_volt
+instant/mc_mod/phases.rs#L1482  fn bind_actual_args_to_ports
+instant/mc_mod/phases.rs#L1693  fn bind_call_args_to_ports
+instant/mc_mod/phases.rs#L1921  fn check_unbound_param_ports
+instant/mc_mod/phases.rs#L2003  fn run_component_constructor
+instant/mc_mod/phases.rs#L2190  fn iface_ordinal_member_names
+instant/mc_mod/phases.rs#L2200  fn iface_adopted_pin_table
+instant/mc_mod/phases.rs#L2212  fn extract_port_bus_members
+instant/mc_mod/phases.rs#L2294  fn read_iface_diff_groups
+instant/mc_mod/phases.rs#L2332  fn port_base_name
+instant/mc_mod/phases.rs#L2352  fn port_members
+instant/mc_mod/phases.rs#L2384  fn is_power_terminal
+instant/mc_mod/phases.rs#L2396  fn bindable_formals
+instant/mc_mod/phases.rs#L2426  fn declared_volt_of_params
+instant/mc_mod/phases.rs#L2448  fn declared_volt_of_texts
+instant/mc_mod/phases.rs#L2478  fn nc_port_hits
+instant/mc_mod/phases.rs#L2492  fn nc_port_range_hits
 instant/mc_mod/points.rs#L42  fn parse_curly_select
 instant/mc_mod/points.rs#L56  fn expand_member_ida
 instant/mc_mod/points.rs#L95  fn resolve_bare_member_pid
@@ -7162,17 +7163,17 @@ semantic/validation/hw.rs#L211  fn check_pin_id_gaps
 semantic/validation/hw.rs#L284  fn check_pin_count_extremes
 semantic/validation/hw.rs#L342  fn check_role_peer_dangling
 semantic/validation/hw.rs#L421  fn check_role_peer_mutual_and_width
-semantic/validation/hw.rs#L527  fn check_iface_pair_groups
-semantic/validation/hw.rs#L608  struct PairLegSlot
-semantic/validation/hw.rs#L615  enum PairSlotValue
-semantic/validation/hw.rs#L626  struct PairGroup
-semantic/validation/hw.rs#L635  fn read_pair_constraint
-semantic/validation/hw.rs#L700  fn length_of_kvs
-semantic/validation/hw.rs#L720  fn check_pair_constraint_equality
-semantic/validation/hw.rs#L770  fn is_relay_peer_decl
-semantic/validation/hw.rs#L786  fn peer_role_names
-semantic/validation/hw.rs#L815  fn check_single_ioc_type_component
-semantic/validation/hw.rs#L897  fn check_func_param_pin_shadow
+semantic/validation/hw.rs#L532  fn check_iface_pair_groups
+semantic/validation/hw.rs#L617  struct PairLegSlot
+semantic/validation/hw.rs#L624  enum PairSlotValue
+semantic/validation/hw.rs#L635  struct PairGroup
+semantic/validation/hw.rs#L644  fn read_pair_constraint
+semantic/validation/hw.rs#L709  fn length_of_kvs
+semantic/validation/hw.rs#L729  fn check_pair_constraint_equality
+semantic/validation/hw.rs#L779  fn is_relay_peer_decl
+semantic/validation/hw.rs#L795  fn peer_role_names
+semantic/validation/hw.rs#L824  fn check_single_ioc_type_component
+semantic/validation/hw.rs#L906  fn check_func_param_pin_shadow
 semantic/validation/iface_role_arg.rs#L29  struct IfaceRoleArgCheck
 semantic/validation/iface_role_arg.rs#L31  impl ValidationCheck for IfaceRoleArgCheck
 semantic/validation/iface_role_arg.rs#L32  fn name
@@ -11129,4 +11130,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-403 files, 11046 declarations.
+403 files, 11047 declarations.
