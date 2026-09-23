@@ -21,7 +21,8 @@ use crate::semantic::basic::mc_paramd::McParamDeclareKind;
 use crate::semantic::basic::mc_uval::McUnit;
 use crate::semantic::common::{ConnDir, ConnOp, IOType};
 use crate::semantic::component::McComponent;
-use crate::semantic::mc_ifs::{Mc2Interface, McInterface};
+use crate::semantic::component::mc_pins::McPins;
+use crate::semantic::mc_ifs::Mc2Interface;
 use crate::semantic::mc_inst::McInstance;
 use crate::semantic::module::McModule;
 use crate::semantic::nc_pin::{NcPinKind, NcPinSpec};
@@ -285,9 +286,14 @@ impl InstantiationBuilder {
             // tags; the two rows sharing a group are the faces of one pair,
             // in member order. Like the DC pair, the pair is a property of
             // the DECLARATION: a port whose interface declares none carries
-            // none, and no spelling of a net name is ever consulted.
+            // none, and no spelling of a net name is ever consulted. The
+            // rows read are the rows the adoption expanded — role rows when
+            // the adopted role wrote its own, else the conductor view
+            // (U205②), so a declared pair always meets its consumers.
             let diff_pair: Vec<(String, String)> = match inst {
-                McInstance::Interface(iface) => read_iface_diff_groups(&iface.base),
+                McInstance::Interface(iface) => {
+                    read_iface_diff_groups(iface_adopted_pin_table(iface))
+                }
                 _ => Vec::new(),
             };
 
@@ -2182,19 +2188,25 @@ impl InstantiationBuilder {
 /// splits the name-based net merge (real boards hbl1/hs: +1 net, +5 errors).
 /// Locked by `tests/shard7/u141_parsed_pins_boundary.rs`.
 fn iface_ordinal_member_names(iface: &Mc2Interface) -> Vec<String> {
+    iface_adopted_pin_table(iface).member_names()
+}
+
+/// The pin table an interface adoption consults: the adopted role's rows when
+/// the role wrote its own pin rows, else the conductor view. The port members
+/// and the differential-pair read both expand from THIS table, so a pair is
+/// declared on the same rows its consumers were born from — the two views of
+/// one interface never cross (U205② ruled 2026-09-23: the read follows the
+/// role view; a pair declared only on the other view is unreachable data).
+fn iface_adopted_pin_table(iface: &Mc2Interface) -> &McPins {
     if let Some(McParamValue::Ids(role_ids)) = iface.params.first() {
         let role_name = role_ids.to_string();
         for role in &iface.base.roles {
-            if role.name.to_string() == role_name {
-                let names = role.pins.member_names();
-                if !names.is_empty() {
-                    return names;
-                }
-                break;
+            if role.name.to_string() == role_name && !role.pins.member_names().is_empty() {
+                return &role.pins;
             }
         }
     }
-    iface.base.pins.member_names()
+    &iface.base.pins
 }
 
 fn extract_port_bus_members(inst: &McInstance, _port_name: &str) -> Vec<String> {
@@ -2271,11 +2283,19 @@ fn extract_port_bus_members(inst: &McInstance, _port_name: &str) -> Vec<String> 
 /// tuple; a diseased count is the definition-side gate's verdict
 /// (HW_IFACE_PAIR_NOT_TWO), never flattened into a guessed pair. Nothing here
 /// compares a member name with a net name.
-fn read_iface_diff_groups(base: &McInterface) -> Vec<(String, String)> {
+/// The interface's declared differential pairs, read off ONE pin table (the
+/// rows the adoption expanded — see `iface_adopted_pin_table`): rows carrying
+/// a `@pair(group)` tag cluster by that tag, and a group with exactly two rows
+/// declares one pair, leg order = member order. The tag spelling itself is
+/// never read. Two groups resolving to the same pair of member names are both
+/// returned; consumers match by member name, so same-name groups (USB.C's
+/// A-side and B-side `USB2_D±`) collapse into one pair on the nets — ruled
+/// 2026-09-23 (U205③): declarable, the collapse is the defined behavior.
+fn read_iface_diff_groups(pins: &McPins) -> Vec<(String, String)> {
     let pair_key = crate::semantic::basic::attr_keys::KEY_PAIR;
     let mut groups: Vec<(String, Vec<String>)> = Vec::new();
-    for (name, id) in base.pins.member_entries() {
-        let Some(pin) = base.pins.pins.get(&id) else {
+    for (name, id) in pins.member_entries() {
+        let Some(pin) = pins.pins.get(&id) else {
             continue;
         };
         let Some(group) = crate::semantic::module::pi::attr_texts(&pin.attrs, pair_key)
