@@ -1644,16 +1644,29 @@ fn every_class_the_inner_hops_reach_is_exercised() {
         );
     }
 
-    // `branch` is O9's state for a path whose ends are not both named. It is
-    // reachable only from a routed `wire` segment, which this fixture has none of.
-    for (stage, hop) in [(&p2_vec, "p2->vec"), (&vec_viz, "vec->viz")] {
-        assert_eq!(
-            count(counts_of(stage), "branch"),
-            0,
-            "if {hop} now has a `branch`, the fixture grew a path with an unnamed end and the note \
-             is stale"
-        );
-    }
+    // `branch` is O9's state for a path whose ends are not both named. The
+    // source hop reads AST clauses and has no drawn segment, so it stays at
+    // zero; the viz side publishes null ends by design since b3719, so its
+    // rows stand where they are reported. The tally there must equal the
+    // items — partition once pushed the rows without bumping the class, and
+    // a count that contradicts its own items is the defect this test exists
+    // to catch.
+    assert_eq!(
+        count(counts_of(&p2_vec), "branch"),
+        0,
+        "if p2->vec now has a `branch`, the source hop grew a path with an unnamed end and the \
+         note is stale"
+    );
+    assert!(
+        !class_items(&vec_viz, "branch").is_empty(),
+        "vec->viz lost its branch rows — a drawn segment stopped publishing null ends"
+    );
+    assert_eq!(
+        count(counts_of(&vec_viz), "branch"),
+        class_items(&vec_viz, "branch").len() as u64,
+        "vec->viz `branch` tally contradicts its own items — partition is pushing the rows \
+         without bumping the class again"
+    );
 }
 
 /// The two diagnostic states live in the class column and nowhere else.

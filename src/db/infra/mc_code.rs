@@ -46,6 +46,22 @@ impl DedupLapper {
         }
     }
 
+    /// Insert keeping the first id per (kind, span) without tripping the
+    /// duplicate-id invariant. Group-row registration sites legitimately
+    /// reach one span with several interned ids (`[1,2] = XTAL::XTAL()`
+    /// records every member name under the row-head span), and the retention
+    /// here is exactly what `insert` applies anyway — minus the warn, which
+    /// stays reserved for sites that don't expect the overlap.
+    fn insert_first_id(&mut self, interval: Interval<usize, SymbolType>) {
+        let key = (interval.val.kind, interval.start, interval.stop);
+        if self.seen.contains_key(&key) {
+            return;
+        }
+        let id = interval.val.id;
+        self.seen.insert(key, id);
+        self.inner.insert(interval);
+    }
+
     fn into_inner(self) -> SymbolRangeLapper {
         self.inner
     }
@@ -4005,7 +4021,7 @@ impl McCode {
                                     span.clone(),
                                     SymbolKind::InstDef,
                                 );
-                                symbol_lapper.insert(Interval {
+                                symbol_lapper.insert_first_id(Interval {
                                     start: span.start,
                                     stop: span.end,
                                     val: SymbolType::new(SymbolKind::InstDef, u32::from(d)),
@@ -4050,7 +4066,7 @@ impl McCode {
                                 span.clone(),
                                 def_kind,
                             );
-                            symbol_lapper.insert(Interval {
+                            symbol_lapper.insert_first_id(Interval {
                                 start: span.start,
                                 stop: span.end,
                                 val: SymbolType::new(def_kind, u32::from(d)),
@@ -4078,7 +4094,7 @@ impl McCode {
                     span.clone(),
                     SymbolKind::InstDef,
                 );
-                symbol_lapper.insert(Interval {
+                symbol_lapper.insert_first_id(Interval {
                     start: span.start,
                     stop: span.end,
                     val: SymbolType::new(SymbolKind::InstDef, u32::from(d)),
@@ -4138,7 +4154,7 @@ impl McCode {
                         def_kind,
                     );
                     param_decl_ids.insert(name.to_string(), d);
-                    symbol_lapper.insert(Interval {
+                    symbol_lapper.insert_first_id(Interval {
                         start: span.start,
                         stop: span.end,
                         val: SymbolType::new(def_kind, u32::from(d)),
@@ -4407,7 +4423,7 @@ impl McCode {
                         span.clone(),
                         def_kind,
                     );
-                    symbol_lapper.insert(Interval {
+                    symbol_lapper.insert_first_id(Interval {
                         start: span.start,
                         stop: span.end,
                         val: SymbolType::new(def_kind, u32::from(d)),
@@ -4857,6 +4873,14 @@ impl McCode {
             .into_iter()
             .map(|(sn, comp)| (sn.ident.to_string(), comp, sn.uri.to_string()))
             .collect();
+        // One (kind, span) is one lapper symbol (P2.2): the pin extractors
+        // hand every member of a group row the row-head span (`[1,2] =
+        // XTAL::XTAL()` records `XTAL`, `XTAL.X1`, `XTAL.X2` under one span),
+        // so several names legitimately intern several ids onto one span.
+        // Every id still lands in the def tables; the lapper — a
+        // source-anchored table — keeps only the first id per key via
+        // `insert_first_id`, so the invariant warn stays reserved for real
+        // cross-site collisions.
         for (comp_ident, comp, _comp_uri) in &all_comps {
             for (name, span) in comp.params.iter_defs_with_span() {
                 // Rule 6: untyped params -> UnknownDef, typed -> ParamDef.
@@ -4876,7 +4900,7 @@ impl McCode {
                     span.clone(),
                     def_kind,
                 );
-                symbol_lapper.insert(Interval {
+                symbol_lapper.insert_first_id(Interval {
                     start: span.start,
                     stop: span.end,
                     val: SymbolType::new(def_kind, u32::from(d)),
@@ -4919,7 +4943,7 @@ impl McCode {
                     pin_span.clone(),
                     SymbolKind::PinNameDef,
                 );
-                symbol_lapper.insert(Interval {
+                symbol_lapper.insert_first_id(Interval {
                     start: pin_span.start,
                     stop: pin_span.end,
                     val: SymbolType::new(SymbolKind::PinNameDef, u32::from(d)),
@@ -4935,7 +4959,7 @@ impl McCode {
                     id_span.clone(),
                     SymbolKind::PinIdDef,
                 );
-                symbol_lapper.insert(Interval {
+                symbol_lapper.insert_first_id(Interval {
                     start: id_span.start,
                     stop: id_span.end,
                     val: SymbolType::new(SymbolKind::PinIdDef, u32::from(d)),
@@ -4951,7 +4975,7 @@ impl McCode {
                     if_span.clone(),
                     SymbolKind::PinIfaceDef,
                 );
-                symbol_lapper.insert(Interval {
+                symbol_lapper.insert_first_id(Interval {
                     start: if_span.start,
                     stop: if_span.end,
                     val: SymbolType::new(SymbolKind::PinIfaceDef, u32::from(d)),
@@ -5056,7 +5080,7 @@ impl McCode {
                         port_name,
                         SymbolKind::PinNameDef,
                     ) {
-                        symbol_lapper.insert(Interval {
+                        symbol_lapper.insert_first_id(Interval {
                             start: span.start,
                             stop: span.end,
                             val: SymbolType::new(SymbolKind::PinNameRef, u32::from(decl_id.0)),
@@ -5175,7 +5199,7 @@ impl McCode {
                     } else {
                         Self::resolve_net_ref_kind(port_name, &comp.insts)
                     };
-                    symbol_lapper.insert(Interval {
+                    symbol_lapper.insert_first_id(Interval {
                         start: span.start,
                         stop: span.end,
                         val: SymbolType::new(ref_kind, u32::from(decl_id)),
@@ -5227,7 +5251,7 @@ impl McCode {
                         // own pins (e.g. `VIN.Vin` inside `func enable` — `VIN`
                         // is a pin, not a func-local instance, so the chain
                         // resolver misses it). Resolve against the pin declare.
-                        symbol_lapper.insert(Interval {
+                        symbol_lapper.insert_first_id(Interval {
                             start: span.start,
                             stop: span.end,
                             val: SymbolType::new(kind, u32::from(d)),
@@ -5355,7 +5379,7 @@ impl McCode {
                         .map(|(id, loc)| (*id, *loc))
                 });
                 if let Some((d, _)) = got {
-                    symbol_lapper.insert(Interval {
+                    symbol_lapper.insert_first_id(Interval {
                         start: mspan.start,
                         stop: mspan.end,
                         val: SymbolType::new(SymbolKind::PinNameRef, u32::from(d)),

@@ -378,7 +378,19 @@ impl GlobalSymbolTable {
     }
 
     pub fn add_class(&mut self, uri: &McURI, class_name: &McIds, span: Span) -> DeclareId {
-        let cls_id = self.assign_class_id();
+        // ★ One id domain for ClassDef: intern from the canonical key
+        // `(uri, ClassDef, "", name)` — the same key the system-library
+        // class path (query::refs) interns — instead of the per-table
+        // counter, so the registration paths that reach one class-name
+        // span agree on one id instead of tripping the DedupLapper
+        // duplicate-id invariant (P2.2; U272). Enum classes keep the
+        // counter: their id domain is separate and never shares a span.
+        let cls_id = intern_declare_id(
+            intern_uri(uri.as_str()),
+            "",
+            &class_name.to_string(),
+            SymbolKind::ClassDef,
+        );
         self.class_name_to_id
             .insert((uri.clone(), class_name.clone()), cls_id);
         self.class_id_to_span
