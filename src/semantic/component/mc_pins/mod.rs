@@ -329,8 +329,9 @@ pub struct McPins {
     pub pwr: Vec<McPwrPin>,
 
     /// The same capture for the **AC axis** — every `psrc/psnk/psbi` pin line
-    /// whose trailing `::` contract is not `::DC`, in declaration order
-    /// (`::AC`, `::AC_1P3W`, `::AC_3P3W`, `::AC_3P4W`, `::AC_3P5W`). A separate
+    /// whose trailing `::` contract is not `::DC`, in declaration order (the
+    /// canon `::AC.1P`; a reserved family such as `AC.3P` once the library
+    /// lands it). A separate
     /// list rather than a second flavour inside [`Self::pwr`]: the DC readers
     /// (the `[hot, ret]` pair face, the pin-contract checks) treat a row's `ret`
     /// as the return it closes over, which only holds for the DC pair. AC has
@@ -479,7 +480,7 @@ impl McPins {
             if let Some(ch) = class.get_sub_node() {
                 for c in ch.iter() {
                     if c.is_type(MCAST_IDS) {
-                        iface = Self::leaf_text(&c).unwrap_or_default();
+                        iface = Self::ids_name(&c).unwrap_or_default();
                     } else if c.is_type(MCAST_PARAMS) {
                         params = Self::read_params(&c);
                     }
@@ -731,6 +732,30 @@ impl McPins {
             }
         }
         node.get_sub_node().and_then(|sub| Self::leaf_text(&sub))
+    }
+
+    /// The full dotted contract name an `MCAST_IDS` spells (pi.rs `ids_name`
+    /// over the same sub-AST): every identifier leaf in order, dot separators
+    /// dropped whichever way the grammar spells them — `AC.1P`, not just the
+    /// first leaf's family head. A row's `::` contract is the whole dotted
+    /// name, carried verbatim (the registry matches it exactly, pi.rs §3.2).
+    fn ids_name(ids: &AstNode) -> Option<String> {
+        fn walk(node: &AstNode, out: &mut Vec<String>) {
+            if let Some(c) = node.data_as_cstr() {
+                let s = c.to_str().unwrap_or_default().trim();
+                if !s.is_empty() && s != "." {
+                    out.push(s.to_string());
+                }
+            }
+            if let Some(sub) = node.get_sub_node() {
+                for c in sub.iter() {
+                    walk(&c, out);
+                }
+            }
+        }
+        let mut parts = Vec::new();
+        walk(ids, &mut parts);
+        (!parts.is_empty()).then(|| parts.join("."))
     }
 
     /// §11.1: member names in **source declaration order** (the interface
@@ -4483,15 +4508,15 @@ module main {
     }
 
     /// The AC axis is captured beside the DC one instead of being dropped at the
-    /// `::` gate: an `::AC_*` row lands in `pwr_ac` with its direction word, its
+    /// `::` gate: an `::AC*` row lands in `pwr_ac` with its direction word, its
     /// written members and its tail identity note intact, while `pwr` keeps
     /// holding exactly the `::DC` rows.
     #[test]
     fn captures_ac_row_beside_the_dc_axis() {
         const SRC: &str = r#"component MAINS_ENTRY {
     pins = [
-        psbi [1,2,3] = [L, N, PE]::AC_1P3W(230V, 50Hz) @class(analog)
-        psnk [4,5]   = [IN, GND]::DC(5V)
+        psbi [1,2] = [L, N]::AC.1P(230V, 50Hz) @class(analog)
+        psnk [4,5] = [IN, GND]::DC(5V)
     ]
 }
 module main {
@@ -4502,7 +4527,7 @@ module main {
         assert_eq!(pins.pwr[0].iface, "DC");
         assert_eq!(pins.pwr_ac.len(), 1, "ac rows: {:?}", pins.pwr_ac);
         let ac = &pins.pwr_ac[0];
-        assert_eq!(ac.iface, "AC_1P3W");
+        assert_eq!(ac.iface, "AC.1P");
         assert_eq!(ac.dir, PwrDir::Bi);
         assert_eq!(ac.hot, "L");
         assert_eq!(ac.ret.as_deref(), Some("N"));
