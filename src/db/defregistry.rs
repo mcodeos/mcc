@@ -58,6 +58,7 @@
 use crate::db::cmie::tables as workspace;
 use crate::db::defmember::{DefMemberId, MemberLedger};
 use crate::semantic::capability::McCapability;
+use crate::semantic::common::UriId;
 use crate::semantic::component::McComponent;
 use crate::semantic::mc_define::McDefineDef;
 use crate::semantic::mc_enum::McEnumDef;
@@ -311,6 +312,16 @@ pub(crate) struct RegistryState {
     /// scan on every class reference. Function-template entries are host
     /// members, not class names, so they stay out of the index.
     system_name_index: DashMap<String, Vec<SystemNameHit>>,
+    /// Defining file → the [`DefId`]s declared in it (P1.1, lapper improvement
+    /// plan): interned [`UriId`] → arena row ids whose `McSpaceName.uri` is
+    /// that file. Append-only like `key_to_id` — a row enters its bucket once
+    /// at the fresh-append sites (`register`, `register_host_funcs`) and
+    /// never leaves it; liveness / kind / domain filtering stays at read time
+    /// in [`RegistryState::enumerate_in_uri`], exactly as in
+    /// [`RegistryState::enumerate`], so a tombstone needs no index write.
+    /// Gives the per-file consumers (the lapper build, `upgrade_unknown_defs`)
+    /// the definitions of one file without scanning the whole arena per kind.
+    uri_index: DashMap<UriId, Vec<DefId>>,
     /// Monotonic checkpoint version; the journal itself is append-only.
     next_version: AtomicU64,
     /// Append-only checkpoint journal (design §10). A full state reset
@@ -387,6 +398,7 @@ impl Default for RegistryState {
             key_to_id: DashMap::new(),
             arena: DashMap::new(),
             system_name_index: DashMap::new(),
+            uri_index: DashMap::new(),
             next_version: AtomicU64::new(1),
             journal: Mutex::new(Vec::new()),
             member_ledgers: DashMap::new(),
@@ -569,6 +581,7 @@ impl RegistryState {
                 fingerprint: content_fingerprint(def),
             },
         );
+        self.uri_index.entry(sn.uri).or_default().push(id);
         if matches!(domain, LoadDomain::SystemLib(_))
             && !matches!(kind, DefKind::Func | DefKind::Capability)
         {
@@ -776,6 +789,7 @@ impl RegistryState {
                 fingerprint,
             },
         );
+        self.uri_index.entry(host_sn.uri).or_default().push(id);
     }
 
     /// Registry side of the any-domain [`remove_by_uri`] teardown: tombstone
@@ -907,6 +921,7 @@ impl RegistryState {
         self.key_to_id.clear();
         self.arena.clear();
         self.system_name_index.clear();
+        self.uri_index.clear();
         self.member_ledgers.clear();
         self.host_funcs.clear();
         self.adopts.clear();
@@ -1335,6 +1350,67 @@ impl RegistryState {
                 (sn.uri_string(), sn.ident.to_string()),
                 (sn, e.data.clone().unwrap()),
             ));
+        }
+        keyed.sort_by(|a, b| a.0.cmp(&b.0));
+        keyed.into_iter().map(|(_, item)| item).collect()
+    }
+
+    /// The same live rows [`RegistryState::enumerate`] returns, restricted to
+    /// the one defining file `uri` (P1.1, lapper improvement plan). The
+    /// per-uri bucket answers "what does this file declare" without walking
+    /// the whole arena per kind — the shape every per-file consumer (the
+    /// lapper build, `upgrade_unknown_defs`) wants.
+    ///
+    /// The filters and the result order are exactly `enumerate`'s, cut down
+    /// to one uri: liveness / kind / domain checks run at read time (the
+    /// bucket is append-only, so it may name tombstoned rows), the any-domain
+    /// view drops the shadowed system layer (a shadow pair shares its
+    /// `McSpaceName` key, so both layers sit in the same bucket), and rows
+    /// sort by `(uri, ident)` — with the uri fixed, that is the `ident` order
+    /// `enumerate` produces for the same rows.
+    pub(crate) fn enumerate_in_uri(
+        &self,
+        kind: DefKind,
+        filter: DomainFilter,
+        uri: &str,
+    ) -> Vec<(McSpaceName, DefValue)> {
+        let uri_id = crate::semantic::common::uri_intern(uri);
+        let Some(bucket) = self.uri_index.get(&uri_id) else {
+            return Vec::new();
+        };
+        // T8: keys whose project layer is live (so their system layer must
+        // not surface in the unified any-domain view) — computed over the
+        // bucket only, which is where both layers of a shadow pair live.
+        let shadowed: HashSet<String> = if filter == DomainFilter::Any {
+            bucket
+                .iter()
+                .filter_map(|id| self.arena.get(id))
+                .filter(|e| {
+                    e.kind == kind && e.data.is_some() && matches!(e.domain, LoadDomain::Project)
+                })
+                .map(|e| e.sn.ident.to_string())
+                .collect()
+        } else {
+            HashSet::new()
+        };
+        let mut keyed: Vec<(String, (McSpaceName, DefValue))> = Vec::new();
+        for id in bucket.iter() {
+            let Some(e) = self.arena.get(id) else {
+                continue;
+            };
+            if e.kind != kind || e.data.is_none() {
+                continue;
+            }
+            if !filter_matches(&e.domain, filter) {
+                continue;
+            }
+            if matches!(e.domain, LoadDomain::SystemLib(_))
+                && shadowed.contains(&e.sn.ident.to_string())
+            {
+                continue;
+            }
+            let sn = e.sn.clone();
+            keyed.push((sn.ident.to_string(), (sn, e.data.clone().unwrap())));
         }
         keyed.sort_by(|a, b| a.0.cmp(&b.0));
         keyed.into_iter().map(|(_, item)| item).collect()
@@ -3618,6 +3694,115 @@ mod tests {
             workspace::WORKSPACE.registry().def_id(&sn_p, DefKind::Enum).is_none()
                 && workspace::WORKSPACE.registry().def_id(&sn_s, DefKind::Enum).is_none(),
             "the global registry never saw the isolated world's keys"
+        );
+    }
+
+    /// P1.1 (lapper improvement plan): `enumerate_in_uri` is exactly the full
+    /// `enumerate` view cut down to one defining file. The identity lists must
+    /// agree for every uri — including a file that declares nothing — across
+    /// all three domain filters, with a project shadow over a live system def
+    /// in the same bucket exercising the any-domain shadow exclusion.
+    #[test]
+    fn def_registry__enumerate_in_uri_matches_the_full_view_cut_to_one_uri() {
+        let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");
+        let wm = workspace::WorkspaceManager::new();
+        let (p_a1, d_a1) = sys_enum("U3936_A", "/mcc/u3936_a.mc");
+        let (p_a2, d_a2) = sys_enum("U3936_B", "/mcc/u3936_a.mc");
+        let (p_b1, d_b1) = sys_enum("U3936_A", "/mcc/u3936_b.mc");
+        // The shadow pair: a live system def whose key a project def then
+        // shadows (T8) — both layers live in one uri bucket.
+        let (s_1, d_s1) = sys_enum("U3936_S", "/mcc/lib/u3936_lib.mc");
+        let (sh_1, d_sh1) = sys_enum("U3936_S", "/mcc/lib/u3936_lib.mc");
+        assert_eq!(
+            wm.insert_def(&s_1, LoadDomain::SystemLib("mcode".to_string()), d_s1),
+            InsertOutcome::Inserted
+        );
+        assert_eq!(
+            wm.insert_def(&p_a1, LoadDomain::Project, d_a1),
+            InsertOutcome::Inserted
+        );
+        assert_eq!(
+            wm.insert_def(&p_a2, LoadDomain::Project, d_a2),
+            InsertOutcome::Inserted
+        );
+        assert_eq!(
+            wm.insert_def(&p_b1, LoadDomain::Project, d_b1),
+            InsertOutcome::Inserted
+        );
+        assert_eq!(
+            wm.insert_def(&sh_1, LoadDomain::Project, d_sh1),
+            InsertOutcome::Inserted
+        );
+
+        let reg = wm.registry();
+        let names = |rows: Vec<(McSpaceName, DefValue)>| -> Vec<McSpaceName> {
+            rows.into_iter().map(|(sn, _)| sn).collect()
+        };
+        for filter in [DomainFilter::Any, DomainFilter::Project, DomainFilter::System] {
+            let full = reg.enumerate(DefKind::Enum, filter);
+            for uri in [
+                "/mcc/u3936_a.mc",
+                "/mcc/u3936_b.mc",
+                "/mcc/lib/u3936_lib.mc",
+                "/mcc/u3936_absent.mc",
+            ] {
+                let cut: Vec<McSpaceName> = full
+                    .iter()
+                    .filter(|(sn, _)| sn.uri == uri)
+                    .map(|(sn, _)| sn.clone())
+                    .collect();
+                assert_eq!(
+                    names(reg.enumerate_in_uri(DefKind::Enum, filter, uri)),
+                    cut,
+                    "per-uri view drifted from the full view for uri={uri}"
+                );
+            }
+        }
+    }
+
+    /// P1.1: the per-uri view tracks the removal surfaces — a project-file
+    /// tombstone empties that file's bucket view only, a revive refills it
+    /// under the original identity, and a foreign uri never sees the change.
+    #[test]
+    fn def_registry__enumerate_in_uri_tracks_removal_and_revival() {
+        let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");
+        let wm = workspace::WorkspaceManager::new();
+        let (p_rm, d_rm) = sys_enum("U3936_RM", "/mcc/u3936_rm.mc");
+        let (p_keep, d_keep) = sys_enum("U3936_KEEP", "/mcc/u3936_keep.mc");
+        assert_eq!(
+            wm.insert_def(&p_rm, LoadDomain::Project, d_rm),
+            InsertOutcome::Inserted
+        );
+        assert_eq!(
+            wm.insert_def(&p_keep, LoadDomain::Project, d_keep),
+            InsertOutcome::Inserted
+        );
+
+        let count_in = |uri: &str| -> usize {
+            wm.registry()
+                .enumerate_in_uri(DefKind::Enum, DomainFilter::Project, uri)
+                .len()
+        };
+        assert_eq!(count_in("/mcc/u3936_rm.mc"), 1);
+        assert_eq!(count_in("/mcc/u3936_keep.mc"), 1);
+        assert_eq!(count_in("/mcc/u3936_absent.mc"), 0);
+        let id_before = wm.registry().def_id(&p_rm, DefKind::Enum);
+
+        wm.remove_project_defs_by_uri("/mcc/u3936_rm.mc");
+        assert_eq!(count_in("/mcc/u3936_rm.mc"), 0, "tombstone empties the view");
+        assert_eq!(count_in("/mcc/u3936_keep.mc"), 1, "a foreign file is untouched");
+
+        // A revive under the original key refills the view with the same
+        // identity (D11 — the append-only bucket never dropped the row id).
+        assert_eq!(
+            wm.insert_def(&p_rm, LoadDomain::Project, sys_enum("U3936_RM", "/mcc/u3936_rm.mc").1),
+            InsertOutcome::Inserted
+        );
+        assert_eq!(count_in("/mcc/u3936_rm.mc"), 1, "revive refills the view");
+        assert_eq!(
+            wm.registry().def_id(&p_rm, DefKind::Enum),
+            id_before,
+            "the revived identity keeps its DefId"
         );
     }
 }
