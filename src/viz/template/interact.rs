@@ -55,15 +55,19 @@ console.groupEnd();
 const navStack = [];
 let currentBid = DOC.root_bid;
 
-// Zoom control
-// Zoom is implemented by wrapping the current <svg> in a #zoom-pane and
-// sizing the pane to (canvas-width × zoom). The SVG has a viewBox and fills
-// the pane, so it is re-rendered at the target size (vector-crisp) rather
-// than bitmap-scaled. Scrolling pans the zoomed content via #canvas overflow.
-const ZOOM_MIN = 0.25;
-const ZOOM_MAX = 8;
+// Camera control
+// The canvas is a camera over an infinite plane, not a window with scrollbars:
+// the #zoom-pane keeps its zoom=1 size and the view is a translate + scale
+// transform on it. Zoom is anchored at the cursor — the point under the
+// pointer stays under the pointer — and a plain wheel or a drag pans. SVG
+// bytes are untouched; only the pane is transformed.
+const ZOOM_MIN = 0.05;
+const ZOOM_MAX = 16;
 const ZOOM_STEP = 1.25;
+const PAN_GRAB = 3; // px of travel before a press counts as a drag
 let zoomLevel = 1;
+let camX = 0; // camera translate, in canvas px
+let camY = 0;
 let zoomAspect = 1; // current SVG viewBox aspect ratio (w / h)
 
 // Ensure the current <svg> lives inside a #zoom-pane. Must re-wrap after
@@ -81,7 +85,9 @@ function ensureZoomPane() {
         pane.appendChild(svg);
     }
 
-    // Re-read the viewBox aspect ratio in case this layer's SVG differs.
+    // Re-read the viewBox aspect ratio in case this layer's SVG differs, then
+    // size the pane to its zoom=1 footprint (canvas content width, height per
+    // the drawing's aspect). The camera transform does the rest.
     const vb = svg.getAttribute('viewBox');
     if (vb) {
         const parts = vb.trim().split(/[\s,]+/).map(Number);
@@ -89,23 +95,21 @@ function ensureZoomPane() {
             zoomAspect = parts[2] / parts[3];
         }
     }
-    return pane;
-}
-
-function applyZoom(scale) {
-    zoomLevel = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, scale));
-    const pane = ensureZoomPane();
-    if (!pane) return;
-
-    const canvas = document.getElementById('canvas');
-    // Base width = canvas content box (clientWidth minus padding), so zoom=1
-    // fills the canvas exactly with no scrollbar.
     const cs = getComputedStyle(canvas);
     const padX = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
     const baseW = Math.max(1, canvas.clientWidth - padX);
-    const paneW = Math.max(1, baseW * zoomLevel);
-    pane.style.width = paneW + 'px';
-    pane.style.height = (paneW / zoomAspect) + 'px';
+    pane.style.width = baseW + 'px';
+    pane.style.height = (baseW / zoomAspect) + 'px';
+    return pane;
+}
+
+function applyCamera() {
+    zoomLevel = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, zoomLevel));
+    const pane = ensureZoomPane();
+    if (!pane) return;
+    pane.style.transformOrigin = '0 0';
+    pane.style.transform =
+        'translate(' + camX + 'px,' + camY + 'px) scale(' + zoomLevel + ')';
 
     const label = document.getElementById('zoom-level');
     if (label) label.textContent = Math.round(zoomLevel * 100) + '%';
@@ -122,9 +126,46 @@ function applyZoom(scale) {
     }
 }
 
-function zoomIn()  { applyZoom(zoomLevel * ZOOM_STEP); }
-function zoomOut() { applyZoom(zoomLevel / ZOOM_STEP); }
-function zoomReset() { applyZoom(1); }
+// The view v = translate(t) · scale(k) puts a plane point p at s = t + k·p.
+// Zooming with the cursor pinned (s fixed) while k → k' therefore means
+// t' = s − (k'/k)·(s − t); dropping the second term zooms toward the origin.
+function zoomAround(kNext, sx, sy) {
+    const k = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, kNext));
+    const ratio = k / zoomLevel;
+    camX = sx - ratio * (camX - sx);
+    camY = sy - ratio * (camY - sy);
+    zoomLevel = k;
+    applyCamera();
+}
+
+// Anchor for the buttons: the center of the canvas viewport, in the pane's
+// view coordinates (distance from the pane's transformed origin).
+function zoomAnchor() {
+    const pane = ensureZoomPane();
+    const canvas = document.getElementById('canvas');
+    if (!pane) return { x: 0, y: 0 };
+    const pr = pane.getBoundingClientRect();
+    const cr = canvas.getBoundingClientRect();
+    return {
+        x: cr.left + cr.width / 2 - pr.left,
+        y: cr.top + cr.height / 2 - pr.top,
+    };
+}
+
+function zoomIn() {
+    const a = zoomAnchor();
+    zoomAround(zoomLevel * ZOOM_STEP, a.x, a.y);
+}
+function zoomOut() {
+    const a = zoomAnchor();
+    zoomAround(zoomLevel / ZOOM_STEP, a.x, a.y);
+}
+function zoomReset() {
+    camX = 0;
+    camY = 0;
+    zoomLevel = 1;
+    applyCamera();
+}
 
 // Smart layer lookup: try number / string / fallback
 function findLayer(bid) {
@@ -191,7 +232,9 @@ function init() {
 
     updateBreadcrumb();
     updateStats();
-    applyZoom(zoomLevel);
+    camX = 0;
+    camY = 0;
+    applyCamera();
 }
 
 function parseBid(s) {
@@ -223,7 +266,9 @@ function switchToLayer(bid) {
     document.getElementById('canvas').innerHTML = layer.svg;
     updateBreadcrumb();
     updateStats();
-    applyZoom(zoomLevel);
+    camX = 0;
+    camY = 0;
+    applyCamera();
     return true;
 }
 
@@ -312,24 +357,73 @@ function escapeHtml(text) {
         .replace(/>/g, '&gt;');
 }
 
-// Zoom gesture / button wiring
+// Camera gesture / button wiring
 // The canvas element itself persists across layer switches (only its
 // innerHTML is replaced), so listeners attached here survive navigation.
 const zoomCanvas = document.getElementById('canvas');
 zoomCanvas.addEventListener('wheel', function (e) {
-    // Trackpad pinch and Ctrl/Cmd + wheel both zoom. Chromium reports a
-    // pinch as wheel events with ctrlKey=true (on macOS metaKey is also set);
-    // the deltaY sign selects the direction.
+    // Trackpad pinch and Ctrl/Cmd + wheel zoom, anchored at the pointer.
+    // Chromium reports a pinch as wheel events with ctrlKey=true (on macOS
+    // metaKey is also set); the deltaY sign selects the direction. A plain
+    // wheel pans the plane.
+    e.preventDefault();
     if (e.ctrlKey || e.metaKey) {
-        e.preventDefault();
-        applyZoom(zoomLevel * (e.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP));
+        const pane = ensureZoomPane();
+        if (!pane) return;
+        const r = pane.getBoundingClientRect();
+        zoomAround(
+            zoomLevel * (e.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP),
+            e.clientX - r.left, e.clientY - r.top);
+    } else {
+        camX -= e.deltaX;
+        camY -= e.deltaY;
+        applyCamera();
     }
 }, { passive: false });
+
+// Drag to pan. A press only becomes a drag after PAN_GRAB px of travel, and a
+// click that ends a real drag is swallowed (capture, ahead of the handlers
+// below), so plain clicks keep their meaning — drill, select, navigate.
+let dragStart = null;
+let dragMoved = false;
+zoomCanvas.addEventListener('mousedown', function (e) {
+    if (e.button !== 0 || e.metaKey || e.ctrlKey) return;
+    dragStart = { x: e.clientX, y: e.clientY, camX: camX, camY: camY };
+    dragMoved = false;
+    e.preventDefault();
+});
+window.addEventListener('mousemove', function (e) {
+    if (!dragStart) return;
+    const dx = e.clientX - dragStart.x;
+    const dy = e.clientY - dragStart.y;
+    if (!dragMoved) {
+        if (Math.abs(dx) < PAN_GRAB && Math.abs(dy) < PAN_GRAB) return;
+        dragMoved = true;
+        const pane = document.getElementById('zoom-pane');
+        if (pane) pane.classList.add('dragging');
+    }
+    camX = dragStart.camX + dx;
+    camY = dragStart.camY + dy;
+    applyCamera();
+});
+window.addEventListener('mouseup', function () {
+    if (!dragStart) return;
+    dragStart = null;
+    const pane = document.getElementById('zoom-pane');
+    if (pane) pane.classList.remove('dragging');
+});
+function swallowDragClick(ev) {
+    if (!dragMoved) return;
+    dragMoved = false;
+    ev.preventDefault();
+    ev.stopPropagation();
+}
+zoomCanvas.addEventListener('click', swallowDragClick, true);
 
 document.getElementById('zoom-in').addEventListener('click', zoomIn);
 document.getElementById('zoom-out').addEventListener('click', zoomOut);
 document.getElementById('zoom-reset').addEventListener('click', zoomReset);
-window.addEventListener('resize', function () { applyZoom(zoomLevel); });
+window.addEventListener('resize', function () { applyCamera(); });
 
 // Source navigation
 // The Rust renderer stamps every box and pin that has a real source position
@@ -717,7 +811,8 @@ window.addEventListener('message', function (e) {
         const host = mcodeHost || ((window.parent && window.parent !== window) ? window.parent : null);
         host && host.postMessage({ type: 'viz:state', state: { zoomLevel: zoomLevel } }, '*');
     } else if (m.type === 'viz:restore' && m.state && Number(m.state.zoomLevel) > 0) {
-        applyZoom(Number(m.state.zoomLevel));
+        zoomLevel = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, Number(m.state.zoomLevel)));
+        applyCamera();
     } else if (m.type === 'viz:queryClass') {
         // The host cannot read this sandboxed DOM, so the class selector's
         // candidates are enumerated here: every named box stamped with the
@@ -925,6 +1020,57 @@ mod tests {
         assert!(
             restore < startup && startup < init_call,
             "the zoom restore must run before the first render"
+        );
+    }
+
+    /// M2's gate (9.16 plan): the canvas is a camera, not a scrollbar. Three
+    /// halves must survive a refactor together: the translate + scale
+    /// transform on the pane (the SVG itself is never resized), the
+    /// cursor-anchored zoom (the anchor term that pins the point under the
+    /// pointer), and drag/wheel panning that leaves a plain click's meaning
+    /// intact (travel threshold + a captured swallow of drag-ending clicks).
+    /// Losing the anchor term turns every zoom into a jump toward the origin;
+    /// losing the swallow makes every pan end in a stray drill or select.
+    #[test]
+    fn the_camera_is_translate_scale_with_cursor_anchored_zoom() {
+        let js = js();
+        assert!(
+            js.contains("'translate(' + camX + 'px,' + camY + 'px) scale(' + zoomLevel + ')'"),
+            "the pane is not moved by a camera transform"
+        );
+        assert!(
+            js.contains("transformOrigin = '0 0'"),
+            "the transform anchors at the pane corner, not its center"
+        );
+        assert!(
+            js.contains("camX = sx - ratio * (camX - sx)"),
+            "zoom is not cursor-anchored: the translate is never rewritten"
+        );
+        assert!(
+            js.contains("e.clientX - r.left"),
+            "the wheel anchor is not the pointer position"
+        );
+        assert!(
+            js.contains("camX -= e.deltaX"),
+            "a plain wheel does not pan the plane"
+        );
+        assert!(
+            js.contains("PAN_GRAB"),
+            "no drag threshold: a plain click would pan"
+        );
+        assert!(
+            js.contains("swallowDragClick"),
+            "a drag-ending click keeps its old meaning"
+        );
+        // Range per the plan (0.05–16×); the pane keeps its zoom=1 size, so
+        // only the transform may depend on zoomLevel.
+        assert!(js.contains("const ZOOM_MIN = 0.05;"), "narrow zoom floor");
+        assert!(js.contains("const ZOOM_MAX = 16;"), "narrow zoom ceiling");
+        let cam = js.find("function applyCamera").expect("camera fn");
+        let size = js.find("pane.style.width").expect("pane sizing");
+        assert!(
+            size < cam && !js[cam..cam + 4000].contains("pane.style.width"),
+            "the camera must not resize the pane; it only transforms it"
         );
     }
 }
