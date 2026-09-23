@@ -31,7 +31,7 @@ range (threshold 40KB).
 | File | Size | Declarations |
 |---|---|---|
 | `viz/layout/equipotential_tree.rs` | 409 KB | 203 |
-| `db/infra/mc_code.rs` | 358 KB | 99 |
+| `db/infra/mc_code.rs` | 360 KB | 100 |
 | `semantic/basic/mc_phrase.rs` | 335 KB | 78 |
 | `semantic/component/mc_pins/mod.rs` | 236 KB | 109 |
 | `semantic/validation/nets/mod.rs` | 200 KB | 130 |
@@ -58,13 +58,13 @@ range (threshold 40KB).
 | Directory | Files | Size |
 |---|---|---|
 | `(root)/` | 8 | 373 KB |
-| `ast/` | 7 | 79 KB |
+| `ast/` | 7 | 83 KB |
 | `bin/` | 2 | 37 KB |
 | `build/` | 5 | 75 KB |
 | `builder/` | 1 | 0 KB |
 | `cli/` | 7 | 113 KB |
 | `cmds/` | 28 | 501 KB |
-| `db/` | 28 | 961 KB |
+| `db/` | 28 | 965 KB |
 | `eval/` | 2 | 50 KB |
 | `export/` | 7 | 183 KB |
 | `instant/` | 40 | 1602 KB |
@@ -362,37 +362,39 @@ ast/sem.rs#L83  type Span
 ast/sem.rs#L87  struct DeclareId
 ast/sem.rs#L92  struct ReferenceId
 ast/sem.rs#L98  struct LocalSymbolTable
-ast/sem.rs#L127  type DeclareKey
-ast/sem.rs#L135  static DECLARE_ID_BY_KEY
-ast/sem.rs#L139  static NEXT_DECLARE_ID
-ast/sem.rs#L143  fn intern_declare_id
-ast/sem.rs#L164  fn reset_declare_id_space
-ast/sem.rs#L169  impl LocalSymbolTable
-ast/sem.rs#L170  fn new
-ast/sem.rs#L180  fn assign_inst_id
-ast/sem.rs#L192  fn add_declare_with_name
-ast/sem.rs#L224  fn add_inst
-ast/sem.rs#L232  fn lookup_by_scope_name
-ast/sem.rs#L249  fn lookup_any_by_scope_name
-ast/sem.rs#L267  struct GlobalSymbolTable
-ast/sem.rs#L287  impl GlobalSymbolTable
-ast/sem.rs#L288  fn new
-ast/sem.rs#L304  fn assign_class_id
-ast/sem.rs#L309  fn assign_declare_class_id
-ast/sem.rs#L320  fn pack_enum_value_id
-ast/sem.rs#L329  fn add_enum_class
-ast/sem.rs#L342  fn add_enum_value
-ast/sem.rs#L356  fn lookup_enum_class
-ast/sem.rs#L363  fn enum_class_span
-ast/sem.rs#L368  fn enum_value_span
-ast/sem.rs#L372  fn add_class
-ast/sem.rs#L381  fn add_declare_class
-ast/sem.rs#L399  fn clear_by_uri
-ast/sem.rs#L430  fn clear
-ast/sem.rs#L451  fn scope_from_ids
-ast/sem.rs#L482  fn sorted_rows
-ast/sem.rs#L503  fn payload_fingerprint
-ast/sem.rs#L516  fn symbol_table_to_json
+ast/sem.rs#L130  type DeclareKey
+ast/sem.rs#L138  static DECLARE_ID_BY_KEY
+ast/sem.rs#L142  static NEXT_DECLARE_ID
+ast/sem.rs#L146  fn intern_declare_id
+ast/sem.rs#L167  fn reset_declare_id_space
+ast/sem.rs#L172  impl LocalSymbolTable
+ast/sem.rs#L173  fn new
+ast/sem.rs#L183  fn assign_inst_id
+ast/sem.rs#L195  fn add_declare_with_name
+ast/sem.rs#L232  fn add_inst
+ast/sem.rs#L240  fn lookup_by_scope_name
+ast/sem.rs#L257  fn lookup_any_by_scope_name
+ast/sem.rs#L275  struct GlobalSymbolTable
+ast/sem.rs#L295  impl GlobalSymbolTable
+ast/sem.rs#L296  fn new
+ast/sem.rs#L312  fn assign_class_id
+ast/sem.rs#L317  fn assign_declare_class_id
+ast/sem.rs#L328  fn pack_enum_value_id
+ast/sem.rs#L337  fn add_enum_class
+ast/sem.rs#L350  fn add_enum_value
+ast/sem.rs#L364  fn lookup_enum_class
+ast/sem.rs#L371  fn enum_class_span
+ast/sem.rs#L376  fn enum_value_span
+ast/sem.rs#L380  fn add_class
+ast/sem.rs#L389  fn add_declare_class
+ast/sem.rs#L407  fn clear_by_uri
+ast/sem.rs#L438  fn clear
+ast/sem.rs#L459  fn scope_from_ids
+ast/sem.rs#L490  fn sorted_rows
+ast/sem.rs#L511  fn payload_fingerprint
+ast/sem.rs#L524  fn symbol_table_to_json
+ast/sem.rs#L749  mod tests
+ast/sem.rs#L759  fn def_sem__reverse_name_index_orders_candidates_by_scope_priority
 ast/token.rs#L7  struct McSemTokenFFI
 ast/token.rs#L16  struct McLexTokenFFI
 ast/token.rs#L25  struct McSemToken
@@ -2243,9 +2245,10 @@ db/infra/mc_code.rs#L7218  fn def_mccode__ref_def_map_entries_carry_ast_def_name
 db/infra/mc_code.rs#L7328  fn def_mccode__visibility_table_matches_import_forms
 db/infra/mc_code.rs#L7506  fn def_mccode__refgraph_records_cross_file_resolution_edges
 db/infra/mc_code.rs#L7589  fn def_mccode__refgraph_edges_survive_reparse_without_stale_hits
-db/infra/mc_code.rs#L7649  fn def_mccode__parse_level_reparse_diff_reports_edited_def_only
-db/infra/mc_code.rs#L7728  fn def_mccode__module_port_ledger_stable_across_mid_insert_reparse
-db/infra/mc_code.rs#L7801  fn def_mccode__alias_p4_name_index_and_gotodef_agree_with_phase6
+db/infra/mc_code.rs#L7647  fn def_defres__func_local_declaration_shadows_container_name_in_the_index
+db/infra/mc_code.rs#L7724  fn def_mccode__parse_level_reparse_diff_reports_edited_def_only
+db/infra/mc_code.rs#L7803  fn def_mccode__module_port_ledger_stable_across_mid_insert_reparse
+db/infra/mc_code.rs#L7876  fn def_mccode__alias_p4_name_index_and_gotodef_agree_with_phase6
 db/infra/mc_use.rs#L15  enum McUsePrefix
 db/infra/mc_use.rs#L22  impl std::fmt::Display for McUsePrefix
 db/infra/mc_use.rs#L23  fn fmt
@@ -2331,22 +2334,23 @@ db/resolve/policy.rs#L52  fn find_in_table_scoped
 db/resolve/policy.rs#L93  fn find_in_system_scoped
 db/resolve/policy.rs#L121  fn find_scoped_by_name
 db/resolve/policy.rs#L128  fn lookup_cmie_by_kind
-db/resolve/policy.rs#L175  fn cmie_from_entry
-db/resolve/policy.rs#L205  fn same_name_cmies
-db/resolve/policy.rs#L222  fn cmie_uri
-db/resolve/policy.rs#L235  struct Resolver
-db/resolve/policy.rs#L242  enum ResolveSource
-db/resolve/policy.rs#L251  impl Resolver
-db/resolve/policy.rs#L263  fn resolve_class
-db/resolve/policy.rs#L306  fn resolve_class_locked
-db/resolve/policy.rs#L374  fn resolve_pre_consolidation
-db/resolve/policy.rs#L392  fn resolve_own_file
-db/resolve/policy.rs#L421  fn resolve_visibility
-db/resolve/policy.rs#L429  fn visibility_entry
-db/resolve/policy.rs#L452  fn visibility_hit
-db/resolve/policy.rs#L462  fn resolve_use_chain
-db/resolve/policy.rs#L470  fn resolve_system
-db/resolve/policy.rs#L515  fn resolve_interface
+db/resolve/policy.rs#L182  fn select_declare_candidate
+db/resolve/policy.rs#L199  fn cmie_from_entry
+db/resolve/policy.rs#L229  fn same_name_cmies
+db/resolve/policy.rs#L246  fn cmie_uri
+db/resolve/policy.rs#L259  struct Resolver
+db/resolve/policy.rs#L266  enum ResolveSource
+db/resolve/policy.rs#L275  impl Resolver
+db/resolve/policy.rs#L287  fn resolve_class
+db/resolve/policy.rs#L330  fn resolve_class_locked
+db/resolve/policy.rs#L392  fn resolve_pre_consolidation
+db/resolve/policy.rs#L410  fn resolve_own_file
+db/resolve/policy.rs#L439  fn resolve_visibility
+db/resolve/policy.rs#L447  fn visibility_entry
+db/resolve/policy.rs#L470  fn visibility_hit
+db/resolve/policy.rs#L480  fn resolve_use_chain
+db/resolve/policy.rs#L488  fn resolve_system
+db/resolve/policy.rs#L533  fn resolve_interface
 db/resolve/visibility.rs#L22  fn use_chain_reaches
 db/resolve/visibility.rs#L58  fn is_visible
 db/symbol/mod.rs#L2  mod workspace
@@ -4314,14 +4318,14 @@ query/mod.rs#L6  mod reverse
 query/mod.rs#L7  mod search
 query/mod.rs#L8  mod units
 query/refs.rs#L16  fn mcb_lookup_instance_decl
-query/refs.rs#L67  fn mcb_register_instance_ref
-query/refs.rs#L83  fn mcb_get_refs
-query/refs.rs#L115  fn register_lib_class_in_global_table
-query/refs.rs#L174  fn cross_file_class_visible
-query/refs.rs#L189  fn mcb_register_declare_class
-query/refs.rs#L464  fn register_func_header_iface_refs
-query/refs.rs#L512  fn container_kind_cmie
-query/refs.rs#L527  fn cmie_kind_for
+query/refs.rs#L69  fn mcb_register_instance_ref
+query/refs.rs#L85  fn mcb_get_refs
+query/refs.rs#L117  fn register_lib_class_in_global_table
+query/refs.rs#L176  fn cross_file_class_visible
+query/refs.rs#L191  fn mcb_register_declare_class
+query/refs.rs#L466  fn register_func_header_iface_refs
+query/refs.rs#L514  fn container_kind_cmie
+query/refs.rs#L529  fn cmie_kind_for
 query/reverse.rs#L32  fn hit_rows
 query/reverse.rs#L62  fn matched_rows
 query/reverse.rs#L89  fn key_rows
@@ -4516,9 +4520,9 @@ refdef/query.rs#L98  fn file_uri
 refdef/query.rs#L109  fn search_all_by_name
 refdef/register.rs#L17  fn scope_path_from_scope_str
 refdef/register.rs#L38  fn register_instance_decl_parse_time
-refdef/register.rs#L64  fn register_def
-refdef/register.rs#L120  fn lookup_declare_id
-refdef/register.rs#L161  fn report_unresolved_ref
+refdef/register.rs#L67  fn register_def
+refdef/register.rs#L133  fn lookup_declare_id
+refdef/register.rs#L174  fn report_unresolved_ref
 refdef/types.rs#L22  enum ChainSegment
 refdef/types.rs#L45  struct SourceLocation
 refdef/types.rs#L53  impl SourceLocation
@@ -6704,27 +6708,27 @@ semantic/module/mod.rs#L1605  fn collect_domain_bridge_words
 semantic/module/mod.rs#L1634  fn report_domain_bridge_code
 semantic/module/mod.rs#L1643  impl McModule
 semantic/module/mod.rs#L1649  fn collect_net_def_spans
-semantic/module/mod.rs#L1718  fn collect_net_refs_in_node
-semantic/module/mod.rs#L1851  fn has_dot_chain
-semantic/module/mod.rs#L1889  fn try_record_chain_ref
-semantic/module/mod.rs#L1985  fn collect_instance_segments
-semantic/module/mod.rs#L2003  fn collect_fcall_segments
-semantic/module/mod.rs#L2032  fn walk_chain_children
-semantic/module/mod.rs#L2084  fn collect_ident_segments
-semantic/module/mod.rs#L2144  fn collect_curly_members
-semantic/module/mod.rs#L2171  fn curly_range
-semantic/module/mod.rs#L2178  fn record_scoped_net_ref
-semantic/module/mod.rs#L2287  struct Mc2Module
-semantic/module/mod.rs#L2298  impl Mc2Module
-semantic/module/mod.rs#L2299  fn new
-semantic/module/mod.rs#L2309  fn with_params
-semantic/module/mod.rs#L2320  fn find_port
-semantic/module/mod.rs#L2355  fn get_input_ports
-semantic/module/mod.rs#L2365  fn get_output_ports
-semantic/module/mod.rs#L2375  fn get_all_ports
-semantic/module/mod.rs#L2387  impl std::fmt::Display for McModule
-semantic/module/mod.rs#L2388  fn fmt
-semantic/module/mod.rs#L2394  struct InstRow
+semantic/module/mod.rs#L1719  fn collect_net_refs_in_node
+semantic/module/mod.rs#L1852  fn has_dot_chain
+semantic/module/mod.rs#L1890  fn try_record_chain_ref
+semantic/module/mod.rs#L1986  fn collect_instance_segments
+semantic/module/mod.rs#L2004  fn collect_fcall_segments
+semantic/module/mod.rs#L2033  fn walk_chain_children
+semantic/module/mod.rs#L2085  fn collect_ident_segments
+semantic/module/mod.rs#L2145  fn collect_curly_members
+semantic/module/mod.rs#L2172  fn curly_range
+semantic/module/mod.rs#L2179  fn record_scoped_net_ref
+semantic/module/mod.rs#L2288  struct Mc2Module
+semantic/module/mod.rs#L2299  impl Mc2Module
+semantic/module/mod.rs#L2300  fn new
+semantic/module/mod.rs#L2310  fn with_params
+semantic/module/mod.rs#L2321  fn find_port
+semantic/module/mod.rs#L2356  fn get_input_ports
+semantic/module/mod.rs#L2366  fn get_output_ports
+semantic/module/mod.rs#L2376  fn get_all_ports
+semantic/module/mod.rs#L2388  impl std::fmt::Display for McModule
+semantic/module/mod.rs#L2389  fn fmt
+semantic/module/mod.rs#L2395  struct InstRow
 semantic/module/pi.rs#L57  struct McPowerDecls
 semantic/module/pi.rs#L90  impl McPowerDecls
 semantic/module/pi.rs#L91  fn new
@@ -11232,4 +11236,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-406 files, 11149 declarations.
+406 files, 11153 declarations.

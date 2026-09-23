@@ -105,11 +105,14 @@ pub struct LocalSymbolTable {
     /// `SourceLocation`).
     pub name_to_declare_id: HashMap<DeclareKey, (DeclareId, SourceLocation)>,
 
-    /// ★ P0: reverse name index — name → (uri_id, kind, scope) keys in
-    /// registration order. Turns the linear `name_to_declare_id.iter().find(..)`
-    /// class-ref lookup in `Resolver::resolve_class_locked` into an O(1) index
-    /// hit.
-    pub name_to_declare_ids: HashMap<String, Vec<(u32, u8, String)>>,
+    /// ★ P0: reverse name index — name → `(uri_id, kind, priority, scope)`
+    /// keys in scope-priority order (innermost first; registration order as
+    /// the tiebreak inside one priority, CIMP U232). Turns the linear
+    /// `name_to_declare_id.iter().find(..)` class-ref lookup in
+    /// `Resolver::resolve_class_locked` into an O(1) index hit, and makes
+    /// its `.first()` the scope-order winner instead of the registration-
+    /// order one.
+    pub name_to_declare_ids: HashMap<String, Vec<(u32, u8, u8, String)>>,
 
     /// ★ Parallel index: scope string → the `UriId` its first registration came
     /// from. Turns a scope-string lookup into the canonical key without a scan.
@@ -195,6 +198,7 @@ impl LocalSymbolTable {
         name: &str,
         scope: &str,
         kind: SymbolKind,
+        priority: u8,
     ) -> DeclareId {
         let key: DeclareKey = (
             loc.file_id,
@@ -206,11 +210,15 @@ impl LocalSymbolTable {
         let existed = self.name_to_declare_id.contains_key(&key);
         self.name_to_declare_id.insert(key, (declare_id, loc));
         // ★ P0: keep the reverse name index in sync (first registration only).
+        // Candidates keep scope-priority order (innermost first, U232) with
+        // registration order as the stable tiebreak inside one priority.
         if !existed {
-            self.name_to_declare_ids
+            let scopes = self
+                .name_to_declare_ids
                 .entry(name.to_string())
-                .or_default()
-                .push((loc.file_id, kind as u8, scope.to_string()));
+                .or_default();
+            scopes.push((loc.file_id, kind as u8, priority, scope.to_string()));
+            scopes.sort_by_key(|c| std::cmp::Reverse(c.2));
         }
         // Populate scope_index for scope-based lookups
         if !scope.is_empty() {
@@ -735,4 +743,71 @@ pub fn symbol_table_to_json(symbols: &McSemSymbols, uri: &McURI) -> serde_json::
         },
         "ref_def_map": ref_def_map_json,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// U232: the reverse name index keeps a name's candidates in
+    /// scope-priority order — a func-local namesake sorts ahead of the
+    /// container-level def even when it registered later — and
+    /// registration order only breaks ties inside one priority. The policy
+    /// selection consumes that order: the innermost live candidate wins, a
+    /// stale one falls through to the next.
+    #[test]
+    fn def_sem__reverse_name_index_orders_candidates_by_scope_priority() {
+        let mut t = LocalSymbolTable::new();
+        let loc = SourceLocation {
+            file_id: 1,
+            container_id: 1,
+            func_id: 0,
+            byte_start: 0,
+            byte_end: 9,
+        };
+        // Container-level candidate registers first (the shape .first()
+        // used to hand the win to).
+        t.add_declare_with_name(loc.clone(), "SHARED", "main", SymbolKind::ClassDef, 4);
+        // Func-level namesake registers later — must still sort first.
+        let inner = SourceLocation {
+            file_id: 1,
+            container_id: 1,
+            func_id: 2,
+            byte_start: 40,
+            byte_end: 49,
+        };
+        t.add_declare_with_name(inner, "SHARED", "main.f", SymbolKind::InstDef, 5);
+        // Same-priority candidate: registration order is the tiebreak.
+        t.add_declare_with_name(loc, "SHARED", "main", SymbolKind::InstDef, 4);
+
+        let cands = &t.name_to_declare_ids["SHARED"];
+        assert_eq!(
+            cands[0],
+            (1, SymbolKind::InstDef as u8, 5, "main.f".to_string())
+        );
+        assert_eq!(
+            cands[1],
+            (1, SymbolKind::ClassDef as u8, 4, "main".to_string())
+        );
+        assert_eq!(
+            cands[2],
+            (1, SymbolKind::InstDef as u8, 4, "main".to_string())
+        );
+
+        let inner_key = (1, SymbolKind::InstDef as u8, "main.f".to_string(), "SHARED".to_string());
+        let winner = crate::db::resolve::policy::select_declare_candidate(&t, "SHARED")
+            .expect("a live candidate resolves");
+        assert_eq!(
+            winner,
+            t.name_to_declare_id[&inner_key].0,
+            "the func-local candidate is the scope-order winner"
+        );
+
+        // A stale candidate (canonical key gone) falls to the next in order
+        // instead of killing the lookup.
+        t.name_to_declare_id.remove(&inner_key);
+        let next = crate::db::resolve::policy::select_declare_candidate(&t, "SHARED")
+            .expect("a stale candidate falls through to the next");
+        assert_ne!(next, winner);
+    }
 }

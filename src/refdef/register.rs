@@ -57,8 +57,11 @@ pub fn register_instance_decl_parse_time(
         byte_start: span.start as u32,
         byte_end: span.end as u32,
     };
+    // Scope priority from the structured intern split (U232): a func-scoped
+    // instance outranks its container-level namesakes.
+    let priority = if func_id != 0 { 5 } else { 4 };
     sem.local_table
-        .add_declare_with_name(loc, name, scope.unwrap_or(""), SymbolKind::InstDef)
+        .add_declare_with_name(loc, name, scope.unwrap_or(""), SymbolKind::InstDef, priority)
 }
 
 pub fn register_def(
@@ -91,9 +94,19 @@ pub fn register_def(
         byte_start: span.start as u32,
         byte_end: span.end as u32,
     };
+    // Scope priority from the structured params (U232): func-level defs
+    // outrank container-level ones, which outrank file-level ones.
+    let has_func = func.map(|f| !f.is_empty()).unwrap_or(false);
+    let priority = if has_func {
+        5
+    } else if !container.is_empty() {
+        4
+    } else {
+        3
+    };
     let decl_id = sem
         .local_table
-        .add_declare_with_name(loc, name, &scope, def_kind);
+        .add_declare_with_name(loc, name, &scope, def_kind, priority);
     sem.def_map.insert((def_kind, decl_id.raw()), loc);
     // ★ Capture the def name from the AST node so RefDefMap RPC payloads can
     // carry it (hover shows `RES` instead of slicing the def line).

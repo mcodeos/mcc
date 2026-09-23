@@ -172,6 +172,30 @@ fn lookup_cmie_by_kind(cmie_kind: u8, space_name: &McSpaceName) -> Option<McCMIE
 /// its real name so an aliased class resolves to its
 /// module/component/interface/enum. `fallback_name` is the name as written at
 /// the reference site, used only when the entry carries no def name.
+/// The scope-order winner among a name's declared candidates (U232): walk the
+/// reverse name index — which keeps candidates innermost-first — and return
+/// the first candidate whose canonical key still resolves to a live declare.
+/// A stale candidate (its canonical-key entry is gone) falls through to the
+/// next one instead of killing the whole lookup. Registration order decides
+/// only inside one priority, so a func-local namesake registered later than
+/// the container-level def still wins.
+pub(crate) fn select_declare_candidate(
+    local: &crate::ast::sem::LocalSymbolTable,
+    name: &str,
+) -> Option<crate::ast::sem::DeclareId> {
+    local
+        .name_to_declare_ids
+        .get(name)
+        .and_then(|candidates| {
+            candidates.iter().find_map(|(fid, kind, _prio, scope)| {
+                local
+                    .name_to_declare_id
+                    .get(&(*fid, *kind, scope.clone(), name.to_string()))
+                    .map(|(id, _)| *id)
+            })
+        })
+}
+
 pub(crate) fn cmie_from_entry(entry: &RefDefEntry, fallback_name: &McIds) -> Option<McCMIE> {
     let def_uri = crate::semantic::common::uri_of_file_id(entry.def_loc.file_id).to_string();
     let def_ident: &McIds = if entry.def_name.is_empty() {
@@ -315,18 +339,12 @@ impl Resolver {
             // §6.3: search all scopes in name_to_declare_id for ClassRef entries.
             // ★ P0: use the reverse name index instead of a linear scan over
             // the whole `name_to_declare_id` table (was ~340us/call on the
-            // mcode library's symbol table).
-            let decl_id = sem
-                .local_table
-                .name_to_declare_ids
-                .get(&name_str)
-                .and_then(|scopes| scopes.first())
-                .and_then(|(fid, kind, scope)| {
-                    sem.local_table
-                        .name_to_declare_id
-                        .get(&(*fid, *kind, scope.clone(), name_str.clone()))
-                        .map(|(id, _)| *id)
-                });
+            // mcode library's symbol table). The index keeps candidates in
+            // scope-priority order (innermost first, U232), so the first
+            // resolvable candidate is the scope-order winner — a func-local
+            // namesake shadows the container-level one regardless of which
+            // registered first.
+            let decl_id = select_declare_candidate(&sem.local_table, &name_str);
             let id_hit = decl_id
                 .and_then(|did| map.get(crate::ast::sem::SymbolKind::ClassRef, u32::from(did)));
             // §5: name-based Use table lookup
