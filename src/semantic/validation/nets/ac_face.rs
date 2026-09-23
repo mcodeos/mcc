@@ -34,7 +34,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use super::{NetCheckResult, entry_pos};
+use super::{entry_pos, NetCheckResult};
 use crate::instant::insttab::{AcFaceMember, InstTable};
 
 /// The words a pin's `@role(...)` carry can claim the protective identity
@@ -73,8 +73,10 @@ pub(crate) fn check_ac_face_return(table: &InstTable, results: &mut Vec<NetCheck
     // holds one Ret and every Hot the variant declares; a nominal-only carry
     // (component rows, member `None`) is not a positional face and never
     // enters a group.
-    let mut faces: HashMap<(u32, String), Vec<(&crate::instant::insttab::InstEntry, AcFaceMember)>> =
-        HashMap::new();
+    let mut faces: HashMap<
+        (u32, String),
+        Vec<(&crate::instant::insttab::InstEntry, AcFaceMember)>,
+    > = HashMap::new();
     for entry in table.iter_entries() {
         let Some(carry) = entry.ac_face.as_ref() else {
             continue;
@@ -98,8 +100,13 @@ pub(crate) fn check_ac_face_return(table: &InstTable, results: &mut Vec<NetCheck
     // (delta) face is torn when exactly one member is wired against dangling
     // peers. Both-wired (healthy) and all-dangling (an unused face — the
     // silence law, the same shape the exclusive-peer gate keeps) stay silent.
-    let mut fired: Vec<(&crate::instant::insttab::InstEntry, String, String, String, String)> =
-        Vec::new();
+    let mut fired: Vec<(
+        &crate::instant::insttab::InstEntry,
+        String,
+        String,
+        String,
+        String,
+    )> = Vec::new();
     for ((_owner_id, _face), members) in faces {
         // Exactly one return slot per group (every registered variant states
         // exactly one Neutral), or no slot at all — the delta three-wire
@@ -123,8 +130,10 @@ pub(crate) fn check_ac_face_return(table: &InstTable, results: &mut Vec<NetCheck
             // that way is not a declared shape — nothing here can tear.
             continue;
         }
-        let mut fires: Vec<(&crate::instant::insttab::InstEntry, &crate::instant::insttab::InstEntry)> =
-            Vec::new(); // (wired side, dangling side)
+        let mut fires: Vec<(
+            &crate::instant::insttab::InstEntry,
+            &crate::instant::insttab::InstEntry,
+        )> = Vec::new(); // (wired side, dangling side)
         match ret_e {
             Some(ret_e) => {
                 if hots.is_empty() {
@@ -260,10 +269,7 @@ pub(crate) fn check_ac_nominal_conflict(table: &InstTable, results: &mut Vec<Net
         // Per axis: when the stated values disagree, one fire naming both
         // sides. The first two disagreeing entries stand for the net — a
         // third voice repeats the contradiction, not a new fact.
-        for (axis, unit, tol) in [
-            ("voltage", "V", VOLT_TOL),
-            ("frequency", "Hz", HZ_TOL),
-        ] {
+        for (axis, unit, tol) in [("voltage", "V", VOLT_TOL), ("frequency", "Hz", HZ_TOL)] {
             let stated_axis: Vec<(&crate::instant::insttab::InstEntry, f64)> = stated
                 .iter()
                 .filter_map(|(e, c, _owner)| {
@@ -286,7 +292,10 @@ pub(crate) fn check_ac_nominal_conflict(table: &InstTable, results: &mut Vec<Net
             // row face, per axis — the same two faces meeting across the
             // member nets repeat one contradiction, not a new one.
             let face_of = |e: &crate::instant::insttab::InstEntry| {
-                e.ac_face.as_ref().map(|c| c.face.clone()).unwrap_or_default()
+                e.ac_face
+                    .as_ref()
+                    .map(|c| c.face.clone())
+                    .unwrap_or_default()
             };
             let owner_of = |e: &crate::instant::insttab::InstEntry| e.parent_id.unwrap_or(e.id);
             let key = (
@@ -380,7 +389,11 @@ pub(crate) fn check_protective_pin_copper(table: &InstTable, results: &mut Vec<N
             let Some(parent) = other.parent_id else {
                 return false;
             };
-            let name = other.path.rsplit_once('.').map(|(_, n)| n).unwrap_or(&other.path);
+            let name = other
+                .path
+                .rsplit_once('.')
+                .map(|(_, n)| n)
+                .unwrap_or(&other.path);
             conduit_roles
                 .get(&parent)
                 .and_then(|roles| roles.get(name))
@@ -400,12 +413,7 @@ pub(crate) fn check_protective_pin_copper(table: &InstTable, results: &mut Vec<N
             .filter_map(|&pid| table.get_entry(pid))
             .collect();
         for entry in &entries {
-            let Some(role) = entry
-                .exp_role
-                .iter()
-                .find(|w| is_protective(w))
-                .cloned()
-            else {
+            let Some(role) = entry.exp_role.iter().find(|w| is_protective(w)).cloned() else {
                 continue;
             };
             if !touches_protective(entry, &entries, &conduit_roles) {

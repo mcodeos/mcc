@@ -1290,10 +1290,15 @@ pub(crate) fn check_unselected_abstract(table: &InstTable, results: &mut Vec<Net
 // the message carries the key text and the report anchors nowhere.
 use crate::instant::bom_overlay::BindOutcome;
 
-fn overlay_entry<'t>(table: &'t InstTable, path: &str) -> Option<&'t crate::instant::insttab::InstEntry> {
+fn overlay_entry<'t>(
+    table: &'t InstTable,
+    path: &str,
+) -> Option<&'t crate::instant::insttab::InstEntry> {
     table
         .iter()
-        .find(|(_, e)| matches!(e.kind, crate::instant::insttab::InstKind::Component) && e.path == path)
+        .find(|(_, e)| {
+            matches!(e.kind, crate::instant::insttab::InstKind::Component) && e.path == path
+        })
         .map(|(_, e)| e)
 }
 

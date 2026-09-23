@@ -27,7 +27,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use super::{NetCheckResult, entry_pos};
+use super::{entry_pos, NetCheckResult};
 use crate::instant::insttab::InstTable;
 
 /// Per-lane accumulator: the carry of the lane's first-seen terminal (for the

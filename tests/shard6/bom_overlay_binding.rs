@@ -4,10 +4,10 @@
 
 //! Lock for the BOM overlay bind machinery and its two ERC checks (U245):
 //! a key binds an abstract slot to a `:` descendant variant (the class name
-//! rides the variant, the unselected W clears, 6060/6061 stay silent), and
-//! every failed shape reports — value not a descendant (E6060), value
-//! unresolved (E6060), key on a concrete instance (E6061), dangling key
-//! (E6061). Param-authoring-design.md section 4.
+//! rides the variant, the unselected W clears, 5067/5068 stay silent), and
+//! every failed shape reports — value not a descendant (E5067), value
+//! unresolved (E5067), key on a concrete instance (E5068), dangling key
+//! (E5068). Param-authoring-design.md section 4.
 
 #![allow(non_snake_case)]
 
@@ -121,20 +121,26 @@ fn bomovl__key_binds_abstract_slot_to_descendant_variant() {
         count_code(&diags, mcc::errcodes::BOM_OVERLAY_VALUE_NOT_DESCENDANT),
         0
     );
-    assert_eq!(count_code(&diags, mcc::errcodes::BOM_OVERLAY_KEY_NOT_SLOT), 0);
+    assert_eq!(
+        count_code(&diags, mcc::errcodes::BOM_OVERLAY_KEY_NOT_SLOT),
+        0
+    );
     let unselected: Vec<&str> = diags
         .iter()
         .filter(|d| d.code == mcc::errcodes::ABSTRACT_PART_UNSELECTED)
         .map(|d| d.msg.as_str())
         .collect();
     assert_eq!(unselected.len(), 1, "exactly the unbound slot warns");
-    assert!(unselected[0].contains("main.b.open"), "W names the open slot");
+    assert!(
+        unselected[0].contains("main.b.open"),
+        "W names the open slot"
+    );
 }
 
-/// A value that is not a `:` descendant of the slot class fires E6060 and
+/// A value that is not a `:` descendant of the slot class fires E5067 and
 /// the slot keeps its declared base.
 #[test]
-fn bomovl__value_not_descendant_fires_6060() {
+fn bomovl__value_not_descendant_fires_5067() {
     let (table, diags) = build_with(Some("\"b.slot\" = \"OTHER.THING\"\n"));
     assert_eq!(
         count_code(&diags, mcc::errcodes::BOM_OVERLAY_VALUE_NOT_DESCENDANT),
@@ -144,9 +150,9 @@ fn bomovl__value_not_descendant_fires_6060() {
     assert_eq!(slot_class, "PART.SHAPE", "a failed bind keeps the base");
 }
 
-/// A value that resolves to no live def fires E6060 as well.
+/// A value that resolves to no live def fires E5067 as well.
 #[test]
-fn bomovl__value_unresolved_fires_6060() {
+fn bomovl__value_unresolved_fires_5067() {
     let (_, diags) = build_with(Some("\"b.slot\" = \"PART.NOPE\"\n"));
     assert_eq!(
         count_code(&diags, mcc::errcodes::BOM_OVERLAY_VALUE_NOT_DESCENDANT),
@@ -154,22 +160,28 @@ fn bomovl__value_unresolved_fires_6060() {
     );
 }
 
-/// A key whose instance declares a concrete class fires E6061 and the
+/// A key whose instance declares a concrete class fires E5068 and the
 /// instance is untouched.
 #[test]
-fn bomovl__key_on_concrete_instance_fires_6061() {
+fn bomovl__key_on_concrete_instance_fires_5068() {
     let (table, diags) = build_with(Some("\"b.fixed\" = \"PART.SHAPE_V2\"\n"));
-    assert_eq!(count_code(&diags, mcc::errcodes::BOM_OVERLAY_KEY_NOT_SLOT), 1);
+    assert_eq!(
+        count_code(&diags, mcc::errcodes::BOM_OVERLAY_KEY_NOT_SLOT),
+        1
+    );
     let (fixed_class, fixed_unselected) = row_of(&table, "main.b.fixed");
     assert_eq!(fixed_class, "OTHER.THING", "a non-slot is never retyped");
     assert!(!fixed_unselected);
 }
 
-/// A key that matches no instance fires E6061 exactly once.
+/// A key that matches no instance fires E5068 exactly once.
 #[test]
-fn bomovl__dangling_key_fires_6061() {
+fn bomovl__dangling_key_fires_5068() {
     let (_, diags) = build_with(Some("\"b.nope\" = \"PART.SHAPE_V2\"\n"));
-    assert_eq!(count_code(&diags, mcc::errcodes::BOM_OVERLAY_KEY_NOT_SLOT), 1);
+    assert_eq!(
+        count_code(&diags, mcc::errcodes::BOM_OVERLAY_KEY_NOT_SLOT),
+        1
+    );
 }
 
 /// No overlay file: no overlay diagnostics, abstract rows stay unselected.
@@ -180,7 +192,10 @@ fn bomovl__no_overlay_leaves_slots_unselected_and_clean() {
         count_code(&diags, mcc::errcodes::BOM_OVERLAY_VALUE_NOT_DESCENDANT),
         0
     );
-    assert_eq!(count_code(&diags, mcc::errcodes::BOM_OVERLAY_KEY_NOT_SLOT), 0);
+    assert_eq!(
+        count_code(&diags, mcc::errcodes::BOM_OVERLAY_KEY_NOT_SLOT),
+        0
+    );
     for path in ["main.b.slot", "main.b.open"] {
         assert!(row_of(&table, path).1, "{path} is unselected");
     }
