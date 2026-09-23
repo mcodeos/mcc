@@ -71,6 +71,17 @@ pub(crate) struct ReachScan<'a> {
     /// Frame-local cycle sentinel: set when a recursion re-enters a net already
     /// on the stack. Gates whether an *unfed* verdict may be memoized.
     cycle: bool,
+    /// Nets left unmemoized by the pass just finished (unfed + saw a cycle) —
+    /// the fixpoint driver in [`Self::reach_of`] re-resolves them.
+    pending: Vec<u32>,
+    /// The same nets as a set, consulted *within* the pass: a second branch
+    /// reaching an already-pending net takes its provisional NOT_FED instead of
+    /// re-walking it (the same under-approximation the cycle guard makes, and
+    /// the very re-walk that made single passes exponential).
+    pending_set: std::collections::HashSet<u32>,
+    /// Fed verdicts memoized so far — the monotone progress metric the
+    /// fixpoint driver compares across passes.
+    fed_memo: u32,
 }
 
 impl<'a> ReachScan<'a> {
@@ -82,6 +93,9 @@ impl<'a> ReachScan<'a> {
             memo: HashMap::new(),
             stack: HashSet::new(),
             cycle: false,
+            pending: Vec::new(),
+            pending_set: std::collections::HashSet::new(),
+            fed_memo: 0,
         }
     }
 
@@ -103,12 +117,54 @@ impl<'a> ReachScan<'a> {
         }
     }
 
-    /// Reach state of a net — memoized, cycle-guarded. Re-entering a net
-    /// already on this stack is a cycle: that *edge* is NOT fed (never fabricate
-    /// a feed from a loop), and resolution continues with the net's other legs.
+    /// Reach state of a net — memoized, cycle-guarded, fixpoint-driven.
+    ///
+    /// The single-pass core (`reach_once`) leaves an *unfed* verdict uncached
+    /// when the frame saw a cycle: the net may be fed through a net still on
+    /// the stack above it, whose fed-ness is decided only after this frame
+    /// closes. On a dense copper mesh (every resistor/cap transparent) almost
+    /// every frame sees a cycle, so a lone pass re-walks the same subgraph
+    /// exponentially — hbl1 hung in exactly that. The driver here iterates to
+    /// the fixpoint: each round re-resolves only the pending nets (everything
+    /// they could depend on is memoized or pending by round end), fed
+    /// memoizations grow monotonically, and a round that flips **no** net to
+    /// fed has exhausted every leg of every pending net without finding a root
+    /// — all pending nets are truly unfed: cache them and stop. (Unfed-final
+    /// memoizations don't count as progress: a pending net's uncertainty is
+    /// only ever resolved *to fed*.)
     fn reach_of(&mut self, net_id: u32) -> Reach {
+        let mut r = self.reach_once(net_id);
+        while !self.pending.is_empty() {
+            let batch = std::mem::take(&mut self.pending);
+            self.pending_set.clear();
+            let fed_before = self.fed_memo;
+            for id in batch {
+                let rr = self.reach_once(id);
+                if id == net_id {
+                    r = rr;
+                }
+            }
+            if self.pending.is_empty() {
+                break;
+            }
+            if self.fed_memo == fed_before {
+                for id in self.pending.drain(..) {
+                    self.pending_set.remove(&id);
+                    self.memo.insert(id, Reach::NOT_FED);
+                }
+            }
+        }
+        r
+    }
+
+    /// One memoized pass. An *unfed* verdict is provisional when this frame saw
+    /// a cycle: the net goes to [`Self::pending`] for the driver's next pass.
+    fn reach_once(&mut self, net_id: u32) -> Reach {
         if let Some(r) = self.memo.get(&net_id) {
             return r.clone();
+        }
+        if self.pending_set.contains(&net_id) {
+            return Reach::NOT_FED; // this pass already left it provisional
         }
         if !self.stack.insert(net_id) {
             self.cycle = true;
@@ -123,14 +179,14 @@ impl<'a> ReachScan<'a> {
         self.stack.remove(&net_id);
         let saw_cycle = self.cycle;
         self.cycle = outer_cycle || saw_cycle;
-        // A *fed* verdict is final (resolution exhausts every leg — the cycle
-        // guard only marks an edge, never short-circuits the net's own walk) and
-        // is always memoized. An *unfed* verdict is provisional when this frame
-        // saw a cycle: the net may be reachable-fed through a net still on the
-        // stack above it (whose fed-ness is decided only after this frame
-        // closes), so it must not be cached — a later query re-resolves it.
-        if r.has_supply || !saw_cycle {
+        if r.has_supply {
+            self.fed_memo += 1;
             self.memo.insert(net_id, r.clone());
+        } else if !saw_cycle {
+            self.memo.insert(net_id, r.clone());
+        } else {
+            self.pending_set.insert(net_id);
+            self.pending.push(net_id);
         }
         r
     }
@@ -196,10 +252,7 @@ impl<'a> ReachScan<'a> {
             if cid == skip {
                 continue;
             }
-            let Some(def) = self.scan.def_arc(cid) else {
-                continue;
-            };
-            if !def.pins.pwr.is_empty() {
+            if !self.scan.is_transparent(cid) {
                 continue; // has DC rows → a power face, not raw copper
             }
             if self.fed_walk_pin(cid, net.id, skip, seen) {
@@ -287,10 +340,7 @@ impl<'a> ReachScan<'a> {
             let Some(cid) = entry.parent_id else {
                 continue;
             };
-            let Some(def) = self.scan.def_arc(cid) else {
-                continue;
-            };
-            if !def.pins.pwr.is_empty() {
+            if !self.scan.is_transparent(cid) {
                 continue; // has DC rows → a power face, not raw copper
             }
             // The other pin of this pass device lands on a different net.
