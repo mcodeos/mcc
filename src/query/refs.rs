@@ -416,6 +416,21 @@ pub fn mcb_register_declare_class(uri: &McURI, class_name: &McIds, raw_span: Spa
 
     // Step 3: Store in workspace-level table
     if let Some((class_id, target_uri, target_span, cmie_kind)) = class_info {
+        // U234 tier ①: this scan-based resolution bypasses the resolver, so
+        // it records its own edge (the sentinel arm's empty target is no
+        // resolution — no edge).
+        if !target_uri.is_empty() {
+            workspace::WORKSPACE.refgraph.record(
+                &McSpaceName {
+                    ident: class_name.clone(),
+                    uri: crate::semantic::common::uri_intern(&uri),
+                },
+                &McSpaceName {
+                    ident: McIds::from(name_str.as_str()),
+                    uri: crate::semantic::common::uri_intern(&McURI::from(target_uri.as_str())),
+                },
+            );
+        }
         let span_clone = span.clone();
         let uri_str = uri.to_string();
         tracing::info!(target: "crate::lsp", "  register_declare_class: storing ref decl_span={:?} -> class_id={:?} target={}", span_clone, class_id, target_uri);

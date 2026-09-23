@@ -112,6 +112,19 @@ pub fn find_def_by_name_in_file(name: &str, from_uri: &str) -> Option<(McCMIE, S
     if !def_uri.is_empty() {
         let ident = McIds::from(def_name.as_str());
         if let Some(cmie) = crate::get_def(&ident, &McURI::from(def_uri.as_str())) {
+            // U234 tier ①: the RefDefMap name_index leg never flows through
+            // the resolver, so it records its own edge — from the true
+            // referencing file, not the def uri `get_def` resolves under.
+            crate::db::cmie::tables::WORKSPACE.refgraph.record(
+                &McSpaceName {
+                    ident: McIds::from(name),
+                    uri: crate::semantic::common::uri_intern(&from_uri_obj),
+                },
+                &McSpaceName {
+                    ident: McIds::from(def_name.as_str()),
+                    uri: crate::semantic::common::uri_intern(&McURI::from(def_uri.as_str())),
+                },
+            );
             return Some((cmie, def_uri));
         }
     }
@@ -120,6 +133,18 @@ pub fn find_def_by_name_in_file(name: &str, from_uri: &str) -> Option<(McCMIE, S
     let ident = McIds::from(name);
     let cmie = crate::db::resolve::Resolver::resolve_system(&ident)?;
     let uri = crate::db::resolve::cmie_uri(&cmie)?;
+    // U234 tier ①: `resolve_system` has no referencing-file context, so the
+    // P5 leg of the goto-def read face records the edge here.
+    crate::db::cmie::tables::WORKSPACE.refgraph.record(
+        &McSpaceName {
+            ident: McIds::from(name),
+            uri: crate::semantic::common::uri_intern(&from_uri_obj),
+        },
+        &McSpaceName {
+            ident: crate::db::cmie::cmie::cmie_ident(&cmie),
+            uri: crate::semantic::common::uri_intern(&McURI::from(uri.as_str())),
+        },
+    );
     Some((cmie, uri))
 }
 

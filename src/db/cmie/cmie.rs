@@ -31,7 +31,24 @@ pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
             uri = %uri,
             "reentrant call detected, falling back to system-library lookup"
         );
-        return Resolver::resolve_system(class_name);
+        let cmie = Resolver::resolve_system(class_name);
+        // U234 tier ①: the re-entry arm skips `resolve_class` (whose wrapper
+        // records), so it records its own edge — the P5 fallback is still a
+        // resolution product.
+        if let Some(cmie) = &cmie {
+            let to_uri = crate::db::resolve::cmie_uri(cmie).unwrap_or_else(|| uri.to_string());
+            crate::db::cmie::tables::WORKSPACE.refgraph.record(
+                &McSpaceName {
+                    ident: class_name.clone(),
+                    uri: crate::semantic::common::uri_intern(uri),
+                },
+                &McSpaceName {
+                    ident: cmie_ident(cmie),
+                    uri: crate::semantic::common::uri_intern(&McURI::from(to_uri.as_str())),
+                },
+            );
+        }
+        return cmie;
     }
     struct CmieGuard(String);
     impl Drop for CmieGuard {

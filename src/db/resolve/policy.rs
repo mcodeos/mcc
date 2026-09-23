@@ -252,6 +252,27 @@ pub(crate) fn cmie_uri(cmie: &McCMIE) -> Option<String> {
     }
 }
 
+/// Record one def-resolution edge into the per-world [`crate::db::refgraph::DefRefGraph`]
+/// (Phase 8 / D14, U234 tier ①). `from` is the referencing ref-point
+/// `(referenced-name, referencing-file)`, `to` the resolved definition
+/// `(def-name, defining-file)` — the same shapes the `mcb_get_cmie_with_uri`
+/// bridge records; `record` dedups, so a resolution that flows through
+/// several layers stays a single edge. `None`-URI defs (synthetic) fall back
+/// to the referencing file so the edge still has two ends.
+fn record_resolution_edge(from_uri: &McURI, name: &McIds, cmie: &McCMIE) {
+    let to_uri = cmie_uri(cmie).unwrap_or_else(|| from_uri.to_string());
+    workspace::WORKSPACE.refgraph.record(
+        &McSpaceName {
+            ident: name.clone(),
+            uri: uri_intern(from_uri),
+        },
+        &McSpaceName {
+            ident: crate::db::cmie::cmie::cmie_ident(cmie),
+            uri: uri_intern(&McURI::from(to_uri.as_str())),
+        },
+    );
+}
+
 /// The single class-name resolution entry point (§5.4.3).
 ///
 /// `from_uri` is the file containing the reference; resolution is relative to
@@ -285,6 +306,18 @@ impl Resolver {
     ///    name_index). This is an O(1) URI-scoped lookup, NOT a name-only scan.
     /// ③ P5: mcode system library only (no workspace name-only scan).
     pub fn resolve_class(from_uri: &McURI, name: &McIds) -> Option<McCMIE> {
+        let cmie = Self::resolve_class_unrecorded(from_uri, name)?;
+        // Phase 8 (D14) / U234 tier ①: every resolution product leaves an
+        // edge, whichever policy arm answered — the refgraph is the pass1
+        // byproduct, not a read-face artifact. `record` dedups, so arms that
+        // also recorded deeper (resolve_class_locked, the cmie bridge) stay
+        // single-edge.
+        record_resolution_edge(from_uri, name, &cmie);
+        Some(cmie)
+    }
+
+    /// [`Self::resolve_class`] without the edge recording.
+    fn resolve_class_unrecorded(from_uri: &McURI, name: &McIds) -> Option<McCMIE> {
         // Workspace tables are keyed by canonical URIs (loader inserts under
         // `canonicalize_project_uri`), but callers such as the parse CLI may
         // pass the raw path (`/tmp/...` vs `/private/tmp/...`). Canonicalize
@@ -328,6 +361,20 @@ impl Resolver {
     /// symbols is a `std::sync::Mutex`, which is not reentrant and would
     /// self-deadlock the calling thread.
     pub fn resolve_class_locked(
+        from_uri: &McURI,
+        name: &McIds,
+        sem: &McSemSymbols,
+    ) -> Option<McCMIE> {
+        let cmie = Self::resolve_class_locked_unrecorded(from_uri, name, sem)?;
+        // U234 tier ①: the locked variant's direct callers (member access,
+        // the lapper's span resolution) bypass the `resolve_class` wrapper —
+        // they still leave their edge. `record` dedups.
+        record_resolution_edge(from_uri, name, &cmie);
+        Some(cmie)
+    }
+
+    /// [`Self::resolve_class_locked`] without the edge recording.
+    fn resolve_class_locked_unrecorded(
         from_uri: &McURI,
         name: &McIds,
         sem: &McSemSymbols,

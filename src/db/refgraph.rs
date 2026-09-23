@@ -6,9 +6,12 @@
 //!
 //! Every class-name resolution that hits records an edge: `out` says "this
 //! ref-point (name, file) resolved to that def", `rev` is the reverse
-//! (dependents). Edges are the natural byproduct of pass1 resolution —
-//! recorded at the single resolution bridge (`mcb_get_cmie_with_uri`), so no
-//! separate pass is needed and the edge set is complete by construction.
+//! (dependents). Edges are the natural byproduct of resolution — recorded
+//! inside the resolution policy itself (`Resolver::resolve_class` /
+//! `resolve_class_locked` wrappers, `policy.rs::record_resolution_edge`) plus
+//! the `mcb_get_cmie_with_uri` bridge, so no separate pass is needed and the
+//! edge set is complete by construction. `record` dedups, so a resolution
+//! flowing through several layers stays a single edge.
 //!
 //! The current file-level `reverse_deps` stays as its coarse-grained subset
 //! ("who uses this file"); this graph is the def-level granularity ("who
@@ -25,16 +28,16 @@
 //! (`dependents_of(DefId)`) through one registry hop, so consumers hold
 //! ids, never text.
 //!
-//! Coverage (honest boundary, U234): edges exist only for class resolutions
-//! that go through the `mcb_get_cmie_with_uri` bridge. These sites resolve
-//! without recording and are invisible to the graph — `db/resolve/member.rs`
-//! (member resolution), the RefDefMap consolidation pass
-//! (`mc_code.rs`), `query/refs.rs` (references), the P5 leg of
-//! `lsp/gotodef.rs`, and the re-entrant fallback inside `cmie.rs` itself.
-//! A read face that pre-filters by graph hits would silently drop results
-//! for such resolutions — coverage must widen before goto-def / who-uses
-//! switch to graph-driven scans (and until then `reverse_deps` stays the
-//! invalidation mechanism).
+//! Coverage (U234 tier ①): the five former bypassers all record now —
+//! member resolution (`db/resolve/member.rs` via the locked wrapper), the
+//! consolidation/lapper span resolution (`mc_code.rs` via the locked
+//! wrapper), the scan-based declare-class registration (`query/refs.rs`,
+//! own record at Step 3), the goto-def legs (`lsp/gotodef.rs`, own records
+//! — the raw name-only path has no referencing file and stays unrecorded),
+//! and the re-entrant fallback (`cmie.rs`, own record). Still invisible:
+//! member-level references (the edge shape has no member dimension) and
+//! Inst/Label-kind references collected by `references::find_at` — a read
+//! face that pre-filters by graph hits must not drop those (ruling D4).
 
 use crate::db::defregistry::{def_id as registry_def_id, kind_of, live_entry_by_id, DefId};
 use crate::McSpaceName;
