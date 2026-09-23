@@ -293,4 +293,89 @@ mod tests {
         assert!(svg.contains("<rect"));
         assert!(svg.contains(">X</text>"));
     }
+
+    // ── U276②: the NC dispatch (ic.rs render, `nc_pins` block) ──
+    // Four branches: virtual-view suppression, empty NC set, slot-carried
+    // position (`render_nc_pin_side` on the pin's real edge) and the shared
+    // right-edge grid fallback (`render_nc_pin`).
+
+    /// An IC with `n_pins` physical pins, of which the ids in `connected` have
+    /// entry points (the rest become NC pins).
+    fn mk_ic_with_nc(n_pins: i64, connected: &[i64]) -> McVecBox {
+        let mut b = mk_ic(&[]);
+        b.pins = (1..=n_pins)
+            .map(|id| crate::vector::graph::boxdef::BoxPin {
+                id,
+                pin_id: format!("{id}"),
+                description: format!("P{id}"),
+                io: crate::vector::graph::netdef::IoDirection::Input,
+                port_dir: crate::vector::graph::PortDir::None,
+                src_span: None,
+                point: None,
+            })
+            .collect();
+        b.entry_points = connected
+            .iter()
+            .map(|&id| EntryPoint {
+                pin_id: id,
+                pin_name: format!("P{id}"),
+                side: EntrySide::Left,
+                offset: 0.5,
+            })
+            .collect();
+        b
+    }
+
+    #[test]
+    fn nc_pin_with_slot_lands_on_its_real_edge() {
+        let mut b = mk_ic_with_nc(4, &[1, 2]);
+        // Layout placed unconnected pin 3 on the LEFT edge at offset 0.25.
+        b.slots.push(crate::vector::graph::PinSlot {
+            pin_id: 3,
+            number: 2,
+            name: "3".into(),
+            side: EntrySide::Left,
+            offset: 0.25,
+            connected: false,
+        });
+        let svg = IcShape.render(&b);
+        // Pin 3 (slotted) and pin 4 (unslotted, falls back) both render NC.
+        assert_eq!(svg.matches(r#"<g class="pin nc""#).count(), 2, "svg:\n{svg}");
+        // The cross sits at the LEFT edge (x = b.x = 100) at y = 50 + 0.25*100 = 75,
+        // not on the default right margin (b.x + b.w = 240).
+        assert!(svg.contains(r#"<line x1="96.0" y1="71.0" x2="104.0" y2="79.0""#),
+            "expected the NC cross centred on the left edge at y=75, svg:\n{svg}");
+    }
+
+    #[test]
+    fn nc_pin_without_slot_falls_back_to_right_grid() {
+        // Pins 1,2 connected; pins 3,4 NC with no slots → shared (i+1)/(n+1)
+        // grid on the right edge: pin 3 at idx 3 → 3/5 = 0.6 of the height.
+        let b = mk_ic_with_nc(4, &[1, 2]);
+        let svg = IcShape.render(&b);
+        assert_eq!(svg.matches(r#"<g class="pin nc""#).count(), 2, "svg:\n{svg}");
+        // Right edge x = 240; pin 3 y = 50 + 0.6*100 = 110, pin 4 y = 50 + 0.8*100 = 130.
+        assert!(svg.contains(r#"<line x1="236.0" y1="106.0" x2="244.0" y2="114.0""#),
+            "expected pin 3's cross on the right edge at y=110, svg:\n{svg}");
+        assert!(svg.contains(r#"<line x1="236.0" y1="126.0" x2="244.0" y2="134.0""#),
+            "expected pin 4's cross on the right edge at y=130, svg:\n{svg}");
+    }
+
+    #[test]
+    fn virtual_view_suppresses_nc_marks() {
+        let mut b = mk_ic_with_nc(4, &[1]);
+        b.suppress_instance_name = true;
+        let svg = IcShape.render(&b);
+        assert!(
+            !svg.contains(r#"<g class="pin nc""#),
+            "virtual view has no wiring, so the NC cross is meaningless — svg:\n{svg}"
+        );
+    }
+
+    #[test]
+    fn fully_connected_ic_draws_no_nc_marks() {
+        let b = mk_ic_with_nc(2, &[1, 2]);
+        let svg = IcShape.render(&b);
+        assert!(!svg.contains(r#"<g class="pin nc""#), "svg:\n{svg}");
+    }
 }

@@ -8274,7 +8274,11 @@ fn layout_anchor_rect(graph: &McVecGraph, layer_anchor: i64) -> Option<(f64, f64
 /// ★ E2: Layout device layer — topology + placement.
 /// Called during the layout phase (before render). Writes x/y/w/h and
 /// PinSlots on boxes, sets geom_locked = true.
-pub fn layout_device_layer(graph: &mut McVecGraph) {
+///
+/// Returns the topology slice `place_by_topology` mutated — the exact slice
+/// `equi_audit::audit_equi_tree` requires (A2 replays lanes against it), so
+/// acceptance tests can audit the layout phase without re-deriving topos.
+pub fn layout_device_layer(graph: &mut McVecGraph) -> Vec<NetTopology> {
     // ★ M6.5: ground grouping comes from the pass2 netlist (project_nets no
     // longer merges every Ground net into one global GND), so each distinct
     // ground net already renders one ground symbol — no explosion here.
@@ -8479,6 +8483,7 @@ pub fn layout_device_layer(graph: &mut McVecGraph) {
         placed_count,
         unplaced_count,
     );
+    topos
 }
 
 /// Fallback box dimensions for a box with no net topology: the most loaded
