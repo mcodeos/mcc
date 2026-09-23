@@ -24,10 +24,6 @@ nid   net         box        anc role     col  tap(x,y)        rect(x,y,w,h)    
   PASS  [A2b] anchor(layout) == anchor(render replay)  due:M2
   PASS  [A3] no dangling segment endpoints            due:M0
   PASS  [A4] two-pin passive orientation matches pins due:M3
-  skip  [A5] cols unique within a row                 due:M4
-          column model does not exist yet
-  skip  [A6] bridge endpoints share a column          due:M4
-          column model does not exist yet
   PASS  [A7] no wire passes through a foreign box     due:M3
   PASS  [A8] multi-tap nets carry a junction dot      due:M5
   PASS  [A9] one ground glyph per ground net          due:M0
