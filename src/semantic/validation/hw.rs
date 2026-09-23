@@ -507,7 +507,20 @@ fn check_role_peer_mutual_and_width(acc: &mut CheckAccumulator) {
 ///   * the retired `diff_pair` body key still written (E5513, Warning): tag
 ///     the member rows with `@pair(group)` instead.
 ///
-/// Both are definition-space facts, reported where they are declared — the
+/// HW13/HW14/HW15: the physical-constraint slots of a `@pair` row attr
+/// (pair-constraint-design.md v0.1, ruled 2026-09-23 — mcc records the
+/// requirement and checks its declaration self-consistency, never the
+/// routing geometry itself):
+///
+///   * a constraint slot value must be a length quantity (E5514, Error):
+///     `match: 0.2mm`; the time conversion is the consumer's.
+///   * both legs of a group write the slot and write equal values
+///     (E5515, Error) — a leg without the slot counts as disagreeing when
+///     its partner wrote one.
+///   * a constraint slot with no group name to ride (E5516, Error): the
+///     slot is a property of the pair, so `@pair(match: …)` is dead data.
+///
+/// All are definition-space facts, reported where they are declared — the
 /// same D10 scan scope as the peer checks above. A group whose legs are fine
 /// declares its pair and is not reported; an interface with no `@pair` rows
 /// is not differential and that is the normal case, never a disease.
@@ -538,49 +551,215 @@ fn check_iface_pair_groups(acc: &mut CheckAccumulator) {
             });
         }
 
-        // E5512: group the member rows by their `@pair` tag. The group name
-        // is the author's own identifier — equality of the tag is the only
-        // operation, the spelling is never read. First-seen group order,
-        // member order as declared.
+        // E5512 + the constraint gates: group the member rows by their
+        // `@pair` tag. The group name is the author's own identifier —
+        // equality of the tag is the only operation, the spelling is never
+        // read. First-seen group order, member order as declared.
         let pair_key = crate::semantic::basic::attr_keys::KEY_PAIR;
-        let mut groups: Vec<(String, usize, Option<std::ops::Range<usize>>)> = Vec::new();
+        let mut groups: Vec<PairGroup> = Vec::new();
         for (_name, id) in iface.pins.member_entries() {
             let Some(pin) = iface.pins.pins.get(&id) else {
-                continue;
-            };
-            // One read per row: the first tag's text names the group, the
-            // same tag's key span anchors the report.
-            let Some(group) = crate::semantic::module::pi::attr_texts(&pin.attrs, pair_key)
-                .into_iter()
-                .next()
-            else {
                 continue;
             };
             let Some(attr) = pin.attrs.iter().find(|a| a.id.to_string() == pair_key) else {
                 continue;
             };
-            match groups.iter_mut().find(|(g, ..)| *g == group) {
-                Some((_, count, _)) => *count += 1,
-                None => groups.push((group, 1, attr.key_span.clone())),
-            }
-        }
-        for (group, count, span) in groups {
-            if count == 2 {
+            // One read per row: the attr's plain values name the group (a
+            // constraint slot is a KVS value and never names one), the same
+            // tag's key span anchors the report. A row whose tag carries a
+            // slot but no group already drew E5516 inside the read — there is
+            // no group to attach it to; a bare `@pair` with neither is inert.
+            let slot = read_pair_constraint(attr, &uri, acc);
+            if slot.group_text.is_empty() {
                 continue;
             }
-            acc.push(CheckResult {
-                check_name: "hw",
-                severity: CheckSeverity::Error,
-                uri: Some(uri.clone()),
-                span,
-                message: format!(
-                    "Interface '{}': @pair group '{}' has {} leg(s); \
-                     a differential pair has exactly two",
-                    iface.name, group, count,
-                ),
-                code: crate::errcodes::HW_IFACE_PAIR_NOT_TWO,
-            });
+            match groups.iter_mut().find(|g| g.name == slot.group_text) {
+                Some(g) => g.legs.push(slot),
+                None => groups.push(PairGroup {
+                    name: slot.group_text.clone(),
+                    legs: vec![slot],
+                    span: attr.key_span.clone(),
+                }),
+            }
         }
+        for group in groups {
+            let count = group.legs.len();
+            if count != 2 {
+                acc.push(CheckResult {
+                    check_name: "hw",
+                    severity: CheckSeverity::Error,
+                    uri: Some(uri.clone()),
+                    span: group.span.clone(),
+                    message: format!(
+                        "Interface '{}': @pair group '{}' has {} leg(s); \
+                         a differential pair has exactly two",
+                        iface.name, group.name, count,
+                    ),
+                    code: crate::errcodes::HW_IFACE_PAIR_NOT_TWO,
+                });
+            }
+            check_pair_constraint_equality(&iface.name.to_string(), &group, &uri, acc);
+        }
+    }
+}
+
+/// One leg's read of a `@pair` row attr, for the constraint gates: the group
+/// name (empty = the row wrote no plain group value) and the `match` slot.
+struct PairLegSlot {
+    group_text: String,
+    kvs_count: usize,
+    match_value: PairSlotValue,
+    slot_span: Option<std::ops::Range<usize>>,
+}
+
+enum PairSlotValue {
+    /// The row wrote no `match` slot.
+    None,
+    /// A length quantity, normalized to meters, with the slot's own text for
+    /// the mismatch report.
+    Length(f64, String),
+    /// A slot value that is not a length quantity — E5514 fired at read time,
+    /// so the equality gate skips this leg rather than double-reporting.
+    Bad,
+}
+
+struct PairGroup {
+    name: String,
+    legs: Vec<PairLegSlot>,
+    span: Option<std::ops::Range<usize>>,
+}
+
+/// Read one row's `@pair` attr: the named constraint slots and their shapes.
+/// Fires E5516 (slot without a group) and E5514 (slot value not a length)
+/// here, where the span and the interface name are at hand.
+fn read_pair_constraint(
+    attr: &crate::semantic::component::mc_attr::McAttribute,
+    uri: &str,
+    acc: &mut CheckAccumulator,
+) -> PairLegSlot {
+    use crate::semantic::component::mc_attr::McAttrVal;
+
+    let mut slot = PairLegSlot {
+        group_text: crate::semantic::module::pi::value_texts(attr).join(" "),
+        kvs_count: 0,
+        match_value: PairSlotValue::None,
+        slot_span: None,
+    };
+    for value in attr.values.iter() {
+        let McAttrVal::KVS(kvs) = value else {
+            continue;
+        };
+        slot.kvs_count += 1;
+        if kvs.key.to_string() != "match" {
+            // The slot-word set is open (pair-constraint-design.md §3.1):
+            // `match` is the first word, other keys are inert data until a
+            // consumer rules them in.
+            continue;
+        }
+        if slot.slot_span.is_none() {
+            slot.slot_span = attr.key_span.clone();
+        }
+        slot.match_value = match length_of_kvs(kvs) {
+            Some(meters) => PairSlotValue::Length(meters, kvs.to_string()),
+            None => {
+                acc.push(CheckResult {
+                    check_name: "hw",
+                    severity: CheckSeverity::Error,
+                    uri: Some(uri.to_string()),
+                    span: attr.key_span.clone(),
+                    message: format!(
+                        "@pair match slot value '{}' is not a length quantity; \
+                         spell the tolerance in a length unit (0.2mm, 8mil)",
+                        kvs,
+                    ),
+                    code: crate::errcodes::HW_PAIR_CONSTRAINT_NOT_LENGTH,
+                });
+                PairSlotValue::Bad
+            }
+        };
+    }
+    if slot.kvs_count > 0 && slot.group_text.is_empty() {
+        acc.push(CheckResult {
+            check_name: "hw",
+            severity: CheckSeverity::Error,
+            uri: Some(uri.to_string()),
+            span: slot.slot_span.clone().or_else(|| attr.key_span.clone()),
+            message:
+                "@pair carries a constraint slot but no group name; the constraint has no \
+                 pair to ride — write @pair(group, match: 0.2mm)"
+                    .to_string(),
+            code: crate::errcodes::HW_PAIR_CONSTRAINT_ORPHAN,
+        });
+    }
+    slot
+}
+
+/// The length reading of a `match` slot value: a unit value on the length
+/// axis, normalized to meters. Anything else — a bare number, a string, a
+/// voltage, a parameter reference — has no length reading here.
+fn length_of_kvs(kvs: &crate::semantic::basic::mc_kvs::McKVS) -> Option<f64> {
+    use crate::semantic::basic::mc_literal::McLiteral;
+    use crate::semantic::basic::mc_uval::McUnit;
+    use crate::semantic::component::mc_attr::McAttrVal;
+
+    let crate::semantic::basic::mc_kvs::KVSValue::Square(vals) = &kvs.value else {
+        return None;
+    };
+    let [McAttrVal::AttrLiteral(McLiteral::Uval(uv))] = vals.as_slice() else {
+        return None;
+    };
+    if *uv.unit() != McUnit::Len {
+        return None;
+    }
+    Some(uv.value())
+}
+
+/// E5515: the legs of one group must agree on the `match` slot — equal
+/// values, and a leg whose partner wrote the slot writes it too. Compared in
+/// normalized meters with a relative epsilon, so `0.2mm` and `200um` agree.
+fn check_pair_constraint_equality(
+    iface_name: &str,
+    group: &PairGroup,
+    uri: &str,
+    acc: &mut CheckAccumulator,
+) {
+    let Some(first) = group
+        .legs
+        .iter()
+        .find(|leg| matches!(leg.match_value, PairSlotValue::Length(..)))
+    else {
+        return; // no leg declared a constraint — the ordinary pair case
+    };
+    let PairSlotValue::Length(first_m, first_text) = &first.match_value else {
+        unreachable!("found by the matcher above")
+    };
+    for leg in &group.legs {
+        let agrees = match leg.match_value {
+            PairSlotValue::Length(m, _) => {
+                (m - *first_m).abs() <= 1e-9 * first_m.abs().max(1e-12)
+            }
+            _ => false,
+        };
+        if agrees {
+            continue;
+        }
+        let this = match &leg.match_value {
+            PairSlotValue::Length(_, text) => format!("a different value ({text})"),
+            PairSlotValue::None => "no match slot".to_string(),
+            PairSlotValue::Bad => "an ill-formed match slot".to_string(),
+        };
+        acc.push(CheckResult {
+            check_name: "hw",
+            severity: CheckSeverity::Error,
+            uri: Some(uri.to_string()),
+            span: leg.slot_span.clone().or_else(|| group.span.clone()),
+            message: format!(
+                "Interface '{}': @pair group '{}' legs disagree on the match \
+                 constraint: one leg wrote {}, this leg wrote {}",
+                iface_name, group.name, first_text, this,
+            ),
+            code: crate::errcodes::HW_PAIR_CONSTRAINT_MISMATCH,
+        });
     }
 }
 

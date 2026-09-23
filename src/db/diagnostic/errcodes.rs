@@ -1539,6 +1539,20 @@ pub const HW_IFACE_PAIR_NOT_TWO: u32 = 5512;
 /// rows must carry `@pair(group)` tags instead.
 pub const HW_IFACE_DIFF_PAIR_RETIRED: u32 = 5513;
 
+/// A `@pair(group, match: …)` constraint value is not a length quantity
+/// (pair-constraint-design.md §3.2 — the tolerance is a board-drawing fact,
+/// spelled in a length unit; the time conversion is the consumer's).
+pub const HW_PAIR_CONSTRAINT_NOT_LENGTH: u32 = 5514;
+
+/// The two legs of a `@pair` group disagree on a constraint slot — different
+/// values, or one leg wrote the slot and the other did not
+/// (pair-constraint-design.md §3.2: both legs write, values must be equal).
+pub const HW_PAIR_CONSTRAINT_MISMATCH: u32 = 5515;
+
+/// A `@pair` row attr carries a named constraint slot but no group name —
+/// the constraint has no pair to ride (pair-constraint-design.md §3.2).
+pub const HW_PAIR_CONSTRAINT_ORPHAN: u32 = 5516;
+
 // Pass3: type / unit compatibility (5550-5599)
 
 /// Incompatible types or unit types.
@@ -2604,6 +2618,9 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(HW_IFACE_PEER_WIDTH_MISMATCH, "Interface role peer width mismatch.", "Interface role and its declared peer declare different member widths (interface-connect-rule-design.md §3.3 B). Exempt when either side declares a multi-peer relay set (D8)."),
     entry!(HW_IFACE_PAIR_NOT_TWO, "A @pair group does not have two legs.", "A differential pair has exactly two faces: the interface member rows sharing a @pair(group) tag must be two rows, no more and no fewer (diff-pair-design.md §3.2)."),
     entry!(HW_IFACE_DIFF_PAIR_RETIRED, "The diff_pair key is retired.", "The interface body still writes `diff_pair = [A, B]`; tag the member rows with @pair(group) instead — the two rows sharing a group are the legs of one differential signal (diff-pair-design.md, ruled 2026-09-23)."),
+    entry!(HW_PAIR_CONSTRAINT_NOT_LENGTH, "A @pair constraint value is not a length.", "The match slot of @pair(group, match: …) is a board-drawing tolerance spelled in a length unit (0.2mm, 8mil); this value is not a length quantity (pair-constraint-design.md §3.2)."),
+    entry!(HW_PAIR_CONSTRAINT_MISMATCH, "The legs of a @pair group disagree on a constraint.", "Both legs write the slot and both write the same value; a leg whose partner wrote the slot and wrote no (or a different) value disagrees (pair-constraint-design.md §3.2)."),
+    entry!(HW_PAIR_CONSTRAINT_ORPHAN, "A @pair constraint slot has no group.", "The row carries a named constraint slot but no group name — the constraint has no pair to ride; write @pair(group, match: …) (pair-constraint-design.md §3.2)."),
 
     entry!(HW_FUNC_PARAM_SHADOWS_PIN, "Function parameter shadows a pin name.", "Function parameter shadows a pin name."),
     // section
