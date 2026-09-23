@@ -16,6 +16,7 @@ use std::path::PathBuf;
 use mcc::vector::graph::{McVecGraph, NetKind};
 use mcc::viz::api::{render_with_metrics, RenderOpts};
 use crate::common;
+use mcc::viz::layout::equi_audit::audit_equi_tree;
 use mcc::McIds;
 
 fn hbl_project_dir() -> PathBuf {
@@ -301,6 +302,126 @@ fn ground_nets_by_bid(g: &McVecGraph, out: &mut std::collections::HashMap<i64, u
     }
     for sg in &g.sub_graphs {
         ground_nets_by_bid(sg, out);
+    }
+}
+
+// ★ U276①: the audit-invariant harness on the REAL hbl device layers.
+// `equi_audit`'s own fixtures build `McVecGraph` by hand, so the A27/A34 shape
+// — anchors on a minority of nets, most nets carrying satellite members — had
+// zero coverage. `layout_device_layer` hands back the topology slice
+// `place_by_topology` mutated, which is exactly what `audit_equi_tree`
+// requires (A2 replays lanes against that same slice).
+
+/// Run the layout phase on every Device-style layer of the tree and audit each.
+/// Mirrors the render recursion's structural rule (api.rs): the root is a block
+/// diagram when it holds sub-module boxes, every sub-layer is Device.
+fn audit_hbl_device_layers(g: &mut McVecGraph, is_root: bool) -> Vec<(String, mcc::viz::layout::equi_audit::EquiAudit)> {
+    let mut audits = Vec::new();
+    let has_sub_boxes = g.boxes.iter().any(|b| b.kind == mcc::vector::graph::BoxKind::SubModule);
+    let is_device = !g.boxes.is_empty() && (if is_root { !has_sub_boxes } else { true });
+    if is_device {
+        let name = g.name.clone();
+        let topos = mcc::viz::layout::equipotential_tree::layout_device_layer(g);
+        audits.push((name, audit_equi_tree(g, &topos)));
+    }
+    for sg in &mut g.sub_graphs {
+        audits.extend(audit_hbl_device_layers(sg, false));
+    }
+    audits
+}
+
+/// The audit invariants, red on REAL projected layers but green on every
+/// hand-built `equi_audit` fixture. First exposure (U276①, b3928): the harness
+/// had never run on the real hbl shape, where anchors own a minority of nets
+/// and satellites do the rest. Each entry is a KNOWN defect, keyed by layer
+/// name and check id. The gate below is an exact-set ratchet:
+///  - a check red here that is not listed (or red on a clean layer) fails;
+///  - a listed defect that turns green must be REMOVED from this table —
+///    stale entries fail, so fixes cannot hide behind the ratchet.
+/// Cleanup of the defects themselves is ledger work, not this table's job.
+const KNOWN_AUDIT_REDS: &[(&str, &str)] = &[
+    ("DCDC", "A7"),
+    ("DCDC", "A10"),
+    ("DCDC", "A17"),
+    ("DCDC", "A22"),
+    ("DCDC", "A24"),
+    ("DCDC", "A29"),
+    ("DCDC", "A34"),
+    ("lp322dcdc", "A8"),
+    ("lp322dcdc", "A10"),
+    ("lp322dcdc", "A17"),
+    ("lp322dcdc", "A18"),
+    ("lp322dcdc", "A22"),
+    ("LDO", "A17"),
+    ("LDO", "A34"),
+    ("MCU513", "A7"),
+    ("MCU513", "A8"),
+    ("MCU513", "A10"),
+    ("MCU513", "A12"),
+    ("MCU513", "A17"),
+    ("MCU513", "A22"),
+    ("MCU513", "A24"),
+    ("MCU513", "A25"),
+    ("MCU513", "A29"),
+    ("MCU513", "A34"),
+    ("UC", "A2"),
+    ("UC", "A3"),
+    ("UC", "A8"),
+    ("UC", "A10"),
+    ("UC", "A11"),
+    ("UC", "A17"),
+    ("UC", "A18"),
+    ("UC", "A22"),
+    ("UC", "A29"),
+    ("UC", "A34"),
+    ("X6", "A4"),
+    ("X6", "A10"),
+    ("X6", "A14"),
+    ("X6", "A22"),
+    ("X6", "A24"),
+    ("X6", "A29"),
+    ("X6", "A34"),
+    ("MIC", "A1"),
+    ("MIC", "A2"),
+    ("MIC", "A3"),
+    ("MIC", "A17"),
+    ("MIC", "A18"),
+    ("MIC", "A22"),
+    ("MIC", "A34"),
+    ("SPK", "A8"),
+    ("SPK", "A10"),
+    ("SPK", "A17"),
+    ("SPK", "A18"),
+    ("SPK", "A25"),
+    ("SPK", "A30"),
+    ("SPK", "A34"),
+    ("USB", "A8"),
+    ("USB", "A17"),
+    ("USB", "A34"),
+    ("FLASH", "A8"),
+    ("FLASH", "A17"),
+];
+
+#[test]
+fn e2e_hbl_device_layers_equi_audit_known_reds_only() {
+    let mut graph = build_hbl_graph();
+    let audits = audit_hbl_device_layers(&mut graph, true);
+    assert!(
+        !audits.is_empty(),
+        "no Device-style layer found in the hbl tree — the audit would cover nothing"
+    );
+    for (name, audit) in &audits {
+        eprintln!("-- layer '{name}' --\n{audit}");
+        for c in &audit.checks {
+            let red = c.status == mcc::viz::layout::equi_audit::CheckStatus::Fail;
+            let listed = KNOWN_AUDIT_REDS.contains(&(name.as_str(), c.id));
+            assert_eq!(
+                red, listed,
+                "layer '{name}' check {} {}: expected {}, found red={} — \
+                 update KNOWN_AUDIT_REDS (fix-and-remove, or register the new defect)",
+                c.id, c.name, if listed { "listed red" } else { "green" }, red
+            );
+        }
     }
 }
 

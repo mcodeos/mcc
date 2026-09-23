@@ -76,7 +76,7 @@ range (threshold 40KB).
 | `semantic/` | 91 | 2732 KB |
 | `stages/` | 12 | 322 KB |
 | `vector/` | 26 | 497 KB |
-| `viz/` | 98 | 2463 KB |
+| `viz/` | 98 | 2467 KB |
 
 ## Declaration index
 
@@ -9390,45 +9390,45 @@ viz/layout/equipotential_tree.rs#L8178  const LAYOUT_ANCHOR_Y
 viz/layout/equipotential_tree.rs#L8187  fn layout_box_dims
 viz/layout/equipotential_tree.rs#L8222  fn seed_layout_boxes
 viz/layout/equipotential_tree.rs#L8269  fn layout_anchor_rect
-viz/layout/equipotential_tree.rs#L8277  fn layout_device_layer
-viz/layout/equipotential_tree.rs#L8493  fn fallback_box_dims
-viz/layout/equipotential_tree.rs#L8548  fn build_all_trees
-viz/layout/equipotential_tree.rs#L8597  fn fit_content_to_canvas
-viz/layout/equipotential_tree.rs#L8657  fn content_bbox
-viz/layout/equipotential_tree.rs#L8711  const R
-viz/layout/equipotential_tree.rs#L8747  mod tests
-viz/layout/equipotential_tree.rs#L8755  fn mk_ic
-viz/layout/equipotential_tree.rs#L8783  fn mk_two_pin
-viz/layout/equipotential_tree.rs#L8811  fn mk_net
-viz/layout/equipotential_tree.rs#L8827  fn build_test_graph
-viz/layout/equipotential_tree.rs#L8849  fn lanes_layout_match_render
-viz/layout/equipotential_tree.rs#L8876  fn lanes_are_per_topology
-viz/layout/equipotential_tree.rs#L8892  fn no_dangling_segments
-viz/layout/equipotential_tree.rs#L8915  fn terminal_wires_clear_of_boxes
-viz/layout/equipotential_tree.rs#L8965  fn span_envelops_member_taps
-viz/layout/equipotential_tree.rs#L9007  fn trunk_reaches_member_beyond_anchor_range
-viz/layout/equipotential_tree.rs#L9055  fn dangling_segments
-viz/layout/equipotential_tree.rs#L9118  fn anchor_side_not_overloaded
-viz/layout/equipotential_tree.rs#L9150  fn ground_pins_on_south
-viz/layout/equipotential_tree.rs#L9179  fn layout_box_seeded_in_device_layer
-viz/layout/equipotential_tree.rs#L9250  fn no_region_fallback
-viz/layout/equipotential_tree.rs#L9261  fn shunt_cap_hangs_vertical
-viz/layout/equipotential_tree.rs#L9318  fn decoupling_cap_to_own_ground_lies_horizontal
-viz/layout/equipotential_tree.rs#L9359  fn ground_drop_not_flipped_up_across_row
-viz/layout/equipotential_tree.rs#L9423  fn two_device_pin_net_blocks_series
-viz/layout/equipotential_tree.rs#L9486  fn rtree
-viz/layout/equipotential_tree.rs#L9496  fn rseg
-viz/layout/equipotential_tree.rs#L9501  fn residual_overlaps
-viz/layout/equipotential_tree.rs#L9517  fn flat
-viz/layout/equipotential_tree.rs#L9525  fn reconcile_dodges_the_shorter_run_and_keeps_endpoints
-viz/layout/equipotential_tree.rs#L9548  fn reconcile_partial_overlap_keeps_the_outside_pieces
-viz/layout/equipotential_tree.rs#L9566  fn reconcile_vertical_overlap_runs_a_parallel_column
-viz/layout/equipotential_tree.rs#L9585  fn reconcile_tap_dot_inside_the_span_follows_the_run
-viz/layout/equipotential_tree.rs#L9616  fn reconcile_chained_tap_rejects_the_candidate
-viz/layout/equipotential_tree.rs#L9640  fn reconcile_gives_up_when_no_gutter_level_is_free
-viz/layout/equipotential_tree.rs#L9669  fn reconcile_is_idempotent_once_clean
-viz/layout/equipotential_tree.rs#L9686  fn gutter_level_clears_the_blocker_box_edge
-viz/layout/equipotential_tree.rs#L9707  fn teeth_reach_the_trunk_when_it_deflects_around_the_anchor
+viz/layout/equipotential_tree.rs#L8281  fn layout_device_layer
+viz/layout/equipotential_tree.rs#L8498  fn fallback_box_dims
+viz/layout/equipotential_tree.rs#L8553  fn build_all_trees
+viz/layout/equipotential_tree.rs#L8602  fn fit_content_to_canvas
+viz/layout/equipotential_tree.rs#L8662  fn content_bbox
+viz/layout/equipotential_tree.rs#L8716  const R
+viz/layout/equipotential_tree.rs#L8752  mod tests
+viz/layout/equipotential_tree.rs#L8760  fn mk_ic
+viz/layout/equipotential_tree.rs#L8788  fn mk_two_pin
+viz/layout/equipotential_tree.rs#L8816  fn mk_net
+viz/layout/equipotential_tree.rs#L8832  fn build_test_graph
+viz/layout/equipotential_tree.rs#L8854  fn lanes_layout_match_render
+viz/layout/equipotential_tree.rs#L8881  fn lanes_are_per_topology
+viz/layout/equipotential_tree.rs#L8897  fn no_dangling_segments
+viz/layout/equipotential_tree.rs#L8920  fn terminal_wires_clear_of_boxes
+viz/layout/equipotential_tree.rs#L8970  fn span_envelops_member_taps
+viz/layout/equipotential_tree.rs#L9012  fn trunk_reaches_member_beyond_anchor_range
+viz/layout/equipotential_tree.rs#L9060  fn dangling_segments
+viz/layout/equipotential_tree.rs#L9123  fn anchor_side_not_overloaded
+viz/layout/equipotential_tree.rs#L9155  fn ground_pins_on_south
+viz/layout/equipotential_tree.rs#L9184  fn layout_box_seeded_in_device_layer
+viz/layout/equipotential_tree.rs#L9255  fn no_region_fallback
+viz/layout/equipotential_tree.rs#L9266  fn shunt_cap_hangs_vertical
+viz/layout/equipotential_tree.rs#L9323  fn decoupling_cap_to_own_ground_lies_horizontal
+viz/layout/equipotential_tree.rs#L9364  fn ground_drop_not_flipped_up_across_row
+viz/layout/equipotential_tree.rs#L9428  fn two_device_pin_net_blocks_series
+viz/layout/equipotential_tree.rs#L9491  fn rtree
+viz/layout/equipotential_tree.rs#L9501  fn rseg
+viz/layout/equipotential_tree.rs#L9506  fn residual_overlaps
+viz/layout/equipotential_tree.rs#L9522  fn flat
+viz/layout/equipotential_tree.rs#L9530  fn reconcile_dodges_the_shorter_run_and_keeps_endpoints
+viz/layout/equipotential_tree.rs#L9553  fn reconcile_partial_overlap_keeps_the_outside_pieces
+viz/layout/equipotential_tree.rs#L9571  fn reconcile_vertical_overlap_runs_a_parallel_column
+viz/layout/equipotential_tree.rs#L9590  fn reconcile_tap_dot_inside_the_span_follows_the_run
+viz/layout/equipotential_tree.rs#L9621  fn reconcile_chained_tap_rejects_the_candidate
+viz/layout/equipotential_tree.rs#L9645  fn reconcile_gives_up_when_no_gutter_level_is_free
+viz/layout/equipotential_tree.rs#L9674  fn reconcile_is_idempotent_once_clean
+viz/layout/equipotential_tree.rs#L9691  fn gutter_level_clears_the_blocker_box_edge
+viz/layout/equipotential_tree.rs#L9712  fn teeth_reach_the_trunk_when_it_deflects_around_the_anchor
 viz/layout/facade.rs#L36  fn pin_facade
 viz/layout/facade.rs#L51  fn pin_facade_root
 viz/layout/facade.rs#L114  fn pin_facade_sub
@@ -10361,6 +10361,11 @@ viz/render/ic.rs#L244  fn shows_designator
 viz/render/ic.rs#L255  fn shows_pin1_marker
 viz/render/ic.rs#L263  fn renders_main_name
 viz/render/ic.rs#L270  fn no_entry_points_still_renders
+viz/render/ic.rs#L304  fn mk_ic_with_nc
+viz/render/ic.rs#L330  fn nc_pin_with_slot_lands_on_its_real_edge
+viz/render/ic.rs#L351  fn nc_pin_without_slot_falls_back_to_right_grid
+viz/render/ic.rs#L365  fn virtual_view_suppresses_nc_marks
+viz/render/ic.rs#L376  fn fully_connected_ic_draws_no_nc_marks
 viz/render/inductor.rs#L20  struct InductorShape
 viz/render/inductor.rs#L22  impl BoxShape for InductorShape
 viz/render/inductor.rs#L23  fn render
@@ -11296,4 +11301,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-408 files, 11213 declarations.
+408 files, 11218 declarations.
