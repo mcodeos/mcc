@@ -128,7 +128,7 @@ fn sem_attrvocab__words_are_exact_no_case_folding() {
         r#"
 module main
 {
-    domain DMAINS @nature(AC) { rail [L, N]::AC(230V, 50Hz) }
+    domain DMAINS @nature(AC) { rail [L, N]::AC.1P(230V, 50Hz) }
     io VDD
 }
 "#,
@@ -187,7 +187,7 @@ module main
     conduit ISO @role(isolated) @bind_role(isolated)
     domain DVDD @class(digital) @noise(noisy) { rail [VDD_3V3, GND]::DC(3.3V) }
     domain DAUD @class(analog) @noise(sensitive) { rail [AVDD, AGND]::DC(3.3V) }
-    domain DMAINS @nature(ac) { rail [L, N]::AC(230V, 50Hz) }
+    domain DMAINS @nature(ac) { rail [L, N]::AC.1P(230V, 50Hz) }
     io USB_DM @exposed(esd_contact)
     io VBUS @exposed(esd_air)
     out EARTH @bind_role(earth)
