@@ -285,8 +285,8 @@ mod tests {
 
     #[test]
     fn a_point_without_an_owner_keeps_its_own_path() {
-        let label = NetPoint::new("V5V", IOType::Label, None);
-        assert_eq!(pin_label(&label, "main", PointNaming::Local), "V5V");
-        assert_eq!(pin_label(&label, "main", PointNaming::Hierarchical), "V5V");
+        let point = NetPoint::new("V5V", IOType::None, None);
+        assert_eq!(pin_label(&point, "main", PointNaming::Local), "V5V");
+        assert_eq!(pin_label(&point, "main", PointNaming::Hierarchical), "V5V");
     }
 }

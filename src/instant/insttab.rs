@@ -3380,7 +3380,6 @@ impl InstTable {
                 IOType::Power => "power",
                 IOType::Return => "return",
                 IOType::NonCon => "nc",
-                IOType::Label => "label",
                 IOType::None => "-",
             };
             let class_display = if entry.class_name.is_empty() {

@@ -49,7 +49,6 @@ pub const MCAST_IOTYPE_OUT: u16 = 40;
 pub const MCAST_IOTYPE_IO: u16 = 41;
 pub const MCAST_IOTYPE_RETURN: u16 = 42;
 pub const MCAST_IOTYPE_NC: u16 = 45;
-pub const MCAST_IOTYPE_LABEL: u16 = 93;
 pub const MCAST_IOTYPE_PSRC: u16 = 97;
 pub const MCAST_IOTYPE_PSNK: u16 = 98;
 pub const MCAST_IOTYPE_PSBI: u16 = 99;

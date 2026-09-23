@@ -2752,7 +2752,7 @@ fn drill_ports(name: &str, args: &ShowArgs) -> Result<()> {
         .filter(|(_, (io_type, _))| {
             !matches!(
                 io_type,
-                mcc::IOType::None | mcc::IOType::Return | mcc::IOType::NonCon | mcc::IOType::Label
+                mcc::IOType::None | mcc::IOType::Return | mcc::IOType::NonCon
             )
         })
         .map(|(pname, (io_type, inst))| {

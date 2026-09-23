@@ -639,10 +639,7 @@ fn module_member_kind(base: &McModule, member: &str, inst: &McInstance) -> Symbo
     // with iter_ports_with_span / lapper_module_ports.
     if matches!(inst, McInstance::Label(_) | McInstance::Interface(_)) {
         if let Some((io, _)) = base.insts.get_with_iotype(member) {
-            if !matches!(
-                io,
-                IOType::None | IOType::Return | IOType::NonCon | IOType::Label
-            ) {
+            if !matches!(io, IOType::None | IOType::Return | IOType::NonCon) {
                 return SymbolKind::PortDef;
             }
         }

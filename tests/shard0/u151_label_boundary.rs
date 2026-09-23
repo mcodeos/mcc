@@ -2,10 +2,10 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! U151: the module boundary ticket is the direction word. A member declared
-//! without one (`label` rows, header or body) is module-internal, and an
-//! access through an instance dot-path from the parent body is E3184
-//! (label-boundary-gate-design.md).
+//! U151: the module boundary ticket is the direction word. A member without
+//! one (an inline body name; historically also explicit `label` declaration
+//! rows) is module-internal, and an access through an instance dot-path from
+//! the parent body is E3184 (label-boundary-gate-design.md).
 //!
 //! Two faces are locked, because a single-point gate provably misses one:
 //! a width-incompatible access dies in Pass1 (the shape gate rejects the
@@ -43,11 +43,10 @@ fn e3184_count(source: &str) -> usize {
 
 const SUB: &str = r#"
 module Sub(
-    label L1,
     io P1
 )
 {
-    label inner
+    L1 -> P1
     inner -> P1
 }
 "#;
@@ -75,25 +74,25 @@ module Wide()
 #[test]
 fn label_access_reports_on_the_pass2_point_face() {
     let n = e3184_count(&format!(
-        "{SUB}\nmodule main() {{\n    label net_a\n    Sub s1\n    net_a -> s1.L1\n}}"
+        "{SUB}\nmodule main() {{\n    Sub s1\n    net_a -> s1.L1\n}}"
     ));
     assert_eq!(n, 1, "expected exactly one E3184 for the header-label leak");
 }
 
-/// The body `label` row is internal the same way — judged, not exempted.
+/// A direction-less member is internal the same way — judged, not exempted.
 #[test]
-fn body_label_access_reports() {
+fn directionless_member_access_reports() {
     let n = e3184_count(&format!(
-        "{SUB}\nmodule main() {{\n    label net_a\n    Sub s1\n    net_a -> s1.inner\n}}"
+        "{SUB}\nmodule main() {{\n    Sub s1\n    net_a -> s1.inner\n}}"
     ));
-    assert_eq!(n, 1, "expected exactly one E3184 for the body-label leak");
+    assert_eq!(n, 1, "expected exactly one E3184 for the direction-less leak");
 }
 
 /// Control: a direction-worded port is on the boundary — clean.
 #[test]
 fn direction_worded_port_stays_clean() {
     let n = e3184_count(&format!(
-        "{SUB}\nmodule main() {{\n    label net_a\n    Sub s1\n    net_a -> s1.P1\n}}"
+        "{SUB}\nmodule main() {{\n    Sub s1\n    net_a -> s1.P1\n}}"
     ));
     assert_eq!(n, 0, "io port access must not report E3184");
 }
@@ -113,7 +112,7 @@ module Sub2(
 }
 "#;
     let n = e3184_count(&format!(
-        "{sub}\nmodule main() {{\n    label net_a\n    Sub2 s1\n    s1.setup(net_a)\n}}"
+        "{sub}\nmodule main() {{\n    Sub2 s1\n    s1.setup(net_a)\n}}"
     ));
     assert_eq!(n, 0, "func call must not report E3184");
 }

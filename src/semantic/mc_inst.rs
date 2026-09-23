@@ -6,6 +6,10 @@ use crate::ast::{macros::*, node::AstNode};
 use crate::db::context::DB;
 use crate::db::diagnostic::diagnostic::{dlog_error, dlog_warning};
 
+use crate::McAttrVal;
+use crate::McCMIE;
+use crate::McFunction;
+use crate::McURI;
 use crate::query::refs::mcb_register_declare_class;
 use crate::refdef::types::{ChainSegment, SymbolKind};
 use crate::semantic::basic::mc_bus::{McBus, McList};
@@ -20,10 +24,6 @@ use crate::semantic::context::resolve_cmie;
 use crate::semantic::mc_func::HasFindInst;
 use crate::semantic::mc_ifs::Mc2Interface;
 use crate::semantic::module::Mc2Module;
-use crate::McAttrVal;
-use crate::McCMIE;
-use crate::McFunction;
-use crate::McURI;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ops::Range;
 use std::sync::Arc;
@@ -414,14 +414,7 @@ impl McInstances {
     pub fn is_port_io_type(&self, name: &str) -> bool {
         matches!(
             self.insts.get(name).map(|(t, _)| t),
-            Some(
-                IOType::In
-                    | IOType::Out
-                    | IOType::InOut
-                    | IOType::Power
-                    | IOType::Return
-                    | IOType::Label
-            )
+            Some(IOType::In | IOType::Out | IOType::InOut | IOType::Power | IOType::Return)
         )
     }
 
@@ -434,10 +427,7 @@ impl McInstances {
         self.insts
             .iter()
             .filter(|(_, (io_type, _))| {
-                !matches!(
-                    io_type,
-                    IOType::None | IOType::Return | IOType::NonCon | IOType::Label
-                )
+                !matches!(io_type, IOType::None | IOType::Return | IOType::NonCon)
             })
             .map(|(name, (io_type, _))| (name.as_str(), io_type))
     }
@@ -478,11 +468,8 @@ impl McInstances {
     pub fn iter_ports_in_decl_order(&self) -> impl Iterator<Item = (&str, &IOType)> {
         self.names_in_decl_order().filter_map(|name| {
             self.insts.get(name).and_then(|(io, _)| {
-                (!matches!(
-                    io,
-                    IOType::None | IOType::Return | IOType::NonCon | IOType::Label
-                ))
-                .then_some((name, io))
+                (!matches!(io, IOType::None | IOType::Return | IOType::NonCon))
+                    .then_some((name, io))
             })
         })
     }
@@ -508,10 +495,7 @@ impl McInstances {
         self.insts
             .iter()
             .filter(|(_, (io_type, _))| {
-                !matches!(
-                    io_type,
-                    IOType::None | IOType::Return | IOType::NonCon | IOType::Label
-                )
+                !matches!(io_type, IOType::None | IOType::Return | IOType::NonCon)
             })
             .filter_map(|(name, (_, inst))| match inst {
                 McInstance::BusRef { .. }
@@ -655,10 +639,7 @@ impl McInstances {
         self.insts
             .iter()
             .filter(|(_, (io_type, _))| {
-                !matches!(
-                    io_type,
-                    IOType::None | IOType::Return | IOType::NonCon | IOType::Label
-                )
+                !matches!(io_type, IOType::None | IOType::Return | IOType::NonCon)
             })
             .filter_map(|(name, (io_type, _))| {
                 self.port_spans
@@ -792,21 +773,8 @@ impl McInstances {
                             match ctype {
                                 MCAST_DECLARE => {
                                     // parse_declare already stores per-instance spans for the
-                                    // inserted keys, so no span is stored here. Only mark
-                                    // explicit Label kind for `label ...` declares.
-                                    let before: Vec<String> = self.insts.keys().cloned().collect();
+                                    // inserted keys, so no span is stored here.
                                     self.parse_declare(&child, uri, iotype_ref);
-                                    let new_keys: Vec<String> = self
-                                        .insts
-                                        .keys()
-                                        .filter(|k| !before.contains(k))
-                                        .cloned()
-                                        .collect();
-                                    for k in new_keys {
-                                        if matches!(iotype_ref, IOType::Label) {
-                                            self.set_label_kind(&k, LabelKind::Explicit);
-                                        }
-                                    }
                                 }
                                 MCAST_OPD => {
                                     let span = (child.get_pos() as usize)
@@ -844,10 +812,6 @@ impl McInstances {
                                             let name_span =
                                                 Self::find_name_in_text(&opd_text, &k, span.start);
                                             self.store_port_span(&k, name_span);
-                                            // ★ Label: set explicit kind
-                                            if matches!(iotype_ref, IOType::Label) {
-                                                self.set_label_kind(&k, LabelKind::Explicit);
-                                            }
                                         }
                                     }
                                 }
@@ -1778,7 +1742,8 @@ impl McInstances {
                 }
                 let (mc_inst, insert_key) = match &cmie {
                     Some(McCMIE::Component(comp_def)) => {
-                        mcc_dbg!("sem::inst", 
+                        mcc_dbg!(
+                            "sem::inst",
                             "[P2-4-PARSE] inst='{inst_name}' class='{class_ids}' -> Component (cmie=Component)",
                         );
                         // ── P1: besides class-level value params (CAP(1uF…)), also merge
@@ -1851,7 +1816,8 @@ impl McInstances {
                         (McInstance::Component(Arc::new(mc2_comp)), inst_name)
                     }
                     Some(McCMIE::Module(mod_def)) => {
-                        mcc_dbg!("sem::inst",
+                        mcc_dbg!(
+                            "sem::inst",
                             "[P2-4-PARSE] inst='{inst_name}' class='{class_ids}' -> Module (cmie=Module)",
                         );
                         (
