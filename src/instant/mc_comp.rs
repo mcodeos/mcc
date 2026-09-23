@@ -783,6 +783,13 @@ impl McComponentInst {
             McExpression::Minus(l, r) => self.apply_operands(Op::Sub, l, r),
             McExpression::Multiply(l, r) => self.apply_operands(Op::Mul, l, r),
             McExpression::Divide(l, r) => self.apply_operands(Op::Div, l, r),
+            McExpression::Call { name, args } => {
+                let mut resolved = Vec::with_capacity(args.len());
+                for arg in args {
+                    resolved.push(self.resolve_expr_to_value(arg)?);
+                }
+                eval::call_builtin(name, &resolved)
+            }
             _ => self.resolve_expr_to_literal(expr).map(Value::Str),
         }
     }

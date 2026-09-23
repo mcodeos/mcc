@@ -65,6 +65,14 @@ pub enum McExpression {
 
     // Set
     Set(Vec<McExpression>),
+
+    // Builtin call `name(arg, ...)` (U216): the value-level primitives the
+    // engine dispatches by spelled name (`eval::call_builtin`). The
+    // receiver-shaped form `x.f(...)` has no value reading here.
+    Call {
+        name: String,
+        args: Vec<McExpression>,
+    },
 }
 
 impl McExpression {
@@ -197,6 +205,48 @@ impl McExpression {
                         }
                     });
                 Some(McExpression::Set(expressions))
+            }
+
+            // Builtin call `name(arg, ...)` (U216). The AST spells the bare
+            // form as FCALL(NAME, PARAMS) siblings under the call node; the
+            // receiver-shaped form (FCALL(INSTANCE, NAME, PARAMS)) has no
+            // value reading here and stays unsupported.
+            MCAST_OPD_FCALL => {
+                let sub = node.get_sub_node()?;
+                let mut name = String::new();
+                let mut args = Vec::<McExpression>::new();
+                for child in sub.iter() {
+                    match child.get_type() {
+                        MCAST_NAME => {
+                            // The name text lives in NAME's sub node (an
+                            // MCAST_ID leaf), matching the to_string read in
+                            // src/ast/node.rs.
+                            let inner = child.get_sub_node()?;
+                            name = inner.to_string()?.trim().to_string();
+                        }
+                        MCAST_PARAMS => {
+                            if let Some(children) = child.get_sub_node() {
+                                for p in children.iter() {
+                                    // Each argument is wrapped in a
+                                    // MCAST_PARAM node (the PARAMS wrapper's
+                                    // children, same shape the to_string read
+                                    // in src/ast/node.rs:458 unpacks).
+                                    if p.get_type() == MCAST_PARAM {
+                                        let inner = p.get_sub_node()?;
+                                        args.push(McExpression::new(&inner)?);
+                                    } else {
+                                        args.push(McExpression::new(&p)?);
+                                    }
+                                }
+                            }
+                        }
+                        _ => return None,
+                    }
+                }
+                if name.is_empty() {
+                    return None;
+                }
+                Some(McExpression::Call { name, args })
             }
 
             // Handle MCAST_DECLARE inside MCAST_EXPRESSION (e.g., DC2{VDD,GND}::DC)
@@ -334,6 +384,14 @@ impl std::fmt::Display for McExpression {
                     .collect::<Vec<_>>()
                     .join(", ");
                 write!(f, "[{items_str}]")
+            }
+            McExpression::Call { name, args } => {
+                let args_str = args
+                    .iter()
+                    .map(|a| a.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                write!(f, "{name}({args_str})")
             }
         }
     }

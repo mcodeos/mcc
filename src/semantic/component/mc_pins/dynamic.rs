@@ -39,6 +39,9 @@ impl DynamicPinExpr {
             McExpression::Divide(l, r) => Self::check_param_ref(l) || Self::check_param_ref(r),
             McExpression::Slice(l, r) => Self::check_param_ref(l) || Self::check_param_ref(r),
             McExpression::Range(l, r) => Self::check_param_ref(l) || Self::check_param_ref(r),
+            // A call reads its arguments' parameters: `canon(volt)` rides the
+            // dynamic path exactly when `volt` does (U216).
+            McExpression::Call { args, .. } => args.iter().any(Self::check_param_ref),
             _ => false,
         }
     }
@@ -217,6 +220,13 @@ fn eval_value(expr: &McExpression, values: &[(String, String)]) -> Option<eval::
         }
         McExpression::Divide(l, r) => {
             eval::apply(eval::Op::Div, &eval_value(l, values)?, &eval_value(r, values)?).ok()
+        }
+        McExpression::Call { name, args } => {
+            let mut resolved = Vec::with_capacity(args.len());
+            for arg in args {
+                resolved.push(eval_value(arg, values)?);
+            }
+            eval::call_builtin(name, &resolved)
         }
         // Ranges/sets are pin-id shapes, not names; a const has no value here.
         _ => None,
