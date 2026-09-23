@@ -749,11 +749,14 @@ pub static FLAT_ERC_RULES: &[FlatErcRule] = &[
         overridable = false,
         owner = check_power_rail_two_roots,
     },
-    // E-PWR-001 (§4.4 mandatory-nominal check / §11): a psnk sink on a net must
-    // require that net's derived supply nominal S — the canonical P3 case: a
-    // ::DC(3.3V) sink wired onto a 5V rail is a wrong hookup. S comes from the
-    // net's handwritten roots (§4.3) or, for a root-less net, the upstream root
-    // it is fed to through transparent copper / a module boundary (net-island
+    // E-PWR-001 (§4.4 / §11): a psnk sink that declares a nominal must require
+    // that net's derived supply nominal S — the canonical P3 case: a ::DC(3.3V)
+    // sink wired onto a 5V rail is a wrong hookup. The sink nominal is
+    // optional (applied-nominal-design.md §4.1 ruling 1): a sink with no
+    // nominal is adjudicated by the part window (6024) when its spec declares
+    // input_req, and stays un-adjudicated otherwise. S comes from the net's
+    // handwritten roots (§4.3) or, for a root-less net, the upstream root it
+    // is fed to through transparent copper / a module boundary (net-island
     // §7 L4 reach.rs); converter re-anchoring is the still-later S-set step.
     declare_flat_erc_rule! {
         code = crate::errcodes::POWER_SINK_NOMINAL_MISMATCH,
@@ -762,7 +765,7 @@ pub static FLAT_ERC_RULES: &[FlatErcRule] = &[
         severity = Error,
         domain = Power,
         family = None,
-        doc = "A sink (psnk) landing on a net must require that net's derived supply nominal S (a rail face or a psrc/psbi root, §4.3) — nominal vs nominal (the §4.4 mandatory-nominal check); a mismatch is a wrong hookup (P3/E-PWR-001).",
+        doc = "A sink (psnk) that declares a nominal must require that net's derived supply nominal S (a rail face or a psrc/psbi root, §4.3) — nominal vs nominal; a mismatch is a wrong hookup (P3/E-PWR-001). The sink nominal is optional: without one, the part window (spec input_req, 6024) adjudicates the hookup.",
         lock = "tests/power_intent_l1.rs",
         overridable = false,
         owner = check_sink_nominal_mismatch,
@@ -770,7 +773,7 @@ pub static FLAT_ERC_RULES: &[FlatErcRule] = &[
     // Pin-side Volt-arg decode (§5.2 closed word-list discipline): a psrc/psnk/psbi ::DC(…) ctor
     // arg must decode to the contract it names. decode_pwr_pin keeps the first
     // failure (non-DC nominal, source-exclusive key on a sink, amp on a source,
-    // spec window key on the pin, missing mandatory nominal); this rule reports
+    // spec window key on the pin, missing source nominal); this rule reports
     // it decl-locally.
     declare_flat_erc_rule! {
         code = crate::errcodes::POWER_PIN_DECODE,

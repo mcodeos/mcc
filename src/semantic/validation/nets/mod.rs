@@ -1968,11 +1968,15 @@ impl PowerScan {
     }
 }
 
-/// E-PWR-001 (design §4.4 mandatory-nominal check / §11): a sink (`psnk`) on
-/// a net must require that net's derived supply nominal S. The canonical §4.4
-/// case: a `::DC(3.3V)`
-/// sink sitting on a 5V-supplied net is a wrong hookup (P3/E-PWR-001) — nominal
-/// vs nominal is the comparison, no window needed.
+/// E-PWR-001 (design §4.4 / §11): a sink (`psnk`) that declares a nominal must
+/// require that net's derived supply nominal S. The canonical case: a
+/// `::DC(3.3V)` sink sitting on a 5V-supplied net is a wrong hookup
+/// (P3/E-PWR-001) — nominal vs nominal is the comparison, no window needed.
+/// The sink nominal is optional (applied-nominal-design.md §4.1 ruling 1): a
+/// sink without one is adjudicated by its part window (`spec.input_req`,
+/// 6024) when declared, and stays un-adjudicated otherwise — the two-branch
+/// convergence is: nominal present → equality here; window present → 6024
+/// there; neither → no check.
 ///
 /// S is derived per net from the net's handwritten supply roots — the design's
 /// §4.3 roots: `S(root)` = a handwritten guarantee window (a psrc or a
@@ -2009,7 +2013,7 @@ pub(crate) fn check_sink_nominal_mismatch(table: &InstTable, results: &mut Vec<N
             continue;
         };
 
-        // ── mandatory-nominal: every decodable psnk sink on this net must need S. ──
+        // ── declared-nominal: every decodable psnk sink on this net must need S. ──
         for &pid in &net.points {
             let Some(entry) = table.get_entry(pid) else {
                 continue;
