@@ -1283,11 +1283,12 @@ pub(crate) fn check_unselected_abstract(table: &InstTable, results: &mut Vec<Net
     }
 }
 
-// BOM overlay binds (param-authoring-design.md section 4, U245). The overlay
-// replaces an abstract slot's class identity only; these two checks police the
-// two ways a key can fail. Anchors reuse the declaration span the flat table
-// already carries (entry_pos); a dangling key has no .mc position at all, so
-// the message carries the key text and the report anchors nowhere.
+// BOM overlay binds (param-authoring-design.md section 4, U245; carrier
+// rework U267①). The overlay replaces an abstract slot's class identity only;
+// these two checks police the two ways a key can fail. The anchor is the
+// overlay row's real lex span (the mc carrier makes it free); the declaration
+// span the flat table carries (entry_pos) is the fallback for a key whose row
+// no longer reads.
 use crate::instant::bom_overlay::BindOutcome;
 
 fn overlay_entry<'t>(
@@ -1302,6 +1303,17 @@ fn overlay_entry<'t>(
         .map(|(_, e)| e)
 }
 
+/// The anchor for an overlay finding: the row's span in the overlay file when
+/// the row still reads, else the declaration entry, else nowhere.
+fn overlay_anchor(table: &InstTable, key: &str, path: &str) -> (u32, String) {
+    if let Some(((pos, _len), uri)) = crate::instant::bom_overlay::row_anchor(key) {
+        return (pos, uri);
+    }
+    overlay_entry(table, path)
+        .map(entry_pos)
+        .unwrap_or((0, String::new()))
+}
+
 pub(crate) fn check_overlay_value_descendant(table: &InstTable, results: &mut Vec<NetCheckResult>) {
     for (key, path, outcome) in crate::instant::bom_overlay::bind_outcomes() {
         let value = match &outcome {
@@ -1314,9 +1326,7 @@ pub(crate) fn check_overlay_value_descendant(table: &InstTable, results: &mut Ve
         let declared = overlay_entry(table, &path)
             .map(|e| e.class_name.clone())
             .unwrap_or_default();
-        let (pos, uri) = overlay_entry(table, &path)
-            .map(entry_pos)
-            .unwrap_or((0, String::new()));
+        let (pos, uri) = overlay_anchor(table, &key, &path);
         results.push(NetCheckResult {
             check: "overlay-value-descendant",
             severity: "error",
@@ -1334,19 +1344,26 @@ pub(crate) fn check_overlay_value_descendant(table: &InstTable, results: &mut Ve
 
 pub(crate) fn check_overlay_key_slot(table: &InstTable, results: &mut Vec<NetCheckResult>) {
     for (key, path, outcome) in crate::instant::bom_overlay::bind_outcomes() {
-        if !matches!(outcome, BindOutcome::KeyNotSlot) {
-            continue;
-        }
+        // b1 (same class, Warning) and b2 (different class, Error) — the
+        // concrete-instance branch, split by what the row names.
+        let severity = match &outcome {
+            BindOutcome::KeyRedundant => "warning",
+            BindOutcome::KeyNotSlot => "error",
+            _ => continue,
+        };
+        let redundant = matches!(&outcome, BindOutcome::KeyRedundant);
         let detail = match overlay_entry(table, &path) {
+            Some(e) if redundant => format!(
+                "the instance already declares exactly this class ('{}'); the row is redundant",
+                e.class_name
+            ),
             Some(e) => format!("the instance declares concrete class '{}'", e.class_name),
             None => "no instance lives at this path".to_string(),
         };
-        let (pos, uri) = overlay_entry(table, &path)
-            .map(entry_pos)
-            .unwrap_or((0, String::new()));
+        let (pos, uri) = overlay_anchor(table, &key, &path);
         results.push(NetCheckResult {
             check: "overlay-key-slot",
-            severity: "error",
+            severity,
             message: crate::errcodes::format_msg(
                 crate::errcodes::BOM_OVERLAY_KEY_NOT_SLOT,
                 &[&key, &detail],
@@ -1358,6 +1375,7 @@ pub(crate) fn check_overlay_key_slot(table: &InstTable, results: &mut Vec<NetChe
         });
     }
     for key in crate::instant::bom_overlay::dangling_keys() {
+        let (pos, uri) = overlay_anchor(table, &key, &key);
         results.push(NetCheckResult {
             check: "overlay-key-slot",
             severity: "error",
@@ -1367,8 +1385,42 @@ pub(crate) fn check_overlay_key_slot(table: &InstTable, results: &mut Vec<NetChe
             ),
             net_name: key,
             code: crate::errcodes::BOM_OVERLAY_KEY_NOT_SLOT,
-            pos: 0,
-            uri: String::new(),
+            pos,
+            uri,
+        });
+    }
+    // Duplicate keys inside one overlay block (visible now the carrier is mc
+    // grammar): the first row wins, so a duplicate never binds — it only
+    // reports, by the same b1/b2 shape (same value W, conflicting values E).
+    for dup in crate::instant::bom_overlay::duplicate_rows() {
+        let (severity, detail) = if dup.first_value == dup.dup_value {
+            (
+                "warning",
+                format!(
+                    "duplicate row repeats the same value ('{}'); keep one row",
+                    dup.first_value
+                ),
+            )
+        } else {
+            (
+                "error",
+                format!(
+                    "duplicate rows conflict ('{}' vs '{}'); the first row wins",
+                    dup.first_value, dup.dup_value
+                ),
+            )
+        };
+        results.push(NetCheckResult {
+            check: "overlay-key-slot",
+            severity,
+            message: crate::errcodes::format_msg(
+                crate::errcodes::BOM_OVERLAY_KEY_NOT_SLOT,
+                &[&dup.key, &detail],
+            ),
+            net_name: dup.key,
+            code: crate::errcodes::BOM_OVERLAY_KEY_NOT_SLOT,
+            pos: dup.span.0,
+            uri: dup.uri,
         });
     }
 }

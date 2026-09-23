@@ -1,3 +1,0 @@
-# U245 pilot: the POWER_LDO slot buys its part at the engineering face.
-# Keys are instance paths relative to the top module (main -> LDO -> ldo).
-"LDO.ldo" = "LDO.SGM2019_33YN5G_TR"
