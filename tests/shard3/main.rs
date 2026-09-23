@@ -25,7 +25,6 @@ mod lock_pp_refs;
 mod module_port_role_free;
 mod netcheck_rules;
 mod pair_constraint_slots;
-mod param_inline_attrs_e3112;
 mod pin_anon_uscore;
 mod param_paren_list;
 mod project_svg_symbols;

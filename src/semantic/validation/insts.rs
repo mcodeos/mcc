@@ -150,8 +150,8 @@ fn check_instance_param_mismatch(acc: &mut CheckAccumulator) {
                     // ★ DC interface params ([VDD_3V3,GND]::DC(3.3V)) ARE the
                     // constructor args bound by position (`mod.sub mcu(V3V3, V1V2)`
                     // per §P1 C4), so they must count toward the declared arity.
-                    // Only pure ports (Label / Idx / ComponentInstance — e.g. the
-                    // `in signal, ps ground` kind of header entry) are excluded.
+                    // Only pure ports (Label / Idx — e.g. the `in signal,
+                    // ps ground` kind of header entry) are excluded.
                     let module_params: Vec<_> = m2
                         .base
                         .params
@@ -161,7 +161,6 @@ fn check_instance_param_mismatch(acc: &mut CheckAccumulator) {
                                 d.param_type.kind,
                                 crate::semantic::basic::mc_param_type::McParamTypeKind::Label
                                     | crate::semantic::basic::mc_param_type::McParamTypeKind::Idx
-                                    | crate::semantic::basic::mc_param_type::McParamTypeKind::ComponentInstance { .. }
                             )
                         })
                         .collect();

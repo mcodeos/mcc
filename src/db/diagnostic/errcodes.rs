@@ -643,11 +643,6 @@ pub const PARAM_INST_LOOKUP_FAILED: u32 = 3110;
 /// Interface pin count does not match the number of declared pin IDs.
 pub const PARAM_DECLARE_IFACE_PINS: u32 = 3111;
 
-/// Parameter declaration carries inline attributes (`id::Class(k = v)`).
-/// The component-instance parameter form (A5) parses but has no engine consumer,
-/// so the attributes are dropped silently.
-pub const PARAM_INLINE_ATTRS_UNSUPPORTED: u32 = 3112;
-
 /// Missing function name in a function call.
 pub const FUNC_CALL_MISSING_NAME: u32 = 3131;
 
@@ -2425,7 +2420,6 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(PARAM_NAME_EXTRACT_FAILED, "Failed to extract the parameter name.", "Failed to extract parameter name from MCAST_DECLARE"),
     entry!(PARAM_INST_LOOKUP_FAILED, "Instance::class lookup failed; the binding is treated as a plain pin alias.", "'{0}::{1}' lookup failed; treating '{0}' as plain pin alias. If you intended an interface binding, check that '{1}' is defined (and `use`d, if from a library)."),
     entry!(PARAM_DECLARE_IFACE_PINS, "Interface pin count does not match the number of declared pin IDs.", "Interface '{0}' declares {1} pin(s) (members: {2}) but {3} {4} given; the counts must match. Use a range like `a:b` to declare exactly {1} pin(s)."),
-    entry!(PARAM_INLINE_ATTRS_UNSUPPORTED, "Inline attributes on a parameter declaration are not supported.", "Parameter type '{0}' is declared with inline attributes — the component-instance parameter form (`id::Class(k = v)`, A5) has no engine consumer, so its attributes would be dropped silently. Declare the attributes where the instance is written instead."),
     entry!(FUNC_CALL_MISSING_NAME, "Missing function name in a function call.", "Missing function name in a function call."),
     entry!(CONN_STMT_PARSE_FAILED, "A connection statement failed to parse.", "connection statement failed to parse"),
     entry!(FUNC_BODY_INVALID, "Invalid function body node.", "Invalid function body node."),
