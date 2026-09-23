@@ -28,16 +28,22 @@
 //! (`dependents_of(DefId)`) through one registry hop, so consumers hold
 //! ids, never text.
 //!
-//! Coverage (U234 tier ①): the five former bypassers all record now —
-//! member resolution (`db/resolve/member.rs` via the locked wrapper), the
-//! consolidation/lapper span resolution (`mc_code.rs` via the locked
-//! wrapper), the scan-based declare-class registration (`query/refs.rs`,
-//! own record at Step 3), the goto-def legs (`lsp/gotodef.rs`, own records
-//! — the raw name-only path has no referencing file and stays unrecorded),
-//! and the re-entrant fallback (`cmie.rs`, own record). Still invisible:
-//! member-level references (the edge shape has no member dimension) and
-//! Inst/Label-kind references collected by `references::find_at` — a read
-//! face that pre-filters by graph hits must not drop those (ruling D4).
+//! Coverage (U234 tiers ①–②): the five former bypassers all record (member
+//! resolution and the consolidation/lapper span resolution via the locked
+//! wrapper, the scan-based declare-class registration, the goto-def legs,
+//! the re-entrant fallback), and tier ② closes the remaining gap: every
+//! whitelisted ref entry entering a `RefDefMap` records its edge at the
+//! `RefDefMap::insert` chokepoint (owner file × def file), so the
+//! Inst/Label-kind references `references::find_at` collects are all
+//! edge-backed and the who-uses face can prefilter on the graph without
+//! dropping them (ruling D4). Still invisible: member-level references
+//! (the edge shape has no member dimension).
+//!
+//! Purge is deliberately one-sided (ref-points only): a purged file's own
+//! edges go and are re-recorded by its rebuild, while edges from other
+//! files into it survive — they are as stale as those files' own maps,
+//! which the read faces already tolerate, and over-approximation is free
+//! because a prefiltered face post-filters on the exact def key.
 
 use crate::db::defregistry::{def_id as registry_def_id, kind_of, live_entry_by_id, DefId};
 use crate::McSpaceName;
@@ -51,6 +57,12 @@ use dashmap::DashMap;
 pub struct DefRefGraph {
     out: DashMap<McSpaceName, Vec<McSpaceName>>,
     rev: DashMap<McSpaceName, Vec<McSpaceName>>,
+    /// File-level projection of `rev` (U234 tier ②): def file → every file
+    /// with at least one recorded ref-point into it. Prefilters read faces
+    /// (who-uses) at file granularity, where ident mismatches between a
+    /// def's per-file map entries cannot cause a miss — over-approximation
+    /// is free because the face post-filters on the exact def key.
+    rev_files: DashMap<String, Vec<String>>,
 }
 
 impl DefRefGraph {
@@ -60,7 +72,8 @@ impl DefRefGraph {
 
     /// Record a resolution edge `from → to` (deduplicated). `from` is the
     /// referencing ref-point `(referenced-name, referencing-file)`, `to` the
-    /// resolved definition `(def-name, defining-file)`.
+    /// resolved definition `(def-name, defining-file)`. Also maintains the
+    /// file-level projection (def file → referencing files).
     pub fn record(&self, from: &McSpaceName, to: &McSpaceName) {
         let mut o = self.out.entry(from.clone()).or_default();
         if !o.contains(to) {
@@ -71,6 +84,23 @@ impl DefRefGraph {
         if !r.contains(from) {
             r.push(from.clone());
         }
+        drop(r);
+        let def_file = to.uri.as_uri().to_string();
+        let ref_file = from.uri.as_uri().to_string();
+        let mut rf = self.rev_files.entry(def_file).or_default();
+        if !rf.contains(&ref_file) {
+            rf.push(ref_file);
+        }
+    }
+
+    /// Files with at least one recorded ref-point into `def_file` (the
+    /// file-level projection, U234 tier ②) — the who-uses prefilter
+    /// candidate set, minus the def file itself.
+    pub fn dependent_files_of_file(&self, def_file: &str) -> Vec<String> {
+        self.rev_files
+            .get(def_file)
+            .map(|v| v.clone())
+            .unwrap_or_default()
     }
 
     /// Defs that `from` resolved to (out edges) — the goto-def answer.
@@ -136,41 +166,43 @@ impl DefRefGraph {
     pub fn clear(&self) {
         self.out.clear();
         self.rev.clear();
+        self.rev_files.clear();
     }
 
-    /// Drop every edge touching `uri` (U234) — the re-parse / file-removal
-    /// purge. An edge is stale when either end's file changed: ref-points in
-    /// the edited file may no longer resolve there, and defs in it may have
-    /// changed identity or disappeared. Both faces are swept symmetrically
-    /// (out keys are ref-points / rev keys are defs; each face's values are
-    /// the other end), and empty buckets are removed — the graph never keeps
-    /// shells. Without this, `dependents` answers from edges a re-parse
-    /// already invalidated.
+    /// Drop the ref-points of `uri` (U234) — the re-parse / file-removal
+    /// purge. Only edges whose **from** side lives in the purged file go:
+    /// ref-points in a re-parsed file may no longer resolve there, so their
+    /// edges are re-recorded by the file's own rebuild. Edges *pointing
+    /// into* the purged file are kept: the referencing files have not been
+    /// rebuilt yet, and their own maps still hold the same (equally stale)
+    /// refs — a graph-prefiltered read face must over-approximate, never
+    /// under-approximate (D4). A referencing file's next rebuild (or its
+    /// removal, which purges its ref-points) restores exactness.
     pub fn purge_file(&self, uri: &str) {
-        purge_side(&self.out, |u| u == uri);
-        purge_side(&self.rev, |u| u == uri);
+        self.purge_ref_points(&[uri.to_string()]);
     }
 
     /// Multi-file form of [`purge_file`] — the lib-unload sweep, which
-    /// tombstones every def under a uri set in one round.
+    /// tombstones every ref-point under a uri set in one round.
     pub fn purge_files(&self, uris: &HashSet<String>) {
-        purge_side(&self.out, |u| uris.contains(u));
-        purge_side(&self.rev, |u| uris.contains(u));
+        let set: Vec<String> = uris.iter().cloned().collect();
+        self.purge_ref_points(&set);
     }
-}
 
-/// One face of the purge: drop keys whose own file matches, drop value
-/// entries whose other end's file matches, drop keys whose values went
-/// empty. Run over both faces (`out` and `rev`) so an edge with either end
-/// in the purged set is gone from both sides.
-fn purge_side(map: &DashMap<McSpaceName, Vec<McSpaceName>>, matches: impl Fn(&str) -> bool) {
-    map.retain(|key, targets| {
-        if matches(key.uri.as_uri().as_ref()) {
-            return false;
-        }
-        targets.retain(|t| !matches(t.uri.as_uri().as_ref()));
-        !targets.is_empty()
-    });
+    /// The ref-point-side sweep shared by both purge forms: drop out keys in
+    /// the set, drop rev values in the set (empty rev buckets go too), drop
+    /// the set's files from the file-level projection.
+    fn purge_ref_points(&self, uris: &[String]) {
+        self.out.retain(|key, _| !uris.contains(&key.uri.as_uri().to_string()));
+        self.rev.retain(|_, froms| {
+            froms.retain(|f| !uris.contains(&f.uri.as_uri().to_string()));
+            !froms.is_empty()
+        });
+        self.rev_files.retain(|_, refs| {
+            refs.retain(|f| !uris.contains(f));
+            !refs.is_empty()
+        });
+    }
 }
 
 #[cfg(test)]
@@ -212,10 +244,13 @@ mod tests {
         assert_eq!(g.dependents(&to), vec![from]);
     }
 
-    /// U234: the re-parse / file-removal purge drops every edge touching the
-    /// uri — as either end — and never leaves an empty bucket behind.
+    /// U234 tier ②: the purge is ref-point-side only. A purged file's own
+    /// ref-points (and their rev entries, and its rows in the file
+    /// projection) go; edges from other files *into* the purged file stay —
+    /// the referencing files' maps are equally stale, and a prefiltered
+    /// read face must over-approximate, never under-approximate (D4).
     #[test]
-    fn def_refgraph__purge_file_drops_edges_touching_the_uri() {
+    fn def_refgraph__purge_file_drops_ref_points_keeps_incoming_edges() {
         let g = DefRefGraph::new();
         let from_a = sn("LED", "proj/a.mc");
         let from_b = sn("LED", "proj/b.mc");
@@ -226,8 +261,8 @@ mod tests {
         g.record(&from_a, &to_res);
         g.record(&from_b, &to_led);
 
-        // Purge by ref-point file: a's out bucket and every rev entry that
-        // names it go; b's edges survive untouched.
+        // Purge ref-point file a: a's edges go everywhere; b's edge into
+        // mcode/led.mc survives untouched.
         g.purge_file("proj/a.mc");
         assert!(g.referenced(&from_a).is_empty(), "out key a is gone");
         assert_eq!(g.referenced(&from_b), vec![to_led.clone()]);
@@ -236,18 +271,30 @@ mod tests {
             vec![from_b.clone()],
             "rev[led] keeps only the surviving ref-point"
         );
-        // res lost its only ref-point: the bucket is dropped, not emptied.
         assert!(!g.has_dependents(&to_res), "no empty shell for res");
+        assert_eq!(
+            g.dependent_files_of_file("mcode/led.mc"),
+            vec!["proj/b.mc".to_string()],
+            "projection drops the purged ref file, keeps the survivor"
+        );
+        assert!(
+            g.dependent_files_of_file("mcode/res.mc").is_empty(),
+            "projection never keeps an empty bucket"
+        );
 
-        // Purge by def file: the target side sweeps symmetrically.
+        // Purge def file mcode/led.mc: b's edge INTO it stays (b has not
+        // been rebuilt; its map still holds the same ref).
         g.purge_file("mcode/led.mc");
-        assert!(g.referenced(&from_b).is_empty(), "out key b emptied and dropped");
-        assert!(!g.has_dependents(&to_led));
-        assert_eq!(g.dependents(&to_res), Vec::<McSpaceName>::new());
+        assert_eq!(g.referenced(&from_b), vec![to_led.clone()], "incoming edge survives");
+        assert_eq!(
+            g.dependent_files_of_file("mcode/led.mc"),
+            vec!["proj/b.mc".to_string()],
+            "projection keeps the referencing file"
+        );
     }
 
-    /// U234: the lib-unload sweep shape — one call, a uri set, every edge
-    /// touching any of them gone, everything else preserved.
+    /// U234: the lib-unload sweep shape — one call, a uri set, every
+    /// ref-point under any of them gone, edges into the set preserved.
     #[test]
     fn def_refgraph__purge_files_matches_the_lib_sweep_shape() {
         let g = DefRefGraph::new();
@@ -267,11 +314,35 @@ mod tests {
             .collect();
         g.purge_files(&uris);
 
-        assert_eq!(g.referenced(&from_proj), vec![to_keep.clone()]);
-        assert!(g.referenced(&from_lib).is_empty());
-        assert!(!g.has_dependents(&to_led));
-        assert!(!g.has_dependents(&to_sub));
+        // proj's ref-point into led.mc points INTO the purged set: kept.
+        assert_eq!(g.referenced(&from_proj), vec![to_led.clone(), to_keep.clone()]);
+        assert!(g.referenced(&from_lib).is_empty(), "lib-internal ref-point purged");
         assert_eq!(g.dependents(&to_keep), vec![from_proj]);
+        assert_eq!(
+            g.dependent_files_of_file("mcode/led.mc"),
+            vec!["proj/a.mc".to_string()]
+        );
+    }
+
+    /// U234 tier ②: the file-level projection records alongside the edges
+    /// and dedups.
+    #[test]
+    fn def_refgraph__file_projection_records_and_dedups() {
+        let g = DefRefGraph::new();
+        let from_a = sn("LED", "proj/a.mc");
+        let from_a2 = sn("LED2", "proj/a.mc");
+        let to_led = sn("LED", "mcode/led.mc");
+
+        g.record(&from_a, &to_led);
+        g.record(&from_a2, &to_led);
+        g.record(&from_a, &to_led);
+
+        assert_eq!(
+            g.dependent_files_of_file("mcode/led.mc"),
+            vec!["proj/a.mc".to_string()],
+            "one row per referencing file, however many ref-points"
+        );
+        assert!(g.dependent_files_of_file("mcode/other.mc").is_empty());
     }
 
     /// D15.3: a graph hit carries the registry [`DefId`] — one id answers

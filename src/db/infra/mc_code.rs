@@ -2720,6 +2720,9 @@ impl McCode {
         use crate::ast::sem::{GlobalSymbolTable, RefDefEntry, RefDefMap, SymbolKind};
 
         let mut map = RefDefMap::new();
+        // U234 tier ②: insert() records the def resolution edge of every
+        // whitelisted ref entry against this owner file.
+        map.owner_uri = self.uri.to_string();
 
         // Scope the lock to release before writing
         {
@@ -7770,6 +7773,239 @@ module main
         assert!(
             workspace::WORKSPACE.refgraph.dependents(&to).contains(&from),
             "the goto-def face records the rev edge"
+        );
+    }
+
+    /// U234 tier ② shared fixture: the two-file project with an instance
+    /// and a bare-net label usage in the referencing file, loaded for real.
+    /// Returns (a_uri, b_uri) canonicalized.
+    fn refgraph_inst_label_project(dir_tag: &str) -> (String, String) {
+        crate::mcc_init_no_lib();
+        crate::mcc_set_system_root(std::path::Path::new(""));
+        crate::mcc_clear_workspace();
+
+        let dir = std::env::temp_dir().join(format!("mcc-{dir_tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("b.mc"),
+            "component V6LED\n{\n    pins = [\n        1 = A\n        2 = K\n    ]\n}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("a.mc"),
+            "use ./b.mc\n\nmodule main\n{\n    io GND\n    V6LED led1\n    led1.1 -> VCC5\n    led1.2 -> GND\n}\n",
+        )
+        .unwrap();
+        let b_uri = crate::build::pass1::canonicalize_project_uri(
+            &dir.join("b.mc").to_string_lossy().into_owned(),
+        );
+        let a_uri = crate::build::pass1::canonicalize_project_uri(
+            &dir.join("a.mc").to_string_lossy().into_owned(),
+        );
+        crate::mcc_load_from_string(&b_uri, &std::fs::read_to_string(dir.join("b.mc")).unwrap());
+        crate::mcc_load_from_string(&a_uri, &std::fs::read_to_string(dir.join("a.mc")).unwrap());
+        crate::build::pass1::mcb_parse_all_modules();
+        (a_uri, b_uri)
+    }
+
+    /// U234 tier ② coverage contract: every whitelisted entry in any file's
+    /// `def_to_refs` is edge-backed — the referencing file appears in the
+    /// def file's graph projection. This is the invariant that makes the
+    /// find_at prefilter unable to drop a ref (D4); a fixture without at
+    /// least one whitelisted entry would be a vacuous lock, so the count is
+    /// asserted too.
+    #[test]
+    fn def_mccode__refgraph_whitelisted_def_to_refs_entries_are_edge_backed() {
+        let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");
+        let (a_uri, b_uri) = refgraph_inst_label_project("refgraph-coverage");
+        use crate::refdef::types::is_whitelisted_ref_kind;
+
+        let mut whitelisted = 0usize;
+        for entry in workspace::WORKSPACE.mcodes.iter() {
+            let owner = entry.key().to_string();
+            let sem = entry.value().symbols.lock().unwrap();
+            let Some(m) = sem.ref_def_map.as_ref() else {
+                continue;
+            };
+            for (def_key, refs) in &m.def_to_refs {
+                let def_uri = if def_key.1 != 0 {
+                    crate::semantic::common::uri_of_file_id(def_key.1).to_string()
+                } else {
+                    owner.clone()
+                };
+                for &(rk, _) in refs {
+                    if !is_whitelisted_ref_kind(rk) {
+                        continue;
+                    }
+                    whitelisted += 1;
+                    assert!(
+                        workspace::WORKSPACE
+                            .refgraph
+                            .dependent_files_of_file(&def_uri)
+                            .contains(&owner),
+                        "file {owner} holds whitelisted refs into {def_uri} with no edge"
+                    );
+                    break;
+                }
+            }
+        }
+        assert!(
+            whitelisted > 0,
+            "fixture must produce whitelisted def_to_refs entries"
+        );
+        assert!(
+            workspace::WORKSPACE
+                .refgraph
+                .dependent_files_of_file(b_uri.as_str())
+                .contains(&a_uri),
+            "the cross-file class reference is in the projection"
+        );
+    }
+
+    /// U234 tier ② (D4): the prefiltered who-uses is byte-for-byte
+    /// equivalent to the old full workspace scan. The query is the
+    /// cross-file class reference — the shape where a bad prefilter would
+    /// drop the foreign file's usage — and the prefiltered `find_at` must
+    /// return exactly the item set the unfiltered scan produces. (Inst and
+    /// label names are not reachable through the name-hint fallback at all —
+    /// the name_index only holds class-level names, a pre-existing
+    /// limitation — so their no-drop guarantee lives in the coverage lock
+    /// above: every whitelisted `def_to_refs` entry is edge-backed.)
+    #[test]
+    fn def_mccode__find_at_graph_prefilter_matches_the_full_scan() {
+        let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");
+        let (a_uri, _b_uri) = refgraph_inst_label_project("refgraph-findat");
+        let dir = std::env::temp_dir().join(format!("mcc-refgraph-findat-{}", std::process::id()));
+        let src = std::fs::read_to_string(dir.join("a.mc")).unwrap();
+        use crate::refdef::types::{is_whitelisted_ref_kind, SymbolKind};
+
+        // The old algorithm, unfiltered: pin the def the way find_at's
+        // name_hint fallback does, then every loaded file's reverse index
+        // and lapper contribute. Item identity = (uri, pos, end, kind).
+        let full_scan = |name: &str| -> Vec<(String, usize, usize, u8)> {
+            let mut refs: std::collections::BTreeSet<(u8, u32)> = std::collections::BTreeSet::new();
+            let mut def_key: Option<(SymbolKind, u32, u32, u32)> = None;
+            for entry in workspace::WORKSPACE.mcodes.iter() {
+                let Ok(s) = entry.value().symbols.lock() else {
+                    continue;
+                };
+                let Some(m) = s.ref_def_map.as_ref() else {
+                    continue;
+                };
+                if let Some(e) = m.get_by_name(entry.key(), name) {
+                    let uri = crate::semantic::common::uri_of_file_id(e.def_loc.file_id)
+                        .to_string();
+                    def_key = Some((
+                        e.def_kind,
+                        crate::semantic::common::uri_intern(&crate::McURI::from(uri.as_str())).0,
+                        e.def_loc.byte_start,
+                        e.def_loc.byte_end,
+                    ));
+                }
+            }
+            let Some((dk, fid, ds, de)) = def_key else {
+                return Vec::new();
+            };
+            for entry in workspace::WORKSPACE.mcodes.iter() {
+                if let Ok(s) = entry.value().symbols.lock() {
+                    if let Some(m) = s.ref_def_map.as_ref() {
+                        for &(rk, rid) in m.get_refs_for_def(dk, fid, ds, de) {
+                            if is_whitelisted_ref_kind(rk) {
+                                refs.insert((rk as u8, rid));
+                            }
+                        }
+                    }
+                }
+            }
+            let mut spans: Vec<(String, usize, usize, u8)> = Vec::new();
+            for entry in workspace::WORKSPACE.mcodes.iter() {
+                let f = entry.key().to_string();
+                if let Ok(s) = entry.value().symbols.lock() {
+                    for iv in s.symbol_lapper.iter() {
+                        for &(rk, rid) in &refs {
+                            if iv.val.kind == rk && iv.val.id == rid {
+                                spans.push((f.clone(), iv.start, iv.stop, rk as u8));
+                            }
+                        }
+                    }
+                }
+            }
+            spans.push((
+                crate::semantic::common::uri_of_file_id(fid).to_string(),
+                ds as usize,
+                de as usize,
+                dk as u8,
+            ));
+            spans.sort();
+            spans.dedup();
+            spans
+        };
+
+        // Item identity helper: (uri, pos, end, kind) tuples out of find_at.
+        let find_at_items = |offset: usize, hint: &str| -> Vec<(String, usize, usize, u8)> {
+            crate::lsp::references::find_at(&a_uri, offset, Some(hint))
+                .iter()
+                .map(|it| {
+                    (
+                        it["uri"].as_str().unwrap_or_default().to_string(),
+                        it["pos"].as_u64().unwrap_or(0) as usize,
+                        it["end"].as_u64().unwrap_or(0) as usize,
+                        it["kind"].as_u64().unwrap_or(0) as u8,
+                    )
+                })
+                .collect()
+        };
+
+        // The cross-file class query: the prefiltered panel must equal the
+        // full scan exactly, and be non-vacuous — def site in b.mc plus the
+        // ClassRef usage in a.mc.
+        let off = src.find("V6LED led1").unwrap();
+        let expected = full_scan("V6LED");
+        let got = find_at_items(off, "V6LED");
+        assert_eq!(
+            got, expected,
+            "prefiltered panel diverges from the full scan for V6LED"
+        );
+        assert!(
+            expected.len() >= 2,
+            "fixture must produce a real panel: {expected:?}"
+        );
+        assert!(
+            expected
+                .iter()
+                .any(|(u, _, _, k)| *k == crate::refdef::types::SymbolKind::ClassRef as u8
+                    && u == a_uri.as_str()),
+            "the cross-file ClassRef usage must be in the panel: {expected:?}"
+        );
+    }
+
+    /// U234 tier ② loader ordering: re-adding a loaded file from disk keeps
+    /// its freshly recorded edges. The purge must run before the re-parse —
+    /// parse_pass1 already re-records through the RefDefMap::insert
+    /// chokepoint, so a purge after the parse would wipe edges nothing
+    /// re-records until the next full rebuild.
+    #[test]
+    fn def_mccode__refgraph_readd_keeps_freshly_recorded_edges() {
+        let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");
+        let (a_uri, b_uri) = refgraph_two_file_project("refgraph-readd");
+        let (from, to) = refgraph_edge_pair(&a_uri, &b_uri);
+        assert!(
+            workspace::WORKSPACE.refgraph.referenced(&from).contains(&to),
+            "the first load records the edge"
+        );
+
+        crate::build::loader::mcb_add(&crate::McURI::from(a_uri.as_str()));
+        assert!(
+            workspace::WORKSPACE.refgraph.referenced(&from).contains(&to),
+            "re-add of the referencing file keeps its edges (purge before parse)"
+        );
+        assert!(
+            workspace::WORKSPACE
+                .refgraph
+                .dependent_files_of_file(b_uri.as_str())
+                .contains(&a_uri),
+            "the file projection survives the re-add too"
         );
     }
 

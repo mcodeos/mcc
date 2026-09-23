@@ -31,6 +31,15 @@ pub fn mcb_add(uri: &McURI) {
     };
 
     if let Some(mut mcfile) = McCode::new(&file_to_add, false) {
+        // U234 tier ②: purge BEFORE the re-parse. parse_pass1 below already
+        // re-records this file's resolution edges (the RefDefMap insert
+        // chokepoint fires during it), so a purge after the parse would wipe
+        // freshly recorded edges that nothing re-records until the next full
+        // rebuild. Purging first keeps the usual drop-then-rerecord order.
+        workspace::WORKSPACE
+            .refgraph
+            .purge_file(canonical_uri.as_str());
+
         mcfile.parse_ast(); // step 1
         mcfile.parse_nsp(); // step 2
         mcfile.parse_pass1(); // step 3
@@ -41,11 +50,6 @@ pub fn mcb_add(uri: &McURI) {
             dashmap::Entry::Occupied(mut occupied_entry) => {
                 // update pass
                 remove_defines(&canonical_uri);
-                // U234: the re-parse invalidates this file's resolution
-                // edges — drop them before the new pass re-records.
-                workspace::WORKSPACE
-                    .refgraph
-                    .purge_file(canonical_uri.as_str());
                 occupied_entry.insert(mcfile);
             }
             dashmap::Entry::Vacant(vacant_entry) => {

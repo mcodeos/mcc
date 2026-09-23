@@ -436,6 +436,36 @@ pub struct RefDefMap {
     /// ★ §15.2: Reverse index — (def_kind, file_id, byte_start, byte_end) → [(ref_kind, ref_id)].
     /// Built alongside entries for O(1) find-all-references and rename.
     pub def_to_refs: HashMap<(SymbolKind, u32, u32, u32), Vec<(SymbolKind, u32)>>,
+    /// The file this map belongs to (its canonical uri). Set once at
+    /// consolidation; empty for maps built outside the loader (tests).
+    /// U234 tier ②: insert() uses it as the ref-point side of the def
+    /// resolution edge it records for whitelisted ref kinds.
+    pub owner_uri: String,
+}
+
+/// P1 refs whitelist — reference kinds worth showing in the refs panel and,
+/// since U234 tier ②, the kinds whose entries record a def resolution edge
+/// at [`RefDefMap::insert`] (the who-uses prefilter's coverage contract:
+/// every whitelisted ref in any `def_to_refs` must be edge-backed, so a
+/// graph-prefiltered face cannot drop it — ruling D4).
+///
+/// Netlist-meaningful symbols: component/module classes, instances, enum
+/// values and net labels (both def and ref sides). Type-level noise — pin
+/// interfaces (`cap::UV.CAP`), params, ports, funcs, bus members — never
+/// reaches the panel, so "find references" stays on the circuit structure
+/// instead of the type system.
+pub fn is_whitelisted_ref_kind(kind: SymbolKind) -> bool {
+    matches!(
+        kind,
+        SymbolKind::ClassDef
+            | SymbolKind::ClassRef
+            | SymbolKind::InstDef
+            | SymbolKind::InstRef
+            | SymbolKind::EnumDef
+            | SymbolKind::EnumRef
+            | SymbolKind::LabelDef
+            | SymbolKind::LabelRef
+    )
 }
 
 impl RefDefMap {
@@ -457,7 +487,47 @@ impl RefDefMap {
             .entry(def_key)
             .or_default()
             .push((kind, ref_id));
+        self.record_ref_edge(kind, &entry);
         self.entries.insert((kind, ref_id), entry);
+    }
+
+    /// U234 tier ②: every whitelisted ref entry records its def resolution
+    /// edge here — the single chokepoint all layer-2 ref inserts flow
+    /// through, so the who-uses prefilter's coverage contract (every
+    /// whitelisted `def_to_refs` entry is edge-backed) holds by
+    /// construction. `from` = the ref-point `(referenced name, owner file)`,
+    /// `to` = the resolved def `(same name, def file)`; `record` dedups, so
+    /// re-consolidation stays a single edge. A cross-file def's name is
+    /// empty in this map (resolved by the owner file, never guessed
+    /// cross-file) — the edge records the empty ident, which is enough for
+    /// the file-level projection the prefilter reads.
+    fn record_ref_edge(&self, kind: SymbolKind, entry: &RefDefEntry) {
+        if self.owner_uri.is_empty() || !is_whitelisted_ref_kind(kind) {
+            return;
+        }
+        // file_id 0 is the matching layer's sentinel for "def in the owner
+        // file" (fill_refdef_layer2 falls back to the walked file too).
+        let def_uri = if entry.def_loc.file_id != 0 {
+            crate::semantic::common::uri_of_file_id(entry.def_loc.file_id).to_string()
+        } else {
+            self.owner_uri.clone()
+        };
+        if def_uri.is_empty() {
+            return;
+        }
+        let ident = crate::McIds::from(entry.def_name.as_str());
+        crate::db::cmie::tables::WORKSPACE.refgraph.record(
+            &crate::McSpaceName {
+                ident: ident.clone(),
+                uri: crate::semantic::common::uri_intern(&crate::McURI::from(
+                    self.owner_uri.as_str(),
+                )),
+            },
+            &crate::McSpaceName {
+                ident,
+                uri: crate::semantic::common::uri_intern(&crate::McURI::from(def_uri.as_str())),
+            },
+        );
     }
 
     /// Insert with name-based index for Use-table lookup. Legacy API kept for
