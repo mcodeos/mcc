@@ -286,11 +286,16 @@ pub fn detect_symbol(table: &InstTable, id: u32, kind: &BoxKind) -> Symbol {
     }
 }
 
-/// Extract designator from instance name (`R1` / `C5` / `U3`)
+/// Extract designator from instance name (`R1` / `C5` / `U3` / `M1C1`)
 ///
-/// Rules:
-/// - First letter in the set `{R, C, L, D, U, J, Q, Y, F, X}`
-/// (resistor/capacitor/inductor/diode/IC/connector/transistor/crystal/fuse/crystal)
+/// Rules (the table in `instant::refdes` is the single source,
+/// refdes-design.md §1.1):
+/// - Any leading `M<digits>` module segments are skipped (`M` is reserved
+///   for the module segment of a full refdes, so `M1C1` counts as the
+///   designator it names; a bare module path `M1` does not).
+/// - The first remaining letter must start some registered prefix, so a new
+///   class row extends detection automatically (`T1` via `XFR`, `K1` via
+///   `RELAY`, `S1` via `SWITCH`, `E1` via `ANT`, `P1` via `PS`).
 /// - All remaining characters are digits
 /// - Name length >= 2
 ///
@@ -299,16 +304,30 @@ pub fn extract_designator(name: &str) -> Option<String> {
     if name.len() < 2 {
         return None;
     }
-    let mut chars = name.chars();
-    let first = chars.next()?;
-    if !matches!(
-        first,
-        'R' | 'C' | 'L' | 'D' | 'U' | 'J' | 'Q' | 'Y' | 'F' | 'X'
-    ) {
+    let mut body = name;
+    loop {
+        let mut chars = body.chars();
+        let first = chars.next()?;
+        if first != 'M' {
+            break;
+        }
+        let rest = chars.as_str();
+        let digits =
+            rest.len() - rest.trim_start_matches(|c: char| c.is_ascii_digit()).len();
+        if digits == 0 || rest.len() == digits {
+            return None; // `M` with no number, or a bare module path (`M1`)
+        }
+        body = &rest[digits..];
+    }
+    let first = body.chars().next()?;
+    if !crate::instant::refdes::REFDES_PREFIXES
+        .iter()
+        .any(|d| d.prefix.starts_with(first))
+    {
         return None;
     }
-    let rest: String = chars.collect();
-    if !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit()) {
+    let rest: String = body.chars().skip(1).collect();
+    if rest.chars().all(|c| c.is_ascii_digit()) {
         Some(name.to_string())
     } else {
         None
@@ -379,6 +398,28 @@ mod tests {
     }
 
     #[test]
+    fn vec_detect__designator_letters_follow_the_prefix_table() {
+        // The accepted first letters derive from `REFDES_PREFIXES`, so each
+        // registered family letter with a digit answers (refdes-design §1.1).
+        assert_eq!(extract_designator("T1"), Some("T1".into())); // XFR
+        assert_eq!(extract_designator("K1"), Some("K1".into())); // RELAY
+        assert_eq!(extract_designator("S1"), Some("S1".into())); // SWITCH
+        assert_eq!(extract_designator("E1"), Some("E1".into())); // ANT
+        assert_eq!(extract_designator("P1"), Some("P1".into())); // PS
+        assert_eq!(extract_designator("F1"), Some("F1".into())); // FUSE
+    }
+
+    #[test]
+    fn vec_detect__designator_module_segment() {
+        // `M` is reserved for the module segment of a full refdes.
+        assert_eq!(extract_designator("M1C1"), Some("M1C1".into()));
+        assert_eq!(extract_designator("M12R5"), Some("M12R5".into()));
+        assert_eq!(extract_designator("M1M2C1"), Some("M1M2C1".into()));
+        assert_eq!(extract_designator("M1"), None); // bare module path
+        assert_eq!(extract_designator("MC1"), None); // `M` with no number
+    }
+
+    #[test]
     fn vec_detect__designator_negative() {
         assert_eq!(extract_designator(""), None);
         assert_eq!(extract_designator("R"), None); // no number
@@ -386,7 +427,7 @@ mod tests {
         assert_eq!(extract_designator("R1A"), None); // suffix letter not allowed
         assert_eq!(extract_designator("VCC"), None);
         assert_eq!(extract_designator("mcu513"), None); // doesn't start with uppercase
-        assert_eq!(extract_designator("PA0"), None); // P not in allowed set
+        assert_eq!(extract_designator("PA0"), None); // not prefix letter + digits
     }
 
     #[test]
