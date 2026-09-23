@@ -882,12 +882,15 @@ pub(crate) fn decode_pwr_pin(pin: &McPwrPin) -> L1PwrPin {
             ),
         }
     }
-    if out.v_text.is_empty() {
-        if is_sink {
-            flag_bad(&mut out.bad, "sink nominal is mandatory (§4.4)".to_string());
-        } else {
-            flag_bad(&mut out.bad, "missing nominal 'v'".to_string());
-        }
+    // A source/bi row states what the part guarantees, so its nominal is
+    // mandatory. A sink's nominal is optional (applied-nominal-design.md §4.1
+    // ruling 1, U227 b3877): a generic shape base states no application
+    // requirement — the part's accepted window (`spec.input_req`) is what the
+    // sink-window gate (6024) adjudicates, and a sink with neither a nominal
+    // nor a window is un-adjudicated. A decoded nominal keeps the
+    // nominal-vs-nominal comparison (6011).
+    if out.v_text.is_empty() && !is_sink {
+        flag_bad(&mut out.bad, "missing nominal 'v'".to_string());
     }
     out
 }
@@ -2397,10 +2400,11 @@ module main {
         assert!(bi.bad.is_none(), "psbi decode: {:?}", bi.bad);
     }
 
-    /// A missing nominal on a sink is the one hard violation the decode owns:
-    /// §4.4: a sink's nominal is mandatory. (Pure structural construction — no grammar dependence.)
+    /// A sink without a nominal decodes clean (applied-nominal-design.md §4.1
+    /// ruling 1: the sink nominal is optional — the application side owns it).
+    /// (Pure structural construction — no grammar dependence.)
     #[test]
-    fn decode_sink_without_nominal_is_mandatory_violation() {
+    fn decode_sink_without_nominal_is_optional() {
         let pin = McPwrPin {
             dir: PwrDir::Snk,
             iface: "DC".to_string(),
@@ -2412,11 +2416,7 @@ module main {
         };
         let out = decode_pwr_pin(&pin);
         assert_eq!(out.v, None);
-        let bad = out.bad.expect("a sink must carry a nominal");
-        assert!(
-            bad.contains("mandatory"),
-            "expected the mandatory-nominal message, got: {bad}"
-        );
+        assert!(out.bad.is_none(), "optional sink nominal: {:?}", out.bad);
     }
 
     // module power-output port capture (rail-contract-design.md §8.5)

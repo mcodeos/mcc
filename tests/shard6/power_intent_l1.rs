@@ -390,8 +390,8 @@ fn rail_nature_agreement_and_absence_are_clean() {
 // E-PWR-001 — sink nominal vs derived net supply S (intent-design.md
 // §4.3/§4.4/§11).
 //
-// A `psnk` sink must require the net's derived supply nominal S (the
-// mandatory-nominal check). The rule consumes the *decoded* pin DC contract
+// A `psnk` sink that declares a nominal must require the net's derived supply
+// nominal S. The rule consumes the *decoded* pin DC contract
 // (decode_pwr_pin, §5.2 direction-word family) joined — by the net the sink's
 // hot member lands on — to S derived from that net's handwritten supply roots
 // (§4.3): a domain-rail face *or* a `psrc`/`psbi` hot directly on the net. The
@@ -412,6 +412,31 @@ const SINK3: &str =
 /// *dotted* `VIN.Vin`. The E-PWR-001 lookup must match that dotted capture.
 const LDO_MB: &str =
     "component LDO_MB {\n    pins = [\n        psnk [1,2] = VIN{Vin, GND}::DC(3.3V)\n    ]\n}\n";
+
+/// A nominal-less sink row (`::DC()`, the library shape-base form): the sink
+/// states no application requirement, so 6011 stays silent on a 5V rail — the
+/// part window (spec `input_req`, 6024) is the adjudicator when declared
+/// (applied-nominal-design.md §4.1 ruling 1).
+const SINK_NN: &str =
+    "component SINK_NN {\n    pins = [\n        psnk [1,2] = [VDD, GND]::DC()\n    ]\n}\n";
+
+#[test]
+fn sink_without_nominal_is_not_nominal_adjudicated() {
+    let src = format!(
+        "{SINK_NN}\nmodule main {{\n    conduit GND @role(main)\n    \
+         domain DVDD @class(digital) {{ rail [V5V, GND]::DC(5V) }}\n    \
+         io V5V\n    SINK_NN s\n    s.VDD -> V5V\n    s.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::POWER_SINK_NOMINAL_MISMATCH),
+        "a nominal-less sink states no requirement — 6011 must stay silent; got codes: {codes:?}"
+    );
+    assert!(
+        !codes.contains(&mcc::errcodes::POWER_PIN_DECODE),
+        "the nominal-less sink row must decode clean (sink nominal is optional); got codes: {codes:?}"
+    );
+}
 
 /// A `::DC(3.3V)` sink wired onto a 5V rail is the canonical §4.4 case → E-PWR-001.
 #[test]
@@ -612,10 +637,11 @@ fn disagreeing_roots_leave_net_unadjudicated() {
 
 // Pin-contract decode ERC (6012, §5.2 closed word-list discipline — the pin-side Volt-arg decode).
 //
-// The pin `::DC` is a typed contract: a sink declares *only* its mandatory
-// nominal (source-exclusive budget keys and spec-window keys are flagged), the
-// nominal must be a DC volts value, and a source may carry its tol/capacity/eff
-// budget. decode_pwr_pin keeps the first failure; 6012 reports it decl-locally,
+// The pin `::DC` is a typed contract: a sink declares *only* its nominal
+// (source-exclusive budget keys and spec-window keys are flagged), the nominal
+// must be a DC volts value, and a source may carry its tol/capacity/eff
+// budget. The sink nominal itself is optional (applied-nominal-design.md §4.1
+// ruling 1). decode_pwr_pin keeps the first failure; 6012 reports it decl-locally,
 // once per *used* component class — the hookup layer never adjudicates a sink
 // it cannot decode, so the decode error must not be silently dropped.
 
