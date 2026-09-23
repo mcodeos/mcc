@@ -76,7 +76,7 @@ range (threshold 40KB).
 | `semantic/` | 91 | 2732 KB |
 | `stages/` | 12 | 322 KB |
 | `vector/` | 25 | 478 KB |
-| `viz/` | 97 | 2450 KB |
+| `viz/` | 98 | 2457 KB |
 
 ## Declaration index
 
@@ -10215,8 +10215,8 @@ viz/mod.rs#L42  mod doc
 viz/mod.rs#L44  mod idiom
 viz/mod.rs#L45  mod labels
 viz/mod.rs#L46  mod layer
-viz/mod.rs#L47  mod layout_manifest
-viz/mod.rs#L48  mod layout
+viz/mod.rs#L47  mod layout
+viz/mod.rs#L48  mod layout_manifest
 viz/mod.rs#L49  mod layout_model
 viz/mod.rs#L50  mod log
 viz/mod.rs#L51  mod metrics
@@ -10227,10 +10227,11 @@ viz/mod.rs#L55  mod route
 viz/mod.rs#L56  mod semantic
 viz/mod.rs#L57  mod sourcelink
 viz/mod.rs#L58  mod special
-viz/mod.rs#L59  mod stability
-viz/mod.rs#L60  mod template
-viz/mod.rs#L61  mod traits
-viz/mod.rs#L67  static SYNTHETIC_PIN_COUNT
+viz/mod.rs#L59  mod srcuri
+viz/mod.rs#L60  mod stability
+viz/mod.rs#L61  mod template
+viz/mod.rs#L62  mod traits
+viz/mod.rs#L68  static SYNTHETIC_PIN_COUNT
 viz/pins/mod.rs#L44  struct PinKey
 viz/pins/mod.rs#L49  impl PinKey
 viz/pins/mod.rs#L50  fn new
@@ -10413,21 +10414,21 @@ viz/render/pin_render.rs#L86  fn for_virtual_ic
 viz/render/pin_render.rs#L97  fn io_type_label
 viz/render/pin_render.rs#L115  fn render_pin
 viz/render/pin_render.rs#L127  fn render_pin_named
-viz/render/pin_render.rs#L297  fn pin_position
-viz/render/pin_render.rs#L308  fn stub_outward
-viz/render/pin_render.rs#L327  fn io_marker
-viz/render/pin_render.rs#L375  fn label_positions
-viz/render/pin_render.rs#L414  fn is_synthetic_pin_name
-viz/render/pin_render.rs#L422  fn render_nc_pin
-viz/render/pin_render.rs#L433  fn render_nc_pin_side
-viz/render/pin_render.rs#L518  fn escape_xml
-viz/render/pin_render.rs#L528  mod tests
-viz/render/pin_render.rs#L532  fn mk_box
-viz/render/pin_render.rs#L554  fn pin_position_correct
-viz/render/pin_render.rs#L569  fn render_pin_includes_name_and_number
-viz/render/pin_render.rs#L586  fn render_pin_hides_synthetic_names
-viz/render/pin_render.rs#L603  fn render_nc_pin_open_tag_is_self_closed
-viz/render/pin_render.rs#L625  fn marker_only_no_text
+viz/render/pin_render.rs#L298  fn pin_position
+viz/render/pin_render.rs#L309  fn stub_outward
+viz/render/pin_render.rs#L328  fn io_marker
+viz/render/pin_render.rs#L376  fn label_positions
+viz/render/pin_render.rs#L415  fn is_synthetic_pin_name
+viz/render/pin_render.rs#L423  fn render_nc_pin
+viz/render/pin_render.rs#L434  fn render_nc_pin_side
+viz/render/pin_render.rs#L530  fn escape_xml
+viz/render/pin_render.rs#L540  mod tests
+viz/render/pin_render.rs#L544  fn mk_box
+viz/render/pin_render.rs#L566  fn pin_position_correct
+viz/render/pin_render.rs#L581  fn render_pin_includes_name_and_number
+viz/render/pin_render.rs#L598  fn render_pin_hides_synthetic_names
+viz/render/pin_render.rs#L615  fn render_nc_pin_open_tag_is_self_closed
+viz/render/pin_render.rs#L639  fn marker_only_no_text
 viz/render/power_label.rs#L19  struct PowerLabelShape
 viz/render/power_label.rs#L21  impl BoxShape for PowerLabelShape
 viz/render/power_label.rs#L22  fn render
@@ -10461,24 +10462,24 @@ viz/render/resistor.rs#L165  fn no_rect_body
 viz/render/shape.rs#L43  trait BoxShape
 viz/render/shape.rs#L45  fn render
 viz/render/shape.rs#L61  fn render_box
-viz/render/shape.rs#L94  fn render_box_inner
-viz/render/shape.rs#L182  fn render_custom_symbol
-viz/render/shape.rs#L211  fn escape_xml_attr
-viz/render/shape.rs#L223  fn box_name_label
-viz/render/shape.rs#L237  fn render_test_point
-viz/render/shape.rs#L262  fn render_dot_symbol
-viz/render/shape.rs#L284  fn render_box_legacy
-viz/render/shape.rs#L325  mod tests
-viz/render/shape.rs#L330  fn mk
-viz/render/shape.rs#L355  fn custom_symbol_overrides_system_symbol_in_device_layers
-viz/render/shape.rs#L374  fn no_custom_symbol_uses_system
-viz/render/shape.rs#L387  fn box_body
-viz/render/shape.rs#L409  fn root_box_advertises_drill_down_only_when_the_layer_exists
-viz/render/shape.rs#L455  fn drill_down_does_not_depend_on_the_face
-viz/render/shape.rs#L483  fn virtual_test_point_hides_instance_name
-viz/render/shape.rs#L498  fn real_test_point_keeps_instance_name
-viz/render/shape.rs#L509  fn box_with_source_span_stamps_its_coordinate
-viz/render/shape.rs#L521  fn box_without_source_span_stamps_nothing
+viz/render/shape.rs#L96  fn render_box_inner
+viz/render/shape.rs#L184  fn render_custom_symbol
+viz/render/shape.rs#L213  fn escape_xml_attr
+viz/render/shape.rs#L225  fn box_name_label
+viz/render/shape.rs#L239  fn render_test_point
+viz/render/shape.rs#L264  fn render_dot_symbol
+viz/render/shape.rs#L286  fn render_box_legacy
+viz/render/shape.rs#L327  mod tests
+viz/render/shape.rs#L332  fn mk
+viz/render/shape.rs#L357  fn custom_symbol_overrides_system_symbol_in_device_layers
+viz/render/shape.rs#L376  fn no_custom_symbol_uses_system
+viz/render/shape.rs#L389  fn box_body
+viz/render/shape.rs#L411  fn root_box_advertises_drill_down_only_when_the_layer_exists
+viz/render/shape.rs#L457  fn drill_down_does_not_depend_on_the_face
+viz/render/shape.rs#L485  fn virtual_test_point_hides_instance_name
+viz/render/shape.rs#L500  fn real_test_point_keeps_instance_name
+viz/render/shape.rs#L511  fn box_with_source_span_stamps_its_coordinate
+viz/render/shape.rs#L523  fn box_without_source_span_stamps_nothing
 viz/render/sub_module.rs#L45  fn submodule_pin_opts
 viz/render/sub_module.rs#L66  fn render_submodule_pin
 viz/render/sub_module.rs#L79  fn render_sub_module
@@ -10960,23 +10961,23 @@ viz/semantic/mod.rs#L1345  fn ground_label_is_ground_flag_role
 viz/semantic/mod.rs#L1361  fn bus_net_role_is_bus_member
 viz/semantic/mod.rs#L1375  fn submodule_io_net_role_is_module_io
 viz/semantic/mod.rs#L1389  fn isolated_net_role
-viz/sourcelink.rs#L51  type FileCache
-viz/sourcelink.rs#L61  fn wrap_standalone
-viz/sourcelink.rs#L71  fn stamp_vscode_links
-viz/sourcelink.rs#L86  const URI_ATTR
-viz/sourcelink.rs#L87  const OFF_ATTR
-viz/sourcelink.rs#L89  fn linkify
-viz/sourcelink.rs#L134  fn vscode_link
-viz/sourcelink.rs#L180  fn percent_encode_path
-viz/sourcelink.rs#L196  fn unescape_attr
-viz/sourcelink.rs#L203  fn escape_attr
-viz/sourcelink.rs#L213  mod tests
-viz/sourcelink.rs#L216  fn tmpdir
-viz/sourcelink.rs#L237  fn link_carries_line_and_utf16_column
-viz/sourcelink.rs#L257  fn stamping_adds_the_link_and_leaves_the_offset_alone
-viz/sourcelink.rs#L277  fn unreadable_uri_gets_no_link
-viz/sourcelink.rs#L295  fn offset_past_eof_clamps_and_relative_uris_resolve
-viz/sourcelink.rs#L312  fn unrelated_svg_is_untouched
+viz/sourcelink.rs#L58  type FileCache
+viz/sourcelink.rs#L68  fn wrap_standalone
+viz/sourcelink.rs#L79  fn stamp_vscode_links
+viz/sourcelink.rs#L94  const URI_ATTR
+viz/sourcelink.rs#L95  const OFF_ATTR
+viz/sourcelink.rs#L97  fn linkify
+viz/sourcelink.rs#L142  fn vscode_link
+viz/sourcelink.rs#L178  fn percent_encode_path
+viz/sourcelink.rs#L194  fn unescape_attr
+viz/sourcelink.rs#L201  fn escape_attr
+viz/sourcelink.rs#L211  mod tests
+viz/sourcelink.rs#L214  fn tmpdir
+viz/sourcelink.rs#L235  fn link_carries_line_and_utf16_column
+viz/sourcelink.rs#L255  fn stamping_adds_the_link_and_leaves_the_offset_alone
+viz/sourcelink.rs#L275  fn unreadable_uri_gets_no_link
+viz/sourcelink.rs#L293  fn offset_past_eof_clamps_and_relative_uris_resolve
+viz/sourcelink.rs#L310  fn unrelated_svg_is_untouched
 viz/special/mod.rs#L26  struct PowerGroundBusModel
 viz/special/mod.rs#L40  struct SpecialEndpointKey
 viz/special/mod.rs#L49  struct PowerGroundNetIntent
@@ -11027,6 +11028,18 @@ viz/special/mod.rs#L1007  fn avg_stub_length
 viz/special/mod.rs#L1026  fn warnings_count_correct
 viz/special/mod.rs#L1042  fn bus_taps_and_bends
 viz/special/mod.rs#L1057  fn report_merge_accumulates
+viz/srcuri.rs#L28  fn display
+viz/srcuri.rs#L35  fn display_with
+viz/srcuri.rs#L63  fn strip_prefix_normalized
+viz/srcuri.rs#L74  fn resolve
+viz/srcuri.rs#L87  mod tests
+viz/srcuri.rs#L90  fn scratch
+viz/srcuri.rs#L98  fn project_member_strips_to_relative
+viz/srcuri.rs#L113  fn system_member_keeps_the_library_segment
+viz/srcuri.rs#L124  fn outside_both_roots_stays_absolute
+viz/srcuri.rs#L135  fn unset_roots_rewrite_nothing
+viz/srcuri.rs#L144  fn relative_uri_passes_through
+viz/srcuri.rs#L150  fn resolve_prefers_project_then_system
 viz/stability/hash.rs#L21  fn canonical_hash
 viz/stability/hash.rs#L28  fn hash_f64
 viz/stability/hash.rs#L39  fn hash_box_order
@@ -11243,4 +11256,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-406 files, 11160 declarations.
+407 files, 11173 declarations.

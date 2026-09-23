@@ -39,6 +39,13 @@
 //! is no relative variant of the handler. It is also why the link is only ever
 //! followed on an explicit modifier-click (see the page's source navigation),
 //! never as a side effect of opening the file.
+//!
+//! Since U274 the stamped `data-src-uri` itself is root-relative (see
+//! [`crate::viz::srcuri`]), which makes this pass the one place the absolute
+//! form still exists — and it exists only in the HTML, never in the golden or
+//! the archived JSON. Resolution goes through [`crate::viz::srcuri::resolve`]
+//! (project root first, then the system root), so a root-relative URI names
+//! the same file its absolute predecessor did.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -67,7 +74,8 @@ pub fn wrap_standalone(doc: &mut VizDocument, project_root: &Path) -> String {
 /// pair in the document's layers.
 ///
 /// `project_root` resolves URIs that arrive relative (a `use`d file recorded
-/// before canonicalization); absolute URIs are used as they are.
+/// before canonicalization, or U274's root-relative display form — see
+/// [`crate::viz::srcuri`]); absolute URIs are used as they are.
 pub fn stamp_vscode_links(doc: &mut VizDocument, project_root: &Path) {
     let mut cache = FileCache::new();
     // Layer order has to be stable or the output HTML differs run to run, which
@@ -134,24 +142,14 @@ fn linkify(svg: &str, root: &Path, cache: &mut FileCache) -> String {
 fn vscode_link(uri: &str, offset: usize, root: &Path, cache: &mut FileCache) -> Option<String> {
     let path = unescape_attr(uri);
     let bytes = cache.entry(path.clone()).or_insert_with(|| {
-        let p = Path::new(&path);
-        let p = if p.is_absolute() {
-            p.to_path_buf()
-        } else {
-            root.join(p)
-        };
-        std::fs::read(p).ok()
+        std::fs::read(crate::viz::srcuri::resolve(&path, root)).ok()
     });
     let bytes = bytes.as_deref()?;
     let content = std::str::from_utf8(bytes).ok()?;
-    // A URI that resolved relative still has to name a real file for the link to
-    // mean anything; `is_absolute` after resolution is the cheapest such check.
-    let resolved = Path::new(&path);
-    let absolute = if resolved.is_absolute() {
-        resolved.to_path_buf()
-    } else {
-        root.join(resolved)
-    };
+    // The resolved file must name an absolute location for the `vscode://file`
+    // form; `resolve` only returns one for an absolute URI or a relative one
+    // that found a root to live under.
+    let absolute = crate::viz::srcuri::resolve(&path, root);
     if !absolute.is_absolute() {
         return None;
     }

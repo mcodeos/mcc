@@ -75,7 +75,9 @@ pub fn render_box(b: &McVecBox, is_root: bool, clickable_subs: &[i64]) -> String
             r##"  <g data-name="{name}" data-class="{cls}" data-mcc-path="{path_attr}" data-src-uri="{}" data-src-offset="{}">{}
   </g>
 "##,
-            escape_xml_attr(&sp.uri),
+            // U274: the stamped face names the file relative to the root that
+            // owns it, never as a machine-absolute path (viz::srcuri docs).
+            escape_xml_attr(&crate::viz::srcuri::display(&sp.uri)),
             sp.offset,
             inner
         )
