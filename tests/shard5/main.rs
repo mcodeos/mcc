@@ -17,6 +17,7 @@ mod curly_option;
 mod defspace_wiring;
 mod dotted_int_component_name;
 mod entry_discovery;
+mod error_expression;
 mod eval_engine;
 mod export_kind_lists;
 mod gate_phase1;

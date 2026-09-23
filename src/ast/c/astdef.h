@@ -170,6 +170,10 @@
 // 94-96 are MCAST_ABSTRACT/VARIANT/ADOPTS, so the logical-or judge lands at 97.
 #define MCAST_JUDGE_OR                  97
 
+//3.11 clause: author error clause `error( mc_phrase )` (U212). 98-99 are the
+// psnk/psbi direction words, 100 is the next free code in this section.
+#define MCAST_ERROR                     100
+
 //4. use
 #define MCAST_URI_PREFIX                101
 #define MCAST_URI_VERSION               102

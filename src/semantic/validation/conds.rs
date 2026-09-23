@@ -51,8 +51,17 @@ fn check_empty_cond_body(acc: &mut CheckAccumulator) {
 
         // ── Conditional pins ──
         for (idx, cp) in comp.cond_pins.iter().enumerate() {
+            // U212: a branch whose body is (or carries) an `error(...)` clause
+            // is empty on purpose — the clause is the branch's content.
+            let error_chain = comp
+                .cond_errors
+                .iter()
+                .find(|ce| ce.span == cp.span);
             for (bidx, (cond, pins)) in cp.if_blocks.iter().enumerate() {
-                if !pins.has_any_pins() {
+                let has_errors = error_chain
+                    .and_then(|ce| ce.if_blocks.get(bidx))
+                    .is_some_and(|(_, errs)| !errs.is_empty());
+                if !pins.has_any_pins() && !has_errors {
                     acc.push(CheckResult {
                         check_name: "conds",
                         severity: CheckSeverity::Warning,
@@ -68,7 +77,8 @@ fn check_empty_cond_body(acc: &mut CheckAccumulator) {
                 }
             }
             if let Some(ref else_pins) = cp.else_pins {
-                if !else_pins.has_any_pins() && !cp.if_blocks.is_empty() {
+                let else_has_errors = error_chain.is_some_and(|ce| !ce.else_errors.is_empty());
+                if !else_pins.has_any_pins() && !cp.if_blocks.is_empty() && !else_has_errors {
                     acc.push(CheckResult {
                         check_name: "conds",
                         severity: CheckSeverity::Warning,
@@ -87,8 +97,15 @@ fn check_empty_cond_body(acc: &mut CheckAccumulator) {
 
         // ── Conditional attributes ──
         for (idx, ca) in comp.cond_attrs.iter().enumerate() {
+            let error_chain = comp
+                .cond_errors
+                .iter()
+                .find(|ce| ce.span == ca.span);
             for (bidx, (cond, attrs)) in ca.if_blocks.iter().enumerate() {
-                if attrs.is_empty() {
+                let has_errors = error_chain
+                    .and_then(|ce| ce.if_blocks.get(bidx))
+                    .is_some_and(|(_, errs)| !errs.is_empty());
+                if attrs.is_empty() && !has_errors {
                     acc.push(CheckResult {
                         check_name: "conds",
                         severity: CheckSeverity::Warning,
@@ -104,7 +121,8 @@ fn check_empty_cond_body(acc: &mut CheckAccumulator) {
                 }
             }
             if let Some(ref else_attrs) = ca.else_attrs {
-                if else_attrs.is_empty() && !ca.if_blocks.is_empty() {
+                let else_has_errors = error_chain.is_some_and(|ce| !ce.else_errors.is_empty());
+                if else_attrs.is_empty() && !ca.if_blocks.is_empty() && !else_has_errors {
                     acc.push(CheckResult {
                         check_name: "conds",
                         severity: CheckSeverity::Warning,

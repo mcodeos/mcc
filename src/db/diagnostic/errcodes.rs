@@ -1462,6 +1462,10 @@ pub const EVAL_OPERAND_NOT_NUMERIC: u32 = 5414;
 /// Arithmetic overflowed the integer (or finite real) range.
 pub const EVAL_OVERFLOW: u32 = 5415;
 
+/// A library author's `error(msg)` expression was evaluated (U212). The
+/// message is the author's own — the template passes it through verbatim.
+pub const EVAL_ERROR_EXPRESSION: u32 = 5416;
+
 // Pass3: condition blocks (5450-5499)
 
 /// Conditional block has an empty body.
@@ -2597,6 +2601,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(EVAL_DIVIDE_BY_ZERO, "Division by zero while evaluating a value expression.", "Division by zero while evaluating a value expression."),
     entry!(EVAL_OPERAND_NOT_NUMERIC, "Arithmetic operator applied to operands it is not defined for.", "Operator '{0}' is not defined for {1} and {2}."),
     entry!(EVAL_OVERFLOW, "Arithmetic overflowed the representable range.", "Integer overflow in '{0}' with operands {1} and {2}."),
+    entry!(EVAL_ERROR_EXPRESSION, "A library author's error() expression was evaluated.", "{0}"),
     // section
     entry!(COND_EMPTY_BODY, "Conditional block has an empty body.", "Conditional block has an empty body."),
     entry!(COND_IF_WITHOUT_ELSE, "if without a matching else.", "if without a matching else."),

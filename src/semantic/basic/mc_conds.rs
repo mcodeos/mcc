@@ -307,15 +307,25 @@ impl McConds {
                         }
                     }
                 }
-                if !found_attr {
+                // U212: an `error(...)` clause in the body is content too —
+                // keep the BODY whole so the error capture sees it; the
+                // pins/attrs consumers pick their nodes from the children.
+                let has_error_clause = child
+                    .get_sub_node()
+                    .is_some_and(|inner| inner.iter().any(|n| n.get_type() == MCAST_ERROR));
+                if !found_attr || has_error_clause {
                     block_node = Some(child.clone());
                 }
             } else if has_condition
                 && block_node.is_none()
                 && (node_type == MCAST_ATTRIBUTE_PIN
                     || node_type == MCAST_ATTRIBUTE_PINADD
-                    || node_type == MCAST_ATTRIBUTE)
+                    || node_type == MCAST_ATTRIBUTE
+                    || node_type == MCAST_ERROR)
             {
+                // U212: a bare `error(...)` clause is the branch's body —
+                // keeping it preserves the branch in the chain (dropping it
+                // would misalign the remaining branch indices).
                 block_node = Some(child.clone());
             }
         }
@@ -376,13 +386,20 @@ impl McConds {
                         }
                     }
                 }
-                if !found_attr {
+                // U212: an `error(...)` clause in the body is content — keep
+                // the BODY whole (see parse_cond_if).
+                let has_error_clause = child
+                    .get_sub_node()
+                    .is_some_and(|inner| inner.iter().any(|n| n.get_type() == MCAST_ERROR));
+                if !found_attr || has_error_clause {
                     else_if_block_node = Some(child.clone());
                 }
             } else if child_type == MCAST_ATTRIBUTE_PIN
                 || child_type == MCAST_ATTRIBUTE_PINADD
                 || child_type == MCAST_ATTRIBUTE
+                || child_type == MCAST_ERROR
             {
+                // U212: a bare `error(...)` clause is the branch's body.
                 else_if_block_node = Some(child.clone());
             }
         }
@@ -651,6 +668,17 @@ impl McConds {
                         // equality with the bare default.
                         if let Some(ids) = Self::bare_member_ids(&item) {
                             values.push(ids.to_string());
+                        }
+                    } else if item.get_type() == MCAST_INT
+                        || item.get_type() == MCAST_HEX
+                        || item.get_type() == MCAST_FLOAT
+                    {
+                        // Numeric member: the literal's own text — the same
+                        // face an `==` judge compares with. No arm here meant
+                        // `n in [3, 4]` collected an empty member list and
+                        // read as false for every argument.
+                        if let Some(text) = item.to_string() {
+                            values.push(text);
                         }
                     }
                     current = item.get_next();
