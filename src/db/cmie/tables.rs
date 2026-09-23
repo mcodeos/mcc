@@ -685,4 +685,63 @@ mod tests {
         assert!(mgr.switch_to(root("/projects/proj1"), WorkspaceKind::Project));
         assert_eq!(mgr.mcodes.len(), 0, "the pre-reset snapshot came back");
     }
+
+    /// U235 write-path world attribution: a def inserted through the
+    /// world-scoped [`WorkspaceManager::insert_def`] lives in the world that
+    /// was active at write time — the outgoing switch tombstones it (its
+    /// world is parked), a foreign world cannot see it, and the restore path
+    /// revives it under the SAME [`db::defregistry::DefId`] (D11 identity
+    /// stability across the snapshot transport).
+    #[test]
+    fn def_registry__write_entries_follow_the_active_world_across_a_switch() {
+        use crate::db::defregistry::{DefKind, DefValue, InsertOutcome, LoadDomain};
+        use crate::semantic::mc_enum::{McEnumDef, McEnumValue};
+
+        let mgr = WorkspaceManager::new();
+        let a = root("/projects/u235/owned");
+        let b = root("/projects/u235/foreign");
+        let sn = crate::McSpaceName {
+            ident: crate::McIds::from("U235_SWITCH"),
+            uri: crate::semantic::common::uri_intern("/projects/u235/owned/src.mc"),
+        };
+        let def = DefValue::Enum(std::sync::Arc::new(McEnumDef {
+            name: sn.ident.clone(),
+            span: [0, 3],
+            values: vec![McEnumValue {
+                name: crate::McIds::from("A"),
+                span: [0, 3],
+            }],
+            uri: sn.uri.to_string(),
+        }));
+
+        mgr.switch_to(a.clone(), WorkspaceKind::Project);
+        assert_eq!(
+            mgr.insert_def(&sn, LoadDomain::Project, def),
+            InsertOutcome::Inserted
+        );
+        let id = mgr
+            .registry()
+            .def_id(&sn, DefKind::Enum)
+            .expect("the def is live in the world it was written to");
+
+        // A foreign world must not see (or inherit) the def.
+        mgr.switch_to(b.clone(), WorkspaceKind::Project);
+        assert!(
+            mgr.registry().def_id(&sn, DefKind::Enum).is_none(),
+            "the def did not leak into the world switched to"
+        );
+
+        // Switching back restores the parked world: the identity revives in
+        // place — same DefId, same physical row.
+        assert!(mgr.switch_to(a, WorkspaceKind::Project));
+        assert_eq!(
+            mgr.registry().def_id(&sn, DefKind::Enum),
+            Some(id),
+            "the restore path revives the def under its original id"
+        );
+        assert!(
+            mgr.enums.contains_key(&sn),
+            "the physical mirror rides the same snapshot transport"
+        );
+    }
 }

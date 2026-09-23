@@ -666,7 +666,7 @@ mod tests {
         // layer first (workspace-first precedence), falling back to the
         // intact system layer when the project file goes away.
         assert_eq!(
-            crate::db::defregistry::insert(
+            crate::db::cmie::tables::WORKSPACE.insert_def(
                 &sn,
                 crate::db::defregistry::LoadDomain::SystemLib("mcode".to_string()),
                 crate::db::defregistry::DefValue::Component(gold_component(
@@ -679,7 +679,7 @@ mod tests {
             "system-lib def registers first"
         );
         assert_eq!(
-            crate::db::defregistry::insert(
+            crate::db::cmie::tables::WORKSPACE.insert_def(
                 &sn,
                 crate::db::defregistry::LoadDomain::Project,
                 crate::db::defregistry::DefValue::Component(gold_component(
@@ -692,9 +692,9 @@ mod tests {
             "project def layers over the same-key system-lib def (workspace-first read)"
         );
 
-        // Bind the reads to the process-global world the free write/remove
-        // entries above serve — a fresh constructed world owns an empty
-        // registry and would see nothing.
+        // Bind the reads to the process-global world the workspace write/
+        // remove entries above serve — a fresh constructed world owns an
+        // empty registry and would see nothing.
         let ds = crate::definition_space();
         let hit = ds.get_component(&sn).expect("identity resolves");
         assert_eq!(
@@ -715,7 +715,7 @@ mod tests {
         // A same-key re-insert cannot displace the project layer: same-domain
         // (project) and reverse-domain (system lib) re-inserts are duplicates.
         assert_eq!(
-            crate::db::defregistry::insert(
+            crate::db::cmie::tables::WORKSPACE.insert_def(
                 &sn,
                 crate::db::defregistry::LoadDomain::Project,
                 crate::db::defregistry::DefValue::Component(gold_component(
@@ -728,7 +728,7 @@ mod tests {
             "a project re-insert is a duplicate (first project layer stays)"
         );
         assert_eq!(
-            crate::db::defregistry::insert(
+            crate::db::cmie::tables::WORKSPACE.insert_def(
                 &sn,
                 crate::db::defregistry::LoadDomain::SystemLib("mcode".to_string()),
                 crate::db::defregistry::DefValue::Component(gold_component(
@@ -749,7 +749,7 @@ mod tests {
 
         // Removing the project file's layer alone falls back to the intact
         // system def — the T8 fallback read, no mcode reload required.
-        crate::db::defregistry::remove_project_by_uri("/mcc/prio.mc");
+        crate::db::cmie::tables::WORKSPACE.remove_project_defs_by_uri("/mcc/prio.mc");
         let fallback = ds
             .get_component(&sn)
             .expect("system layer survives the shadow");

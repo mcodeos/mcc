@@ -252,7 +252,7 @@ pub fn mcb_load_lib(name: &str, root: &Path) -> bool {
             .values()
             .map(|sn| sn.uri.to_string())
             .collect();
-        crate::db::defregistry::remove_by_uris(&uris);
+        workspace::WORKSPACE.remove_lib_defs_by_uris(&uris);
         info!(
             target: "mcc::lib",
             name = name,
@@ -306,7 +306,7 @@ pub fn mcb_load_lib(name: &str, root: &Path) -> bool {
     // T6-②: library load round end — the recursive add registered (or, for a
     // use-only third-party lib, tombstoned) defs above; stamp one journal
     // version when the round changed the definition space.
-    crate::db::defregistry::checkpoint_if_changed();
+    workspace::WORKSPACE.registry().checkpoint_if_changed();
     true
 }
 
@@ -360,7 +360,7 @@ pub fn clear_state(scope: ClearScope, uris: Option<&HashSet<String>>) {
             // The definition registry is world-owned state on the active
             // workspace; a full reset starts its identity journal over with a
             // clean slate.
-            crate::db::defregistry::clear_all();
+            workspace::WORKSPACE.registry().clear_all();
             // The symbol layer's declare-id ledger follows the full reset:
             // every table referencing those ids is rebuilt, so the key→id
             // interning must start over or a second clean load in this process
@@ -369,10 +369,10 @@ pub fn clear_state(scope: ClearScope, uris: Option<&HashSet<String>>) {
         }
         ClearScope::Lib => {
             let uris = uris.expect("ClearScope::Lib requires the library uri set");
-            crate::db::defregistry::remove_by_uris(uris);
+            workspace::WORKSPACE.remove_lib_defs_by_uris(uris);
             // T6-②: library-unload round end — stamp one journal version when
             // the sweep tombstoned any definition.
-            crate::db::defregistry::checkpoint_if_changed();
+            workspace::WORKSPACE.registry().checkpoint_if_changed();
         }
     }
 }

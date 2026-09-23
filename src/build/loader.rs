@@ -55,7 +55,7 @@ pub fn mcb_add(uri: &McURI) {
     // T6-②: a single disk-file load round is self-contained (parse_pass1
     // derives modules too) — stamp one journal version when it changed the
     // definition space.
-    crate::db::defregistry::checkpoint_if_changed();
+    workspace::WORKSPACE.registry().checkpoint_if_changed();
 }
 
 // === pub fn mcb_add_from_string(uri: &McURI, content: &str) { ===
@@ -582,7 +582,7 @@ pub fn mcb_remove(uri: &McURI) {
     }
     // T6-②: file-remove round end — stamp one journal version when the
     // removal tombstoned any definition (design §10: each load/change).
-    crate::db::defregistry::checkpoint_if_changed();
+    workspace::WORKSPACE.registry().checkpoint_if_changed();
 }
 
 // === fn remove_defines(uri: &McURI) { ===
@@ -592,5 +592,5 @@ pub fn mcb_remove(uri: &McURI) {
 /// live same-key system-lib def the file was shadowing survives as the read
 /// fallback (deleting a project source file never destroys mcode data).
 pub(crate) fn remove_defines(uri: &McURI) {
-    crate::db::defregistry::remove_project_by_uri(uri.as_str());
+    workspace::WORKSPACE.remove_project_defs_by_uri(uri.as_str());
 }

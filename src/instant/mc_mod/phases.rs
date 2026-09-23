@@ -480,7 +480,7 @@ impl InstantiationBuilder {
                 .collect();
             let sn =
                 crate::semantic::common::McSpaceName::new(&self.def.name, self.def_uri.clone());
-            crate::db::defregistry::sync_module_ports(&sn, &ports);
+            crate::db::cmie::tables::WORKSPACE.registry().sync_module_ports(&sn, &ports);
         }
 
         Ok(())

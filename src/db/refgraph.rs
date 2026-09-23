@@ -170,7 +170,8 @@ mod tests {
     /// are never disturbed; the entry is removed afterwards.
     #[test]
     fn def_refgraph__def_id_queries_answer_through_the_registry() {
-        use crate::db::defregistry::{insert, remove_by_uri, DefValue, LoadDomain};
+        use crate::db::cmie::tables::WORKSPACE;
+        use crate::db::defregistry::{remove_by_uri, DefValue, LoadDomain};
         use crate::db::infra::init::MCC_TEST_PARSE_LOCK;
         use crate::semantic::mc_enum::McEnumDef;
 
@@ -181,7 +182,7 @@ mod tests {
             ident: crate::McIds::from(NAME),
             uri: crate::semantic::common::uri_intern(URI),
         };
-        insert(
+        WORKSPACE.insert_def(
             &to,
             LoadDomain::SystemLib("mcode".into()),
             DefValue::Enum(std::sync::Arc::new(McEnumDef {

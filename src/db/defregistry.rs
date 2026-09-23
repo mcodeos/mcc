@@ -437,14 +437,15 @@ fn kind_priority(kind: DefKind) -> u8 {
 // RegistryState — write side
 
 impl RegistryState {
-    /// Registry-only side of [`insert`]: register the identity + data and
-    /// re-derive the host's function entries. The physical-table write stays
-    /// in the free [`insert`] wrapper (it needs the workspace tables).
+    /// Registry-only side of a definition insert (U235): register the
+    /// identity + data and re-derive the host's function entries. The
+    /// physical-table mirror lives in the world-scoped
+    /// [`workspace::WorkspaceManager::insert_def`] wrapper (it needs the
+    /// workspace tables).
     ///
     /// World-scoped write entry (T3 bounded close-out): call this on an
     /// isolated world's own registry to exercise per-world registration
-    /// without touching the process-global tables — the loader's real loads
-    /// keep going through the free [`insert`] (active world).
+    /// without touching that world's physical tables.
     pub(crate) fn insert(
         &self,
         sn: &McSpaceName,
@@ -661,7 +662,7 @@ impl RegistryState {
     /// over the positional ordinal). Module trees whose def is not a
     /// registered identity (func-expanded synthetic modules) are skipped —
     /// their points keep the historical positional ordinal.
-    fn sync_module_ports(&self, sn: &McSpaceName, ports: &[(String, String)]) {
+    pub(crate) fn sync_module_ports(&self, sn: &McSpaceName, ports: &[(String, String)]) {
         if let Some(id) = self.def_id(sn, DefKind::Module) {
             // Unconditional: an empty port list must still tombstone the
             // def's ports from the last sync.
@@ -902,7 +903,7 @@ impl RegistryState {
     /// data. Used by the full state clear (`clear_state(ClearScope::Full)`);
     /// the append-only identity journal and the checkpoint journal both start
     /// over with a clean slate.
-    fn clear_all(&self) {
+    pub(crate) fn clear_all(&self) {
         self.key_to_id.clear();
         self.arena.clear();
         self.system_name_index.clear();
@@ -1375,7 +1376,7 @@ impl RegistryState {
     /// The [`DefId`] of a live `(key, kind)` identity, any domain —
     /// workspace-first under layered coexist (T8). Needed by callers that
     /// address a def by id (host links of function templates).
-    fn def_id(&self, sn: &McSpaceName, kind: DefKind) -> Option<DefId> {
+    pub(crate) fn def_id(&self, sn: &McSpaceName, kind: DefKind) -> Option<DefId> {
         self.live_ids_of(sn, kind).first().copied()
     }
 
@@ -2145,27 +2146,10 @@ fn declaration_lines(def: &DefValue) -> Vec<String> {
     lines
 }
 
-// Free-function API — served by the active world's registry
-
-/// Insert one definition. CMIE kinds treat an occupied live key as a
-/// duplicate (the previous value stays); the module kind **overwrites** —
-/// module parsing runs as a re-derive across parse rounds and replaces this
-/// file's prior entry instead of firing a spurious DUP_MODULE (the file-local
-/// duplicate check lives in `parse_pass1_modules`). A tombstoned key is
-/// revived with the new data under the same [`DefId`] (D11), and — under T8
-/// (M2) — a project def **shadows** a live same-key system-lib def as a
-/// second layered identity instead of destroying it (reads are
-/// workspace-first).
-///
-/// The physical workspace/global tables are written in parallel as
-/// workspace-lifecycle state (snapshot / switch / clear / restore transport):
-/// no resolution path reads them anymore — the registry is the single read
-/// authority (T2 read-side migration).
-pub fn insert(sn: &McSpaceName, domain: LoadDomain, def: DefValue) -> InsertOutcome {
-    let outcome = active().insert(sn, &domain, &def);
-    write_physical(sn, &domain, def);
-    outcome
-}
+// Free-function API — served by the active world's registry. The write
+// entries (insert / remove_* / sync_module_ports / checkpoint_if_changed /
+// clear_all) moved to world-scoped [`workspace::WorkspaceManager`] methods
+// (U235): the loader and pass1 seams address the owning workspace directly.
 
 /// Remove every definition of any kind whose defining file matches `uri`,
 /// across every domain. The registry keeps each identity as a tombstone
@@ -2174,9 +2158,10 @@ pub fn insert(sn: &McSpaceName, domain: LoadDomain, def: DefValue) -> InsertOutc
 /// Compiled under `#[cfg(test)]`: it is the unit tests' canonical teardown
 /// (a def may be inserted under several domains in one test; any-domain
 /// removal guarantees no residue). The loader's project-file removal and the
-/// lib-unload sweep use the domain-scoped entry points
-/// ([`remove_project_by_uri`] / [`remove_by_uris`]) so a shadowed layer
-/// survives as the read fallback (T8).
+/// lib-unload sweep use the domain-scoped workspace entry points
+/// ([`workspace::WorkspaceManager::remove_project_defs_by_uri`] /
+/// [`workspace::WorkspaceManager::remove_lib_defs_by_uris`]) so a shadowed
+/// layer survives as the read fallback (T8).
 #[cfg(test)]
 pub fn remove_by_uri(uri: &str) {
     active().remove_by_uri(uri);
@@ -2188,55 +2173,12 @@ pub fn remove_by_uri(uri: &str) {
     remove_by_uri_from(&workspace::WORKSPACE.capabilities, uri);
 }
 
-/// Remove the project-domain definitions of a deleted / re-parsed project
-/// source file. T8 (M2): only the project layer is tombstoned, so a live
-/// same-key system-lib def the project was shadowing survives as the read
-/// fallback — no mcode reload needed.
-pub(crate) fn remove_project_by_uri(uri: &str) {
-    active().remove_project_by_uri(uri);
-    remove_by_uri_from(&workspace::WORKSPACE.components, uri);
-    remove_by_uri_from(&workspace::WORKSPACE.modules, uri);
-    remove_by_uri_from(&workspace::WORKSPACE.interfaces, uri);
-    remove_by_uri_from(&workspace::WORKSPACE.enums, uri);
-    remove_by_uri_from(&workspace::WORKSPACE.defines, uri);
-    remove_by_uri_from(&workspace::WORKSPACE.capabilities, uri);
-}
-
-/// Remove every system-domain definition whose defining file is one of
-/// `uris` (system-lib unload sweep). T8 (M2): only the lib's own layer is
-/// tombstoned — a live project layer sharing a key (the workspace-first
-/// shadow) survives the unload.
-pub fn remove_by_uris(uris: &HashSet<String>) {
-    active().remove_by_uris(uris);
-    remove_by_uris_from(&workspace::WORKSPACE.components, uris);
-    remove_by_uris_from(&workspace::WORKSPACE.modules, uris);
-    remove_by_uris_from(&workspace::WORKSPACE.interfaces, uris);
-    remove_by_uris_from(&workspace::WORKSPACE.enums, uris);
-    remove_by_uris_from(&workspace::WORKSPACE.defines, uris);
-    remove_by_uris_from(&workspace::WORKSPACE.capabilities, uris);
-}
-
-/// Full process reset: drop every registered identity and its data in the
-/// active world's registry. Used by the full state clear
-/// (`clear_state(ClearScope::Full)`); the append-only identity journal and
-/// the checkpoint journal both start over with a clean slate.
-pub fn clear_all() {
-    active().clear_all();
-}
-
 /// Capture a versioned snapshot of the whole registry — every registered
 /// identity, live and tombstoned — and append it to the journal (design §10).
 /// The daemon/RPC capture entry: unconditional, so a consumer can always
 /// re-baseline "the definition space as of now" (e.g. `defs.checkpoint`).
 pub fn checkpoint() -> Checkpoint {
     active().checkpoint()
-}
-
-/// The loader seam entry over the active world: stamp exactly one version
-/// when the just-finished load / remove / world-switch round mutated the
-/// registry, and nothing on a no-op round (O1).
-pub fn checkpoint_if_changed() -> Option<Checkpoint> {
-    active().checkpoint_if_changed()
 }
 
 /// The most recently stamped checkpoint of the active world (journal tail).
@@ -2323,13 +2265,6 @@ pub(crate) fn effective_method(
 /// the name is not a live member.
 pub fn def_member_id_of(sn: &McSpaceName, kind: DefKind, name: &str) -> Option<DefMemberId> {
     active().def_member_id_of(sn, kind, name)
-}
-
-/// T4 (M1b): merge a module's just-built port table into the module def's
-/// registry-owned port ledger. Called from module instantiation once the
-/// port table is finalized; see [`RegistryState::sync_module_ports`].
-pub(crate) fn sync_module_ports(sn: &McSpaceName, ports: &[(String, String)]) {
-    active().sync_module_ports(sn, ports);
 }
 
 /// Look up one live function-template member of a host def by its structured
@@ -2686,34 +2621,97 @@ pub struct SystemDefSnapshot {
 /// per-world table, so this is still world-local). A lib's "use-only" sweep
 /// in `mcb_load_lib` tombstones its registry entries instead. Duplicates keep
 /// the existing value (occupied entry); modules always overwrite (re-derive).
-fn write_physical(sn: &McSpaceName, domain: &LoadDomain, def: DefValue) {
+///
+/// Takes the owning [`WorkspaceManager`]: the mirror lands in the world that
+/// owns the write, never unconditionally in the process-global singleton
+/// (U235 write-path world attribution).
+fn write_physical(
+    ws: &workspace::WorkspaceManager,
+    sn: &McSpaceName,
+    domain: &LoadDomain,
+    def: DefValue,
+) {
     match def {
         DefValue::Module(def) => {
-            workspace::WORKSPACE.modules.insert(sn.clone(), def);
+            ws.modules.insert(sn.clone(), def);
         }
         // System-library non-module defs are registry-only (Phase 5).
         non_module if matches!(domain, LoadDomain::SystemLib(_)) => {
             let _ = non_module;
         }
         DefValue::Component(def) => {
-            insert_one(&workspace::WORKSPACE.components, sn.clone(), def);
+            insert_one(&ws.components, sn.clone(), def);
         }
         DefValue::Interface(def) => {
-            insert_one(&workspace::WORKSPACE.interfaces, sn.clone(), def);
+            insert_one(&ws.interfaces, sn.clone(), def);
         }
         DefValue::Enum(def) => {
-            insert_one(&workspace::WORKSPACE.enums, sn.clone(), def);
+            insert_one(&ws.enums, sn.clone(), def);
         }
         DefValue::Define(def) => {
-            insert_one(&workspace::WORKSPACE.defines, sn.clone(), def);
+            insert_one(&ws.defines, sn.clone(), def);
         }
         DefValue::Capability(def) => {
-            insert_one(&workspace::WORKSPACE.capabilities, sn.clone(), def);
+            insert_one(&ws.capabilities, sn.clone(), def);
         }
         // Func entries are registry-only addressing metadata (design §12.1):
         // the host def holds the actual McFunction, so there is no physical
         // table to mirror.
         DefValue::Func(_) => {}
+    }
+}
+
+// World-scoped write entries (U235) — the loader / pass1 write seams address
+// the owning workspace directly instead of forwarding through the free
+// active-world API.
+
+impl workspace::WorkspaceManager {
+    /// Insert one definition into THIS world: register in the world's
+    /// registry and mirror into the world's physical tables (the snapshot /
+    /// switch / restore transport). Semantics are the free [`insert`]'s —
+    /// CMIE kinds treat an occupied live key as a duplicate (the previous
+    /// value stays); the module kind **overwrites** (module parsing runs as a
+    /// re-derive across parse rounds); a tombstoned key is revived with the
+    /// new data under the same [`DefId`] (D11); a project def **shadows** a
+    /// live same-key system-lib def as a second layered identity (T8, reads
+    /// are workspace-first).
+    pub(crate) fn insert_def(
+        &self,
+        sn: &McSpaceName,
+        domain: LoadDomain,
+        def: DefValue,
+    ) -> InsertOutcome {
+        let outcome = self.registry().insert(sn, &domain, &def);
+        write_physical(self, sn, &domain, def);
+        outcome
+    }
+
+    /// Remove the project-domain definitions of a deleted / re-parsed project
+    /// source file from THIS world. T8 (M2): only the project layer is
+    /// tombstoned, so a live same-key system-lib def the project was
+    /// shadowing survives as the read fallback — no mcode reload needed.
+    pub(crate) fn remove_project_defs_by_uri(&self, uri: &str) {
+        self.registry().remove_project_by_uri(uri);
+        remove_by_uri_from(&self.components, uri);
+        remove_by_uri_from(&self.modules, uri);
+        remove_by_uri_from(&self.interfaces, uri);
+        remove_by_uri_from(&self.enums, uri);
+        remove_by_uri_from(&self.defines, uri);
+        remove_by_uri_from(&self.capabilities, uri);
+    }
+
+    /// Remove every system-domain definition whose defining file is one of
+    /// `uris`, from THIS world (system-lib unload sweep). T8 (M2): only the
+    /// lib's own layer is tombstoned — a live project layer sharing a key
+    /// (the workspace-first shadow) survives the unload.
+    pub(crate) fn remove_lib_defs_by_uris(&self, uris: &HashSet<String>) {
+        self.registry().remove_by_uris(uris);
+        remove_by_uris_from(&self.components, uris);
+        remove_by_uris_from(&self.modules, uris);
+        remove_by_uris_from(&self.interfaces, uris);
+        remove_by_uris_from(&self.enums, uris);
+        remove_by_uris_from(&self.defines, uris);
+        remove_by_uris_from(&self.capabilities, uris);
     }
 }
 
@@ -2973,7 +2971,7 @@ mod tests {
 
         // v1: one enum value. Register + checkpoint the pre-edit world.
         assert_eq!(
-            insert(&sn, system.clone(), enum_def_with_values(NAME, URI, &["A"])),
+            workspace::WORKSPACE.insert_def(&sn, system.clone(), enum_def_with_values(NAME, URI, &["A"])),
             InsertOutcome::Inserted
         );
         let t1 = checkpoint();
@@ -2989,7 +2987,7 @@ mod tests {
         // revives the key — the DefId survives, the content does not.
         remove_by_uri(URI);
         assert_eq!(
-            insert(
+            workspace::WORKSPACE.insert_def(
                 &sn,
                 system.clone(),
                 enum_def_with_values(NAME, URI, &["A", "B"])
@@ -3024,7 +3022,7 @@ mod tests {
         // A byte-identical revive (same content, same id) must stay quiet.
         remove_by_uri(URI);
         assert_eq!(
-            insert(&sn, system, enum_def_with_values(NAME, URI, &["A", "B"])),
+            workspace::WORKSPACE.insert_def(&sn, system, enum_def_with_values(NAME, URI, &["A", "B"])),
             InsertOutcome::Inserted
         );
         let t3 = checkpoint();
@@ -3060,7 +3058,7 @@ mod tests {
 
         // 1. Fresh system insert: the index sees it.
         assert_eq!(
-            insert(&sn, system.clone(), def.clone()),
+            workspace::WORKSPACE.insert_def(&sn, system.clone(), def.clone()),
             InsertOutcome::Inserted
         );
         assert_eq!(
@@ -3080,7 +3078,7 @@ mod tests {
 
         // 3. Revive under the same key (re-load): the index follows.
         assert_eq!(
-            insert(&sn, system.clone(), def.clone()),
+            workspace::WORKSPACE.insert_def(&sn, system.clone(), def.clone()),
             InsertOutcome::Inserted
         );
         assert_eq!(
@@ -3093,7 +3091,7 @@ mod tests {
         // stays live and indexed — the shadow is read-side precedence, not
         // destruction.
         assert_eq!(
-            insert(&sn, LoadDomain::Project, def.clone()),
+            workspace::WORKSPACE.insert_def(&sn, LoadDomain::Project, def.clone()),
             InsertOutcome::Inserted
         );
         assert_eq!(
@@ -3119,7 +3117,7 @@ mod tests {
         // 6. Re-adding the project def revives the shadow under its original
         // project-layer id; the system layer is untouched throughout.
         assert_eq!(
-            insert(&sn, LoadDomain::Project, def.clone()),
+            workspace::WORKSPACE.insert_def(&sn, LoadDomain::Project, def.clone()),
             InsertOutcome::Inserted
         );
         active().remove_project_by_uri(URI);
@@ -3143,7 +3141,7 @@ mod tests {
 
         // Project def: mirrored into the workspace table AND registered.
         assert_eq!(
-            insert(&sn, LoadDomain::Project, def.clone()),
+            workspace::WORKSPACE.insert_def(&sn, LoadDomain::Project, def.clone()),
             InsertOutcome::Inserted
         );
         assert!(
@@ -3353,7 +3351,7 @@ mod tests {
 
         // v1: pins 1,2,3 — ids follow declaration order (0,1,2).
         assert_eq!(
-            insert(
+            workspace::WORKSPACE.insert_def(
                 &sn,
                 project.clone(),
                 DefValue::Component(comp_with(&["1", "2", "3"]))
@@ -3369,7 +3367,7 @@ mod tests {
         // pin appends at the high-water mark.
         remove_by_uri(URI);
         assert_eq!(
-            insert(
+            workspace::WORKSPACE.insert_def(
                 &sn,
                 project.clone(),
                 DefValue::Component(comp_with(&["1", "2a", "3"]))
@@ -3389,7 +3387,7 @@ mod tests {
         // identity-safe form of a rename (the old id is never reused).
         remove_by_uri(URI);
         assert_eq!(
-            insert(
+            workspace::WORKSPACE.insert_def(
                 &sn,
                 project.clone(),
                 DefValue::Component(comp_with(&["1", "2", "2a", "3"]))
@@ -3438,7 +3436,7 @@ mod tests {
 
         // The enum appears.
         assert_eq!(
-            insert(&sn, system.clone(), def.clone()),
+            workspace::WORKSPACE.insert_def(&sn, system.clone(), def.clone()),
             InsertOutcome::Inserted
         );
         let t2 = checkpoint();
@@ -3447,7 +3445,7 @@ mod tests {
         // its own identity untouched, and a NEW project-layer identity is
         // added under the key — not a Modified domain flip.
         assert_eq!(
-            insert(&sn, LoadDomain::Project, def.clone()),
+            workspace::WORKSPACE.insert_def(&sn, LoadDomain::Project, def.clone()),
             InsertOutcome::Inserted
         );
         let t3 = checkpoint();
@@ -3460,7 +3458,7 @@ mod tests {
         // Re-adding the project file revives the project layer under its
         // original id: dead -> live -> Added.
         assert_eq!(
-            insert(&sn, LoadDomain::Project, def.clone()),
+            workspace::WORKSPACE.insert_def(&sn, LoadDomain::Project, def.clone()),
             InsertOutcome::Inserted
         );
         let t5 = checkpoint();
@@ -3519,7 +3517,7 @@ mod tests {
         const URI: &str = "/cp/serde_gold.mc";
         let (sn, def) = sys_enum(NAME, URI);
         assert_eq!(
-            insert(&sn, LoadDomain::SystemLib("mcode".into()), def.clone()),
+            workspace::WORKSPACE.insert_def(&sn, LoadDomain::SystemLib("mcode".into()), def.clone()),
             InsertOutcome::Inserted
         );
         let cp = checkpoint();
@@ -3552,5 +3550,74 @@ mod tests {
 
         // Leave no residue for parallel tests.
         remove_by_uri(URI);
+    }
+
+    /// U235 write-path world attribution: [`workspace::WorkspaceManager::insert_def`]
+    /// on an isolated world lands the identity and the physical mirror in
+    /// THAT world — never in the process-global singleton (which the deleted
+    /// free `insert` hardcoded).
+    #[test]
+    fn def_registry__insert_def_lands_in_the_owning_world_not_the_global() {
+        let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");
+        let (sn, def) = sys_enum("U235_OWN", "/mcc/u235_own.mc");
+        let wm = workspace::WorkspaceManager::new();
+
+        assert_eq!(
+            wm.insert_def(&sn, LoadDomain::Project, def),
+            InsertOutcome::Inserted
+        );
+        assert!(
+            wm.registry().def_id(&sn, DefKind::Enum).is_some(),
+            "the owning world's registry holds the def"
+        );
+        assert!(
+            wm.enums.contains_key(&sn),
+            "the physical mirror lands in the owning world's tables"
+        );
+        assert!(
+            workspace::WORKSPACE.registry().def_id(&sn, DefKind::Enum).is_none(),
+            "the process-global registry is untouched"
+        );
+        assert!(
+            !workspace::WORKSPACE.enums.contains_key(&sn),
+            "no physical mirror lands in the global tables"
+        );
+    }
+
+    /// U235: the two domain-scoped removal entries tombstone only in the
+    /// world they are called on — the global singleton never sees the keys.
+    #[test]
+    fn def_registry__remove_entries_target_the_owning_world() {
+        let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");
+        let wm = workspace::WorkspaceManager::new();
+        let (sn_p, def_p) = sys_enum("U235_RM_P", "/mcc/u235_rm_p.mc");
+        let (sn_s, def_s) = sys_enum("U235_RM_S", "/mcc/u235_rm_s.mc");
+        assert_eq!(
+            wm.insert_def(&sn_p, LoadDomain::Project, def_p),
+            InsertOutcome::Inserted
+        );
+        assert_eq!(
+            wm.insert_def(&sn_s, LoadDomain::SystemLib("mcode".to_string()), def_s),
+            InsertOutcome::Inserted
+        );
+
+        // Project removal: the project layer of that uri is tombstoned and
+        // the physical row dropped — in the owning world.
+        wm.remove_project_defs_by_uri(sn_p.uri.as_uri().as_ref());
+        assert!(wm.registry().def_id(&sn_p, DefKind::Enum).is_none());
+        assert!(!wm.enums.contains_key(&sn_p));
+
+        // Lib unload sweep: only the system layer goes.
+        let uris: HashSet<String> = std::iter::once(sn_s.uri.to_string()).collect();
+        wm.remove_lib_defs_by_uris(&uris);
+        assert!(wm.registry().def_id(&sn_s, DefKind::Enum).is_none());
+        assert!(!wm.enums.contains_key(&sn_s));
+
+        // Neither entry leaked into (or out of) the process-global world.
+        assert!(
+            workspace::WORKSPACE.registry().def_id(&sn_p, DefKind::Enum).is_none()
+                && workspace::WORKSPACE.registry().def_id(&sn_s, DefKind::Enum).is_none(),
+            "the global registry never saw the isolated world's keys"
+        );
     }
 }
