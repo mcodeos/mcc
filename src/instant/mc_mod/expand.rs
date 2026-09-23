@@ -548,6 +548,7 @@ mod inst_scope_tests {
                 },
                 cond_pins: Vec::new(),
                 cond_attrs: Vec::new(),
+                cond_errors: Vec::new(),
                 span: crate::ast::sem::Span { start: 0, end: 0 },
                 anon_counter: 1,
                 is_abstract: false,
