@@ -46,6 +46,7 @@ pub mod symbol;
 // ── Algorithm layer ──
 pub mod detect;
 pub mod fromblock;
+pub mod net_probe;
 pub mod promote;
 // Top-level re-exports
 
