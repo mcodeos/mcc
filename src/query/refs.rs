@@ -2,7 +2,7 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-use crate::ast::sem::{DeclareId, Span};
+use crate::ast::sem::{DeclareId, Span, SymbolKind};
 use crate::db::cmie::tables as workspace;
 use crate::refdef::types::CmieKind;
 use crate::semantic::common::McSpaceName;
@@ -18,8 +18,13 @@ pub fn mcb_lookup_instance_decl(uri: &McURI, name: &str, scope: Option<&str>) ->
     // First try exact URI match
     if let Some(mcode) = workspace::WORKSPACE.mcodes.get(uri) {
         if let Ok(sem) = mcode.symbols.lock() {
-            // Use scope_index for precise scope-based lookup
-            if let Some((id, _)) = sem.local_table.lookup_by_scope_name(scope_str, name) {
+            // Use scope_index for precise scope-based lookup. The function
+            // answers "where is this instance declared", so the exact kind is
+            // InstDef (CIMP U269).
+            if let Some((id, _)) =
+                sem.local_table
+                    .lookup_by_scope_name(scope_str, name, SymbolKind::InstDef)
+            {
                 return Some(id);
             }
             // Fallback: match by name only (cross-scope within same file).
@@ -27,9 +32,10 @@ pub fn mcb_lookup_instance_decl(uri: &McURI, name: &str, scope: Option<&str>) ->
             // registration order, so same-named defs in different containers
             // resolve stably instead of HashMap-iteration first-found.
             if let Some(candidates) = sem.local_table.name_to_declare_ids.get(name) {
-                for (uri_id, scope) in candidates {
+                for (uri_id, kind, scope) in candidates {
                     if let Some((id, _)) = sem.local_table.name_to_declare_id.get(&(
                         *uri_id,
+                        *kind,
                         scope.clone(),
                         name.to_string(),
                     )) {
@@ -42,7 +48,10 @@ pub fn mcb_lookup_instance_decl(uri: &McURI, name: &str, scope: Option<&str>) ->
     // Cross-file fallback
     for entry in workspace::WORKSPACE.mcodes.iter() {
         if let Ok(sem) = entry.value().symbols.lock() {
-            if let Some((id, _)) = sem.local_table.lookup_by_scope_name(scope_str, name) {
+            if let Some((id, _)) =
+                sem.local_table
+                    .lookup_by_scope_name(scope_str, name, SymbolKind::InstDef)
+            {
                 return Some(id);
             }
         }
@@ -77,7 +86,7 @@ pub fn mcb_get_refs(name: &str) -> Vec<(String, String, Span)> {
         if let Ok(sem) = entry.value().symbols.lock() {
             // Find decl_ids matching name
             let mut decl_ids: Vec<DeclareId> = Vec::new();
-            for ((_fid, _scope, n), (id, _)) in sem.local_table.name_to_declare_id.iter() {
+            for ((_fid, _k, _scope, n), (id, _)) in sem.local_table.name_to_declare_id.iter() {
                 if n == name {
                     decl_ids.push(*id);
                 }
@@ -130,6 +139,7 @@ fn register_lib_class_in_global_table(
         crate::refdef::types::intern_uri(def_uri),
         "",
         class_name,
+        SymbolKind::ClassDef,
     );
     for entry in binding.iter() {
         if let Ok(sem) = entry.value().symbols.lock() {

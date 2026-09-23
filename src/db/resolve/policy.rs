@@ -321,10 +321,10 @@ impl Resolver {
                 .name_to_declare_ids
                 .get(&name_str)
                 .and_then(|scopes| scopes.first())
-                .and_then(|(fid, scope)| {
+                .and_then(|(fid, kind, scope)| {
                     sem.local_table
                         .name_to_declare_id
-                        .get(&(*fid, scope.clone(), name_str.clone()))
+                        .get(&(*fid, *kind, scope.clone(), name_str.clone()))
                         .map(|(id, _)| *id)
                 });
             let id_hit = decl_id

@@ -98,16 +98,18 @@ oxc_index::define_index_type! {
 pub struct LocalSymbolTable {
     inst_id_counter: ReferenceId,
 
-    /// ★ P3: (uri_id, scope, name) → (declare_id, source_location) — the
-    /// canonical key (CIMP U81 ②), same shape as `McSpaceName`.
-    /// `uri_id` is the process-global `UriId` of the owning file (0 = none,
-    /// e.g. an inline port registered with a fileless `SourceLocation`).
-    pub name_to_declare_id: HashMap<(u32, String, String), (DeclareId, SourceLocation)>,
+    /// ★ P3: (uri_id, kind, scope, name) → (declare_id, source_location) — the
+    /// canonical key (CIMP U81 ②, kind dimension added by CIMP U269), same
+    /// shape as `McSpaceName`. `uri_id` is the process-global `UriId` of the
+    /// owning file (0 = none, e.g. an inline port registered with a fileless
+    /// `SourceLocation`).
+    pub name_to_declare_id: HashMap<DeclareKey, (DeclareId, SourceLocation)>,
 
-    /// ★ P0: reverse name index — name → (uri_id, scope) keys in registration order.
-    /// Turns the linear `name_to_declare_id.iter().find(|..| name)` class-ref
-    /// lookup in `Resolver::resolve_class_locked` into an O(1) index hit.
-    pub name_to_declare_ids: HashMap<String, Vec<(u32, String)>>,
+    /// ★ P0: reverse name index — name → (uri_id, kind, scope) keys in
+    /// registration order. Turns the linear `name_to_declare_id.iter().find(..)`
+    /// class-ref lookup in `Resolver::resolve_class_locked` into an O(1) index
+    /// hit.
+    pub name_to_declare_ids: HashMap<String, Vec<(u32, u8, String)>>,
 
     /// ★ Parallel index: scope string → the `UriId` its first registration came
     /// from. Turns a scope-string lookup into the canonical key without a scan.
@@ -118,13 +120,19 @@ pub struct LocalSymbolTable {
     //.. pub class_id_reference_list : Vec<((McURI, String), Span)>,
 }
 
-/// Canonical key `(uri_id, scope, name)` → `DeclareId` — the single allocator of
+/// The canonical declaration key: `(uri_id, kind, scope, name)`. The kind
+/// dimension (CIMP U269) keeps two defs of one name in one scope — a component
+/// parameter and a pin, say — in two ids with two positions, instead of the
+/// later registration overwriting the earlier one's loc.
+pub type DeclareKey = (u32, u8, String, String);
+
+/// Canonical key → `DeclareId` — the single allocator of
 /// the definition-entry id space (CIMP U81 ③, build-design §3.7 discipline 0
 /// ②a: the id is the key's encoding, so one key has one id and a repeat
 /// registration reuses it instead of consuming a number whose value depends on
 /// how much was parsed before it in the process). The key's shape is the same
 /// as `LocalSymbolTable::name_to_declare_id`, which stays a per-file index.
-static DECLARE_ID_BY_KEY: LazyLock<Mutex<HashMap<(u32, String, String), u32>>> =
+static DECLARE_ID_BY_KEY: LazyLock<Mutex<HashMap<DeclareKey, u32>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// Orders first registrations only; ids are monotonic and never recycled.
@@ -132,9 +140,14 @@ static NEXT_DECLARE_ID: AtomicU32 = AtomicU32::new(1);
 
 /// Intern the canonical key to its `DeclareId`. Shared by the declaration
 /// table and the global class table so one key has one id.
-pub(crate) fn intern_declare_id(uri_id: u32, scope: &str, name: &str) -> DeclareId {
+pub(crate) fn intern_declare_id(
+    uri_id: u32,
+    scope: &str,
+    name: &str,
+    kind: SymbolKind,
+) -> DeclareId {
     let mut table = DECLARE_ID_BY_KEY.lock().unwrap();
-    let key = (uri_id, scope.to_string(), name.to_string());
+    let key: DeclareKey = (uri_id, kind as u8, scope.to_string(), name.to_string());
     if let Some(raw) = table.get(&key) {
         return DeclareId { _raw: *raw };
     }
@@ -174,14 +187,22 @@ impl LocalSymbolTable {
     /// The `DeclareId` is derived from the canonical key, so two registrations
     /// of one key — wherever they happen — yield one id (a `PortRef` looked up
     /// before its `PortDef` is registered and the `PortDef` itself must agree).
+    /// Two defs of one name in one scope but of different kinds (a parameter
+    /// and a pin, say) are two keys and two ids (CIMP U269).
     pub fn add_declare_with_name(
         &mut self,
         loc: SourceLocation,
         name: &str,
         scope: &str,
+        kind: SymbolKind,
     ) -> DeclareId {
-        let key = (loc.file_id, scope.to_string(), name.to_string());
-        let declare_id = intern_declare_id(loc.file_id, scope, name);
+        let key: DeclareKey = (
+            loc.file_id,
+            kind as u8,
+            scope.to_string(),
+            name.to_string(),
+        );
+        let declare_id = intern_declare_id(loc.file_id, scope, name, kind);
         let existed = self.name_to_declare_id.contains_key(&key);
         self.name_to_declare_id.insert(key, (declare_id, loc));
         // ★ P0: keep the reverse name index in sync (first registration only).
@@ -189,7 +210,7 @@ impl LocalSymbolTable {
             self.name_to_declare_ids
                 .entry(name.to_string())
                 .or_default()
-                .push((loc.file_id, scope.to_string()));
+                .push((loc.file_id, kind as u8, scope.to_string()));
         }
         // Populate scope_index for scope-based lookups
         if !scope.is_empty() {
@@ -206,17 +227,37 @@ impl LocalSymbolTable {
         self.inst_id_to_declare_inst.insert(inst_id, declr_id);
     }
 
-    /// Look up a declare by scope string + name, using scope_index to reach the
-    /// owning file's canonical key.
+    /// Look up a declare by scope string + name + exact kind, using scope_index
+    /// to reach the owning file's canonical key.
     pub fn lookup_by_scope_name(
+        &self,
+        scope_str: &str,
+        name: &str,
+        kind: SymbolKind,
+    ) -> Option<(DeclareId, SourceLocation)> {
+        let uri_id = *self.scope_index.get(scope_str)?;
+        self.name_to_declare_id
+            .get(&(uri_id, kind as u8, scope_str.to_string(), name.to_string()))
+            .copied()
+    }
+
+    /// Kind-agnostic lookup: the lowest registered kind wins. Deterministic
+    /// (unlike a HashMap iteration), and for a name registered once it is the
+    /// same answer `lookup_by_scope_name` gives. Callers that genuinely do not
+    /// know the def kind of the name they seek use this; callers that know use
+    /// `lookup_by_scope_name` (CIMP U269).
+    pub fn lookup_any_by_scope_name(
         &self,
         scope_str: &str,
         name: &str,
     ) -> Option<(DeclareId, SourceLocation)> {
         let uri_id = *self.scope_index.get(scope_str)?;
-        self.name_to_declare_id
-            .get(&(uri_id, scope_str.to_string(), name.to_string()))
-            .copied()
+        (0..=u8::MAX)
+            .find_map(|k| {
+                self.name_to_declare_id
+                    .get(&(uri_id, k, scope_str.to_string(), name.to_string()))
+                    .copied()
+            })
     }
 }
 
@@ -492,8 +533,8 @@ pub fn symbol_table_to_json(symbols: &McSemSymbols, uri: &McURI) -> serde_json::
         local
             .name_to_declare_id
             .iter()
-            .filter(|((fid, _, _), _)| *fid == file_id)
-            .map(|((_fid, scope, name), (id, loc))| {
+            .filter(|((fid, _, _, _), _)| *fid == file_id)
+            .map(|((_fid, _k, scope, name), (id, loc))| {
                 (
                     (loc.byte_start, loc.byte_end, name.clone()),
                     json!({
@@ -540,7 +581,7 @@ pub fn symbol_table_to_json(symbols: &McSemSymbols, uri: &McURI) -> serde_json::
                 .find(|(_, (_, s))| {
                     s.byte_start as usize == interval.start && s.byte_end as usize == interval.stop
                 })
-                .map(|((_fid, scope, _name), _)| scope.clone())
+                .map(|((_fid, _k, scope, _name), _)| scope.clone())
                 .unwrap_or_default();
             json!({
                 "kind": kind,

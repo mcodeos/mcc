@@ -32,6 +32,7 @@ mod net_island_l1;
 mod output_path_flag;
 mod param_call_site_key_binding;
 mod param_group_prefix;
+mod param_pin_same_name;
 mod point_identity_stage_key;
 mod port_row_with_connection;
 mod product_order;

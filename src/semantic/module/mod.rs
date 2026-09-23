@@ -22,7 +22,7 @@ use crate::{
     ast::{macros::*, node::AstNode},
     semantic::basic::mc_param::McParamDeclares,
     semantic::common::BlockPartitions,
-    IOType, McCMIE, McIds, McParamValue, McURI,
+    IOType, McCMIE, McIds, McParamValue, McURI, SymbolKind,
 };
 use std::sync::Arc;
 
@@ -1689,7 +1689,12 @@ impl McModule {
                                         file_id: crate::refdef::types::intern_uri(uri.as_str()),
                                         ..crate::ast::sem::SourceLocation::from_span(&span)
                                     };
-                                    sem.local_table.add_declare_with_name(loc, &key, scope);
+                                    sem.local_table.add_declare_with_name(
+                                        loc,
+                                        &key,
+                                        scope,
+                                        SymbolKind::PortDef,
+                                    );
                                 }
                             }
                         } // end else (non-member-chain def registration)
