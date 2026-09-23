@@ -234,6 +234,20 @@ pub(crate) fn cmie_uri(cmie: &McCMIE) -> Option<String> {
 /// that file's visibility set V(F) = P3(F) ∪ P4(F) ∪ P5.
 pub struct Resolver;
 
+/// Where a pre-consolidation P3/P4 hit came from — the T11 test oracle.
+/// Production callers ignore the tag; tests assert the table is the main
+/// path (the red line: adding the table without moving the main path onto
+/// it is no work at all).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ResolveSource {
+    /// The phase-6/T11 visibility table.
+    VisibilityTable,
+    /// The own-file exact-key registry scan.
+    OwnFile,
+    /// The raw `uselist` walk.
+    UseChain,
+}
+
 impl Resolver {
     /// Resolve `name` in the context of `from_uri`.
     ///
@@ -275,9 +289,10 @@ impl Resolver {
         }
         // The referencing file is not loaded (e.g. mid-parse, when it is
         // removed from `mcodes`) or its symbols lock is poisoned: fall
-        // through to P3/P4/P5.
-        Self::resolve_own_file(from_uri, name)
-            .or_else(|| Self::resolve_visibility(from_uri, name))
+        // through to P3/P4/P5 — the visibility table first (T11), then the
+        // own-file scan and the chain walk as its fallback.
+        Self::resolve_visibility(from_uri, name)
+            .or_else(|| Self::resolve_own_file(from_uri, name))
             .or_else(|| Self::resolve_use_chain(from_uri, name))
             .or_else(|| Self::resolve_system(name))
     }
@@ -326,35 +341,47 @@ impl Resolver {
             }
         }
 
-        // ② P3: the referencing file's own definitions by exact key.
+        // ② Pre-consolidation P3/P4 (T11, plan 9.02 §5): the visibility
+        // table is the materialized authority — read it first; the own-file
+        // scan and the chain walk it wraps are its fallback, not the main
+        // path. The window only opens while the RefDefMap is not yet
+        // consolidated: post-consolidation ① is authoritative and a map miss
+        // means "not visible" (per ①), so no table second opinion.
+        if sem.ref_def_map.is_none() {
+            if let Some((cmie, _hit)) = Self::resolve_pre_consolidation(from_uri, name) {
+                return Some(cmie);
+            }
+        }
+
+        // ③ P3: the referencing file's own definitions by exact key. On the
+        // pre-consolidation path this is the table's fallback (dotted-form
+        // edge: AST-built table key vs the lookup form — see
+        // `find_scoped_by_name`); with the map present it is the dotted-form
+        // safety net behind an authoritative map miss.
         let own_hit = Self::resolve_own_file(from_uri, name);
         if let Some(cmie) = own_hit {
             return Some(cmie);
         }
 
-        // ③ P4: the referencing file's use chain — only while its RefDefMap
-        // is not yet consolidated. Instance/class resolution runs inside
-        // `McModule::new` and `create_lapper`, both before
-        // `consolidate_ref_def_map` sets the name_index, so the map-based
-        // P4 path (①) is unavailable there. The raw `uselist` walk applies
-        // the same P4 visibility rule (see visibility.rs); when the map
-        // exists it is authoritative and ① already covered P4.
-        if sem.ref_def_map.is_none() {
-            // Phase 6 (§13 delta 2): the visibility table is an O(1) P4 hit
-            // derived from the same use edges; the chain walk below remains
-            // the fallback for any table miss.
-            let vis_hit = Self::resolve_visibility(from_uri, name);
-            if let Some(cmie) = vis_hit {
-                return Some(cmie);
-            }
-            let chain_hit = Self::resolve_use_chain(from_uri, name);
-            if let Some(cmie) = chain_hit {
-                return Some(cmie);
-            }
-        }
-
         // ④ P5: mcode system library only.
         Self::resolve_system(name)
+    }
+
+    /// Pre-consolidation P3/P4 lookup: the visibility table first (the
+    /// materialized authority, T11), then the own-file registry scan and the
+    /// use-chain walk as its fallback — the fallback order the pre-T11 code
+    /// ran in, preserved so a table miss degrades exactly as before.
+    pub(crate) fn resolve_pre_consolidation(
+        from_uri: &McURI,
+        name: &McIds,
+    ) -> Option<(McCMIE, ResolveSource)> {
+        if let Some(cmie) = Self::resolve_visibility(from_uri, name) {
+            return Some((cmie, ResolveSource::VisibilityTable));
+        }
+        if let Some(cmie) = Self::resolve_own_file(from_uri, name) {
+            return Some((cmie, ResolveSource::OwnFile));
+        }
+        Self::resolve_use_chain(from_uri, name).map(|cmie| (cmie, ResolveSource::UseChain))
     }
 
     /// P3 exact-key lookup: `name` defined in `from_uri` itself. Used as a
@@ -384,13 +411,25 @@ impl Resolver {
         find_scoped_by_name(name, |u| *u == canonical_id)
     }
 
-    /// Phase 6 (§13 delta 2): O(1) visibility-table hit. The table is derived
-    /// from each file's `uselist` + `as_id` / `impt_ids` at parse_nsp time,
-    /// so a hit is exactly the P4 target the scope-chain walk would produce
-    /// (own-file shadowing already applied by the spacenames derivation).
-    /// A miss — or an unloaded file, whose stale entries must not resurrect
-    /// it — falls through to the chain walk unchanged.
+    /// Phase 6 (§13 delta 2) / T11: O(1) visibility-table hit. The table is
+    /// derived from each file's `uselist` + `as_id` / `impt_ids` at parse_nsp
+    /// time, so a hit is exactly the P3/P4 target the scope-chain walk would
+    /// produce (own-file shadowing already applied by the spacenames
+    /// derivation). A miss — or an unloaded file, whose stale entries must
+    /// not resurrect it — falls through to the own-file scan / chain walk
+    /// unchanged.
     fn resolve_visibility(from_uri: &McURI, name: &McIds) -> Option<McCMIE> {
+        Self::visibility_entry(from_uri, name)
+            .and_then(|entry| crate::db::defregistry::cmie_by_identity(&entry.winner.name))
+    }
+
+    /// The materialized row itself — winner (identity + priority layer) plus
+    /// the candidates it displaced. The `loaded` guard keeps an unloaded
+    /// file's stale rows from answering.
+    pub(crate) fn visibility_entry(
+        from_uri: &McURI,
+        name: &McIds,
+    ) -> Option<crate::db::cmie::tables::VisEntry> {
         let canonical = crate::build::pass1::canonicalize_project_uri(from_uri);
         let loaded = workspace::WORKSPACE.mcodes.contains_key(&canonical)
             || crate::db::infra::context::lookup_parsing_uses(&McURI::from(canonical.as_str()))
@@ -398,10 +437,22 @@ impl Resolver {
         if !loaded {
             return None;
         }
-        let sn = workspace::WORKSPACE
+        let entry = workspace::WORKSPACE
             .visibility
             .get(&(canonical, name.to_string()))?;
-        crate::db::defregistry::cmie_by_identity(&sn)
+        Some(entry.clone())
+    }
+
+    /// T11 (plan 9.02 §5): the id-bearing read — the table's winner identity
+    /// resolved to its `DefId`, with the priority layer that produced it. The
+    /// id is resolved at read time because the row stores identity: at
+    /// `sync_visibility` time (LSP edit path) the target def may not be
+    /// registered yet, and the registry revives a canonical key under its
+    /// original id, so read-time resolution is the ordering-robust form.
+    pub fn visibility_hit(from_uri: &McURI, name: &McIds) -> Option<(crate::db::defregistry::DefId, crate::db::cmie::tables::VisLayer)> {
+        let entry = Self::visibility_entry(from_uri, name)?;
+        let id = crate::db::defregistry::def_id_by_identity(&entry.winner.name)?;
+        Some((id, entry.winner.layer))
     }
 
     /// P4 use-chain lookup while the referencing file's RefDefMap is not yet

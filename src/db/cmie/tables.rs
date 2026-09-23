@@ -82,6 +82,45 @@ fn world_key(root: &Option<PathBuf>) -> Option<PathBuf> {
         .map(|p| p.canonicalize().unwrap_or_else(|_| p.clone()))
 }
 
+// Visibility entry types (plan 9.02 §5 T11 / §12.2 visibility materialization)
+
+/// Priority layer of a visibility-table winner. The table stores one winner
+/// per `(file, symbol)`; the layer states which priority produced it — own-file
+/// declarations (P3, `parse_cmie_names` ran last and displaced the import) or
+/// the merged use chain (P4, imports + cascade). P5 is deliberately absent:
+/// system defs are not per-file rows — an entry being present at all is what
+/// shadows the system library.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VisLayer {
+    /// The winner is the file's own declaration (P3).
+    OwnFile,
+    /// The winner came in through a `use` (default/named import, alias, or
+    /// cascade) (P4).
+    UseImport,
+}
+
+/// One visible candidate: the definition identity plus the layer that put it
+/// there. The `DefId` is not stored — at `sync_visibility` time (LSP edit
+/// path) the target def may not be registered yet, so the id is resolved at
+/// read time through the registry, where the canonical key revives under the
+/// same `DefId`.
+#[derive(Debug, Clone)]
+pub struct VisCandidate {
+    pub name: McSpaceName,
+    pub layer: VisLayer,
+}
+
+/// One materialized visibility row: the winner plus the candidates it
+/// displaced. A displaced candidate is recorded at the displacing insert
+/// (own-file declaration over an import, later import over an earlier one), so
+/// the table — not just the derivation transcript — carries the alias/shadow
+/// relations into the table (plan §5 T11).
+#[derive(Debug, Clone)]
+pub struct VisEntry {
+    pub winner: VisCandidate,
+    pub shadowed: Vec<McSpaceName>,
+}
+
 // WorkspaceSnapshot -- for save/restore when switching workspaces
 
 struct WorkspaceSnapshot {
@@ -102,10 +141,11 @@ struct WorkspaceSnapshot {
     // the world they were loaded into.
     blibs: DashMap<String, McCode>,
     system_defs: Vec<crate::db::defregistry::SystemDefSnapshot>,
-    // Phase 6 (§13 delta 2): per-world visibility index — (from_file, symbol)
-    // → the definition identity that symbol resolves to. Derived from each
-    // file's spacenames (uselist + as_id + impt_ids) at parse_nsp time.
-    visibility: DashMap<(McURI, String), McSpaceName>,
+    // Phase 6 (§13 delta 2) / T11 (plan 9.02 §5): per-world visibility
+    // index — (from_file, symbol) → the materialized visible candidate
+    // (winner identity + priority layer + displaced candidates). Derived from
+    // each file's spacenames (uselist + as_id + impt_ids) at parse_nsp time.
+    visibility: DashMap<(McURI, String), VisEntry>,
     // Phase 8 (D14): per-world def resolution edges (out + rev dependents).
     refgraph: crate::db::refgraph::DefRefGraph,
 }
@@ -149,10 +189,12 @@ pub struct WorkspaceManager {
     // process-global `libmgr::mcc_blibs`). Each world owns the libraries it
     // loaded, so a switch can never leak a stale lib into another world.
     pub(crate) blibs: DashMap<String, crate::db::infra::mc_code::McCode>,
-    // Phase 6 (§13 delta 2): per-world visibility index — (from_file, symbol)
-    // → the definition identity that symbol resolves to. resolve_class reads
-    // it for O(1) P4 hits; the scope-chain fallback stays intact.
-    pub(crate) visibility: DashMap<(McURI, String), McSpaceName>,
+    // Phase 6 (§13 delta 2) / T11 (plan 9.02 §5): per-world visibility
+    // index — (from_file, symbol) → the materialized visible candidate.
+    // resolve_class reads it for pre-consolidation P3/P4 hits (table first,
+    // own-file/chain walk demoted to fallback); the snapshot/restore and
+    // clear paths move it with the world.
+    pub(crate) visibility: DashMap<(McURI, String), VisEntry>,
     // Phase 8 (D14): per-world def resolution edges (out + rev dependents),
     // recorded at the single resolution bridge.
     pub(crate) refgraph: crate::db::refgraph::DefRefGraph,

@@ -75,6 +75,16 @@ pub struct McCode {
     pub(crate) symbols: Arc<Mutex<McSemSymbols>>,
     pub(crate) uselist: Vec<McUse>,
     pub(crate) spacenames: BTreeMap<McIds, McSpaceName>,
+    /// T11 (plan 9.02 §5): the candidates each `spacenames` key displaced —
+    /// recorded at the displacing insert (own decl over import, later import
+    /// over earlier one), so `sync_visibility` can materialize the shadow
+    /// relations into the per-world visibility table.
+    pub(crate) spacenames_shadowed: BTreeMap<McIds, Vec<McSpaceName>>,
+    /// The CMIE names declared in this file itself (`parse_cmie_names`
+    /// result). A `spacenames` key in this set is a P3 (own-file) winner;
+    /// everything else came in through a use (P4). Cloned along with
+    /// `spacenames` on the reuse paths.
+    pub(crate) own_cmie_names: Vec<McIds>,
     pub(crate) line_index: Option<LineIndex>,
     /// Source text of this file. The C lexer/grammar only tokenizes
     /// `[A-Za-z0-9_.]` as a URI path, so hyphenated file names such as
@@ -283,6 +293,8 @@ impl McCode {
             tokens: Arc::new(Mutex::new(McSemTokens::new())),
             symbols: Arc::new(Mutex::new(McSemSymbols::new())),
             spacenames: BTreeMap::new(),
+            spacenames_shadowed: BTreeMap::new(),
+            own_cmie_names: Vec::new(),
             uselist: Vec::new(),
             line_index: None,
             content: String::new(),
@@ -302,6 +314,8 @@ impl McCode {
             tokens: Arc::new(Mutex::new(McSemTokens::new())),
             symbols: Arc::new(Mutex::new(McSemSymbols::new())),
             spacenames: BTreeMap::new(),
+            spacenames_shadowed: BTreeMap::new(),
+            own_cmie_names: Vec::new(),
             uselist: Vec::new(),
             line_index: None,
             content: String::new(),
@@ -323,6 +337,8 @@ impl McCode {
             tokens: Arc::new(Mutex::new(McSemTokens::new())),
             symbols: Arc::new(Mutex::new(McSemSymbols::new())),
             spacenames: BTreeMap::new(),
+            spacenames_shadowed: BTreeMap::new(),
+            own_cmie_names: Vec::new(),
             uselist: Vec::new(),
             line_index: Some(LineIndex::new(content)),
             content: content.to_string(),
@@ -1064,6 +1080,9 @@ impl McCode {
                 // would prevent mcb_add_recursive from calling parse_pass1_types,
                 // breaking all ClassRef→ClassDef goto-def mappings.
                 self.spacenames.clone_from(&existing.spacenames);
+                self.spacenames_shadowed
+                    .clone_from(&existing.spacenames_shadowed);
+                self.own_cmie_names.clone_from(&existing.own_cmie_names);
                 self.uselist.clone_from(&existing.uselist);
                 // Keep the visibility index in sync even on the reuse path
                 // (idempotent overwrite — the entries were first derived when
@@ -1075,6 +1094,7 @@ impl McCode {
 
         self.uselist.clear();
         self.spacenames.clear();
+        self.spacenames_shadowed.clear();
 
         let path_buf = PathBuf::from(self.uri.clone());
         let Some(current_path) = path_buf.parent() else {
@@ -1256,8 +1276,18 @@ impl McCode {
                         } else {
                             cmie.clone()
                         };
-                        self.spacenames
-                            .insert(key, McSpaceName::new(cmie, mcuse.uri.clone()));
+                        let fresh = McSpaceName::new(cmie, mcuse.uri.clone());
+                        if let Some(displaced) = self.spacenames.insert(key.clone(), fresh.clone())
+                        {
+                            // Same-value re-insert (dep-reuse copy followed by
+                            // the import row) is idempotent, not shadowing.
+                            if displaced != fresh {
+                                self.spacenames_shadowed
+                                    .entry(key)
+                                    .or_default()
+                                    .push(displaced);
+                            }
+                        }
                     }
                 }
                 Some(classes) => {
@@ -1269,8 +1299,17 @@ impl McCode {
                             } else {
                                 class.clone()
                             };
-                            self.spacenames
-                                .insert(key, McSpaceName::new(class, mcuse.uri.clone()));
+                            let fresh = McSpaceName::new(class, mcuse.uri.clone());
+                            if let Some(displaced) =
+                                self.spacenames.insert(key.clone(), fresh.clone())
+                            {
+                                if displaced != fresh {
+                                    self.spacenames_shadowed
+                                        .entry(key)
+                                        .or_default()
+                                        .push(displaced);
+                                }
+                            }
                         } else {
                             dlog_warning_at(
                                 crate::errcodes::USE_IMPORTED_NOT_FOUND,
@@ -1328,20 +1367,48 @@ impl McCode {
         self.sync_visibility();
     }
 
-    /// Phase 6 (§13 delta 2): materialize this file's visibility index into
-    /// the per-world workspace table — `(from_file, symbol) → target
-    /// identity`. Derived from the finished `spacenames` (itself derived from
-    /// `uselist` + `as_id` / `impt_ids` in [`Self::parse_nsp`]), so the
-    /// shadowing rule is already applied: an own-file declaration overwrites
-    /// an imported symbol, and later imports overwrite earlier ones.
-    /// `Resolver::resolve_class` consults the table for O(1) P4 hits with the
-    /// scope-chain fallback intact.
+    /// Phase 6 (§13 delta 2) / T11 (plan 9.02 §5): materialize this file's
+    /// visibility index into the per-world workspace table — `(from_file,
+    /// symbol) → visible candidate`. Derived from the finished `spacenames`
+    /// (itself derived from `uselist` + `as_id` / `impt_ids` in
+    /// [`Self::parse_nsp`]), so the shadowing rule is already applied: an
+    /// own-file declaration displaces an imported symbol, and later imports
+    /// displace earlier ones; the displaced candidates ride along in
+    /// [`VisEntry::shadowed`] and the winner's layer states whether P3 or P4
+    /// produced it. `Resolver::resolve_class` reads the table first while the
+    /// file's RefDefMap is not yet consolidated; the own-file scan and the
+    /// use-chain walk stay as fallback.
+    ///
+    /// The table value stores the definition *identity*, not the `DefId`:
+    /// on the LSP edit path this runs before the target defs are registered,
+    /// and the read side resolves the id through the registry (where a
+    /// canonical key revives under its original id).
     pub(crate) fn sync_visibility(&self) {
         let from = crate::build::pass1::canonicalize_project_uri(&self.uri);
+        // Self-healing: drop this file's previous rows before re-deriving, so
+        // a re-parse whose spacenames shrank cannot leave stale winners
+        // behind (the table had no per-file removal before T11).
+        workspace::WORKSPACE.visibility.retain(|k, _| k.0 != from);
         for (key, value) in &self.spacenames {
+            let layer = if self.own_cmie_names.contains(key) {
+                crate::db::cmie::tables::VisLayer::OwnFile
+            } else {
+                crate::db::cmie::tables::VisLayer::UseImport
+            };
+            let entry = crate::db::cmie::tables::VisEntry {
+                winner: crate::db::cmie::tables::VisCandidate {
+                    name: value.clone(),
+                    layer,
+                },
+                shadowed: self
+                    .spacenames_shadowed
+                    .get(key)
+                    .cloned()
+                    .unwrap_or_default(),
+            };
             workspace::WORKSPACE
                 .visibility
-                .insert((from.clone(), key.to_string()), value.clone());
+                .insert((from.clone(), key.to_string()), entry);
         }
     }
 
@@ -1364,6 +1431,9 @@ impl McCode {
         if let Some(existing) = workspace::WORKSPACE.mcodes.get(&canonical_uri) {
             if !existing.spacenames.is_empty() {
                 self.spacenames.clone_from(&existing.spacenames);
+                self.spacenames_shadowed
+                    .clone_from(&existing.spacenames_shadowed);
+                self.own_cmie_names.clone_from(&existing.own_cmie_names);
                 self.uselist.clone_from(&existing.uselist);
                 // Keep the visibility index in sync even on the reuse path
                 // (idempotent overwrite — the entries were first derived when
@@ -1374,6 +1444,7 @@ impl McCode {
         }
 
         self.spacenames.clear();
+        self.spacenames_shadowed.clear();
 
         let path_buf = PathBuf::from(self.uri.clone());
         let Some(current_path) = path_buf.parent() else {
@@ -1486,8 +1557,18 @@ impl McCode {
                         } else {
                             cmie.clone()
                         };
-                        self.spacenames
-                            .insert(key, McSpaceName::new(cmie, mcuse.uri.clone()));
+                        let fresh = McSpaceName::new(cmie, mcuse.uri.clone());
+                        if let Some(displaced) = self.spacenames.insert(key.clone(), fresh.clone())
+                        {
+                            // Same-value re-insert (dep-reuse copy followed by
+                            // the import row) is idempotent, not shadowing.
+                            if displaced != fresh {
+                                self.spacenames_shadowed
+                                    .entry(key)
+                                    .or_default()
+                                    .push(displaced);
+                            }
+                        }
                     }
                 }
                 Some(classes) => {
@@ -1498,8 +1579,17 @@ impl McCode {
                             } else {
                                 class.clone()
                             };
-                            self.spacenames
-                                .insert(key, McSpaceName::new(class, mcuse.uri.clone()));
+                            let fresh = McSpaceName::new(class, mcuse.uri.clone());
+                            if let Some(displaced) =
+                                self.spacenames.insert(key.clone(), fresh.clone())
+                            {
+                                if displaced != fresh {
+                                    self.spacenames_shadowed
+                                        .entry(key)
+                                        .or_default()
+                                        .push(displaced);
+                                }
+                            }
                         } else {
                             dlog_warning_at(
                                 crate::errcodes::USE_IMPORTED_NOT_FOUND,
@@ -1584,16 +1674,24 @@ impl McCode {
                             );
                         }
                     } else {
-                        self.spacenames.insert(
-                            class_name.clone(),
-                            McSpaceName::new(&class_name, self.uri.clone()),
-                        );
+                        let fresh = McSpaceName::new(&class_name, self.uri.clone());
+                        if let Some(displaced) =
+                            self.spacenames.insert(class_name.clone(), fresh)
+                        {
+                            // The own declaration displaced an import — the
+                            // P3 shadowing event the table must carry.
+                            self.spacenames_shadowed
+                                .entry(class_name.clone())
+                                .or_default()
+                                .push(displaced);
+                        }
                         cmies.push(class_name.clone());
                     }
                     cmie_types.push((class_name, decl_type));
                 }
             }
         }
+        self.own_cmie_names = cmies.clone();
         cmies
     }
 
@@ -7132,15 +7230,14 @@ module main
         );
     }
 
-    /// Phase 6 (defspace §13 delta 2 / §12.2): the visibility table is
-    /// derived from each file's `uselist` + `as_id` / `impt_ids` at
-    /// parse_nsp time — `(from_file, symbol) → target identity` — and stays
-    /// consistent with the six import forms:
-    ///
-    /// 1. default import: the used file's CMIEs are visible under their own names;
-    /// 2. `as` alias: the first CMIE is visible under the alias only;
-    /// 3. named import (`[V6LED]`): only the listed symbol is visible;
-    /// 4. shadowing: an own-file declaration overwrites an imported symbol.
+    /// Phase 6 (defspace §13 delta 2) / T11 (plan 9.02 §5): the visibility
+    /// table is derived from each file's `uselist` + `as_id` / `impt_ids` at
+    /// parse_nsp time — `(from_file, symbol) → visible candidate` — and
+    /// stays consistent with the six import forms. The winner carries its
+    /// priority layer (P3 own-file vs P4 import), the displaced candidates
+    /// ride along in `shadowed`, the pre-consolidation main path reads the
+    /// table first (the `ResolveSource` oracle proves it), and the id-bearing
+    /// read `visibility_hit` resolves the winner to its `DefId`.
     #[test]
     fn def_mccode__visibility_table_matches_import_forms() {
         let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");
@@ -7205,23 +7302,38 @@ module main
             .visibility
             .get(&(a_uri.clone(), "V6LED".to_string()))
             .expect("default import registers V6LED");
-        assert_eq!(hit.ident, v6led, "target ident is the defined name");
-        assert_eq!(hit.uri, b_id, "default import points into b.mc");
+        assert_eq!(hit.winner.name.ident, v6led, "target ident is the defined name");
+        assert_eq!(hit.winner.name.uri, b_id, "default import points into b.mc");
+        assert_eq!(
+            hit.winner.layer,
+            crate::db::cmie::tables::VisLayer::UseImport,
+            "default import is a P4 winner"
+        );
+        assert!(
+            hit.shadowed.is_empty(),
+            "default import displaces nothing, got: {:?}",
+            hit.shadowed
+        );
 
         // Own-file declaration of b: V6LED → b itself.
         let own = workspace::WORKSPACE
             .visibility
             .get(&(b_uri.clone(), "V6LED".to_string()))
             .expect("own declaration registers V6LED");
-        assert_eq!(own.uri, b_id, "own-file entry points at itself");
+        assert_eq!(own.winner.name.uri, b_id, "own-file entry points at itself");
+        assert_eq!(
+            own.winner.layer,
+            crate::db::cmie::tables::VisLayer::OwnFile,
+            "own declaration is a P3 winner"
+        );
 
         // 2. Alias: `use ./b.mc as led` → visible as `led` only.
         let alias = workspace::WORKSPACE
             .visibility
             .get(&(c_uri.clone(), "led".to_string()))
             .expect("alias registers the renamed symbol");
-        assert_eq!(alias.ident, v6led, "alias maps to the original ident");
-        assert_eq!(alias.uri, b_id, "alias points into b.mc");
+        assert_eq!(alias.winner.name.ident, v6led, "alias maps to the original ident");
+        assert_eq!(alias.winner.name.uri, b_id, "alias points into b.mc");
         assert!(
             !workspace::WORKSPACE
                 .visibility
@@ -7234,7 +7346,7 @@ module main
             .visibility
             .get(&(d_uri.clone(), "V6LED".to_string()))
             .expect("named import registers the listed symbol");
-        assert_eq!(named.uri, b_id, "named import points into b.mc");
+        assert_eq!(named.winner.name.uri, b_id, "named import points into b.mc");
 
         // 4. Shadowing: an own-file declaration overwrites the import.
         let shadow = workspace::WORKSPACE
@@ -7242,8 +7354,18 @@ module main
             .get(&(e_uri.clone(), "V6LED".to_string()))
             .expect("shadowed symbol stays registered");
         assert_eq!(
-            shadow.uri, e_id,
+            shadow.winner.name.uri, e_id,
             "own-file declaration wins over the import"
+        );
+        assert_eq!(
+            shadow.winner.layer,
+            crate::db::cmie::tables::VisLayer::OwnFile,
+            "the displacing own declaration is a P3 winner"
+        );
+        assert!(
+            shadow.shadowed.iter().any(|d| d.ident == v6led && d.uri == b_id),
+            "the displaced import rides along in shadowed, got: {:?}",
+            shadow.shadowed
         );
 
         // 5. Resolution path: resolve_class reaches the use-target def
@@ -7255,6 +7377,39 @@ module main
             crate::McCMIE::Component(c) => assert_eq!(c.uri, b_uri, "resolves to b.mc's def"),
             _ => panic!("resolve_class must return the imported component"),
         }
+
+        // 5b. Main-path oracle (T11 red line): pre-consolidation, the table
+        // is the hit — the own-file scan and the chain walk are fallback.
+        let (cmie, source) = crate::db::resolve::policy::Resolver::resolve_pre_consolidation(
+            &a_uri,
+            &McIds::from("V6LED"),
+        )
+        .expect("pre-consolidation lookup hits");
+        assert_eq!(
+            source,
+            crate::db::resolve::policy::ResolveSource::VisibilityTable,
+            "the visibility table is the pre-consolidation main path"
+        );
+        assert!(matches!(cmie, crate::McCMIE::Component(_)));
+
+        // 6. The id-bearing read: the winner identity resolves to b's V6LED
+        // DefId (registered by parse_pass1_types), with the P4 layer.
+        let (id, layer) = crate::db::resolve::Resolver::visibility_hit(
+            &a_uri,
+            &McIds::from("V6LED"),
+        )
+        .expect("visibility_hit resolves the winner to a DefId");
+        assert_eq!(
+            layer,
+            crate::db::cmie::tables::VisLayer::UseImport,
+            "imported winner carries the P4 layer"
+        );
+        let expected = crate::db::defregistry::def_id_by_identity(&McSpaceName {
+            ident: v6led.clone(),
+            uri: b_id,
+        })
+        .expect("b's V6LED is registered");
+        assert_eq!(id, expected, "visibility_hit returns the registry DefId");
     }
 
     /// Phase 8 (defspace D14): the DefRefGraph records def resolution edges
