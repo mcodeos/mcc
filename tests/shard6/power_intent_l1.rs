@@ -4535,6 +4535,10 @@ fn couple_edge_is_not_judged_6037() {
 const SINK_DC: &str =
     "component SINK_DC {\n    pins = [\n        psnk [1,2] = [VDD, GND]::DC(3.3V)\n    ]\n}\n";
 
+/// The same load on the abstract face: the pin row is the family shape, the
+/// instance carries no partno until the BOM picks a variant.
+const ABSTRACT_SINK: &str = "abstract component SINK_ABS {\n    pins = [\n        psnk [1,2] = [VDD, GND]::DC(3.3V)\n    ]\n}\n";
+
 /// The same load with a single-member row: §2.1's shape that declares no pair at
 /// all, so there is no pair to be decoupled across.
 const SINK_SCALAR: &str =
@@ -4660,6 +4664,35 @@ fn resistive_part_on_the_pair_does_not_cover_the_load_6036() {
     assert!(
         codes.contains(&mcc::errcodes::SINK_PIN_NO_DECOUPLING),
         "a part with no capacitance in its spec table is not a decoupling capacitor; got codes: {codes:?}"
+    );
+}
+
+/// The abstract face (U226 b3878): the same undecoupled load declared on an
+/// `abstract component` and instantiated unselected (no partno — the BOM pick
+/// is pending, 6005's own report-only remark). Placement is legal and the
+/// netlist is produced — the board wired the abstract's pins — and 6019 already
+/// counts the same terminal as demand, so PI-1 judges it exactly like a
+/// selected part's load: the missing variant pick is BOM bookkeeping, not an
+/// off-board excuse.
+#[test]
+fn unselected_abstract_instance_sink_still_judged_6036() {
+    let src = format!(
+        "{ABSTRACT_SINK}module main {{\n    {PI1_BOARD}\
+         SINK_ABS s\n    s.VDD -> VDD_3V3\n    s.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let n = codes
+        .iter()
+        .filter(|&&c| c == mcc::errcodes::SINK_PIN_NO_DECOUPLING)
+        .count();
+    assert_eq!(
+        n, 1,
+        "an unselected abstract instance's wired load is still a load on the board; got codes: {codes:?}"
+    );
+    let msgs = msgs_of(mcc::errcodes::SINK_PIN_NO_DECOUPLING, &src);
+    assert!(
+        msgs.iter().any(|m| m.contains("main.s.VDD")),
+        "6036 must name the abstract instance's load terminal like any other: {msgs:?}"
     );
 }
 

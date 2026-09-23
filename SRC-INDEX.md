@@ -7590,8 +7590,8 @@ semantic/validation/nets/shared_return.rs#L271  fn on_clause_span
 semantic/validation/nets/shared_return.rs#L289  fn carries
 semantic/validation/nets/sink_decouple.rs#L57  fn check_sink_pin_decoupling
 semantic/validation/nets/sink_decouple.rs#L154  fn sink_sites
-semantic/validation/nets/sink_decouple.rs#L204  fn declared_pair
-semantic/validation/nets/sink_decouple.rs#L236  fn same_node
+semantic/validation/nets/sink_decouple.rs#L208  fn declared_pair
+semantic/validation/nets/sink_decouple.rs#L240  fn same_node
 semantic/validation/nets/subface.rs#L63  fn check_filter_subface_overreach
 semantic/validation/nets/subface.rs#L188  struct SinkPair
 semantic/validation/nets/subface.rs#L205  fn sink_pairs
