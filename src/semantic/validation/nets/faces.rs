@@ -142,7 +142,9 @@ impl DomainFaces {
     /// Whether any scope on `layer`'s chain declares a face at all — the cheap
     /// guard that keeps a board with no faces at all out of the walk.
     pub(super) fn is_empty(&self) -> bool {
-        self.quiet.is_empty() && self.noisy.is_empty() && self.digital.is_empty()
+        self.quiet.is_empty()
+            && self.noisy.is_empty()
+            && self.digital.is_empty()
             && self.radio.is_empty()
     }
 

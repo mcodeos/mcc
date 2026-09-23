@@ -195,7 +195,10 @@ fn record(key: String, path: String, outcome: BindOutcome) {
 fn resolve_value(
     name: &str,
     _uri: &crate::McURI,
-) -> Option<(std::sync::Arc<crate::semantic::component::McComponent>, Option<crate::DefId>)> {
+) -> Option<(
+    std::sync::Arc<crate::semantic::component::McComponent>,
+    Option<crate::DefId>,
+)> {
     let ds = crate::definition_space();
     let hits: Vec<_> = ds
         .all_components()
