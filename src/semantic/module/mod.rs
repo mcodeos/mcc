@@ -1694,6 +1694,7 @@ impl McModule {
                                         &key,
                                         scope,
                                         SymbolKind::PortDef,
+                                        crate::ScopePath::module(uri, scope).priority(),
                                     );
                                 }
                             }

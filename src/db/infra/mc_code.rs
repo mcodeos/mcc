@@ -3303,7 +3303,7 @@ impl McCode {
                 .retain(|(fid, _, _, _), _| *fid != file_id);
             // ★ P0: prune the reverse name index in sync with the retain above.
             for scopes in sem.local_table.name_to_declare_ids.values_mut() {
-                scopes.retain(|(fid, _, _)| *fid != file_id);
+                scopes.retain(|(fid, _, _, _)| *fid != file_id);
             }
             sem.local_table.scope_index.retain(|_, fid| *fid != file_id);
             // Drop def_map entries for this file too. They were registered
@@ -7636,6 +7636,81 @@ module main
             workspace::WORKSPACE.refgraph.has_dependents(&to),
             "a fresh pass re-records the reference"
         );
+    }
+
+    /// U232 through the production registration path: a real parse, then a
+    /// container-level and a func-level declaration of one name. The reverse
+    /// index must hand the scope-order win to the func-local candidate even
+    /// though the container-level one registered first — the shape the old
+    /// registration-order `.first()` got wrong.
+    #[test]
+    fn def_defres__func_local_declaration_shadows_container_name_in_the_index() {
+        let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");
+        crate::mcc_init_no_lib();
+        crate::mcc_set_system_root(std::path::Path::new(""));
+        crate::mcc_clear_workspace();
+
+        let dir = std::env::temp_dir().join(format!("mcc-u232-shadow-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("main.mc");
+        let uri = crate::build::pass1::canonicalize_project_uri(
+            &file.to_string_lossy().into_owned(),
+        );
+        crate::mcc_load_from_string(
+            &uri,
+            "module main\n{\n    io A\n}\n",
+        );
+
+        let mcode = workspace::WORKSPACE
+            .mcodes
+            .get(&uri)
+            .expect("the parsed file owns a sem entry");
+        let mut sem = mcode.symbols.lock().expect("sem lock");
+
+        // Container-level def registers first.
+        let (outer_id, _) = crate::refdef::register::register_def(
+            &mut sem,
+            &uri,
+            "main",
+            None,
+            "SHARED",
+            10..20,
+            crate::refdef::SymbolKind::ClassDef,
+        );
+        // Func-level namesake registers second.
+        let (inner_id, _) = crate::refdef::register::register_def(
+            &mut sem,
+            &uri,
+            "main",
+            Some("f"),
+            "SHARED",
+            40..50,
+            crate::refdef::SymbolKind::InstDef,
+        );
+
+        let cands = sem
+            .local_table
+            .name_to_declare_ids
+            .get("SHARED")
+            .expect("both candidates indexed");
+        assert_eq!(
+            cands.first().map(|c| c.3.as_str()),
+            Some("main.f"),
+            "the func-local candidate leads the index (U232)"
+        );
+
+        // The policy selection picks the inner candidate; the resolution it
+        // feeds resolves to the func-local def's id.
+        let winner = crate::db::resolve::policy::select_declare_candidate(
+            &sem.local_table,
+            "SHARED",
+        )
+        .expect("the func-local candidate resolves");
+        assert_eq!(winner, inner_id);
+        assert_ne!(winner, outer_id);
+
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     /// T6 (G6) parse-level gold assertion: the def content fingerprint is
