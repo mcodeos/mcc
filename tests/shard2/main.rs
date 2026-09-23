@@ -27,6 +27,7 @@ mod pin_member_spelling;
 mod pins_index_access;
 mod pins_self_face_phrase;
 mod resolve_policy;
+mod u249_curly_dot_chain;
 mod use_import_codes;
 mod vec_array_fold_equivalence;
 mod vec_per_edge_truth;
