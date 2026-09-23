@@ -933,6 +933,16 @@ impl McPins {
     }
 
     pub fn parse(&mut self, node: &AstNode) {
+        self.parse_with_values(node, &[]);
+    }
+
+    /// Parse a pins table against a bound-parameter environment (U216). A
+    /// name expression that resolves against `values` registers as a static
+    /// name right here — the parsed_pins materialization path, which knows
+    /// the adoption's arguments — while one that does not resolve rides the
+    /// dynamic path exactly as the empty environment (component-table parse)
+    /// has always routed it.
+    pub fn parse_with_values(&mut self, node: &AstNode, env: &[(String, String)]) {
         // Cleared before the childless-pins early return below, which is the
         // first of several exits: the cursor is not a block-local and must not
         // survive into the next `parse()`.
@@ -1043,7 +1053,7 @@ impl McPins {
                         pinnames = if is_power_line {
                             McPinNames::new_power_row(&subnode)
                         } else {
-                            McPinNames::new(&subnode)
+                            McPinNames::new_with_values(&subnode, env)
                         };
                         pinnames_node = Some(subnode.clone());
                         // ★ Collect interface name spans for LSP goto-def (e.g. `I2C` in
@@ -3258,7 +3268,14 @@ impl McPinNames {
     }
 
     pub fn new(node: &AstNode) -> Option<Self> {
-        Self::new_inner(node, false)
+        Self::new_inner(node, false, &[])
+    }
+
+    /// Row parse against a bound-parameter environment (U216): a name
+    /// expression that resolves against `values` lands as a static name in
+    /// declaration order; see [`McPins::parse_with_values`].
+    pub fn new_with_values(node: &AstNode, values: &[(String, String)]) -> Option<Self> {
+        Self::new_inner(node, false, values)
     }
 
     /// Parse pin names of one `psrc/psnk/psbi` line. `power_row` tells the
@@ -3268,10 +3285,10 @@ impl McPinNames {
     /// `::Iface` resolver must not run on it and must not degrade with a
     /// "lookup failed" warning.
     pub(crate) fn new_power_row(node: &AstNode) -> Option<Self> {
-        Self::new_inner(node, true)
+        Self::new_inner(node, true, &[])
     }
 
-    fn new_inner(node: &AstNode, power_row: bool) -> Option<Self> {
+    fn new_inner(node: &AstNode, power_row: bool, values: &[(String, String)]) -> Option<Self> {
         // MCAST_PIN_NAMES
         //  |- MCAST_PIN_NAME *
 
@@ -3674,35 +3691,42 @@ impl McPinNames {
                             }
                         }
                         // U211: an arithmetic expression in the name slot is a
-                        // *computed* name, not an unsupported shape. One that
-                        // reads a parameter resolves per instantiation on the
-                        // dynamic-pin line (the row routes there through
-                        // `has_param_ref`, same as the colon/bracket templates
-                        // above); a parameter-free one resolves right now on
-                        // the value engine (`Str + value` interpolates). What
-                        // still has no reading here is an expression that
-                        // parses but does not evaluate.
+                        // *computed* name, not an unsupported shape. Resolution
+                        // order (U216): against the caller's parameter
+                        // environment first — the parsed_pins path binds the
+                        // adoption's arguments, and a name that resolves there
+                        // registers static, in declaration order; one that
+                        // does not resolve but reads a parameter routes to the
+                        // dynamic-pin line through `has_param_ref`, same as
+                        // the colon/bracket templates above (the component
+                        // table parses with the empty environment, so its
+                        // param-ref rows ride the dynamic path exactly as
+                        // U211 ruled). What still has no reading here is an
+                        // expression that parses but does not evaluate.
                         MCAST_OPD_MULTI | MCAST_OPD_DIVID | MCAST_OPD_PLUS | MCAST_OPD_MINUS => {
                             match McExpression::new(&exp_node) {
-                                Some(expr) if dynamic::DynamicPinExpr::check_param_ref(&expr) => {
-                                    myself.has_param_ref = true;
-                                }
                                 Some(expr) => {
-                                    match dynamic::DynamicPinExpr::eval_text(&expr, &[]) {
+                                    match dynamic::DynamicPinExpr::eval_text(&expr, values) {
                                         Some(text) if !text.is_empty() => {
                                             myself.push_option(
                                                 McPinPort::Single(text),
                                                 err_node,
                                             );
                                         }
-                                        _ => dlog_error(
-                                            crate::errcodes::PIN_NAME_EXPR_UNRESOLVED,
-                                            &exp_node,
-                                            &crate::errcodes::format_msg(
-                                                crate::errcodes::PIN_NAME_EXPR_UNRESOLVED,
-                                                &[&expr.to_string()],
-                                            ),
-                                        ),
+                                        _ => {
+                                            if dynamic::DynamicPinExpr::check_param_ref(&expr) {
+                                                myself.has_param_ref = true;
+                                            } else {
+                                                dlog_error(
+                                                    crate::errcodes::PIN_NAME_EXPR_UNRESOLVED,
+                                                    &exp_node,
+                                                    &crate::errcodes::format_msg(
+                                                        crate::errcodes::PIN_NAME_EXPR_UNRESOLVED,
+                                                        &[&expr.to_string()],
+                                                    ),
+                                                );
+                                            }
+                                        }
                                     }
                                 }
                                 None => dlog_error(

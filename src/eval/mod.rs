@@ -612,6 +612,46 @@ pub fn satisfies(cmp: Compare, lhs: &Value, rhs: &Value) -> Result<bool, EvalErr
     })
 }
 
+/// The canonical rail-name text of a number (U216, ruled 2026-09-23): the
+/// numeric projection in base units at one fixed decimal, the decimal point
+/// read as `V`, and a negative value marked with an `N` suffix — `3.3V` →
+/// `3V3`, `5V` → `5V0`, `-3.3V` → `3V3N`. A value with no numeric reading
+/// (text, `_`, an unbound parameter projected through [`Value::from_text`])
+/// formats as the empty text, so a name spelled `"VCC" + canon(volt)` falls
+/// back to the bare family name exactly when no voltage is bound.
+///
+/// This is a pure number formatter (V6): it owns no symbol table and reads
+/// nothing but its argument — the naming law that uses it lives in the
+/// library that spells the name.
+pub fn canon(value: &Value) -> Value {
+    let Some(n) = value.number() else {
+        return Value::Str(String::new());
+    };
+    if !n.is_finite() {
+        return Value::Str(String::new());
+    }
+    // `{:.1}` rounds, so a binary 3.2999… renders as `3.3` (V3: the numeric
+    // projection, not the author's notation — `3000mV` and `3V` format alike).
+    let text = format!("{:.1}", n.abs());
+    let text = text.replace('.', "V");
+    if n < 0.0 {
+        Value::Str(format!("{text}N"))
+    } else {
+        Value::Str(text)
+    }
+}
+
+/// The value-level builtin functions, dispatched by spelled name (V7: one
+/// engine, so a call in any expression resolves here and nowhere else).
+/// `None` — unknown name or arity — is the caller's cue to report; the
+/// engine itself holds no diagnostic position for a bare call.
+pub fn call_builtin(name: &str, args: &[Value]) -> Option<Value> {
+    match (name, args) {
+        ("canon", [value]) => Some(canon(value)),
+        _ => None,
+    }
+}
+
 /// Read a quantity written in `family`'s notation out of text (`3.3V`,
 /// `500mA`, `1.5A`).
 ///

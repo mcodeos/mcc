@@ -292,7 +292,8 @@ fn expr_view(expr: &McExpression) -> (AttrView, String) {
         McExpression::Plus(_, _)
         | McExpression::Minus(_, _)
         | McExpression::Multiply(_, _)
-        | McExpression::Divide(_, _) => (AttrView::Expr, expr.to_string()),
+        | McExpression::Divide(_, _)
+        | McExpression::Call { .. } => (AttrView::Expr, expr.to_string()),
     }
 }
 

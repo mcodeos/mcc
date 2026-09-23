@@ -364,7 +364,15 @@ impl Mc2Interface {
         if let Some(ref cond_block) = inst.base.body.get_sub_node() {
             if let Some(conds) = McConds::new(cond_block) {
                 if let Some(selected_block) = conds.evaluate(&param_tuples, None, anchor) {
-                    inst.parsed_pins = Self::parse_pins_from_block(&inst.base.uri, &selected_block);
+                    // U216: the environment rides down, so a computed name in
+                    // the selected branch (`"VCC" + canon(volt)`) materializes
+                    // here, in declaration order.
+                    let values: Vec<(String, String)> = param_tuples
+                        .iter()
+                        .map(|(k, v)| (k.to_string(), v.clone()))
+                        .collect();
+                    inst.parsed_pins =
+                        Self::parse_pins_from_block(&inst.base.uri, &selected_block, &values);
                 }
             }
         }
@@ -417,8 +425,17 @@ impl Mc2Interface {
                 if child_type == MCAST_COND_IF {
                     if let Some(conds) = McConds::new(&child) {
                         if let Some(selected_block) = conds.evaluate(&param_tuples, None, anchor) {
-                            inst.parsed_pins =
-                                Self::parse_pins_from_block(&inst.base.uri, &selected_block);
+                            // U216: the environment rides down, so a computed
+                            // name in the selected branch materializes here.
+                            let values: Vec<(String, String)> = param_tuples
+                                .iter()
+                                .map(|(k, v)| (k.to_string(), v.clone()))
+                                .collect();
+                            inst.parsed_pins = Self::parse_pins_from_block(
+                                &inst.base.uri,
+                                &selected_block,
+                                &values,
+                            );
                             break; // Found matching condition, stop searching
                         }
                     }
@@ -457,14 +474,14 @@ impl Mc2Interface {
     /// another file (or a library) while the current file is only the one
     /// instantiating it, and every diagnostic this raises belongs to the
     /// declaration's own syntax (CIMP U39).
-    fn parse_pins_from_block(uri: &McURI, block: &AstNode) -> Option<McPins> {
+    fn parse_pins_from_block(uri: &McURI, block: &AstNode, values: &[(String, String)]) -> Option<McPins> {
         let _uri = crate::current_uri::UriGuard::new(uri);
 
         let mut pins = McPins::new();
 
         // If the block itself is an ATTRIBUTE_PIN or ATTRIBUTE_PINADD, parse it directly
         if block.is_type(MCAST_ATTRIBUTE_PIN) || block.is_type(MCAST_ATTRIBUTE_PINADD) {
-            pins.parse(block);
+            pins.parse_with_values(block, values);
             return Some(pins);
         }
 
@@ -474,7 +491,7 @@ impl Mc2Interface {
                 .iter()
                 .filter(|x| x.is_type(MCAST_ATTRIBUTE_PIN) || x.is_type(MCAST_ATTRIBUTE_PINADD))
                 .for_each(|x| {
-                    pins.parse(&x);
+                    pins.parse_with_values(&x, values);
                 });
             Some(pins)
         } else {
