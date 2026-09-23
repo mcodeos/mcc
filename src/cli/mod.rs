@@ -889,8 +889,8 @@ impl ExportKind {
         ExportKind::Bom,
         ExportKind::Spice,
         ExportKind::KiCad,
-        ExportKind::KiCadSch,
         ExportKind::InstList,
+        ExportKind::KiCadSch,
     ];
 
     /// The `u8` tag `export::build_payload` dispatches on.
@@ -900,8 +900,8 @@ impl ExportKind {
             ExportKind::Bom => 1,
             ExportKind::Spice => 2,
             ExportKind::KiCad => 3,
-            ExportKind::KiCadSch => 5,
-            ExportKind::InstList => 4,
+            ExportKind::KiCadSch => 4,
+            ExportKind::InstList => 5,
         }
     }
 

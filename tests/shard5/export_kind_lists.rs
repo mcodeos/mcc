@@ -79,5 +79,5 @@ fn export_kind__the_short_kicad_spelling_is_accepted() {
 /// file -- and the format table in `spec/16-export-viz.md` -- on purpose.
 #[test]
 fn export_kind__the_table_is_a_deliberate_list() {
-    assert_eq!(ExportKind::ALL.len(), 5);
+    assert_eq!(ExportKind::ALL.len(), 6);
 }
