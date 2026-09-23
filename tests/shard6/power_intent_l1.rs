@@ -75,6 +75,11 @@
 //!   forwards it instead of leaving the net NoSupply; a rootless child-sink
 //!   co-segment recursing back is Unresolved and stays skipped. Consumers like
 //!   6023 then gate the regulator fed across the boundary.
+//! * **§7 L4 cross-layer root export** (island-attribution-design.md §7 L4,
+//!   U218) — a module-body `psrc` row exports its members as Port-kind points
+//!   on the parent's bound net (directly or through transparent pass
+//!   copper), so the row is a source root across the boundary; a `psnk` row
+//!   imports and never decodes as a source.
 //! * **§6.7 output vs rail window** (`POWER_CONVERTER_OUTPUT_RAIL_WINDOW` =
 //!   6026, rail-contract-design.md §6.7) — a regulator's `spec.output`
 //!   guarantee must sit inside the declared rail window of the rail net its Src
@@ -347,7 +352,7 @@ fn rail_same_hot_in_two_domains_fires_two_roots() {
 fn rail_nature_contradicting_rail_axis_is_reported() {
     let src = "module main {\n    conduit GND @role(main)\n    \
         domain MAINS @nature(ac) { rail [VBUS, GND]::DC(310V) }\n    \
-        domain VBULK @nature(dc) { rail [L, N]::AC(230V, 50Hz) }\n}\n";
+        domain VBULK @nature(dc) { rail [L, N]::AC.1P(230V, 50Hz) }\n}\n";
     let codes = build_codes(src);
     assert!(
         codes.contains(&mcc::errcodes::RAIL_NATURE_MISMATCH),
@@ -372,7 +377,7 @@ fn rail_nature_contradicting_rail_axis_is_reported() {
 #[test]
 fn rail_nature_agreement_and_absence_are_clean() {
     let src = "module main {\n    conduit GND @role(main)\n    \
-        domain MAINS @nature(ac) { rail [L, N]::AC(230V, 50Hz) }\n    \
+        domain MAINS @nature(ac) { rail [L, N]::AC.1P(230V, 50Hz) }\n    \
         domain VBULK @nature(dc) { rail [VB, GND]::DC(310V) }\n    \
         domain PLAIN { rail [VDD, GND]::DC(3.3V) }\n}\n";
     let codes = build_codes(src);
@@ -2645,6 +2650,114 @@ fn module_boundary_feed_inside_input_req_is_clean_6023() {
     assert!(
         !codes.contains(&mcc::errcodes::POWER_CONVERTER_GATE),
         "a child-fed 5V point inside a 4.5V~5.5V input window must pass 6023; got codes: {codes:?}"
+    );
+}
+
+// U218 cross-layer source-root export (island-attribution-design.md §7 L4,
+// composition-terminal-design.md §4): a module-body `psrc` row exports its
+// members as Port-kind points that land on the parent's bound net (directly,
+// or through a transparent pass element), so the exported row is a source
+// root on the parent side of the boundary. A `psnk` row imports and never
+// decodes as a source (`l1_port_sources` filters Snk).
+
+/// The pwrint POWER_USB shape: a submodule whose own module-power row is a
+/// `psrc` — an exporter of 5V.
+const PWRS: &str = "module PWRS {\n    psrc vin{VBUS_5V, GND}::DC(5V)\n}\n";
+
+/// The psnk twin: the same row shape as an importer — the negative arm.
+const PWRK: &str = "module PWRK {\n    psnk vin{VBUS_5V, GND}::DC(5V)\n}\n";
+
+/// A module power row's `::DC(...)` resolves through the DC class, unlike the
+/// special-cased component rows — in the no-lib harness the in-file interface
+/// stands in for the library's DC (as the pwrint board's installed lib does).
+const DCIF: &str = "interface DC(volt::UV.VOLT)\n{\n    topology = \"point to point\"\n    pins = [\n        1 = HOT\n        2 = RET\n    ]\n}\n";
+
+/// A project-local two-pin pass element with no power rows — the transparent
+/// copper the climb walks through (the board's F1::FUSE).
+const XFUSE: &str = "component XFUSE {\n    pins = [\n        [1,2] = [A, B]\n    ]\n}\n";
+
+/// U218 — the pwrint shape: the submodule's `psrc` row port feeds the parent's
+/// sink net through a transparent fuse. Before the port arm the climb died at
+/// the A′ junction (the row's hot member sits on the child internal net only)
+/// and 6019 fired; now the exported row is the root on [VBUS_RAW, GND] and
+/// 6019 stays silent. The 3.3V sink against the exported 5V nominal fires
+/// 6011 — which also proves the root's nominal rode the climb to the
+/// adjudication.
+#[test]
+fn module_power_row_psrc_export_through_fuse_is_a_parent_root() {
+    let src = format!(
+        "{DCIF}{XFUSE}{PWRS}{SINK3}\nmodule main {{\n    conduit GND @role(main)\n    \
+         PWRS usb\n    SINK3 k\n    \
+         usb.vin -> [f1::XFUSE(), _] -> [VBUS_RAW, GND]\n    \
+         k.VDD -> VBUS_RAW\n    k.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::SINK_NET_NO_SOURCE),
+        "an exported module psrc row feeding through a transparent fuse is a source root on the parent net — 6019 must stay silent; got codes: {codes:?}"
+    );
+    assert!(
+        codes.contains(&mcc::errcodes::POWER_SINK_NOMINAL_MISMATCH),
+        "the exported 5V root must ride the climb so the 3.3V sink adjudicates (6011); got codes: {codes:?}"
+    );
+}
+
+/// U218 — the same export bound directly (no fuse): the row's Port-kind
+/// member sits on the parent net itself, so the root is found on the first
+/// hop; 6019 silent, 6011 still the nominal verdict.
+#[test]
+fn module_power_row_psrc_direct_bind_is_a_parent_root() {
+    let src = format!(
+        "{DCIF}{PWRS}{SINK3}\nmodule main {{\n    conduit GND @role(main)\n    \
+         PWRS usb\n    SINK3 k\n    \
+         usb.vin -> [VBUS_RAW, GND]\n    \
+         k.VDD -> VBUS_RAW\n    k.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::SINK_NET_NO_SOURCE),
+        "an exported module psrc row bound directly onto the parent net is a source root there — 6019 must stay silent; got codes: {codes:?}"
+    );
+    assert!(
+        codes.contains(&mcc::errcodes::POWER_SINK_NOMINAL_MISMATCH),
+        "the exported 5V root must adjudicate the 3.3V sink (6011); got codes: {codes:?}"
+    );
+}
+
+/// U218 — the negative arm: a `psnk` row is an importer, never a source
+/// (`l1_port_sources` filters Snk), so a parent sink net fed "through" it has
+/// no root and 6019 keeps firing.
+#[test]
+fn module_power_row_psnk_never_exports_6019_fires() {
+    let src = format!(
+        "{DCIF}{XFUSE}{PWRK}{SINK3}\nmodule main {{\n    conduit GND @role(main)\n    \
+         PWRK usb\n    SINK3 k\n    \
+         usb.vin -> [f1::XFUSE(), _] -> [VBUS_RAW, GND]\n    \
+         k.VDD -> VBUS_RAW\n    k.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        codes.contains(&mcc::errcodes::SINK_NET_NO_SOURCE),
+        "a psnk row imports power and must not decode as a source root — the fuse-fed sink net stays undriven (6019); got codes: {codes:?}"
+    );
+}
+
+/// U218 — an unused export stays silent: the port arm runs per fed sink net,
+/// so a psrc row whose port reaches nothing adds no diagnostics either way
+/// (the sink here is fed by a real source and clean).
+#[test]
+fn module_power_row_unused_export_stays_silent() {
+    let src = format!(
+        "{DCIF}{PWRS}{SRC3}{SINK3}\nmodule main {{\n    conduit GND @role(main)\n    \
+         PWRS usb\n    SRC3 s\n    SINK3 k\n    \
+         s.OUT -> VDD3\n    s.GND -> GND\n    \
+         k.VDD -> VDD3\n    k.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::SINK_NET_NO_SOURCE)
+            && !codes.contains(&mcc::errcodes::POWER_SINK_NOMINAL_MISMATCH),
+        "an unwired psrc export must not disturb the diagnostics of an independently fed board; got codes: {codes:?}"
     );
 }
 
@@ -5295,7 +5408,7 @@ fn board_with_no_analog_port_is_not_judged_6039() {
 fn quiet_face_without_a_rail_is_not_judged_6039() {
     let src = format!(
         "{ANALOG_PART}module main {{\n    {SN1_BOARD}\
-         domain RAILESS @class(analog) {{ rail [VDDR, GNDR]::AC(3.3V) }}\n    \
+         domain RAILESS @class(analog) {{ rail [VDDR, GNDR]::AC.1P(3.3V) }}\n    \
          io MIC{{P, N}} @class(analog) @return(GNDA)\n    \
          io AUX{{P, N}} @class(analog) @return(GNDR)\n    \
          ANALOG_PART z\n    z.AVDD -> VDDR\n    z.AGND -> GND\n    \
@@ -5671,8 +5784,8 @@ fn parallel_legs_each_read_their_own_carrier_6040() {
 fn bridge_on_a_board_with_no_dc_rail_is_not_judged_6040() {
     let src = format!(
         "{RES_TIE}module main {{\n    conduit GND @role(main)\n    conduit GNDA @role(quiet)\n    \
-         domain DVDD @class(digital) @noise(noisy) {{ rail [VDD_3V3, GND]::AC(3.3V) }}\n    \
-         domain AVDD @class(analog) {{ rail [VDDA, GNDA]::AC(3.3V) }}\n    \
+         domain DVDD @class(digital) @noise(noisy) {{ rail [VDD_3V3, GND]::AC.1P(3.3V) }}\n    \
+         domain AVDD @class(analog) {{ rail [VDDA, GNDA]::AC.1P(3.3V) }}\n    \
          GNDA - t::RES_TIE() - GND @bridge(GND, GNDA)\n}}\n"
     );
     let codes = build_codes(&src);

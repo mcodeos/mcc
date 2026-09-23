@@ -227,9 +227,10 @@ impl McPowerDecls {
         out
     }
 
-    /// Decode every AC `rail [L, N]::AC(v, f)` guarantee into a typed L1 contract
-    /// (§3.2/§3.3) — the AC axis's projection beside [`Self::l1_rails`]. Only
-    /// rows whose iface is a registered `::AC*` variant are AC rails; any other
+    /// Decode every AC `rail [L, N]::AC.1P(v, f)` guarantee into a typed L1
+    /// contract (§3.2/§3.3) — the AC axis's projection beside
+    /// [`Self::l1_rails`]. Only rows whose iface is a registered canon variant
+    /// are AC rails; any other
     /// iface belongs to neither reader. A row whose ctor args fail to decode
     /// still lists with `bad: Some(..)`, like the DC side.
     pub fn l1_ac_rails(&self) -> Vec<L1AcRail> {
@@ -511,42 +512,20 @@ pub enum AcTerminal {
 }
 
 /// The `::AC*` variants and the terminal group each one declares, in the order
-/// it declares them (ac-axis-interface-design.md §3.2). The table is the AC
-/// axis's identity anchor: an iface name absent from it is not an AC contract,
-/// and a row's written members take their roles by position — the shape comes
-/// from the variant, never from counting or reading the names.
+/// it declares them. The table is the AC axis's identity anchor: an iface name
+/// absent from it is not an AC contract, and a row's written members take their
+/// roles by position — the shape comes from the variant, never from counting or
+/// reading the names. It mirrors the library canon one-to-one (mcode
+/// `ifs/ac.mc`, ac-interface-design.md §6: family form B, first phase
+/// single-phase only — the 2026-09-23 ruling U222 retired the old `AC_*`
+/// underscore spelling here rather than running a dual track); `AC.SPLIT` and
+/// `AC.3P` stay reserved (U176: a family name lands when a real consumer
+/// appears), so a multi-phase row is outside the axis until its interface
+/// exists in the library.
 const AC_VARIANTS: &[(&str, &[AcTerminal])] = &[
-    ("AC", &[AcTerminal::Phase, AcTerminal::Neutral]),
     (
-        "AC_1P3W",
-        &[
-            AcTerminal::Phase,
-            AcTerminal::Neutral,
-            AcTerminal::Protective,
-        ],
-    ),
-    (
-        "AC_3P3W",
-        &[AcTerminal::Phase, AcTerminal::Phase, AcTerminal::Phase],
-    ),
-    (
-        "AC_3P4W",
-        &[
-            AcTerminal::Phase,
-            AcTerminal::Phase,
-            AcTerminal::Phase,
-            AcTerminal::Neutral,
-        ],
-    ),
-    (
-        "AC_3P5W",
-        &[
-            AcTerminal::Phase,
-            AcTerminal::Phase,
-            AcTerminal::Phase,
-            AcTerminal::Neutral,
-            AcTerminal::Protective,
-        ],
+        "AC.1P",
+        &[AcTerminal::Phase, AcTerminal::Neutral],
     ),
 ];
 
@@ -688,8 +667,8 @@ pub struct L1AcRail {
 }
 
 /// Decode one rail row whose iface is a registered `::AC*` variant: the two
-/// scalars are positional (`::AC(230V, 50Hz)` — RMS volts, then hertz), and the
-/// written members must match the variant's declared group size.
+/// scalars are positional (`::AC.1P(230V, 50Hz)` — RMS volts, then hertz), and
+/// the written members must match the variant's declared group size.
 fn decode_ac_rail(domain: &str, r: &McRailDecl) -> L1AcRail {
     let group = ac_terminal_group(&r.iface).unwrap_or(&[]);
     let mut out = L1AcRail {
@@ -1355,8 +1334,8 @@ pub struct McRailDecl {
     pub iface: String,
     /// Every written member of the row's square vector, in declaration order.
     /// `hot`/`ret` are its first two for the two-member shapes; a multi-terminal
-    /// AC group (`::AC_3P5W`) declares five, and only the full list states the
-    /// group the variant's registry entry describes (§3.2).
+    /// AC family (a future `AC.3P`) will declare more, and only the full list
+    /// states the group the variant's registry entry describes (§3.2).
     pub members: Vec<String>,
     pub params: Vec<McRailParam>,
     pub span: Span,
@@ -1376,7 +1355,7 @@ impl McRailDecl {
         if let Some(class) = child_of_type(&declare, MCAST_CLASS) {
             if let Some(ch) = class.get_sub_node() {
                 if let Some(ids) = ch.iter().find(|c| c.is_type(MCAST_IDS)) {
-                    iface = id_text(&ids).unwrap_or_default();
+                    iface = ids_name(&ids).unwrap_or_default();
                 }
                 for c in ch.iter() {
                     if c.is_type(MCAST_PARAMS) {
@@ -1521,6 +1500,30 @@ fn net_name(opd: &AstNode) -> Option<String> {
 /// Identifier text from an MCAST_IDS chain (`ids.sub = id leaf`).
 fn id_text(ids: &AstNode) -> Option<String> {
     leaf_text(ids).filter(|s| !s.is_empty())
+}
+
+/// The full dotted contract name an `MCAST_IDS` spells: every identifier leaf
+/// in order, the dot separators dropped whether the grammar carries them as
+/// leaves or as node structure (`AC.1P`, not just the family head the first
+/// leaf holds). A row's `::` contract is the whole dotted name — the registry
+/// matches it exactly (§3.2), so a dotted canon spelling must not truncate.
+fn ids_name(ids: &AstNode) -> Option<String> {
+    fn walk(node: &AstNode, out: &mut Vec<String>) {
+        if let Some(c) = node.data_as_cstr() {
+            let s = c.to_str().unwrap_or_default().trim();
+            if !s.is_empty() && s != "." {
+                out.push(s.to_string());
+            }
+        }
+        if let Some(sub) = node.get_sub_node() {
+            for c in sub.iter() {
+                walk(&c, out);
+            }
+        }
+    }
+    let mut parts = Vec::new();
+    walk(ids, &mut parts);
+    (!parts.is_empty()).then(|| parts.join("."))
 }
 
 /// Net-visible member names one port operand declares. A plain operand yields
@@ -1791,32 +1794,32 @@ mod tests {
         assert!(r.bad.is_some(), "expected a decode problem, got {rails:?}");
     }
 
-    /// §3.2 the registry is the AC axis's identity anchor: the five variants and
-    /// their terminal groups, and nothing else. `DC` is not an AC variant, and a
-    /// name the table does not hold is not a contract however AC-shaped it looks.
+    /// §3.2 the registry is the AC axis's identity anchor: the canon variants
+    /// and their terminal groups, and nothing else. `DC` is not an AC variant,
+    /// and a name the table does not hold is not a contract however AC-shaped
+    /// it looks — the retired `AC_*` underscore spellings and the reserved
+    /// `AC.3P` family name included.
     #[test]
     fn ac_variant_registry_holds_the_terminal_group_table() {
-        use AcTerminal::{Neutral, Phase, Protective};
-        assert_eq!(ac_terminal_group("AC").unwrap(), &[Phase, Neutral]);
-        assert_eq!(
-            ac_terminal_group("AC_1P3W").unwrap(),
-            &[Phase, Neutral, Protective]
+        use AcTerminal::{Neutral, Phase};
+        assert_eq!(ac_terminal_group("AC.1P").unwrap(), &[Phase, Neutral]);
+        assert!(
+            ac_terminal_group("AC").is_none(),
+            "the bare spelling retired with the old family"
         );
-        assert_eq!(
-            ac_terminal_group("AC_3P3W").unwrap(),
-            &[Phase, Phase, Phase],
-            "a delta three-wire group has no neutral member"
+        assert!(
+            ac_terminal_group("AC_1P3W").is_none(),
+            "the underscore family retired with the b3855 canon"
         );
-        assert_eq!(
-            ac_terminal_group("AC_3P4W").unwrap(),
-            &[Phase, Phase, Phase, Neutral]
-        );
-        assert_eq!(
-            ac_terminal_group("AC_3P5W").unwrap(),
-            &[Phase, Phase, Phase, Neutral, Protective]
-        );
+        assert!(ac_terminal_group("AC_3P3W").is_none());
+        assert!(ac_terminal_group("AC_3P4W").is_none());
+        assert!(ac_terminal_group("AC_3P5W").is_none());
         assert!(ac_terminal_group("DC").is_none());
         assert!(ac_terminal_group("AC_2P").is_none(), "unregistered variant");
+        assert!(
+            ac_terminal_group("AC.3P").is_none(),
+            "a reserved family name is not a contract until the library lands it"
+        );
     }
 
     /// §3.1 the two vocabularies meet on one axis: the registered `{ac, dc}`
@@ -1829,7 +1832,7 @@ mod tests {
         assert_eq!(RailAxis::of_nature_word("AC"), None, "words are exact");
         assert_eq!(RailAxis::of_nature_word("unsure"), None);
         assert_eq!(RailAxis::of_iface("DC"), Some(RailAxis::Dc));
-        assert_eq!(RailAxis::of_iface("AC_3P5W"), Some(RailAxis::Ac));
+        assert_eq!(RailAxis::of_iface("AC.1P"), Some(RailAxis::Ac));
         assert_eq!(RailAxis::of_iface("AC_2P"), None, "unregistered variant");
         assert_eq!(RailAxis::of_iface(""), None);
     }
@@ -1844,7 +1847,7 @@ mod tests {
         let mains = doms.iter().find(|d| d.name == "MAINS").expect("MAINS");
         assert_eq!(mains.nature.as_deref(), Some("ac"));
         assert_eq!(mains.rails.len(), 1);
-        assert_eq!(mains.rails[0].iface, "AC");
+        assert_eq!(mains.rails[0].iface, "AC.1P");
         assert_eq!(mains.rails[0].hot, "L");
         assert!(mains.rails[0].span.end > mains.rails[0].span.start);
         let vbulk = doms.iter().find(|d| d.name == "VBULK").expect("VBULK");
@@ -1888,8 +1891,8 @@ mod tests {
     conduit GNDA @role(quiet)
     domain DVDD  @class(digital) { rail [VDD_3V3, GND]::DC(3.3V) }
     domain AVDD  @class(analog)  { rail [VDDA, GNDA]::DC(3.3V) }
-    domain MAINS @nature(ac) { rail [L, N]::AC(230V, 50Hz) }
-    domain MAINS3 @nature(ac) { rail [U1, U2, U3]::AC_3P3W(400V, 50Hz) }
+    domain MAINS @nature(ac) { rail [L, N]::AC.1P(230V, 50Hz) }
+    domain MAINS3 @nature(ac) { rail [U1, U2, U3]::AC.1P(400V, 50Hz) }
     domain DUALA { rail [VDD_1V8, GND]::DC(1.8V)
                    rail [VDD_1V2, GND]::DC(1.2V) }
     domain DUALB { rail [VAA, GNDA]::DC(3.3V)
@@ -1964,15 +1967,17 @@ mod tests {
 
     const SRC_AC: &str = r#"module main {
     ref GND @role(main)
-    domain MAINS  @nature(ac) { rail [L, N]::AC(230V, 50Hz) }
-    domain MAINS3 @nature(ac) { rail [U1, U2, U3]::AC_3P3W(400V, 50Hz) }
+    domain MAINS  @nature(ac) { rail [L, N]::AC.1P(230V, 50Hz) }
+    domain MAINS3 @nature(ac) { rail [U1, U2, U3]::AC.3P(400V, 50Hz) }
     domain VBULK             { rail [Vb, N]::DC(310V) }
 }
 "#;
 
-    /// §3.3 `::AC(v, f)` decodes into the AC read — RMS nominal and hertz — and
-    /// the two readers partition the rail rows: `l1_rails` still holds exactly
-    /// the DC pair, so every DC consumer keeps seeing DC only.
+    /// §3.3 `::AC.1P(v, f)` decodes into the AC read — RMS nominal and hertz —
+    /// and the two readers partition the rail rows: `l1_rails` still holds
+    /// exactly the DC pair, so every DC consumer keeps seeing DC only. A row
+    /// naming a reserved family (`AC.3P`, not yet landed in the library) is no
+    /// AC rail at all — the registry holds landed canon only.
     #[test]
     fn l1_ac_rails_decode_rms_and_frequency_beside_the_dc_axis() {
         let pi = parse_pi(SRC_AC);
@@ -1981,9 +1986,9 @@ mod tests {
         assert_eq!(dc[0].hot, "Vb");
 
         let ac = pi.l1_ac_rails();
-        assert_eq!(ac.len(), 2, "ac rails: {ac:?}");
+        assert_eq!(ac.len(), 1, "ac rails: {ac:?}");
         let mains = ac.iter().find(|r| r.domain == "MAINS").expect("MAINS");
-        assert_eq!(mains.variant, "AC");
+        assert_eq!(mains.variant, "AC.1P");
         assert_eq!(mains.members, vec!["L".to_string(), "N".to_string()]);
         assert_eq!(mains.hot, "L");
         assert_eq!(
@@ -1995,14 +2000,10 @@ mod tests {
         assert_eq!(mains.f, Some(50.0));
         assert!(mains.bad.is_none(), "MAINS: {:?}", mains.bad);
 
-        let three = ac.iter().find(|r| r.domain == "MAINS3").expect("MAINS3");
-        assert_eq!(three.variant, "AC_3P3W");
-        assert_eq!(three.v_rms, Some(400.0));
-        assert_eq!(
-            three.ret, None,
-            "a delta three-wire group declares no neutral, so no member is the return"
+        assert!(
+            ac.iter().all(|r| r.domain != "MAINS3"),
+            "a reserved family name is not a contract until the library lands it"
         );
-        assert!(three.bad.is_none(), "MAINS3: {:?}", three.bad);
     }
 
     /// A row whose shape or values contradict the contract it names is flagged
@@ -2012,10 +2013,10 @@ mod tests {
     #[test]
     fn l1_ac_rails_flag_shape_and_value_failures() {
         const BAD: &str = r#"module main {
-    domain A { rail [L, N, PE]::AC(230V, 50Hz) }
-    domain B { rail [L, N]::AC(50Hz) }
-    domain C { rail [L, N]::AC(230V, 5A) }
-    domain D { rail [L, N]::AC(230V, tol:±10%) }
+    domain A { rail [L, N, PE]::AC.1P(230V, 50Hz) }
+    domain B { rail [L, N]::AC.1P(50Hz) }
+    domain C { rail [L, N]::AC.1P(230V, 5A) }
+    domain D { rail [L, N]::AC.1P(230V, tol:±10%) }
 }
 "#;
         let pi = parse_pi(BAD);
