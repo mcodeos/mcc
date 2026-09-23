@@ -66,6 +66,11 @@ pub struct DeclaredMember {
     /// `::DC` interface name for a pin / power-port row, the domain name for a
     /// rail declaration, [`CONDUIT_CONTRACT`] for a reference declaration.
     pub contract: String,
+    /// True when no declaration names the member — a bare `psrc/psnk/psbi`
+    /// role row adopted under [`DC_CONTRACT`]. Its spelling is one instance's
+    /// shorthand, not a module-wide rail identity, so a consumer that buckets
+    /// endpoints across instances must scope it to the owning instance (U213).
+    pub bare: bool,
 }
 
 impl DeclaredMember {
@@ -74,6 +79,7 @@ impl DeclaredMember {
             face,
             member: member.to_string(),
             contract: contract.to_string(),
+            bare: false,
         }
     }
 
@@ -186,8 +192,21 @@ pub fn member_of_names(pins: &McPins, names: &[&str]) -> Option<DeclaredMember> 
 /// The declared member of an endpoint whose face comes from a **direction word
 /// alone**: a `psrc/psnk/psbi` row with no `::` tail still declares which side
 /// of the contract the endpoint is, but names no pair, so the endpoint's own
-/// spelling is the member under the default `::DC` contract.
+/// spelling is the member under the default `::DC` contract. The member is
+/// [`DeclaredMember::bare`]: the spelling travels with the owning instance
+/// (`DC:reg1.Vin` ≠ `DC:reg2.Vin`), unlike a spelled `::DC` row whose members
+/// are one rail across every instance of the row.
 pub fn member_from_face(spelling: &str, face: Face) -> DeclaredMember {
+    let mut m = DeclaredMember::new(face, spelling, DC_CONTRACT);
+    m.bare = true;
+    m
+}
+
+/// [`member_from_face`] for a spelling a **declared pair** wrote: a
+/// connection-point `::DC(hot, ret)` names both faces verbatim, and the pair
+/// is the declaration — the member is not bare, it is one rail across every
+/// instance of the row.
+pub fn member_from_declared_face(spelling: &str, face: Face) -> DeclaredMember {
     DeclaredMember::new(face, spelling, DC_CONTRACT)
 }
 

@@ -64,16 +64,16 @@ range (threshold 40KB).
 | `builder/` | 1 | 0 KB |
 | `cli/` | 7 | 111 KB |
 | `cmds/` | 28 | 493 KB |
-| `db/` | 27 | 915 KB |
+| `db/` | 27 | 916 KB |
 | `eval/` | 2 | 48 KB |
 | `export/` | 7 | 183 KB |
-| `instant/` | 40 | 1566 KB |
+| `instant/` | 40 | 1569 KB |
 | `lsp/` | 7 | 66 KB |
 | `output/` | 7 | 107 KB |
 | `query/` | 9 | 161 KB |
 | `refdef/` | 7 | 118 KB |
 | `rpc/` | 16 | 302 KB |
-| `semantic/` | 89 | 2654 KB |
+| `semantic/` | 89 | 2655 KB |
 | `stages/` | 12 | 321 KB |
 | `vector/` | 25 | 476 KB |
 | `viz/` | 97 | 2451 KB |
@@ -1448,12 +1448,12 @@ db/defregistry.rs#L3256  static TEST_FILE_SEQ
 db/defregistry.rs#L3265  fn def_registry__component_pin_ledger_merges_by_name_across_reparse
 db/defregistry.rs#L3267  const URI
 db/defregistry.rs#L3268  const NAME
-db/defregistry.rs#L3393  fn def_registry__checkpoint_diff_reports_add_remove_modify
-db/defregistry.rs#L3395  const NAME
-db/defregistry.rs#L3396  const URI
-db/defregistry.rs#L3489  fn def_registry__checkpoint_serializes_to_json_and_disk
-db/defregistry.rs#L3491  const NAME
-db/defregistry.rs#L3492  const URI
+db/defregistry.rs#L3394  fn def_registry__checkpoint_diff_reports_add_remove_modify
+db/defregistry.rs#L3396  const NAME
+db/defregistry.rs#L3397  const URI
+db/defregistry.rs#L3490  fn def_registry__checkpoint_serializes_to_json_and_disk
+db/defregistry.rs#L3492  const NAME
+db/defregistry.rs#L3493  const URI
 db/defspace.rs#L40  enum SourceDomain
 db/defspace.rs#L51  struct LibBoundary
 db/defspace.rs#L65  struct DefinitionSpace
@@ -1504,14 +1504,14 @@ db/defspace.rs#L473  fn definition_space
 db/defspace.rs#L478  mod tests
 db/defspace.rs#L493  fn uri
 db/defspace.rs#L499  fn gold_component
-db/defspace.rs#L550  fn def_space__manifest_accessors_read_a_definition_space
-db/defspace.rs#L589  fn def_space__source_content_and_reverse_deps_read_through_the_view
-db/defspace.rs#L615  fn def_space__unified_lookup_is_empty_over_an_empty_workspace
-db/defspace.rs#L641  fn def_space__unified_get_component_is_workspace_first_then_global
-db/defspace.rs#L645  struct Cleanup
-db/defspace.rs#L646  impl Drop for Cleanup
-db/defspace.rs#L647  fn drop
-db/defspace.rs#L782  fn def_space__isolated_worlds_do_not_leak_definitions
+db/defspace.rs#L551  fn def_space__manifest_accessors_read_a_definition_space
+db/defspace.rs#L590  fn def_space__source_content_and_reverse_deps_read_through_the_view
+db/defspace.rs#L616  fn def_space__unified_lookup_is_empty_over_an_empty_workspace
+db/defspace.rs#L642  fn def_space__unified_get_component_is_workspace_first_then_global
+db/defspace.rs#L646  struct Cleanup
+db/defspace.rs#L647  impl Drop for Cleanup
+db/defspace.rs#L648  fn drop
+db/defspace.rs#L783  fn def_space__isolated_worlds_do_not_leak_definitions
 db/diagnostic/diagnostic.rs#L11  type Position
 db/diagnostic/diagnostic.rs#L16  static IGNORED_WARNINGS
 db/diagnostic/diagnostic.rs#L18  fn ignored_warnings
@@ -3170,17 +3170,17 @@ instant/mc_mod/expand.rs#L499  fn mat_expand__empty_side_returns_none
 instant/mc_mod/expand.rs#L509  mod inst_scope_tests
 instant/mc_mod/expand.rs#L527  fn np
 instant/mc_mod/expand.rs#L532  fn comp_inst
-instant/mc_mod/expand.rs#L577  fn comp_inst_with_pins
-instant/mc_mod/expand.rs#L592  fn store_fixture
-instant/mc_mod/expand.rs#L642  fn mat_expand__module_ports_scope_resolves_port_entry
-instant/mc_mod/expand.rs#L654  fn mat_expand__module_labels_scope_resolves_label_entry
-instant/mc_mod/expand.rs#L667  fn mat_expand__module_components_scope_resolves_component_entry
-instant/mc_mod/expand.rs#L679  fn mat_expand__module_sub_modules_scope_resolves_submodule_entry
-instant/mc_mod/expand.rs#L693  fn mat_expand__module_buses_scope_resolves_members_from_labels
-instant/mc_mod/expand.rs#L718  fn empty_overlay
-instant/mc_mod/expand.rs#L729  fn mat_expand__overlay_chain_resolves_component_pin
-instant/mc_mod/expand.rs#L757  fn mat_expand__overlay_chain_priority_ports_over_components
-instant/mc_mod/expand.rs#L803  fn mat_expand__overlay_chain_reaches_submodule_port
+instant/mc_mod/expand.rs#L578  fn comp_inst_with_pins
+instant/mc_mod/expand.rs#L593  fn store_fixture
+instant/mc_mod/expand.rs#L643  fn mat_expand__module_ports_scope_resolves_port_entry
+instant/mc_mod/expand.rs#L655  fn mat_expand__module_labels_scope_resolves_label_entry
+instant/mc_mod/expand.rs#L668  fn mat_expand__module_components_scope_resolves_component_entry
+instant/mc_mod/expand.rs#L680  fn mat_expand__module_sub_modules_scope_resolves_submodule_entry
+instant/mc_mod/expand.rs#L694  fn mat_expand__module_buses_scope_resolves_members_from_labels
+instant/mc_mod/expand.rs#L719  fn empty_overlay
+instant/mc_mod/expand.rs#L730  fn mat_expand__overlay_chain_resolves_component_pin
+instant/mc_mod/expand.rs#L758  fn mat_expand__overlay_chain_priority_ports_over_components
+instant/mc_mod/expand.rs#L804  fn mat_expand__overlay_chain_reaches_submodule_port
 instant/mc_mod/fcallinst.rs#L51  static LAST_RETURN_ENDPOINT
 instant/mc_mod/fcallinst.rs#L64  fn wire_series_params
 instant/mc_mod/fcallinst.rs#L69  fn collect_series
@@ -3670,29 +3670,31 @@ instant/netcheck.rs#L993  fn check_r08_phantom_path
 instant/netcheck.rs#L995  fn is_numeric_pin_leaf
 instant/netcheck.rs#L1085  fn check_r09_floating_power
 instant/netcheck.rs#L1116  fn check_r10_conservation
-instant/netcheck.rs#L1184  fn split_rail_identity
-instant/netcheck.rs#L1191  fn check_r11_split_rail
-instant/netcheck.rs#L1225  fn uf_find
-instant/netcheck.rs#L1235  fn uf_union
-instant/netcheck.rs#L1458  fn check_r12_dangling_port
-instant/netcheck.rs#L1484  fn check_r14_orphan_instance
-instant/netcheck.rs#L1536  fn check_r15_synthetic_pin
-instant/netcheck.rs#L1556  fn push
-instant/netcheck.rs#L1569  fn note
-instant/netcheck.rs#L1580  fn note_at
-instant/netcheck.rs#L1603  fn site_suffix
-instant/netcheck.rs#L1617  fn set_scanned
-instant/netcheck.rs#L1625  fn check_r05_unresolved_unit
-instant/netcheck.rs#L1645  mod tests
-instant/netcheck.rs#L1650  fn dlu_netcheck__leaf_works
-instant/netcheck.rs#L1658  fn dlu_netcheck__owner_path_works
-instant/netcheck.rs#L1666  fn declared_entry
-instant/netcheck.rs#L1684  fn dlu_netcheck__face_comes_from_the_declaration_not_the_spelling
-instant/netcheck.rs#L1716  fn dlu_netcheck__rail_identity_is_the_contract_plus_the_written_spelling
-instant/netcheck.rs#L1757  fn dlu_netcheck__split_rail_bucket_admits_supplies_and_declared_copper_only
-instant/netcheck.rs#L1771  fn dlu_netcheck__common_prefix
-instant/netcheck.rs#L1782  fn dlu_netcheck__unified_findings_projects_cataloged_rows_only
-instant/netcheck.rs#L1834  fn dlu_netcheck__unified_findings_empty_report_is_empty
+instant/netcheck.rs#L1191  fn split_rail_identity
+instant/netcheck.rs#L1207  fn instance_scope
+instant/netcheck.rs#L1214  fn check_r11_split_rail
+instant/netcheck.rs#L1248  fn uf_find
+instant/netcheck.rs#L1258  fn uf_union
+instant/netcheck.rs#L1481  fn check_r12_dangling_port
+instant/netcheck.rs#L1507  fn check_r14_orphan_instance
+instant/netcheck.rs#L1559  fn check_r15_synthetic_pin
+instant/netcheck.rs#L1579  fn push
+instant/netcheck.rs#L1592  fn note
+instant/netcheck.rs#L1603  fn note_at
+instant/netcheck.rs#L1626  fn site_suffix
+instant/netcheck.rs#L1640  fn set_scanned
+instant/netcheck.rs#L1648  fn check_r05_unresolved_unit
+instant/netcheck.rs#L1668  mod tests
+instant/netcheck.rs#L1673  fn dlu_netcheck__leaf_works
+instant/netcheck.rs#L1681  fn dlu_netcheck__owner_path_works
+instant/netcheck.rs#L1689  fn declared_entry
+instant/netcheck.rs#L1707  fn dlu_netcheck__face_comes_from_the_declaration_not_the_spelling
+instant/netcheck.rs#L1739  fn dlu_netcheck__rail_identity_is_the_contract_plus_the_written_spelling
+instant/netcheck.rs#L1784  fn dlu_netcheck__split_rail_bucket_admits_supplies_and_declared_copper_only
+instant/netcheck.rs#L1798  fn dlu_netcheck__bare_rail_identity_is_scoped_to_the_owning_instance
+instant/netcheck.rs#L1842  fn dlu_netcheck__common_prefix
+instant/netcheck.rs#L1853  fn dlu_netcheck__unified_findings_projects_cataloged_rows_only
+instant/netcheck.rs#L1905  fn dlu_netcheck__unified_findings_empty_report_is_empty
 instant/nettab.rs#L31  static EMPTY_LABELS
 instant/nettab.rs#L32  static EMPTY_BUSES
 instant/nettab.rs#L41  struct NetTableStore
@@ -4415,13 +4417,13 @@ refdef/chain.rs#L1314  fn svc_chain__resolve_list_member_digit_form
 refdef/chain.rs#L1323  fn svc_chain__resolve_param_terminal
 refdef/chain.rs#L1332  fn svc_chain__unknown_returns_none
 refdef/chain.rs#L1344  fn make_cross_insts
-refdef/chain.rs#L1400  fn svc_chain__resolve_cross_component_member
-refdef/chain.rs#L1411  fn svc_chain__resolve_cross_component_bus
-refdef/chain.rs#L1423  fn svc_chain__resolve_cross_component_list
-refdef/chain.rs#L1435  fn svc_chain__resolve_cross_missing_member
-refdef/chain.rs#L1448  fn svc_chain__class_hit_maps_component_def
-refdef/chain.rs#L1479  fn svc_chain__class_hit_maps_enum_def
-refdef/chain.rs#L1494  fn svc_chain__class_hit_maps_module_def
+refdef/chain.rs#L1401  fn svc_chain__resolve_cross_component_member
+refdef/chain.rs#L1412  fn svc_chain__resolve_cross_component_bus
+refdef/chain.rs#L1424  fn svc_chain__resolve_cross_component_list
+refdef/chain.rs#L1436  fn svc_chain__resolve_cross_missing_member
+refdef/chain.rs#L1449  fn svc_chain__class_hit_maps_component_def
+refdef/chain.rs#L1481  fn svc_chain__class_hit_maps_enum_def
+refdef/chain.rs#L1496  fn svc_chain__class_hit_maps_module_def
 refdef/collect.rs#L19  fn collect_funccall_arg_refs
 refdef/collect.rs#L162  fn resolve_arg_ref_kind
 refdef/matching.rs#L23  fn resolve_def_name
@@ -6816,23 +6818,24 @@ semantic/pwrid.rs#L36  enum Face
 semantic/pwrid.rs#L53  const DC_CONTRACT
 semantic/pwrid.rs#L57  const CONDUIT_CONTRACT
 semantic/pwrid.rs#L61  struct DeclaredMember
-semantic/pwrid.rs#L71  impl DeclaredMember
-semantic/pwrid.rs#L72  fn new
-semantic/pwrid.rs#L85  fn identity
-semantic/pwrid.rs#L96  struct DeclaredFaces
-semantic/pwrid.rs#L107  impl DeclaredFaces
-semantic/pwrid.rs#L110  fn of_pins
-semantic/pwrid.rs#L127  fn of_module
-semantic/pwrid.rs#L158  fn declares_ret
-semantic/pwrid.rs#L164  fn declares
-semantic/pwrid.rs#L172  fn member_of_names
-semantic/pwrid.rs#L190  fn member_from_face
-semantic/pwrid.rs#L198  fn member_of_module
-semantic/pwrid.rs#L233  mod tests
-semantic/pwrid.rs#L236  fn faces
-semantic/pwrid.rs#L245  fn declared_faces_match_by_exact_string_only
-semantic/pwrid.rs#L262  fn a_declared_name_need_not_be_a_face
-semantic/pwrid.rs#L270  fn identity_is_the_contract_plus_the_written_spelling
+semantic/pwrid.rs#L76  impl DeclaredMember
+semantic/pwrid.rs#L77  fn new
+semantic/pwrid.rs#L91  fn identity
+semantic/pwrid.rs#L102  struct DeclaredFaces
+semantic/pwrid.rs#L113  impl DeclaredFaces
+semantic/pwrid.rs#L116  fn of_pins
+semantic/pwrid.rs#L133  fn of_module
+semantic/pwrid.rs#L164  fn declares_ret
+semantic/pwrid.rs#L170  fn declares
+semantic/pwrid.rs#L178  fn member_of_names
+semantic/pwrid.rs#L199  fn member_from_face
+semantic/pwrid.rs#L209  fn member_from_declared_face
+semantic/pwrid.rs#L217  fn member_of_module
+semantic/pwrid.rs#L252  mod tests
+semantic/pwrid.rs#L255  fn faces
+semantic/pwrid.rs#L264  fn declared_faces_match_by_exact_string_only
+semantic/pwrid.rs#L281  fn a_declared_name_need_not_be_a_face
+semantic/pwrid.rs#L289  fn identity_is_the_contract_plus_the_written_spelling
 semantic/scope.rs#L57  struct Resolved
 semantic/scope.rs#L66  trait ResolveScope
 semantic/scope.rs#L68  fn resolve
@@ -11121,4 +11124,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-403 files, 11038 declarations.
+403 files, 11041 declarations.
