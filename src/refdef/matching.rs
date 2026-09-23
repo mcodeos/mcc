@@ -110,7 +110,10 @@ pub fn fill_refdef_layer2(
             SymbolKind::PinIfaceRef => &[SymbolKind::PinIfaceDef],
             SymbolKind::EnumRef => &[SymbolKind::EnumDef],
             SymbolKind::EnumValRef => &[SymbolKind::EnumValDef],
-            SymbolKind::ClassRef => &[SymbolKind::ClassDef, SymbolKind::ClassRef],
+            // ClassDef only: def_map never registers a ClassRef *def* (defs are
+            // minted by register_def / add_class, neither of which emits
+            // ClassRef), so the ClassRef candidate was a dead branch.
+            SymbolKind::ClassRef => &[SymbolKind::ClassDef],
             _ => &[],
         };
         // Try each candidate def kind
@@ -193,25 +196,29 @@ pub fn fill_refdef_layer2(
             if map.entries.contains_key(&(SymbolKind::PortRef, decl_id)) {
                 continue;
             }
-            map.entries.remove(&(SymbolKind::InstRef, decl_id));
-            map.insert(
-                SymbolKind::PortRef,
-                decl_id,
-                RefDefEntry {
-                    ref_kind: SymbolKind::ClassDef,
-                    ref_id: 0,
-                    def_loc: SourceLocation {
-                        file_id: fid,
-                        container_id: cid,
-                        func_id: 0,
-                        byte_start: def_start as u32,
-                        byte_end: def_stop as u32,
-                    },
-                    def_kind: SymbolKind::PortDef,
-                    cmie_kind: CmieKind::UNKNOWN,
-                    def_name: resolve_def_name(def_names, file_uri, SymbolKind::PortDef, decl_id),
+            // Retarget under BOTH ref kinds (F2.4): the lapper still carries
+            // InstRef intervals for the instance-use span, while pin-use spans
+            // carry PortRef — removing the InstRef key left the instance span
+            // with no map entry, so id-based consumers (resolve_at) missed.
+            // §3.2.2 Rule 1: the same-id PortDef wins, so both keys point at
+            // the PortDef (the InstRef entry the loop above inserted is
+            // retargeted, not dropped).
+            let port_entry = RefDefEntry {
+                ref_kind: SymbolKind::PortRef,
+                ref_id: decl_id,
+                def_loc: SourceLocation {
+                    file_id: fid,
+                    container_id: cid,
+                    func_id: 0,
+                    byte_start: def_start as u32,
+                    byte_end: def_stop as u32,
                 },
-            );
+                def_kind: SymbolKind::PortDef,
+                cmie_kind: CmieKind::UNKNOWN,
+                def_name: resolve_def_name(def_names, file_uri, SymbolKind::PortDef, decl_id),
+            };
+            map.insert(SymbolKind::InstRef, decl_id, port_entry.clone());
+            map.insert(SymbolKind::PortRef, decl_id, port_entry);
         }
     }
 

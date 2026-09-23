@@ -6,29 +6,61 @@ use crate::ast::node::McValueFFI;
 
 // DedupLapper — wraps SymbolRangeLapper, deduplicates by (kind, start, stop)
 // on insert, rejecting entries with the same kind and span regardless of id.
+// The id is recorded per key (P2.2): a duplicate carrying a *different* id
+// means two distinct symbols claim one kind+span — an invariant break. The
+// insert keeps first-wins (letting both in would leave resolve_at an
+// arbitrary overlap pick) and surfaces a warn pointing at the violating
+// registration site.
 struct DedupLapper {
     inner: SymbolRangeLapper,
-    seen: HashSet<(u8, usize, usize)>,
+    seen: std::collections::HashMap<(u8, usize, usize), u32>,
 }
 
 impl DedupLapper {
     fn new() -> Self {
         Self {
             inner: SymbolRangeLapper::new(vec![]),
-            seen: HashSet::new(),
+            seen: std::collections::HashMap::new(),
         }
     }
 
     fn insert(&mut self, interval: Interval<usize, SymbolType>) {
         let key = (interval.val.kind, interval.start, interval.stop);
-        if self.seen.insert(key) {
-            self.inner.insert(interval);
+        match self.seen.get(&key) {
+            None => {
+                self.seen.insert(key, interval.val.id);
+                self.inner.insert(interval);
+            }
+            Some(&first_id) => {
+                if first_id != interval.val.id {
+                    tracing::warn!(
+                        "DedupLapper: same kind={} span=[{},{}] registered with two ids \
+                         ({first_id} vs {}) — first wins; fix the registering site",
+                        interval.val.kind,
+                        interval.start,
+                        interval.stop,
+                        interval.val.id
+                    );
+                }
+            }
         }
     }
 
     fn into_inner(self) -> SymbolRangeLapper {
         self.inner
     }
+}
+
+// FileScopeWalk — AST walk artifacts shared by the scope-sensitive lapper
+// passes (P1.3): the position-sorted node list plus the position →
+// enclosing container / func maps. Built once per file in create_lapper;
+// `lapper_func_define_role` and `lapper_component_func_pin_refs` consume the
+// same container/func maps, `lapper_scoped_enum_bare_refs` shares only the
+// node list (its container map is component-only, so it keeps its own walk).
+struct FileScopeWalk {
+    all_nodes: Vec<AstNode>,
+    pos_to_container: Vec<(usize, String)>,
+    pos_to_func: Vec<(usize, String)>,
 }
 
 use crate::ast::error::message::MISSING_SUBNODE;
@@ -3309,19 +3341,21 @@ impl McCode {
                 let local_ref_count = sem.local_table.inst_id_to_span.len();
                 tracing::info!(target: "mcc::lsp", "create_lapper: {} decls, {} local_refs, lapper len={}", decl_count, local_ref_count, symbol_lapper.inner.len());
 
-                Self::lapper_func_define_role(&self.uri, &self.ast, &mut sem, &mut symbol_lapper);
+                // P1.3: one shared AST scope walk for the scope-sensitive passes.
+                let scope_walk = Self::build_scope_walk(&self.uri, &self.ast);
+                Self::lapper_func_define_role(&self.uri, &scope_walk, &mut sem, &mut symbol_lapper);
                 Self::lapper_function_params(&self.uri, &mut sem, &mut symbol_lapper);
                 Self::lapper_component_defs(&self.uri, &mut sem, &mut symbol_lapper);
                 Self::lapper_component_func_pin_refs(
                     &self.uri,
-                    &self.ast,
+                    &scope_walk,
                     &mut sem,
                     &mut symbol_lapper,
                 );
                 Self::lapper_enum_refs(&self.uri, &self.ast, &mut sem, &mut symbol_lapper);
                 Self::lapper_scoped_enum_bare_refs(
                     &self.uri,
-                    &self.ast,
+                    &scope_walk,
                     &mut sem,
                     &mut symbol_lapper,
                 );
@@ -3721,6 +3755,13 @@ impl McCode {
                             // in-memory buffers / virtual URIs (LSP didOpen).
 
                             if class_name.segments.is_empty() {
+                                // F2.8: a class ref with no name segments is a
+                                // degenerate unresolved ref — surface it through
+                                // the designed path (register.rs: all levels
+                                // miss → the miss must be reported, not silently
+                                // dropped) instead of leaving the span with no
+                                // signal at all.
+                                crate::refdef::register::report_unresolved_ref(&decl_span, "");
                                 continue;
                             }
 
@@ -4412,7 +4453,7 @@ impl McCode {
                             let (d, _) = crate::refdef::register::register_def(
                                 sem,
                                 &hit.uri,
-                                scope,
+                                &Self::chain_def_scope(&hit.uri, uri, scope),
                                 None,
                                 &hit.name,
                                 hit.span.clone(),
@@ -4490,7 +4531,7 @@ impl McCode {
                         let (d, _) = crate::refdef::register::register_def(
                             sem,
                             &hit.uri,
-                            scope,
+                            &Self::chain_def_scope(&hit.uri, uri, scope),
                             None,
                             &hit.name,
                             hit.span.clone(),
@@ -4598,6 +4639,25 @@ impl McCode {
         }
     }
 
+    /// Scope under which a chain-hit def is registered (F2.10).
+    ///
+    /// The ref-site `scope` recorded for a ref inside a func body is
+    /// `"comp.func"`; passing it straight through as the def's container
+    /// registered the def under that phantom scope and minted a second
+    /// DeclareId for a def already registered under `"comp"` (one def, two
+    /// ids). A same-file def's container is the ref-site container, so the
+    /// func suffix is stripped; cross-file hits keep the recorded scope.
+    fn chain_def_scope(hit_uri: &str, uri: &McURI, scope: &str) -> String {
+        if hit_uri == uri.as_str() {
+            match scope.rsplit_once('.') {
+                Some((container, _func)) => container.to_string(),
+                None => scope.to_string(),
+            }
+        } else {
+            scope.to_string()
+        }
+    }
+
     /// Register an InstRef for the base identifier of a dotted member chain,
     /// covering only the base segment (the first `base.len()` bytes of `span`)
     /// and resolving to the base's own definition.
@@ -4629,7 +4689,7 @@ impl McCode {
         let (d, _) = crate::refdef::register::register_def(
             sem,
             &hit.uri,
-            scope,
+            &Self::chain_def_scope(&hit.uri, uri, scope),
             None,
             &hit.name,
             hit.span.clone(),
@@ -5221,7 +5281,7 @@ impl McCode {
     /// has registered the component pin defs as PinNameDef.
     fn lapper_component_func_pin_refs(
         uri: &McURI,
-        ast: &AstNode,
+        walk: &FileScopeWalk,
         sem: &mut McSemSymbols,
         symbol_lapper: &mut DedupLapper,
     ) {
@@ -5252,51 +5312,11 @@ impl McCode {
             }
         }
 
-        // Container positioning — mirrors lapper_func_define_role.
-        let all_nodes: Vec<AstNode> = {
-            let mut acc = Vec::new();
-            let mut stack: Vec<AstNode> = ast.iter().collect();
-            while let Some(node) = stack.pop() {
-                if let Some(sub) = node.get_sub_node() {
-                    for child in sub.iter() {
-                        stack.push(child);
-                    }
-                }
-                acc.push(node);
-            }
-            acc
-        };
-        let mut container_stack: Vec<(String, usize)> = Vec::new();
-        let mut pos_to_container: Vec<(usize, String)> = Vec::new();
-        for node in &all_nodes {
-            let ntype = node.get_type();
-            let node_start = node.get_pos() as usize;
-            let node_end = node_start + node.get_len() as usize;
-            while let Some((_, end)) = container_stack.last() {
-                if node_start >= *end {
-                    container_stack.pop();
-                } else {
-                    break;
-                }
-            }
-            if ntype == MCAST_MODULE || ntype == MCAST_COMPONENT {
-                if let Some(sub) = node.get_sub_node() {
-                    if let Some(name_node) = sub.iter().find(|x| x.is_type(MCAST_NAME)) {
-                        if let Some(ids_node) = name_node.get_sub_node() {
-                            if let Some(ids) = McIds::new(&ids_node) {
-                                container_stack.push((ids.to_string(), node_end));
-                            }
-                        }
-                    }
-                }
-            }
-            if let Some((name, _)) = container_stack.last() {
-                pos_to_container.push((node_start, name.clone()));
-            }
-        }
-        pos_to_container.sort_by_key(|(pos, _)| *pos);
+        // Container positioning comes from the shared per-file walk (P1.3) —
+        // it mirrors the former local copy of lapper_func_define_role's scan.
+        let pos_to_container = &walk.pos_to_container;
 
-        for node in &all_nodes {
+        for node in &walk.all_nodes {
             if node.get_type() != MCAST_FUNCTION {
                 continue;
             }
@@ -5626,33 +5646,21 @@ impl McCode {
     /// lapper entry pointing to the enum value definition.
     fn lapper_scoped_enum_bare_refs(
         uri: &McURI,
-        ast: &AstNode,
+        walk: &FileScopeWalk,
         sem: &mut McSemSymbols,
         symbol_lapper: &mut DedupLapper,
     ) {
         use rust_lapper::Interval;
 
-        // Collect all AST nodes via BFS (reverse order; sort below so the
-        // container-stack pop condition holds for a monotonic scan).
-        let mut all_nodes: Vec<AstNode> = {
-            let mut acc: Vec<AstNode> = Vec::new();
-            let mut stack: Vec<AstNode> = ast.iter().collect();
-            while let Some(node) = stack.pop() {
-                if let Some(sub) = node.get_sub_node() {
-                    for child in sub.iter() {
-                        stack.push(child);
-                    }
-                }
-                acc.push(node);
-            }
-            acc
-        };
-        all_nodes.sort_by_key(|n| n.get_pos());
+        // Node list comes from the shared per-file walk (P1.3).
+        let all_nodes = &walk.all_nodes;
 
-        // Build container stack: track which component encloses each position
+        // Build container stack: track which component encloses each position.
+        // Component-only (modules excluded) — this pass never fires inside a
+        // module body, so it keeps its own map instead of the shared one.
         let mut container_stack: Vec<(String, usize)> = Vec::new();
         let mut pos_to_container: Vec<(usize, String)> = Vec::new();
-        for node in &all_nodes {
+        for node in all_nodes {
             let ntype = node.get_type();
             let node_start = node.get_pos() as usize;
             let node_end = node_start + node.get_len() as usize;
@@ -5688,7 +5696,7 @@ impl McCode {
         };
 
         // Scan bare identifiers inside component scopes
-        for node in &all_nodes {
+        for node in all_nodes {
             let ntype = node.get_type();
             // Only handle bare identifiers — MCAST_ID (single ID) or direct IDA
             if ntype != MCAST_ID && ntype != MCAST_IDA {
@@ -5783,12 +5791,10 @@ impl McCode {
         }
     }
 
-    fn lapper_func_define_role(
-        uri: &McURI,
-        ast: &AstNode,
-        sem: &mut McSemSymbols,
-        symbol_lapper: &mut DedupLapper,
-    ) {
+    /// Build the shared per-file AST scope walk (P1.3): one depth-first
+    /// collection plus one monotonic container/func stack scan, consumed by
+    /// every scope-sensitive lapper pass of the file.
+    fn build_scope_walk(uri: &McURI, ast: &AstNode) -> FileScopeWalk {
         let mut all_nodes: Vec<AstNode> = {
             let mut acc = Vec::new();
             let mut stack: Vec<AstNode> = ast.iter().collect();
@@ -5888,8 +5894,22 @@ impl McCode {
         }
         pos_to_container.sort_by_key(|(pos, _)| *pos);
         pos_to_func.sort_by_key(|(pos, _)| *pos);
-        let find_container = move |pos: usize| -> Option<String> {
-            pos_to_container
+        FileScopeWalk {
+            all_nodes,
+            pos_to_container,
+            pos_to_func,
+        }
+    }
+
+    fn lapper_func_define_role(
+        uri: &McURI,
+        walk: &FileScopeWalk,
+        sem: &mut McSemSymbols,
+        symbol_lapper: &mut DedupLapper,
+    ) {
+        let all_nodes = &walk.all_nodes;
+        let find_container = |pos: usize| -> Option<String> {
+            walk.pos_to_container
                 .iter()
                 .take_while(|(p, _)| *p <= pos)
                 .last()
@@ -5898,10 +5918,10 @@ impl McCode {
         // Full scope for a position: "container.func" when inside a func body,
         // otherwise just "container". Enables the lookup priority
         // "func params/labels first, then parent container defs" (§3.2.2).
-        let find_container_for_scope = find_container.clone();
-        let find_scope = move |pos: usize| -> Option<String> {
-            let container = find_container_for_scope(pos)?;
-            let func = pos_to_func
+        let find_scope = |pos: usize| -> Option<String> {
+            let container = find_container(pos)?;
+            let func = walk
+                .pos_to_func
                 .iter()
                 .take_while(|(p, _)| *p <= pos)
                 .last()
@@ -5912,7 +5932,7 @@ impl McCode {
             })
         };
 
-        for node in &all_nodes {
+        for node in all_nodes {
             if node.get_type() == MCAST_FUNCTION {
                 let ids_node = node.get_sub_node().and_then(|n| n.get_sub_node());
                 let span = if let Some(ref ids) = ids_node {
@@ -6181,6 +6201,37 @@ impl McCode {
                         // add_declare_with_name produces a different ID space that
                         // shadows the correct entry and causes RefDefMap MISS → P6
                         // self-locate (no navigation). See §8.2.
+                        //
+                        // F2.6: a no-receiver call of a *local user func*
+                        // (`i2c(0x36)`) produced no ref at all — the class path
+                        // above doesn't apply and the receiver arm never runs.
+                        // lapper_func_define_role registers a container func
+                        // under its own "{container}.{func}" scope, so probe
+                        // that scope directly. Names that resolve nowhere
+                        // (class calls) stay silent — their ClassRef is
+                        // lapper_global_classes' business.
+                        if let Some(resolved_id) = func_name.as_ref().and_then(|n| {
+                            let scope = find_scope(node.get_pos() as usize).unwrap_or_default();
+                            let container =
+                                scope.rsplit_once('.').map(|(c, _)| c).unwrap_or(&scope);
+                            let sp = crate::refdef::register::scope_path_from_scope_str(
+                                &uri,
+                                &format!("{container}.{n}"),
+                            );
+                            crate::refdef::register::lookup_declare_id(&sem.local_table, n, &sp)
+                        }) {
+                            symbol_lapper.insert(Interval {
+                                start: span.0,
+                                stop: span.1,
+                                val: SymbolType::new(SymbolKind::FuncRef, u32::from(resolved_id)),
+                            });
+                            sem.ref_entries.push((
+                                SymbolKind::FuncRef,
+                                u32::from(resolved_id),
+                                span.0,
+                                span.1,
+                            ));
+                        }
                     }
                     if let Some(enclosing) = find_container(span.0) {
                         // ★ Lookup priority inside func bodies: func-scoped defs
