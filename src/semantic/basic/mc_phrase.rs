@@ -181,6 +181,152 @@ fn split_vector_member(ids: &McIds) -> Option<(McIds, String)> {
     Some((prefix, member))
 }
 
+/// Expand one inner square group's items to member strings (no display-text
+/// re-parse): `[1,2]` → `["1","2"]`, `[L,R]` → `["L","R"]`, `[1:3]` → the
+/// declaration-order numeric sequence. Both AST encodings of a square group
+/// (outer `IdsSegment` items and embedded `SquareItem`s) funnel through here.
+fn expand_inner_square_ids(items: &[crate::semantic::basic::mc_ids::IdsSegment]) -> Vec<String> {
+    use crate::semantic::basic::mc_ids::IdsSegment;
+    let mut out = Vec::new();
+    for seg in items {
+        match seg {
+            IdsSegment::Int(n) => out.push(n.value.to_string()),
+            IdsSegment::Ida(ida) => out.extend(ida.expand()),
+            IdsSegment::Slice { from, to } => {
+                for num in
+                    crate::semantic::basic::mc_ids::expand_numeric_slice(from.value, to.value)
+                {
+                    out.push(num.to_string());
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+fn expand_inner_square_items(items: &[crate::semantic::basic::mc_ida::SquareItem]) -> Vec<String> {
+    let mut out = Vec::new();
+    for item in items {
+        match item {
+            crate::semantic::basic::mc_ida::SquareItem::Id(id) => out.push(id.clone()),
+            crate::semantic::basic::mc_ida::SquareItem::Range(start, end) => {
+                if let (Ok(a), Ok(b)) = (start.parse::<i64>(), end.parse::<i64>()) {
+                    for num in
+                        crate::semantic::basic::mc_ids::expand_numeric_slice(a, b)
+                    {
+                        out.push(num.to_string());
+                    }
+                } else {
+                    out.push(format!("{start}:{end}"));
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Split a nested-subscript spelling's inner member group off its segment
+/// tree (`S[1:4][1,2]` → array prefix `S[1:4]` + member group `["1","2"]`).
+///
+/// The C lexer folds the whole spelling into ONE IDA token (lex.re
+/// IDA_SQUARE_SEG juxtaposition), so both bracket groups ride the segment
+/// tree as trailing embedded `Square`s (single-Ida form), or — when the
+/// grammar produced separate id segments — as trailing outer `Square`
+/// segments. In either shape the split point is the same: the LAST TWO
+/// square groups must be adjacent (…`Square`, `Square` at the end); a
+/// non-square segment between them is a different spelling (`R[1:2]C[1:3]`
+/// matrix, `XTAL.X[1:2]`) and returns `None`. The caller resolves the array
+/// prefix alone and wraps the member group per instance (vec-arch.md §4.1.1
+/// R2, U237 case B: inner group reads as a per-instance member face).
+fn split_embedded_member_group(ids: &McIds) -> Option<(McIds, Vec<String>)> {
+    use crate::semantic::basic::mc_ids::IdsSegment;
+    use crate::semantic::basic::mc_ida::IdaSegment;
+    // (a) trailing outer Square segments, adjacent pair at the end.
+    if ids.segments.len() >= 2 {
+        if let (
+            IdsSegment::Square(_),
+            IdsSegment::Square(last),
+        ) = (
+            &ids.segments[ids.segments.len() - 2],
+            &ids.segments[ids.segments.len() - 1],
+        ) {
+            let members = expand_inner_square_ids(last);
+            if members.is_empty() {
+                return None;
+            }
+            let prefix = McIds {
+                segments: ids.segments[..ids.segments.len() - 1].to_vec(),
+            };
+            return Some((prefix, members));
+        }
+    }
+    // (b) single-Ida form: the last square-bearing Ida segment carries two
+    // adjacent embedded Square groups at its end; the last one is the
+    // member face.
+    let last_square = ids.segments.iter().rev().find_map(|seg| match seg {
+        IdsSegment::Ida(ida) if ida.has_square() => Some(ida),
+        IdsSegment::DotIda(ida) if ida.has_square() => Some(ida),
+        _ => None,
+    })?;
+    let mut segs = last_square.segments.clone();
+    match (segs.pop(), segs.last()) {
+        (Some(IdaSegment::Square(last_items)), Some(IdaSegment::Square(_)))
+            if !last_items.is_empty() =>
+        {
+            let members = expand_inner_square_items(&last_items);
+            if members.is_empty() {
+                return None;
+            }
+            // `segs` is already without the popped inner square — that is the
+            // array prefix; do not push the member face back on.
+            let prefix_ida = crate::semantic::basic::mc_ida::McIda { segments: segs };
+            let prefix = McIds {
+                segments: vec![IdsSegment::Ida(Box::new(prefix_ida))],
+            };
+            Some((prefix, members))
+        }
+        _ => None,
+    }
+}
+
+/// Split a curly member group off an array base (`S[1:4]{1,2}` → array
+/// prefix `S[1:4]` + member group `["1","2"]`). The base side keeps every
+/// non-trailing-Curly segment; the member side expands only the trailing
+/// Curly group (slice `{1:2}` included, mirroring `as_bus`'s expansion). A
+/// single trailing Curly on a plain base (`DC2{VDD,GND}`) is the ordinary
+/// bus form and returns `None` — the base must carry a square.
+fn split_curly_on_array(ids: &McIds) -> Option<(McIds, Vec<String>)> {
+    use crate::semantic::basic::mc_ids::IdsSegment;
+    let last = ids.segments.last()?;
+    let IdsSegment::Curly(curly) = last else {
+        return None;
+    };
+    let members = expand_inner_square_ids(curly);
+    if members.is_empty() {
+        return None;
+    }
+    let base_len = ids.segments.len() - 1;
+    if base_len == 0 {
+        return None;
+    }
+    // The base must itself carry a square (the array spelling); a bare
+    // `DC2{VDD,GND}` stays on the ordinary bus path.
+    let base_carries_square = ids.segments[..base_len].iter().any(|seg| match seg {
+        IdsSegment::Square(_) => true,
+        IdsSegment::Ida(ida) => ida.has_square(),
+        IdsSegment::DotIda(ida) => ida.has_square(),
+        _ => false,
+    });
+    if !base_carries_square {
+        return None;
+    }
+    let prefix = McIds {
+        segments: ids.segments[..base_len].to_vec(),
+    };
+    Some((prefix, members))
+}
+
 // McPhrase
 
 #[derive(Debug, Clone)]
@@ -635,6 +781,79 @@ impl McPhrase {
                                                 ));
                                             }
                                         }
+                                        // ── Nested subscript (`S[1:4][1,2]`) ──
+                                        // `classify` sees `Mixed` (two adjacent square
+                                        // groups), so neither the vector arm above nor the
+                                        // dot split fired — the whole spelling fell to the
+                                        // inline-ghost path (E3137 → quarantined `[` →
+                                        // E4057). Split the inner group off the segment
+                                        // tree, resolve the array prefix alone, and wrap
+                                        // the member group per instance as
+                                        // `Member(Endpoint(List), member-group)` (U237
+                                        // case B: the inner group reads as a per-instance
+                                        // member face — node `N*2` for a pair, a point
+                                        // `N*1` for a single member).
+                                        if let Some((array_ids, mut members)) =
+                                            split_embedded_member_group(&ids)
+                                        {
+                                            if members.len() > 2 {
+                                                // R5 row-vector law: `1*N` with N>2 has no
+                                                // defined pairing (vec-arch.md §4.1.1 R2).
+                                                dlog_error(
+                                                    crate::errcodes::SHAPE_MEMBER_GROUP_WIDTH,
+                                                    node,
+                                                    &crate::errcodes::format_msg(
+                                                        crate::errcodes::SHAPE_MEMBER_GROUP_WIDTH,
+                                                        &[&ids.to_string(), &members.len().to_string()],
+                                                    ),
+                                                );
+                                                return None;
+                                            }
+                                            let verdict = context.resolve_reference(
+                                                &array_ids,
+                                                node.get_pos(),
+                                                node.get_len(),
+                                            );
+                                            if let RefVerdict::ResolvedMany(resolved) = verdict {
+                                                let lanes: Vec<McEndpoint> = resolved
+                                                    .iter()
+                                                    .map(|m| match context.find_inst(m) {
+                                                        Some(inst) => McEndpoint::Single(
+                                                            McInstanceRef::new(inst),
+                                                        ),
+                                                        None => {
+                                                            McEndpoint::Single(McInstanceRef::new(
+                                                                McInstance::Label(m.clone()),
+                                                            ))
+                                                        }
+                                                    })
+                                                    .collect();
+                                                let member_ep = if members.len() == 1 {
+                                                    McEndpoint::Single(McInstanceRef::new(
+                                                        McInstance::Label(members.remove(0)),
+                                                    ))
+                                                } else {
+                                                    McEndpoint::List(
+                                                        members
+                                                            .into_iter()
+                                                            .map(|m| {
+                                                                McEndpoint::Single(
+                                                                    McInstanceRef::new(
+                                                                        McInstance::Label(m),
+                                                                    ),
+                                                                )
+                                                            })
+                                                            .collect(),
+                                                    )
+                                                };
+                                                return Some(McPhrase::Member(
+                                                    Box::new(McPhrase::Endpoint(McEndpoint::List(
+                                                        lanes,
+                                                    ))),
+                                                    member_ep,
+                                                ));
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -708,6 +927,61 @@ impl McPhrase {
                                 // as_comp_member={:?}",
                                 //     ids_str, bus_info, comp_member
                                 // );
+
+                                // ── Array base with curly member group (`S[1:4]{1,2}`) ──
+                                // R3 element-wise sub on a set: resolve the array prefix
+                                // alone, then each lane carries the curly member group
+                                // (`Member(Endpoint(List), member-group)`). Without this
+                                // arm the spelling collapsed to a bus named after the
+                                // first expanded member (`as_bus` takes `expand()[0]` =
+                                // `S1`), silently wiring only the first instance — the
+                                // §7.2 H3(a) shape-collapse lesion (U246 probe ③).
+                                if let Some((array_ids, mut members)) = split_curly_on_array(&ids) {
+                                    if !members.is_empty() {
+                                        let verdict = context.resolve_reference(
+                                            &array_ids,
+                                            node.get_pos(),
+                                            node.get_len(),
+                                        );
+                                        if let RefVerdict::ResolvedMany(resolved) = verdict {
+                                            let lanes: Vec<McEndpoint> = resolved
+                                                .iter()
+                                                .map(|m| match context.find_inst(m) {
+                                                    Some(inst) => McEndpoint::Single(
+                                                        McInstanceRef::new(inst),
+                                                    ),
+                                                    None => McEndpoint::Single(
+                                                        McInstanceRef::new(McInstance::Label(
+                                                            m.clone(),
+                                                        )),
+                                                    ),
+                                                })
+                                                .collect();
+                                            let member_ep = if members.len() == 1 {
+                                                McEndpoint::Single(McInstanceRef::new(
+                                                    McInstance::Label(members.remove(0)),
+                                                ))
+                                            } else {
+                                                McEndpoint::List(
+                                                    members
+                                                        .into_iter()
+                                                        .map(|m| {
+                                                            McEndpoint::Single(McInstanceRef::new(
+                                                                McInstance::Label(m),
+                                                            ))
+                                                        })
+                                                        .collect(),
+                                                )
+                                            };
+                                            return Some(McPhrase::Member(
+                                                Box::new(McPhrase::Endpoint(McEndpoint::List(
+                                                    lanes,
+                                                ))),
+                                                member_ep,
+                                            ));
+                                        }
+                                    }
+                                }
 
                                 if let Some(result) = validate_inst_reference(&ids, context, node) {
                                     // eprintln!(
@@ -5640,6 +5914,49 @@ fn eval_port_elems(phrase: &McPhrase, right: bool, context: &mut dyn HasFindInst
                 }) => Some(l.clone()),
                 _ => None,
             };
+            // ── Member group on an array (`S[1:4][1,2]` / `S[1:4]{1,2}`) ──
+            // The member face is a GROUP (`List` of labels) over an array
+            // base: each instance contributes one row vector over the group
+            // members (vec-arch.md §4.1.1 R2, U237 case B), so the operand is
+            // a `lanes × members` node, instance-major — left face = first
+            // member of every lane, right face = second member (a single
+            // member stays a degenerate `N*1` column). Without this the shape
+            // degrades through the generic fallback below and the strict §5
+            // row check drops the whole statement (E4007).
+            if let (McEndpoint::List(member_items), McPhrase::Endpoint(McEndpoint::List(lane_items))) =
+                (ep, inner.as_ref())
+            {
+                let members: Vec<String> = member_items
+                    .iter()
+                    .filter_map(|m| match m {
+                        McEndpoint::Single(iref) => match &iref.base {
+                            McInstance::Label(s) => Some(s.clone()),
+                            _ => None,
+                        },
+                        _ => None,
+                    })
+                    .collect();
+                let lanes: Vec<String> = lane_items
+                    .iter()
+                    .filter_map(|it| match it {
+                        McEndpoint::Single(iref) => match &iref.base {
+                            McInstance::Component(c) => Some(c.name.to_string()),
+                            McInstance::Label(s) => Some(s.clone()),
+                            _ => None,
+                        },
+                        _ => None,
+                    })
+                    .collect();
+                if !members.is_empty() && members.len() <= 2 && !lanes.is_empty() {
+                    // Group width >2 never reaches here (rejected at phrase
+                    // construction, SHAPE_MEMBER_GROUP_WIDTH).
+                    let idx = if members.len() == 2 && right { 1 } else { 0 };
+                    return lanes
+                        .iter()
+                        .map(|n| McBus::new(&format!("{n}.{}", members[idx])))
+                        .collect();
+                }
+            }
             // ── Vector slice member access `c[1:2].1`: the shared member
             // applies to every array member, producing a same-width column on
             // both sides (`[c1.1, c2.1]` == left == right). Without this the
@@ -6125,4 +6442,64 @@ fn is_connectable(op: ConnOp, dir: ConnDir, lhs: &OpdShape, rhs: &OpdShape) -> b
         ConnOp::Parallel => crate::semantic::opcheck::check_parallel(dir, lhs, rhs),
     };
     matches!(verdict, crate::semantic::opcheck::OpCheck::Legal(_))
+}
+
+#[cfg(test)]
+mod nested_subscript_tests {
+    use super::*;
+
+    #[test]
+    fn nested_subscript__embedded_group_splits_from_single_ida() {
+        let ids = McIds::from("S[1:4][1,2]");
+        let (array_ids, members) = split_embedded_member_group(&ids).expect("split");
+        assert_eq!(array_ids.to_string(), "S[1:4]");
+        assert_eq!(members, vec!["1".to_string(), "2".to_string()]);
+    }
+
+    #[test]
+    fn nested_subscript__named_inner_members() {
+        let ids = McIds::from("S[1:4][L,R]");
+        let (array_ids, members) = split_embedded_member_group(&ids).expect("split");
+        assert_eq!(array_ids.to_string(), "S[1:4]");
+        assert_eq!(members, vec!["L".to_string(), "R".to_string()]);
+    }
+
+    #[test]
+    fn nested_subscript__matrix_is_not_split() {
+        let ids = McIds::from("R[1:2]C[1:3]");
+        assert!(split_embedded_member_group(&ids).is_none(), "non-adjacent squares stay untouched");
+    }
+
+    #[test]
+    fn nested_subscript__curly_on_array_splits() {
+        // The AST path wraps the curly group as a trailing `IdsSegment::Curly`
+        // (McIds::new, MCAST_OPD_CURLY) — the text `From` cannot produce it.
+        use crate::semantic::basic::mc_ids::IdsSegment;
+        use crate::semantic::basic::mc_literal::McInt;
+        let int = |v: i64| IdsSegment::Int(Box::new(McInt { value: v }));
+        let ids = McIds {
+            segments: vec![
+                IdsSegment::Ida(Box::new(crate::semantic::basic::mc_ida::McIda::from("S[1:4]"))),
+                IdsSegment::Curly(vec![int(1), int(2)]),
+            ],
+        };
+        let (array_ids, members) = split_curly_on_array(&ids).expect("split");
+        assert_eq!(array_ids.to_string(), "S[1:4]");
+        assert_eq!(members, vec!["1".to_string(), "2".to_string()]);
+    }
+
+    #[test]
+    fn nested_subscript__plain_curly_bus_is_not_split() {
+        // The AST shape of `DC2{VDD,GND}`: base Ida (no square) + Curly.
+        use crate::semantic::basic::mc_ids::IdsSegment;
+        use crate::semantic::basic::mc_literal::McInt;
+        let int = |v: i64| IdsSegment::Int(Box::new(McInt { value: v }));
+        let ids = McIds {
+            segments: vec![
+                IdsSegment::Ida(Box::new(crate::semantic::basic::mc_ida::McIda::from("DC2"))),
+                IdsSegment::Curly(vec![int(1), int(2)]),
+            ],
+        };
+        assert!(split_curly_on_array(&ids).is_none(), "bare bus form stays on the ordinary path");
+    }
 }

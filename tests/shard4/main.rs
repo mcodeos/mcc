@@ -18,6 +18,7 @@ mod iface_role_arg_literal;
 mod iface_lookup_domain;
 mod iface_view_lane_mismatch;
 mod inst_list;
+mod nested_subscript_expand;
 mod lock_pp_attrs_insts;
 mod param_prefix_instance_receiver;
 mod param_prefix_uscore_count;

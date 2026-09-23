@@ -819,6 +819,48 @@ impl InstantiationBuilder {
             // component. Need to split into sub_name="mcu" + comp_name="uC",
             // look up in submodule's components.
             McPhrase::Member(phrase, member_ep) => {
+                // ── Member group alignment (`S[1:4][1,2]` / `S[1:4]{1,2}`) ──
+                // The inner phrase is `Endpoint(List(lanes))` and the member face
+                // is a GROUP (`List` of member labels): expand lane × member in
+                // instance-major order (U237 case B / R3 element-wise sub) so
+                // every instance gets its members, not just the first.
+                if let McEndpoint::List(member_items) = &member_ep {
+                    let member_names: Vec<String> = member_items
+                        .iter()
+                        .filter_map(|m| match m {
+                            McEndpoint::Single(ir) => match &ir.base {
+                                McInstance::Label(s) => Some(s.clone()),
+                                _ => None,
+                            },
+                            _ => None,
+                        })
+                        .collect();
+                    if !member_names.is_empty() {
+                        if let McPhrase::Endpoint(McEndpoint::List(items)) = &**phrase {
+                            let mut points = Vec::new();
+                            for item in items {
+                                let name = match item {
+                                    McEndpoint::Single(ir) => match &ir.base {
+                                        McInstance::Component(c) => Some(c.name.to_string()),
+                                        McInstance::Label(s) => Some(s.clone()),
+                                        _ => None,
+                                    },
+                                    _ => None,
+                                };
+                                let Some(name) = name else {
+                                    continue;
+                                };
+                                for mname in &member_names {
+                                    let path = format!("{name}.{mname}");
+                                    points.push(self.node_to_netpoint(&McBus::new(&path)));
+                                }
+                            }
+                            if !points.is_empty() {
+                                return Ok(points);
+                            }
+                        }
+                    }
+                }
                 // try to extract member name
                 let member_name = match member_ep {
                     McEndpoint::Single(ir) => match &ir.base {
@@ -1400,6 +1442,47 @@ impl InstantiationBuilder {
             // Symmetric to get_left_points Member branch logic.
             // ── Iter-12.1b: add cross-module component lookup ──
             McPhrase::Member(phrase, member_ep) => {
+                // ── Member group alignment (`S[1:4][1,2]` / `S[1:4]{1,2}`) ──
+                // Mirror of get_left_points: the member face is a GROUP
+                // (`List` of member labels); expand lane × member in
+                // instance-major order (U237 case B / R3 element-wise sub).
+                if let McEndpoint::List(member_items) = &member_ep {
+                    let member_names: Vec<String> = member_items
+                        .iter()
+                        .filter_map(|m| match m {
+                            McEndpoint::Single(ir) => match &ir.base {
+                                McInstance::Label(s) => Some(s.clone()),
+                                _ => None,
+                            },
+                            _ => None,
+                        })
+                        .collect();
+                    if !member_names.is_empty() {
+                        if let McPhrase::Endpoint(McEndpoint::List(items)) = &**phrase {
+                            let mut points = Vec::new();
+                            for item in items {
+                                let name = match item {
+                                    McEndpoint::Single(ir) => match &ir.base {
+                                        McInstance::Component(c) => Some(c.name.to_string()),
+                                        McInstance::Label(s) => Some(s.clone()),
+                                        _ => None,
+                                    },
+                                    _ => None,
+                                };
+                                let Some(name) = name else {
+                                    continue;
+                                };
+                                for mname in &member_names {
+                                    let path = format!("{name}.{mname}");
+                                    points.push(self.node_to_netpoint(&McBus::new(&path)));
+                                }
+                            }
+                            if !points.is_empty() {
+                                return Ok(points);
+                            }
+                        }
+                    }
+                }
                 let member_name = match member_ep {
                     McEndpoint::Single(ir) => match &ir.base {
                         McInstance::Label(s) => Some(s.clone()),
