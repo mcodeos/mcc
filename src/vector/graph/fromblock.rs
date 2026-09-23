@@ -484,6 +484,10 @@ pub fn build_mc_vec_graph_with_log(
     // Audit log: baseline/render_projection.md.
     let (projected, projection_log) = crate::viz::project::project_block_tree(block, table);
     let graph = build_mc_vec_graph_inner(&projected, table, /*is_top_level=*/ true);
+    // U259 probe A: reconcile the projected input against the built graph
+    // (MC_NET_PROBE only). Probing the *projected* block, not the raw one —
+    // the projection removes noise classes on purpose and would read as drops.
+    super::net_probe::probe_block_to_graph(&projected, &graph);
     (graph, projection_log)
 }
 

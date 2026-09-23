@@ -115,6 +115,9 @@ fn run_single(
 
     // ── Phase 1.8: net labels ──
     // ★ B2: skip for root layer — root only has declared boxes, no net labels.
+    // U259 §6: bracket the label/split/route stretch with endpoint-survival
+    // probes so a net lost mid-pipeline can be pinned to one stage.
+    crate::vector::graph::net_probe::probe_stage(&graph, "pre-net-labels");
     let g_snap = graph.geom_snapshot();
     if !is_root {
         t!("apply_net_labels", apply_net_labels(&mut graph));
@@ -137,6 +140,7 @@ fn run_single(
             graph.claim_geom_changes(&g_snap2, "12c.renormalize_wls");
         }
     }
+    crate::vector::graph::net_probe::probe_stage(&graph, "post-net-labels");
 
     // ── Phase 2: route ──
     // ★ B2: skip for root — root uses block edges rendered directly from edge_decide.
@@ -144,6 +148,10 @@ fn run_single(
         let g_snap = graph.geom_snapshot();
         t!("route_all", route_all_with_channels(&mut graph));
         graph.claim_geom_changes(&g_snap, "13.route");
+        // U259 probe C: which nets should be drawn but carry no route
+        // (MC_NET_PROBE only). Root is skipped by design — it draws block
+        // edges, not per-net routes, so everything would read as unrouted.
+        crate::vector::graph::net_probe::probe_route(&graph);
     }
 
     // ★ P7-4e: Phase E (route feedback loop, nudge→reroute→accept) removed.
