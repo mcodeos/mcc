@@ -148,6 +148,9 @@ fn main() -> ExitCode {
     // ── 3.6c. Rule override store: `diag` severities/allows/accepts (user + project) ──
     mcc::load_rule_overrides(project_root.as_deref());
 
+    // ── 3.6d. Power-contract adoption switch: `libs.include_system_contracts` (U266 ①) ──
+    mcc::load_contract_adoption(project_root.as_deref());
+
     // 3.7. Apply -D debug-target flags (CLI > config file)
     if !cli.debug_targets.is_empty() {
         let base = mcc::cli::config::base_level(cli.verbose, cli.quiet);

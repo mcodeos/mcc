@@ -38,6 +38,22 @@ pub fn set_system_lib_loading(loading: bool) {
     SYSTEM_LIB_LOADING.store(loading, std::sync::atomic::Ordering::SeqCst);
 }
 
+/// Whether system-library power contracts were explicitly adopted into the
+/// carrying determination (`config.libs.include_system_contracts`, U266 ①).
+/// Seeded once at startup by [`crate::load_contract_adoption`]; until then it
+/// stays false, which is the off-by-default narrow gate the ruling pins —
+/// semantic passes read this, never the config files themselves.
+static INCLUDE_SYSTEM_CONTRACTS: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+pub fn include_system_contracts() -> bool {
+    INCLUDE_SYSTEM_CONTRACTS.load(std::sync::atomic::Ordering::SeqCst)
+}
+
+pub fn set_include_system_contracts(on: bool) {
+    INCLUDE_SYSTEM_CONTRACTS.store(on, std::sync::atomic::Ordering::SeqCst);
+}
+
 /// When true, engine-level stdout traces (e.g. AST visit tree) are suppressed even if
 /// `trace.visit` is configured on. Set by CLI commands emitting a structured JSON result
 /// on stdout, so a globally-enabled `trace.visit` can't corrupt the JSON contract.
@@ -355,6 +371,14 @@ pub struct LibsConfig {
     /// None means unset (project config falls back to global config).
     #[serde(default)]
     pub disable_mcode: Option<bool>,
+    /// Set true to adopt system-library (sysroot) power contracts into the
+    /// carrying determination (U266 ①): a library component whose declaration
+    /// carries pwr rows joins the contract-carrying domain exactly as a
+    /// workspace component does. Default off (None/false) — a library upgrade
+    /// must never silently change a board's readouts; adopting is explicit.
+    /// None means unset (project config falls back to global config).
+    #[serde(default)]
+    pub include_system_contracts: Option<bool>,
 }
 
 impl LibsConfig {
@@ -513,6 +537,10 @@ pub fn merge_configs(global: &MccConfig, local: Option<&MccConfig>) -> MccConfig
                     local.libs.load.clone()
                 },
                 disable_mcode: local.libs.disable_mcode.or(global.libs.disable_mcode),
+                include_system_contracts: local
+                    .libs
+                    .include_system_contracts
+                    .or(global.libs.include_system_contracts),
             };
 
             let diag = DiagConfig {

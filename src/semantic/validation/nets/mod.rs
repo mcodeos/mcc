@@ -1622,8 +1622,10 @@ struct PowerScan {
     /// ambiguity rule as `guarantee`, over capacity instead of nominal.
     rail_cap: std::collections::HashMap<String, f64>,
     /// Component instance id → def, resolved through the project workspace
-    /// class table (module-boundary/library faces stay out — exactly the
-    /// membership 6011/6013/6019 relied on).
+    /// class table (module-boundary faces stay out — exactly the membership
+    /// 6011/6013/6019 relied on). Since U266 ① a project may widen this to
+    /// system-library components whose declarations carry pwr rows
+    /// (`config.libs.include_system_contracts`, default off).
     comp_def: std::collections::HashMap<u32, std::sync::Arc<McComponent>>,
     /// Module *instance* entry id → its declared power-output (Src/Bi) port
     /// source contracts `(hot member, decoded)` — rail-contract-design.md §8.5
@@ -1683,10 +1685,24 @@ impl PowerScan {
         // borrowed defs stay valid for the whole scan — the same reason the
         // inlined copies kept their `workspace` variable alive.)
         let workspace = crate::definition_space().workspace_components();
-        let defs: std::collections::HashMap<String, std::sync::Arc<McComponent>> = workspace
+        let mut defs: std::collections::HashMap<String, std::sync::Arc<McComponent>> = workspace
             .into_iter()
             .map(|(sn, c)| (sn.ident.to_string(), c))
             .collect();
+        // U266 ①: explicit adoption — when the project flips
+        // `config.libs.include_system_contracts`, a system-library component
+        // whose declaration carries pwr rows joins the carrying domain exactly
+        // as a workspace component does. Participation stays
+        // declaration-driven: a def joins by declaring pwr rows, never by
+        // domain guessing, and the workspace def keeps winning on a same-name
+        // collision (the insert order `transparent`'s fold below relies on).
+        if crate::cli::config::include_system_contracts() {
+            for (sn, c) in crate::definition_space().system_components() {
+                if !c.pins.pwr.is_empty() {
+                    defs.entry(sn.ident.to_string()).or_insert(c);
+                }
+            }
+        }
         let comp_def: std::collections::HashMap<u32, std::sync::Arc<McComponent>> = table
             .get_components()
             .iter()
@@ -1750,8 +1766,9 @@ impl PowerScan {
     }
 
     /// The def behind a flat component instance, if it resolved through the
-    /// project class table (None → a non-project face, which the nominal checks
-    /// never adjudicate).
+    /// class table — project workspace, plus (when the project adopted them,
+    /// U266 ①) system-library components that declare pwr rows. `None` → a
+    /// face the nominal checks never adjudicate.
     fn def_of(&self, comp_id: u32) -> Option<&McComponent> {
         self.comp_def.get(&comp_id).map(|a| a.as_ref())
     }
@@ -1813,7 +1830,7 @@ impl PowerScan {
                 let Some(contract) = source_contract_for(def, entry) else {
                     continue;
                 };
-                let dec = decode_pwr_pin(contract);
+                let dec = decode_pwr_entry(contract, entry);
                 if let Some(v) = dec.v {
                     out.push((v, dec.v_text));
                 }
@@ -1886,7 +1903,7 @@ impl PowerScan {
                 let Some(contract) = source_contract_for(def, entry) else {
                     continue;
                 };
-                if decode_pwr_pin(contract).v.is_some() {
+                if decode_pwr_entry(contract, entry).v.is_some() {
                     return true;
                 }
             } else if let Some(contract) = self.port_source_of(entry) {
@@ -1948,7 +1965,7 @@ impl PowerScan {
             let Some(contract) = source_contract_for(def, entry) else {
                 continue;
             };
-            let dec = decode_pwr_pin(contract);
+            let dec = decode_pwr_entry(contract, entry);
             if let Some(c) = dec.capacity_amps {
                 caps.push(c);
             }
@@ -2030,7 +2047,7 @@ pub(crate) fn check_sink_nominal_mismatch(table: &InstTable, results: &mut Vec<N
             let Some(contract) = sink_contract_for(def, entry) else {
                 continue;
             };
-            let dec = decode_pwr_pin(contract);
+            let dec = decode_pwr_entry(contract, entry);
             let Some(v_sink) = dec.v else { continue };
             if (v_sink - v_supply).abs() <= 1e-9 {
                 continue; // sink nominal == S(net) — the healthy hookup
@@ -2186,10 +2203,26 @@ pub(crate) fn check_undriven_sink_net(table: &InstTable, results: &mut Vec<NetCh
 /// regulators wire-ORed onto one net still need the declared element.
 pub(crate) fn check_power_source_contention(table: &InstTable, results: &mut Vec<NetCheckResult>) {
     let workspace = crate::definition_space().workspace_components();
-    let defs: std::collections::HashMap<String, &McComponent> = workspace
+    let mut defs: std::collections::HashMap<String, &McComponent> = workspace
         .iter()
         .map(|(sn, c)| (sn.ident.to_string(), c.as_ref()))
         .collect();
+    // U266 ①: same adoption gate as `PowerScan::build` — an adopted
+    // system-library source participates in the contention read exactly as a
+    // workspace one does; the workspace def wins a same-name collision.
+    // Owned first (the map borrows the defs, so the Arcs must outlive it).
+    let system = if crate::cli::config::include_system_contracts() {
+        crate::definition_space()
+            .system_components()
+            .into_iter()
+            .filter(|(_, c)| !c.pins.pwr.is_empty())
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+    for (sn, c) in &system {
+        defs.entry(sn.ident.to_string()).or_insert(c.as_ref());
+    }
     let comp_def: std::collections::HashMap<u32, &McComponent> = table
         .get_components()
         .iter()
@@ -2619,11 +2652,26 @@ pub(crate) fn check_pin_contract_decode(table: &InstTable, results: &mut Vec<Net
         let Some(def) = defs.get(&entry.class_name).copied() else {
             continue;
         };
+        let formals = def.bind_params().names();
         for contract in &def.pins.pwr {
             let dec = decode_pwr_pin(contract);
             let Some(bad) = dec.bad else {
                 continue;
             };
+            // U266 ②: a positional nominal spelled as one of the class's
+            // declared formals is the "nominal on the variant" shape — the
+            // instance's bound argument decodes it at flatten time
+            // ([`decode_pwr_entry`]). This class-level pass has no instance
+            // in hand, so such a nominal is an undecided input here, not a
+            // decode error; only the nominal miss is excused — a real
+            // budget-key or terminal problem still reports.
+            if let Some(p) = contract.params.iter().find(|p| p.key.is_none()) {
+                if formals.iter().any(|f| *f == p.text)
+                    && bad == format!("nominal '{}' is not a DC volts value", p.text)
+                {
+                    continue;
+                }
+            }
             results.push(NetCheckResult {
                 check: "pin-contract-decode",
                 severity: "error",
@@ -4492,6 +4540,34 @@ pub(crate) fn source_contract_for<'a>(
         matches!(c.dir, PwrDir::Src | PwrDir::Bi)
             && (names.iter().any(|n| *n == c.hot) || entry.class_name == c.hot)
     })
+}
+
+/// Decode the contract row owning this flat pin, with the instance-bound
+/// nominal applied (U266 ②). The flatten pass records a positional
+/// `::DC(formal)` row's resolved argument on the hot terminal
+/// ([`InstEntry::pwr_nom`]); where it is present the decoded nominal speaks
+/// with the instance's voice — the argument text, and its DC volts when the
+/// argument decodes as one. The declaration-local "not a DC volts value" miss
+/// is withdrawn: the row was never meant to decode from the declaration
+/// alone, and an argument that does not decode as DC volts (a window, a
+/// still-symbolic value) is an honest undecided input, not an operator error
+/// (the same stance `args_are_literals` takes on the interface side).
+pub(crate) fn decode_pwr_entry(row: &McPwrPin, entry: &InstEntry) -> L1PwrPin {
+    let mut dec = decode_pwr_pin(row);
+    let Some(nom) = &entry.pwr_nom else {
+        return dec;
+    };
+    let formal_miss = row
+        .params
+        .iter()
+        .find(|p| p.key.is_none())
+        .map(|p| format!("nominal '{}' is not a DC volts value", p.text));
+    if dec.bad.is_some() && dec.bad == formal_miss {
+        dec.bad = None;
+    }
+    dec.v_text = nom.text.clone();
+    dec.v = nom.v;
+    dec
 }
 
 /// The net the instance terminal carrying the declared member `(face, member)`

@@ -43,11 +43,10 @@
 
 use super::budget::{BudgetRoot, BudgetScan};
 use super::window::{classify_supply_def, SupplyClass};
-use super::{entry_pos, sink_contract_for, source_contract_for};
+use super::{decode_pwr_entry, entry_pos, sink_contract_for, source_contract_for};
 use crate::instant::insttab::{InstKind, InstTable};
 use crate::instant::island::NetIslandIndex;
 use crate::semantic::common::IOType;
-use crate::semantic::module::pi::decode_pwr_pin;
 use std::collections::{HashMap, HashSet};
 
 /// One derived-demand charge to fold into a 6021 root bucket on top of the
@@ -157,10 +156,10 @@ impl<'a> BudgetLoadScan<'a> {
                         dev.inputs.push(net.id);
                     }
                     if dev.v_in.is_none() {
-                        dev.v_in = decode_pwr_pin(contract).v;
+                        dev.v_in = decode_pwr_entry(contract, pin).v;
                     }
                 } else if let Some(contract) = source_contract_for(def, pin) {
-                    let dec = decode_pwr_pin(contract);
+                    let dec = decode_pwr_entry(contract, pin);
                     dev.outputs.push(OutputFace {
                         net: net.id,
                         v: dec.v,
@@ -236,7 +235,7 @@ impl<'a> BudgetLoadScan<'a> {
             let Some(contract) = sink_contract_for(def, entry) else {
                 continue;
             };
-            let Some(a) = decode_pwr_pin(contract).amp else {
+            let Some(a) = decode_pwr_entry(contract, entry).amp else {
                 continue;
             };
             total += a;

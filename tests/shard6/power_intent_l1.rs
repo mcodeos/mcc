@@ -6710,3 +6710,147 @@ component SENS(mode::STRING) {\n    \
         "6051 must name the overriding instance: {msgs:?}"
     );
 }
+
+// A positional `::DC(volt)` nominal spelled as a declared constructor formal
+// is the "nominal on the variant" shape (applied-nominal-design.md §4.2 case
+// A): the declaration names *which* parameter, the instance says *what*. The
+// flatten pass resolves the row against the instance's bound arguments
+// ([`mcc::instant::insttab`]'s `pwr_nominal_for_pin`) and the contract reads
+// speak with the instance's voice.
+
+/// A source part whose pin-row nominal is a bare formal — the U226 board's
+/// `DC.BAT` shape (`psbi [1,2] = BAT{VCC, GND}::DC(volt)`), spelled as the
+/// anonymous pair the in-file tests use.
+const PSRC_PARAM: &str =
+    "component PSRC_PARAM(volt::UV.VOLT) {\n    pins = [\n        psrc [1,2] = [VOUT, GND]::DC(volt)\n    ]\n}\n";
+
+/// The bound argument is the guarantee a sink is judged against: `PSRC_PARAM(5V)`
+/// drives the net at 5V, so the 3.3V `SINK_DC` mismatches — and the message's
+/// supply-guarantee half reads **5V**, the instance's argument, never the bare
+/// formal spelling.
+#[test]
+fn instance_argument_binds_the_pin_row_nominal() {
+    let src = format!(
+        "{PSRC_PARAM}{SINK_DC}module main {{\n    {PI1_BOARD}\
+         PSRC_PARAM(5V) src\n    src.1 -> VBUS\n    src.2 -> GND\n    \
+         SINK_DC s\n    s.VDD -> VBUS\n    s.GND -> GND\n}}\n"
+    );
+    let msgs = msgs_of(mcc::errcodes::POWER_SINK_NOMINAL_MISMATCH, &src);
+    assert_eq!(
+        msgs.len(),
+        1,
+        "the sink must be judged against the instance's argument; got: {msgs:?}"
+    );
+    assert!(
+        msgs[0].contains("5V") && !msgs[0].contains("volt"),
+        "the supply guarantee must read 5V (the bound argument), never the formal name: {msgs:?}"
+    );
+}
+
+/// The bound face has a decodable root, the unbound one does not: with the
+/// argument present the net carries a resolvable psrc root (6019 stays
+/// silent); with nothing bound (and no written default) the nominal is an
+/// undecided input, so the net is rootless exactly as if the row had failed
+/// to decode — an undecided value never fabricates a root.
+#[test]
+fn bound_argument_makes_the_root_decidable_unbound_leaves_it_rootless() {
+    let mk = |arg: &str| {
+        format!(
+            "{PSRC_PARAM}{SINK_DC}module main {{\n    {PI1_BOARD}\
+             PSRC_PARAM({arg}) src\n    src.1 -> VBUS\n    src.2 -> GND\n    \
+             SINK_DC s\n    s.VDD -> VBUS\n    s.GND -> GND\n}}\n"
+        )
+    };
+    let bound = build_codes(&mk("5V"));
+    assert!(
+        !bound.contains(&mcc::errcodes::SINK_NET_NO_SOURCE),
+        "a bound argument is a resolvable source root; got: {bound:?}"
+    );
+    let unbound = build_codes(&mk(""));
+    assert!(
+        unbound.contains(&mcc::errcodes::SINK_NET_NO_SOURCE),
+        "an unbound formal is undecided — not a source root; got: {unbound:?}"
+    );
+}
+
+/// The class-level decode read (6012) excuses the formal spelling — it has no
+/// instance in hand, so a formal nominal is an undecided input there, not a
+/// decode error — while a genuinely undecodable literal still reports, naming
+/// the offending class.
+#[test]
+fn formal_nominal_is_not_a_decode_error_literal_garbage_still_reports() {
+    let src = format!(
+        "{PSRC_PARAM}component BAD_PART {{\n    pins = [\n        \
+         psrc [1,2] = [VOUT, GND]::DC(zzz)\n    ]\n}}\n\
+         module main {{\n    {PI1_BOARD}PSRC_PARAM(5V) src\n    src.1 -> VBUS\n    src.2 -> GND\n    BAD_PART dead\n    dead.1 -> VDEAD\n    dead.2 -> GND\n}}\n"
+    );
+    let msgs = msgs_of(mcc::errcodes::POWER_PIN_DECODE, &src);
+    assert_eq!(
+        msgs.len(),
+        1,
+        "only the literal garbage nominal decodes as an error; got: {msgs:?}"
+    );
+    assert!(
+        msgs[0].contains("BAD_PART") && !msgs[0].contains("PSRC_PARAM"),
+        "6012 must name the class with the undecodable literal, never the formal carrier: {msgs:?}"
+    );
+}
+
+/// A system-library part with declared pwr rows joins the carrying domain only
+/// when the project explicitly adopted it
+/// (`config.libs.include_system_contracts`, default off — a library upgrade
+/// must never silently change a board's readouts). The same board, flipped
+/// twice, is the whole experiment: default off → the library `psbi` is not a
+/// source root (6019 fires); adopted → it carries (6019 silent). Participation
+/// stays declaration-driven: the def joins by declaring pwr rows, never by
+/// domain guessing.
+#[test]
+fn sysroot_contract_carries_only_when_adopted() {
+    let _lock = common::lock();
+    common::reset();
+
+    // Self-contained mcode library on disk: SYS_BAT with one psbi row — the
+    // mcode `dc.mc` `DC.BAT` shape the U226 board could not consume.
+    let dir = std::env::temp_dir().join(format!("mcc-u266-sysbat-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let lib_dir = dir.join("mcode");
+    std::fs::create_dir_all(&lib_dir).unwrap();
+    std::fs::write(
+        lib_dir.join("mcode.mc"),
+        "component SYS_BAT {\n    pins = [\n        psbi [1,2] = [VCC, GND]::DC(5V)\n    ]\n}\n",
+    )
+    .unwrap();
+    let root = dir.canonicalize().unwrap_or(dir);
+    mcc::mcc_set_system_root(&root);
+    assert!(mcc::mcb_load_lib("mcode", &root.join("mcode")), "lib loads");
+
+    let src = format!(
+        "use mcode/mcode.mc\n{SINK_DC}module main {{\n    {PI1_BOARD}\
+         SYS_BAT bat\n    bat.1 -> VBAT\n    bat.2 -> GND\n    \
+         SINK_DC s\n    s.VDD -> VBAT\n    s.GND -> GND\n}}\n"
+    );
+    let uri: McURI = "/mcc/u266-sysbat.mc".to_string();
+
+    let build = || -> Vec<u32> {
+        mcc::mcc_load_from_string(&uri, &src);
+        let _ = mcc::mcc_build_flat(&McIds::from("main"), &uri, 1000).expect("flat build");
+        mcc::mcc_diagnose_all().iter().map(|d| d.code).collect()
+    };
+
+    // Default: off — the library psbi is not a root; the sink draws from nothing.
+    mcc::cli::config::set_include_system_contracts(false);
+    let off = build();
+    assert!(
+        off.contains(&mcc::errcodes::SINK_NET_NO_SOURCE),
+        "unadopted: the library psbi must not carry; got {off:?}"
+    );
+
+    // Adopted: the same declaration now joins the carrying domain.
+    mcc::cli::config::set_include_system_contracts(true);
+    let on = build();
+    assert!(
+        !on.contains(&mcc::errcodes::SINK_NET_NO_SOURCE),
+        "adopted: the library psbi carries like any declared source; got {on:?}"
+    );
+    mcc::cli::config::set_include_system_contracts(false);
+}
