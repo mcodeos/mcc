@@ -4952,6 +4952,48 @@ fn sensitive_return_landing_on_the_noisy_face_fires_6041() {
     );
 }
 
+/// R10 table form B — the co-occurrence lock (power-quality-design.md §3.3):
+/// one board where both rules fire on the same part with *distinct witnesses*.
+/// The analog pair returns onto the noisy main face (6041's object: sensitive
+/// supply, mis-landed return) while the two returns straddle two disjoint
+/// unbridged potential classes (6027's object: return-span across planes).
+/// Non-overlap is structural — 6027's `classes.len() < 2` gate keeps it silent
+/// on 6041's target form — but this board proves the two codes co-occur without
+/// collapsing into one verdict.
+#[test]
+fn form_b_span_and_sensitive_return_cooccur_with_distinct_witnesses_6027_6041() {
+    let src = format!(
+        "{ANALOG_PART}module main {{\n    {SN3_BOARD}\
+         ANALOG_PART u\n    u.VDD -> VDD_3V3\n    u.GND -> GNDA\n    \
+         u.AVDD -> VDDA\n    u.AGND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let span = msgs_of(mcc::errcodes::DEVICE_RETURN_SPAN_UNDECLARED, &src);
+    let noisy = msgs_of(mcc::errcodes::SENSITIVE_RETURN_ON_NOISY, &src);
+    assert_eq!(
+        span.len(),
+        1,
+        "returns on two disjoint unbridged classes must fire 6027 once; got codes: {codes:?}"
+    );
+    assert_eq!(
+        noisy.len(),
+        1,
+        "the sensitive pair's return on the noisy face must fire 6041 once; got codes: {codes:?}"
+    );
+    assert!(
+        span[0] != noisy[0],
+        "the two codes must carry distinct witnesses, not one verdict twice: {span:?} vs {noisy:?}"
+    );
+    assert!(
+        span[0].contains("GNDA") && span[0].contains("GND"),
+        "6027's witness is the class pair plus the device: {span:?}"
+    );
+    assert!(
+        noisy[0].contains("main.u") && noisy[0].contains("AVDD") && noisy[0].contains("DVDD"),
+        "6041's witness is the sensitive part plus the two faces: {noisy:?}"
+    );
+}
+
 /// §1.4's read is the registered value set, not one spelling: a quiet face
 /// declared `@noise(quiet)` and one declared `@noise(sensitive)` each fire, and
 /// the `@class(analog)` twin on the same board proves all three words are read
