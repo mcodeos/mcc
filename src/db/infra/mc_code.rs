@@ -7581,6 +7581,63 @@ module main
         );
     }
 
+    /// U234: a re-parse purges the edited file's stale edges before the new
+    /// pass records fresh ones. Removing the reference must retire the old
+    /// edge (no stale dependents), and restoring it must re-record it —
+    /// the graph tracks the current text, not the history.
+    #[test]
+    fn def_mccode__refgraph_edges_survive_reparse_without_stale_hits() {
+        let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");
+        crate::mcc_init_no_lib();
+        crate::mcc_set_system_root(std::path::Path::new(""));
+        crate::mcc_clear_workspace();
+
+        let dir = std::env::temp_dir().join(format!("mcc-refgraph-purge-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("b.mc"),
+            "component V6LED\n{\n    pins = [\n        1 = A\n        2 = K\n    ]\n}\n",
+        )
+        .unwrap();
+
+        let b_src = std::fs::read_to_string(dir.join("b.mc")).unwrap();
+        let b_uri = crate::build::pass1::canonicalize_project_uri(
+            &dir.join("b.mc").to_string_lossy().into_owned(),
+        );
+        let a_uri = crate::build::pass1::canonicalize_project_uri(
+            &dir.join("a.mc").to_string_lossy().into_owned(),
+        );
+        crate::mcc_load_from_string(&b_uri, &b_src);
+
+        let to = McSpaceName {
+            ident: McIds::from("V6LED"),
+            uri: crate::semantic::common::uri_intern(&b_uri),
+        };
+
+        let v1 = "use ./b.mc\n\nmodule main\n{\n    io A\n    io GND\n    V6LED led1\n}\n";
+        crate::mcc_load_from_string(&a_uri, v1);
+        assert!(
+            workspace::WORKSPACE.refgraph.has_dependents(&to),
+            "the first pass records the reference"
+        );
+
+        // Re-parse without the reference: the stale edge must not survive.
+        let v2 = "use ./b.mc\n\nmodule main\n{\n    io A\n    io GND\n}\n";
+        crate::mcc_load_from_string(&a_uri, v2);
+        assert!(
+            !workspace::WORKSPACE.refgraph.has_dependents(&to),
+            "a re-parse retires edges the edited text no longer has"
+        );
+
+        // Re-parse with the reference back: a fresh edge lands.
+        crate::mcc_load_from_string(&a_uri, v1);
+        assert!(
+            workspace::WORKSPACE.refgraph.has_dependents(&to),
+            "a fresh pass re-records the reference"
+        );
+    }
+
     /// T6 (G6) parse-level gold assertion: the def content fingerprint is
     /// stable across real parses and only the edited def surfaces. The
     /// re-parse flow mirrors the loader semantics — unload the file, then
