@@ -42,11 +42,10 @@ use crate::vector::model::RailClass;
 
 // Constants
 
-/// Minimum pin pitch for R-D box sizing
-pub const PIN_PITCH: f64 = 40.0;
-
 /// Margin on each end of pin row
 pub const PIN_MARGIN: f64 = 20.0;
+
+use crate::viz::layout::size::PIN_PITCH;
 
 /// Gap from anchor right edge to trunk
 pub const TRUNK_GAP: f64 = 100.0;

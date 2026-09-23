@@ -30,6 +30,11 @@ pub const MIN_GAP: f64 = 40.0;
 /// ★ R-D: minimum pin pitch for box sizing
 pub const PIN_PITCH: f64 = 40.0;
 
+/// Pin pitch for terminal-box sizing (islands `terminal_height`, sp_place
+/// `terminal_size`): the tighter of the two sanctioned pitches — the single
+/// home for the 28.0 tier (U242①§12: one definition per pitch, no literals).
+pub const TERMINAL_PIN_PITCH: f64 = 28.0;
+
 /// ★ R-D: margin on each end of pin row
 pub const PIN_MARGIN: f64 = 20.0;
 
