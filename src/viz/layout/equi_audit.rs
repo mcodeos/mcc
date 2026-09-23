@@ -541,8 +541,6 @@ pub fn dump_layout_model(graph: &McVecGraph, topos: &[NetTopology]) -> String {
 pub enum CheckStatus {
     Pass,
     Fail,
-    /// Not computable yet — the data it needs arrives at `since`.
-    Skipped,
 }
 
 #[derive(Debug, Clone)]
@@ -563,16 +561,6 @@ impl Check {
             since,
             status: CheckStatus::Pass,
             details: Vec::new(),
-        }
-    }
-
-    fn skipped(id: &'static str, name: &'static str, since: Milestone, why: &str) -> Check {
-        Check {
-            id,
-            name,
-            since,
-            status: CheckStatus::Skipped,
-            details: vec![why.to_string()],
         }
     }
 
@@ -632,7 +620,6 @@ impl fmt::Display for EquiAudit {
             let mark = match c.status {
                 CheckStatus::Pass => "PASS",
                 CheckStatus::Fail => "FAIL",
-                CheckStatus::Skipped => "skip",
             };
             writeln!(out, "  {mark}  [{}] {:<40} due:{}", c.id, c.name, c.since)?;
             for d in &c.details {
@@ -656,8 +643,6 @@ pub fn audit_equi_tree(graph: &McVecGraph, layout_topos: &[NetTopology]) -> Equi
         check_a2b_anchor_replay(graph, layout_topos),
         check_a3_dangling(graph, layout_topos, &trees),
         check_a4_passive_orientation(graph),
-        check_a5_col_unique(),
-        check_a6_bridge_same_col(),
         check_a7_wire_through_box(graph, layout_topos, &trees),
         check_a8_junction_present(layout_topos, &trees),
         check_a9_ground_glyphs(layout_topos, &trees),
@@ -950,26 +935,6 @@ fn check_a4_passive_orientation(graph: &McVecGraph) -> Check {
         }
     }
     c
-}
-
-// A5 / A6
-
-fn check_a5_col_unique() -> Check {
-    Check::skipped(
-        "A5",
-        "cols unique within a row",
-        Milestone::M4,
-        "column model does not exist yet",
-    )
-}
-
-fn check_a6_bridge_same_col() -> Check {
-    Check::skipped(
-        "A6",
-        "bridge endpoints share a column",
-        Milestone::M4,
-        "column model does not exist yet",
-    )
 }
 
 // A7

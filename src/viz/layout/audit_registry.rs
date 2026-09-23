@@ -20,8 +20,8 @@
 //! The table order is authoritative: the A rows reproduce the
 //! [`super::equi_audit::audit_equi_tree`] collection order byte-for-byte, and
 //! the F rows follow for the fidelity gate tiers. Every A-row `id`/`name`/
-//! `since` mirrors the corresponding `Check::new(..)` / `Check::skipped(..)`
-//! constructor in `equi_audit.rs`; keeping the two in sync is enforced by the
+//! `since` mirrors the corresponding `Check::new(..)` constructor in
+//! `equi_audit.rs`; keeping the two in sync is enforced by the
 //! order/uniqueness locks in `crate::rules::tests` and by this module's tests.
 
 use super::equi_audit::Milestone;
@@ -32,10 +32,10 @@ use super::equi_audit::Milestone;
 /// `severity` is the governance default the rule would carry if it emitted a
 /// finding; the fidelity tiers map directly onto the gate semantics
 /// (blocking / ratchet / informational). A-series rows are all `error`
-/// invariants. `computable == false` marks rules declared but not yet
-/// computable (A5/A6 wait on the column model) — they keep their row so the
-/// catalog answers "declared" queries while the run-time report stays
-/// `Skipped`.
+/// invariants. (A5/A6 — the two declared-but-never-computable column-model
+/// rows — were retired at b3935: their content is carried by A3/A4/A21/A22
+/// plus the `equi_column.rs` allocator locks; the ids are intentional gaps,
+/// like A19/A20/A33.)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct VizAuditRule {
     /// String id, e.g. "A1", "A2b", "F1". Distinct from errcode codes by design.
@@ -47,9 +47,6 @@ pub struct VizAuditRule {
     pub since: Milestone,
     /// Governance default severity: "error", "warning" or "info".
     pub severity: &'static str,
-    /// Whether the rule is computable today. `false` = declared, not yet
-    /// computable (run-time status stays `Skipped`).
-    pub computable: bool,
     /// Owner inside the viz pipeline, e.g. "equi_audit::check_a1_rows".
     pub host: &'static str,
 }
@@ -61,7 +58,6 @@ macro_rules! a_rule {
             name: $name,
             since: Milestone::$since,
             severity: "error",
-            computable: true,
             host: $host,
         }
     };
@@ -96,22 +92,6 @@ pub static VIZ_AUDIT_RULES: &[VizAuditRule] = &[
         M3,
         "equi_audit::check_a4_passive_orientation"
     ),
-    VizAuditRule {
-        id: "A5",
-        name: "cols unique within a row",
-        since: Milestone::M4,
-        severity: "error",
-        computable: false,
-        host: "equi_audit::check_a5_col_unique",
-    },
-    VizAuditRule {
-        id: "A6",
-        name: "bridge endpoints share a column",
-        since: Milestone::M4,
-        severity: "error",
-        computable: false,
-        host: "equi_audit::check_a6_bridge_same_col",
-    },
     a_rule!(
         "A7",
         "no wire passes through a foreign box",
@@ -268,7 +248,6 @@ pub static VIZ_AUDIT_RULES: &[VizAuditRule] = &[
         name: "Tier 1 CORRECTNESS: no dropped/partial nets, every pin rendered, bus bits paired",
         since: Milestone::M0,
         severity: "error",
-        computable: true,
         host: "layout::select::fidelity_gate[Tier 1]",
     },
     VizAuditRule {
@@ -276,7 +255,6 @@ pub static VIZ_AUDIT_RULES: &[VizAuditRule] = &[
         name: "Tier 2 QUALITY: zero box/wire collisions, full layout-model coverage",
         since: Milestone::M0,
         severity: "warning",
-        computable: true,
         host: "layout::select::fidelity_gate[Tier 2]",
     },
     VizAuditRule {
@@ -284,7 +262,6 @@ pub static VIZ_AUDIT_RULES: &[VizAuditRule] = &[
         name: "Tier 3 INFO: authored pin sides honored; readability report",
         since: Milestone::M0,
         severity: "info",
-        computable: true,
         host: "layout::select::fidelity_gate[Tier 3]",
     },
 ];
@@ -299,10 +276,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn declared_set_size_is_32_plus_3() {
-        // "~34" declared rules: the 32 A-series rows (A1..A34 with A2b and the
-        // A19/A20/A33 gaps) plus the three fidelity gate tiers.
-        assert_eq!(VIZ_AUDIT_RULES.len(), 35);
+    fn declared_set_size_is_30_plus_3() {
+        // "~34" declared rules: the 30 A-series rows (A1..A34 with A2b and the
+        // A5/A6/A19/A20/A33 gaps) plus the three fidelity gate tiers.
+        assert_eq!(VIZ_AUDIT_RULES.len(), 33);
         let a_rows = VIZ_AUDIT_RULES
             .iter()
             .filter(|r| r.id.starts_with('A'))
@@ -311,7 +288,7 @@ mod tests {
             .iter()
             .filter(|r| r.id.starts_with('F'))
             .count();
-        assert_eq!(a_rows, 32);
+        assert_eq!(a_rows, 30);
         assert_eq!(f_rows, 3);
     }
 
@@ -326,12 +303,17 @@ mod tests {
     }
 
     #[test]
-    fn a5_a6_are_declared_but_not_computable() {
-        for id in ["A5", "A6"] {
-            let row = VIZ_AUDIT_RULES.iter().find(|r| r.id == id).unwrap();
-            assert!(!row.computable, "{id} waits on the column model");
-            assert_eq!(row.severity, "error");
-            assert_eq!(row.since, Milestone::M4);
+    fn a5_a6_are_retired_gaps() {
+        // U275 (b3935): the two column-model rows were retired before ever
+        // being computable. Their content split across live checks — column
+        // uniqueness is an allocator bijection (equi_column.rs packing, locked
+        // by `columns_are_distinct`) with the geometric consequence under A21;
+        // bridge-endpoint alignment decomposes into A4 (opposite-edge pins),
+        // A22 (centre inside both trunk spans) and A3 (no dangling drops). The
+        // ids stay intentional gaps, like A19/A20/A33.
+        let ids: Vec<&str> = VIZ_AUDIT_RULES.iter().map(|r| r.id).collect();
+        for gap in ["A5", "A6"] {
+            assert!(!ids.contains(&gap), "{gap} is a retired gap");
         }
     }
 
@@ -345,7 +327,6 @@ mod tests {
         assert_eq!(f3.severity, "info");
         for f in VIZ_AUDIT_RULES.iter().filter(|r| r.id.starts_with('F')) {
             assert_eq!(f.since, Milestone::M0);
-            assert!(f.computable);
         }
     }
 }

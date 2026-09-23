@@ -2439,13 +2439,14 @@ mod tests {
     }
 
     /// The registered VizLayout row ids in table order (v0.7 stage 4). The A
-    /// rows reproduce `audit_equi_tree` collection order — A1..A18 then
-    /// A21..A34 with A2b, and the A19/A20/A33 numbering gaps are intentional —
-    /// and the F rows are the three fidelity gate tiers.
-    const VIZ_LAYOUT_ORDER: [&str; 35] = [
-        "A1", "A2", "A2b", "A3", "A4", "A5", "A6", "A7", "A8", "A9", "A10", "A11", "A12", "A13",
-        "A14", "A15", "A16", "A17", "A18", "A21", "A22", "A23", "A24", "A25", "A26", "A27", "A28",
-        "A29", "A30", "A34", "A31", "A32", "F1", "F2", "F3",
+    /// rows reproduce `audit_equi_tree` collection order — A1..A4 then A7..A18
+    /// then A21..A34 with A2b, and the A5/A6 (retired at b3935, U275) plus
+    /// A19/A20/A33 numbering gaps are intentional — and the F rows are the
+    /// three fidelity gate tiers.
+    const VIZ_LAYOUT_ORDER: [&str; 33] = [
+        "A1", "A2", "A2b", "A3", "A4", "A7", "A8", "A9", "A10", "A11", "A12", "A13", "A14", "A15",
+        "A16", "A17", "A18", "A21", "A22", "A23", "A24", "A25", "A26", "A27", "A28", "A29", "A30",
+        "A34", "A31", "A32", "F1", "F2", "F3",
     ];
 
     #[test]
@@ -2463,7 +2464,7 @@ mod tests {
             .iter()
             .filter(|r| r.id.starts_with('F'))
             .count();
-        assert_eq!((a, f), (32, 3));
+        assert_eq!((a, f), (30, 3));
         // VizLayout rows are string-id rules: they are absent from the numeric
         // scope query and from rule_count(), which sums the code tables only.
         assert_eq!(rules_in_scope(RuleScope::VizLayout).len(), 0);
@@ -2484,15 +2485,8 @@ mod tests {
             assert!(!r.host.is_empty(), "every row names its viz owner");
             assert!(!r.name.is_empty());
         }
-        // A-series rows are error invariants; the column-model pair (A5/A6) is
-        // declared but not computable yet, and the fidelity tiers carry the
+        // A-series rows are error invariants; the fidelity tiers carry the
         // gate levels (blocking / ratchet / informational).
-        for id in ["A5", "A6"] {
-            let r = all.iter().find(|x| x.id == id).unwrap();
-            assert!(!r.computable, "{id} waits on the column model");
-        }
-        let computable = all.iter().filter(|x| x.computable).count();
-        assert_eq!(computable, 33);
         let f1 = all.iter().find(|x| x.id == "F1").unwrap();
         assert_eq!(f1.severity, "error");
         let f2 = all.iter().find(|x| x.id == "F2").unwrap();
@@ -2502,7 +2496,7 @@ mod tests {
         let ids: Vec<&str> = all.iter().map(|r| r.id).collect();
         assert_eq!(ids.windows(2).position(|w| w == ["A2", "A2b"]), Some(1));
         assert_eq!(ids.windows(2).position(|w| w == ["A2b", "A3"]), Some(2));
-        for gap in ["A19", "A20", "A33"] {
+        for gap in ["A5", "A6", "A19", "A20", "A33"] {
             assert!(!ids.contains(&gap), "{gap} is an intentional gap");
         }
     }
