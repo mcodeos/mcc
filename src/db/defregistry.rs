@@ -3309,6 +3309,7 @@ mod tests {
                 uri: URI.to_string(),
                 cond_pins: vec![],
                 cond_attrs: vec![],
+                cond_errors: Vec::new(),
                 span: 0..0,
                 anon_counter: 0,
                 is_abstract: false,
