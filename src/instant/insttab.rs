@@ -1984,9 +1984,9 @@ impl InstTable {
                     .as_ref()
                     .and_then(|(hot, ret)| {
                         if member == ret {
-                            Some(pwrid::member_from_face(ret, Face::Ret))
+                            Some(pwrid::member_from_declared_face(ret, Face::Ret))
                         } else if member == hot {
-                            Some(pwrid::member_from_face(hot, Face::Hot))
+                            Some(pwrid::member_from_declared_face(hot, Face::Hot))
                         } else {
                             None
                         }

@@ -1181,10 +1181,33 @@ fn check_r10_conservation(
 /// on purpose — the netlist decomposes a return into local ground nets by
 /// design (identity-design §3.1), so a same-return split is the documented
 /// shape, not a fault.
+///
+/// A **bare** role-row member (a `psrc/psnk/psbi` row that names no pair) is
+/// scoped to the owning instance (U213 ruling B): its spelling is one
+/// instance's shorthand, so `DC:reg1.Vin` and `DC:reg2.Vin` are two rails, not
+/// one split. A member a declaration names stays declaration-global — the same
+/// `::DC` row spelled the same is one rail across every instance, and the
+/// cross-instance split detection on declared rails is unchanged.
 fn split_rail_identity(e: &InstEntry) -> Option<String> {
     match e.power_face() {
-        Some(Face::Hot) | Some(Face::Copper) => e.rail_identity(),
-        _ => None,
+        Some(Face::Hot) | Some(Face::Copper) => {}
+        _ => return None,
+    }
+    let m = e.pwr_member.as_ref()?;
+    Some(if m.bare {
+        format!("{}:{}.{}", m.contract, instance_scope(&e.path), m.member)
+    } else {
+        m.identity()
+    })
+}
+
+/// The instance an entry belongs to: its path minus the entry's own name —
+/// `main.reg1.vin` sits on instance `main.reg1`, a module-scope label
+/// `main.GND` on module `main`.
+fn instance_scope(path: &str) -> &str {
+    match path.rfind('.') {
+        Some(i) => &path[..i],
+        None => path,
     }
 }
 
@@ -1723,6 +1746,7 @@ mod tests {
                 face: Face::Ret,
                 member: "GND".into(),
                 contract: "va".into(),
+                bare: false,
             })
             .as_deref(),
             Some("va:GND")
@@ -1732,12 +1756,14 @@ mod tests {
                 face: Face::Ret,
                 member: "GND".into(),
                 contract: "vb".into(),
+                bare: false,
             })
             .as_deref(),
             Some("vb:GND")
         );
-        // ...while one `::DC` contract spelled the same is one identity,
-        // whichever component instance wrote the row.
+        // ...while one declared `::DC` row spelled the same is one identity on
+        // the declaration side — R11 scopes the bare shape only, see the
+        // split test below.
         assert_eq!(
             id_of(member_from_face("VDD_3V3", Face::Hot)).as_deref(),
             Some(format!("{DC_CONTRACT}:VDD_3V3").as_str())
@@ -1747,6 +1773,7 @@ mod tests {
                 face: Face::Copper,
                 member: "REF".into(),
                 contract: CONDUIT_CONTRACT.into(),
+                bare: false,
             })
             .as_deref(),
             Some("conduit:REF")
@@ -1765,6 +1792,50 @@ mod tests {
         // the old literal `GND` exemption, now read off the declaration.
         assert!(admits(Face::Ret).is_none());
         assert!(split_rail_identity(&declared_entry("main.x.GND", None)).is_none());
+    }
+
+    #[test]
+    fn dlu_netcheck__bare_rail_identity_is_scoped_to_the_owning_instance() {
+        use crate::semantic::pwrid::{member_from_face, Face, DC_CONTRACT};
+        // U213 ruling B: a bare role-row member's spelling is one instance's
+        // shorthand. Two cascaded regulators' bare `VIN` rows are two rails —
+        // the same spelling on two separate nets is not a split.
+        let id = |path: &str| {
+            split_rail_identity(&declared_entry(path, Some(member_from_face("VIN", Face::Hot))))
+        };
+        assert_eq!(
+            id("main.reg1.vin").as_deref(),
+            Some(format!("{DC_CONTRACT}:main.reg1.VIN").as_str())
+        );
+        assert_ne!(id("main.reg1.vin"), id("main.reg2.vin"));
+        // Within one instance two bare rows of the same spelling still
+        // collide: an intra-instance split stays detectable. A module-scope
+        // label scopes to the module, so same-spelled labels in one module
+        // are one rail, in two modules two.
+        assert_eq!(id("main.reg1.2"), id("main.reg1.aux"));
+        // A module-scope label scopes to the module: same-spelled bare labels
+        // in one module are one rail, in two modules two.
+        let label = |path: &str| {
+            split_rail_identity(&declared_entry(path, Some(member_from_face("GND", Face::Hot))))
+        };
+        assert_eq!(
+            label("main.GND").as_deref(),
+            Some(format!("{DC_CONTRACT}:main.GND").as_str())
+        );
+        assert_ne!(label("main.GND"), label("main.psu.GND"));
+        // A declared member stays declaration-global: the same `::DC` row is
+        // one rail across every instance, cross-instance detection unchanged.
+        let mut declared = member_from_face("VIN", Face::Hot);
+        declared.bare = false;
+        assert_eq!(
+            split_rail_identity(&declared_entry("main.reg1.vin", Some(declared.clone())))
+                .as_deref(),
+            Some(format!("{DC_CONTRACT}:VIN").as_str())
+        );
+        assert_eq!(
+            split_rail_identity(&declared_entry("main.reg2.vin", Some(declared))).as_deref(),
+            Some(format!("{DC_CONTRACT}:VIN").as_str())
+        );
     }
 
     #[test]
