@@ -7639,6 +7639,140 @@ module main
         );
     }
 
+    /// U234 tier ① shared fixture: the two-file project, loaded for real.
+    /// Returns (a_uri, b_uri) canonicalized.
+    fn refgraph_two_file_project(dir_tag: &str) -> (String, String) {
+        crate::mcc_init_no_lib();
+        crate::mcc_set_system_root(std::path::Path::new(""));
+        crate::mcc_clear_workspace();
+
+        let dir = std::env::temp_dir().join(format!("mcc-{dir_tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("b.mc"),
+            "component V6LED\n{\n    pins = [\n        1 = A\n        2 = K\n    ]\n}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("a.mc"),
+            "use ./b.mc\n\nmodule main\n{\n    io A\n    io GND\n    V6LED led1\n}\n",
+        )
+        .unwrap();
+        let b_uri = crate::build::pass1::canonicalize_project_uri(
+            &dir.join("b.mc").to_string_lossy().into_owned(),
+        );
+        let a_uri = crate::build::pass1::canonicalize_project_uri(
+            &dir.join("a.mc").to_string_lossy().into_owned(),
+        );
+        crate::mcc_load_from_string(&b_uri, &std::fs::read_to_string(dir.join("b.mc")).unwrap());
+        crate::mcc_load_from_string(&a_uri, &std::fs::read_to_string(dir.join("a.mc")).unwrap());
+        (a_uri, b_uri)
+    }
+
+    /// The (from, to) halves of the a.mc → b.mc edge, for the fixture above.
+    fn refgraph_edge_pair(a_uri: &str, b_uri: &str) -> (McSpaceName, McSpaceName) {
+        (
+            McSpaceName {
+                ident: McIds::from("V6LED"),
+                uri: crate::semantic::common::uri_intern(&crate::McURI::from(a_uri)),
+            },
+            McSpaceName {
+                ident: McIds::from("V6LED"),
+                uri: crate::semantic::common::uri_intern(&crate::McURI::from(b_uri)),
+            },
+        )
+    }
+
+    /// U234 tier ① (member + lapper routes): the locked resolver variant —
+    /// the entry `db/resolve/member.rs` and the consolidation span
+    /// resolution both call — leaves its edge even when the caller bypassed
+    /// `resolve_class` and the bridge. The graph is cleared after the load,
+    /// so the only way the edge comes back is this face recording it.
+    #[test]
+    fn def_mccode__refgraph_locked_resolution_records_edges() {
+        let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");
+        let (a_uri, b_uri) = refgraph_two_file_project("refgraph-locked");
+        let (from, to) = refgraph_edge_pair(&a_uri, &b_uri);
+
+        workspace::WORKSPACE.refgraph.clear();
+        assert!(
+            !workspace::WORKSPACE.refgraph.has_dependents(&to),
+            "the cleared graph starts empty"
+        );
+
+        let mcfile = workspace::WORKSPACE.mcodes.get(&crate::McURI::from(a_uri.as_str()));
+        let sem = mcfile.as_ref().unwrap().symbols.lock().unwrap();
+        let cmie = crate::db::resolve::Resolver::resolve_class_locked(
+            &crate::McURI::from(a_uri.as_str()),
+            &McIds::from("V6LED"),
+            &sem,
+        );
+        drop(sem);
+        assert!(cmie.is_some(), "the locked resolver still resolves");
+        assert!(
+            workspace::WORKSPACE.refgraph.referenced(&from).contains(&to),
+            "the locked variant records the out edge"
+        );
+        assert!(
+            workspace::WORKSPACE.refgraph.dependents(&to).contains(&from),
+            "the locked variant records the rev edge"
+        );
+    }
+
+    /// U234 tier ① (references route): the scan-based declare-class
+    /// registration (`query/refs.rs`) resolves without the resolver, so it
+    /// records its own edge. Cleared graph, one registration, edge back.
+    #[test]
+    fn def_mccode__refgraph_declare_class_registration_records_edges() {
+        let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");
+        let (a_uri, b_uri) = refgraph_two_file_project("refgraph-refs");
+        let (from, to) = refgraph_edge_pair(&a_uri, &b_uri);
+
+        workspace::WORKSPACE.refgraph.clear();
+        crate::query::refs::mcb_register_declare_class(
+            &a_uri,
+            &McIds::from("V6LED"),
+            10..16,
+        );
+        assert!(
+            workspace::WORKSPACE.refgraph.referenced(&from).contains(&to),
+            "the registration records the out edge"
+        );
+        assert!(
+            workspace::WORKSPACE.refgraph.dependents(&to).contains(&from),
+            "the registration records the rev edge"
+        );
+    }
+
+    /// U234 tier ① (goto-def route): `find_def_by_name_in_file`'s
+    /// RefDefMap leg and P5 leg record their edges — the graph answers
+    /// goto-def without being silently blind to the read face that asked.
+    #[test]
+    fn def_mccode__refgraph_gotodef_records_edges() {
+        let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");
+        let (a_uri, b_uri) = refgraph_two_file_project("refgraph-gotodef");
+        let (from, to) = refgraph_edge_pair(&a_uri, &b_uri);
+
+        workspace::WORKSPACE.refgraph.clear();
+        let hit =
+            crate::lsp::gotodef::find_def_by_name_in_file("V6LED", a_uri.as_str());
+        assert!(hit.is_some(), "goto-def still resolves the name");
+        assert_eq!(
+            hit.unwrap().1,
+            b_uri.as_str(),
+            "goto-def lands on the defining file"
+        );
+        assert!(
+            workspace::WORKSPACE.refgraph.referenced(&from).contains(&to),
+            "the goto-def face records the out edge"
+        );
+        assert!(
+            workspace::WORKSPACE.refgraph.dependents(&to).contains(&from),
+            "the goto-def face records the rev edge"
+        );
+    }
+
     /// U232 through the production registration path: a real parse, then a
     /// container-level and a func-level declaration of one name. The reverse
     /// index must hand the scope-order win to the func-local candidate even

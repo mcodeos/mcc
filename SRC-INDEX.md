@@ -31,7 +31,7 @@ range (threshold 40KB).
 | File | Size | Declarations |
 |---|---|---|
 | `viz/layout/equipotential_tree.rs` | 409 KB | 203 |
-| `db/infra/mc_code.rs` | 361 KB | 101 |
+| `db/infra/mc_code.rs` | 367 KB | 106 |
 | `semantic/basic/mc_phrase.rs` | 338 KB | 80 |
 | `semantic/component/mc_pins/mod.rs` | 236 KB | 109 |
 | `semantic/validation/nets/mod.rs` | 205 KB | 134 |
@@ -64,13 +64,13 @@ range (threshold 40KB).
 | `builder/` | 1 | 0 KB |
 | `cli/` | 7 | 113 KB |
 | `cmds/` | 28 | 502 KB |
-| `db/` | 28 | 977 KB |
+| `db/` | 28 | 986 KB |
 | `eval/` | 2 | 50 KB |
 | `export/` | 7 | 183 KB |
 | `instant/` | 41 | 1623 KB |
-| `lsp/` | 7 | 66 KB |
+| `lsp/` | 7 | 68 KB |
 | `output/` | 7 | 107 KB |
-| `query/` | 9 | 162 KB |
+| `query/` | 9 | 163 KB |
 | `refdef/` | 7 | 120 KB |
 | `rpc/` | 16 | 306 KB |
 | `semantic/` | 91 | 2746 KB |
@@ -1219,16 +1219,16 @@ db/adoption.rs#L418  fn dir_conflict_hint
 db/adoption.rs#L428  fn missing_form_hint
 db/cmie/cmie.rs#L11  static CMIE_RESOLVING
 db/cmie/cmie.rs#L21  fn mcb_get_cmie
-db/cmie/cmie.rs#L36  struct CmieGuard
-db/cmie/cmie.rs#L37  impl Drop for CmieGuard
-db/cmie/cmie.rs#L38  fn drop
-db/cmie/cmie.rs#L54  fn mcb_get_cmie_with_uri
-db/cmie/cmie.rs#L80  fn cmie_ident
-db/cmie/cmie.rs#L95  fn find_scoped_enum_for_component
-db/cmie/cmie.rs#L146  fn lookup_scoped_enum_value
-db/cmie/cmie.rs#L164  fn is_enum_class_name
-db/cmie/cmie.rs#L178  fn is_enum_member
-db/cmie/cmie.rs#L207  fn resolve_bare_enum_value
+db/cmie/cmie.rs#L53  struct CmieGuard
+db/cmie/cmie.rs#L54  impl Drop for CmieGuard
+db/cmie/cmie.rs#L55  fn drop
+db/cmie/cmie.rs#L71  fn mcb_get_cmie_with_uri
+db/cmie/cmie.rs#L97  fn cmie_ident
+db/cmie/cmie.rs#L112  fn find_scoped_enum_for_component
+db/cmie/cmie.rs#L163  fn lookup_scoped_enum_value
+db/cmie/cmie.rs#L181  fn is_enum_class_name
+db/cmie/cmie.rs#L195  fn is_enum_member
+db/cmie/cmie.rs#L224  fn resolve_bare_enum_value
 db/cmie/mod.rs#L2  mod cmie
 db/cmie/mod.rs#L3  mod tables
 db/cmie/tables.rs#L45  enum WorkspaceKind
@@ -2258,10 +2258,15 @@ db/infra/mc_code.rs#L7219  fn def_mccode__ref_def_map_entries_carry_ast_def_name
 db/infra/mc_code.rs#L7329  fn def_mccode__visibility_table_matches_import_forms
 db/infra/mc_code.rs#L7507  fn def_mccode__refgraph_records_cross_file_resolution_edges
 db/infra/mc_code.rs#L7590  fn def_mccode__refgraph_edges_survive_reparse_without_stale_hits
-db/infra/mc_code.rs#L7648  fn def_defres__func_local_declaration_shadows_container_name_in_the_index
-db/infra/mc_code.rs#L7725  fn def_mccode__parse_level_reparse_diff_reports_edited_def_only
-db/infra/mc_code.rs#L7804  fn def_mccode__module_port_ledger_stable_across_mid_insert_reparse
-db/infra/mc_code.rs#L7877  fn def_mccode__alias_p4_name_index_and_gotodef_agree_with_phase6
+db/infra/mc_code.rs#L7644  fn refgraph_two_file_project
+db/infra/mc_code.rs#L7674  fn refgraph_edge_pair
+db/infra/mc_code.rs#L7693  fn def_mccode__refgraph_locked_resolution_records_edges
+db/infra/mc_code.rs#L7727  fn def_mccode__refgraph_declare_class_registration_records_edges
+db/infra/mc_code.rs#L7752  fn def_mccode__refgraph_gotodef_records_edges
+db/infra/mc_code.rs#L7782  fn def_defres__func_local_declaration_shadows_container_name_in_the_index
+db/infra/mc_code.rs#L7859  fn def_mccode__parse_level_reparse_diff_reports_edited_def_only
+db/infra/mc_code.rs#L7938  fn def_mccode__module_port_ledger_stable_across_mid_insert_reparse
+db/infra/mc_code.rs#L8011  fn def_mccode__alias_p4_name_index_and_gotodef_agree_with_phase6
 db/infra/mc_use.rs#L15  enum McUsePrefix
 db/infra/mc_use.rs#L22  impl std::fmt::Display for McUsePrefix
 db/infra/mc_use.rs#L23  fn fmt
@@ -2314,29 +2319,29 @@ db/mod.rs#L12  mod infra
 db/mod.rs#L13  mod refgraph
 db/mod.rs#L14  mod resolve
 db/mod.rs#L15  mod symbol
-db/refgraph.rs#L48  struct DefRefGraph
-db/refgraph.rs#L53  impl DefRefGraph
-db/refgraph.rs#L54  fn new
-db/refgraph.rs#L61  fn record
-db/refgraph.rs#L75  fn referenced
-db/refgraph.rs#L82  fn dependents
-db/refgraph.rs#L88  fn has_dependents
-db/refgraph.rs#L97  fn def_id_of
-db/refgraph.rs#L107  fn dependents_of
-db/refgraph.rs#L117  fn has_dependents_of
-db/refgraph.rs#L126  fn out_pairs
-db/refgraph.rs#L133  fn clear
-db/refgraph.rs#L146  fn purge_file
-db/refgraph.rs#L153  fn purge_files
-db/refgraph.rs#L163  fn purge_side
-db/refgraph.rs#L174  mod tests
-db/refgraph.rs#L178  fn sn
-db/refgraph.rs#L186  fn def_refgraph__records_out_and_rev_edges
-db/refgraph.rs#L215  fn def_refgraph__purge_file_drops_edges_touching_the_uri
-db/refgraph.rs#L249  fn def_refgraph__purge_files_matches_the_lib_sweep_shape
-db/refgraph.rs#L280  fn def_refgraph__def_id_queries_answer_through_the_registry
-db/refgraph.rs#L287  const NAME
-db/refgraph.rs#L288  const URI
+db/refgraph.rs#L51  struct DefRefGraph
+db/refgraph.rs#L56  impl DefRefGraph
+db/refgraph.rs#L57  fn new
+db/refgraph.rs#L64  fn record
+db/refgraph.rs#L78  fn referenced
+db/refgraph.rs#L85  fn dependents
+db/refgraph.rs#L91  fn has_dependents
+db/refgraph.rs#L100  fn def_id_of
+db/refgraph.rs#L110  fn dependents_of
+db/refgraph.rs#L120  fn has_dependents_of
+db/refgraph.rs#L129  fn out_pairs
+db/refgraph.rs#L136  fn clear
+db/refgraph.rs#L149  fn purge_file
+db/refgraph.rs#L156  fn purge_files
+db/refgraph.rs#L166  fn purge_side
+db/refgraph.rs#L177  mod tests
+db/refgraph.rs#L181  fn sn
+db/refgraph.rs#L189  fn def_refgraph__records_out_and_rev_edges
+db/refgraph.rs#L218  fn def_refgraph__purge_file_drops_edges_touching_the_uri
+db/refgraph.rs#L252  fn def_refgraph__purge_files_matches_the_lib_sweep_shape
+db/refgraph.rs#L283  fn def_refgraph__def_id_queries_answer_through_the_registry
+db/refgraph.rs#L290  const NAME
+db/refgraph.rs#L291  const URI
 db/resolve/member.rs#L21  fn resolve_cmie_member_locked
 db/resolve/member.rs#L47  fn member_of
 db/resolve/mod.rs#L26  mod member
@@ -2351,19 +2356,22 @@ db/resolve/policy.rs#L182  fn select_declare_candidate
 db/resolve/policy.rs#L199  fn cmie_from_entry
 db/resolve/policy.rs#L229  fn same_name_cmies
 db/resolve/policy.rs#L246  fn cmie_uri
-db/resolve/policy.rs#L259  struct Resolver
-db/resolve/policy.rs#L266  enum ResolveSource
-db/resolve/policy.rs#L275  impl Resolver
-db/resolve/policy.rs#L287  fn resolve_class
-db/resolve/policy.rs#L330  fn resolve_class_locked
-db/resolve/policy.rs#L392  fn resolve_pre_consolidation
-db/resolve/policy.rs#L410  fn resolve_own_file
-db/resolve/policy.rs#L439  fn resolve_visibility
-db/resolve/policy.rs#L447  fn visibility_entry
-db/resolve/policy.rs#L470  fn visibility_hit
-db/resolve/policy.rs#L480  fn resolve_use_chain
-db/resolve/policy.rs#L488  fn resolve_system
-db/resolve/policy.rs#L533  fn resolve_interface
+db/resolve/policy.rs#L262  fn record_resolution_edge
+db/resolve/policy.rs#L280  struct Resolver
+db/resolve/policy.rs#L287  enum ResolveSource
+db/resolve/policy.rs#L296  impl Resolver
+db/resolve/policy.rs#L308  fn resolve_class
+db/resolve/policy.rs#L320  fn resolve_class_unrecorded
+db/resolve/policy.rs#L363  fn resolve_class_locked
+db/resolve/policy.rs#L377  fn resolve_class_locked_unrecorded
+db/resolve/policy.rs#L439  fn resolve_pre_consolidation
+db/resolve/policy.rs#L457  fn resolve_own_file
+db/resolve/policy.rs#L486  fn resolve_visibility
+db/resolve/policy.rs#L494  fn visibility_entry
+db/resolve/policy.rs#L517  fn visibility_hit
+db/resolve/policy.rs#L527  fn resolve_use_chain
+db/resolve/policy.rs#L535  fn resolve_system
+db/resolve/policy.rs#L580  fn resolve_interface
 db/resolve/visibility.rs#L22  fn use_chain_reaches
 db/resolve/visibility.rs#L58  fn is_visible
 db/symbol/mod.rs#L2  mod workspace
@@ -4049,17 +4057,17 @@ lsp/diagnostics.rs#L117  fn location_to_json
 lsp/gotodef.rs#L22  fn find_def_in_refdefmap
 lsp/gotodef.rs#L49  fn find_def_by_name_raw
 lsp/gotodef.rs#L81  fn find_def_by_name_in_file
-lsp/gotodef.rs#L128  fn resolve
-lsp/gotodef.rs#L135  fn resolve_in_file
-lsp/gotodef.rs#L147  fn cmie_to_value
-lsp/gotodef.rs#L173  fn resolve_at_pos
-lsp/gotodef.rs#L213  fn resolve_use_jump
-lsp/gotodef.rs#L245  fn is_use_directive_line
-lsp/gotodef.rs#L256  mod tests
-lsp/gotodef.rs#L269  fn def_mccode__use_jump_resolves_relative_target
-lsp/gotodef.rs#L316  fn def_mccode__use_jump_does_not_shadow_symbol_gotodef
-lsp/gotodef.rs#L323  enum CAP
-lsp/gotodef.rs#L359  fn def_mccode__cross_file_class_gotodef
+lsp/gotodef.rs#L153  fn resolve
+lsp/gotodef.rs#L160  fn resolve_in_file
+lsp/gotodef.rs#L172  fn cmie_to_value
+lsp/gotodef.rs#L198  fn resolve_at_pos
+lsp/gotodef.rs#L238  fn resolve_use_jump
+lsp/gotodef.rs#L270  fn is_use_directive_line
+lsp/gotodef.rs#L281  mod tests
+lsp/gotodef.rs#L294  fn def_mccode__use_jump_resolves_relative_target
+lsp/gotodef.rs#L341  fn def_mccode__use_jump_does_not_shadow_symbol_gotodef
+lsp/gotodef.rs#L348  enum CAP
+lsp/gotodef.rs#L384  fn def_mccode__cross_file_class_gotodef
 lsp/hover.rs#L23  fn hover
 lsp/hover.rs#L36  fn hover_by_name
 lsp/hover.rs#L60  fn resolve_at
@@ -4359,9 +4367,9 @@ query/refs.rs#L85  fn mcb_get_refs
 query/refs.rs#L117  fn register_lib_class_in_global_table
 query/refs.rs#L176  fn cross_file_class_visible
 query/refs.rs#L191  fn mcb_register_declare_class
-query/refs.rs#L466  fn register_func_header_iface_refs
-query/refs.rs#L514  fn container_kind_cmie
-query/refs.rs#L529  fn cmie_kind_for
+query/refs.rs#L481  fn register_func_header_iface_refs
+query/refs.rs#L529  fn container_kind_cmie
+query/refs.rs#L544  fn cmie_kind_for
 query/reverse.rs#L32  fn hit_rows
 query/reverse.rs#L62  fn matched_rows
 query/reverse.rs#L89  fn key_rows
@@ -11343,4 +11351,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-409 files, 11260 declarations.
+409 files, 11268 declarations.
