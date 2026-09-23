@@ -389,7 +389,8 @@ pub fn handle_show_org_units(_params: Option<Value>) -> RpcResult {
     let items = crate::org_unit_items();
     let counts = crate::org_unit_counts(&items);
     let top = crate::mcb_get_first_module_name().unwrap_or_default();
-    let view = crate::stages::StageView::with_view("org-units", &top, items, counts);
+    let view =
+        crate::stages::StageView::with_view(crate::stages::ORG_UNITS_VIEW, &top, items, counts);
     let payload = crate::stages::payload::StageViewData::from(&view);
     Ok(serde_json::to_value(payload).unwrap_or(Value::Null))
 }

@@ -735,10 +735,7 @@ fn show_ast(args: &ShowArgs, loaded: Option<&str>) -> Result<()> {
         // whichever file in the load chain happened to parse first.
         let tree = mcc::take_ast_visit_json_for(&uri_str)
             .unwrap_or_else(|| json!({"error": "no AST visit captured", "uri": uri_str}));
-        return emit_show_owned(
-            ShowTarget::Ast,
-            json!({"uri": uri_str, "ast": tree}),
-        );
+        return emit_show_owned(ShowTarget::Ast, json!({"uri": uri_str, "ast": tree}));
     }
     Ok(())
 }
@@ -1142,8 +1139,13 @@ fn show_sim(args: &ShowArgs) -> Result<()> {
     // One row per (owner instance, adoption lane): the card join key is the
     // lane's (family, role) face; a role-face no card covers stays visible
     // as not-curated (worldmodel §7 `none` doctrine: say what is missing).
-    let mut rows: Vec<(String, String, String, Option<&mcc::model_profile::ModelProfileCard>, String)> =
-        Vec::new();
+    let mut rows: Vec<(
+        String,
+        String,
+        String,
+        Option<&mcc::model_profile::ModelProfileCard>,
+        String,
+    )> = Vec::new();
     for (_, entry) in table.iter() {
         let Some(lane) = entry.iface_lane.as_ref() else {
             continue;
@@ -1165,9 +1167,7 @@ fn show_sim(args: &ShowArgs) -> Result<()> {
             lane.lane.clone(),
         ));
     }
-    rows.sort_by(|a, b| {
-        (&a.0, &a.1, &a.2, &a.4).cmp(&(&b.0, &b.1, &b.2, &b.4))
-    });
+    rows.sort_by(|a, b| (&a.0, &a.1, &a.2, &a.4).cmp(&(&b.0, &b.1, &b.2, &b.4)));
     rows.dedup_by(|a, b| a.0 == b.0 && a.4 == b.4 && a.2 == b.2);
 
     if matches!(mcc::cli::globals().format, OutputFormat::Text) {
@@ -1503,7 +1503,7 @@ fn show_org_units(_args: &ShowArgs) -> Result<()> {
         .clone()
         .or_else(mcc::mcb_get_first_module_name)
         .unwrap_or_default();
-    let view = mcc::stages::StageView::with_view("org-units", &top, items, counts);
+    let view = mcc::stages::StageView::with_view(mcc::stages::ORG_UNITS_VIEW, &top, items, counts);
 
     if matches!(
         mcc::cli::globals().format,
