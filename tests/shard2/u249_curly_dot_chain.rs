@@ -121,7 +121,7 @@ fn codes_of(src: &str, uri: &str) -> Vec<u32> {
     v
 }
 
-// ── ① curly dot-chain member ────────────────────────────────────────────────
+// ① curly dot-chain member
 
 /// The three spellings of resolve-gate §2.13.6 land the same partition: the
 /// dotted chain, the interface-brace form, and the new curly chain member.
@@ -215,7 +215,7 @@ fn u249_dot_chain__unknown_member_matches_iface_brace_face() {
     );
 }
 
-// ── ② params-first declare (B8 canonical sugar) ─────────────────────────────
+// ② params-first declare (B8 canonical sugar)
 
 /// The sugar face ≡ the canonical ::ctor face, same fixture, same statement
 /// slot: identical partition.
@@ -348,5 +348,94 @@ module main
         parts.iter().flatten().any(|p| p == "cap1.1")
             && parts.iter().flatten().any(|p| p == "cap2.1"),
         "the func-body declare materialized both members; got {parts:?}"
+    );
+}
+
+// U282 (ruling 1): the fused one-liner in a func body.
+
+/// U282 fixture: the statement under test lives inside a DUT func, and DUT
+/// is instantiated as `b` — the owning-instance prefix is the identity the
+/// ruling pins (fused must land `b.cap1`, not corpus-level `cap1`).
+const U282_FIXTURE: &str = r#"
+component CAP(cap::INT, volt::INT)
+{
+    pins = [
+        1 = 1
+        2 = 2
+    ]
+    func Cap([net1, net2])
+    {
+        net1 - this - net2
+    }
+}
+
+component DUT
+{
+    pins = [
+        5 = A
+        6 = B
+    ]
+    func setup()
+    {
+        STMT
+    }
+}
+
+module main
+{
+    DUT b
+    b.setup()
+    b.A -> GND
+}
+"#;
+
+/// The fused one-liner `CAP(..) cap[1:2].Cap(..)` inside a func body must
+/// materialize exactly like the canonical split form — same partition, same
+/// `{owner}.{member}` identity (`b.cap1`), not corpus-level bare members.
+/// The named-ctor face (`XTAL2 y(..).Setup(..)`, params on the instance)
+/// keeps its own route and is locked in shard3 `func_subinstance_pass1`.
+#[test]
+fn u282_fused_one_liner_matches_split_form_in_func_body() {
+    let fused = nets_of(
+        &src_of(U282_FIXTURE, "CAP(100, 10) cap[1:2].Cap([A, B])"),
+        "/mcc/u282-fused.mc",
+    );
+    let split = nets_of(
+        &src_of(
+            U282_FIXTURE,
+            "CAP(100, 10) cap[1:2]\n        cap[1:2].Cap([A, B])",
+        ),
+        "/mcc/u282-split.mc",
+    );
+
+    assert_eq!(fused, split, "fused one-liner ≡ split form in a func body");
+    assert_eq!(fused.len(), 2, "two nets; got {fused:?}");
+    for member in ["b.cap1", "b.cap2"] {
+        assert!(
+            fused.iter().flatten().any(|p| p.starts_with(&format!("{member}."))),
+            "{member} materialized under the owning instance; nets={fused:?}"
+        );
+    }
+}
+
+/// Scalar (single-member) fused face fills the same branch contract:
+/// `CAP(..) cap.Cap(..)` ≡ `CAP(..) cap` + `cap.Cap(..)`, member under the
+/// owner (`b.cap`).
+#[test]
+fn u282_fused_scalar_matches_split_form_in_func_body() {
+    let fused = nets_of(
+        &src_of(U282_FIXTURE, "CAP(100, 10) cap.Cap([A, B])"),
+        "/mcc/u282-scalar-fused.mc",
+    );
+    let split = nets_of(
+        &src_of(U282_FIXTURE, "CAP(100, 10) cap\n        cap.Cap([A, B])"),
+        "/mcc/u282-scalar-split.mc",
+    );
+
+    assert_eq!(fused, split, "scalar fused ≡ scalar split in a func body");
+    assert_eq!(fused.len(), 2, "two nets; got {fused:?}");
+    assert!(
+        fused.iter().flatten().any(|p| p.starts_with("b.cap.")),
+        "b.cap materialized under the owning instance; nets={fused:?}"
     );
 }

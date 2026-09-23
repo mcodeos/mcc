@@ -823,7 +823,50 @@ impl McFuncCall {
                             "sem::fcall",
                             "[FCALL-CALLER-DBG] MCAST_DECLARE handler entered"
                         );
-                        if let Some(sub) = inner.get_sub_node() {
+                        // ── U282 (ruling ①): a fused one-liner
+                        // `CAP(...) cap[1:2].Cap([...])` whose instance names are
+                        // already registered as func-local declares (func.insts,
+                        // via the body walk — the canonical split form registers
+                        // its declare the same way) is an instance call, not a
+                        // construction: emit plain caller labels, exactly what
+                        // the canonical split form's second line produces. The
+                        // named-ctor route below would re-materialize them bare
+                        // (unprefixed) at pass2, diverging from the split form's
+                        // `{inst}.{name}` identity. ──
+                        let declared = crate::semantic::basic::mc_phrase::declare_instance_names(
+                            &inner,
+                        );
+                        // Named-ctor faces (`XTAL2 y(...)`) keep the legacy
+                        // route: the ctor params sit on the instance itself,
+                        // so the declare is never the params-first shape.
+                        let registered = !declared.is_empty()
+                            && !crate::semantic::basic::mc_phrase::declare_has_instance_params(
+                                &inner,
+                            )
+                            && declared.iter().all(|n| context.has_local_decl(n));
+                        if registered {
+                            // Lane-structured `Endpoint(List)` of per-member
+                            // callers — the same receiver shape the canonical
+                            // split form's array caller produces (§11.3
+                            // invariant B). Members invisible to in-body
+                            // `find_inst` (func.insts is not on the body scope
+                            // chain) stay as labels; pass2 unifies them with
+                            // the §3.4-materialized instances.
+                            let lanes: Vec<McEndpoint> = declared
+                                .iter()
+                                .map(|n| match context.find_inst(n) {
+                                    Some(inst) => {
+                                        McEndpoint::Single(McInstanceRef::new(inst))
+                                    }
+                                    None => McEndpoint::Single(McInstanceRef::new(
+                                        McInstance::Label(n.clone()),
+                                    )),
+                                })
+                                .collect();
+                            caller = Some(Box::new(McPhrase::Endpoint(McEndpoint::List(
+                                lanes,
+                            ))));
+                        } else if let Some(sub) = inner.get_sub_node() {
                             let mut class_node: Option<AstNode> = None;
                             for c in sub.iter() {
                                 if c.get_type() == MCAST_CLASS && class_node.is_none() {
@@ -838,7 +881,9 @@ impl McFuncCall {
                             if let Some(cls) = class_node {
                                 if let Some(class_ids) =
                                     // Keep the numeric dotted tail (`::UART.RS232.3`).
-                                    cls.get_sub_node().and_then(|cid| McIds::new_with_dot(&cid))
+                                    cls
+                                        .get_sub_node()
+                                        .and_then(|cid| McIds::new_with_dot(&cid))
                                 {
                                     // Def-driven: read the resolved class's real
                                     // pins. A class that doesn't resolve to a

@@ -99,6 +99,16 @@ pub trait HasFindInst {
         None
     }
 
+    /// U282: true when `name` is a func-local declare already registered into
+    /// the body's `func.insts` during this body loop (the `seen_callers` set
+    /// carries both these names and noted FuncCall callers). Only
+    /// FuncBodyContext overrides; every other scope answers `false`, so a
+    /// module-body fused chain keeps its inline-construction route.
+    fn has_local_decl(&self, name: &str) -> bool {
+        let _ = name;
+        false
+    }
+
     /// Primary name lookup method: search by priority chain and return both the
     /// semantic instance and its source span (for LSP goto-definition).
     ///
@@ -481,6 +491,10 @@ struct FuncBodyContext<'a> {
 }
 
 impl<'a> HasFindInst for FuncBodyContext<'a> {
+    fn has_local_decl(&self, name: &str) -> bool {
+        self.seen_callers.borrow().iter().any(|s| s == name)
+    }
+
     fn find_inst(&self, id: &str) -> Option<McInstance> {
         self.find_inst_with_span(id).map(|(inst, _)| inst)
     }
@@ -930,6 +944,25 @@ impl McFunction {
                                 continue;
                             }
 
+                            // U282 (ruling ①): a fused one-liner
+                            // `CAP(...) cap[1:2].Cap([...])` nests its DECLARE inside
+                            // the chain fcall (opd_fcall → instance → declare).
+                            // Register it into `func.insts` exactly like the
+                            // direct-child declare above, so §3.4 materializes
+                            // prefixed sub-instances (`b.cap1`) and §11.2 records
+                            // the vector group; the phrase path then resolves the
+                            // caller against these instances (mc_phrase
+                            // MCAST_INSTANCE) instead of the named-ctor route.
+                            if let Some(decl) = Self::find_nested_declare(&subnode) {
+                                // Named-ctor faces (`XTAL2 y(...)`) keep the
+                                // legacy route — only the params-first shape
+                                // (every instance bare) registers here.
+                                if !crate::semantic::basic::mc_phrase::declare_has_instance_params(&decl)
+                                {
+                                    self.parse_declare_note(&decl, &uri, &seen_callers);
+                                }
+                            }
+
                             // ★ LSP: Record net refs for identifiers in func body
                             {
                                 let scope = self
@@ -1098,6 +1131,25 @@ impl McFunction {
     /// `func.insts`, which the body context's `instance_chain` does NOT
     /// include — so without this note the ghost-bus discriminator would
     /// misclassify a legitimate `timer.I2C` / `q.g` reference as a true miss.
+    /// U282: find the first `MCAST_DECLARE` nested below a body stmt's
+    /// direct-child level. The fused one-liner `CAP(...) cap[1:2].Cap([...])`
+    /// nests it at `opd_fcall → instance → declare`; the canonical split form
+    /// keeps it a direct child (handled by the parse_body arms), so any hit
+    /// here is the fused shape.
+    fn find_nested_declare(node: &AstNode) -> Option<AstNode> {
+        if let Some(sub) = node.get_sub_node() {
+            for c in sub.iter() {
+                if c.get_type() == MCAST_DECLARE {
+                    return Some(c.clone());
+                }
+                if let Some(found) = Self::find_nested_declare(&c) {
+                    return Some(found);
+                }
+            }
+        }
+        None
+    }
+
     fn parse_declare_note(
         &mut self,
         node: &AstNode,

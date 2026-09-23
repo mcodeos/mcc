@@ -54,6 +54,51 @@ fn warn_prefix_id_as_wire(node: &AstNode, name: &str) {
     }
 }
 
+/// U282: a DECLARE whose instances carry their own ctor params
+/// (`XTAL2 y(32.768kHz, 10nF)`) is a named-ctor face, not the params-first
+/// fused one-liner (`CAP(100nF, 10V) cap[1:2]`): grammar-wise the params sit
+/// on the instance itself (mca.y `mc_inst: mc_ida '(' mc_params ')'`), while
+/// the params-first form keeps every instance bare.
+pub(crate) fn declare_has_instance_params(declare: &AstNode) -> bool {
+    declare
+        .get_sub_node()
+        .map(|sub| {
+            sub.iter().any(|c| {
+                c.get_type() == MCAST_INSTANCE
+                    && c.get_sub_node()
+                        .map(|s| s.iter().any(|g| g.get_type() == MCAST_PARAMS))
+                        .unwrap_or(false)
+            })
+        })
+        .unwrap_or(false)
+}
+
+/// U282: expand a DECLARE node's instance names (`cap[1:2]` → `cap1`, `cap2`).
+/// Mirrors the module-level DECLARE handler's name extraction (instance
+/// child → ids node → `McIds::expand`).
+pub(crate) fn declare_instance_names(declare: &AstNode) -> Vec<String> {
+    let mut names = Vec::new();
+    if let Some(sub) = declare.get_sub_node() {
+        for c in sub.iter() {
+            if c.get_type() != MCAST_INSTANCE {
+                continue;
+            }
+            let inst_id_node = c.get_sub_node().unwrap_or_else(|| c.clone());
+            let ids_node = if inst_id_node.get_type() == MCAST_OPD {
+                inst_id_node
+                    .get_sub_node()
+                    .unwrap_or_else(|| inst_id_node.clone())
+            } else {
+                inst_id_node
+            };
+            if let Some(ids) = McIds::new(&ids_node) {
+                names.extend(ids.expand());
+            }
+        }
+    }
+    names
+}
+
 /// R4 step 3 (`intent-reference-layer-design.md` §10.5): a bare word position
 /// where **both** readings hold — `name` is a whole-referenceable domain of the
 /// owning scope (step 1, so the word could denote that domain's declared
@@ -3548,8 +3593,36 @@ impl McPhrase {
                 if let Some(inner) = node.get_sub_node() {
                     // Check if inner is a DECLARE - if so, parse it via the DECLARE handling
                     if inner.get_type() == MCAST_DECLARE {
-                        // Parse the DECLARE to get the phrase (which may contain DOT expressions)
-                        return Self::new(&inner, context);
+                        // U282 (ruling ①): a DECLARE fused into a call chain
+                        // (`CAP(...) cap[1:2].Cap([...])` nests it at opd_fcall →
+                        // instance → declare) must not take the named-ctor route
+                        // when its instances are already registered as func-local
+                        // declares — fall through to the plain name-resolution
+                        // path, exactly like the canonical split form's instance
+                        // call. Unregistered declares (module-body chains) keep
+                        // the inline-construction path below.
+                        let declared = declare_instance_names(&inner);
+                        let local = !declared.is_empty()
+                            && !declare_has_instance_params(&inner)
+                            && declared.iter().all(|n| context.has_local_decl(n));
+                        if !local {
+                            // Parse the DECLARE (the phrase may hold DOT expressions)
+                            return Self::new(&inner, context);
+                        }
+                        // Lane-structured `Endpoint(List)` of per-member endpoints
+                        // (§11.3 invariant B) — the receiver shape the vector arm
+                        // produces; func-local members invisible to `find_inst`
+                        // stay as labels, unified with the instances in pass2.
+                        let lanes: Vec<McEndpoint> = declared
+                            .iter()
+                            .map(|name| match context.find_inst(name) {
+                                Some(inst) => McEndpoint::Single(McInstanceRef::new(inst)),
+                                None => McEndpoint::Single(McInstanceRef::new(
+                                    McInstance::Label(name.clone()),
+                                )),
+                            })
+                            .collect();
+                        return Some(McPhrase::Endpoint(McEndpoint::List(lanes)));
                     }
                     let names = inner.to_id_or_ida();
                     if names.len() == 1 {
