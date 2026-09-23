@@ -330,8 +330,8 @@ pub struct McPins {
 
     /// The same capture for the **AC axis** — every `psrc/psnk/psbi` pin line
     /// whose trailing `::` contract is not `::DC`, in declaration order (the
-    /// canon `::AC.1P`; a reserved family such as `AC.3P` once the library
-    /// lands it). A separate
+    /// canon `::AC.1P`, and the four-wire `::AC.3P` the library now lands). A
+    /// separate
     /// list rather than a second flavour inside [`Self::pwr`]: the DC readers
     /// (the `[hot, ret]` pair face, the pin-contract checks) treat a row's `ret`
     /// as the return it closes over, which only holds for the DC pair. AC has

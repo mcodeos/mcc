@@ -2289,28 +2289,34 @@ impl InstTable {
 
                 // ★ U217 (ac-interface-design.md §7): an `::AC.*` row's face
                 // rides the flat member entries, positional like the DC pair —
-                // first member the supply face, second the declared return.
-                // Both members must be written (a two-member face is what the
-                // AC return gate judges); the carry holds the port path (the
-                // identity both members share), the member's spelling, and the
-                // row's declared region nominal.
+                // the roles come from the variant's registry group (member i
+                // takes the group's position i; the written names are never
+                // read). A registered multi-member family (`AC.3P`) carries
+                // every member; an unregistered two-member row keeps the pair
+                // reading (first the supply face, second the declared
+                // return). The carry holds the port path (the identity all
+                // members share), the member's spelling, and the row's
+                // declared region nominal.
                 if let Some(ac) = &port.ac_face {
-                    if port.bus_members.len() == 2 {
-                        let member_word = if mi == 0 {
-                            AcFaceMember::Hot
-                        } else {
-                            AcFaceMember::Ret
-                        };
-                        self.set_ac_face(
-                            member_id,
-                            AcFaceCarry {
-                                face: port.name.clone(),
-                                label: member.clone(),
-                                member: Some(member_word),
-                                volts: ac.volts,
-                                hz: ac.hz,
-                            },
-                        );
+                    let words = ac.member_words.clone().or_else(|| {
+                        (port.bus_members.len() == 2)
+                            .then(|| vec![AcFaceMember::Hot, AcFaceMember::Ret])
+                    });
+                    if let Some(words) = words {
+                        if port.bus_members.len() == words.len() {
+                            if let Some(&member_word) = words.get(mi) {
+                                self.set_ac_face(
+                                    member_id,
+                                    AcFaceCarry {
+                                        face: port.name.clone(),
+                                        label: member.clone(),
+                                        member: Some(member_word),
+                                        volts: ac.volts,
+                                        hz: ac.hz,
+                                    },
+                                );
+                            }
+                        }
                     }
                 }
             }

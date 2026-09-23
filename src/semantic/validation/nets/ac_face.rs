@@ -66,9 +66,10 @@ pub(crate) fn check_ac_face_return(table: &InstTable, results: &mut Vec<NetCheck
     let wired = wired_ids(table);
 
     // Face groups: (owner instance, row face name) -> the positional members.
-    // The two-member guard at the flatten site means a group holds exactly one
-    // Hot and one Ret; a nominal-only carry (component rows, member `None`)
-    // is not a positional face and never enters a group.
+    // The flatten site maps every member by its registry position, so a group
+    // holds one Ret and every Hot the variant declares; a nominal-only carry
+    // (component rows, member `None`) is not a positional face and never
+    // enters a group.
     let mut faces: HashMap<(u32, String), Vec<(&crate::instant::insttab::InstEntry, AcFaceMember)>> =
         HashMap::new();
     for entry in table.iter_entries() {
@@ -88,49 +89,77 @@ pub(crate) fn check_ac_face_return(table: &InstTable, results: &mut Vec<NetCheck
     }
 
     // One fire per dangling member, anchored there; sorted for determinism.
+    // The law generalizes over the group size (registry-driven positions):
+    // an energized face is torn when the face's return dangles while a phase
+    // is wired, or a phase dangles off a wired return. Both-wired (healthy)
+    // and all-dangling (an unused face — the silence law, the same shape the
+    // exclusive-peer gate keeps) stay silent.
     let mut fired: Vec<(&crate::instant::insttab::InstEntry, String, String, String, String)> =
         Vec::new();
     for ((_owner_id, _face), members) in faces {
-        if members.len() != 2 {
-            continue;
+        // Exactly one return slot per group (every registered variant states
+        // exactly one Neutral; a group without one states no return to miss).
+        let mut ret_e: Option<&crate::instant::insttab::InstEntry> = None;
+        let mut multi_ret = false;
+        let mut hots: Vec<&crate::instant::insttab::InstEntry> = Vec::new();
+        for (e, m) in &members {
+            match m {
+                AcFaceMember::Ret => {
+                    if ret_e.is_some() {
+                        multi_ret = true;
+                    }
+                    ret_e = Some(*e);
+                }
+                AcFaceMember::Hot => hots.push(*e),
+            }
         }
-        let hot = members.iter().find(|(_, m)| *m == AcFaceMember::Hot);
-        let ret = members.iter().find(|(_, m)| *m == AcFaceMember::Ret);
-        let (Some((hot_e, _)), Some((ret_e, _))) = (hot, ret) else {
+        let (Some(ret_e), false) = (ret_e, multi_ret) else {
             continue;
         };
-        let hot_wired = wired.contains(&hot_e.id);
+        if hots.is_empty() {
+            continue;
+        }
         let ret_wired = wired.contains(&ret_e.id);
-        if hot_wired == ret_wired {
-            // Both wired (healthy) or both dangling (an unused face — the
-            // silence law, the same shape the exclusive-peer gate keeps).
-            continue;
+        let any_hot_wired = hots.iter().any(|e| wired.contains(&e.id));
+        let mut fires: Vec<(&crate::instant::insttab::InstEntry, &crate::instant::insttab::InstEntry)> =
+            Vec::new(); // (wired side, dangling side)
+        if !ret_wired && any_hot_wired {
+            // The first wired phase stands for the supply side in the
+            // message — one fire per face, not one per wired phase.
+            if let Some(wired_hot) = hots.iter().copied().find(|e| wired.contains(&e.id)) {
+                fires.push((wired_hot, ret_e));
+            }
         }
-        let (wired_e, dangling_e) = if hot_wired {
-            (hot_e, ret_e)
-        } else {
-            (ret_e, hot_e)
-        };
-        let (Some(wired_c), Some(dangling_c)) = (wired_e.ac_face.as_ref(), dangling_e.ac_face.as_ref())
-        else {
-            continue;
-        };
-        // The face display is the member entry's path minus its member
-        // suffix — for a module row (`psnk mains{L, N}::…`) that path is
-        // `PSU.mains`, which already names the face; appending the row name
-        // again would read `PSU.mains.mains`.
-        let face_display = dangling_e
-            .path
-            .strip_suffix(&format!(".{}", dangling_c.label))
-            .unwrap_or(&dangling_e.path)
-            .to_string();
-        fired.push((
-            dangling_e,
-            face_display,
-            format!("{}, {}", wired_c.label, dangling_c.label),
-            wired_c.label.clone(),
-            dangling_c.label.clone(),
-        ));
+        if ret_wired {
+            for hot_e in hots.iter().copied() {
+                if !wired.contains(&hot_e.id) {
+                    fires.push((ret_e, hot_e));
+                }
+            }
+        }
+        for (wired_e, dangling_e) in fires {
+            let (Some(wired_c), Some(dangling_c)) =
+                (wired_e.ac_face.as_ref(), dangling_e.ac_face.as_ref())
+            else {
+                continue;
+            };
+            // The face display is the member entry's path minus its member
+            // suffix — for a module row (`psnk mains{L, N}::…`) that path is
+            // `PSU.mains`, which already names the face; appending the row
+            // name again would read `PSU.mains.mains`.
+            let face_display = dangling_e
+                .path
+                .strip_suffix(&format!(".{}", dangling_c.label))
+                .unwrap_or(&dangling_e.path)
+                .to_string();
+            fired.push((
+                dangling_e,
+                face_display,
+                format!("{}, {}", wired_c.label, dangling_c.label),
+                wired_c.label.clone(),
+                dangling_c.label.clone(),
+            ));
+        }
     }
 
     fired.sort_by(|a, b| entry_pos(a.0).cmp(&entry_pos(b.0)));

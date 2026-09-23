@@ -321,7 +321,33 @@ impl InstantiationBuilder {
                 McInstance::Interface(iface) if crate::instant::insttab::is_ac_family(&iface.base_name()) => {
                     let crate::instant::insttab::AcFaceCarryVolts { volts, hz } =
                         crate::instant::insttab::declared_ac_face_of_params(&iface.params);
-                    Some(crate::instant::mc_net::AcPortFace { volts, hz })
+                    // The positional terminal group comes from the registry
+                    // (§3.2): member i takes the role the variant's group
+                    // assigns that position — never a written name. A variant
+                    // the registry does not hold states no positions (`None`);
+                    // no landed variant carries a Protective member (PE is a
+                    // separate pin, not an interface member — the canon
+                    // header), so the mapping below stays total for every
+                    // registered group.
+                    let member_words = crate::semantic::module::pi::ac_terminal_group(
+                        &iface.base_name(),
+                    )
+                    .map(|group| {
+                        group
+                            .iter()
+                            .map(|t| match t {
+                                crate::semantic::module::pi::AcTerminal::Neutral => {
+                                    crate::instant::insttab::AcFaceMember::Ret
+                                }
+                                _ => crate::instant::insttab::AcFaceMember::Hot,
+                            })
+                            .collect()
+                    });
+                    Some(crate::instant::mc_net::AcPortFace {
+                        volts,
+                        hz,
+                        member_words,
+                    })
                 }
                 _ => None,
             };
