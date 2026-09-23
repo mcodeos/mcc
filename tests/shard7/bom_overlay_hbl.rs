@@ -2,7 +2,7 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! U245 pilot on the hbl corpus: `bom.overlay.toml` at the project root binds
+//! U245 pilot on the hbl corpus: `bom.overlay.mc` at the project root binds
 //! the abstract `LDO.SOT23_5` slot to the `LDO.SGM2019_33YN5G_TR` variant.
 //! The flat row rides the variant's identity (class name, partno) while the
 //! pins stay the base's, both overlay checks stay silent, and the row is
