@@ -87,27 +87,6 @@ fn run_show(cwd: &Path, face: &str, target: &Path) -> (String, String, bool) {
     )
 }
 
-/// The stderr reading the law compares: the world's diagnostics, not the
-/// engine's run-local counters. The loader emits ~943 pre-existing
-/// `DedupLapper` invariant warns on this fixture (two id domains share one
-/// span — P2.2 made them observable on purpose), and under a loaded machine
-/// the two counter ids and the lines' order drift between two otherwise
-/// identical runs. The prefix keeps everything that names world content (kind,
-/// span) and drops only the id pair; the multiset keeps every diagnostic a
-/// real difference would introduce.
-fn stderr_reading(err: &str) -> Vec<String> {
-    let mut lines: Vec<String> = err
-        .lines()
-        .map(|line| {
-            line.split_once(" registered with two ids ")
-                .map(|(head, _)| head.to_string())
-                .unwrap_or_else(|| line.to_string())
-        })
-        .collect();
-    lines.sort();
-    lines
-}
-
 /// A directory target names a project; the command resolves it to the entry
 /// file and reads that world. The two invocations below name the *same* world,
 /// so they must print the same reading.
@@ -145,8 +124,7 @@ fn a_directory_target_reads_the_same_world_as_its_entry_file() {
              looked up as a target in its own right"
         );
         assert_eq!(
-            stderr_reading(&dir_err),
-            stderr_reading(&file_err),
+            dir_err, file_err,
             "`show {face}` reported different diagnostics for a directory than \
              for the entry file it resolves to"
         );
