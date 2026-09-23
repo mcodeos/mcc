@@ -14,6 +14,7 @@ use self::mc_pins::McPins;
 use super::{
     basic::mc_conds::{CondDefCtx, McCondition, McConds},
     basic::mc_endpoint::{McEndpoint, McInstanceRef},
+    basic::mc_expr::McExpression,
     basic::mc_param::McParamDeclares,
     basic::mc_phrase::McPhrase,
     mc_func::HasFindInst,
@@ -23,6 +24,7 @@ use crate::{
     ast::macros::*,
     ast::node::AstNode,
     db::cmie::tables as workspace,
+    db::diagnostic::diagnostic::dlog_error,
     semantic::basic::mc_bus::{McBus, McList},
     semantic::basic::mc_ids::McIds,
     semantic::basic::mc_param::{McParamBindings, McParamValue},
@@ -54,6 +56,57 @@ pub struct CondAttrs {
     pub span: Range<usize>,
 }
 
+/// One `error(msg)` clause captured from a conditional branch body (U212).
+/// The AST is freed after pass1 while the clause fires per instance, so it is
+/// kept as owned data: the message as a parsed expression, or `None` when the
+/// phrase has no expression reading — firing then falls back to fixed text.
+#[derive(Debug, Clone)]
+pub struct CondError {
+    pub message: Option<McExpression>,
+}
+
+/// A chain's `error` clauses per branch, mirroring [`CondPins`] (U212). The
+/// branch the instance selects fires its clauses; a clause fires as a real
+/// diagnostic and the instantiation continues (a fired error does not block
+/// instantiation).
+#[derive(Debug, Clone)]
+pub struct CondErrors {
+    pub if_blocks: Vec<(McCondition, Vec<CondError>)>,
+    pub else_errors: Vec<CondError>,
+    /// Span of the whole chain — the key the empty-body validator (T3) matches
+    /// on to keep an error-only branch out of the "selects no pins" warning.
+    pub span: Range<usize>,
+}
+
+/// Collect the `error(...)` clauses of one conditional branch body (U212).
+/// The body is the bare clause, or a `{ ... }` block holding clauses among
+/// others. Returns the clause nodes (alive only during pass1 — the fold path
+/// fires at them) with their captured message.
+fn collect_branch_errors(block: &AstNode) -> Vec<(AstNode, CondError)> {
+    let mut out = Vec::new();
+    let mut push = |node: &AstNode| {
+        if node.get_type() != MCAST_ERROR {
+            return;
+        }
+        let message = node
+            .get_sub_node()
+            .and_then(|child| McExpression::new(&child));
+        out.push((node.clone(), CondError { message }));
+    };
+    match block.get_type() {
+        MCAST_ERROR => push(block),
+        MCAST_BODY | MCAST_COND_BLOCK => {
+            if let Some(sub) = block.get_sub_node() {
+                for inner in sub.iter() {
+                    push(&inner);
+                }
+            }
+        }
+        _ => {}
+    }
+    out
+}
+
 #[derive(Debug, Clone)]
 pub struct McComponent {
     pub name: McIds,
@@ -70,6 +123,10 @@ pub struct McComponent {
     /// Conditional attribute blocks that could not be evaluated at parse time
     /// (because parameters have no default values). Evaluated at instantiation time.
     pub cond_attrs: Vec<CondAttrs>,
+    /// `error(msg)` clauses per conditional branch (U212). Captured at parse
+    /// time, fired at instantiation when the branch is selected — or at parse
+    /// time itself when the fold selects the branch.
+    pub cond_errors: Vec<CondErrors>,
     /// Source span for LSP goto-definition (byte range in `uri`).
     pub span: crate::ast::sem::Span,
     /// Counter for anonymous-instance names (`@{classname}{counter}`), mirroring
@@ -235,6 +292,7 @@ impl McComponent {
             layout: McLayout::empty(),
             cond_pins: Vec::new(),
             cond_attrs: Vec::new(),
+            cond_errors: Vec::new(),
             span: crate::ast::sem::Span { start, end },
             anon_counter: 1,
             is_abstract: has_abstract,
@@ -300,6 +358,7 @@ impl McComponent {
                     &new_comp.params,
                     &mut new_comp.cond_pins,
                     &mut new_comp.cond_attrs,
+                    &mut new_comp.cond_errors,
                 );
                 //8. todo: net not supported
 
@@ -371,6 +430,7 @@ impl McComponent {
         params: &McParamDeclares,
         cond_pins: &mut Vec<CondPins>,
         cond_attrs: &mut Vec<CondAttrs>,
+        cond_errors: &mut Vec<CondErrors>,
     ) {
         let default_params = params.get_params_with_defaults();
 
@@ -407,6 +467,36 @@ impl McComponent {
                                 Some(CondDefCtx { pins, attrs }),
                                 Some(&child),
                             ) {
+                                // U212: the fold answers for every instance, so
+                                // an `error(...)` clause in the selected branch
+                                // fires here — the AST node is still alive, and
+                                // the definition file is `current_uri`.
+                                let branch_errors = collect_branch_errors(&selected_block);
+                                if !branch_errors.is_empty() {
+                                    let default_lookup = |name: &str| {
+                                        default_params
+                                            .iter()
+                                            .find(|(ids, _)| ids.to_string() == name)
+                                            .map(|(_, v)| v.clone())
+                                    };
+                                    for (node, err) in &branch_errors {
+                                        let msg = err
+                                            .message
+                                            .as_ref()
+                                            .and_then(|m| m.resolve_message(&default_lookup))
+                                            .unwrap_or_else(|| {
+                                                "error() clause: message is not a text \
+                                                 expression"
+                                                    .to_string()
+                                            });
+                                        dlog_error(
+                                            crate::errcodes::EVAL_ERROR_EXPRESSION,
+                                            node,
+                                            &msg,
+                                        );
+                                    }
+                                }
+
                                 let block_type = selected_block.get_type();
                                 if block_type == MCAST_ATTRIBUTE_PIN
                                     || block_type == MCAST_ATTRIBUTE_PINADD
@@ -418,10 +508,17 @@ impl McComponent {
                                     attrs.parse(&selected_block);
                                     continue;
                                 }
-                                if block_type == MCAST_COND_BLOCK {
+                                if block_type == MCAST_COND_BLOCK || block_type == MCAST_BODY {
+                                    // A BODY can arrive here when it was kept
+                                    // whole for an `error(...)` clause (U212).
                                     if let Some(sub) = selected_block.get_sub_node() {
                                         for inner in sub.iter() {
-                                            if inner.get_type() == MCAST_ATTRIBUTE {
+                                            let t = inner.get_type();
+                                            if t == MCAST_ATTRIBUTE_PIN
+                                                || t == MCAST_ATTRIBUTE_PINADD
+                                            {
+                                                pins.parse(&inner);
+                                            } else if t == MCAST_ATTRIBUTE {
                                                 attrs.parse(&inner);
                                             }
                                         }
@@ -446,6 +543,19 @@ impl McComponent {
                                 || block_type == MCAST_ATTRIBUTE_PINADD
                             {
                                 block_pins.parse(&cond.block);
+                            } else if block_type == MCAST_BODY {
+                                // A body kept whole because it carries an
+                                // `error(...)` clause (U212) — pick the pin
+                                // rows out of the children.
+                                if let Some(sub) = cond.block.get_sub_node() {
+                                    for inner in sub.iter() {
+                                        let t = inner.get_type();
+                                        if t == MCAST_ATTRIBUTE_PIN || t == MCAST_ATTRIBUTE_PINADD
+                                        {
+                                            block_pins.parse(&inner);
+                                        }
+                                    }
+                                }
                             }
                             if_pin_blocks.push((cond.condition.clone(), block_pins));
                         }
@@ -457,6 +567,16 @@ impl McComponent {
                                 || block_type == MCAST_ATTRIBUTE_PINADD
                             {
                                 block_pins.parse(block);
+                            } else if block_type == MCAST_BODY {
+                                if let Some(sub) = block.get_sub_node() {
+                                    for inner in sub.iter() {
+                                        let t = inner.get_type();
+                                        if t == MCAST_ATTRIBUTE_PIN || t == MCAST_ATTRIBUTE_PINADD
+                                        {
+                                            block_pins.parse(&inner);
+                                        }
+                                    }
+                                }
                             }
                             block_pins
                         });
@@ -478,7 +598,7 @@ impl McComponent {
                             let block_type = cond.block.get_type();
                             if block_type == MCAST_ATTRIBUTE {
                                 block_attrs.parse(&cond.block);
-                            } else if block_type == MCAST_COND_BLOCK {
+                            } else if block_type == MCAST_COND_BLOCK || block_type == MCAST_BODY {
                                 if let Some(sub) = cond.block.get_sub_node() {
                                     for inner in sub.iter() {
                                         if inner.get_type() == MCAST_ATTRIBUTE {
@@ -494,7 +614,7 @@ impl McComponent {
                             let block_type = block.get_type();
                             if block_type == MCAST_ATTRIBUTE {
                                 block_attrs.parse(block);
-                            } else if block_type == MCAST_COND_BLOCK {
+                            } else if block_type == MCAST_COND_BLOCK || block_type == MCAST_BODY {
                                 if let Some(sub) = block.get_sub_node() {
                                     for inner in sub.iter() {
                                         if inner.get_type() == MCAST_ATTRIBUTE {
@@ -512,6 +632,43 @@ impl McComponent {
                             cond_attrs.push(CondAttrs {
                                 if_blocks: if_attr_blocks,
                                 else_attrs,
+                                span: chain_span.clone(),
+                            });
+                        }
+
+                        // ── Conditional error clauses (U212) ──
+                        // Captured per branch; fired at instantiation when the
+                        // instance selects the branch. The AST is freed after
+                        // pass1, so only the parsed message survives here.
+                        let if_error_blocks: Vec<(McCondition, Vec<CondError>)> =
+                            conds_obj.if_blocks
+                                .iter()
+                                .map(|cond| {
+                                    (
+                                        cond.condition.clone(),
+                                        collect_branch_errors(&cond.block)
+                                            .into_iter()
+                                            .map(|(_, err)| err)
+                                            .collect(),
+                                    )
+                                })
+                                .collect();
+                        let else_errors: Vec<CondError> = conds_obj
+                            .else_block
+                            .as_ref()
+                            .map(|block| {
+                                collect_branch_errors(block)
+                                    .into_iter()
+                                    .map(|(_, err)| err)
+                                    .collect()
+                            })
+                            .unwrap_or_default();
+                        if if_error_blocks.iter().any(|(_, errs)| !errs.is_empty())
+                            || !else_errors.is_empty()
+                        {
+                            cond_errors.push(CondErrors {
+                                if_blocks: if_error_blocks,
+                                else_errors,
                                 span: chain_span.clone(),
                             });
                         }

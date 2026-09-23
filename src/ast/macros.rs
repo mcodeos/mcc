@@ -106,6 +106,7 @@ pub const MCAST_JUDGE_BITOR: u16 = 91;
 pub const MCAST_JUDGE_IN: u16 = 92;
 pub const MCAST_JUDGE_AND: u16 = 93;
 pub const MCAST_JUDGE_OR: u16 = 97;
+pub const MCAST_ERROR: u16 = 100;
 pub const MCAST_URI_PREFIX: u16 = 101;
 pub const MCAST_URI_VERSION: u16 = 102;
 pub const MCAST_URI_MODULE: u16 = 103;

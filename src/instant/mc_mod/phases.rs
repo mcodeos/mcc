@@ -756,6 +756,36 @@ impl InstantiationBuilder {
                             }
                         }
                     }
+                    // U212: `error()` clauses the class fired while this
+                    // instance was built. Anchored at the declaration that
+                    // supplied the arguments, like the U39 block above — the
+                    // clause's own node is long gone with the class AST.
+                    if !inst.cond_author_errors.is_empty() {
+                        let anchor = self
+                            .def
+                            .insts
+                            .get_port_span(&c.name.to_string())
+                            .map(|r| r.start as u32);
+                        for (code, message) in &inst.cond_author_errors {
+                            match anchor {
+                                Some(pos) => {
+                                    if !crate::db::diagnostic::diagnostic::has_code_at(
+                                        *code,
+                                        &self.def_uri,
+                                        pos,
+                                    ) {
+                                        self.record_error_at(
+                                            *code,
+                                            message.clone(),
+                                            self.def_uri.clone(),
+                                            pos,
+                                        );
+                                    }
+                                }
+                                None => self.record_error(*code, message.clone()),
+                            }
+                        }
+                    }
                     // ★ U48: the declaration's `@ncpin(…)` marker becomes this
                     // instance's marked pin-id set. Resolved after the instance
                     // is built (so conditional / dynamic pins are already in

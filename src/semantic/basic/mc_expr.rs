@@ -270,6 +270,35 @@ impl McExpression {
             _ => vec![self.to_string()],
         }
     }
+
+    /// Resolve an `error(...)` message to text (U212). Variables go through
+    /// `lookup` — the caller's bound parameters; a name with no binding stays
+    /// spelled out rather than killing the message. `+` concatenates and
+    /// interpolates through the value engine, so `"got " + 7` renders the same
+    /// way it does in an attribute value. `None` when the form has no text
+    /// reading — the caller falls back to the raw source text.
+    pub fn resolve_message(&self, lookup: &dyn Fn(&str) -> Option<String>) -> Option<String> {
+        match self {
+            McExpression::String(s) => Some(s.value.clone()),
+            McExpression::Int(i) => Some(eval::Value::Int(i.value).text()),
+            McExpression::Float(fl) => Some(eval::Value::Float(fl.value).text()),
+            McExpression::Variable(opd) => {
+                let names = opd.expand();
+                match names.as_slice() {
+                    [name] => Some(lookup(name).unwrap_or_else(|| name.clone())),
+                    _ => Some(names.join(" ")),
+                }
+            }
+            McExpression::Plus(l, r) => {
+                let left = eval::Value::Str(l.resolve_message(lookup)?);
+                let right = eval::Value::Str(r.resolve_message(lookup)?);
+                eval::apply(eval::Op::Add, &left, &right)
+                    .ok()
+                    .map(|v| v.text())
+            }
+            _ => None,
+        }
+    }
 }
 
 /// The failure for a form that is not a number: it has no integer reading, so

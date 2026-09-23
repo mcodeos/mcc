@@ -15,6 +15,7 @@ use crate::semantic::basic::mc_expr::McExpression;
 use crate::semantic::basic::mc_param::{McParamBindings, McParamValue, ParamBindError};
 use crate::semantic::basic::mc_paramd::{McParamDeclare, McParamDeclareKind};
 use crate::semantic::common::IOType;
+use crate::semantic::component::CondError;
 use crate::semantic::component::McComponent;
 use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
@@ -101,6 +102,12 @@ pub struct McComponentInst {
     /// instance cannot position the diagnostic: it carries the failure out and
     /// the consumer that holds the declaration site reports it there.
     pub cond_eval_errors: Vec<eval::EvalError>,
+
+    /// `error()` clauses of the class fired while building this instance
+    /// (U212), as `(code, message)` pairs. The clause belongs to the class
+    /// file, so the consumer that holds the declaration site anchors the
+    /// diagnostic — the same path as `cond_eval_errors` above.
+    pub cond_author_errors: Vec<(u32, String)>,
 }
 
 /// Does the formal answer to `name` in a body reference? A unit-value formal
@@ -134,6 +141,7 @@ impl McComponentInst {
             node_id: None,
             anchor: None,
             cond_eval_errors: Vec::new(),
+            cond_author_errors: Vec::new(),
         };
 
         inst.init_pins();
@@ -160,6 +168,7 @@ impl McComponentInst {
             node_id: None,
             anchor: None,
             cond_eval_errors: Vec::new(),
+            cond_author_errors: Vec::new(),
         }
     }
 
@@ -216,6 +225,7 @@ impl McComponentInst {
             node_id: None,
             anchor: None,
             cond_eval_errors: Vec::new(),
+            cond_author_errors: Vec::new(),
         };
 
         inst.init_pins();
@@ -243,6 +253,7 @@ impl McComponentInst {
             node_id: None,
             anchor: None,
             cond_eval_errors: Vec::new(),
+            cond_author_errors: Vec::new(),
         };
 
         inst.init_pins();
@@ -280,6 +291,8 @@ impl McComponentInst {
         self.init_cond_pins();
         // Evaluate conditional attribute blocks that were deferred from parse time
         self.init_cond_attrs();
+        // Fire the `error()` clauses of the branches selected above (U212)
+        self.init_cond_errors();
         // Resolve attribute values by substituting parameter references
         self.init_resolved_attrs();
         // ★ U52: call-site pin rows win over everything the definition decided
@@ -393,6 +406,63 @@ impl McComponentInst {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    /// Fire the `error()` clauses of the branches this instance selects (U212).
+    ///
+    /// The chain is evaluated with this instance's own arguments: the first
+    /// satisfied branch fires its clauses, and only an unmatched chain falls
+    /// to the `else` clauses. Firing records a real diagnostic and leaves the
+    /// instance standing (a fired error does not block instantiation). A
+    /// condition that cannot be read is
+    /// left to `cond_eval_errors` (U39) — it is this declaration's failure to
+    /// answer the class, not a fired clause.
+    fn init_cond_errors(&mut self) {
+        if self.def.cond_errors.is_empty() {
+            return;
+        }
+
+        let eval_params = self.params.to_params_for_eval();
+        let def_ctx = CondDefCtx {
+            pins: &self.def.pins,
+            attrs: &self.def.attrs,
+        };
+
+        for chain in &self.def.cond_errors {
+            let mut fired: Vec<CondError> = Vec::new();
+            let mut matched = false;
+            for (condition, errs) in &chain.if_blocks {
+                match McConds::check_condition_result(condition, &eval_params, Some(def_ctx)) {
+                    Ok(true) => {
+                        matched = true;
+                        fired = errs.clone();
+                        break;
+                    }
+                    Ok(false) => {}
+                    Err(_) => break,
+                }
+            }
+            if !matched {
+                fired = chain.else_errors.clone();
+            }
+            if fired.is_empty() {
+                continue;
+            }
+
+            for err in fired {
+                // The closure borrows `self` only for this statement; the
+                // push below takes the mutable borrow afterwards.
+                let message = err
+                    .message
+                    .as_ref()
+                    .and_then(|m| m.resolve_message(&|name| self.lookup_param_value(name)))
+                    .unwrap_or_else(|| {
+                        "error() clause: message is not a text expression".to_string()
+                    });
+                self.cond_author_errors
+                    .push((crate::errcodes::EVAL_ERROR_EXPRESSION, message));
             }
         }
     }

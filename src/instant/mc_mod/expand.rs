@@ -569,6 +569,7 @@ mod inst_scope_tests {
             node_id: None,
             anchor: None,
             cond_eval_errors: Vec::new(),
+            cond_author_errors: Vec::new(),
         }
     }
 
