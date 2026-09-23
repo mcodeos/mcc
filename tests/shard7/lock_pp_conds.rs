@@ -65,7 +65,8 @@ fn assert_fires(code: u64, source: &str) {
 // E5453 PIN_NC_COMPONENT_LEVEL (conds.rs check_pin_io_context): the `nc`
 // iotype keyword on a component pin. Names carry no NC semantics, so the
 // keyword is the only way to declare this at the component level, and every
-// such declaration is reported (NC normally appears at instantiation).
+// such declaration is reported (the Info states what the declaration exempts
+// the pin from).
 #[test]
 fn lock_pp_conds__pin_nc_component_level_5453_fires() {
     let source = r#"component RESERVED_PIN
