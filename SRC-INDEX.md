@@ -75,8 +75,8 @@ range (threshold 40KB).
 | `rpc/` | 16 | 306 KB |
 | `semantic/` | 91 | 2732 KB |
 | `stages/` | 12 | 322 KB |
-| `vector/` | 25 | 478 KB |
-| `viz/` | 98 | 2457 KB |
+| `vector/` | 26 | 497 KB |
+| `viz/` | 98 | 2463 KB |
 
 ## Declaration index
 
@@ -8305,25 +8305,25 @@ vector/graph/fromblock.rs#L317  fn resolve_custom_symbol
 vector/graph/fromblock.rs#L323  fn make_box_from_id
 vector/graph/fromblock.rs#L458  fn build_mc_vec_graph
 vector/graph/fromblock.rs#L474  fn build_mc_vec_graph_with_log
-vector/graph/fromblock.rs#L490  fn build_mc_vec_graph_inner
-vector/graph/fromblock.rs#L758  fn backfill_children_recursive
-vector/graph/fromblock.rs#L765  const MAX_DEPTH
-vector/graph/fromblock.rs#L999  const MAX_HOPS
-vector/graph/fromblock.rs#L1104  const MAX_HOPS_E1
-vector/graph/fromblock.rs#L1433  fn is_own_boundary_port
-vector/graph/fromblock.rs#L1457  fn generate_viznets_from_block
-vector/graph/fromblock.rs#L1491  fn bus_width_from_shape
-vector/graph/fromblock.rs#L1519  fn is_real_bus
-vector/graph/fromblock.rs#L2038  fn probe_node_conservation
-vector/graph/fromblock.rs#L2060  fn build_point_to_box
-vector/graph/fromblock.rs#L2101  fn map_all_descendants
-vector/graph/fromblock.rs#L2142  fn layout_post_adjust_borders
-vector/graph/fromblock.rs#L2194  mod tests
-vector/graph/fromblock.rs#L2199  fn pos
-vector/graph/fromblock.rs#L2203  fn pin_entry
-vector/graph/fromblock.rs#L2247  fn g16_pin_src_span_prefers_wiring_site_over_decl_site
-vector/graph/fromblock.rs#L2255  fn g16_pin_src_span_falls_back_to_decl_site_when_unwired
-vector/graph/fromblock.rs#L2263  fn g16_placeholder_pins_carry_no_src_span
+vector/graph/fromblock.rs#L494  fn build_mc_vec_graph_inner
+vector/graph/fromblock.rs#L762  fn backfill_children_recursive
+vector/graph/fromblock.rs#L769  const MAX_DEPTH
+vector/graph/fromblock.rs#L1003  const MAX_HOPS
+vector/graph/fromblock.rs#L1108  const MAX_HOPS_E1
+vector/graph/fromblock.rs#L1437  fn is_own_boundary_port
+vector/graph/fromblock.rs#L1461  fn generate_viznets_from_block
+vector/graph/fromblock.rs#L1495  fn bus_width_from_shape
+vector/graph/fromblock.rs#L1523  fn is_real_bus
+vector/graph/fromblock.rs#L2042  fn probe_node_conservation
+vector/graph/fromblock.rs#L2064  fn build_point_to_box
+vector/graph/fromblock.rs#L2105  fn map_all_descendants
+vector/graph/fromblock.rs#L2146  fn layout_post_adjust_borders
+vector/graph/fromblock.rs#L2198  mod tests
+vector/graph/fromblock.rs#L2203  fn pos
+vector/graph/fromblock.rs#L2207  fn pin_entry
+vector/graph/fromblock.rs#L2251  fn g16_pin_src_span_prefers_wiring_site_over_decl_site
+vector/graph/fromblock.rs#L2259  fn g16_pin_src_span_falls_back_to_decl_site_when_unwired
+vector/graph/fromblock.rs#L2267  fn g16_placeholder_pins_carry_no_src_span
 vector/graph/graphdef.rs#L25  struct McVecGraph
 vector/graph/graphdef.rs#L117  enum LayerStyle
 vector/graph/graphdef.rs#L124  enum GeomStage
@@ -8371,7 +8371,8 @@ vector/graph/mod.rs#L44  mod psymbol
 vector/graph/mod.rs#L45  mod symbol
 vector/graph/mod.rs#L47  mod detect
 vector/graph/mod.rs#L48  mod fromblock
-vector/graph/mod.rs#L49  mod promote
+vector/graph/mod.rs#L49  mod net_probe
+vector/graph/mod.rs#L50  mod promote
 vector/graph/naming.rs#L31  enum NameRole
 vector/graph/naming.rs#L44  const EXACT_POWER
 vector/graph/naming.rs#L47  const PREFIX_POWER
@@ -8418,6 +8419,31 @@ vector/graph/naming.rs#L474  fn vec_naming__main_chip
 vector/graph/naming.rs#L487  fn vec_naming__classify_net_dispatch
 vector/graph/naming.rs#L499  fn vec_naming__alias_resolves_to_canonical
 vector/graph/naming.rs#L514  fn vec_naming__canonical_names_are_unchanged
+vector/graph/net_probe.rs#L39  static PROBE_ENABLED
+vector/graph/net_probe.rs#L42  fn enabled
+vector/graph/net_probe.rs#L65  struct BlockProbe
+vector/graph/net_probe.rs#L90  impl BlockProbe
+vector/graph/net_probe.rs#L91  fn topology_name
+vector/graph/net_probe.rs#L102  fn audit_block_to_graph
+vector/graph/net_probe.rs#L108  fn walk_block
+vector/graph/net_probe.rs#L129  fn walk_graph
+vector/graph/net_probe.rs#L172  fn probe_block_to_graph
+vector/graph/net_probe.rs#L222  struct PromoteProbe
+vector/graph/net_probe.rs#L235  fn audit_promote
+vector/graph/net_probe.rs#L256  fn probe_promote
+vector/graph/net_probe.rs#L277  struct RouteProbe
+vector/graph/net_probe.rs#L290  fn audit_route
+vector/graph/net_probe.rs#L313  fn probe_route
+vector/graph/net_probe.rs#L330  fn probe_stage
+vector/graph/net_probe.rs#L353  mod tests
+vector/graph/net_probe.rs#L360  fn block_with_net
+vector/graph/net_probe.rs#L370  fn graph_with_net
+vector/graph/net_probe.rs#L383  fn dropped_endpoints_are_reported_with_their_net
+vector/graph/net_probe.rs#L399  fn added_endpoints_from_expansion_are_reported
+vector/graph/net_probe.rs#L416  fn duplicate_endpoints_inside_one_viznet_are_caught
+vector/graph/net_probe.rs#L432  fn topology_histogram_counts_each_shape_once_per_net
+vector/graph/net_probe.rs#L450  fn promote_probe_counts_kept_dropped_orphan
+vector/graph/net_probe.rs#L478  fn route_probe_lists_inter_box_nets_without_a_route
 vector/graph/netdef.rs#L42  enum NetTopology
 vector/graph/netdef.rs#L61  enum IoDirection
 vector/graph/netdef.rs#L81  enum NetRole
@@ -8455,27 +8481,27 @@ vector/graph/promote.rs#L64  impl PromoteResult
 vector/graph/promote.rs#L66  fn summary
 vector/graph/promote.rs#L81  fn promote_to_inter_box_only
 vector/graph/promote.rs#L103  fn apply_promote_in_place
-vector/graph/promote.rs#L124  fn apply_promote_recursive
-vector/graph/promote.rs#L164  fn merge_net_kinds
-vector/graph/promote.rs#L190  fn classify_nets_by_box_coverage
-vector/graph/promote.rs#L237  fn lift_endpoints_to_layer_boxes
-vector/graph/promote.rs#L279  mod tests
-vector/graph/promote.rs#L285  fn mk_box
-vector/graph/promote.rs#L296  fn mk_net
-vector/graph/promote.rs#L310  fn vec_promote__inter_box_kept_intra_dropped
-vector/graph/promote.rs#L335  fn vec_promote__apply_in_place_signal_promoted_to_submodule_io
-vector/graph/promote.rs#L350  fn vec_promote__apply_in_place_preserves_power_kind
-vector/graph/promote.rs#L370  fn vec_promote__apply_in_place_preserves_ground_kind
-vector/graph/promote.rs#L384  fn vec_promote__apply_in_place_preserves_bus_kind
-vector/graph/promote.rs#L400  fn vec_promote__merge_power_wins_over_submodule_io
-vector/graph/promote.rs#L412  fn vec_promote__merge_power_wins_over_signal
-vector/graph/promote.rs#L420  fn vec_promote__merge_ground_wins_over_submodule_io
-vector/graph/promote.rs#L432  fn vec_promote__merge_power_wins_over_ground
-vector/graph/promote.rs#L442  fn vec_promote__merge_bus_wins_over_signal_and_submodule_io
-vector/graph/promote.rs#L459  fn vec_promote__merge_signal_with_submodule_io_yields_submodule_io
-vector/graph/promote.rs#L468  fn vec_promote__merge_signal_signal_yields_signal
-vector/graph/promote.rs#L476  fn vec_promote__merge_submodule_io_submodule_io_yields_submodule_io
-vector/graph/promote.rs#L484  fn vec_promote__recursive_apply
+vector/graph/promote.rs#L129  fn apply_promote_recursive
+vector/graph/promote.rs#L169  fn merge_net_kinds
+vector/graph/promote.rs#L195  fn classify_nets_by_box_coverage
+vector/graph/promote.rs#L242  fn lift_endpoints_to_layer_boxes
+vector/graph/promote.rs#L284  mod tests
+vector/graph/promote.rs#L290  fn mk_box
+vector/graph/promote.rs#L301  fn mk_net
+vector/graph/promote.rs#L315  fn vec_promote__inter_box_kept_intra_dropped
+vector/graph/promote.rs#L340  fn vec_promote__apply_in_place_signal_promoted_to_submodule_io
+vector/graph/promote.rs#L355  fn vec_promote__apply_in_place_preserves_power_kind
+vector/graph/promote.rs#L375  fn vec_promote__apply_in_place_preserves_ground_kind
+vector/graph/promote.rs#L389  fn vec_promote__apply_in_place_preserves_bus_kind
+vector/graph/promote.rs#L405  fn vec_promote__merge_power_wins_over_submodule_io
+vector/graph/promote.rs#L417  fn vec_promote__merge_power_wins_over_signal
+vector/graph/promote.rs#L425  fn vec_promote__merge_ground_wins_over_submodule_io
+vector/graph/promote.rs#L437  fn vec_promote__merge_power_wins_over_ground
+vector/graph/promote.rs#L447  fn vec_promote__merge_bus_wins_over_signal_and_submodule_io
+vector/graph/promote.rs#L464  fn vec_promote__merge_signal_with_submodule_io_yields_submodule_io
+vector/graph/promote.rs#L473  fn vec_promote__merge_signal_signal_yields_signal
+vector/graph/promote.rs#L481  fn vec_promote__merge_submodule_io_submodule_io_yields_submodule_io
+vector/graph/promote.rs#L489  fn vec_promote__recursive_apply
 vector/graph/psymbol.rs#L21  const SYMBOL_MANIFEST
 vector/graph/psymbol.rs#L22  const MAX_MANIFEST_BYTES
 vector/graph/psymbol.rs#L23  const MAX_SVG_BYTES
@@ -9784,21 +9810,21 @@ viz/layout/rails.rs#L877  fn c5_top_layer_keeps_series_passives_drops_parallel_o
 viz/layout/rails.rs#L966  fn is_rail_box_is_kind_based_not_name_based
 viz/layout/select.rs#L49  fn layout_best
 viz/layout/select.rs#L59  fn run_single
-viz/layout/select.rs#L171  static RENDER_GATE_FAILED
-viz/layout/select.rs#L188  fn fidelity_gate
-viz/layout/select.rs#L297  fn compute_readability
-viz/layout/select.rs#L330  fn compute_fidelity
-viz/layout/select.rs#L470  mod tests
-viz/layout/select.rs#L479  struct BadLayouter
-viz/layout/select.rs#L480  impl Layouter for BadLayouter
-viz/layout/select.rs#L481  fn layout
-viz/layout/select.rs#L490  fn name
-viz/layout/select.rs#L495  fn make_simple_graph
-viz/layout/select.rs#L538  fn single_pipeline_runs_first_candidate
-viz/layout/select.rs#L554  fn single_pipeline_deterministic
-viz/layout/select.rs#L569  fn gate_does_not_drop_bad_layout
-viz/layout/select.rs#L587  fn tier1_failure_sets_render_gate_failed
-viz/layout/select.rs#L608  fn single_pipeline_routes_real_layouter
+viz/layout/select.rs#L179  static RENDER_GATE_FAILED
+viz/layout/select.rs#L196  fn fidelity_gate
+viz/layout/select.rs#L305  fn compute_readability
+viz/layout/select.rs#L338  fn compute_fidelity
+viz/layout/select.rs#L478  mod tests
+viz/layout/select.rs#L487  struct BadLayouter
+viz/layout/select.rs#L488  impl Layouter for BadLayouter
+viz/layout/select.rs#L489  fn layout
+viz/layout/select.rs#L498  fn name
+viz/layout/select.rs#L503  fn make_simple_graph
+viz/layout/select.rs#L546  fn single_pipeline_runs_first_candidate
+viz/layout/select.rs#L562  fn single_pipeline_deterministic
+viz/layout/select.rs#L577  fn gate_does_not_drop_bad_layout
+viz/layout/select.rs#L595  fn tier1_failure_sets_render_gate_failed
+viz/layout/select.rs#L616  fn single_pipeline_routes_real_layouter
 viz/layout/size.rs#L28  const MIN_GAP
 viz/layout/size.rs#L31  const PIN_PITCH
 viz/layout/size.rs#L36  const TERMINAL_PIN_PITCH
@@ -11270,4 +11296,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-407 files, 11173 declarations.
+408 files, 11213 declarations.
