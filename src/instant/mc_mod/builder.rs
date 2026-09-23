@@ -1223,19 +1223,12 @@ impl InstantiationBuilder {
 
     // ID counter / naming (small utilities reused across multiple module files)
 
-    /// Reference designator prefix for common inline-constructed types.
+    /// Reference designator prefix for inline-constructed types, read from
+    /// the one prefix table (`instant::refdes`, refdes-design.md §1.1).
     /// Unknown or multi-segment types (dots already replaced with `_`) fall
     /// back to the full type name, e.g. `DIO.ESD` -> `DIO_ESD`.
     fn ref_designator_prefix(type_name: &str) -> &str {
-        match type_name {
-            "CAP" => "C",
-            "RES" => "R",
-            "DIO" => "D",
-            "IND" => "L",
-            "XTAL" => "Y",
-            "HDR" => "J",
-            _ => type_name,
-        }
+        crate::instant::refdes::prefix_for_class(type_name).unwrap_or(type_name)
     }
 
     /// Automatically generate a unique instance name for an anonymous inline

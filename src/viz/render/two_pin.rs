@@ -12,13 +12,13 @@ pub struct TwoPinShape;
 
 impl BoxShape for TwoPinShape {
     fn render(&self, b: &McVecBox) -> String {
-        let cls = b.class_name.to_uppercase();
-        let color = if cls.contains("CAP") {
-            "#2471A3"
-        } else if cls.contains("IND") {
-            "#7D3C98"
-        } else {
-            "#333"
+        // Color follows the declared class via the one prefix table
+        // (`instant::refdes`, refdes-design.md §1.1): `C` capacitive blue,
+        // `L` inductive purple -- no substring guessing on the class name.
+        let color = match crate::instant::refdes::prefix_for_class(&b.class_name) {
+            Some("C") => "#2471A3",
+            Some("L") => "#7D3C98",
+            _ => "#333",
         };
 
         // Virtual instantiation view (mcd spec/16-export-viz §6): suppress

@@ -75,8 +75,8 @@ range (threshold 40KB).
 | `rpc/` | 16 | 302 KB |
 | `semantic/` | 91 | 2724 KB |
 | `stages/` | 12 | 321 KB |
-| `vector/` | 25 | 476 KB |
-| `viz/` | 97 | 2451 KB |
+| `vector/` | 25 | 478 KB |
+| `viz/` | 97 | 2452 KB |
 
 ## Declaration index
 
@@ -3135,22 +3135,22 @@ instant/mc_mod/builder.rs#L1142  fn record_error_at
 instant/mc_mod/builder.rs#L1170  fn record_warning
 instant/mc_mod/builder.rs#L1194  fn log_global_diag
 instant/mc_mod/builder.rs#L1220  fn merge_diagnostics_from
-instant/mc_mod/builder.rs#L1229  fn ref_designator_prefix
-instant/mc_mod/builder.rs#L1262  fn auto_name
-instant/mc_mod/builder.rs#L1343  fn enter_func_stmt
-instant/mc_mod/builder.rs#L1373  fn with_func_stmt
-instant/mc_mod/builder.rs#L1391  fn with_func_site
-instant/mc_mod/builder.rs#L1419  fn with_func_scope
-instant/mc_mod/builder.rs#L1437  fn is_passthrough_formal
-instant/mc_mod/builder.rs#L1453  fn with_trunk
-instant/mc_mod/builder.rs#L1477  fn current_offset
-instant/mc_mod/builder.rs#L1486  fn next_conn_id
-instant/mc_mod/builder.rs#L1494  fn build_net_table
-instant/mc_mod/builder.rs#L1643  fn is_registered_class_name
-instant/mc_mod/builder.rs#L1680  fn resume_auto_inst_counter
-instant/mc_mod/builder.rs#L1710  fn resume_tree
-instant/mc_mod/builder.rs#L1758  fn boundary_return
-instant/mc_mod/builder.rs#L1783  fn is_anon_member
+instant/mc_mod/builder.rs#L1230  fn ref_designator_prefix
+instant/mc_mod/builder.rs#L1255  fn auto_name
+instant/mc_mod/builder.rs#L1336  fn enter_func_stmt
+instant/mc_mod/builder.rs#L1366  fn with_func_stmt
+instant/mc_mod/builder.rs#L1384  fn with_func_site
+instant/mc_mod/builder.rs#L1412  fn with_func_scope
+instant/mc_mod/builder.rs#L1430  fn is_passthrough_formal
+instant/mc_mod/builder.rs#L1446  fn with_trunk
+instant/mc_mod/builder.rs#L1470  fn current_offset
+instant/mc_mod/builder.rs#L1479  fn next_conn_id
+instant/mc_mod/builder.rs#L1487  fn build_net_table
+instant/mc_mod/builder.rs#L1636  fn is_registered_class_name
+instant/mc_mod/builder.rs#L1673  fn resume_auto_inst_counter
+instant/mc_mod/builder.rs#L1703  fn resume_tree
+instant/mc_mod/builder.rs#L1751  fn boundary_return
+instant/mc_mod/builder.rs#L1776  fn is_anon_member
 instant/mc_mod/bus.rs#L19  impl InstantiationBuilder
 instant/mc_mod/bus.rs#L47  fn ensure_bus
 instant/mc_mod/bus.rs#L69  fn find_bus
@@ -8244,19 +8244,21 @@ vector/graph/detect.rs#L207  fn is_power_label
 vector/graph/detect.rs#L218  fn is_signal_like
 vector/graph/detect.rs#L223  fn compute_io
 vector/graph/detect.rs#L251  fn detect_symbol
-vector/graph/detect.rs#L298  fn extract_designator
-vector/graph/detect.rs#L321  fn parse_pin_number
-vector/graph/detect.rs#L332  fn translate_io_type
-vector/graph/detect.rs#L349  fn warn_if_pin_mismatch
-vector/graph/detect.rs#L366  mod tests
-vector/graph/detect.rs#L370  fn vec_detect__designator_basic
-vector/graph/detect.rs#L382  fn vec_detect__designator_negative
-vector/graph/detect.rs#L393  fn vec_detect__pin_number_basic
-vector/graph/detect.rs#L404  fn vec_detect__translate_iotype_basic
-vector/graph/detect.rs#L413  fn vec_detect__scope_chain_nested_module
-vector/graph/detect.rs#L421  fn vec_detect__scope_chain_deep_pin
-vector/graph/detect.rs#L433  fn vec_detect__scope_chain_root_module
-vector/graph/detect.rs#L438  fn vec_detect__scope_chain_direct_child
+vector/graph/detect.rs#L303  fn extract_designator
+vector/graph/detect.rs#L340  fn parse_pin_number
+vector/graph/detect.rs#L351  fn translate_io_type
+vector/graph/detect.rs#L368  fn warn_if_pin_mismatch
+vector/graph/detect.rs#L385  mod tests
+vector/graph/detect.rs#L389  fn vec_detect__designator_basic
+vector/graph/detect.rs#L401  fn vec_detect__designator_letters_follow_the_prefix_table
+vector/graph/detect.rs#L413  fn vec_detect__designator_module_segment
+vector/graph/detect.rs#L423  fn vec_detect__designator_negative
+vector/graph/detect.rs#L434  fn vec_detect__pin_number_basic
+vector/graph/detect.rs#L445  fn vec_detect__translate_iotype_basic
+vector/graph/detect.rs#L454  fn vec_detect__scope_chain_nested_module
+vector/graph/detect.rs#L462  fn vec_detect__scope_chain_deep_pin
+vector/graph/detect.rs#L474  fn vec_detect__scope_chain_root_module
+vector/graph/detect.rs#L479  fn vec_detect__scope_chain_direct_child
 vector/graph/fromblock.rs#L43  fn declared_rail_is_ground
 vector/graph/fromblock.rs#L56  fn attr_rail_is_ground
 vector/graph/fromblock.rs#L67  fn translate_io_to_port_dir
@@ -11216,4 +11218,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-406 files, 11133 declarations.
+406 files, 11135 declarations.

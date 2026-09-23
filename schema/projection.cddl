@@ -1,0 +1,136 @@
+; Projection contract family -- the one machine-contract source
+; (mcd doc/world/projection-schema-design.md; siting decision 2026-09-04,
+; migrated from that doc's review-display CDDL blocks on 2026-09-23).
+;
+; This file lives next to the serde types that produce the projections
+; (src/output/envelope.rs and the per-view payload types), so hand-copied
+; drift dies here. Consumers outside mcc (mcc-ext-check) pin this directory
+; for codegen; they never hand-copy fields or link mcc crate internals.
+;
+; Guard (doc §0, lands per view as its serde types materialize): a CI check
+; that the CDDL and the serde derives agree, plus golden JSON samples locking
+; bytes. The stage.* minimal envelope (StageViewData) is live since b3484;
+; the six view payload groups below are v1 reservations (doc §2).
+
+schema_version = tstr       ; "proj.1.1" -- breaking changes increment, no key
+                            ; removals, no key type changes (doc §1)
+mcc_version = tstr
+world_ver = tstr            ; "w_<16hex>" root token: whole-scope deterministic
+                            ; hash (doc §1)
+top_ver = tstr              ; "t_<16hex>" per-top sub token: the top's use/import
+                            ; closure sub-hash (doc §1.1)
+node_id = tstr              ; stable full-path identity (D1/D9)
+uri = tstr
+
+view-name = "project-model" / "netlist" / "diagnostics" / "core-erc"
+          / "diff" / "expectation"
+
+selector = tstr             ; net name / NodeId / code subset (regex or exact)
+
+slice = {
+  ? depth: int              ; tree depth: 0 = root, n = level, absent = all
+  ? select: [* selector]
+  ? exclude: [* selector]
+  ? param_subset: tstr      ; per-class parameter subset (e.g. ratings only)
+}
+
+projection-envelope = {
+  schema_version: tstr
+  world_ver: tstr
+  ? top_ver: tstr           ; carried whenever scope.top is
+  mcc_version: tstr
+  view: view-name
+  scope: { top: tstr, slice: slice }    ; one envelope = one top (doc §1.2)
+  items: [* any]            ; the view's payload, one group per view below
+  ? cursor: tstr            ; opaque continuation token; valid within one
+                            ; top_ver only (doc §1.2: 2000 items / 256 KiB)
+}
+
+; ---- §2.1 project-model: the project model in one read -----------------
+
+loc = { uri: uri, line: int, span: int }
+
+def-site = { kind: tstr, name: tstr, uri: uri, span: int }
+
+; Parameter value spelling; the exact alternative set settles with the
+; ratings/param-constraint syntax finalization (doc §6, non-blocking).
+typed = tstr / int / float / bool
+
+circuit-node = {
+  id: node_id
+  def: def-site
+  params: { * tstr => typed }   ; declared params incl. ratings fields (doc §6)
+  ports: [* { name: tstr, dir: tstr, ? net: tstr }]
+  ? children: [* circuit-node]  ; slice.depth controls
+}
+
+; ---- §2.2 netlist: connectivity projection ------------------------------
+; Nets / points / instance members + module boundary ports and bus lanes.
+; Shared by export and the electrical snapshot; the item shape is the
+; export/netlist face expressed as envelope items (doc §4).
+
+; ---- §2.3 core-erc: extension-tool snapshot -----------------------------
+; netlist connectivity elements + core_erc[] (flat net_diags aggregation,
+; tools never recompute) + a loc side table consulted only by reported
+; items. v1 shape = erc-extension §3.2 check-model with its header fields
+; absorbed into the envelope (world_ver / mcc_version). Field names await
+; the .mc ratings syntax finalization (doc §6, non-blocking).
+
+; ---- §2.4 diagnostics: diagnostics inline -------------------------------
+
+diag = {
+  code: tstr                ; errcodes.rs namespaces: 1xxx pass1a / 2xxx pass1b
+                            ; / 3xxx pass1c / 4xxx pass2 nets / 5xxx pass3 /
+                            ; 6xxx ERC / 9xxx reserved
+  level: "error" / "warning" / "advisory" / "info"
+  msg: tstr
+  loc: loc
+  ? fix_hint: tstr          ; mechanically executable action (M4 5W)
+  ? net: tstr               ; associated object, optional
+  ? pin: tstr
+}
+
+; ---- §2.5 diff: two-projection difference -------------------------------
+
+change = {
+  type: "add" / "remove" / "modify"
+  kind: "instance" / "param" / "net" / "conn" / "module-replace"
+  id: node_id
+  delta: any                ; param / topology delta (param_subset controls)
+}
+
+; Second mode: functional alignment -- same intent, different implementation;
+; aligned on shared expects semantic keys, never on NodeId / source position
+; (doc §2.5, P2 dynamic closure 2026-09-04).
+functional-change = {
+  type: "none" / "module-replace" / "verdict-divergence"
+  kind: "module-replace"    ; block level
+  ? delta: { shared_keys: [* shared-key-verdict] }
+}
+
+verdict = "PASS" / "FAIL" / "DEFER"
+
+shared-key-verdict = {
+  key: tstr                 ; kind+target+bound semantic key (P1a vocabulary)
+  A: verdict
+  B: verdict
+}
+
+; ---- §2.6 expectation: acceptance ledger (P1b consumer) ------------------
+; The per-top verdict ledger for declared `expects` (all of PASS/FAIL/DEFER;
+; the diagnostics view carries only FAIL violations). Derived from the frozen
+; world like flatten -- computed once on read, cached, never stored.
+
+expectation-verdict = {
+  expect: loc               ; source position of the expects entry (P1a §3)
+  target: tstr              ; referenced symbol (instance / net / rail name)
+  kind: "presence" / "role-match" / "driven" / "value-bound"
+  ? bound: { low: typed, high: typed }
+  verdict: verdict
+  code: tstr                ; EXPECTATION_* (9xxx family; numbered from the
+                            ; errcodes single source at implementation)
+  level: "error" / "warning"    ; structural violation = error, value-bound
+                                ; overrun = warning
+  ? measured: typed         ; FAIL value-bound entries: flattened measured value
+  ? fix_hint: tstr
+}
