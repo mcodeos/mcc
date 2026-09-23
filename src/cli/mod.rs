@@ -595,6 +595,14 @@ pub enum ShowTarget {
     // S-set step); facts stay in `show pwr`, this reports the generated flow.
     // `--full` widens the rail contract columns, `--decaps` unfolds decouplers.
     Pwrflow,
+    // Sim model-profile view (Pass2, uses --top): the model profile registry
+    // (worldmodel-design §7 W3 -- per-role curated sim capability cards read
+    // from each library's `sim/` sidecar) joined to the built world: one row
+    // per instance adoption lane with its card's tier and missing parameters,
+    // `not-curated` made explicit where no card covers a role face. Data layer
+    // only -- no solver exists yet; the face answers "how would this instance
+    // be simulated", never a number.
+    Sim,
     // Dump LSP lapper intervals for a file (semantic tokens + symbols)
     Lapper,
     // Print AST tree for a file
@@ -666,6 +674,7 @@ impl ShowTarget {
             Self::Dianlu => "dianlu",
             Self::Pwr => "pwr",
             Self::Pwrflow => "pwrflow",
+            Self::Sim => "sim",
             Self::Lapper => "lapper",
             Self::Ast => "ast",
             Self::Stage => "stage",

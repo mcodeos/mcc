@@ -81,6 +81,7 @@ fn run_local(args: &ShowArgs) -> Result<()> {
         ShowTarget::Dianlu => show_dianlu(args),
         ShowTarget::Pwr => show_pwr(args),
         ShowTarget::Pwrflow => show_pwrflow(args),
+        ShowTarget::Sim => show_sim(args),
         ShowTarget::Stage => show_stage(args),
         ShowTarget::OrgUnits => show_org_units(args),
 
@@ -1072,6 +1073,208 @@ fn show_pwr(args: &ShowArgs) -> Result<()> {
         "tree": pwr_node_json(&tree, &top, &view, &table, args.ids),
     });
     emit_show(args.target, &data, args.span)
+}
+
+// `show sim` — model profile registry joined to the built world
+
+/// Render `mcc show sim`: the library `sim/` model-profile cards
+/// (worldmodel-design §7 W3) plus their per-instance resolution. Text mode
+/// emits two sections — the card table and one row per adoption lane of the
+/// flat world; JSON mode emits the typed view under
+/// `{"type":"sim","format":"model-profile/v1",…}`. Data layer only: a lane
+/// without a card reads `not-curated` explicitly, never silently.
+fn show_sim(args: &ShowArgs) -> Result<()> {
+    use mcc::model_profile::{LoadedProfiles, ProfileTier};
+
+    // §1 cards: every loaded library's `sim/` sidecar, read through the
+    // definition space so the view follows the library load lifecycle.
+    let libs: Vec<(String, LoadedProfiles)> = mcc::definition_space()
+        .libs()
+        .map(|(name, b)| (name, b.profiles))
+        .filter(|(_, p)| !p.cards.is_empty() || !p.invalid.is_empty())
+        .collect();
+
+    // §2 world join (top resolution mirrors `show pwr`).
+    let (entry_uri, top) = if let Some(f) = target_path(args) {
+        let p = Path::new(f);
+        if p.is_dir() {
+            crate::cmds::common::load_target(
+                Some(f),
+                mcc::cli::globals().top.as_deref(),
+                mcc::cli::globals().entry.as_deref(),
+            )
+            .unwrap_or_else(|e| {
+                die!("mcc::show", 1, "directory target: {:#}", e);
+            })
+        } else {
+            let path = if p.is_absolute() {
+                p.to_path_buf()
+            } else {
+                std::env::current_dir()
+                    .unwrap_or_else(|_| PathBuf::from("."))
+                    .join(p)
+            };
+            (path.to_string_lossy().to_string(), None)
+        }
+    } else {
+        (String::new(), None)
+    };
+    let top = crate::cmds::common::resolve_top_module(&entry_uri, top).unwrap_or_else(|| {
+        die!(
+            "mcc::show",
+            1,
+            "no modules found\nhint: load a file with -F or use --top"
+        );
+    });
+    let uri = mcc::mcb_iter_modules()
+        .iter()
+        .find(|(n, _)| *n == top)
+        .map(|(_, u)| mcc::McURI::from(u.as_str()))
+        .unwrap_or_else(|| mcc::McURI::from(top.clone()));
+
+    let (_tree, table, _arena, _store) =
+        mcc::mcc_build_flat_with_arena(&mcc::McIds::from(top.clone()), &uri, 1000).unwrap_or_else(
+            |e| {
+                die!("mcc::show", 1, "{e}");
+            },
+        );
+
+    // One row per (owner instance, adoption lane): the card join key is the
+    // lane's (family, role) face; a role-face no card covers stays visible
+    // as not-curated (worldmodel §7 `none` doctrine: say what is missing).
+    let mut rows: Vec<(String, String, String, Option<&mcc::model_profile::ModelProfileCard>, String)> =
+        Vec::new();
+    for (_, entry) in table.iter() {
+        let Some(lane) = entry.iface_lane.as_ref() else {
+            continue;
+        };
+        let (owner_path, owner_class) = match entry.parent_id.and_then(|id| table.get_entry(id)) {
+            Some(owner) => (owner.path.clone(), owner.class_name.clone()),
+            None => (entry.path.clone(), entry.class_name.clone()),
+        };
+        let role = lane.role.clone().unwrap_or_default();
+        let card = libs
+            .iter()
+            .filter_map(|(_, p)| p.card_for(&lane.family, &role))
+            .next();
+        rows.push((
+            owner_path,
+            owner_class,
+            format!("{}::{}", lane.family, lane.role.clone().unwrap_or_default()),
+            card,
+            lane.lane.clone(),
+        ));
+    }
+    rows.sort_by(|a, b| {
+        (&a.0, &a.1, &a.2, &a.4).cmp(&(&b.0, &b.1, &b.2, &b.4))
+    });
+    rows.dedup_by(|a, b| a.0 == b.0 && a.4 == b.4 && a.2 == b.2);
+
+    if matches!(mcc::cli::globals().format, OutputFormat::Text) {
+        let mut lines = Vec::new();
+        lines.push(format!("===== Sim Model Profiles: {top} ====="));
+        lines.push(String::new());
+        lines.push(format!("-- cards ({})", libs.len()));
+        for (lib, p) in &libs {
+            for c in &p.cards {
+                let model = c.model.as_deref().unwrap_or("-");
+                lines.push(format!(
+                    "  {lib}: {:<22} {:<9} {:<22} missing: {}",
+                    c.key,
+                    tier_word(c.tier),
+                    model,
+                    if c.missing.is_empty() {
+                        "-".to_string()
+                    } else {
+                        c.missing.join(", ")
+                    },
+                ));
+            }
+            for bad in &p.invalid {
+                lines.push(format!("  {lib}: INVALID {} : {}", bad.file, bad.error));
+            }
+        }
+        lines.push(String::new());
+        lines.push(format!("-- instances ({})", rows.len()));
+        for (owner, class, face, card, _) in &rows {
+            let resolution = match card {
+                Some(c) => format!(
+                    "{} {}{}",
+                    tier_word(c.tier),
+                    c.model.as_deref().unwrap_or(""),
+                    if c.missing.is_empty() {
+                        String::new()
+                    } else {
+                        format!("  missing: {}", c.missing.join(", "))
+                    }
+                ),
+                None => "not-curated (no card for this role face)".to_string(),
+            };
+            lines.push(format!("  {owner:<28} {class:<22} {face:<24} {resolution}"));
+        }
+        let rendered = lines.join("\n");
+        if let Some(path) = &mcc::cli::globals().output {
+            std::fs::write(path, rendered)?;
+        } else {
+            println!("{rendered}");
+        }
+        return Ok(());
+    }
+
+    let tier_json = |t: ProfileTier| tier_word(t).to_string();
+    let data = json!({
+        "type": "sim",
+        "format": "model-profile/v1",
+        "top": top,
+        "cards": libs.iter().map(|(lib, p)| json!({
+            "lib": lib,
+            "cards": p.cards.iter().map(|c| json!({
+                "key": c.key,
+                "tier": tier_json(c.tier),
+                "model": c.model,
+                "pins": c.pins.iter().map(|pin| json!({
+                    "pin": pin.pin,
+                    "kind": pin.kind,
+                    "source": pin.source,
+                })).collect::<Vec<_>>(),
+                "boundary_on": c.boundary_on,
+                "consumes": c.consumes,
+                "assumptions": c.assumptions,
+                "missing": c.missing,
+                "external": c.external,
+                "notes": c.notes,
+            })).collect::<Vec<_>>(),
+            "invalid": p.invalid.iter().map(|b| json!({
+                "file": b.file,
+                "error": b.error,
+            })).collect::<Vec<_>>(),
+        })).collect::<Vec<_>>(),
+        "instances": rows.iter().map(|(owner, class, face, card, lane)| json!({
+            "owner": owner,
+            "class": class,
+            "face": face,
+            "lane": lane,
+            "card": card.map(|c| json!({
+                "key": c.key,
+                "tier": tier_json(c.tier),
+                "model": c.model,
+                "missing": c.missing,
+            })),
+            "curated": card.is_some(),
+        })).collect::<Vec<_>>(),
+    });
+    emit_show(args.target, &data, args.span)
+}
+
+/// The canonical tier word, as the card file spells it.
+fn tier_word(t: mcc::model_profile::ProfileTier) -> &'static str {
+    match t {
+        mcc::model_profile::ProfileTier::Descend => "descend",
+        mcc::model_profile::ProfileTier::Derive => "derive",
+        mcc::model_profile::ProfileTier::Boundary => "boundary",
+        mcc::model_profile::ProfileTier::Host => "host",
+        mcc::model_profile::ProfileTier::None => "none",
+    }
 }
 
 // `show pwrflow` — derived power-flow single view

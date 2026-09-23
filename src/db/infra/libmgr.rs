@@ -262,7 +262,20 @@ pub fn mcb_load_lib(name: &str, root: &Path) -> bool {
     }
 
     // §12.1 DefinitionSpace manifest: record the loaded library boundary
-    // (name + on-disk root + the uris it brought in).
+    // (name + on-disk root + the uris it brought in), plus the model profile
+    // cards from its `sim/` sidecar (worldmodel-design §7 W3).
+    let profiles = crate::db::infra::model_profile::load_lib_profiles(root);
+    if !profiles.invalid.is_empty() {
+        for bad in &profiles.invalid {
+            warn!(target: "mcc::lib", name = name, file = %bad.file, error = %bad.error, "model profile card invalid");
+        }
+    }
+    info!(
+        target: "mcc::lib",
+        name = name,
+        cards = profiles.cards.len(),
+        "model profiles loaded"
+    );
     workspace::WORKSPACE.libs.insert(
         name.to_string(),
         LibBoundary {
@@ -273,6 +286,7 @@ pub fn mcb_load_lib(name: &str, root: &Path) -> bool {
                 .values()
                 .map(|sn| sn.uri.to_string())
                 .collect(),
+            profiles,
         },
     );
 
