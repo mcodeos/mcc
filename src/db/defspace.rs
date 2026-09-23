@@ -272,6 +272,19 @@ impl<'a> DefinitionSpace<'a> {
         )
     }
 
+    /// The components of the one defining file `uri`, any domain —
+    /// [`all_components`](Self::all_components) cut down to a single file
+    /// through the registry's per-uri index (P1.1). Same rows, same order,
+    /// same shadow exclusion; only the arena walk shrinks to the file's own
+    /// bucket.
+    pub fn all_components_in_uri(&self, uri: &str) -> Vec<(McSpaceName, Arc<McComponent>)> {
+        peel_components(
+            self.ws
+                .registry()
+                .enumerate_in_uri(DefKind::Component, DomainFilter::Any, uri),
+        )
+    }
+
     /// Enumerate every live module definition (any domain).
     pub fn all_modules(&self) -> Vec<(McSpaceName, Arc<McModule>)> {
         peel_modules(
@@ -408,6 +421,42 @@ impl<'a> DefinitionSpace<'a> {
             self.ws
                 .registry()
                 .enumerate(DefKind::Capability, DomainFilter::Project),
+        )
+    }
+
+    // ── Per-uri views (P1.1, lapper improvement plan) ──
+    //
+    // The per-file consumers — the lapper build and `upgrade_unknown_defs` in
+    // `mc_code.rs` — only ever want "what does THIS file declare". The full
+    // enumerations above answer that by walking the whole registry and
+    // filtering by `sn.uri` at the call site; these views push the filter into
+    // the registry's per-uri index, so the walk covers one file's bucket. Same
+    // rows, same order as the full view restricted to `uri`.
+
+    /// The project modules of the one defining file `uri`.
+    pub fn workspace_modules_in_uri(&self, uri: &str) -> Vec<(McSpaceName, Arc<McModule>)> {
+        peel_modules(
+            self.ws
+                .registry()
+                .enumerate_in_uri(DefKind::Module, DomainFilter::Project, uri),
+        )
+    }
+
+    /// The project components of the one defining file `uri`.
+    pub fn workspace_components_in_uri(&self, uri: &str) -> Vec<(McSpaceName, Arc<McComponent>)> {
+        peel_components(
+            self.ws
+                .registry()
+                .enumerate_in_uri(DefKind::Component, DomainFilter::Project, uri),
+        )
+    }
+
+    /// The project interfaces of the one defining file `uri`.
+    pub fn workspace_interfaces_in_uri(&self, uri: &str) -> Vec<(McSpaceName, Arc<McInterface>)> {
+        peel_interfaces(
+            self.ws
+                .registry()
+                .enumerate_in_uri(DefKind::Interface, DomainFilter::Project, uri),
         )
     }
 

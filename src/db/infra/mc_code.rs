@@ -3495,32 +3495,24 @@ impl McCode {
             };
 
         // Modules
-        for (sn, module) in crate::definition_space().workspace_modules() {
-            if sn.uri == uri.as_str() {
-                collect(&module.params, &mut param_defs);
-            }
+        for (_sn, module) in crate::definition_space().workspace_modules_in_uri(uri) {
+            collect(&module.params, &mut param_defs);
         }
         // Components
-        for (sn, comp) in crate::definition_space().workspace_components() {
-            if sn.uri == uri.as_str() {
-                collect(&comp.params, &mut param_defs);
-                for func in comp.funcs.iter() {
-                    collect(&func.params, &mut param_defs);
-                }
+        for (_sn, comp) in crate::definition_space().workspace_components_in_uri(uri) {
+            collect(&comp.params, &mut param_defs);
+            for func in comp.funcs.iter() {
+                collect(&func.params, &mut param_defs);
             }
         }
         // Interfaces
-        for (sn, iface) in crate::definition_space().workspace_interfaces() {
-            if sn.uri == uri.as_str() {
-                collect(&iface.params, &mut param_defs);
-            }
+        for (_sn, iface) in crate::definition_space().workspace_interfaces_in_uri(uri) {
+            collect(&iface.params, &mut param_defs);
         }
         // Func params (nested inside modules)
-        for (sn, module) in crate::definition_space().workspace_modules() {
-            if sn.uri == uri.as_str() {
-                for func in module.funcs.iter() {
-                    collect(&func.params, &mut param_defs);
-                }
+        for (_sn, module) in crate::definition_space().workspace_modules_in_uri(uri) {
+            for func in module.funcs.iter() {
+                collect(&func.params, &mut param_defs);
             }
         }
 
@@ -3984,11 +3976,8 @@ impl McCode {
     ) {
         // ── InstDef: declare_instance declarations as InstDef ──
         // Modules: `comp.sub uC` inside `mod.sub { ... }`.
-        let modules = crate::definition_space().workspace_modules();
+        let modules = crate::definition_space().workspace_modules_in_uri(uri);
         for (sn, m) in modules.iter() {
-            if sn.uri != uri.as_str() {
-                continue;
-            }
             let mod_ident = sn.ident.to_string();
             for (inst_name, (_iotype, inst)) in m.insts.insts() {
                 // ★ Declareb inference: the def kind follows the declared
@@ -4032,11 +4021,8 @@ impl McCode {
         }
         // Components: sub-instances declared inside a component body
         // (e.g. `U_MCU` in a `component` block) never got an InstDef because
-        let comps = crate::definition_space().workspace_components();
+        let comps = crate::definition_space().workspace_components_in_uri(uri);
         for (sn, comp) in comps.iter() {
-            if sn.uri != uri.as_str() {
-                continue;
-            }
             let comp_ident = sn.ident.to_string();
             for (inst_name, (_iotype, inst)) in comp.insts.insts() {
                 // ★ Declareb inference: the def kind follows the declared
@@ -4294,12 +4280,8 @@ impl McCode {
     }
 
     fn lapper_module_ports(uri: &McURI, sem: &mut McSemSymbols, symbol_lapper: &mut DedupLapper) {
-        let modules = crate::definition_space().workspace_modules();
+        let modules = crate::definition_space().workspace_modules_in_uri(uri);
         for (sn, m) in modules.iter() {
-            if sn.uri != uri.as_str() {
-                continue;
-            }
-
             tracing::debug!(
                 target: "mcc::lsp",
                 "[LAPPER_DEBUG] Processing module params: {}",
@@ -4731,11 +4713,8 @@ impl McCode {
         sem: &mut McSemSymbols,
         symbol_lapper: &mut DedupLapper,
     ) {
-        let modules = crate::definition_space().workspace_modules();
+        let modules = crate::definition_space().workspace_modules_in_uri(uri);
         for (sn, m) in modules.iter() {
-            if sn.uri != uri.as_str() {
-                continue;
-            }
             let mod_ident = sn.ident.to_string();
             for func in m.funcs.iter() {
                 let fscope = func.name.to_string();
@@ -4874,10 +4853,9 @@ impl McCode {
         symbol_lapper: &mut DedupLapper,
     ) {
         let all_comps: Vec<(String, Arc<McComponent>, String)> = crate::definition_space()
-            .all_components()
+            .all_components_in_uri(uri)
             .into_iter()
             .map(|(sn, comp)| (sn.ident.to_string(), comp, sn.uri.to_string()))
-            .filter(|(_, _, comp_uri)| comp_uri == uri.as_str())
             .collect();
         for (comp_ident, comp, _comp_uri) in &all_comps {
             for (name, span) in comp.params.iter_defs_with_span() {
@@ -5006,10 +4984,9 @@ impl McCode {
 
     fn lapper_component_defs(uri: &McURI, sem: &mut McSemSymbols, symbol_lapper: &mut DedupLapper) {
         let all_comps: Vec<(String, Arc<McComponent>, String)> = crate::definition_space()
-            .all_components()
+            .all_components_in_uri(uri)
             .into_iter()
             .map(|(sn, comp)| (sn.ident.to_string(), comp, sn.uri.to_string()))
-            .filter(|(_, _, comp_uri)| comp_uri == uri.as_str())
             .collect();
         for (comp_ident, comp, _comp_uri) in &all_comps {
             for (span, port_name, scope) in comp.params.iter_net_refs() {
