@@ -20,6 +20,7 @@ mod dotted_int_component_name;
 mod entry_discovery;
 mod error_expression;
 mod eval_engine;
+mod export_json_payload;
 mod export_kind_lists;
 mod gate_phase1;
 mod ground_projection_declared;

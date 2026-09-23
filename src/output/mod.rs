@@ -189,6 +189,25 @@ pub fn emit_envelope(
     write_out(&buf, target)
 }
 
+/// Emit a **bare** JSON payload — no envelope (U277: the export JSON face
+/// speaks the payload only).
+///
+/// Both entry points of `mcc export` (the local build and the RPC round-trip)
+/// serialize the same [`envelope::ExportData`] through this one function, so
+/// their bytes cannot drift: struct serialization keeps the declaration order,
+/// while a round-trip through `serde_json::Value` would alphabetize the keys.
+pub fn emit_payload_json(
+    data: &envelope::ExportData,
+    format: OutputFormat,
+    target: Option<&Path>,
+) -> Result<()> {
+    let buf = match format {
+        OutputFormat::JsonPretty => serde_json::to_string_pretty(data)?,
+        _ => serde_json::to_string(data)?,
+    };
+    write_out(&buf, target)
+}
+
 // ── A-tier projection envelope (U86 item 7 first slice; see the CLI design §2.5) ──
 
 /// The read-side commands whose `-f json` stdout was the **bare** payload before
@@ -401,12 +420,6 @@ pub fn render_envelope_brief(env: &envelope::Envelope, skip_diagnostics: bool) -
         out.push_str(&format!("  query: expr={:?}, count={}\n", q.expr, q.count));
     }
 
-    if let Some(e) = &r.export {
-        out.push_str(&format!(
-            "  export: kind={}, format={}, count={}\n",
-            e.kind, e.format, e.count
-        ));
-    }
 
     let s = &r.summary;
     if skip_diagnostics {
@@ -696,12 +709,6 @@ pub fn render_envelope_text(env: &envelope::Envelope, skip_diagnostics: bool) ->
     }
     if let Some(q) = &r.query {
         out.push_str(&format!("  query: expr={:?}, count={}\n", q.expr, q.count));
-    }
-    if let Some(e) = &r.export {
-        out.push_str(&format!(
-            "  export: kind={}, format={}, count={}\n",
-            e.kind, e.format, e.count
-        ));
     }
 
     // ── Summary: the netlist statistics live in the Net Summary section above;

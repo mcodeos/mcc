@@ -149,9 +149,6 @@ pub struct CommandResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub query: Option<QueryData>,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub export: Option<ExportData>,
-
     /// Failure ledger (resolve-gate-design.md §7.1-2): cross-pass record of
     /// non-clean parses — silent fallbacks, phantoms, floating wires. Summary
     /// counts always; `detail` rows only under `--ledger` / `--ledger=audit`.
