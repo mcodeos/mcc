@@ -52,6 +52,10 @@ pub struct LibBoundary {
     pub name: String,
     pub root: PathBuf,
     pub uris: Vec<McURI>,
+    /// Model profile cards read from the library's `sim/` sidecar
+    /// (worldmodel-design §7 W3), kept with the boundary so they follow the
+    /// library load lifecycle.
+    pub profiles: crate::db::infra::model_profile::LoadedProfiles,
 }
 
 /// §12.1 — the definition space object: loading context (source manifest +
@@ -560,6 +564,7 @@ mod tests {
                 name: "acme".into(),
                 root: PathBuf::from("/libs/acme"),
                 uris: vec![uri("/mcc/lib.mc")],
+                profiles: Default::default(),
             },
         );
 

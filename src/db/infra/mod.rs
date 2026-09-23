@@ -4,4 +4,5 @@ pub(crate) mod global;
 pub(crate) mod init;
 pub mod libmgr;
 pub mod mc_code;
+pub mod model_profile;
 pub(crate) mod mc_use;

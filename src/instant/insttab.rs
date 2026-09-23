@@ -359,7 +359,7 @@ pub(crate) fn expectations_of_pin(
 /// the two readers cannot drift. `None` = the pin adopts no interface — a
 /// real answer, not a missing one: the gate says nothing about the pin.
 #[derive(Debug, Clone)]
-pub(crate) struct IfaceLane {
+pub struct IfaceLane {
     /// Interface family name — the definition's own name (`XTAL`, not the
     /// adoption row's instance spelling).
     pub family: String,
