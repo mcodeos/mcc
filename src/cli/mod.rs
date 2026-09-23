@@ -900,8 +900,8 @@ impl ExportKind {
             ExportKind::Bom => 1,
             ExportKind::Spice => 2,
             ExportKind::KiCad => 3,
-            ExportKind::KiCadSch => 4,
-            ExportKind::InstList => 5,
+            ExportKind::KiCadSch => 5,
+            ExportKind::InstList => 4,
         }
     }
 
