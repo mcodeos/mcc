@@ -53,11 +53,11 @@ pub fn resolve_capability_name(from_uri: &McURI, name: &McIds) -> AdoptTarget {
     let name_str = name.to_string();
 
     // P3/P4 — the visibility table the file's own decls and imports derive.
-    if let Some(sn) = workspace::WORKSPACE
+    if let Some(entry) = workspace::WORKSPACE
         .visibility
         .get(&(canonical, name_str.clone()))
     {
-        return classify_visible(&sn);
+        return classify_visible(&entry.winner.name);
     }
 
     // P5 — system-lib capability by name only (capabilities are excluded from
@@ -134,11 +134,11 @@ pub fn resolve_variant_base(from_uri: &McURI, name: &McIds) -> VariantBaseTarget
     let name_str = name.to_string();
 
     // P3/P4 — the visibility table the file's own decls and imports derive.
-    if let Some(sn) = workspace::WORKSPACE
+    if let Some(entry) = workspace::WORKSPACE
         .visibility
         .get(&(canonical, name_str.clone()))
     {
-        return classify_variant_base(&sn);
+        return classify_variant_base(&entry.winner.name);
     }
 
     // P5 — system-lib component by name (the `resolve_class` system fallback,

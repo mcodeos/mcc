@@ -1598,6 +1598,25 @@ impl RegistryState {
         None
     }
 
+    /// Kindless identity lookup — the first live id for `sn` in the same
+    /// read-preference order as [`Self::cmie_by_identity`]. The T11
+    /// visibility-table read resolves the row's stored identity to its id
+    /// through here (the row cannot store the id: at `sync_visibility` time
+    /// on the LSP edit path the target def may not be registered yet).
+    pub(crate) fn def_id_by_identity(&self, sn: &McSpaceName) -> Option<DefId> {
+        for kind in [
+            DefKind::Component,
+            DefKind::Module,
+            DefKind::Interface,
+            DefKind::Enum,
+        ] {
+            if let Some(id) = self.live_ids_of(sn, kind).first().copied() {
+                return Some(id);
+            }
+        }
+        None
+    }
+
     /// Does the system library (not the workspace) define this identity, as
     /// any class kind (component / module / interface / enum)?
     pub(crate) fn system_contains(&self, sn: &McSpaceName) -> bool {
@@ -2346,6 +2365,13 @@ pub fn live_entry_by_id(id: DefId) -> Option<(McSpaceName, DefValue)> {
 /// P3/P4 `find_scoped_by_name` in `db/resolve/policy.rs`).
 pub fn cmie_by_identity(sn: &McSpaceName) -> Option<McCMIE> {
     active().cmie_by_identity(sn)
+}
+
+/// Resolve a definition identity to its live `DefId`, in the same
+/// kind-priority order as [`cmie_by_identity`]. The T11 visibility-table
+/// read resolves the row's stored identity to its id through here.
+pub fn def_id_by_identity(sn: &McSpaceName) -> Option<DefId> {
+    active().def_id_by_identity(sn)
 }
 
 /// Does the system library (not the workspace) define this identity, as any
