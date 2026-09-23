@@ -98,15 +98,21 @@ body {
 }
 #canvas {
   flex: 1;
-  overflow: auto;
+  /* The canvas is a camera viewport, not a scroll container: panning moves
+     the translate + scale transform on #zoom-pane (interact.rs), never a
+     scrollbar. */
+  overflow: hidden;
   padding: 16px;
 }
-/* Zoomed SVG is wrapped in #zoom-pane; the pane sizes to (canvas-width × zoom)
-   so scrolling pans the zoomed content. margin:auto centers the pane when it is
-   smaller than the canvas (zoom < 1); once it overflows, auto margins collapse to 0
-   and the scroll container takes over. */
+/* The drawing is wrapped in #zoom-pane at its zoom=1 size; the camera is a
+   translate + scale transform on the pane. The SVG itself is never resized. */
 #zoom-pane {
-  margin: 0 auto;
+  transform-origin: 0 0;
+  will-change: transform;
+  cursor: grab;
+}
+#zoom-pane.dragging {
+  cursor: grabbing;
 }
 #zoom-pane svg {
   display: block;
