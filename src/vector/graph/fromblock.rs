@@ -2234,6 +2234,7 @@ mod tests {
             exp_role: Vec::new(),
             exp_class: Vec::new(),
             iface_lane: None,
+            ac_face: None,
             node_id: None,
             class_def: None,
             point: None,

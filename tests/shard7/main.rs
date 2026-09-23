@@ -8,6 +8,7 @@
 #[path = "../common/mod.rs"]
 pub mod common;
 
+mod ac_face_gates;
 mod bom_nc_classified;
 mod build_dir_net_checks;
 mod build_products;
@@ -52,6 +53,7 @@ mod tablea_dispatch_regression;
 mod u131_named_func_args;
 mod u138_iface_return_face;
 mod u141_parsed_pins_boundary;
+mod u216_canon_names;
 mod u54_parameter_default;
 mod ghost_port_boundary;
 mod vec_group_expansion_equivalence;

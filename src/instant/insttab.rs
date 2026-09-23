@@ -380,6 +380,34 @@ pub struct IfaceLane {
     pub lane: String,
 }
 
+/// U217: which positional member of an AC mains face this endpoint is. The
+/// positional law is the DC pair's ([`PortInst::dc_pair`]): member order is
+/// declaration order — the first member is the supply face, the second the
+/// declared return. The spelling (`feed{L, N}` → `L`/`N`) rides along only
+/// for the diagnostic's message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AcFaceMember {
+    Hot,
+    Ret,
+}
+
+/// U217: the AC mains face an endpoint belongs to, decoded once at flatten
+/// time (module rows from the port's own declaration, component rows from the
+/// pin's resolved interface binding). `face` is the row's written port name —
+/// with the entry's owner id, the identity both members of one face share;
+/// `member` is `None` for a component-row carry, which states the nominal but
+/// no positional face.
+#[derive(Debug, Clone)]
+pub struct AcFaceCarry {
+    pub face: String,
+    /// The member's written spelling (`L`), for the message only — the
+    /// positional [`AcFaceMember`] is the semantic half.
+    pub label: String,
+    pub member: Option<AcFaceMember>,
+    pub volts: Option<f64>,
+    pub hz: Option<f64>,
+}
+
 /// One role attribute's declared value set, read the way the connection-time
 /// judge reads it (`stmt.rs` `iface_attr_value_set`): a `Set` expression
 /// flattens to its items, anything else reads as written, quotes stripped.
@@ -475,6 +503,87 @@ pub(crate) fn iface_lane_of_pin(
         exclusive,
         lane: port_name.to_string(),
     })
+}
+
+/// U217: the AC mains face a component pin's adoption row declares
+/// ([`AcFaceCarry`]) — the resolved `::AC.*` binding's region nominal, decoded
+/// by the same per-axis rule the module port row applies
+/// (`phases.rs::declared_ac_face_of_params`). A component row states the
+/// nominal but no positional face (member `None`): the return gate judges
+/// direction-word module rows, where the pair and its positions are the row's
+/// own declaration. `None` = the pin adopts no `AC`-family interface — a real
+/// answer, not a missing one.
+pub(crate) fn ac_face_carry_of_pin(
+    comp: &crate::instant::mc_comp::McComponentInst,
+    pin_name: &str,
+) -> Option<AcFaceCarry> {
+    let names = comp.def.pins.pin_id_to_names.get(pin_name)?;
+    let port_name = names.first()?.split('.').next()?;
+    if port_name.is_empty() {
+        return None;
+    }
+    let port = comp.def.pins.names_to_id.get(port_name)?;
+    let crate::semantic::component::mc_pins::McPinPort::Interface(iface) = port else {
+        return None;
+    };
+    if !is_ac_family(&iface.base_name()) {
+        return None;
+    }
+    let AcFaceCarryVolts { volts, hz } = declared_ac_face_of_params(&iface.params);
+    Some(AcFaceCarry {
+        face: String::new(),
+        label: port_name.to_string(),
+        member: None,
+        volts,
+        hz,
+    })
+}
+
+/// U217: the `AC` interface family test — the pre-dot segment of the
+/// interface's own name (`AC.1P` → `AC`), the same one-family law the DC
+/// axis's `base_name() == "DC"` gate applies. The one decode both flatten
+/// hosts share: the module port row (`phases.rs::instantiate_interface`)
+/// and the component pin row ([`ac_face_carry_of_pin`]) read the family gate
+/// and the per-axis nominal decode from here, so the two hosts cannot drift.
+pub(crate) fn is_ac_family(base_name: &str) -> bool {
+    base_name.split('.').next() == Some("AC")
+}
+
+/// U217: the declared region nominal of an `::AC.*` row's arguments — the
+/// sole scalar `Volt` argument and the sole scalar `Hz` argument (a range or
+/// `±` literal is not a value; two of one axis cancel to "do not pick"). The
+/// one decode both flatten hosts share.
+pub(crate) fn declared_ac_face_of_params(
+    params: &[crate::semantic::basic::mc_param::McParamValue],
+) -> AcFaceCarryVolts {
+    let mut one = |unit: &'static crate::semantic::basic::mc_uval::McUnit| -> Option<f64> {
+        let mut found: Option<f64> = None;
+        for p in params {
+            let crate::semantic::basic::mc_param::McParamValue::UValue(uv) = p else {
+                continue;
+            };
+            if uv.unit() != unit || uv.is_range_or_plusminus() {
+                continue;
+            }
+            if found.is_some() {
+                return None;
+            }
+            found = Some(uv.value());
+        }
+        found
+    };
+    AcFaceCarryVolts {
+        volts: one(&crate::semantic::basic::mc_uval::McUnit::Volt),
+        hz: one(&crate::semantic::basic::mc_uval::McUnit::Hz),
+    }
+}
+
+/// The (volts, hz) pair [`declared_ac_face_of_params`] decodes, before it is
+/// dressed as a carry (the module host adds the positional face, the
+/// component host adds none).
+pub(crate) struct AcFaceCarryVolts {
+    pub volts: Option<f64>,
+    pub hz: Option<f64>,
 }
 
 /// What this component **is**, as its own `spec` table declares it — the flat
@@ -836,6 +945,16 @@ pub struct InstEntry {
     /// so the flat exclusive-peer gate never re-derives adoption. `None` =
     /// the pin adopts no interface, a real answer the gate stays silent on.
     pub iface_lane: Option<IfaceLane>,
+    /// ★ U217 (ac-interface-design.md §7): the AC mains face this endpoint
+    /// belongs to — the `::AC.*` contract the owning row declares, with the
+    /// region nominal it states and, for a direction-word module row, which
+    /// positional member (first = the supply face, second = the declared
+    /// return) this endpoint is. A declaration-face carry like
+    /// [`Self::iface_lane`]: decoded once at flatten time, from the port's own
+    /// declaration (module rows) or the pin's resolved interface binding
+    /// (component rows) — never from a name or a shape. `None` = the endpoint
+    /// declares no AC face, a real answer the AC gates stay silent on.
+    pub ac_face: Option<AcFaceCarry>,
     /// ★ PI axis (power-quality-design.md §1.2): the element class this
     /// component's own `spec` table declares it to be — decoupling capacitor,
     /// filter magnetics, or a dissipating pass — so a rule can ask "is this a
@@ -1356,6 +1475,7 @@ impl InstTable {
             exp_role: Vec::new(),
             exp_class: Vec::new(),
             iface_lane: None,
+            ac_face: None,
             element_class: None,
             resistance_ohm: None,
             power_rated_w: None,
@@ -1445,6 +1565,15 @@ impl InstTable {
     pub fn set_iface_lane(&mut self, id: u32, lane: IfaceLane) {
         if let Some(entry) = self.entries.get_mut(&id) {
             entry.iface_lane = Some(lane);
+        }
+    }
+
+    /// Set the declared AC mains face of an endpoint by ID
+    /// ([`InstEntry::ac_face`]). Flatten sites only — the module port member
+    /// loop and the component pin loops.
+    pub fn set_ac_face(&mut self, id: u32, face: AcFaceCarry) {
+        if let Some(entry) = self.entries.get_mut(&id) {
+            entry.ac_face = Some(face);
         }
     }
 
@@ -1771,6 +1900,17 @@ impl InstTable {
             .values()
             .filter(|e| e.kind == InstKind::Component)
             .collect()
+    }
+
+    /// Every flat entry, in id order (U217: the AC face gates group entries by
+    /// declaration face, so they walk the whole table rather than the nets —
+    /// a dangling face member is exactly the endpoint no net names). Id order
+    /// is the registration order ([P0-DET]), so consumers see a stable
+    /// sequence.
+    pub(crate) fn iter_entries(&self) -> impl Iterator<Item = &InstEntry> {
+        let mut ids: Vec<u32> = self.entries.keys().copied().collect();
+        ids.sort_unstable();
+        ids.into_iter().filter_map(move |id| self.entries.get(&id))
     }
 
     /// Get all module entries
@@ -2146,6 +2286,33 @@ impl InstTable {
                 if let Some(member_decl) = member_decl {
                     self.set_pwr_member(member_id, member_decl);
                 }
+
+                // ★ U217 (ac-interface-design.md §7): an `::AC.*` row's face
+                // rides the flat member entries, positional like the DC pair —
+                // first member the supply face, second the declared return.
+                // Both members must be written (a two-member face is what the
+                // AC return gate judges); the carry holds the port path (the
+                // identity both members share), the member's spelling, and the
+                // row's declared region nominal.
+                if let Some(ac) = &port.ac_face {
+                    if port.bus_members.len() == 2 {
+                        let member_word = if mi == 0 {
+                            AcFaceMember::Hot
+                        } else {
+                            AcFaceMember::Ret
+                        };
+                        self.set_ac_face(
+                            member_id,
+                            AcFaceCarry {
+                                face: port.name.clone(),
+                                label: member.clone(),
+                                member: Some(member_word),
+                                volts: ac.volts,
+                                hz: ac.hz,
+                            },
+                        );
+                    }
+                }
             }
 
             // ★ A′: de-electrify the aggregate header(s). Members are physical;
@@ -2396,6 +2563,13 @@ impl InstTable {
                         self.set_iface_lane(pin_id, lane);
                     }
 
+                    // ★ U217: the pin's AC mains face rides the flat entry the
+                    // same way (nominal only — a component row states no
+                    // positional face).
+                    if let Some(carry) = ac_face_carry_of_pin(comp, pin_name) {
+                        self.set_ac_face(pin_id, carry);
+                    }
+
                     // ── Declaration position for pins ──
                     // An unconnected pin never appears in a net, so `flatten_nets`
                     // can't back-fill a wiring site into `src_pos`. Anchor the
@@ -2635,6 +2809,13 @@ impl InstTable {
                     // resolver, not a second opinion.
                     if let Some(lane) = iface_lane_of_pin(comp, pin_name) {
                         self.set_iface_lane(pin_id, lane);
+                    }
+
+                    // ★ U217: the pin's AC mains face rides the flat entry the
+                    // same way (nominal only — a component row states no
+                    // positional face).
+                    if let Some(carry) = ac_face_carry_of_pin(comp, pin_name) {
+                        self.set_ac_face(pin_id, carry);
                     }
 
                     let (role, _inferred) = infer_member_role(
