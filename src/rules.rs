@@ -1502,6 +1502,11 @@ macro_rules! declare_gate_rule {
 /// design §5-1); level and label are looked up from this table by the netcheck
 /// runner. The runner call sequence itself (R03/R04/R06 share one pass, R05 /
 /// R15 are global counters) stays in `instant::netcheck`.
+///
+/// These gates are only one third of the yardstick: the truth layer (golden
+/// netlists) and the comparator (`netdiff`) live in the mcs test repo on
+/// purpose — a system under test must not grade itself. See
+/// `mcd/doc/test/pass2-yardstick-design.md` for the seam.
 pub static GATE_RULES: &[GateRule] = &[
     declare_gate_rule! {
         code = crate::errcodes::GATE_LITERAL_POINT,
