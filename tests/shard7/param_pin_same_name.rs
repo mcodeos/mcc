@@ -4,9 +4,9 @@
 
 //! CIMP U269: a component parameter and a pin sharing one name in one
 //! component scope are two defs -- two canonical keys, two DeclareIds, two
-//! spans. (A net-line `u1.P` member ref still anchors at the parameter's
-//! span: that face lives in the semantic scope's param-first category chain
-//! and is a separate ledger item.)
+//! spans. CIMP U281: the net-line `u1.P` member face is terminal-first (G10)
+//! -- a member ref anchors at the pin's span, never at the parameter's, while
+//! a param with no same-name pin keeps the parameter anchor.
 
 // Family naming `{family}__{essence}` deliberately doubles the underscore to
 // keep the grep-able family token separate (matrix §1 taxonomy).
@@ -30,6 +30,24 @@ module main
     PP u2
 
     u1.P -> u2.P
+}
+"#;
+
+/// A second fixture without the pin/param name collision: `Q` is a parameter
+/// only, so the member face falls through the terminal face to the parameter.
+const PARAM_ONLY: &str = r#"
+component PQ(Q)
+{
+    pins = [
+        1 = X
+    ]
+}
+
+module main
+{
+    PQ q1
+
+    q1.Q -> q1.Q
 }
 "#;
 
@@ -176,4 +194,80 @@ fn svc_parpin__ref_side_keeps_the_two_defs_apart_in_the_def_map() {
             def_rows.join("\n")
         );
     }
+}
+
+/// Def span of the F12 MAP row whose ref name equals `ref_name`
+/// (`Ref(PinNameRef/13, id=N, name='u1.P') => Def(..., span=[a,b], ...)`).
+fn map_def_span(dump: &str, ref_name: &str) -> Option<(usize, usize)> {
+    dump.lines()
+        .find(|l| l.contains("F12_DIAG MAP:") && l.contains(&format!("name='{ref_name}'")))?
+        .split("span=[")
+        .nth(1)
+        .and_then(|rest| {
+            let comma = rest.find(',')?;
+            let close = rest.find(']')?;
+            Some((
+                rest[..comma].trim().parse().ok()?,
+                rest[comma + 1..close].trim().parse().ok()?,
+            ))
+        })
+}
+
+/// CIMP U281: the `u1.P` / `u2.P` net-line member face is terminal-first --
+/// each member ref anchors at the pin's span inside the pins list, never at
+/// the parameter header, even though `P` is declared as both.
+#[test]
+fn svc_parpin__member_ref_anchors_at_the_pin_not_the_parameter() {
+    let _lock = common::lock();
+    common::reset();
+
+    let uri: McURI = "/mcc/param-pin-same-name-member.mc".to_string();
+    mcc::mcc_load_from_string(&uri, SOURCE);
+
+    let dump = mcc::dump_symbols_f12_text(&uri).expect("f12 dump");
+
+    let pin_span = (
+        SOURCE.find("= P").expect("pin P in source") + 2,
+        SOURCE.find("= P").unwrap() + 3,
+    );
+
+    for ref_name in ["u1.P", "u2.P"] {
+        assert_eq!(
+            map_def_span(&dump, ref_name),
+            Some(pin_span),
+            "the {ref_name} member ref must anchor at the pin span {pin_span:?}, not the parameter header; dump:\n{}",
+            dump.lines()
+                .filter(|l| l.contains("F12_DIAG MAP:"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
+    }
+}
+
+/// The terminal face only re-ranks the member face: with no pin sharing the
+/// name, the `q1.Q` member ref still falls through to the parameter anchor.
+#[test]
+fn svc_parpin__param_only_member_ref_keeps_the_parameter_anchor() {
+    let _lock = common::lock();
+    common::reset();
+
+    let uri: McURI = "/mcc/param-only-member-anchor.mc".to_string();
+    mcc::mcc_load_from_string(&uri, PARAM_ONLY);
+
+    let dump = mcc::dump_symbols_f12_text(&uri).expect("f12 dump");
+
+    let param_span = (
+        PARAM_ONLY.find("(Q)").expect("param Q in source") + 1,
+        PARAM_ONLY.find("(Q)").unwrap() + 2,
+    );
+
+    assert_eq!(
+        map_def_span(&dump, "q1.Q"),
+        Some(param_span),
+        "the q1.Q member ref must keep the parameter anchor {param_span:?}; dump:\n{}",
+        dump.lines()
+            .filter(|l| l.contains("F12_DIAG MAP:"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
 }
