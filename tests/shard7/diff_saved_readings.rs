@@ -287,9 +287,10 @@ fn two_saved_readings_report_what_the_two_worlds_report() {
 
     assert_eq!(
         count(&from_archives, "add"),
-        3,
-        "one box and its two pins: a difference of two empty pages would satisfy \
-         every equality below"
+        7,
+        "one box, its two pins, and the four wire rows of the redrawn page \
+         (b3719's dedupe redraws the coincident VDD-GND runs): a difference of \
+         two empty pages would satisfy every equality below"
     );
     assert_eq!(from_archives["items"], from_worlds["items"]);
     assert_eq!(from_archives["counts"], from_worlds["counts"]);

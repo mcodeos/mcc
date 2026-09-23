@@ -53,6 +53,16 @@ fn has_code(value: &Value, code: u64) -> bool {
         .any(|diagnostic| diagnostic["code"].as_u64() == Some(code))
 }
 
+/// Every diagnostic of one code across both diagnostic faces (pass0 and
+/// pass2): E3185 is produced at pass2, so a pass0-only scan reads as silent.
+fn all_diagnostics(value: &Value) -> Vec<&Value> {
+    let mut out: Vec<&Value> = diagnostics(value).iter().collect();
+    if let Some(pass2) = value["result"]["pass2"]["diagnostics"].as_array() {
+        out.extend(pass2.iter());
+    }
+    out
+}
+
 /// `VCC` / `GND` are declared as `main`'s own ports. E3136 (floating net
 /// label) and E4103 (undriven net) used to exempt any rail-*looking* spelling
 /// as an implicit rail, so the two names could stay bare here — the exemption
@@ -632,28 +642,38 @@ fn sem_falsediag__plain_key_without_subscript_is_quiet() {
 }
 
 /// A pin-name row that materializes zero pins is reported at the row, not
-/// dropped in silence: E3004 for the arithmetic-name form (`A - B` is not a
-/// pin name) and for the non-enumerable colon (`1:A = B`). Both otherwise left
-/// the row with zero pins and the user with only an indirect downstream error.
+/// dropped in silence. The arithmetic-name form (`A - B` is not a pin name)
+/// reads as a dynamic pin row whose name expression does not resolve, so it
+/// reports E3185 at pass2; the non-enumerable colon (`1:A = B`) is still the
+/// name-slot type error E3004 at pass0. Both otherwise left the row with zero
+/// pins and the user with only an indirect downstream error.
 #[test]
-fn sem_falsediag__pin_row_that_declares_nothing_is_e3004() {
-    for (row, what) in [
-        ("1 = A - B", "an arithmetic name is not a pin name"),
-        ("1 = A + B", "an arithmetic name is not a pin name"),
-        ("1:A = B", "a colon whose endpoints are not enumerable"),
+fn sem_falsediag__pin_row_that_declares_nothing_is_reported() {
+    for (row, code, what) in [
+        (
+            "1 = A - B",
+            3185,
+            "an arithmetic name is not a pin name",
+        ),
+        (
+            "1 = A + B",
+            3185,
+            "an arithmetic name is not a pin name",
+        ),
+        ("1:A = B", 3004, "a colon whose endpoints are not enumerable"),
     ] {
         let source = format!(
             "component P {{\n    pins = [\n        {row}\n        2 = B\n    ]\n}}\nmodule main {{\n    P p1\n}}\n"
         );
         let result = parse(&source);
-        let hits: Vec<&Value> = diagnostics(&result)
-            .iter()
-            .filter(|d| d["code"].as_u64() == Some(3004))
+        let hits: Vec<&Value> = all_diagnostics(&result)
+            .into_iter()
+            .filter(|d| d["code"].as_u64() == Some(code))
             .collect();
         assert_eq!(
             hits.len(),
             1,
-            "`{row}` ({what}) must report E3004 exactly once: {result}"
+            "`{row}` ({what}) must report E{code} exactly once: {result}"
         );
         assert_eq!(
             hits[0]["severity"], "error",
@@ -672,6 +692,12 @@ fn sem_falsediag__well_formed_pin_rows_are_e3004_silent() {
     assert!(
         !has_code(&result, 3004),
         "a well-formed pin list must not report E3004: {result}"
+    );
+    assert!(
+        !all_diagnostics(&result)
+            .iter()
+            .any(|d| d["code"].as_u64() == Some(3185)),
+        "a well-formed pin list must not report E3185: {result}"
     );
     assert_eq!(result["result"]["summary"]["errors"], 0);
 }

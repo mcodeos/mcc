@@ -232,6 +232,33 @@ pub(crate) fn display_name(name: &str) -> &str {
     name.trim_start_matches('_')
 }
 
+/// The name slot a suppressed box publishes — the class name, never the
+/// fabricated instance (`u_1`). Same law the drawn label follows
+/// (`render::shape` `box_name_label`); shared by the layout manifest so the
+/// hover card and the drawing agree.
+pub(crate) fn visible_name(b: &McVecBox) -> String {
+    if b.suppress_instance_name && !b.class_name.is_empty() {
+        display_name(&b.class_name).to_string()
+    } else {
+        b.name.clone()
+    }
+}
+
+/// The path a suppressed box publishes to the DOM (`data-mcc-path`) and to the
+/// layout manifest. The fabricated wrapper's instance segment is rewritten to
+/// the same visible name, so the fabricated `u_1` never reaches the artifact;
+/// both faces apply the same rewrite, so the canvas's path routing between the
+/// DOM and the manifest stays consistent.
+pub(crate) fn visible_path(b: &McVecBox) -> String {
+    if !b.suppress_instance_name {
+        return b.inst_path.clone();
+    }
+    match b.inst_path.rsplit_once('.') {
+        Some((prefix, _)) => format!("{prefix}.{}", visible_name(b)),
+        None => visible_name(b),
+    }
+}
+
 fn label_bounds(
     text: &str,
     center_x: f64,

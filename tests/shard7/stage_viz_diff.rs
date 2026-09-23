@@ -858,7 +858,23 @@ fn inserting_an_instance_does_not_erase_the_boxes_that_did_not_change() {
         "an insertion must not change the pins that were already there"
     );
     for c in changes_of(&d) {
-        assert_ne!(c["type"], "remove", "an insertion must not remove: {c}");
+        if c["type"] == "remove" {
+            // The drawn-wire face, not the circuit: b3719's wire dedupe redraws
+            // a coincident run when its payload changes, and the whole-item
+            // differ spells a redraw remove + add of one id. Only a segment has
+            // that face — a box or a pin taken out would be the law broken.
+            assert_eq!(
+                c["kind"], "segment",
+                "an insertion must not remove anything but a redrawn wire run: {c}"
+            );
+            assert!(
+                changes_of(&d)
+                    .iter()
+                    .any(|o| o["type"] == "add" && o["id"] == c["id"]),
+                "a removed segment must be a redraw — the same id added back: {c}"
+            );
+            continue;
+        }
         if c["type"] == "add" {
             continue;
         }

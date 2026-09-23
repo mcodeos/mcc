@@ -1147,12 +1147,24 @@ fn every_object_of_both_segments_is_accounted_for_exactly_once() {
                 .values()
                 .map(|k| count(k, &format!("joined_{side}")))
                 .sum();
+            // O9's reported-where-it-stands rows are a bucket of the segment too:
+            // a drawn segment publishes null ends by design, so every one of them
+            // reads as a branch row on the viz side (b3719 made that face
+            // non-empty here). The rows live in the join output and name their
+            // side, which is how the bucket stays per-segment.
+            let seg_name = if side == "left" { a } else { b };
+            let branch: u64 = stage["items"]
+                .as_array()
+                .expect("join items")
+                .iter()
+                .filter(|i| i["class"] == "branch" && i["side"].as_str() == Some(seg_name))
+                .count() as u64;
             assert_eq!(
-                offhop + keyless + joined,
+                offhop + keyless + joined + branch,
                 count(c, &format!("{side}_total")),
                 "`join {a} {b}`, {side} side: {offhop} outside every kind, {keyless} inside one but \
-                 holding no key, {joined} joined — that must be the whole segment, or an object is \
-                 in no bucket at all"
+                 holding no key, {joined} joined, {branch} reported as branch rows — that must be \
+                 the whole segment, or an object is in no bucket at all"
             );
         }
     }
@@ -1476,12 +1488,15 @@ fn a_path_is_matched_by_its_end_pair_and_never_by_its_name() {
     );
 
     // Every path row's handle is the pair, both ends named and each end a sorted
-    // list — never a bare name (O9: a path is a path between two endpoints).
+    // list — never a bare name (O9: a path is a path between two endpoints). The
+    // O9 branch rows are the reported-where-it-stands face: their ends are not
+    // both named, which is exactly why they stand outside the join, so they are
+    // not evidence here (b3719 made that face non-empty on the viz side).
     let rows = stage["items"]
         .as_array()
         .expect("items")
         .iter()
-        .filter(|i| i["kind"] == "path");
+        .filter(|i| i["kind"] == "path" && i["class"] != "branch");
     let mut seen = 0;
     for row in rows {
         seen += 1;
@@ -1694,6 +1709,10 @@ fn only_accepts_the_two_diagnostic_states_as_well() {
         "and the counts must keep describing the whole hop"
     );
 
+    // `branch` is occupied on this hop: a drawn segment publishes null ends by
+    // design (the routed run cannot name its endpoint pair), so every viz
+    // segment reads as an O9 branch row once b3719's dedupe made that face the
+    // segment's own shape. The filter must select exactly those rows.
     let (out, err, ok) = run_hop_in(
         &dir,
         &entry,
@@ -1701,11 +1720,32 @@ fn only_accepts_the_two_diagnostic_states_as_well() {
         "viz",
         &["-f", "json", "--only", "branch"],
     );
+    assert!(ok, "`--only branch` failed: {err}");
+    let only_branch = stage_of(&out);
+    assert_eq!(
+        only_branch["items"].as_array().expect("items").len(),
+        rows_of(&full, "branch").len(),
+        "`--only branch` must select exactly the rows the class column prints"
+    );
+    assert_eq!(
+        only_branch["counts"], full["counts"],
+        "and the counts must keep describing the whole hop"
+    );
+
+    // Law C needs a class the hop has none of: `merge` is one here. An empty
+    // class is an empty readout, not a failure.
+    let (out, err, ok) = run_hop_in(
+        &dir,
+        &entry,
+        "vec",
+        "viz",
+        &["-f", "json", "--only", "merge"],
+    );
     assert!(ok, "an empty class is a reading, not a failure: {err}");
     let empty = stage_of(&out);
     assert!(
         empty["items"].as_array().expect("items").is_empty(),
-        "this hop has no `branch`, so the filter must select nothing"
+        "this hop has no `merge`, so the filter must select nothing"
     );
     assert_eq!(empty["counts"], full["counts"]);
 

@@ -168,11 +168,19 @@ fn the_spice_netlist_order_survives_repeated_runs() {
         products.push(out);
     }
 
-    // The emitter's lines are `X<instance> <net> <net>`; `.SUBCKT` / `.END` are
-    // the file's frame, not instances.
+    // The emitter's instance lines are `<refdes> <net> <net>`, where the
+    // refdes leading letter comes from the class's refdes prefix (`R1`, `U2`,
+    // ...), so the first letter is not a structural marker. The file's frame is
+    // everything else: the `*` comment and the `.SUBCKT` / `.ENDS` / `.END`
+    // lines, so an instance line is a non-frame line with three tokens.
     let lines = products[0]
         .lines()
-        .filter(|l| l.starts_with('X') && l.split(' ').count() == 3)
+        .filter(|l| {
+            !l.is_empty()
+                && !l.starts_with('*')
+                && !l.starts_with('.')
+                && l.split(' ').count() == 3
+        })
         .count();
     assert!(
         lines >= MIN_LINES,

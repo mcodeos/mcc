@@ -2128,16 +2128,19 @@ fn bump(classes: &mut BTreeMap<&'static str, usize>, class: &'static str) {
 
 /// Split one segment's items into the objects of one kind and the leftovers.
 ///
-/// Two kinds of leftover, counted apart because they are different statements:
-/// an object of a declared kind that holds no key (counted here), and an object
-/// of a class no declaration names (counted by [`build_hop`], which sees both
-/// sides). The first is about the object, the second about the hop.
+/// Three kinds of leftover, counted apart because they are different
+/// statements: an object of a declared kind that holds no key (counted here),
+/// an object whose two ends are not both named (counted here too — the branch
+/// row and its count leave this function together), and an object of a class
+/// no declaration names (counted by [`build_hop`], which sees both sides). The
+/// first two are about the object, the third about the hop.
 fn partition(
     items: &[Value],
     declared: &[&'static str],
     hk: &HopKind,
     seg: &'static str,
     keyless: &mut BTreeMap<String, usize>,
+    classes: &mut BTreeMap<&'static str, usize>,
     out: &mut Vec<(u8, String, Value)>,
 ) -> (Vec<Obj>, usize) {
     let mut objs = Vec::new();
@@ -2159,6 +2162,10 @@ fn partition(
                 // loss — nothing downstream is missing, a key is.
                 let o = branch_obj(item, hk, seg);
                 push_item(out, "branch", &o, &[], &[], BRANCH_NOTE.to_string());
+                // The row the class column prints: a `branch` item without its
+                // count would have `--only branch` select rows the column never
+                // advertised (the count and the items are one face, not two).
+                bump(classes, "branch");
             }
         }
     }
@@ -2242,13 +2249,22 @@ fn build_hop(hop: &Hop, left: &StageView, right: &StageView) -> StageView {
     };
 
     for hk in hop.kinds {
-        let (l, lt) = partition(&left.items, hk.left, hk, hop.left, &mut keyless, &mut items);
+        let (l, lt) = partition(
+            &left.items,
+            hk.left,
+            hk,
+            hop.left,
+            &mut keyless,
+            &mut classes,
+            &mut items,
+        );
         let (r, rt) = partition(
             &right.items,
             hk.right,
             hk,
             hop.right,
             &mut keyless,
+            &mut classes,
             &mut items,
         );
         let (kind_items, kj) = join_kind(hk, &l, &r);
