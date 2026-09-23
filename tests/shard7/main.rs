@@ -10,7 +10,6 @@ pub mod common;
 
 mod ac_face_gates;
 mod bom_nc_classified;
-mod bom_overlay_hbl;
 mod build_dir_net_checks;
 mod build_products;
 mod dedup_id_coverage;
@@ -32,6 +31,7 @@ mod lock_pp_naming_ports;
 mod mcode_auto_load;
 mod module_port_interface_ref;
 mod net_island_l1;
+mod open_lead;
 mod output_path_flag;
 mod param_call_site_key_binding;
 mod param_group_prefix;
