@@ -961,7 +961,7 @@ pub fn dump_symbols_f12_text(uri: &McURI) -> Option<String> {
         .local_table
         .name_to_declare_id
         .iter()
-        .map(|((fid, scope, name), (decl_id, loc))| {
+        .map(|((fid, _k, scope, name), (decl_id, loc))| {
             (
                 crate::semantic::common::uri_of_file_id(*fid),
                 scope.as_str(),

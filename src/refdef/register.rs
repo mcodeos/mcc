@@ -58,7 +58,7 @@ pub fn register_instance_decl_parse_time(
         byte_end: span.end as u32,
     };
     sem.local_table
-        .add_declare_with_name(loc, name, scope.unwrap_or(""))
+        .add_declare_with_name(loc, name, scope.unwrap_or(""), SymbolKind::InstDef)
 }
 
 pub fn register_def(
@@ -91,7 +91,9 @@ pub fn register_def(
         byte_start: span.start as u32,
         byte_end: span.end as u32,
     };
-    let decl_id = sem.local_table.add_declare_with_name(loc, name, &scope);
+    let decl_id = sem
+        .local_table
+        .add_declare_with_name(loc, name, &scope, def_kind);
     sem.def_map.insert((def_kind, decl_id.raw()), loc);
     // ★ Capture the def name from the AST node so RefDefMap RPC payloads can
     // carry it (hover shows `RES` instead of slicing the def line).
@@ -122,8 +124,11 @@ pub fn lookup_declare_id(
 ) -> Option<DeclareId> {
     let ref_scope = scope_path.scope_key();
 
-    // P1: exact scope match — scope identified by scope string via scope_index
-    if let Some((id, _)) = local.lookup_by_scope_name(&ref_scope, name) {
+    // P1: exact scope match — scope identified by scope string via scope_index.
+    // Kind-agnostic (lowest registered kind wins, `lookup_any_by_scope_name`):
+    // the net-ref call sites stamp their ref kind themselves and may
+    // legitimately hit a port, a label or a param.
+    if let Some((id, _)) = local.lookup_any_by_scope_name(&ref_scope, name) {
         return Some(id);
     }
 
@@ -131,7 +136,7 @@ pub fn lookup_declare_id(
     //   the parent container (module/component) scope
     if scope_path.func.is_some() {
         let container_scope = &scope_path.container.name;
-        if let Some((id, _)) = local.lookup_by_scope_name(container_scope, name) {
+        if let Some((id, _)) = local.lookup_any_by_scope_name(container_scope, name) {
             return Some(id);
         }
     }

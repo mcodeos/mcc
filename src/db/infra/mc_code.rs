@@ -2540,11 +2540,22 @@ impl McCode {
         // Prefer the exact dotted form (`VIN.Vin`), then the root (`VIN`).
         let mut target: &str = &full_name;
         loop {
-            if let Some((id, _)) = sem.local_table.name_to_declare_id.get(&(
-                file_id,
-                comp_ident.to_string(),
-                target.to_string(),
-            )) {
+            // The target names a pin, so the probe walks the pin def kinds in
+            // registration order instead of an arbitrary-kind hit (U269).
+            let hit = [SymbolKind::PinNameDef, SymbolKind::PinIdDef, SymbolKind::PinIfaceDef]
+                .iter()
+                .find_map(|def_kind| {
+                    sem.local_table
+                        .name_to_declare_id
+                        .get(&(
+                            file_id,
+                            *def_kind as u8,
+                            comp_ident.to_string(),
+                            target.to_string(),
+                        ))
+                        .map(|(id, _)| *id)
+                });
+            if let Some(id) = hit {
                 let kind = if Self::extract_pin_iface_spans(comp)
                     .iter()
                     .any(|(n, _)| n == root)
@@ -2553,7 +2564,7 @@ impl McCode {
                 } else {
                     SymbolKind::PinNameRef
                 };
-                return Some((*id, kind));
+                return Some((id, kind));
             }
             if target == root {
                 return None;
@@ -2711,7 +2722,7 @@ impl McCode {
             let _decl_id_to_scope: std::collections::HashMap<u32, String> = lt
                 .name_to_declare_id
                 .iter()
-                .map(|((_fid, scope, _n), (did, _))| (u32::from(*did), scope.clone()))
+                .map(|((_fid, _k, scope, _n), (did, _))| (u32::from(*did), scope.clone()))
                 .collect();
 
             // ── Layer 1: ID chain ──
@@ -3289,10 +3300,10 @@ impl McCode {
             let _ = sem.local_table.name_to_declare_id.len();
             sem.local_table
                 .name_to_declare_id
-                .retain(|(fid, _, _), _| *fid != file_id);
+                .retain(|(fid, _, _, _), _| *fid != file_id);
             // ★ P0: prune the reverse name index in sync with the retain above.
             for scopes in sem.local_table.name_to_declare_ids.values_mut() {
-                scopes.retain(|(fid, _)| *fid != file_id);
+                scopes.retain(|(fid, _, _)| *fid != file_id);
             }
             sem.local_table.scope_index.retain(|_, fid| *fid != file_id);
             // Drop def_map entries for this file too. They were registered
@@ -3336,7 +3347,7 @@ impl McCode {
                     .local_table
                     .name_to_declare_id
                     .iter()
-                    .filter(|((fid, _, _), _)| *fid == decl_count_file_id)
+                    .filter(|((fid, _, _, _), _)| *fid == decl_count_file_id)
                     .count();
                 let local_ref_count = sem.local_table.inst_id_to_span.len();
                 tracing::info!(target: "mcc::lsp", "create_lapper: {} decls, {} local_refs, lapper len={}", decl_count, local_ref_count, symbol_lapper.inner.len());
@@ -5063,9 +5074,11 @@ impl McCode {
                 .collect();
             for (span, port_name, _scope) in comp.insts.iter_net_refs() {
                 if pin_names.contains(port_name) {
-                    if let Some(decl_id) =
-                        sem.local_table.lookup_by_scope_name(&comp_ident, port_name)
-                    {
+                    if let Some(decl_id) = sem.local_table.lookup_by_scope_name(
+                        &comp_ident,
+                        port_name,
+                        SymbolKind::PinNameDef,
+                    ) {
                         symbol_lapper.insert(Interval {
                             start: span.start,
                             stop: span.end,
@@ -5079,9 +5092,11 @@ impl McCode {
                         ));
                     }
                 } else if pin_ids.contains(port_name) {
-                    if let Some(decl_id) =
-                        sem.local_table.lookup_by_scope_name(&comp_ident, port_name)
-                    {
+                    if let Some(decl_id) = sem.local_table.lookup_by_scope_name(
+                        &comp_ident,
+                        port_name,
+                        SymbolKind::PinIdDef,
+                    ) {
                         symbol_lapper.insert(Interval {
                             start: span.start,
                             stop: span.end,
@@ -5095,9 +5110,11 @@ impl McCode {
                         ));
                     }
                 } else if pin_ifaces.contains(port_name) {
-                    if let Some(decl_id) =
-                        sem.local_table.lookup_by_scope_name(&comp_ident, port_name)
-                    {
+                    if let Some(decl_id) = sem.local_table.lookup_by_scope_name(
+                        &comp_ident,
+                        port_name,
+                        SymbolKind::PinIfaceDef,
+                    ) {
                         symbol_lapper.insert(Interval {
                             start: span.start,
                             stop: span.end,
@@ -5340,13 +5357,26 @@ impl McCode {
                 // ★ scope_index may hold stale entries for "<comp>" scopes
                 // registered from another file id (cross-file/duplicate
                 // loads), so resolve directly against this file's pin defs:
-                // (uri_id, scope=comp, name).
+                // (uri_id, kind, scope=comp, name) — pin kinds only, in
+                // registration order (U269).
                 let file_id = crate::ast::sem::intern_uri(uri.as_str());
-                let got = sem
-                    .local_table
-                    .name_to_declare_id
-                    .get(&(file_id, comp_name.clone(), mname.to_string()))
-                    .map(|(id, loc)| (*id, *loc));
+                let got = [
+                    SymbolKind::PinNameDef,
+                    SymbolKind::PinIdDef,
+                    SymbolKind::PinIfaceDef,
+                ]
+                .iter()
+                .find_map(|def_kind| {
+                    sem.local_table
+                        .name_to_declare_id
+                        .get(&(
+                            file_id,
+                            *def_kind as u8,
+                            comp_name.clone(),
+                            mname.to_string(),
+                        ))
+                        .map(|(id, loc)| (*id, *loc))
+                });
                 if let Some((d, _)) = got {
                     symbol_lapper.insert(Interval {
                         start: mspan.start,
@@ -6742,7 +6772,8 @@ module main
 
         // 1. Declarations present in name_to_declare_id.
         let file_id = crate::ast::sem::intern_uri(uri.as_str());
-        // The scope_index prefix reaches the canonical key `(uri_id, scope, name)`.
+        // The scope_index prefix reaches the canonical key
+        // `(uri_id, kind, scope, name)`.
         let scope_uri = lt.scope_index.get("main").copied();
         assert_eq!(
             scope_uri,
@@ -6750,7 +6781,12 @@ module main
             "scope 'main' must be indexed to this file's UriId"
         );
         for name in ["res1", "res2", "C4", "C5"] {
-            let key = (file_id, "main".to_string(), name.to_string());
+            let key = (
+                file_id,
+                SymbolKind::InstDef as u8,
+                "main".to_string(),
+                name.to_string(),
+            );
             assert!(
                 lt.name_to_declare_id.contains_key(&key),
                 "declareb instance '{name}' must have a declaration in name_to_declare_id"
