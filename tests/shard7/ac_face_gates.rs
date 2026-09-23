@@ -10,7 +10,9 @@
 //! - **6057 `AC_FACE_RETURN_MISSING`** — a direction-word `psrc/psnk` row
 //!   declares a face whose members the variant's registry group positions:
 //!   a wired phase while the declared return reaches no net is a torn face
-//!   (the four-wire `AC.3P` group judges by the same law as the pair).
+//!   (the four-wire `AC.3P` group judges by the same law as the pair), and
+//!   a return-less face (`AC.3P3W`, the delta shape: no neutral member) is
+//!   torn when exactly one member is wired against dangling peers.
 //!   Judged per face; the all-dangling face is the unused-declaration
 //!   silence law, and unwired *pins* stay E4119's object.
 //! - **6058 `AC_NOMINAL_CONFLICT`** — two `::AC.*` faces stating different
@@ -76,6 +78,21 @@ interface AC.3P(volt::UV.VOLT, freq::UV.HZ)
 }
 "#;
 
+/// The delta three-wire family, the same inline shape the canon states
+/// (members L1..L3, no roles, no neutral member — PE is not a member) —
+/// the three-wire face whose return runs phase-to-phase.
+const AC3W: &str = r#"
+interface AC.3P3W(volt::UV.VOLT, freq::UV.HZ)
+{
+    topology = "point to point"
+    pins = [
+        1 = L1
+        2 = L2
+        3 = L3
+    ]
+}
+"#;
+
 /// Build `main` with the body statements and return the sorted diagnostic
 /// codes.
 fn build(body: &str) -> Vec<u32> {
@@ -102,6 +119,11 @@ fn count(code: u32, body: &str) -> usize {
 
 fn count3(code: u32, body: &str) -> usize {
     build_with(body, AC3P).iter().filter(|&&c| c == code).count()
+}
+
+/// The same harness with the delta three-wire family glued in.
+fn count3w(code: u32, body: &str) -> usize {
+    build_with(body, AC3W).iter().filter(|&&c| c == code).count()
 }
 
 /// The wired inlet chain: both interface members reach the inlet, PE left
@@ -190,6 +212,55 @@ fn ac_face_return_3p__return_dangling_fires_once_per_face() {
         2,
         "each face's dangling return fires once → two 6057; got {:#?}",
         build_with(body, AC3P)
+    );
+}
+
+/// The delta face has no return conductor — the return runs phase-to-phase
+/// (U229, ac-delta-return-design.md §4.1). Its tear form: exactly one member
+/// wired, the peers dangling — no loop closes. One fire per dangling member,
+/// anchored on the wired one: each face fires twice here.
+#[test]
+fn ac_face_return_3w__single_wired_member_fires_per_dangling_peer() {
+    let body = "\
+    psrc feed{L1, L2, L3}::AC.3P3W(400V, 50Hz)\n\
+    psnk load{L1, L2, L3}::AC.3P3W(400V, 50Hz)\n\
+    feed.L1 -> load.L1";
+    assert_eq!(
+        count3w(mcc::errcodes::AC_FACE_RETURN_MISSING, body),
+        4,
+        "one wired member against two dangling peers per face → four 6057; got {:#?}",
+        build_with(body, AC3W)
+    );
+}
+
+/// Any two wired members close a line-voltage loop — a working delta face,
+/// quiet. (The third member may legitimately carry no load: line-to-line
+/// loads need no full set.)
+#[test]
+fn ac_face_return_3w__two_members_wired_is_quiet() {
+    let body = "\
+    psrc feed{L1, L2, L3}::AC.3P3W(400V, 50Hz)\n\
+    psnk load{L1, L2, L3}::AC.3P3W(400V, 50Hz)\n\
+    feed.L1 -> load.L1\n\
+    feed.L2 -> load.L2";
+    assert_eq!(
+        count3w(mcc::errcodes::AC_FACE_RETURN_MISSING, body),
+        0,
+        "a line-voltage loop closes on two members; got {:#?}",
+        build_with(body, AC3W)
+    );
+}
+
+/// The silence law, delta form: no member wired is an unused declaration,
+/// not a torn one.
+#[test]
+fn ac_face_return_3w__all_members_dangling_is_silent() {
+    let body = "    psnk mains{L1, L2, L3}::AC.3P3W(400V, 50Hz)";
+    assert_eq!(
+        count3w(mcc::errcodes::AC_FACE_RETURN_MISSING, body),
+        0,
+        "an unused face is not a torn face; got {:#?}",
+        build_with(body, AC3W)
     );
 }
 

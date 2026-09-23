@@ -520,10 +520,12 @@ pub enum AcTerminal {
 /// ruling U222 retired the old `AC_*` underscore spelling here rather than
 /// running a dual track). `AC.3P` (four-wire Y: three phases over a shared
 /// neutral) landed early by ruling — user 2026-09-23: build the reserved
-/// family now rather than let the slot go stale. The delta three-wire shape
-/// (no neutral member) stays out until its return modeling is ruled
-/// (ac-axis-interface-design.md §8 boundary 2); `AC.SPLIT` remains reserved
-/// (U176: a family name lands when its interface exists in the library).
+/// family now rather than let the slot go stale. `AC.3P3W` (the delta
+/// three-wire face) landed by ruling the same day (U229,
+/// ac-delta-return-design.md §4.1): no Neutral slot — the return runs
+/// phase-to-phase, so the group states three phases and no return
+/// conductor. `AC.SPLIT` remains reserved (U176: a family name lands when
+/// its interface exists in the library).
 const AC_VARIANTS: &[(&str, &[AcTerminal])] = &[
     (
         "AC.1P",
@@ -536,6 +538,14 @@ const AC_VARIANTS: &[(&str, &[AcTerminal])] = &[
             AcTerminal::Phase,
             AcTerminal::Phase,
             AcTerminal::Neutral,
+        ],
+    ),
+    (
+        "AC.3P3W",
+        &[
+            AcTerminal::Phase,
+            AcTerminal::Phase,
+            AcTerminal::Phase,
         ],
     ),
 ];
@@ -1822,6 +1832,11 @@ mod tests {
             &[Phase, Phase, Phase, Neutral],
             "four-wire Y: three phases over a shared neutral"
         );
+        assert_eq!(
+            ac_terminal_group("AC.3P3W").unwrap(),
+            &[Phase, Phase, Phase],
+            "three-wire delta: three phases, no neutral slot — no return conductor"
+        );
         assert!(
             ac_terminal_group("AC").is_none(),
             "the bare spelling retired with the old family"
@@ -1965,7 +1980,7 @@ mod tests {
         assert_eq!(avdd.hot, "VDDA");
         assert_eq!(avdd.ret, "GNDA");
 
-        for absent in ["MAINS", "MAINS3"] {
+        for absent in ["MAINS", "MAINS3", "MAINS3W"] {
             assert!(
                 !names.contains(&absent),
                 "{absent} declares no DC rail, so it stands for no pair"
@@ -1989,15 +2004,19 @@ mod tests {
     ref GND @role(main)
     domain MAINS  @nature(ac) { rail [L, N]::AC.1P(230V, 50Hz) }
     domain MAINS3 @nature(ac) { rail [L1, L2, L3, N]::AC.3P(400V, 50Hz) }
+    domain MAINS3W @nature(ac) { rail [L1, L2, L3]::AC.3P3W(400V, 50Hz) }
     domain MAINSS @nature(ac) { rail [L1, L2, N]::AC.SPLIT(240V, 60Hz) }
     domain VBULK             { rail [Vb, N]::DC(310V) }
 }
 "#;
 
     /// §3.3 `::AC.1P(v, f)` decodes into the AC read — RMS nominal and hertz —
-    /// for both landed shapes: the two-member single-phase pair and the
+    /// for all three landed shapes: the two-member single-phase pair, the
     /// four-member three-phase Y group (ret = the neutral slot member in
-    /// either). The two readers partition the rail rows: `l1_rails` still
+    /// either) and the three-member delta group, whose return runs
+    /// phase-to-phase — no neutral slot, so `ret` reads `None` and that is
+    /// a real answer, not a decode failure. The two readers partition the
+    /// rail rows: `l1_rails` still
     /// holds exactly the DC pair, so every DC consumer keeps seeing DC only.
     /// A row naming a reserved family (`AC.SPLIT`, not landed in the library)
     /// is no AC rail at all — the registry holds landed canon only.
@@ -2009,7 +2028,7 @@ mod tests {
         assert_eq!(dc[0].hot, "Vb");
 
         let ac = pi.l1_ac_rails();
-        assert_eq!(ac.len(), 2, "ac rails: {ac:?}");
+        assert_eq!(ac.len(), 3, "ac rails: {ac:?}");
         let mains = ac.iter().find(|r| r.domain == "MAINS").expect("MAINS");
         assert_eq!(mains.variant, "AC.1P");
         assert_eq!(mains.members, vec!["L".to_string(), "N".to_string()]);
@@ -2041,6 +2060,25 @@ mod tests {
         assert_eq!(mains3.v_rms, Some(400.0));
         assert_eq!(mains3.f, Some(50.0));
         assert!(mains3.bad.is_none(), "MAINS3: {:?}", mains3.bad);
+
+        let mains3w = ac.iter().find(|r| r.domain == "MAINS3W").expect("MAINS3W");
+        assert_eq!(mains3w.variant, "AC.3P3W");
+        assert_eq!(
+            mains3w.members,
+            vec!["L1", "L2", "L3"]
+                .into_iter()
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(mains3w.hot, "L1", "the row opens with its leading phase");
+        assert_eq!(
+            mains3w.ret,
+            None,
+            "the delta group has no neutral slot: its return runs phase-to-phase"
+        );
+        assert_eq!(mains3w.v_rms, Some(400.0));
+        assert_eq!(mains3w.f, Some(50.0));
+        assert!(mains3w.bad.is_none(), "MAINS3W: {:?}", mains3w.bad);
 
         assert!(
             ac.iter().all(|r| r.domain != "MAINSS"),
