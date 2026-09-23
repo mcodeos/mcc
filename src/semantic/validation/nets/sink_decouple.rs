@@ -167,12 +167,16 @@ fn sink_sites(table: &InstTable) -> Vec<(u32, u32)> {
                 // candidate below, thermal, PI-3, the window rules — and this
                 // is the same read applied to the subject: an unmounted
                 // alternative must not report a decoupling gap for a load that
-                // does not exist. An abstract instance no variant materialized
-                // is off the board the same way.
+                // does not exist. An `unselected` abstract instance is a
+                // different face (U226 b3878): placement is legal and the
+                // netlist is produced (E6005's own wording) — the board wired
+                // the abstract's pins, so its load is real; the variant pick
+                // is BOM bookkeeping, and 6019 already counts the same
+                // terminals as demand.
                 let mounted = entry
                     .parent_id
                     .and_then(|pid| table.get_entry(pid))
-                    .is_some_and(|c| !c.not_fitted && !c.unselected);
+                    .is_some_and(|c| !c.not_fitted);
                 mounted && entry.pwr_dir == Some(PwrDir::Snk)
             }
             InstKind::Port => entry.parent_id.is_some_and(|module| {
