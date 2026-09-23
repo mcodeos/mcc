@@ -1630,10 +1630,18 @@ struct PowerScan {
     /// budget face. A module-body `psrc NAME{hot,ret}::DC(v, capacity:…)` row
     /// flattens to a `Port`-kind point whose `parent_id` is this instance id
     /// and whose path tail is `hot`, so the budget axis can recognize the
-    /// exported supply face as an explicit capacity root. Budget-local: the
-    /// nominal consumers (`source_faces`/`net_nominal`/`has_source_root`) never
-    /// read ports — 6011/6019/window skip module-interior sources by design.
+    /// exported supply face as an explicit capacity root. Since U218 the
+    /// source-root consumers (`has_source_root`/`source_faces`) read it too —
+    /// the module-interior source crosses the boundary through the parent's
+    /// binding (composition-terminal-design.md §4).
     port_src: std::collections::HashMap<u32, Vec<(String, L1PwrPin)>>,
+    /// Component instance ids whose def carries **no DC rows** — the pass
+    /// elements the reach copper arm climbs through (fuse/inductor/ferrite/
+    /// resistor). The def is looked up in the project workspace first and in
+    /// the system libraries second (`is_transparent`): a library fuse is the
+    /// board's actual pass element, and transparency reads only the pwr-row
+    /// emptiness — every contract read stays project-only (`def_of`'s law).
+    transparent: std::collections::HashSet<u32>,
 }
 
 impl PowerScan {
@@ -1685,6 +1693,28 @@ impl PowerScan {
             .filter_map(|e| defs.get(&e.class_name).map(|d| (e.id, d.clone())))
             .collect();
 
+        // Transparency (U218): the same fold, with the system libraries as the
+        // fallback def source — a board's pass element is usually a library
+        // part (`F1::FUSE()`, `RES(0R)`), and the copper arm reads only the
+        // pwr-row emptiness, never a contract, so widening the def source here
+        // does not widen what the contract checks adjudicate. A class spelled
+        // in both domains keeps the project def (the map insert order below).
+        let sys_defs: std::collections::HashMap<String, std::sync::Arc<McComponent>> =
+            crate::definition_space()
+                .system_components()
+                .into_iter()
+                .map(|(sn, c)| (sn.ident.to_string(), c))
+                .collect();
+        let mut transparent = std::collections::HashSet::new();
+        for e in table.get_components() {
+            let d = defs
+                .get(&e.class_name)
+                .or_else(|| sys_defs.get(&e.class_name));
+            if d.is_some_and(|d| d.pins.pwr.is_empty()) {
+                transparent.insert(e.id);
+            }
+        }
+
         // Module power-output (Src/Bi) port contracts, per module *instance* id
         // (power_decls is keyed by the same instance entry a Port point's
         // `parent_id` carries — intent-design.md §5.2 / §8.5 budget face).
@@ -1706,7 +1736,17 @@ impl PowerScan {
             rail_cap,
             comp_def,
             port_src,
+            transparent,
         }
+    }
+
+    /// The reach copper arm's transparency test: the component instance's def
+    /// (project first, system libraries second) declares no DC rows, so current
+    /// passes through it unchanged. `false` for a def that resolves nowhere —
+    /// an unresolvable part is not climbed, the same conservatism the arm
+    /// already applies.
+    pub(crate) fn is_transparent(&self, comp_id: u32) -> bool {
+        self.transparent.contains(&comp_id)
     }
 
     /// The def behind a flat component instance, if it resolved through the
@@ -1760,21 +1800,27 @@ impl PowerScan {
             let Some(entry) = table.get_entry(pid) else {
                 continue;
             };
-            if !matches!(entry.kind, InstKind::Pin) || !matches!(entry.io_type, IOType::Power) {
+            if !matches!(entry.io_type, IOType::Power) {
                 continue;
             }
-            let Some(comp_id) = entry.parent_id else {
-                continue;
-            };
-            let Some(def) = self.def_of(comp_id) else {
-                continue;
-            };
-            let Some(contract) = source_contract_for(def, entry) else {
-                continue;
-            };
-            let dec = decode_pwr_pin(contract);
-            if let Some(v) = dec.v {
-                out.push((v, dec.v_text));
+            if matches!(entry.kind, InstKind::Pin) {
+                let Some(comp_id) = entry.parent_id else {
+                    continue;
+                };
+                let Some(def) = self.def_of(comp_id) else {
+                    continue;
+                };
+                let Some(contract) = source_contract_for(def, entry) else {
+                    continue;
+                };
+                let dec = decode_pwr_pin(contract);
+                if let Some(v) = dec.v {
+                    out.push((v, dec.v_text));
+                }
+            } else if let Some(contract) = self.port_source_of(entry) {
+                if let Some(v) = contract.v {
+                    out.push((v, contract.v_text));
+                }
             }
         }
         out
@@ -1814,26 +1860,39 @@ impl PowerScan {
 
     /// 6019's root-presence test: a decodable psrc/psbi hot pin sits directly on
     /// the net (agreement with the rail is irrelevant here — existence alone
-    /// routes the net to 6013/6010's contention scope, not PWR-1).
+    /// routes the net to 6013/6010's contention scope, not PWR-1). The same
+    /// recognition covers a module-power source port member: a submodule's
+    /// `psrc`/`psbi` row exports its hot member as a source root through the
+    /// parent's binding (composition-terminal-design.md §4 limited-rail
+    /// export; island-attribution-design.md §7 L4, U218) — the flat member
+    /// point the row carries *is* the root, on whichever scope's net the
+    /// binding lands it. A `psnk` row imports power and never decodes as a
+    /// source (`l1_port_sources` filters Snk).
     fn has_source_root(&self, table: &InstTable, net: &NetEntry) -> bool {
         for &pid in &net.points {
             let Some(entry) = table.get_entry(pid) else {
                 continue;
             };
-            if !matches!(entry.kind, InstKind::Pin) || !matches!(entry.io_type, IOType::Power) {
+            if !matches!(entry.io_type, IOType::Power) {
                 continue;
             }
-            let Some(comp_id) = entry.parent_id else {
-                continue;
-            };
-            let Some(def) = self.def_of(comp_id) else {
-                continue;
-            };
-            let Some(contract) = source_contract_for(def, entry) else {
-                continue;
-            };
-            if decode_pwr_pin(contract).v.is_some() {
-                return true;
+            if matches!(entry.kind, InstKind::Pin) {
+                let Some(comp_id) = entry.parent_id else {
+                    continue;
+                };
+                let Some(def) = self.def_of(comp_id) else {
+                    continue;
+                };
+                let Some(contract) = source_contract_for(def, entry) else {
+                    continue;
+                };
+                if decode_pwr_pin(contract).v.is_some() {
+                    return true;
+                }
+            } else if let Some(contract) = self.port_source_of(entry) {
+                if contract.v.is_some() {
+                    return true;
+                }
             }
         }
         false
@@ -1841,11 +1900,16 @@ impl PowerScan {
 
     /// The declared power-output (Src/Bi) port contract this flat point names,
     /// when the point is a module-power `Port` member (rail-contract-design.md
-    /// §8.5 budget face). Budget-local recognition: a point is a budget source
-    /// face only when its `parent_id` resolves to a module instance that
-    /// declares a source port whose hot member label matches the point's path
-    /// tail (the `PortInst.dc_pair` hot member spelling). Sink (`psnk`) port
-    /// rows never decode as sources.
+    /// §8.5 budget face). A point is a source face only when its `parent_id`
+    /// resolves to a module instance that declares a source port whose hot
+    /// member label matches the point's path tail (the `PortInst.dc_pair` hot
+    /// member spelling). Sink (`psnk`) port rows never decode as sources.
+    /// Read by the budget face and, since U218, by the source-root tests
+    /// (`has_source_root` / `source_faces`): the member point is a root in
+    /// every scope whose flat net carries it — the junction lands on both the
+    /// submodule's internal segment and the parent's bound net, which is
+    /// exactly the cross-layer attribution composition-terminal-design.md §4
+    /// prescribes.
     fn port_source_of(&self, entry: &InstEntry) -> Option<L1PwrPin> {
         if !matches!(entry.kind, InstKind::Port) || !matches!(entry.io_type, IOType::Power) {
             return None;
