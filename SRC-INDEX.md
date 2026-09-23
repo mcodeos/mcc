@@ -71,9 +71,9 @@ range (threshold 40KB).
 | `lsp/` | 7 | 66 KB |
 | `output/` | 7 | 107 KB |
 | `query/` | 9 | 162 KB |
-| `refdef/` | 7 | 119 KB |
+| `refdef/` | 7 | 120 KB |
 | `rpc/` | 16 | 306 KB |
-| `semantic/` | 91 | 2724 KB |
+| `semantic/` | 91 | 2725 KB |
 | `stages/` | 12 | 322 KB |
 | `vector/` | 25 | 478 KB |
 | `viz/` | 97 | 2450 KB |
@@ -4460,47 +4460,47 @@ refdef/chain.rs#L221  fn class_name
 refdef/chain.rs#L244  fn first_hop
 refdef/chain.rs#L374  fn lookup_base
 refdef/chain.rs#L425  fn member_of
-refdef/chain.rs#L610  fn cross_def_kind
-refdef/chain.rs#L635  fn module_member_kind
-refdef/chain.rs#L659  fn resolve_member_chain
-refdef/chain.rs#L682  fn walk_segments
-refdef/chain.rs#L779  fn chain_segments_to_hop_texts
-refdef/chain.rs#L803  fn resolve_member_chain_from_segments
-refdef/chain.rs#L822  fn resolve_base_hit
-refdef/chain.rs#L855  fn base_segment_name
-refdef/chain.rs#L864  fn finalize_hit
-refdef/chain.rs#L888  fn class_hit
-refdef/chain.rs#L928  fn container_inst
-refdef/chain.rs#L941  fn resolve_next_member
-refdef/chain.rs#L959  fn cross_hit
-refdef/chain.rs#L988  fn whole_hit
-refdef/chain.rs#L1023  fn whole_span
-refdef/chain.rs#L1039  fn bus_member_hit
-refdef/chain.rs#L1087  fn list_member_hit
-refdef/chain.rs#L1116  fn param_hit
-refdef/chain.rs#L1138  mod tests
-refdef/chain.rs#L1157  fn make_insts
-refdef/chain.rs#L1194  fn svc_chain__split_segments_basic
-refdef/chain.rs#L1213  fn svc_chain__group_members_shared_member_split
-refdef/chain.rs#L1214  fn gm
-refdef/chain.rs#L1249  fn svc_chain__resolve_whole_bus
-refdef/chain.rs#L1258  fn svc_chain__resolve_whole_bus_curly
-refdef/chain.rs#L1267  fn svc_chain__resolve_bus_member
-refdef/chain.rs#L1276  fn svc_chain__resolve_bus_member_curly_single
-refdef/chain.rs#L1285  fn svc_chain__resolve_label
-refdef/chain.rs#L1294  fn svc_chain__resolve_list_whole
-refdef/chain.rs#L1303  fn svc_chain__resolve_list_member
-refdef/chain.rs#L1311  fn svc_chain__resolve_list_member_digit_form
-refdef/chain.rs#L1320  fn svc_chain__resolve_param_terminal
-refdef/chain.rs#L1329  fn svc_chain__unknown_returns_none
-refdef/chain.rs#L1341  fn make_cross_insts
-refdef/chain.rs#L1398  fn svc_chain__resolve_cross_component_member
-refdef/chain.rs#L1409  fn svc_chain__resolve_cross_component_bus
-refdef/chain.rs#L1421  fn svc_chain__resolve_cross_component_list
-refdef/chain.rs#L1433  fn svc_chain__resolve_cross_missing_member
-refdef/chain.rs#L1446  fn svc_chain__class_hit_maps_component_def
-refdef/chain.rs#L1478  fn svc_chain__class_hit_maps_enum_def
-refdef/chain.rs#L1493  fn svc_chain__class_hit_maps_module_def
+refdef/chain.rs#L624  fn cross_def_kind
+refdef/chain.rs#L649  fn module_member_kind
+refdef/chain.rs#L673  fn resolve_member_chain
+refdef/chain.rs#L696  fn walk_segments
+refdef/chain.rs#L793  fn chain_segments_to_hop_texts
+refdef/chain.rs#L817  fn resolve_member_chain_from_segments
+refdef/chain.rs#L836  fn resolve_base_hit
+refdef/chain.rs#L869  fn base_segment_name
+refdef/chain.rs#L878  fn finalize_hit
+refdef/chain.rs#L902  fn class_hit
+refdef/chain.rs#L942  fn container_inst
+refdef/chain.rs#L955  fn resolve_next_member
+refdef/chain.rs#L973  fn cross_hit
+refdef/chain.rs#L1002  fn whole_hit
+refdef/chain.rs#L1037  fn whole_span
+refdef/chain.rs#L1053  fn bus_member_hit
+refdef/chain.rs#L1101  fn list_member_hit
+refdef/chain.rs#L1130  fn param_hit
+refdef/chain.rs#L1152  mod tests
+refdef/chain.rs#L1171  fn make_insts
+refdef/chain.rs#L1208  fn svc_chain__split_segments_basic
+refdef/chain.rs#L1227  fn svc_chain__group_members_shared_member_split
+refdef/chain.rs#L1228  fn gm
+refdef/chain.rs#L1263  fn svc_chain__resolve_whole_bus
+refdef/chain.rs#L1272  fn svc_chain__resolve_whole_bus_curly
+refdef/chain.rs#L1281  fn svc_chain__resolve_bus_member
+refdef/chain.rs#L1290  fn svc_chain__resolve_bus_member_curly_single
+refdef/chain.rs#L1299  fn svc_chain__resolve_label
+refdef/chain.rs#L1308  fn svc_chain__resolve_list_whole
+refdef/chain.rs#L1317  fn svc_chain__resolve_list_member
+refdef/chain.rs#L1325  fn svc_chain__resolve_list_member_digit_form
+refdef/chain.rs#L1334  fn svc_chain__resolve_param_terminal
+refdef/chain.rs#L1343  fn svc_chain__unknown_returns_none
+refdef/chain.rs#L1355  fn make_cross_insts
+refdef/chain.rs#L1412  fn svc_chain__resolve_cross_component_member
+refdef/chain.rs#L1423  fn svc_chain__resolve_cross_component_bus
+refdef/chain.rs#L1435  fn svc_chain__resolve_cross_component_list
+refdef/chain.rs#L1447  fn svc_chain__resolve_cross_missing_member
+refdef/chain.rs#L1460  fn svc_chain__class_hit_maps_component_def
+refdef/chain.rs#L1492  fn svc_chain__class_hit_maps_enum_def
+refdef/chain.rs#L1507  fn svc_chain__class_hit_maps_module_def
 refdef/collect.rs#L19  fn collect_funccall_arg_refs
 refdef/collect.rs#L162  fn resolve_arg_ref_kind
 refdef/matching.rs#L23  fn resolve_def_name
@@ -7022,64 +7022,65 @@ semantic/scope.rs#L510  impl ResolveScope<Resolved> for FuncParamsScope<'_>
 semantic/scope.rs#L511  fn resolve
 semantic/scope.rs#L527  fn component_scope
 semantic/scope.rs#L545  fn component_terminal_scope
-semantic/scope.rs#L556  fn module_scope
-semantic/scope.rs#L570  fn capability_scope
-semantic/scope.rs#L580  fn interface_scope
-semantic/scope.rs#L588  fn enum_scope
-semantic/scope.rs#L595  fn container_scope
-semantic/scope.rs#L608  struct DelegatedScope
-semantic/scope.rs#L612  impl ResolveScope<Resolved> for DelegatedScope<'_>
-semantic/scope.rs#L613  fn resolve
-semantic/scope.rs#L621  fn instance_chain
-semantic/scope.rs#L632  struct FileScope
-semantic/scope.rs#L636  impl <'a> FileScope<'a>
-semantic/scope.rs#L637  fn new
-semantic/scope.rs#L642  impl ResolveScope<ContainerRef> for FileScope<'_>
-semantic/scope.rs#L643  fn resolve
-semantic/scope.rs#L671  struct UseChainScope
-semantic/scope.rs#L675  impl <'a> UseChainScope<'a>
-semantic/scope.rs#L676  fn new
-semantic/scope.rs#L681  impl ResolveScope<ContainerRef> for UseChainScope<'_>
-semantic/scope.rs#L682  fn resolve
-semantic/scope.rs#L695  struct SystemLibScope
-semantic/scope.rs#L697  impl SystemLibScope
-semantic/scope.rs#L698  fn new
-semantic/scope.rs#L703  impl ResolveScope<ContainerRef> for SystemLibScope
-semantic/scope.rs#L704  fn resolve
-semantic/scope.rs#L736  fn class_chain
-semantic/scope.rs#L745  enum BaseResolved
-semantic/scope.rs#L763  fn first_hop
-semantic/scope.rs#L781  fn cmie_by_kind
-semantic/scope.rs#L793  fn cmie_to_container_ref
-semantic/scope.rs#L805  mod tests
-semantic/scope.rs#L814  struct ProbeScope
-semantic/scope.rs#L816  impl ResolveScope<&'static str> for ProbeScope
-semantic/scope.rs#L817  fn resolve
-semantic/scope.rs#L825  fn sem_scope__chain_first_hit_wins_no_penetration
-semantic/scope.rs#L838  fn sem_scope__chain_ordering_shadows_lower_priority
-semantic/scope.rs#L852  fn sem_scope__chain_canonical_single_fallback_resolves_member_spelling
-semantic/scope.rs#L868  fn sem_scope__func_params_scope_matches_and_misses
-semantic/scope.rs#L880  fn sem_scope__insts_scope_reads_semantic_table
-semantic/scope.rs#L891  fn probe_enum_def
-semantic/scope.rs#L905  fn sem_scope__enum_scope_resolves_value
-semantic/scope.rs#L916  fn sem_scope__instance_chain_param_shadows_parent
-semantic/scope.rs#L933  fn param_declares_with
-semantic/scope.rs#L939  fn pins_with
-semantic/scope.rs#L964  fn sem_scope__params_scope_resolves_defs
-semantic/scope.rs#L974  fn sem_scope__param_ports_scope_resolves_ports
-semantic/scope.rs#L984  fn sem_scope__attrs_scope_resolves_attr_value
-semantic/scope.rs#L1002  fn sem_scope__pin_names_scope_resolves_pin
-semantic/scope.rs#L1017  fn sem_scope__pin_names_expanded_scope_resolves_alias
-semantic/scope.rs#L1032  fn sem_scope__pin_ids_scope_resolves_pin_id
-semantic/scope.rs#L1042  fn sem_scope__ports_scope_resolves_typed_ports_only
-semantic/scope.rs#L1055  fn sem_scope__labels_scope_resolves_label
-semantic/scope.rs#L1068  fn sem_scope__non_port_insts_scope_resolves_bus_like
-semantic/scope.rs#L1087  fn sem_scope__interface_pin_names_scope_resolves_pin
-semantic/scope.rs#L1097  fn sem_scope__delegated_scope_forwards_to_parent
-semantic/scope.rs#L1107  fn sem_scope__container_scope_dispatches_by_kind
-semantic/scope.rs#L1123  fn sem_scope__param_name_to_inst_curly_members
-semantic/scope.rs#L1124  fn bus_members
-semantic/scope.rs#L1131  fn expect_bus
+semantic/scope.rs#L557  fn interface_terminal_scope
+semantic/scope.rs#L564  fn module_scope
+semantic/scope.rs#L578  fn capability_scope
+semantic/scope.rs#L588  fn interface_scope
+semantic/scope.rs#L596  fn enum_scope
+semantic/scope.rs#L603  fn container_scope
+semantic/scope.rs#L616  struct DelegatedScope
+semantic/scope.rs#L620  impl ResolveScope<Resolved> for DelegatedScope<'_>
+semantic/scope.rs#L621  fn resolve
+semantic/scope.rs#L629  fn instance_chain
+semantic/scope.rs#L640  struct FileScope
+semantic/scope.rs#L644  impl <'a> FileScope<'a>
+semantic/scope.rs#L645  fn new
+semantic/scope.rs#L650  impl ResolveScope<ContainerRef> for FileScope<'_>
+semantic/scope.rs#L651  fn resolve
+semantic/scope.rs#L679  struct UseChainScope
+semantic/scope.rs#L683  impl <'a> UseChainScope<'a>
+semantic/scope.rs#L684  fn new
+semantic/scope.rs#L689  impl ResolveScope<ContainerRef> for UseChainScope<'_>
+semantic/scope.rs#L690  fn resolve
+semantic/scope.rs#L703  struct SystemLibScope
+semantic/scope.rs#L705  impl SystemLibScope
+semantic/scope.rs#L706  fn new
+semantic/scope.rs#L711  impl ResolveScope<ContainerRef> for SystemLibScope
+semantic/scope.rs#L712  fn resolve
+semantic/scope.rs#L744  fn class_chain
+semantic/scope.rs#L753  enum BaseResolved
+semantic/scope.rs#L771  fn first_hop
+semantic/scope.rs#L789  fn cmie_by_kind
+semantic/scope.rs#L801  fn cmie_to_container_ref
+semantic/scope.rs#L813  mod tests
+semantic/scope.rs#L822  struct ProbeScope
+semantic/scope.rs#L824  impl ResolveScope<&'static str> for ProbeScope
+semantic/scope.rs#L825  fn resolve
+semantic/scope.rs#L833  fn sem_scope__chain_first_hit_wins_no_penetration
+semantic/scope.rs#L846  fn sem_scope__chain_ordering_shadows_lower_priority
+semantic/scope.rs#L860  fn sem_scope__chain_canonical_single_fallback_resolves_member_spelling
+semantic/scope.rs#L876  fn sem_scope__func_params_scope_matches_and_misses
+semantic/scope.rs#L888  fn sem_scope__insts_scope_reads_semantic_table
+semantic/scope.rs#L899  fn probe_enum_def
+semantic/scope.rs#L913  fn sem_scope__enum_scope_resolves_value
+semantic/scope.rs#L924  fn sem_scope__instance_chain_param_shadows_parent
+semantic/scope.rs#L941  fn param_declares_with
+semantic/scope.rs#L947  fn pins_with
+semantic/scope.rs#L972  fn sem_scope__params_scope_resolves_defs
+semantic/scope.rs#L982  fn sem_scope__param_ports_scope_resolves_ports
+semantic/scope.rs#L992  fn sem_scope__attrs_scope_resolves_attr_value
+semantic/scope.rs#L1010  fn sem_scope__pin_names_scope_resolves_pin
+semantic/scope.rs#L1025  fn sem_scope__pin_names_expanded_scope_resolves_alias
+semantic/scope.rs#L1040  fn sem_scope__pin_ids_scope_resolves_pin_id
+semantic/scope.rs#L1050  fn sem_scope__ports_scope_resolves_typed_ports_only
+semantic/scope.rs#L1063  fn sem_scope__labels_scope_resolves_label
+semantic/scope.rs#L1076  fn sem_scope__non_port_insts_scope_resolves_bus_like
+semantic/scope.rs#L1095  fn sem_scope__interface_pin_names_scope_resolves_pin
+semantic/scope.rs#L1105  fn sem_scope__delegated_scope_forwards_to_parent
+semantic/scope.rs#L1115  fn sem_scope__container_scope_dispatches_by_kind
+semantic/scope.rs#L1131  fn sem_scope__param_name_to_inst_curly_members
+semantic/scope.rs#L1132  fn bus_members
+semantic/scope.rs#L1139  fn expect_bus
 semantic/validation/adopt.rs#L36  struct AdoptionCheck
 semantic/validation/adopt.rs#L38  impl ValidationCheck for AdoptionCheck
 semantic/validation/adopt.rs#L39  fn name
@@ -11238,4 +11239,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-406 files, 11155 declarations.
+406 files, 11156 declarations.

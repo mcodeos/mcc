@@ -463,11 +463,18 @@ fn member_of(inst: &McInstance, member: &str) -> Option<Hop<'static>> {
         }
         // ★ Phase 3: cross-container member resolution — the member's def
         // lives in the class-definition file (`base.uri`), lazily resolved
-        // via `find_inst_with_span` (matches net-link semantics).
+        // via the terminal face first (G10: a member access names a terminal,
+        // so a pin sharing its name with a param is the pin), with the full
+        // definition-space chain (§3.3) filling every non-terminal member
+        // kind (scoped enum, attrs, params).
         McInstance::Component(c) => {
             let base = &c.base;
-            match base.find_inst_with_span(member) {
-                Some((m_inst, span)) => {
+            let resolved = ns_scope::component_terminal_scope(base)
+                .resolve(member)
+                .or_else(|| ns_scope::component_scope(base).resolve(member));
+            match resolved {
+                Some(r) => {
+                    let (m_inst, span) = (r.inst, r.span);
                     let kind = cross_def_kind(&m_inst);
                     // A scoped enum value's def lives in the enum class's own
                     // file, which may differ from the component's file
@@ -568,8 +575,15 @@ fn member_of(inst: &McInstance, member: &str) -> Option<Hop<'static>> {
                 );
             }
             let base = &i.base;
-            match base.find_inst_with_span(member) {
-                Some((m_inst, span)) => {
+            // Terminal-first member face (G10), as on the component arm: a
+            // pin sharing its name with an interface param is the pin; the
+            // full chain still fills the param fallback.
+            let resolved = ns_scope::interface_terminal_scope(base)
+                .resolve(member)
+                .or_else(|| ns_scope::interface_scope(base).resolve(member));
+            match resolved {
+                Some(r) => {
+                    let (m_inst, span) = (r.inst, r.span);
                     let kind = cross_def_kind(&m_inst);
                     mcc_dbg!("refdef::chain", "[member_of] Interface \"{}\" member=\"{}\" → {} kind={:?} span={:?} uri={}", i.name, member, m_inst.type_name(), kind, span, base.uri.as_str());
                     Some(Hop::CrossInst {

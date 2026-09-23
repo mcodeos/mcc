@@ -550,6 +550,14 @@ pub fn component_terminal_scope<'a>(c: &'a McComponent) -> ScopeChain<'a, Resolv
     ])
 }
 
+/// Interface terminal face alone — category ② of [`interface_scope`] (pin
+/// names), without the definition-space category ① that precedes it. Same
+/// terminal-first law as [`component_terminal_scope`]: on the member face a
+/// pin sharing its name with a param is the pin.
+pub fn interface_terminal_scope<'a>(i: &'a McInterface) -> ScopeChain<'a, Resolved> {
+    ScopeChain::new(vec![Box::new(InterfacePinNamesScope::new(&i.pins))])
+}
+
 /// P2 module category chain (① param ports → ② param defs → ③ ports →
 /// ④ labels → ⑤ non-port insts → ⑥ funcs). No independent buses category:
 /// Bus/List/Interface/Component instances are covered by ⑤.
