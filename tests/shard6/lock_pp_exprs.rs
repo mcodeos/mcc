@@ -11,6 +11,7 @@
 //!   E5409 IDX_MULTIPLE_SLICE_SPEC - two inst names sharing one base key
 //!   E5410 EXPR_THIS_TOP_LEVEL    - `this` in a top-level net line
 //!   E5411 EXPR_PLACEHOLDER_ONLY  - a net connecting only to `_`
+//!   E4065 OPEN_LEAD              - an anchored end meets a free `_` (U283)
 //! Each test runs `mcc parse --code <src> --local --pass1 --pass2 --top main
 //! -f json` through the real binary and asserts the presence (or, for E5405
 //! and E5406, the current absence) of the code in
@@ -105,6 +106,43 @@ fn lock_pp_exprs__placeholder_only_5411_fires() {
 }
 "#;
     assert_fires_clean(5411, source);
+}
+
+// E4065 OPEN_LEAD (exprs.rs check_open_lead, U283): a series mixing one
+// anchored operand with a `_` placeholder — the free end warns, anchored
+// where the `_` was written (open-lead-design.md §2).
+#[test]
+fn lock_pp_exprs__open_lead_4065_fires() {
+    let source = r#"module main(p)
+{
+    p -> _
+}
+"#;
+    assert_fires_clean(4065, source);
+}
+
+// E4065 per-statement counting (identity law): two statements are two
+// distinct anonymous wires — exactly two warnings, no cross-statement dedup.
+#[test]
+fn lock_pp_exprs__open_lead_4065_two_statements_two_warnings() {
+    let source = r#"module main(p, q)
+{
+    p -> _
+    q -> _
+}
+"#;
+    let result = parse(source);
+    let n = result["result"]["pass0"]["diagnostics"]
+        .as_array()
+        .expect("Pass 0 diagnostics")
+        .iter()
+        .filter(|d| d["code"].as_u64() == Some(4065))
+        .count();
+    assert_eq!(
+        n, 2,
+        "two statements are two distinct open leads; diagnostics: {}",
+        result["result"]["pass0"]["diagnostics"]
+    );
 }
 
 // E5408 RANGE_SINGLE_ELEMENT (exprs.rs:300 check_expr_range): a Slice

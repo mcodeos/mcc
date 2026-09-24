@@ -170,9 +170,11 @@ pub struct NetPoint {
 /// Sentinel prefix of an unresolved `_` placeholder lead, produced by the
 /// point collectors in `instant/mc_mod/points.rs`. Such a point occupies a
 /// **width slot** (it is what makes `[R101, _]` two columns wide) but is not a
-/// real endpoint: it must never end up as a member of a net. If it fails to
-/// resolve it is reported as `FLOATING_PLACEHOLDER` (D2 in
-/// `vector/builder/visit.rs`). Kept here as the single source of the literal.
+/// real endpoint: it must never end up as a member of a net. Placeholder
+/// diagnostics belong to the open-lead census on the statement face —
+/// floating wire `EXPR_PLACEHOLDER_ONLY` (5411), open lead `OPEN_LEAD`
+/// (4065); the former vector-build-time `FLOATING_PLACEHOLDER` is retired
+/// (open-lead-design.md §6 ③). Kept here as the single source of the literal.
 pub const LEAD_PLACEHOLDER_PREFIX: &str = "(lead)_";
 
 impl NetPoint {

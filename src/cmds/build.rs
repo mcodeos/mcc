@@ -1443,7 +1443,9 @@ module top {
         );
     }
 
-    // D2 FLOATING_PLACEHOLDER
+    // D2 FLOATING_PLACEHOLDER retired (U283 rulings ①+③): the pure
+    // placeholder face answers to E5411 alone — no E4054 on the graph path,
+    // no E4057 drop-statement error.
 
     #[test]
     fn cli_build__d2_floating_placeholder_unbound_lead() {
@@ -1455,8 +1457,18 @@ module top {
 "#;
         let diags = build_fixture_with_graph(fixture);
         assert!(
-            has_code(&diags, mcc::errcodes::FLOATING_PLACEHOLDER),
-            "D2 FLOATING_PLACEHOLDER should fire for unbound '_'. Diags: {:?}",
+            has_code(&diags, mcc::errcodes::EXPR_PLACEHOLDER_ONLY),
+            "E5411 should own the floating-wire face. Diags: {:?}",
+            diags.iter().map(|d| (d.code, &d.msg)).collect::<Vec<_>>()
+        );
+        assert!(
+            !has_code(&diags, mcc::errcodes::FLOATING_PLACEHOLDER),
+            "E4054 is retired; the census owns the placeholder faces. Diags: {:?}",
+            diags.iter().map(|d| (d.code, &d.msg)).collect::<Vec<_>>()
+        );
+        assert!(
+            !has_code(&diags, mcc::errcodes::NET_DROPPED_STATEMENT),
+            "E4057 must not fire on the pure placeholder face. Diags: {:?}",
             diags.iter().map(|d| (d.code, &d.msg)).collect::<Vec<_>>()
         );
     }

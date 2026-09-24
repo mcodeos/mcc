@@ -3269,7 +3269,15 @@ impl InstTable {
                         points: point_ids,
                     },
                 );
-            } else if point_ids.is_empty() && !net_points.is_empty() {
+            } else if point_ids.is_empty()
+                && !net_points.is_empty()
+                // U283 ruling ① (open-lead-design.md §6): a pure
+                // `_`-placeholder statement is not a resolution failure — a
+                // placeholder has nowhere to resolve to by construction. That
+                // face answers to E5411 (floating wire) alone, so this check
+                // keeps to named endpoints that fail to resolve.
+                && !net_points.iter().all(|np| np.is_lead_placeholder())
+            {
                 // §11.4 GAP2: net statement materialized 0 physical pins
                 // Every NetPoint of this module-level net failed to resolve to a
                 // registered physical entry (component pin / port). The whole

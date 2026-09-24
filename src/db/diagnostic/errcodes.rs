@@ -838,7 +838,11 @@ pub const NET_BUS_ORDER_MISMATCH: u32 = 4052;
 /// declaration order, never numeric sorting - confirm the pairing is intended.
 pub const SORT_HAZARD: u32 = 4053;
 
-/// A '_' placeholder could not be bound to any pin.
+/// Retired: a `_` placeholder is not "unbound" — it has nowhere to bind by
+/// construction. Detection merged into the open-lead doctrine family
+/// (floating wire: EXPR_PLACEHOLDER_ONLY 5411; open lead: OPEN_LEAD 4065).
+/// Registration kept, no producer; severity aligned Warning by the same
+/// ruling (open-lead-design.md §6 ③).
 pub const FLOATING_PLACEHOLDER: u32 = 4054;
 
 /// A net endpoint is not mapped to any box — possible unexposed module boundary port.
@@ -881,6 +885,14 @@ pub const PHANTOM_IO_ACCESS: u32 = 4063;
 /// A bare construction references a class that cannot be opened/resolved;
 /// instantiation is dropped to an @? stub.
 pub const UNRESOLVED_CLASS_STUB: u32 = 4064;
+
+/// Open lead: a statement's anonymous `_` point gathers exactly one anchored
+/// endpoint, leaving a free end nothing can reach. Judged per statement and
+/// never merged across statements; two or more anchors make the point an
+/// interior splice (silent), zero anchors is the floating wire
+/// (EXPR_PLACEHOLDER_ONLY 5411). The judging source is the open-lead
+/// doctrine (open-lead-design.md).
+pub const OPEN_LEAD: u32 = 4065;
 
 /// Retired: superseded by the per-slot missing-subnode codes (4085/4086/4088/
 /// 4089/4091/4093) that name the exact slot. Registration kept, no producer.

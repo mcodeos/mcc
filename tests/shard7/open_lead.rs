@@ -14,10 +14,10 @@
 //!
 //! The green cells lock faces that are already correct at today's HEAD (the
 //! E5411 floating-wire warning, the star silences, the anchored negatives,
-//! the name-disease split). The `#[ignore]`d cells are the ruled-but-uncoded
-//! specs (rulings ①–③, 2026-09-24, doctrine §6): un-ignore them in the U283
-//! coding batch and replace the `OPEN_LEAD` placeholder with the freshly
-//! minted code.
+//! the name-disease split). The spec cells lock the coded rulings (①–③,
+//! 2026-09-24, doctrine §6): the freshly minted open-lead warning E4065,
+//! its per-statement counting, and the E4057 narrowing off the pure
+//! placeholder face.
 
 // Family naming `{family}__{essence}` deliberately doubles the underscore to
 // keep the grep-able family token separate (matrix §1 taxonomy).
@@ -26,11 +26,6 @@
 use crate::common;
 
 use std::collections::HashSet;
-
-/// Stand-in for the open-lead diagnostic code. Ruling ② mints a fresh code in
-/// the coding batch; until then only `#[ignore]`d tests reference this, so the
-/// value never decides a green run.
-const OPEN_LEAD: u32 = u32::MAX;
 
 /// Build `src` and return every emitted diagnostic code in order — a Vec, not
 /// a set: the two-statement cell counts occurrences.
@@ -51,9 +46,11 @@ fn build_codes(src: &str) -> HashSet<u32> {
 fn family_noise(codes: &HashSet<u32>) -> Vec<u32> {
     use mcc::errcodes::{
         EXPR_PLACEHOLDER_ONLY, FLOATING_PLACEHOLDER, FUNC_FLOATING_LABEL, NET_DROPPED_STATEMENT,
+        OPEN_LEAD,
     };
     [
         EXPR_PLACEHOLDER_ONLY,
+        OPEN_LEAD,
         FLOATING_PLACEHOLDER,
         NET_DROPPED_STATEMENT,
         FUNC_FLOATING_LABEL,
@@ -170,10 +167,9 @@ fn open_lead__nc_tail_note_stays_silent() {
     );
 }
 
-// Ruled-but-uncoded specs: un-ignore in the U283 coding batch.
+// Spec cells: the coded rulings (doctrine §6).
 
 #[test]
-#[ignore = "U283 coding batch: open-lead warning not minted yet (ruling ②)"]
 fn open_lead__open_lead_one_anchor_one_free_end_warns() {
     let _lock = common::lock();
 
@@ -183,13 +179,12 @@ fn open_lead__open_lead_one_anchor_one_free_end_warns() {
     let src = "module main(p) {\n    p -> _\n}";
     let codes = build_codes(src);
     assert!(
-        codes.contains(&OPEN_LEAD),
+        codes.contains(&mcc::errcodes::OPEN_LEAD),
         "open lead must warn with the freshly minted code; got codes: {codes:?}"
     );
 }
 
 #[test]
-#[ignore = "U283 coding batch: open-lead warning not minted yet (ruling ②)"]
 fn open_lead__two_statements_are_two_distinct_open_leads() {
     let _lock = common::lock();
 
@@ -199,7 +194,7 @@ fn open_lead__two_statements_are_two_distinct_open_leads() {
     let src = "module main(p, q) {\n    p -> _\n    q -> _\n}";
     let n = build_code_seq(src)
         .into_iter()
-        .filter(|c| *c == OPEN_LEAD)
+        .filter(|c| *c == mcc::errcodes::OPEN_LEAD)
         .count();
     assert_eq!(
         n, 2,
@@ -208,7 +203,6 @@ fn open_lead__two_statements_are_two_distinct_open_leads() {
 }
 
 #[test]
-#[ignore = "U283 coding batch: E4057 narrowing not landed yet (ruling ①)"]
 fn open_lead__pure_placeholder_face_has_no_dropped_statement_error() {
     let _lock = common::lock();
 
