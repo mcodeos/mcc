@@ -128,6 +128,28 @@ fn hbl_entry() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/hbl/src/hbl.mc")
 }
 
+/// The file a display-form statement URI names.
+///
+/// The statement keys stamp the U274 display form (`viz::srcuri`): the project
+/// root — for the hbl runs, the fixture project — or the system root with its
+/// `mcode/` prefix kept. The roots live in the process under test, so this
+/// resolves with the same search order by hand.
+fn resolve_display_uri(uri: &str) -> PathBuf {
+    let p = Path::new(uri);
+    if p.is_absolute() {
+        return p.to_path_buf();
+    }
+    let project = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/hbl");
+    let in_project = project.join(p);
+    if in_project.exists() {
+        return in_project;
+    }
+    let home = std::env::var("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_default();
+    home.join(".mcode").join(p)
+}
+
 /// A fresh, **empty** directory to run a CLI invocation in — see the module note
 /// on why it must not be the fixture tree.
 fn scratch(name: &str) -> PathBuf {
@@ -1716,23 +1738,29 @@ fn stage_viz_publishes_a_statement_group() {
         groups.len()
     );
 
-    // The key is the statement's own `uri:line`, and the row's `loc` is the
-    // same statement — a group does not invent a position. A group is published
-    // for every file of the project, so the statement is looked up in the file
-    // its key names, not in the entry.
+    // The key is the statement's own `uri:line` in the U274 display form (the
+    // project root or the `mcode/` prefix stripped), and the row's `loc` is the
+    // same statement — a group does not invent a position. The loc carries the
+    // machine path the loader resolved, so the two spellings name one file:
+    // the display form is a suffix of the path, and the line is the same line.
     let mut sources: BTreeMap<String, String> = BTreeMap::new();
     for g in &groups {
         let key = g["key"].as_str().expect("a statement group keys on it");
         let (uri, line) = key.rsplit_once(':').expect("the key is `uri:line`");
         let line: usize = line.parse().expect("the key's line is a number");
-        assert_eq!(g["loc"]["uri"].as_str(), Some(uri), "{g}");
+        let loc_uri = g["loc"]["uri"].as_str().expect("the loc names the file");
+        assert!(
+            Path::new(loc_uri).ends_with(uri),
+            "the key names the file the loc points at, in the display form: {g}"
+        );
         assert_eq!(g["loc"]["line"].as_u64(), Some(line as u64), "{g}");
 
         // The text is what was written, not a rendering of the group: it is
         // the statement's own source line.
-        let src = sources
-            .entry(uri.to_string())
-            .or_insert_with(|| std::fs::read_to_string(uri).expect("read the statement's file"));
+        let src = sources.entry(uri.to_string()).or_insert_with(|| {
+            std::fs::read_to_string(resolve_display_uri(uri))
+                .expect("read the statement's file")
+        });
         let text = g["text"].as_str().expect("a group carries the statement");
         assert!(!text.contains('\n'), "a row is one line: {g}");
         // A statement may span lines; the row carries it flattened onto one.

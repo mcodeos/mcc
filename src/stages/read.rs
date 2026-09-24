@@ -92,6 +92,38 @@ impl Loaded {
 /// below are scoped to.
 pub fn load(entry: &str, top: Option<&str>, libs: &[String]) -> Result<Loaded, String> {
     crate::mcc_init_no_lib();
+    // Name the project root by the same rule every CLI face uses
+    // (`build_from_manifest`, `load_target`'s browse branch, `show`'s
+    // fallback): the nearest `project.toml` upward, else the directory (or
+    // the file's parent). The root drives `viz::srcuri::display`, and the
+    // statement keys stamp the display form of their URI — a root this face
+    // leaves unset publishes absolute keys where the CLI publishes relative
+    // ones, and the mirror law (transport independence) fails on them. The
+    // same walk lives in the `load_project` MCP tool.
+    let entry_path = std::path::Path::new(entry);
+    let mut current = if entry_path.is_dir() {
+        Some(entry_path)
+    } else {
+        entry_path.parent()
+    };
+    let mut root: Option<std::path::PathBuf> = None;
+    while let Some(dir) = current {
+        if crate::cli::datadir::find_manifest_in(dir).is_some() {
+            root = Some(dir.to_path_buf());
+            break;
+        }
+        current = dir.parent();
+    }
+    if root.is_none() {
+        root = if entry_path.is_dir() {
+            Some(entry_path.to_path_buf())
+        } else {
+            entry_path.parent().map(|p| p.to_path_buf())
+        };
+    }
+    if let Some(project_root) = root {
+        crate::mcc_set_project_root(&project_root);
+    }
     crate::rpc::handlers::load_libs_rpc(libs);
     let (tree, table, arena, store, diags) = crate::export::build_tree_diags(entry, top, libs)?;
     let resolved = match top {

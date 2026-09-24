@@ -2016,8 +2016,9 @@ fn clause_class_follows_what_it_reaches() {
         assert!(
             item["key"]
                 .as_str()
-                .is_some_and(|k| k.contains("class-reaches")),
-            "the fixture's own statements are the members: {item}"
+                .is_some_and(|k| k.starts_with("main.mc:")),
+            "the fixture's own statements are the members (the key is the \
+             display form, the fixture root stripped, so it spells `main.mc`): {item}"
         );
         *seen.entry(class).or_default() += 1;
     }
