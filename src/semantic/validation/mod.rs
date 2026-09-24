@@ -175,6 +175,7 @@ pub mod hw;
 pub mod iface_role_arg;
 pub mod imports;
 pub mod insts;
+pub mod expectation;
 pub mod interface;
 pub mod ledger;
 pub mod naming;

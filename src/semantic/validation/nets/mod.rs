@@ -708,13 +708,16 @@ pub(crate) fn check_voltage_mismatch(table: &InstTable, results: &mut Vec<NetChe
 ///    (`[VDD, GND]::DC(3.3V)`, `VIN{Vin, GND}::DC(5V)`), the interface
 ///    binding's volt parameter. Found by locating the `McPinPort::Interface`
 ///    whose `registered_pins` / member names include this pin.
+/// 3. **The pin's own `::DC(...)` contract** — a `psrc/psnk/psbi` pin row
+///    with a trailing `::DC(n)` (`psnk [1,2] = [VDD, VSS]::DC(3.3V)`): the
+///    hot member's first positional param. Read from `McPins.pwr`.
 ///
 /// Only **declared supply** pins are voltage sources: a signal pin's `voltage`
 /// attribute describes signal levels, not the rail, and a declared return is
 /// the reference path, which never participates. Range values (`2.5V~5.5V`) are
 /// skipped — they declare tolerance, not a fixed rail. Returns `None` when the
 /// pin is not a supply pin or declares no concrete voltage.
-fn pin_declared_voltages(table: &InstTable, entry: &InstEntry) -> Option<Vec<f64>> {
+pub(crate) fn pin_declared_voltages(table: &InstTable, entry: &InstEntry) -> Option<Vec<f64>> {
     let comp_entry = entry.parent_id.and_then(|pid| table.get_entry(pid))?;
     if comp_entry.class_name.is_empty() {
         return None;
@@ -788,6 +791,23 @@ fn pin_declared_voltages(table: &InstTable, entry: &InstEntry) -> Option<Vec<f64
             if let McParamValue::UValue(uv) = p {
                 if matches!(uv.unit(), McUnit::Volt) && !uv.is_range_or_plusminus() {
                     out.push(uv.value());
+                }
+            }
+        }
+    }
+    // 3) The pin's own `::DC(...)` contract (`psnk [1,2] = [VDD, VSS]::DC(3.3V)`,
+    // §4.1 power-intent pin rows): the first positional param is the rail's
+    // nominal volt; a keyed param (`tol:±5%`) declares tolerance, not a value.
+    // The hot member owns the value — a match by spelling only, so the return
+    // pin of the pair never picks it up.
+    for row in &def.pins.pwr {
+        if row.hot != pin_id && !pin.names.iter().any(|n| n == &row.hot) {
+            continue;
+        }
+        for p in &row.params {
+            if p.key.is_none() {
+                if let Some(v) = parse_voltage_str(&p.text) {
+                    out.push(v);
                 }
             }
         }

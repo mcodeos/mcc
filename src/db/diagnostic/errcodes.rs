@@ -1538,6 +1538,12 @@ pub const COND_DUPLICATE: u32 = 5460;
 /// never selects and no other diagnostic explains why.
 pub const COND_JUDGE_OPERAND_DROPPED: u32 = 5461;
 
+/// A condition judge compares two values of different lexical families —
+/// a bare word against a quoted string (U144 residual 3, ruled 2026-09-20).
+/// The comparison is not silently decided by text; it is rejected so the
+/// author spells both sides in the same family.
+pub const COND_FAMILY_MISMATCH: u32 = 5462;
+
 // Pass3: hardware checks (5500-5549)
 
 /// Pin numbers have gaps.
@@ -2312,6 +2318,35 @@ pub const DOMAIN_BRIDGE_LEG_INCONSISTENT: u32 = 6048;
 /// bridge is the undecided one-way question (§8 open 2) and is not judged here.
 pub const DOMAIN_BRIDGE_DANGLING: u32 = 6049;
 
+// ── 9xxx: the acceptance (fulfillment) family ──
+// The static `expects` acceptance engine (circuit-intent-acceptance-design.md
+// §4): one verdict per row of the top module's ledger, judged on the frozen
+// flat world. Legality lives in 4xxx/5xxx/6xxx; these codes say the built top
+// does not fulfill what the author asked it to fulfill. Structural rows
+// (absence / class mismatch / not-driven) are errors; a value-window conflict
+// is a design-choice report (warning). A row with no declared fact to compare
+// against is DEFER — a verdict, never a diagnostic.
+
+/// The row's target is absent (or of a kind the row form cannot address) in
+/// the built top: a class row names no instance, a driven/window row names no
+/// net. Only what the top instantiates or declares can be expected of it.
+pub const EXPECTATION_TARGET_MISSING: u32 = 9001;
+
+/// The target instance exists but carries no declared face matching the row's
+/// class word. The expectable faces of an instance are its class itself, its
+/// variant base chain, and its adopted capabilities — the same keys `::`
+/// binding reads.
+pub const EXPECTATION_CLASS_MISMATCH: u32 = 9002;
+
+/// The target net exists but carries no declared driver: no endpoint on it is
+/// an `Out` pin or a declared power source (the same declared-face rule the
+/// undriven-net gate reads).
+pub const EXPECTATION_NOT_DRIVEN: u32 = 9003;
+
+/// The target net declares a DC rail value that conflicts with the row's
+/// window — a design-choice report (warning), not a wiring defect.
+pub const EXPECTATION_VALUE_OUT_OF_WINDOW: u32 = 9004;
+
 static ALL_CODES: &[ErrorCodeInfo] = &[
     // section
     entry!(DUP_INTERFACE, "An interface with the same name already exists in this file.", "Duplicate interface"),
@@ -2699,6 +2734,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(MODULE_STUB, "Module is a stub.", "Module is a stub."),
     entry!(COND_DUPLICATE, "Duplicate condition in if/else-if chain.", "A later if/else-if branch duplicates an earlier branch's condition, so it can never be selected."),
     entry!(COND_JUDGE_OPERAND_DROPPED, "Condition operand was not recognized.", "A judge operand has a form the condition collector does not recognize (for example a call), so the whole judge is discarded and the branch never selects. Rewrite the operand as a parameter reference or a literal."),
+    entry!(COND_FAMILY_MISMATCH, "Condition compares a bare word with a quoted string.", "The two sides of the judge belong to different lexical families ({0} vs {1}), so they can never be equal under the strict reading: a bare word only equals the same bare word, a quoted string only the same quoted text. Spell both sides in the same family, or bind the parameter so its family matches the judge."),
     // section
     entry!(HW_PIN_NUMBER_GAP, "Pin numbers have gaps.", "Pin numbers have gaps."),
     entry!(HW_PIN_COUNT_HIGH, "Pin count is unusually high.", "Pin count is unusually high."),
@@ -2790,4 +2826,8 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(AC_NOMINAL_CONFLICT, "Two AC mains faces state different region nominals on one copper.", "the net '{0}' carries two declared AC region nominals on one copper: '{2}' states {3}, while '{4}' states {5} — different {1}, not one mains, and the copper cannot be both. State the region nominal at the consumer faces and keep the region-neutral empty form on the inlet components (ac-interface-design.md §5/§7, U217)."),
     entry!(PROTECTIVE_PIN_NO_COPPER, "A pin declaring @role(protective) or @role(earth) shares a net with no protective conductor.", "the pin '{0}' declares @role({1}), but its net '{2}' touches no conductor the owning scope declares protective or earth — the role word is a promise about the copper, and a plain net does not keep it. Wire the pin to a `conduit`/port declared `@role(protective)`/`@role(earth)` (the single-point the clamp rules read), or drop the role word if the terminal is not protective (ac-interface-design.md §4/§7, U217; the beta ruling: PE is not an interface member, it lives in the role machinery)."),
     entry!(IFACE_CHAIN_SOURCE_UNREACHED, "A sink-shaped adoption lane reaches no source of its family along the adoption chain.", "interface '{0}' lane '{1}' on '{2}' adopts role '{3}', whose pins all declare `in` — a sink-shaped lane — but no source endpoint of the same family is reachable along the adoption chain: the walk crossed every net the family's lanes lead to from here and found only further sink lanes. A unidirectional lane fed from nowhere is a dangling input — an orphan clock input is a clock that never arrives. Wire a source-role endpoint onto the chain (directly, or through a sink lane whose instance also declares a source pin of the same family), or drop the direction words if the lane is not genuinely a consumer (clock-intent-design.md §2.2, U112 ②)."),
+    entry!(EXPECTATION_TARGET_MISSING, "An `expects` row names a target the built top does not contain.", "the `expects` row '{0}' addresses a {1}, but the built top has no {1} named '{0}' — only what the top instantiates or declares can carry an expectation (circuit-intent-acceptance-design.md §4)"),
+    entry!(EXPECTATION_CLASS_MISMATCH, "The instance an `expects` row names instantiates no face matching the row's class word.", "the instance '{0}' instantiates '{1}', and none of its declared faces matches the expected '{2}' — a class row reads the same keys `::` binding reads: the class itself, its variant base chain, and its adopted capabilities ({3}) (circuit-intent-acceptance-design.md §3-§4)"),
+    entry!(EXPECTATION_NOT_DRIVEN, "The net an `expects = driven` row names carries no declared driver.", "the net '{0}' carries no declared driver — no endpoint on it is an `Out` pin or a declared power source, the same declared-face rule the undriven-net gate reads; wire a source onto it, or drop the `driven` row if the net is a passive branch (circuit-intent-acceptance-design.md §3-§4)"),
+    entry!(EXPECTATION_VALUE_OUT_OF_WINDOW, "The net an `expects` row bounds declares a DC rail value outside the row's window.", "the net '{0}' declares {1}, which the window [{2}] of its `expects` row does not cover — the declared DC fact and the asked-for window disagree: widen the window, re-declare the rail, or rewire the net (circuit-intent-acceptance-design.md §5.1)"),
 ];
