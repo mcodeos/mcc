@@ -439,3 +439,67 @@ fn u282_fused_scalar_matches_split_form_in_func_body() {
         "b.cap materialized under the owning instance; nets={fused:?}"
     );
 }
+
+// U284: the named inline construction in a wire chain (`name::TYPE(..)`,
+// the declare_b face) keeps the legacy inline-construction route — the
+// b3944 fused-face gate must not read it as a params-first one-liner.
+
+/// Same owning-instance shape as the U282 fixture: the statement lives in a
+/// DUT func, DUT is instantiated as `b`, so the constructed member must land
+/// `b.R442` with its pins wired into the chain — never as a bare label with
+/// no net membership.
+const U284_FIXTURE: &str = r#"
+component RES(r::INT, tol::INT)
+{
+    pins = [
+        1 = 1
+        2 = 2
+    ]
+}
+
+component DUT
+{
+    pins = [
+        5 = A
+        6 = B
+    ]
+    func setup()
+    {
+        STMT
+    }
+}
+
+module main
+{
+    DUT b
+    b.setup()
+    b.A -> GND
+}
+"#;
+
+/// `A - R442::RES(100, 1) - B` in a func body constructs R442 inline and
+/// wires it in series: pin A(b.5)-`b.R442.1` on one net, `b.R442.2`-pin B(b.6) on the
+/// other, both members carrying the owning-instance prefix. The b3944
+/// regression read this declare_b face as a params-first fused one-liner
+/// (same AST shape, only source order differs), turned the chain element
+/// into an unwired label, and both nets lost the R442 pins.
+#[test]
+fn u284_named_inline_construction_in_chain_wires_under_owner() {
+    let parts = nets_of(
+        &src_of(U284_FIXTURE, "A - R442::RES(100, 1) - B"),
+        "/mcc/u284-declareb-chain.mc",
+    );
+    let has = |net: &[&str]| -> bool {
+        let want: Vec<String> = net.iter().map(|s| s.to_string()).collect();
+        parts.iter().any(|p| p == &want)
+    };
+    // `b.A -> GND` in the module body folds GND into the same net as pin 5.
+    assert!(
+        has(&["GND", "b.5", "b.R442.1"]),
+        "R442.1 wired to b.A(pin 5) under the owner; nets={parts:?}"
+    );
+    assert!(
+        has(&["b.6", "b.R442.2"]),
+        "R442.2 wired to b.B(pin 6) under the owner; nets={parts:?}"
+    );
+}

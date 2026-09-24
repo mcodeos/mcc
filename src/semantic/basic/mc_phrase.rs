@@ -73,6 +73,30 @@ pub(crate) fn declare_has_instance_params(declare: &AstNode) -> bool {
         .unwrap_or(false)
 }
 
+/// U284: the `name::TYPE(...)` face (instance written before the class) is a
+/// named inline construction, not the params-first fused one-liner. The
+/// grammar produces the same AST for both — MCAST_CLASS + bare MCAST_INSTANCE
+/// — so source order disambiguates them, exactly like the R5a declare_b
+/// handler below (the `inst_pos < cls.get_pos()` canon). A declare_b face
+/// keeps the legacy inline-construction route: it must not register into
+/// `func.insts` (the fused-face unification) or reroute to caller labels.
+pub(crate) fn declare_instance_precedes_class(declare: &AstNode) -> bool {
+    let sub = match declare.get_sub_node() {
+        Some(sub) => sub,
+        None => return false,
+    };
+    let mut inst_pos: Option<u32> = None;
+    let mut class_pos: Option<u32> = None;
+    for c in sub.iter() {
+        match c.get_type() {
+            MCAST_CLASS if class_pos.is_none() => class_pos = Some(c.get_pos()),
+            MCAST_INSTANCE if inst_pos.is_none() => inst_pos = Some(c.get_pos()),
+            _ => {}
+        }
+    }
+    matches!((inst_pos, class_pos), (Some(i), Some(c)) if i < c)
+}
+
 /// U282: expand a DECLARE node's instance names (`cap[1:2]` → `cap1`, `cap2`).
 /// Mirrors the module-level DECLARE handler's name extraction (instance
 /// child → ids node → `McIds::expand`).
@@ -3604,6 +3628,7 @@ impl McPhrase {
                         let declared = declare_instance_names(&inner);
                         let local = !declared.is_empty()
                             && !declare_has_instance_params(&inner)
+                            && !declare_instance_precedes_class(&inner)
                             && declared.iter().all(|n| context.has_local_decl(n));
                         if !local {
                             // Parse the DECLARE (the phrase may hold DOT expressions)
