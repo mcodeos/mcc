@@ -24,6 +24,7 @@ mod lock_pp_duplicates;
 mod lock_pp_extra;
 mod member_role_declared_identity;
 mod pin_member_spelling;
+mod pin_option_conflict;
 mod pins_index_access;
 mod pins_self_face_phrase;
 mod resolve_policy;

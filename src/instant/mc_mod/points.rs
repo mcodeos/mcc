@@ -1762,9 +1762,15 @@ impl InstantiationBuilder {
                 // spellings. Dotted paths resolve EXACTLY (the resolver's reverse
                 // lookup matches the full name when the member is dotted), so a
                 // misspelled `VIN.Vout` cannot bind to pin 1 (VOUT.Vout).
-                let resolved = declared_pin_id(&comp, rest_part)
-                    .map(|id| format!("{owner_part}.{id}"))
-                    .unwrap_or_else(|| canonicalize_path(&element.name));
+                let resolved = match declared_pin_id(&comp, rest_part) {
+                    Some(id) => {
+                        // §4.2 check 2: this name just reached physical pin
+                        // `id` — record the option it belongs to.
+                        self.note_pin_option_use(owner_part, &comp, rest_part, &id);
+                        format!("{owner_part}.{id}")
+                    }
+                    None => canonicalize_path(&element.name),
+                };
                 // ── P2-4: preserve bus member name when resolving e.g. ldo.VIN.GND → ldo.2 ──
                 let member_name = if rest_part.contains('.') {
                     rest_part.rsplit('.').next().map(|s| s.to_string())
@@ -2309,10 +2315,11 @@ impl InstantiationBuilder {
     /// Returns Some only when the first segment is a component instance of this module
     /// and the alias resolves to a unique pid; otherwise None (submodule ports / bus
     /// ports / labels / already-pid all return None, untouched).
-    pub(super) fn normalize_one_inst_pin_path(&self, path: &str) -> Option<String> {
+    pub(super) fn normalize_one_inst_pin_path(&mut self, path: &str) -> Option<String> {
         let (inst, member) = path.split_once('.')?;
         let comp = self.find_component(inst)?;
         let id = declared_pin_id(&comp, member)?;
+        self.note_pin_option_use(inst, &comp, member, &id);
         let new = format!("{inst}.{id}");
         (new != path).then_some(new)
     }
@@ -2395,6 +2402,8 @@ impl InstantiationBuilder {
         }
         if let Some(comp) = self.find_component(owner) {
             let id = declared_pin_id(&comp, member)?;
+            // §4.2 check 2: curly two-face access resolves through here too.
+            self.note_pin_option_use(owner, &comp, member, &id);
             let mut np =
                 NetPoint::with_owner(&format!("{owner}.{id}"), owner, IOType::None, site.clone());
             if member.contains('.') {

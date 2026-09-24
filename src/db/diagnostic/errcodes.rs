@@ -109,8 +109,8 @@ pub const DUP_ENUM: u32 = 1003;
 /// A module with the same name already exists in this file.
 pub const DUP_MODULE: u32 = 1004;
 
-/// A capability with the same name already exists in this file.
-pub const DUP_CAPABILITY: u32 = 1006;
+/// A recipe with the same name already exists in this file.
+pub const DUP_RECIPE: u32 = 1006;
 
 // Pass1a: definition structure / CMIE load (1050-1099)
 
@@ -1253,12 +1253,12 @@ pub const NAME_PARAM_SHADOWS_CMIE: u32 = 5057;
 
 // capability / variant (abstract-variant-capability plan) (5058-5066)
 
-/// capability body may only contain signal declarations and funcs.
-pub const CAPABILITY_BODY_INVALID: u32 = 5058;
+/// recipe body may only contain signal declarations and funcs.
+pub const RECIPE_BODY_INVALID: u32 = 5058;
 
-/// capability func references a bare name that is not a declared signal, a
+/// recipe func references a bare name that is not a declared signal, a
 /// parameter, or a func-local instance (§3.2 self-consistency).
-pub const CAPABILITY_FUNC_UNRESOLVED_REF: u32 = 5059;
+pub const RECIPE_FUNC_UNRESOLVED_REF: u32 = 5059;
 
 /// variant may not write pins/params/func — those are inherited from the base
 /// (data lock, §7.2).
@@ -1267,19 +1267,19 @@ pub const VARIANT_REDECLARES_PINS_PARAMS_FUNCS: u32 = 5060;
 /// abstract component may not carry a variant base `:` (no variant chain).
 pub const ABSTRACT_DERIVES_ABSTRACT: u32 = 5061;
 
-/// `:` (variant) and `::` (capability adoption) are mutually exclusive.
+/// `:` (variant) and `::` (recipe adoption) are mutually exclusive.
 pub const VARIANT_ADOPTS: u32 = 5062;
 
 /// `:` target is not an abstract component.
 pub const VARIANT_BASE_NON_ABSTRACT: u32 = 5063;
 
-/// `::` target is not a capability.
-pub const ADOPTS_NON_CAPABILITY: u32 = 5064;
+/// `::` target is not a recipe.
+pub const ADOPTS_NON_RECIPE: u32 = 5064;
 
-/// Adopting component is missing a declared capability signal.
-pub const CAPABILITY_SIGNAL_MISSING: u32 = 5065;
+/// Adopting component is missing a declared recipe signal.
+pub const RECIPE_SIGNAL_MISSING: u32 = 5065;
 
-/// Two adopted capabilities expose the same func name and the component does
+/// Two adopted recipes expose the same func name and the component does
 /// not override it.
 pub const ADOPTED_FUNC_AMBIGUOUS: u32 = 5066;
 
@@ -2334,7 +2334,7 @@ pub const EXPECTATION_TARGET_MISSING: u32 = 9001;
 
 /// The target instance exists but carries no declared face matching the row's
 /// class word. The expectable faces of an instance are its class itself, its
-/// variant base chain, and its adopted capabilities — the same keys `::`
+/// variant base chain, and its adopted recipes — the same keys `::`
 /// binding reads.
 pub const EXPECTATION_CLASS_MISMATCH: u32 = 9002;
 
@@ -2353,7 +2353,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(DUP_COMPONENT, "A component with the same name already exists in this file.", "Duplicate component"),
     entry!(DUP_ENUM, "An enum with the same name already exists in this file.", "Duplicate enum"),
     entry!(DUP_MODULE, "A module with the same name already exists in this file.", "Duplicate module"),
-    entry!(DUP_CAPABILITY, "A capability with the same name already exists in this file.", "Duplicate capability"),
+    entry!(DUP_RECIPE, "A recipe with the same name already exists in this file.", "Duplicate recipe"),
     // section
     entry!(DEF_ALREADY_EXISTS, "Definition already exists.", "Definition already exists"),
     entry!(INST_MISSING_SUBNODE, "Missing subnode in an instance declaration.", "Missing subnode in an instance declaration."),
@@ -2644,15 +2644,15 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(NAME_INSTANCE_SINGLE_CHAR, "Instance name is a single character.", "Instance name is a single character."),
     entry!(NAME_PORT_INST_SHADOWS_CMIE, "Port/instance name shadows a library CMIE name.", "Port/instance name shadows a library CMIE name."),
     entry!(NAME_PARAM_SHADOWS_CMIE, "Parameter name shadows a library CMIE name.", "Parameter name shadows a library CMIE name."),
-    entry!(CAPABILITY_BODY_INVALID, "capability body may only contain signal declarations and funcs.", "capability body may only contain signal declarations and funcs"),
-    entry!(CAPABILITY_FUNC_UNRESOLVED_REF, "capability func references a name that is not a declared signal, parameter, or func-local instance.", "'{0}' is not a declared signal, parameter, or local in this capability func"),
+    entry!(RECIPE_BODY_INVALID, "recipe body may only contain signal declarations and funcs.", "recipe body may only contain signal declarations and funcs"),
+    entry!(RECIPE_FUNC_UNRESOLVED_REF, "recipe func references a name that is not a declared signal, parameter, or func-local instance.", "'{0}' is not a declared signal, parameter, or local in this recipe func"),
     entry!(VARIANT_REDECLARES_PINS_PARAMS_FUNCS, "A variant may not declare pins, construction params, or funcs — they are inherited from the abstract base.", "variant '{0}' may not declare pins, params, or funcs (inherited from the base)"),
     entry!(ABSTRACT_DERIVES_ABSTRACT, "An abstract component may not carry a variant base — abstract inherits abstract is forbidden.", "abstract component may not derive with ':' (no variant chain)"),
-    entry!(VARIANT_ADOPTS, "Variant inheritance (':') and capability adoption ('::') are mutually exclusive.", "':' and '::' are mutually exclusive on one component"),
-    entry!(VARIANT_BASE_NON_ABSTRACT, "A variant base must be an abstract component.", "'{0}' is not an abstract component — use '::' to adopt a capability"),
-    entry!(ADOPTS_NON_CAPABILITY, "Adoption target must be a capability.", "'{0}' is not a capability — use ':' to derive a variant from an abstract component"),
-    entry!(CAPABILITY_SIGNAL_MISSING, "An adopting component must declare every capability signal (name + direction + interface).", "'{0}' is missing capability signal '{1}'; {2}"),
-    entry!(ADOPTED_FUNC_AMBIGUOUS, "Two adopted capabilities expose the same func name and the component does not override it.", "adopted capabilities share func '{0}'; define '{0}' here to override"),
+    entry!(VARIANT_ADOPTS, "Variant inheritance (':') and recipe adoption ('::') are mutually exclusive.", "':' and '::' are mutually exclusive on one component"),
+    entry!(VARIANT_BASE_NON_ABSTRACT, "A variant base must be an abstract component.", "'{0}' is not an abstract component — use '::' to adopt a recipe"),
+    entry!(ADOPTS_NON_RECIPE, "Adoption target must be a recipe.", "'{0}' is not a recipe — use ':' to derive a variant from an abstract component"),
+    entry!(RECIPE_SIGNAL_MISSING, "An adopting component must declare every recipe signal (name + direction + interface).", "'{0}' is missing recipe signal '{1}'; {2}"),
+    entry!(ADOPTED_FUNC_AMBIGUOUS, "Two adopted recipes expose the same func name and the component does not override it.", "adopted recipes share func '{0}'; define '{0}' here to override"),
     entry!(BOM_VALUE_NOT_DESCENDANT, "A bom.mc value names a class that is not a `:` descendant of the slot's declared class.", "bom key '{0}' names '{1}', which is not a `:` descendant of the slot's declared class '{2}' — the bom block picks a variant of the declared base, it does not retype the slot. Name a variant whose `: base` chain reaches '{2}', or change the module face to declare the base the bom value derives from (param-authoring-design.md section 4)."),
     entry!(BOM_KEY_NOT_SLOT, "A bom.mc key does not designate an abstract-declared instance.", "bom key '{0}' does not designate an abstract-declared slot ({1}) — the bom block binds part selections to slots, and a slot is an instance whose module declares it on an `abstract component` base. Remove the key, or make the module face declare the base and let the bom block pick the variant (param-authoring-design.md section 4)."),
     // section
@@ -2665,7 +2665,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(NOT_AN_INTERFACE, "The class is a component/module/enum, not an interface.", "'{0}' is a component/module/enum, not an interface."),
     entry!(NAME_PARAM_AND_INSTANCE, "Name is both a value parameter and an instance.", "Name is both a value parameter and an instance."),
     entry!(PIN_UNCONNECTED, "Pin is not connected to any net.", "Pin is not connected to any net."),
-    entry!(PIN_CONFLICTING_OPTIONS, "Pin uses conflicting option names.", "Pin uses conflicting option names."),
+    entry!(PIN_CONFLICTING_OPTIONS, "Pin uses conflicting option names.", "Instance {0} pin {1} is reached as both {2} and {3}, and the two names belong to different `|` options of the pin — one physical pin cannot carry two functions at once. Connect one option per pin, or split the connection across the option's own pin group."),
     entry!(INST_THIS_TYPE, "this :: TYPE declaration is not allowed.", "this :: TYPE declaration is not allowed."),
     entry!(MODULE_PORT_UNUSED, "Module port is declared but never connected.", "Module port is declared but never connected."),
     entry!(COND_SINGLE_BINARY, "Condition compares against a single binary value.", "Condition compares against a single binary value."),
@@ -2827,7 +2827,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(PROTECTIVE_PIN_NO_COPPER, "A pin declaring @role(protective) or @role(earth) shares a net with no protective conductor.", "the pin '{0}' declares @role({1}), but its net '{2}' touches no conductor the owning scope declares protective or earth — the role word is a promise about the copper, and a plain net does not keep it. Wire the pin to a `conduit`/port declared `@role(protective)`/`@role(earth)` (the single-point the clamp rules read), or drop the role word if the terminal is not protective (ac-interface-design.md §4/§7, U217; the beta ruling: PE is not an interface member, it lives in the role machinery)."),
     entry!(IFACE_CHAIN_SOURCE_UNREACHED, "A sink-shaped adoption lane reaches no source of its family along the adoption chain.", "interface '{0}' lane '{1}' on '{2}' adopts role '{3}', whose pins all declare `in` — a sink-shaped lane — but no source endpoint of the same family is reachable along the adoption chain: the walk crossed every net the family's lanes lead to from here and found only further sink lanes. A unidirectional lane fed from nowhere is a dangling input — an orphan clock input is a clock that never arrives. Wire a source-role endpoint onto the chain (directly, or through a sink lane whose instance also declares a source pin of the same family), or drop the direction words if the lane is not genuinely a consumer (clock-intent-design.md §2.2, U112 ②)."),
     entry!(EXPECTATION_TARGET_MISSING, "An `expects` row names a target the built top does not contain.", "the `expects` row '{0}' addresses a {1}, but the built top has no {1} named '{0}' — only what the top instantiates or declares can carry an expectation (circuit-intent-acceptance-design.md §4)"),
-    entry!(EXPECTATION_CLASS_MISMATCH, "The instance an `expects` row names instantiates no face matching the row's class word.", "the instance '{0}' instantiates '{1}', and none of its declared faces matches the expected '{2}' — a class row reads the same keys `::` binding reads: the class itself, its variant base chain, and its adopted capabilities ({3}) (circuit-intent-acceptance-design.md §3-§4)"),
+    entry!(EXPECTATION_CLASS_MISMATCH, "The instance an `expects` row names instantiates no face matching the row's class word.", "the instance '{0}' instantiates '{1}', and none of its declared faces matches the expected '{2}' — a class row reads the same keys `::` binding reads: the class itself, its variant base chain, and its adopted recipes ({3}) (circuit-intent-acceptance-design.md §3-§4)"),
     entry!(EXPECTATION_NOT_DRIVEN, "The net an `expects = driven` row names carries no declared driver.", "the net '{0}' carries no declared driver — no endpoint on it is an `Out` pin or a declared power source, the same declared-face rule the undriven-net gate reads; wire a source onto it, or drop the `driven` row if the net is a passive branch (circuit-intent-acceptance-design.md §3-§4)"),
     entry!(EXPECTATION_VALUE_OUT_OF_WINDOW, "The net an `expects` row bounds declares a DC rail value outside the row's window.", "the net '{0}' declares {1}, which the window [{2}] of its `expects` row does not cover — the declared DC fact and the asked-for window disagree: widen the window, re-declare the rail, or rewire the net (circuit-intent-acceptance-design.md §5.1)"),
 ];

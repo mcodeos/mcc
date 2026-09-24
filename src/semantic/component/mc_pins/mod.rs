@@ -259,6 +259,20 @@ pub struct McPins {
     // so `show` reorders `|` alternates with this table to match the source.
     pub pin_iface_order: BTreeMap<String, Vec<String>>,
 
+    // name -> the `|` alternate (option ordinal) that declared it, first
+    // registration wins. Names under one ordinal are one option (or one
+    // alias run — the alias form `1 = A | B` is a single alternate, so its
+    // names share an ordinal and never conflict); names under different
+    // ordinals reaching the same pinid are the §4.2 check-2 conflict.
+    // Conditional-branch pins register outside the alternate scan and stay
+    // ungrouped (no ordinal → usage-side detection skips them).
+    name_option: BTreeMap<String, u32>,
+
+    // The `|` alternate currently being registered (`opt_idx` of the row
+    // scan). Scan state, not a table: read by `register_pin` when it files
+    // a name into `name_option`.
+    current_option: u32,
+
     // 1. label
     // case1.1: 1 = NC                              -> <NC, Single(1)>
     // case1.2: 2 = NC                              -> <NC, Multi(1,2)> same-name merge, Single(1)
@@ -360,6 +374,8 @@ impl McPins {
             pin_ranges: Vec::new(),
             pin_id_to_names: BTreeMap::new(),
             pin_iface_order: BTreeMap::new(),
+            name_option: BTreeMap::new(),
+            current_option: 0,
             values_pool: Vec::new(),
             dynamic_pins: Vec::new(),
             list_groups: Vec::new(),
@@ -372,6 +388,15 @@ impl McPins {
 
     pub fn has_dynamic_pins(&self) -> bool {
         !self.dynamic_pins.is_empty()
+    }
+
+    /// The `|` option ordinal `name` was declared under, first registration
+    /// wins (`None` for conditional-branch names, which register outside the
+    /// alternate scan). Two names of the same pinid with different ordinals
+    /// are the §4.2 check-2 conflict; two names sharing an ordinal are one
+    /// option or one alias run and never conflict.
+    pub fn option_of_name(&self, name: &str) -> Option<u32> {
+        self.name_option.get(name).copied()
     }
 
     /// Whether this pin table holds any pin definitions at all: static pins,
@@ -1275,6 +1300,15 @@ impl McPins {
             };
 
             for (opt_idx, optname) in names.options.iter().enumerate() {
+                // The ordinal `register_pin` files each name under. §2.7
+                // taxonomy: on a single-pinid row the `|` alternates are
+                // pin-level aliases — one function, several names — so they
+                // all share ordinal 0; on a multi-pinid row each alternate
+                // is a full option of the group (§2.6) and gets its own.
+                self.current_option = match &pinids {
+                    McPinPort::Single(_) => 0,
+                    _ => opt_idx as u32,
+                };
                 // Use the leading identifier span (precise name) instead of the
                 // whole option bounding span, so goto-def lands on the name
                 // itself (e.g. `ADC` in `ADC::ADC.DIFF(Receiver)`).
@@ -2799,6 +2833,13 @@ impl McPins {
                 .entry(pinid.clone())
                 .or_default()
                 .push(name.clone());
+
+            // File the name under the `|` alternate that declared it (first
+            // registration wins — an adoption row re-registering the same
+            // name keeps the original option grouping).
+            self.name_option
+                .entry(name.clone())
+                .or_insert(self.current_option);
 
             match self.names_to_id.get_mut(name) {
                 Some(existing) => {
