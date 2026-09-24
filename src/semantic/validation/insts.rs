@@ -269,7 +269,10 @@ fn check_instance_param_mismatch(acc: &mut CheckAccumulator) {
 /// Look up the declaration span for an instance name within a module.
 /// Falls back to the module's start span when no specific span is recorded
 /// (e.g. for anonymous or synthesized instances).
-fn instance_span(m: &crate::McModule, inst_name: &str) -> Option<std::ops::Range<usize>> {
+pub(crate) fn instance_span(
+    m: &crate::McModule,
+    inst_name: &str,
+) -> Option<std::ops::Range<usize>> {
     if let Some(spans) = m.insts.port_spans().get(inst_name) {
         if let Some(s) = spans.first() {
             return Some(s.clone());

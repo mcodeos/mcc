@@ -5,6 +5,7 @@
 pub mod mc_attr;
 pub(crate) mod mc_attr_view;
 pub mod mc_layout;
+pub(crate) mod mc_ratings;
 pub mod mc_pins; // mc_pins/mod.rs includes mc_pins/dynamic.rs
 
 use self::mc_attr::McAttributes;
