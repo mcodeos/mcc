@@ -8,7 +8,6 @@ pub(crate) mod common;
 pub(crate) mod component;
 pub(crate) mod context;
 pub(crate) mod instref;
-pub(crate) mod mc_define;
 pub(crate) mod mc_enum;
 pub(crate) mod mc_func;
 pub(crate) mod mc_ifs;

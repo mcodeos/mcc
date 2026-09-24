@@ -6,8 +6,9 @@
 //!
 //! `bom.overlay.mc` sits at a project root as a sidecar (not in the `use`
 //! topology; discovery walks up from the entry file per build). The carrier is
-//! mc grammar — one `overlay <top> { path = Class }` block whose rows reuse
-//! the `define`-table row shape verbatim, so the mc parser reads it with real
+//! mc grammar — one `overlay <top> { path = Class }` block whose `path =
+//! Class` rows keep the row grammar of the retired `define` table, so the mc
+//! parser reads it with real
 //! lex spans and normal parse diagnostics. Keys are instance paths relative
 //! to the top module named in the header (`"LDO.ldo"`); values are component
 //! class names resolved against the live defs at bind time. A binding

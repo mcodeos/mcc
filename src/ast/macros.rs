@@ -19,7 +19,6 @@ pub const MCAST_MODULE: u16 = 12;
 pub const MCAST_INTERFACE: u16 = 13;
 pub const MCAST_FUNCTION: u16 = 14;
 pub const MCAST_ENUM: u16 = 15;
-pub const MCAST_DEFINE: u16 = 16;
 pub const MCAST_USE: u16 = 17;
 pub const MCAST_USE_PUB: u16 = 18;
 pub const MCAST_CAPABILITY: u16 = 19;

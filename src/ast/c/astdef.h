@@ -25,7 +25,6 @@
 #define MCAST_INTERFACE                13
 #define MCAST_FUNCTION                 14
 #define MCAST_ENUM                     15
-#define MCAST_DEFINE                   16
 #define MCAST_USE                      17
 #define MCAST_USE_PUB                  18
 #define MCAST_CAPABILITY               19

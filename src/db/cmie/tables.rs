@@ -28,7 +28,6 @@ use crate::db::diagnostic::diagnostic::DiagnosticManager;
 use crate::db::infra::mc_code::McCode;
 use crate::semantic::capability::McCapability;
 use crate::semantic::component::McComponent;
-use crate::semantic::mc_define::McDefineDef;
 use crate::semantic::mc_enum::McEnumDef;
 use crate::semantic::mc_ifs::McInterface;
 use crate::semantic::module::McModule;
@@ -130,7 +129,6 @@ struct WorkspaceSnapshot {
     components: DashMap<McSpaceName, Arc<McComponent>>,
     interfaces: DashMap<McSpaceName, Arc<McInterface>>,
     enums: DashMap<McSpaceName, Arc<McEnumDef>>,
-    defines: DashMap<McSpaceName, Arc<McDefineDef>>,
     capabilities: DashMap<McSpaceName, Arc<McCapability>>,
     diagnostics: DiagnosticManager,
     // §12.1 DefinitionSpace manifest (loaded source domains + lib boundary).
@@ -158,7 +156,6 @@ pub struct WorkspaceManager {
     pub(crate) components: DashMap<McSpaceName, Arc<McComponent>>,
     pub(crate) interfaces: DashMap<McSpaceName, Arc<McInterface>>,
     pub(crate) enums: DashMap<McSpaceName, Arc<McEnumDef>>,
-    pub(crate) defines: DashMap<McSpaceName, Arc<McDefineDef>>,
     pub(crate) capabilities: DashMap<McSpaceName, Arc<McCapability>>,
     pub(crate) diagnostics: Mutex<DiagnosticManager>,
 
@@ -215,7 +212,6 @@ impl WorkspaceManager {
             components: DashMap::new(),
             interfaces: DashMap::new(),
             enums: DashMap::new(),
-            defines: DashMap::new(),
             capabilities: DashMap::new(),
             diagnostics: Mutex::new(DiagnosticManager::new()),
             meta: Mutex::new(WorkspaceMeta::default()),
@@ -305,7 +301,6 @@ impl WorkspaceManager {
         self.components.clear();
         self.interfaces.clear();
         self.enums.clear();
-        self.defines.clear();
         self.capabilities.clear();
         self.lsp.class_table.lock().unwrap().clear();
         self.diagnostics.lock().unwrap().clear();
@@ -412,7 +407,6 @@ impl WorkspaceManager {
         let components = clone_and_clear(&self.components);
         let interfaces = clone_and_clear(&self.interfaces);
         let enums = clone_and_clear(&self.enums);
-        let defines = clone_and_clear(&self.defines);
         let capabilities = clone_and_clear(&self.capabilities);
         let sources = clone_and_clear(&self.sources);
         let libs = clone_and_clear(&self.libs);
@@ -433,7 +427,6 @@ impl WorkspaceManager {
             components,
             interfaces,
             enums,
-            defines,
             capabilities,
             diagnostics,
             sources,
@@ -458,7 +451,6 @@ impl WorkspaceManager {
         fill_dashmap(&self.components, snap.components);
         fill_dashmap(&self.interfaces, snap.interfaces);
         fill_dashmap(&self.enums, snap.enums);
-        fill_dashmap(&self.defines, snap.defines);
         fill_dashmap(&self.capabilities, snap.capabilities);
         fill_dashmap(&self.sources, snap.sources);
         fill_dashmap(&self.libs, snap.libs);
@@ -492,7 +484,6 @@ impl WorkspaceManager {
             &self.modules,
             &self.interfaces,
             &self.enums,
-            &self.defines,
             &self.capabilities,
         );
         // Phase 5: restore the world's system-library segment alongside its

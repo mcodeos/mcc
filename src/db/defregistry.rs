@@ -50,7 +50,7 @@
 //! faithful to the pre-refactor behavior:
 //! - Module defs always land in the workspace module table — module parsing
 //!   runs over `WORKSPACE.mcodes` regardless of the source domain.
-//! - Component / Interface / Enum / Define defs land in the workspace table
+//! - Component / Interface / Enum defs land in the workspace table
 //!   for `Project`. System-library defs are **not** mirrored into the
 //!   process-global `global::mcc_*` tables anymore (Phase 5) — the registry
 //!   is their only storage, so cross-world library state can never go stale.
@@ -60,7 +60,6 @@ use crate::db::defmember::{DefMemberId, MemberLedger};
 use crate::semantic::capability::McCapability;
 use crate::semantic::common::UriId;
 use crate::semantic::component::McComponent;
-use crate::semantic::mc_define::McDefineDef;
 use crate::semantic::mc_enum::McEnumDef;
 use crate::semantic::mc_ifs::McInterface;
 use crate::semantic::module::McModule;
@@ -99,7 +98,6 @@ pub enum DefKind {
     Module,
     Interface,
     Enum,
-    Define,
     Capability,
     Func,
 }
@@ -118,7 +116,6 @@ impl DefKind {
             DefKind::Module => "module",
             DefKind::Interface => "interface",
             DefKind::Enum => "enum",
-            DefKind::Define => "define",
             DefKind::Capability => "capability",
             DefKind::Func => "func",
         }
@@ -135,28 +132,27 @@ impl DefKind {
             DefKind::Module => "modules",
             DefKind::Interface => "interfaces",
             DefKind::Enum => "enums",
-            DefKind::Define => "defines",
             DefKind::Capability => "capabilities",
             DefKind::Func => "funcs",
         }
     }
 }
 
-/// The six kinds a whole-space enumeration walks, in the order it walks them
-/// (CIMP §1 U120, 2026-09-19).
+/// The five kinds a whole-space enumeration walks, in the order it walks them
+/// (CIMP §1 U120, 2026-09-19; `Define` retired from the kind set in b3953,
+/// U267③).
 ///
-/// This is a **display order**, not a count: `DefKind` holds seven variants,
+/// This is a **display order**, not a count: `DefKind` holds six variants,
 /// and `DefKind::Func` is deliberately absent here because a func is a member
 /// of its host rather than a standalone def (design §12.1) — see
 /// [`RegistryState::enumerate_all`]. The two host kinds that carry func
 /// members come first, then the smaller definition kinds, which is the order
 /// `show defs` has printed since it was written.
-pub const DEF_KIND_ORDER: [DefKind; 6] = [
+pub const DEF_KIND_ORDER: [DefKind; 5] = [
     DefKind::Module,
     DefKind::Component,
     DefKind::Interface,
     DefKind::Enum,
-    DefKind::Define,
     DefKind::Capability,
 ];
 
@@ -211,14 +207,13 @@ pub enum EffFuncSource {
 }
 
 /// Tagged definition value: one [`insert`] writes any of the definition
-/// kinds (Component / Module / Interface / Enum / Define / Capability / Func).
+/// kinds (Component / Module / Interface / Enum / Capability / Func).
 #[derive(Clone)]
 pub enum DefValue {
     Component(Arc<McComponent>),
     Module(Arc<McModule>),
     Interface(Arc<McInterface>),
     Enum(Arc<McEnumDef>),
-    Define(Arc<McDefineDef>),
     Capability(Arc<McCapability>),
     Func(FuncDef),
 }
@@ -230,7 +225,6 @@ impl DefValue {
             DefValue::Module(_) => DefKind::Module,
             DefValue::Interface(_) => DefKind::Interface,
             DefValue::Enum(_) => DefKind::Enum,
-            DefValue::Define(_) => DefKind::Define,
             DefValue::Capability(_) => DefKind::Capability,
             DefValue::Func(_) => DefKind::Func,
         }
@@ -438,7 +432,6 @@ fn kind_priority(kind: DefKind) -> u8 {
         DefKind::Module => 1,
         DefKind::Interface => 2,
         DefKind::Enum => 3,
-        DefKind::Define => 4,
         // Capability never enters the name index (not a class kind) — kept for
         // exhaustive matches only.
         DefKind::Capability => 5,
@@ -1102,7 +1095,6 @@ impl RegistryState {
         modules: &DashMap<McSpaceName, Arc<McModule>>,
         interfaces: &DashMap<McSpaceName, Arc<McInterface>>,
         enums: &DashMap<McSpaceName, Arc<McEnumDef>>,
-        defines: &DashMap<McSpaceName, Arc<McDefineDef>>,
         capabilities: &DashMap<McSpaceName, Arc<McCapability>>,
     ) {
         for e in components.iter() {
@@ -1149,14 +1141,6 @@ impl RegistryState {
                 DefKind::Enum,
                 &LoadDomain::Project,
                 &DefValue::Enum(e.value().clone()),
-            );
-        }
-        for e in defines.iter() {
-            let _ = self.register(
-                e.key(),
-                DefKind::Define,
-                &LoadDomain::Project,
-                &DefValue::Define(e.value().clone()),
             );
         }
         for e in capabilities.iter() {
@@ -1488,14 +1472,6 @@ impl RegistryState {
         }
     }
 
-    /// Look up a define by its `McSpaceName` (any domain).
-    pub(crate) fn get_define(&self, sn: &McSpaceName) -> Option<Arc<McDefineDef>> {
-        match self.live_entry(sn, DefKind::Define)? {
-            DefValue::Define(d) => Some(d),
-            _ => None,
-        }
-    }
-
     /// Look up a capability by its `McSpaceName` (any domain).
     pub(crate) fn get_capability(&self, sn: &McSpaceName) -> Option<Arc<McCapability>> {
         match self.live_entry(sn, DefKind::Capability)? {
@@ -1576,15 +1552,6 @@ impl RegistryState {
     pub(crate) fn get_workspace_enum(&self, sn: &McSpaceName) -> Option<Arc<McEnumDef>> {
         match self.live_entry_in(sn, DefKind::Enum, DomainFilter::Project)? {
             DefValue::Enum(e) => Some(e),
-            _ => None,
-        }
-    }
-
-    /// Look up a define by its `McSpaceName` in the project (workspace)
-    /// domain.
-    pub(crate) fn get_workspace_define(&self, sn: &McSpaceName) -> Option<Arc<McDefineDef>> {
-        match self.live_entry_in(sn, DefKind::Define, DomainFilter::Project)? {
-            DefValue::Define(d) => Some(d),
             _ => None,
         }
     }
@@ -1724,7 +1691,6 @@ impl RegistryState {
             DefKind::Component,
             DefKind::Interface,
             DefKind::Enum,
-            DefKind::Define,
         ] {
             if self.live_entry(sn, kind).is_some() {
                 return Some(kind);
@@ -2206,10 +2172,6 @@ fn declaration_lines(def: &DefValue) -> Vec<String> {
                 lines.push(format!("enum-val {}", v.name));
             }
         }
-        DefValue::Define(d) => {
-            lines.push(format!("def define {} {}", d.name, d.uri));
-            push_attr_lines(&d.attrs, &mut lines);
-        }
         DefValue::Func(f) => {
             lines.push(format!("func-entry {} {}", f.host, f.name));
         }
@@ -2245,7 +2207,6 @@ pub fn remove_by_uri(uri: &str) {
     remove_by_uri_from(&workspace::WORKSPACE.modules, uri);
     remove_by_uri_from(&workspace::WORKSPACE.interfaces, uri);
     remove_by_uri_from(&workspace::WORKSPACE.enums, uri);
-    remove_by_uri_from(&workspace::WORKSPACE.defines, uri);
     remove_by_uri_from(&workspace::WORKSPACE.capabilities, uri);
 }
 
@@ -2467,18 +2428,6 @@ pub(crate) fn peel_enums(
         .into_iter()
         .filter_map(|(sn, d)| match d {
             DefValue::Enum(e) => Some((sn, e)),
-            _ => None,
-        })
-        .collect()
-}
-
-pub(crate) fn peel_defines(
-    items: Vec<(McSpaceName, DefValue)>,
-) -> Vec<(McSpaceName, Arc<McDefineDef>)> {
-    items
-        .into_iter()
-        .filter_map(|(sn, d)| match d {
-            DefValue::Define(d) => Some((sn, d)),
             _ => None,
         })
         .collect()
@@ -2724,9 +2673,6 @@ fn write_physical(
         DefValue::Enum(def) => {
             insert_one(&ws.enums, sn.clone(), def);
         }
-        DefValue::Define(def) => {
-            insert_one(&ws.defines, sn.clone(), def);
-        }
         DefValue::Capability(def) => {
             insert_one(&ws.capabilities, sn.clone(), def);
         }
@@ -2772,7 +2718,6 @@ impl workspace::WorkspaceManager {
         remove_by_uri_from(&self.modules, uri);
         remove_by_uri_from(&self.interfaces, uri);
         remove_by_uri_from(&self.enums, uri);
-        remove_by_uri_from(&self.defines, uri);
         remove_by_uri_from(&self.capabilities, uri);
     }
 
@@ -2786,7 +2731,6 @@ impl workspace::WorkspaceManager {
         remove_by_uris_from(&self.modules, uris);
         remove_by_uris_from(&self.interfaces, uris);
         remove_by_uris_from(&self.enums, uris);
-        remove_by_uris_from(&self.defines, uris);
         remove_by_uris_from(&self.capabilities, uris);
     }
 }
@@ -2878,15 +2822,16 @@ mod tests {
     }
 
     /// T12 (§2.5 member-boundary audit) + capability (abstract-variant-
-    /// capability-plan P1): the registry identity set is exactly the seven
-    /// definition kinds — the five class templates (component, module,
-    /// interface, enum, define), the capability container, and the func
+    /// capability-plan P1): the registry identity set is exactly the six
+    /// definition kinds — the four class templates (component, module,
+    /// interface, enum; the define template retired with the `define`
+    /// keyword in b3953, U267③), the capability container, and the func
     /// addressing entries. Labels and bus members are declaration structure
-    /// plus symbol-layer naming, never registry entries, so an eighth variant
+    /// plus symbol-layer naming, never registry entries, so a seventh variant
     /// here (or a removal) is a member-boundary drift and must fail loudly
     /// instead of silently widening the ledger scope.
     #[test]
-    fn def_registry__registry_holds_exactly_seven_def_kinds() {
+    fn def_registry__registry_holds_exactly_six_def_kinds() {
         // Shape assertion only — no registry mutation, so no parse lock. An
         // exhaustive match (no wildcard) is the regression lock: adding or
         // removing a `DefKind` variant stops compiling here until the
@@ -2896,7 +2841,6 @@ mod tests {
             DefKind::Module => "module",
             DefKind::Interface => "interface",
             DefKind::Enum => "enum",
-            DefKind::Define => "define",
             DefKind::Capability => "capability",
             DefKind::Func => "func",
         };

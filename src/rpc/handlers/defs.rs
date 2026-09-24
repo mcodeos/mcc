@@ -481,7 +481,6 @@ pub fn handle_defs_relations(params: Option<Value>) -> RpcResult {
         "module" => Some(DefKind::Module),
         "interface" => Some(DefKind::Interface),
         "enum" => Some(DefKind::Enum),
-        "define" => Some(DefKind::Define),
         _ => None,
     };
     let id_kind: Option<(DefId, &str)> = match &p.kind {
@@ -491,7 +490,7 @@ pub fn handle_defs_relations(params: Option<Value>) -> RpcResult {
                     -32602,
                     &format!(
                         "defs.relations: unknown kind '{}', expected one of \
-                         component|capability|module|interface|enum|define",
+                         component|capability|module|interface|enum",
                         k
                     ),
                 ));

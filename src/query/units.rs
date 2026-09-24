@@ -2,12 +2,13 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! The rows of the organization directory — the six def kinds and the three
-//! units that are not standalone defs (CIMP §1 U120, 2026-09-19).
+//! The rows of the organization directory — the five def kinds and the three
+//! units that are not standalone defs (CIMP §1 U120, 2026-09-19; the define
+//! kind retired in b3953, U267③).
 //!
 //! | unit | why it needs a row of its own | its key |
 //! |---|---|---|
-//! | `component` / `module` / `interface` / `enum` / `define` / `capability` | a def, listed by `all_defs` | its name, in its file |
+//! | `component` / `module` / `interface` / `enum` / `capability` | a def, listed by `all_defs` | its name, in its file |
 //! | `func` | a member of its host (design §12.1) | `(host, name)` |
 //! | `bus` | carries no `DefId` (T12) | its name, in its host |
 //! | `clause` | no declaration object at all (§1) | its position `(uri, start)` |
@@ -258,7 +259,6 @@ fn def_span_start(data: &DefValue) -> Option<u32> {
         DefValue::Component(c) => start(&c.span),
         DefValue::Interface(i) => start(&i.span),
         DefValue::Enum(e) => Some(e.span[0]),
-        DefValue::Define(d) => start(&d.span),
         DefValue::Capability(c) => start(&c.span),
         DefValue::Func(_) => None,
     }

@@ -1760,7 +1760,6 @@ impl McCode {
                 || node.is_type(MCAST_COMPONENT)
                 || node.is_type(MCAST_MODULE)
                 || node.is_type(MCAST_ENUM)
-                || node.is_type(MCAST_DEFINE)
                 || node.is_type(MCAST_CAPABILITY)
             {
                 let decl_type = node.get_type();
@@ -1994,28 +1993,6 @@ impl McCode {
                         }
                     }
                 }
-                MCAST_DEFINE => {
-                    if let Some(def) =
-                        crate::semantic::mc_define::McDefineDef::new(&node, &self.uri)
-                    {
-                        let space_name = McSpaceName {
-                            ident: def.name.clone(),
-                            uri: crate::semantic::common::uri_intern(&self.uri),
-                        };
-                        if workspace::WORKSPACE.insert_def(
-                            &space_name,
-                            domain.clone(),
-                            DefValue::Define(Arc::new(def)),
-                        ) == InsertOutcome::Duplicate
-                        {
-                            dlog_error(
-                                crate::errcodes::DUP_DEFINE,
-                                &node,
-                                &crate::errcodes::format_msg(crate::errcodes::DUP_DEFINE, &[]),
-                            );
-                        }
-                    }
-                }
                 MCAST_CAPABILITY => {
                     // Capability is a declaration-only container (signal
                     // declarations + role funcs): registered as its own def
@@ -2055,7 +2032,6 @@ impl McCode {
                 || node.is_type(MCAST_COMPONENT)
                 || node.is_type(MCAST_MODULE)
                 || node.is_type(MCAST_ENUM)
-                || node.is_type(MCAST_DEFINE)
                 || node.is_type(MCAST_CAPABILITY)
             {
                 if let Some(subnodes) = node.get_sub_node() {
@@ -6287,29 +6263,7 @@ impl McCode {
             if ntype == MCAST_FUNCTION {
                 continue;
             }
-            if ntype == MCAST_DEFINE {
-                if let Some(name_node) = node.get_sub_node() {
-                    let span = (
-                        name_node.get_pos() as usize,
-                        (name_node.get_pos() + name_node.get_len()) as usize,
-                    );
-                    let enclosing = find_container(span.0).unwrap_or_default();
-                    let (d, _) = crate::refdef::register::register_def(
-                        sem,
-                        uri,
-                        &enclosing,
-                        None,
-                        "",
-                        span.0..span.1,
-                        SymbolKind::DefineDef,
-                    );
-                    symbol_lapper.insert(Interval {
-                        start: span.0,
-                        stop: span.1,
-                        val: SymbolType::new(SymbolKind::DefineDef, u32::from(d)),
-                    });
-                }
-            } else if ntype == MCAST_ROLE {
+            if ntype == MCAST_ROLE {
                 if let Some(name_node) = node.get_sub_node() {
                     let span = (
                         name_node.get_pos() as usize,

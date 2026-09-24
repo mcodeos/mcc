@@ -168,7 +168,6 @@ fn def_by_name(sym: &str) -> Option<(String, String)> {
     spaces.extend(ds.all_modules().into_iter().map(|(sn, _)| sn));
     spaces.extend(ds.all_interfaces().into_iter().map(|(sn, _)| sn));
     spaces.extend(ds.all_enums().into_iter().map(|(sn, _)| sn));
-    spaces.extend(ds.all_defines().into_iter().map(|(sn, _)| sn));
     let mut hits: Vec<(String, String)> = spaces
         .into_iter()
         .filter(|sn| sn.ident.to_string() == sym)

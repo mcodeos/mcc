@@ -91,7 +91,6 @@ fn classify_visible(sn: &McSpaceName) -> AdoptTarget {
         DefKind::Module,
         DefKind::Interface,
         DefKind::Enum,
-        DefKind::Define,
     ]
     .iter()
     .any(|&k| def_id(sn, k).is_some());

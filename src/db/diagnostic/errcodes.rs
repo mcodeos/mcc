@@ -109,9 +109,6 @@ pub const DUP_ENUM: u32 = 1003;
 /// A module with the same name already exists in this file.
 pub const DUP_MODULE: u32 = 1004;
 
-/// A define with the same name already exists in this file.
-pub const DUP_DEFINE: u32 = 1005;
-
 /// A capability with the same name already exists in this file.
 pub const DUP_CAPABILITY: u32 = 1006;
 
@@ -1381,12 +1378,6 @@ pub const COMPONENT_MIXED_CASE: u32 = 5257;
 /// Bus has a duplicate member.
 pub const BUS_DUPLICATE_MEMBER: u32 = 5258;
 
-/// Define has no attributes.
-pub const DEFINE_NO_ATTRS: u32 = 5260;
-
-/// Define contains a non-attribute clause.
-pub const DEFINE_NON_ATTR_CLAUSE: u32 = 5261;
-
 /// Interface expects more pins than are bound.
 pub const IFACE_PIN_COUNT_MISMATCH: u32 = 5262;
 
@@ -2308,7 +2299,6 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(DUP_COMPONENT, "A component with the same name already exists in this file.", "Duplicate component"),
     entry!(DUP_ENUM, "An enum with the same name already exists in this file.", "Duplicate enum"),
     entry!(DUP_MODULE, "A module with the same name already exists in this file.", "Duplicate module"),
-    entry!(DUP_DEFINE, "A define with the same name already exists in this file.", "Duplicate define"),
     entry!(DUP_CAPABILITY, "A capability with the same name already exists in this file.", "Duplicate capability"),
     // section
     entry!(DEF_ALREADY_EXISTS, "Definition already exists.", "Definition already exists"),
@@ -2640,8 +2630,6 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(INST_CLASS_NOT_LOADED, "Instance references a class that is not loaded.", "Instance references a class that is not loaded."),
     entry!(COMPONENT_MIXED_CASE, "Component name uses mixed case; convention is UPPER_SNAKE.", "Component name uses mixed case; convention is UPPER_SNAKE."),
     entry!(BUS_DUPLICATE_MEMBER, "Bus has a duplicate member.", "Bus has a duplicate member."),
-    entry!(DEFINE_NO_ATTRS, "Define has no attributes.", "Define has no attributes."),
-    entry!(DEFINE_NON_ATTR_CLAUSE, "Define contains a non-attribute clause.", "Define contains a non-attribute clause."),
     entry!(IFACE_PIN_COUNT_MISMATCH, "Interface expects more pins than are bound.", "Interface expects more pins than are bound."),
     entry!(FUNC_SHARES_NAME_WITH_PORT, "Function shares its name with a port/param.", "Function shares its name with a port/param."),
     entry!(SPEC_KEY_DUPLICATE, "Spec key appears more than once.", "Spec key appears more than once."),

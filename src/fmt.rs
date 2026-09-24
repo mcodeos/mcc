@@ -1550,7 +1550,7 @@ mod tests {
     /// neither the header nor the body folds.
     #[test]
     fn fmt__a_block_does_not_fold_into_one_line() {
-        let src = "define CAP.X5R {\n    manufacture = \"TDK\"\n    spec        = [v = 10V]\n}\n";
+        let src = "overlay main {\n    LDO.ldo = LDO.SGM2019_33YN5G_TR\n    DC.dcdc = DCDC.LP3220AB5F\n}\n";
         assert_eq!(fmt(src), src);
     }
 

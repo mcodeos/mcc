@@ -527,7 +527,7 @@ struct DefsRow {
 /// The list itself now lives in the registry
 /// ([`mcc::DEF_KIND_ORDER`]), which is what the one read walks, so this alias
 /// exists to keep the group order spelled once.
-const DEF_KINDS: [mcc::DefKind; 6] = mcc::DEF_KIND_ORDER;
+const DEF_KINDS: [mcc::DefKind; 5] = mcc::DEF_KIND_ORDER;
 
 /// Every live def of the current definition space, one [`DefsRow`] per def.
 ///

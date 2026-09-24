@@ -96,7 +96,6 @@ fn check_invalid_enum_member_names(acc: &mut CheckAccumulator) {
         "component",
         "module",
         "interface",
-        "define",
         "use",
         "pub",
     ]
