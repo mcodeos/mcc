@@ -1306,13 +1306,19 @@ fn downstream_rows(table: &InstTable) -> (Vec<DRow>, usize) {
 /// A clause's key — its own coordinate, per §5.3 source-side item 5: a source position is
 /// the only anchor that still points back after the next edit, so every item
 /// carries it.
+///
+/// The URI is spelled in the `data-src-uri` display form (`viz::srcuri`): a key
+/// stamped with the machine-absolute path would differ between two readings of
+/// one source from different directories, which is exactly the non-comparability
+/// U274 retired for the stamped faces — and a saved reading *is* an archive.
 fn clause_key(clause: &Clause, sources: &mut SourceText) -> Value {
     let loc = clause_loc(clause, sources);
     let line = loc["line"].as_u64().unwrap_or(0);
+    let uri = crate::viz::srcuri::display(&clause.uri);
     if line == 0 {
-        Value::String(format!("{}:-", clause.uri))
+        Value::String(format!("{uri}:-"))
     } else {
-        Value::String(format!("{}:{}", clause.uri, line))
+        Value::String(format!("{uri}:{line}"))
     }
 }
 

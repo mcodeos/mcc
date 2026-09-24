@@ -341,7 +341,10 @@ pub fn law_for(seg: StageSeg) -> Option<&'static Law> {
 /// metrics each layer reports, and the nets its pins are on.
 pub const VIZ_LAW: Law = Law {
     view: DIFF_VIZ_VIEW,
-    key_table: "stage.viz.keys.1",
+    // `.1 -> .2`: the two derived rows, `group` and `intent`, entered the class
+    // set here. The table is declared, not derived, and the rule is that a class
+    // set change bumps the trailing number once -- see [`Law::key_table`].
+    key_table: "stage.viz.keys.2",
     classes: &[
         ClassSpec {
             class: "box",
@@ -372,6 +375,18 @@ pub const VIZ_LAW: Law = Law {
             key: segment_key,
             content: viz_content,
             id: segment_id,
+        },
+        ClassSpec {
+            class: "group",
+            key: group_key,
+            content: viz_content,
+            id: group_id,
+        },
+        ClassSpec {
+            class: "intent",
+            key: intent_key,
+            content: viz_content,
+            id: intent_id,
         },
     ],
     net_refs: Some(net_refs),
@@ -430,6 +445,44 @@ fn metrics_key(item: &Value) -> Option<String> {
 
 fn metrics_id(item: &Value) -> Value {
     item.get("path").cloned().unwrap_or(Value::Null)
+}
+
+/// A group row's key is the **statement key** (`uri:line`, the same handle the
+/// `join` hop readouts name a statement by) -- a statement is not an object of
+/// the drawing, and this is the identity it already publishes.
+///
+/// The URI half arrives already rewritten to the `data-src-uri` display form
+/// (`viz::srcuri`, done where the key is minted), so two readings of one source
+/// from different directories read the same rows -- `two_paths_holding_one_
+/// source_do_not_differ` locks that. What the key cannot survive is a *line
+/// shift*: statements have no anchor but their source position, so an insertion
+/// above a statement reads it as a remove plus an add. That is the identity
+/// being honest, not churn to launder -- the same reason `loc` is not compared.
+fn group_key(item: &Value) -> Option<String> {
+    let k = item.get("key").and_then(Value::as_str)?;
+    if k.is_empty() {
+        return None;
+    }
+    Some(k.to_string())
+}
+
+fn group_id(item: &Value) -> Value {
+    item.get("key").cloned().unwrap_or(Value::Null)
+}
+
+/// An intent row keys on the **family**, per intent-canon §1.1's naming law:
+/// one row per family, so the family is the whole identity and the row count
+/// follows the families, not the drawing.
+fn intent_key(item: &Value) -> Option<String> {
+    let f = item.get("family").and_then(Value::as_str)?;
+    if f.is_empty() {
+        return None;
+    }
+    Some(f.to_string())
+}
+
+fn intent_id(item: &Value) -> Value {
+    item.get("family").cloned().unwrap_or(Value::Null)
 }
 
 /// Ruling O9: a segment is not issued a number, so its key is the ordered pair
@@ -526,6 +579,13 @@ fn viz_content(item: &Value) -> &'static [&'static str] {
             "net",
         ],
         ("segment", _) => &["net", "from_at", "to_at", "length"],
+        // Both derived rows say what they claim through `nets_set` (a virtual
+        // field -- see [`field_value`]); `count` is that list's projection, so
+        // the list carries it. `loc` is left out like every other class's, and
+        // a group's `text` is compared because a changed statement is a real
+        // difference.
+        ("group", _) => &["text", "nets_set"],
+        ("intent", _) => &["nets_set"],
         _ => &[],
     }
 }
@@ -944,6 +1004,15 @@ fn coord(v: &Value) -> Option<String> {
 ///   within the trunk" (`vector/builder/visit.rs`) -- a position in this build's
 ///   append order, the same family as `key` and `index`. Comparing the raw array
 ///   would make one inserted member read as every later lane having changed.
+/// * `"nets_set"` resolves a derived row's (`group` / `intent`) net list to a
+///   **set** of members without the run-local `nid`, sorted by the rendered
+///   object. The `nid` is this build's handle (the same ordinal family `index`
+///   is), and the list is emitted in the sink's layer order, so comparing the
+///   raw array would read a renumbered drawing as every claim having changed.
+///   A member with no key of its own — a minted net, whose `name` is the
+///   `_net<k>` ordinal — is left out entire: it has no cross-build identity,
+///   and the same rule that has `net_refs` *count* nameless nets rather than
+///   list them has this set compare only what is named.
 fn field_value(item: &Value, f: &str) -> Value {
     match f {
         "def" => item
@@ -955,8 +1024,38 @@ fn field_value(item: &Value, f: &str) -> Value {
         "from_paths" => sorted_paths(item, "from"),
         "to_paths" => sorted_paths(item, "to"),
         "lane_pairs" => lane_pairs(item),
+        "nets_set" => nets_set(item),
         _ => item.get(f).cloned().unwrap_or(Value::Null),
     }
+}
+
+/// A derived row's net list as a set: the keyed members, without their
+/// run-local `nid`, sorted. See [`field_value`] for what is left out and why.
+fn nets_set(item: &Value) -> Value {
+    let Some(arr) = item.get("nets").and_then(Value::as_array) else {
+        return Value::Null;
+    };
+    let mut out: Vec<Value> = arr
+        .iter()
+        .filter(|n| {
+            n.get("net")
+                .and_then(Value::as_str)
+                .is_some_and(|k| !k.is_empty())
+        })
+        .map(|n| {
+            json!({
+                "net": n.get("net").cloned().unwrap_or(Value::Null),
+                "name": n.get("name").cloned().unwrap_or(Value::Null),
+                "layer": n.get("layer").cloned().unwrap_or(Value::Null),
+                "attr": n.get("attr").cloned().unwrap_or(Value::Null),
+                "domain": n.get("domain").cloned().unwrap_or(Value::Null),
+            })
+        })
+        .collect();
+    // Sorted by the rendered object, which is a total order because the map is
+    // key-sorted -- `serde_json` is built without `preserve_order`.
+    out.sort_by_key(|v| v.to_string());
+    Value::Array(out)
 }
 
 /// A trunk's lanes as a set: each lane's member and its two pin paths, sorted,
