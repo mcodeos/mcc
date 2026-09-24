@@ -134,6 +134,14 @@ pub(crate) struct InstantiationBuilder {
     /// (label-boundary-gate-design.md).
     pub(super) internal_member_reported: HashSet<String>,
 
+    /// §4.2 check 2 (pin-semantics §4.3, U289 C1): option usage per physical
+    /// pin, `{instance}.{pid}` → the first `(written name, option ordinal)`
+    /// that resolved to it. The second name of a *different* option reaching
+    /// the same pinid is the conflict — reported at the resolving connection
+    /// by [`Self::note_pin_option_use`]. Same-option names (aliases, one
+    /// `|` alternate) never flip the record.
+    pub(super) pin_option_use: HashMap<String, (String, u32)>,
+
     /// ★ §8.9.4: standardized interface class of `current_trunk` (e.g.
     /// `UART.TTL`) when the port is an interface binding.
     pub(super) current_trunk_iface: Option<String>,
@@ -382,6 +390,7 @@ impl InstantiationBuilder {
             current_trunk: None,
             current_trunk_kind: None,
             internal_member_reported: HashSet::new(),
+            pin_option_use: HashMap::new(),
             current_trunk_iface: None,
             func_scope: Vec::new(),
             identity,
@@ -492,6 +501,49 @@ impl InstantiationBuilder {
         self.components_of(self.tree.node_id?)
             .into_iter()
             .find(|c| c.name == name)
+    }
+
+    /// §4.2 check 2: record that `member` — an option name of the component
+    /// definition — was used to reach physical pin `pid` of instance `inst`,
+    /// and report E5156 when a second, different option reaches the same
+    /// pin. The record keeps the FIRST use, so every further distinct option
+    /// reports against it; the (code, uri, pos) dedup in
+    /// [`Self::log_global_diag`] collapses repeats at one connection.
+    /// Conditional-branch names carry no option ordinal, so they never
+    /// record and never false-positive.
+    pub(super) fn note_pin_option_use(
+        &mut self,
+        inst: &str,
+        comp: &McComponentInst,
+        member: &str,
+        pid: &str,
+    ) {
+        let Some(option) = comp.def.pins.option_of_name(member) else {
+            return;
+        };
+        let key = format!("{inst}.{pid}");
+        let conflict = match self.pin_option_use.get(&key) {
+            None => {
+                self.pin_option_use
+                    .insert(key, (member.to_string(), option));
+                None
+            }
+            Some((first_member, first_option)) if *first_option != option => {
+                Some(first_member.clone())
+            }
+            Some(_) => None,
+        };
+        if let Some(first_member) = conflict {
+            let diag = crate::errcodes::format_msg(
+                crate::errcodes::PIN_CONFLICTING_OPTIONS,
+                &[&inst, &pid, &first_member, &member],
+            );
+            self.log_global_diag(
+                crate::errcodes::PIN_CONFLICTING_OPTIONS,
+                crate::db::diagnostic::diagnostic::DiagnosticLevel::Warning,
+                diag,
+            );
+        }
     }
 
     /// Look up a sub-module instance by name among this module's arena
