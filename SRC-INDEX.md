@@ -38,7 +38,7 @@ range (threshold 40KB).
 | `instant/mc_mod/stmt.rs` | 195 KB | 77 |
 | `db/diagnostic/errcodes.rs` | 195 KB | 452 |
 | `rules.rs` | 187 KB | 83 |
-| `instant/insttab.rs` | 179 KB | 130 |
+| `instant/insttab.rs` | 180 KB | 130 |
 | `cmds/show.rs` | 159 KB | 121 |
 | `db/defregistry.rs` | 157 KB | 181 |
 | `instant/mc_mod/fcallinst.rs` | 147 KB | 26 |
@@ -67,14 +67,14 @@ range (threshold 40KB).
 | `db/` | 28 | 1032 KB |
 | `eval/` | 2 | 50 KB |
 | `export/` | 7 | 184 KB |
-| `instant/` | 41 | 1625 KB |
+| `instant/` | 41 | 1626 KB |
 | `lsp/` | 7 | 70 KB |
 | `output/` | 7 | 107 KB |
 | `query/` | 9 | 168 KB |
 | `refdef/` | 7 | 126 KB |
 | `rpc/` | 16 | 310 KB |
 | `semantic/` | 93 | 2771 KB |
-| `stages/` | 16 | 372 KB |
+| `stages/` | 16 | 375 KB |
 | `vector/` | 26 | 496 KB |
 | `viz/` | 98 | 2476 KB |
 
@@ -2965,109 +2965,109 @@ instant/insttab.rs#L343  fn exposed_of_pin
 instant/insttab.rs#L365  fn expectations_of_pin
 instant/insttab.rs#L405  enum LaneDir
 instant/insttab.rs#L411  struct IfaceLane
-instant/insttab.rs#L442  enum AcFaceMember
-instant/insttab.rs#L454  struct AcFaceCarry
-instant/insttab.rs#L467  fn iface_role_attr_values
-instant/insttab.rs#L507  fn iface_lane_of_pin
-instant/insttab.rs#L571  fn lane_dir_of_pins
-instant/insttab.rs#L595  fn ac_face_carry_of_pin
-instant/insttab.rs#L627  fn is_ac_family
-instant/insttab.rs#L635  fn declared_ac_face_of_params
-instant/insttab.rs#L663  struct AcFaceCarryVolts
-instant/insttab.rs#L695  fn element_class_of
-instant/insttab.rs#L751  fn spec_quantity_of
-instant/insttab.rs#L791  fn declared_member_of_pin
-instant/insttab.rs#L806  fn declared_member_of_role
-instant/insttab.rs#L824  enum InstOrigin
-instant/insttab.rs#L840  impl PartialEq for InstOrigin
-instant/insttab.rs#L841  fn eq
-instant/insttab.rs#L861  impl Eq for InstOrigin
-instant/insttab.rs#L863  impl Default for InstOrigin
-instant/insttab.rs#L864  fn default
-instant/insttab.rs#L881  enum ProtectionKind
-instant/insttab.rs#L891  struct InstEntry
-instant/insttab.rs#L1119  impl InstEntry
-instant/insttab.rs#L1122  fn power_face
-instant/insttab.rs#L1129  fn power_spelling
-instant/insttab.rs#L1137  fn rail_identity
-instant/insttab.rs#L1143  fn wired_at
-instant/insttab.rs#L1149  fn unwired
-instant/insttab.rs#L1157  fn anchor_pos
-instant/insttab.rs#L1175  struct NetEntry
-instant/insttab.rs#L1201  struct InstTable
-instant/insttab.rs#L1293  impl InstTable
-instant/insttab.rs#L1295  fn new
-instant/insttab.rs#L1317  fn root_span
-instant/insttab.rs#L1324  fn net_table
-instant/insttab.rs#L1333  fn power_decls
-instant/insttab.rs#L1340  fn block_parts_of
-instant/insttab.rs#L1348  fn net_origin
-instant/insttab.rs#L1356  fn member_pin_of
-instant/insttab.rs#L1373  fn from_module_inst
-instant/insttab.rs#L1393  fn from_module_inst_with_arena
-instant/insttab.rs#L1422  fn register
-instant/insttab.rs#L1584  fn set_member_info
-instant/insttab.rs#L1594  fn set_identity
-instant/insttab.rs#L1619  fn set_point
-instant/insttab.rs#L1627  fn set_pwr_dir
-instant/insttab.rs#L1635  fn set_pwr_nom
-instant/insttab.rs#L1643  fn set_exposed
-instant/insttab.rs#L1652  fn set_expectations
-instant/insttab.rs#L1661  fn set_iface_lane
-instant/insttab.rs#L1670  fn set_ac_face
-instant/insttab.rs#L1678  fn set_pwr_member
-instant/insttab.rs#L1689  fn record_member_pin_sem
-instant/insttab.rs#L1720  fn set_pin_count
-instant/insttab.rs#L1733  fn mark_nc
-instant/insttab.rs#L1744  fn set_vector_info
-instant/insttab.rs#L1755  fn mark_alias
-instant/insttab.rs#L1791  fn declared_member_port_of
-instant/insttab.rs#L1824  fn fold_alias
-instant/insttab.rs#L1844  fn vector_member_paths
-instant/insttab.rs#L1866  fn mark_synthetic_by_path_prefix
-instant/insttab.rs#L1877  fn register_simple
-instant/insttab.rs#L1899  fn get_id_by_path
-instant/insttab.rs#L1904  fn get_entry
-instant/insttab.rs#L1921  fn class_def_of
-instant/insttab.rs#L1934  fn children_of
-instant/insttab.rs#L1942  fn iter
-instant/insttab.rs#L1947  fn len
-instant/insttab.rs#L1952  fn is_empty
-instant/insttab.rs#L1957  fn is_bridge_passive
-instant/insttab.rs#L1964  fn get_nets
-instant/insttab.rs#L1969  fn get_net
-instant/insttab.rs#L1978  fn get_net_of
-instant/insttab.rs#L1986  fn nets_of
-instant/insttab.rs#L1994  fn get_components
-instant/insttab.rs#L2006  fn iter_entries
-instant/insttab.rs#L2013  fn get_modules
-instant/insttab.rs#L2021  fn get_pins_of
-instant/insttab.rs#L2029  fn get_ports_of
-instant/insttab.rs#L2037  fn net_count
-instant/insttab.rs#L2064  fn backfill_port_decl_pos
-instant/insttab.rs#L2082  fn port_decl_span_of
-instant/insttab.rs#L2090  fn flatten_module
-instant/insttab.rs#L3184  fn flatten_nets
-instant/insttab.rs#L3389  fn resolve_netpoint_path
-instant/insttab.rs#L3425  fn resolve_single_path
-instant/insttab.rs#L3472  fn dump
-instant/insttab.rs#L3557  fn write_known_missing
-instant/insttab.rs#L3606  fn collect_failed_records
-instant/insttab.rs#L3640  fn expand_bracket_list
-instant/insttab.rs#L3671  mod tests
-instant/insttab.rs#L3675  fn mat_insttab__register_and_lookup
-instant/insttab.rs#L3690  fn mat_insttab__no_duplicate_registration
-instant/insttab.rs#L3711  fn mat_insttab__children_of
-instant/insttab.rs#L3747  fn mat_insttab__id_uniqueness
-instant/insttab.rs#L3767  fn mat_insttab__resolve_bus_member_path_fallback
-instant/insttab.rs#L3802  fn mat_insttab__resolve_plain_dot_path_still_works
-instant/insttab.rs#L3832  fn mat_insttab__resolve_top_level_port_no_prefix
-instant/insttab.rs#L3855  fn mat_insttab__resolve_bracket_list_expands
-instant/insttab.rs#L3893  fn mat_insttab__resolve_bracket_partial_miss
-instant/insttab.rs#L3924  fn mat_insttab__resolve_missing_path_returns_empty
-instant/insttab.rs#L3939  fn mat_insttab__expand_bracket_list_syntax
-instant/insttab.rs#L3969  fn mat_insttab__element_class_comes_from_the_definition_spec_table
-instant/insttab.rs#L3971  const SRC
+instant/insttab.rs#L449  enum AcFaceMember
+instant/insttab.rs#L461  struct AcFaceCarry
+instant/insttab.rs#L474  fn iface_role_attr_values
+instant/insttab.rs#L514  fn iface_lane_of_pin
+instant/insttab.rs#L595  fn lane_dir_of_pins
+instant/insttab.rs#L619  fn ac_face_carry_of_pin
+instant/insttab.rs#L651  fn is_ac_family
+instant/insttab.rs#L659  fn declared_ac_face_of_params
+instant/insttab.rs#L687  struct AcFaceCarryVolts
+instant/insttab.rs#L719  fn element_class_of
+instant/insttab.rs#L775  fn spec_quantity_of
+instant/insttab.rs#L815  fn declared_member_of_pin
+instant/insttab.rs#L830  fn declared_member_of_role
+instant/insttab.rs#L848  enum InstOrigin
+instant/insttab.rs#L864  impl PartialEq for InstOrigin
+instant/insttab.rs#L865  fn eq
+instant/insttab.rs#L885  impl Eq for InstOrigin
+instant/insttab.rs#L887  impl Default for InstOrigin
+instant/insttab.rs#L888  fn default
+instant/insttab.rs#L905  enum ProtectionKind
+instant/insttab.rs#L915  struct InstEntry
+instant/insttab.rs#L1143  impl InstEntry
+instant/insttab.rs#L1146  fn power_face
+instant/insttab.rs#L1153  fn power_spelling
+instant/insttab.rs#L1161  fn rail_identity
+instant/insttab.rs#L1167  fn wired_at
+instant/insttab.rs#L1173  fn unwired
+instant/insttab.rs#L1181  fn anchor_pos
+instant/insttab.rs#L1199  struct NetEntry
+instant/insttab.rs#L1225  struct InstTable
+instant/insttab.rs#L1317  impl InstTable
+instant/insttab.rs#L1319  fn new
+instant/insttab.rs#L1341  fn root_span
+instant/insttab.rs#L1348  fn net_table
+instant/insttab.rs#L1357  fn power_decls
+instant/insttab.rs#L1364  fn block_parts_of
+instant/insttab.rs#L1372  fn net_origin
+instant/insttab.rs#L1380  fn member_pin_of
+instant/insttab.rs#L1397  fn from_module_inst
+instant/insttab.rs#L1417  fn from_module_inst_with_arena
+instant/insttab.rs#L1446  fn register
+instant/insttab.rs#L1608  fn set_member_info
+instant/insttab.rs#L1618  fn set_identity
+instant/insttab.rs#L1643  fn set_point
+instant/insttab.rs#L1651  fn set_pwr_dir
+instant/insttab.rs#L1659  fn set_pwr_nom
+instant/insttab.rs#L1667  fn set_exposed
+instant/insttab.rs#L1676  fn set_expectations
+instant/insttab.rs#L1685  fn set_iface_lane
+instant/insttab.rs#L1694  fn set_ac_face
+instant/insttab.rs#L1702  fn set_pwr_member
+instant/insttab.rs#L1713  fn record_member_pin_sem
+instant/insttab.rs#L1744  fn set_pin_count
+instant/insttab.rs#L1757  fn mark_nc
+instant/insttab.rs#L1768  fn set_vector_info
+instant/insttab.rs#L1779  fn mark_alias
+instant/insttab.rs#L1815  fn declared_member_port_of
+instant/insttab.rs#L1848  fn fold_alias
+instant/insttab.rs#L1868  fn vector_member_paths
+instant/insttab.rs#L1890  fn mark_synthetic_by_path_prefix
+instant/insttab.rs#L1901  fn register_simple
+instant/insttab.rs#L1923  fn get_id_by_path
+instant/insttab.rs#L1928  fn get_entry
+instant/insttab.rs#L1945  fn class_def_of
+instant/insttab.rs#L1958  fn children_of
+instant/insttab.rs#L1966  fn iter
+instant/insttab.rs#L1971  fn len
+instant/insttab.rs#L1976  fn is_empty
+instant/insttab.rs#L1981  fn is_bridge_passive
+instant/insttab.rs#L1988  fn get_nets
+instant/insttab.rs#L1993  fn get_net
+instant/insttab.rs#L2002  fn get_net_of
+instant/insttab.rs#L2010  fn nets_of
+instant/insttab.rs#L2018  fn get_components
+instant/insttab.rs#L2030  fn iter_entries
+instant/insttab.rs#L2037  fn get_modules
+instant/insttab.rs#L2045  fn get_pins_of
+instant/insttab.rs#L2053  fn get_ports_of
+instant/insttab.rs#L2061  fn net_count
+instant/insttab.rs#L2088  fn backfill_port_decl_pos
+instant/insttab.rs#L2106  fn port_decl_span_of
+instant/insttab.rs#L2114  fn flatten_module
+instant/insttab.rs#L3208  fn flatten_nets
+instant/insttab.rs#L3413  fn resolve_netpoint_path
+instant/insttab.rs#L3449  fn resolve_single_path
+instant/insttab.rs#L3496  fn dump
+instant/insttab.rs#L3581  fn write_known_missing
+instant/insttab.rs#L3630  fn collect_failed_records
+instant/insttab.rs#L3664  fn expand_bracket_list
+instant/insttab.rs#L3695  mod tests
+instant/insttab.rs#L3699  fn mat_insttab__register_and_lookup
+instant/insttab.rs#L3714  fn mat_insttab__no_duplicate_registration
+instant/insttab.rs#L3735  fn mat_insttab__children_of
+instant/insttab.rs#L3771  fn mat_insttab__id_uniqueness
+instant/insttab.rs#L3791  fn mat_insttab__resolve_bus_member_path_fallback
+instant/insttab.rs#L3826  fn mat_insttab__resolve_plain_dot_path_still_works
+instant/insttab.rs#L3856  fn mat_insttab__resolve_top_level_port_no_prefix
+instant/insttab.rs#L3879  fn mat_insttab__resolve_bracket_list_expands
+instant/insttab.rs#L3917  fn mat_insttab__resolve_bracket_partial_miss
+instant/insttab.rs#L3948  fn mat_insttab__resolve_missing_path_returns_empty
+instant/insttab.rs#L3963  fn mat_insttab__expand_bracket_list_syntax
+instant/insttab.rs#L3993  fn mat_insttab__element_class_comes_from_the_definition_spec_table
+instant/insttab.rs#L3995  const SRC
 instant/island.rs#L45  enum NetRole
 instant/island.rs#L60  impl NetRole
 instant/island.rs#L61  fn as_str
@@ -8237,36 +8237,39 @@ stages/vec.rs#L381  fn endpoint_path
 stages/vec.rs#L385  fn pin_path
 stages/vec.rs#L400  fn render_vec_text
 stages/viz.rs#L146  fn build_viz
-stages/viz.rs#L358  fn group_items
-stages/viz.rs#L394  const POWER_INTENT
-stages/viz.rs#L406  fn face_name
-stages/viz.rs#L447  fn intent_items
-stages/viz.rs#L477  fn net_statements
-stages/viz.rs#L516  fn edge_end
-stages/viz.rs#L543  fn layer_path
-stages/viz.rs#L558  fn layer_item
-stages/viz.rs#L611  fn reports_of
-stages/viz.rs#L637  fn determinism_layer
-stages/viz.rs#L661  fn edge_item
-stages/viz.rs#L699  fn style_str
-stages/viz.rs#L706  fn box_item
-stages/viz.rs#L739  fn pin_item
-stages/viz.rs#L784  fn side_str
-stages/viz.rs#L795  struct PinNet
-stages/viz.rs#L828  fn nets_by_pin
-stages/viz.rs#L851  type NetsByPin
-stages/viz.rs#L864  fn segment_item
-stages/viz.rs#L889  fn seg_length
-stages/viz.rs#L913  fn metrics_items
-stages/viz.rs#L1131  fn push_fields
-stages/viz.rs#L1151  fn absent_family
-stages/viz.rs#L1168  fn pin_path
-stages/viz.rs#L1200  fn anchor_x
-stages/viz.rs#L1208  fn anchor_y
-stages/viz.rs#L1219  fn render_viz_text
-stages/viz.rs#L1337  fn family_list
-stages/viz.rs#L1357  fn end_list
-stages/viz.rs#L1373  fn num
+stages/viz.rs#L371  fn group_items
+stages/viz.rs#L411  const POWER_INTENT
+stages/viz.rs#L412  const CLOCK_INTENT
+stages/viz.rs#L424  fn face_name
+stages/viz.rs#L449  fn clock_claim_shape
+stages/viz.rs#L512  fn intent_items
+stages/viz.rs#L526  fn intent_row
+stages/viz.rs#L553  fn net_statements
+stages/viz.rs#L592  fn edge_end
+stages/viz.rs#L619  fn layer_path
+stages/viz.rs#L634  fn layer_item
+stages/viz.rs#L687  fn reports_of
+stages/viz.rs#L713  fn determinism_layer
+stages/viz.rs#L737  fn edge_item
+stages/viz.rs#L775  fn style_str
+stages/viz.rs#L782  fn box_item
+stages/viz.rs#L815  fn pin_item
+stages/viz.rs#L860  fn side_str
+stages/viz.rs#L871  struct PinNet
+stages/viz.rs#L904  fn nets_by_pin
+stages/viz.rs#L927  type NetsByPin
+stages/viz.rs#L940  fn segment_item
+stages/viz.rs#L965  fn seg_length
+stages/viz.rs#L989  fn metrics_items
+stages/viz.rs#L1207  fn push_fields
+stages/viz.rs#L1227  fn absent_family
+stages/viz.rs#L1244  fn pin_path
+stages/viz.rs#L1276  fn anchor_x
+stages/viz.rs#L1284  fn anchor_y
+stages/viz.rs#L1295  fn render_viz_text
+stages/viz.rs#L1413  fn family_list
+stages/viz.rs#L1433  fn end_list
+stages/viz.rs#L1449  fn num
 stages/vizdiff.rs#L18  const MOVE_EPS
 stages/vizdiff.rs#L21  fn diff_items
 stages/vizdiff.rs#L90  fn diff_stages
@@ -11480,4 +11483,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-415 files, 11397 declarations.
+415 files, 11400 declarations.

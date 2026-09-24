@@ -431,6 +431,13 @@ pub struct IfaceLane {
     /// the role's own pins — the trigger of the chain-reach gate (U112 ②),
     /// never a family or role name. `None` = no declared shape, never judged.
     pub direction: Option<LaneDir>,
+    /// Whether any of the role's member pins declares `@class(analog)` — the
+    /// role's own statement that this is an analog-signal face. The profile
+    /// row reads it to stay off analog faces: the direction shape is a
+    /// generic serial-link shape, and a differential ADC pair shares it with
+    /// a differential clock pair — the class declaration is what separates
+    /// them. A face declaring no class is never excluded by this word.
+    pub analog: bool,
 }
 
 /// U217: which positional member of an AC mains face this endpoint is. The
@@ -553,6 +560,22 @@ pub(crate) fn iface_lane_of_pin(
     let peer_role = first_values("peer").into_iter().next();
     let exclusive = first_values("exclusive").iter().any(|v| v == "true");
     let direction = role_def.and_then(|r| lane_dir_of_pins(&r.pins));
+    let analog = role_def
+        .map(|r| {
+            r.pins
+                .decl_order
+                .iter()
+                .filter_map(|id| r.pins.pins.get(id))
+                .any(|p| {
+                    crate::semantic::module::pi::attr_texts(
+                        &p.attrs,
+                        crate::semantic::basic::attr_keys::KEY_CLASS,
+                    )
+                    .iter()
+                    .any(|v| v == crate::semantic::basic::attr_keys::WORD_ANALOG)
+                })
+        })
+        .unwrap_or(false);
     Some(IfaceLane {
         family: iface.base.name.to_string(),
         role,
@@ -560,6 +583,7 @@ pub(crate) fn iface_lane_of_pin(
         exclusive,
         lane: port_name.to_string(),
         direction,
+        analog,
     })
 }
 
