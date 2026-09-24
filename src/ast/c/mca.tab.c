@@ -124,7 +124,7 @@ enum yysymbol_kind_t
   YYSYMBOL_MCK_DOMAIN = 30,                /* MCK_DOMAIN  */
   YYSYMBOL_MCK_RAIL = 31,                  /* MCK_RAIL  */
   YYSYMBOL_MCK_PARTITION = 32,             /* MCK_PARTITION  */
-  YYSYMBOL_MCK_OVERLAY = 33,               /* MCK_OVERLAY  */
+  YYSYMBOL_MCK_BOM = 33,                   /* MCK_BOM  */
   YYSYMBOL_MCOP_EQUAL = 34,                /* MCOP_EQUAL  */
   YYSYMBOL_MCK_PINS = 35,                  /* MCK_PINS  */
   YYSYMBOL_MCOP_PLUSEQUAL = 36,            /* MCOP_PLUSEQUAL  */
@@ -250,7 +250,7 @@ enum yysymbol_kind_t
   YYSYMBOL_mc_module = 156,                /* mc_module  */
   YYSYMBOL_mc_interface = 157,             /* mc_interface  */
   YYSYMBOL_mc_enum = 158,                  /* mc_enum  */
-  YYSYMBOL_mc_overlay = 159,               /* mc_overlay  */
+  YYSYMBOL_mc_bom = 159,                   /* mc_bom  */
   YYSYMBOL_mc_capability = 160,            /* mc_capability  */
   YYSYMBOL_mc_component_derivs = 161,      /* mc_component_derivs  */
   YYSYMBOL_mc_component_variant = 162,     /* mc_component_variant  */
@@ -2656,49 +2656,49 @@ static const char *const yytname[] =
   "MCK_MODULE", "MCK_INTERFACE", "MCK_ENUM", "MCPT_LCURLY", "MCPT_RCURLY",
   "MCK_CAPABILITY", "MCK_ABSTRACT", "MCPT_SEMICOLON", "MCPT_COMMA",
   "MCK_ROLE", "MCK_CONDUIT", "MCK_DOMAIN", "MCK_RAIL", "MCK_PARTITION",
-  "MCK_OVERLAY", "MCOP_EQUAL", "MCK_PINS", "MCOP_PLUSEQUAL",
-  "MCOP_EQUALEQUAL", "MCOP_NOTEQUAL", "MCOP_LESSTHAN", "MCOP_GREATERTHAN",
-  "MCOP_LESSEQTHAN", "MCOP_GREATEREQTHAN", "MCOP_DOUBLEARROW",
-  "MCOP_LEFTARROW", "MCOP_RIGHTARROW", "MCOP_PLUS", "MCOP_MINUS",
-  "MCOP_AND", "MCOP_OR", "MCOP_ANDAND", "MCOP_OROR", "MCOP_MULTI",
-  "MCOP_DIVID", "MCOP_CARET", "MCOP_APOST", "MCPT_LBRACKET",
-  "MCPT_RBRACKET", "MCPT_LPAREN", "MCPT_RPAREN", "MCOP_TILDE",
-  "MCOP_PLUSMINUS", "MCOP_TIMES", "MCPT_DBCOLON", "MCK_ELSE_IF",
-  "MCK_ELSE", "MCK_IF", "MC_ENDL", "MCK_RETURN", "MCK_ERROR", "MCK_IO",
-  "MCK_IN", "MCK_OUT", "MCK_NC", "MCK_PSRC", "MCK_PSNK", "MCK_PSBI",
-  "MCONST_HIGH", "MCONST_LOW", "MCONST_NC", "MCU_INT", "MCU_HEX",
-  "MCU_FLOAT", "MCU_STRING", "MCK_FUNC", "MCK_THIS", "MCU_VOLT", "MCU_AMP",
-  "MCU_CAP", "MCU_IND", "MCU_TIME", "MCU_LEN", "MCU_WATT", "MCU_OHM",
-  "MCU_TEMP", "MCU_HZ", "MCU_DB", "MCU_PPM", "MCU_PERCENT", "MCU_BAUD",
-  "MCU_DATASIZE", "MCU_SPS", "MCU_SIEMENS", "MCU_RESPONSIVITY",
-  "MCU_ANGLE", "MCU_ANGULAR_RATE", "MCU_ENERGY", "MCU_EFIELD",
-  "MCU_HFIELD", "MCU_FLUX", "MCU_BFIELD", "MCU_SLEW", "MCU_NOISE",
-  "MCU_CHARGE", "MCUVAL_VOLT", "MCUVAL_AMP", "MCUVAL_CAP", "MCUVAL_IND",
-  "MCUVAL_TIME", "MCUVAL_LEN", "MCUVAL_WATT", "MCUVAL_OHM", "MCUVAL_TEMP",
-  "MCUVAL_HZ", "MCUVAL_DB", "MCUVAL_PPM", "MCUVAL_PERCENT", "MCUVAL_BAUD",
-  "MCUVAL_DATASIZE", "MCUVAL_SPS", "MCUVAL_SIEMENS", "MCUVAL_RESPONSIVITY",
-  "MCUVAL_ANGLE", "MCUVAL_ANGULAR_RATE", "MCUVAL_ENERGY", "MCUVAL_EFIELD",
-  "MCUVAL_HFIELD", "MCUVAL_FLUX", "MCUVAL_BFIELD", "MCUVAL_SLEW",
-  "MCUVAL_NOISE", "MCUVAL_CHARGE", "MC_WS", "MC_SINGLE_COMMENT",
-  "MC_MULTI_COMMENT", "$accept", "start", "mc_tops", "mc_top", "mc_use",
-  "mc_uri", "mc_prefix", "mc_uri_trunk", "mc_levels", "mc_class_name",
-  "mc_component", "mc_module", "mc_interface", "mc_enum", "mc_overlay",
-  "mc_capability", "mc_component_derivs", "mc_component_variant",
-  "mc_component_adopts", "mc_body", "mc_clauses", "mc_clause",
-  "mc_attribute", "mc_attr_values", "mc_attr_value", "mc_attr_lines",
-  "mc_attribute_pin", "mc_pins_lines", "mc_pins_line", "mc_pin_idn",
-  "mc_pins_names", "mc_pins_name", "mc_net", "mc_opds", "mc_net_port_elem",
-  "mc_net_port_elems", "mc_mn_opd", "mc_mn_opds", "mc_opd", "mc_phrases",
-  "mc_phrase", "mc_role", "mc_conduit", "mc_domain", "mc_rail",
-  "mc_partition", "mc_error_stmt", "mc_error_msg", "mc_tattrs",
-  "mc_tattrs_opt", "mc_tattr", "mc_tkey", "mc_resword", "mc_function",
-  "mc_paramds", "mc_pards", "mc_pard", "mc_declare_a", "mc_declare_a1",
-  "mc_insts", "mc_inst", "mc_iface_name", "mc_declare_b", "mc_params",
-  "mc_param", "mc_conds", "mc_conds_elifs", "mc_cond_block", "mc_expr",
-  "mc_judge", "mc_id", "mc_ida", "mc_idss", "mc_ids", "mc_idseg", "mc_idm",
-  "mc_idans", "mc_idan", "mc_int", "mc_hex", "mc_float", "mc_number",
-  "mc_string", "mc_const", "mc_nc", "mc_underscore", "mc_literal",
-  "mc_iotype", "mc_unit_value", "mc_unit_type", "mc_endls", YY_NULLPTR
+  "MCK_BOM", "MCOP_EQUAL", "MCK_PINS", "MCOP_PLUSEQUAL", "MCOP_EQUALEQUAL",
+  "MCOP_NOTEQUAL", "MCOP_LESSTHAN", "MCOP_GREATERTHAN", "MCOP_LESSEQTHAN",
+  "MCOP_GREATEREQTHAN", "MCOP_DOUBLEARROW", "MCOP_LEFTARROW",
+  "MCOP_RIGHTARROW", "MCOP_PLUS", "MCOP_MINUS", "MCOP_AND", "MCOP_OR",
+  "MCOP_ANDAND", "MCOP_OROR", "MCOP_MULTI", "MCOP_DIVID", "MCOP_CARET",
+  "MCOP_APOST", "MCPT_LBRACKET", "MCPT_RBRACKET", "MCPT_LPAREN",
+  "MCPT_RPAREN", "MCOP_TILDE", "MCOP_PLUSMINUS", "MCOP_TIMES",
+  "MCPT_DBCOLON", "MCK_ELSE_IF", "MCK_ELSE", "MCK_IF", "MC_ENDL",
+  "MCK_RETURN", "MCK_ERROR", "MCK_IO", "MCK_IN", "MCK_OUT", "MCK_NC",
+  "MCK_PSRC", "MCK_PSNK", "MCK_PSBI", "MCONST_HIGH", "MCONST_LOW",
+  "MCONST_NC", "MCU_INT", "MCU_HEX", "MCU_FLOAT", "MCU_STRING", "MCK_FUNC",
+  "MCK_THIS", "MCU_VOLT", "MCU_AMP", "MCU_CAP", "MCU_IND", "MCU_TIME",
+  "MCU_LEN", "MCU_WATT", "MCU_OHM", "MCU_TEMP", "MCU_HZ", "MCU_DB",
+  "MCU_PPM", "MCU_PERCENT", "MCU_BAUD", "MCU_DATASIZE", "MCU_SPS",
+  "MCU_SIEMENS", "MCU_RESPONSIVITY", "MCU_ANGLE", "MCU_ANGULAR_RATE",
+  "MCU_ENERGY", "MCU_EFIELD", "MCU_HFIELD", "MCU_FLUX", "MCU_BFIELD",
+  "MCU_SLEW", "MCU_NOISE", "MCU_CHARGE", "MCUVAL_VOLT", "MCUVAL_AMP",
+  "MCUVAL_CAP", "MCUVAL_IND", "MCUVAL_TIME", "MCUVAL_LEN", "MCUVAL_WATT",
+  "MCUVAL_OHM", "MCUVAL_TEMP", "MCUVAL_HZ", "MCUVAL_DB", "MCUVAL_PPM",
+  "MCUVAL_PERCENT", "MCUVAL_BAUD", "MCUVAL_DATASIZE", "MCUVAL_SPS",
+  "MCUVAL_SIEMENS", "MCUVAL_RESPONSIVITY", "MCUVAL_ANGLE",
+  "MCUVAL_ANGULAR_RATE", "MCUVAL_ENERGY", "MCUVAL_EFIELD", "MCUVAL_HFIELD",
+  "MCUVAL_FLUX", "MCUVAL_BFIELD", "MCUVAL_SLEW", "MCUVAL_NOISE",
+  "MCUVAL_CHARGE", "MC_WS", "MC_SINGLE_COMMENT", "MC_MULTI_COMMENT",
+  "$accept", "start", "mc_tops", "mc_top", "mc_use", "mc_uri", "mc_prefix",
+  "mc_uri_trunk", "mc_levels", "mc_class_name", "mc_component",
+  "mc_module", "mc_interface", "mc_enum", "mc_bom", "mc_capability",
+  "mc_component_derivs", "mc_component_variant", "mc_component_adopts",
+  "mc_body", "mc_clauses", "mc_clause", "mc_attribute", "mc_attr_values",
+  "mc_attr_value", "mc_attr_lines", "mc_attribute_pin", "mc_pins_lines",
+  "mc_pins_line", "mc_pin_idn", "mc_pins_names", "mc_pins_name", "mc_net",
+  "mc_opds", "mc_net_port_elem", "mc_net_port_elems", "mc_mn_opd",
+  "mc_mn_opds", "mc_opd", "mc_phrases", "mc_phrase", "mc_role",
+  "mc_conduit", "mc_domain", "mc_rail", "mc_partition", "mc_error_stmt",
+  "mc_error_msg", "mc_tattrs", "mc_tattrs_opt", "mc_tattr", "mc_tkey",
+  "mc_resword", "mc_function", "mc_paramds", "mc_pards", "mc_pard",
+  "mc_declare_a", "mc_declare_a1", "mc_insts", "mc_inst", "mc_iface_name",
+  "mc_declare_b", "mc_params", "mc_param", "mc_conds", "mc_conds_elifs",
+  "mc_cond_block", "mc_expr", "mc_judge", "mc_id", "mc_ida", "mc_idss",
+  "mc_ids", "mc_idseg", "mc_idm", "mc_idans", "mc_idan", "mc_int",
+  "mc_hex", "mc_float", "mc_number", "mc_string", "mc_const", "mc_nc",
+  "mc_underscore", "mc_literal", "mc_iotype", "mc_unit_value",
+  "mc_unit_type", "mc_endls", YY_NULLPTR
 };
 static const char *
 yysymbol_name (yysymbol_kind_t yysymbol)
@@ -2988,7 +2988,7 @@ yyuserAction (yyRuleNum yyrule, int yyrhslen, yyGLRStackItem* yyvsp,
                 { mc_value_link(mcast, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)); }
     break;
   case 14:
-                   { mc_value_link(mcast, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)); }
+               { mc_value_link(mcast, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)); }
     break;
   case 15:
                       { mc_value_link(mcast, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)); }
@@ -3224,7 +3224,7 @@ yyuserAction (yyRuleNum yyrule, int yyrhslen, yyGLRStackItem* yyvsp,
   case 50:
 {
     
-    ((*yyvalp).value) = mc_value_create_node(MCAST_OVERLAY, mc_value_link(mc_value_create_node(MCAST_NAME, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value)), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)));
+    ((*yyvalp).value) = mc_value_create_node(MCAST_BOM, mc_value_link(mc_value_create_node(MCAST_NAME, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value)), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)));
 }
     break;
   case 51:

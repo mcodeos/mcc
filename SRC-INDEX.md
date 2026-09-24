@@ -34,10 +34,10 @@ range (threshold 40KB).
 | `db/infra/mc_code.rs` | 404 KB | 122 |
 | `semantic/basic/mc_phrase.rs` | 340 KB | 81 |
 | `semantic/component/mc_pins/mod.rs` | 236 KB | 109 |
-| `semantic/validation/nets/mod.rs` | 206 KB | 135 |
+| `semantic/validation/nets/mod.rs` | 205 KB | 135 |
 | `instant/mc_mod/stmt.rs` | 195 KB | 77 |
-| `db/diagnostic/errcodes.rs` | 195 KB | 452 |
-| `rules.rs` | 187 KB | 83 |
+| `db/diagnostic/errcodes.rs` | 194 KB | 452 |
+| `rules.rs` | 186 KB | 83 |
 | `instant/insttab.rs` | 180 KB | 130 |
 | `cmds/show.rs` | 161 KB | 122 |
 | `db/defregistry.rs` | 157 KB | 181 |
@@ -73,7 +73,7 @@ range (threshold 40KB).
 | `query/` | 9 | 168 KB |
 | `refdef/` | 7 | 126 KB |
 | `rpc/` | 16 | 312 KB |
-| `semantic/` | 93 | 2771 KB |
+| `semantic/` | 93 | 2770 KB |
 | `stages/` | 17 | 386 KB |
 | `vector/` | 26 | 496 KB |
 | `viz/` | 98 | 2476 KB |
@@ -301,7 +301,7 @@ ast/macros.rs#L178  const MCAST_UNIT_CHARGE
 ast/macros.rs#L179  const MCAST_UNIT_DIV
 ast/macros.rs#L180  const MCAST_UNIT_MUL
 ast/macros.rs#L181  const MCAST_UNIT_GROUP
-ast/macros.rs#L182  const MCAST_OVERLAY
+ast/macros.rs#L182  const MCAST_BOM
 ast/mod.rs#L5  mod bindings
 ast/mod.rs#L6  mod error
 ast/mod.rs#L7  mod macros
@@ -1885,8 +1885,8 @@ db/diagnostic/errcodes.rs#L1271  const VARIANT_BASE_NON_ABSTRACT
 db/diagnostic/errcodes.rs#L1274  const ADOPTS_NON_CAPABILITY
 db/diagnostic/errcodes.rs#L1277  const CAPABILITY_SIGNAL_MISSING
 db/diagnostic/errcodes.rs#L1281  const ADOPTED_FUNC_AMBIGUOUS
-db/diagnostic/errcodes.rs#L1287  const BOM_OVERLAY_VALUE_NOT_DESCENDANT
-db/diagnostic/errcodes.rs#L1293  const BOM_OVERLAY_KEY_NOT_SLOT
+db/diagnostic/errcodes.rs#L1287  const BOM_VALUE_NOT_DESCENDANT
+db/diagnostic/errcodes.rs#L1293  const BOM_KEY_NOT_SLOT
 db/diagnostic/errcodes.rs#L1298  const SPEC_KEY_UNDECLARED_PARAM
 db/diagnostic/errcodes.rs#L1301  const REF_INTEGRITY
 db/diagnostic/errcodes.rs#L1304  const FUNC_PARAMS_NO_BODY
@@ -2796,28 +2796,28 @@ instant/arena.rs#L217  fn sample_arena
 instant/arena.rs#L295  fn node_id_of
 instant/arena.rs#L308  fn dlu_arena__direct_build_structure
 instant/arena.rs#L390  fn dlu_arena__add_child_grouped_is_idempotent
-instant/bom_overlay.rs#L30  const OVERLAY_FILE
-instant/bom_overlay.rs#L35  struct BindingRow
-instant/bom_overlay.rs#L48  enum BindOutcome
-instant/bom_overlay.rs#L71  struct DuplicateRow
-instant/bom_overlay.rs#L80  struct BomOverlayState
-instant/bom_overlay.rs#L96  static BOM_OVERLAY
-instant/bom_overlay.rs#L105  fn load_for_dir
-instant/bom_overlay.rs#L150  fn parse_overlay
-instant/bom_overlay.rs#L299  fn node_name
-instant/bom_overlay.rs#L310  fn binding_row
-instant/bom_overlay.rs#L342  fn begin_build
-instant/bom_overlay.rs#L357  fn overlay_active
-instant/bom_overlay.rs#L370  fn overlay_key
-instant/bom_overlay.rs#L383  fn apply_binding
-instant/bom_overlay.rs#L438  fn record
-instant/bom_overlay.rs#L451  fn resolve_value
-instant/bom_overlay.rs#L472  fn def_id_of
-instant/bom_overlay.rs#L479  fn bind_outcomes
-instant/bom_overlay.rs#L492  fn dangling_keys
-instant/bom_overlay.rs#L506  fn overlay_value
-instant/bom_overlay.rs#L517  fn row_anchor
-instant/bom_overlay.rs#L530  fn duplicate_rows
+instant/bom.rs#L30  const BOM_FILE
+instant/bom.rs#L35  struct BindingRow
+instant/bom.rs#L48  enum BindOutcome
+instant/bom.rs#L71  struct DuplicateRow
+instant/bom.rs#L80  struct BomState
+instant/bom.rs#L96  static BOM_STATE
+instant/bom.rs#L105  fn load_for_dir
+instant/bom.rs#L150  fn parse_bom
+instant/bom.rs#L299  fn node_name
+instant/bom.rs#L310  fn binding_row
+instant/bom.rs#L342  fn begin_build
+instant/bom.rs#L357  fn bom_active
+instant/bom.rs#L370  fn bom_key
+instant/bom.rs#L383  fn apply_binding
+instant/bom.rs#L438  fn record
+instant/bom.rs#L451  fn resolve_value
+instant/bom.rs#L472  fn def_id_of
+instant/bom.rs#L479  fn bind_outcomes
+instant/bom.rs#L492  fn dangling_keys
+instant/bom.rs#L506  fn bom_value
+instant/bom.rs#L517  fn row_anchor
+instant/bom.rs#L530  fn duplicate_rows
 instant/deps.rs#L30  static ACTIVE
 instant/deps.rs#L36  struct DepCollectorGuard
 instant/deps.rs#L38  impl DepCollectorGuard
@@ -3753,7 +3753,7 @@ instant/mc_net.rs#L1482  fn dlu_net__repeated_segment_is_identity
 instant/mc_net.rs#L1513  fn dlu_net__batch_union_merges_shared_nodes
 instant/mc_net.rs#L1555  fn dlu_net__duplicate_suffix_paths_stay_apart
 instant/mod.rs#L5  mod arena
-instant/mod.rs#L6  mod bom_overlay
+instant/mod.rs#L6  mod bom
 instant/mod.rs#L7  mod deps
 instant/mod.rs#L8  mod descriptions
 instant/mod.rs#L9  mod dianlu
@@ -7612,10 +7612,10 @@ semantic/validation/nets/mod.rs#L1071  fn check_unused_module_ports
 semantic/validation/nets/mod.rs#L1169  fn check_single_point_nets
 semantic/validation/nets/mod.rs#L1192  fn check_pin_count_mismatch
 semantic/validation/nets/mod.rs#L1265  fn check_unselected_abstract
-semantic/validation/nets/mod.rs#L1302  fn overlay_entry
-semantic/validation/nets/mod.rs#L1316  fn overlay_anchor
-semantic/validation/nets/mod.rs#L1325  fn check_overlay_value_descendant
-semantic/validation/nets/mod.rs#L1353  fn check_overlay_key_slot
+semantic/validation/nets/mod.rs#L1302  fn bom_entry
+semantic/validation/nets/mod.rs#L1316  fn bom_anchor
+semantic/validation/nets/mod.rs#L1325  fn check_bom_value_descendant
+semantic/validation/nets/mod.rs#L1353  fn check_bom_key_slot
 semantic/validation/nets/mod.rs#L1437  fn check_floating_outputs
 semantic/validation/nets/mod.rs#L1483  fn check_unwired_pins
 semantic/validation/nets/mod.rs#L1523  fn power_intent_defs

@@ -3,7 +3,7 @@
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
 pub(crate) mod arena;
-pub(crate) mod bom_overlay;
+pub(crate) mod bom;
 pub(crate) mod deps;
 pub(crate) mod descriptions;
 pub(crate) mod dianlu;

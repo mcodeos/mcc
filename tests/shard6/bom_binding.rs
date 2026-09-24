@@ -12,9 +12,9 @@
 //! duplicate key same value (b1 W), duplicate key conflicting values (b2 E),
 //! dangling key (b3 E5068), header top mismatch (all rows dangle into b3),
 //! and a parse-broken carrier clears the registry while reporting through the
-//! normal parse diagnostic domain. The carrier is `bom.overlay.mc` — one
-//! `overlay <top> { path = Class }` block (bom-overlay-design.md v0.2);
-//! `bomovl__` locks judge rows, never the carrier. Param-authoring-design.md
+//! normal parse diagnostic domain. The carrier is `bom.mc` — one
+//! `bom <top> { path = Class }` block (bom-overlay-design.md v0.2);
+//! `bom__` locks judge rows, never the carrier. Param-authoring-design.md
 //! section 4.
 
 #![allow(non_snake_case)]
@@ -66,8 +66,8 @@ module main
 "#;
 
 /// Wrap `rows` in the single canonical carrier block.
-fn overlay_block(rows: &str) -> String {
-    format!("overlay main {{\n{rows}}}\n")
+fn bom_block(rows: &str) -> String {
+    format!("bom main {{\n{rows}}}\n")
 }
 
 /// Materialize a throwaway project dir whose only content is the overlay
@@ -78,7 +78,7 @@ fn set_overlay(overlay: Option<&str>) -> PathBuf {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("tmp project dir");
     if let Some(text) = overlay {
-        std::fs::write(dir.join("bom.overlay.mc"), text).expect("write overlay");
+        std::fs::write(dir.join("bom.mc"), text).expect("write overlay");
     }
     mcc::mcc_set_project_root(&dir);
     dir
@@ -127,8 +127,8 @@ fn row_of(table: &mcc::InstTable, path: &str) -> (String, bool) {
 /// rides the variant, the row is selected, the unbound sibling stays
 /// unselected with exactly one W, and both overlay checks stay silent.
 #[test]
-fn bomovl__key_binds_abstract_slot_to_descendant_variant() {
-    let (table, diags) = build_with(Some(&overlay_block(
+fn bom__key_binds_abstract_slot_to_descendant_variant() {
+    let (table, diags) = build_with(Some(&bom_block(
         "    b.slot = PART.SHAPE_V2\n",
     )));
     let (slot_class, slot_unselected) = row_of(&table, "main.b.slot");
@@ -138,11 +138,11 @@ fn bomovl__key_binds_abstract_slot_to_descendant_variant() {
     assert_eq!(open_class, "PART.SHAPE", "the unbound slot keeps its base");
     assert!(open_unselected, "the unbound slot stays unselected");
     assert_eq!(
-        count_code(&diags, mcc::errcodes::BOM_OVERLAY_VALUE_NOT_DESCENDANT),
+        count_code(&diags, mcc::errcodes::BOM_VALUE_NOT_DESCENDANT),
         0
     );
     assert_eq!(
-        count_code(&diags, mcc::errcodes::BOM_OVERLAY_KEY_NOT_SLOT),
+        count_code(&diags, mcc::errcodes::BOM_KEY_NOT_SLOT),
         0
     );
     let unselected: Vec<&str> = diags
@@ -160,12 +160,12 @@ fn bomovl__key_binds_abstract_slot_to_descendant_variant() {
 /// A value that is not a `:` descendant of the slot class fires E5067 and
 /// the slot keeps its declared base.
 #[test]
-fn bomovl__value_not_descendant_fires_5067() {
-    let (table, diags) = build_with(Some(&overlay_block(
+fn bom__value_not_descendant_fires_5067() {
+    let (table, diags) = build_with(Some(&bom_block(
         "    b.slot = OTHER.THING\n",
     )));
     assert_eq!(
-        count_code(&diags, mcc::errcodes::BOM_OVERLAY_VALUE_NOT_DESCENDANT),
+        count_code(&diags, mcc::errcodes::BOM_VALUE_NOT_DESCENDANT),
         1
     );
     let (slot_class, _) = row_of(&table, "main.b.slot");
@@ -174,12 +174,12 @@ fn bomovl__value_not_descendant_fires_5067() {
 
 /// A value that resolves to no live def fires E5067 as well.
 #[test]
-fn bomovl__value_unresolved_fires_5067() {
-    let (_, diags) = build_with(Some(&overlay_block(
+fn bom__value_unresolved_fires_5067() {
+    let (_, diags) = build_with(Some(&bom_block(
         "    b.slot = PART.NOPE\n",
     )));
     assert_eq!(
-        count_code(&diags, mcc::errcodes::BOM_OVERLAY_VALUE_NOT_DESCENDANT),
+        count_code(&diags, mcc::errcodes::BOM_VALUE_NOT_DESCENDANT),
         1
     );
 }
@@ -187,12 +187,12 @@ fn bomovl__value_unresolved_fires_5067() {
 /// ①a: naming the abstract base itself resolves but is no selection — the
 /// row would leave the slot dangling under a concrete name, so E5067 fires.
 #[test]
-fn bomovl__value_naming_the_base_itself_fires_5067() {
-    let (_, diags) = build_with(Some(&overlay_block(
+fn bom__value_naming_the_base_itself_fires_5067() {
+    let (_, diags) = build_with(Some(&bom_block(
         "    b.slot = PART.SHAPE\n",
     )));
     assert_eq!(
-        count_code(&diags, mcc::errcodes::BOM_OVERLAY_VALUE_NOT_DESCENDANT),
+        count_code(&diags, mcc::errcodes::BOM_VALUE_NOT_DESCENDANT),
         1
     );
 }
@@ -200,12 +200,12 @@ fn bomovl__value_naming_the_base_itself_fires_5067() {
 /// ①b: a variant of another base is a real selection for the wrong slot —
 /// E5067 fires and the slot keeps its declared base.
 #[test]
-fn bomovl__value_cross_family_variant_fires_5067() {
-    let (_, diags) = build_with(Some(&overlay_block(
+fn bom__value_cross_family_variant_fires_5067() {
+    let (_, diags) = build_with(Some(&bom_block(
         "    b.slot = OTHER.V2\n",
     )));
     assert_eq!(
-        count_code(&diags, mcc::errcodes::BOM_OVERLAY_VALUE_NOT_DESCENDANT),
+        count_code(&diags, mcc::errcodes::BOM_VALUE_NOT_DESCENDANT),
         1
     );
 }
@@ -213,13 +213,13 @@ fn bomovl__value_cross_family_variant_fires_5067() {
 /// A key whose instance declares a concrete class that differs from the
 /// overlay value fires E5068 as an Error (b2) and the instance is untouched.
 #[test]
-fn bomovl__key_on_concrete_instance_diff_class_fires_5068_error() {
-    let (table, diags) = build_with(Some(&overlay_block(
+fn bom__key_on_concrete_instance_diff_class_fires_5068_error() {
+    let (table, diags) = build_with(Some(&bom_block(
         "    b.fixed = PART.SHAPE_V2\n",
     )));
     let slot_errors = diags
         .iter()
-        .filter(|d| d.code == mcc::errcodes::BOM_OVERLAY_KEY_NOT_SLOT)
+        .filter(|d| d.code == mcc::errcodes::BOM_KEY_NOT_SLOT)
         .count();
     assert_eq!(slot_errors, 1, "b2 fires exactly once");
     let (fixed_class, fixed_unselected) = row_of(&table, "main.b.fixed");
@@ -230,13 +230,13 @@ fn bomovl__key_on_concrete_instance_diff_class_fires_5068_error() {
 /// b1: a key repeating exactly the class the instance already declares is
 /// the duplicate form — E5068 at Warning level, no retyping.
 #[test]
-fn bomovl__key_repeats_declared_class_fires_5068_warning() {
-    let (_, diags) = build_with(Some(&overlay_block(
+fn bom__key_repeats_declared_class_fires_5068_warning() {
+    let (_, diags) = build_with(Some(&bom_block(
         "    b.fixed = OTHER.THING\n",
     )));
     let b1: Vec<&mcc::McDiagnostic> = diags
         .iter()
-        .filter(|d| d.code == mcc::errcodes::BOM_OVERLAY_KEY_NOT_SLOT)
+        .filter(|d| d.code == mcc::errcodes::BOM_KEY_NOT_SLOT)
         .collect();
     assert_eq!(b1.len(), 1, "b1 fires exactly once");
     assert!(
@@ -253,13 +253,13 @@ fn bomovl__key_repeats_declared_class_fires_5068_warning() {
 /// A key that matches no instance fires E5068 exactly once (b3), and the mc
 /// carrier anchors it at the overlay row — not at position zero.
 #[test]
-fn bomovl__dangling_key_fires_5068() {
-    let (_, diags) = build_with(Some(&overlay_block(
+fn bom__dangling_key_fires_5068() {
+    let (_, diags) = build_with(Some(&bom_block(
         "    b.nope = PART.SHAPE_V2\n",
     )));
     let b3: Vec<&mcc::McDiagnostic> = diags
         .iter()
-        .filter(|d| d.code == mcc::errcodes::BOM_OVERLAY_KEY_NOT_SLOT)
+        .filter(|d| d.code == mcc::errcodes::BOM_KEY_NOT_SLOT)
         .collect();
     assert_eq!(b3.len(), 1);
     assert!(
@@ -271,14 +271,14 @@ fn bomovl__dangling_key_fires_5068() {
 
 /// No overlay file: no overlay diagnostics, abstract rows stay unselected.
 #[test]
-fn bomovl__no_overlay_leaves_slots_unselected_and_clean() {
+fn bom__no_overlay_leaves_slots_unselected_and_clean() {
     let (table, diags) = build_with(None);
     assert_eq!(
-        count_code(&diags, mcc::errcodes::BOM_OVERLAY_VALUE_NOT_DESCENDANT),
+        count_code(&diags, mcc::errcodes::BOM_VALUE_NOT_DESCENDANT),
         0
     );
     assert_eq!(
-        count_code(&diags, mcc::errcodes::BOM_OVERLAY_KEY_NOT_SLOT),
+        count_code(&diags, mcc::errcodes::BOM_KEY_NOT_SLOT),
         0
     );
     for path in ["main.b.slot", "main.b.open"] {
@@ -289,11 +289,11 @@ fn bomovl__no_overlay_leaves_slots_unselected_and_clean() {
 /// A block header naming a top the build does not enter consumes nothing:
 /// every row dangles into the b3 domain (bom-overlay-design.md §6).
 #[test]
-fn bomovl__header_top_mismatch_dangles_all_rows() {
-    let (_, diags) = build_with(Some("overlay other {\n    b.slot = PART.SHAPE_V2\n}\n"));
+fn bom__header_top_mismatch_dangles_all_rows() {
+    let (_, diags) = build_with(Some("bom other {\n    b.slot = PART.SHAPE_V2\n}\n"));
     let b3 = diags
         .iter()
-        .filter(|d| d.code == mcc::errcodes::BOM_OVERLAY_KEY_NOT_SLOT)
+        .filter(|d| d.code == mcc::errcodes::BOM_KEY_NOT_SLOT)
         .count();
     assert_eq!(b3, 1, "the only row dangles (E5068)");
 }
@@ -301,16 +301,16 @@ fn bomovl__header_top_mismatch_dangles_all_rows() {
 /// Duplicate keys inside one block: same value is the b1 W, conflicting
 /// values are the b2 E — and the first row still wins the bind.
 #[test]
-fn bomovl__duplicate_keys_same_value_warn_conflict_errors() {
+fn bom__duplicate_keys_same_value_warn_conflict_errors() {
     // Same value twice: one W duplicate report, the bind itself legal.
-    let (table, diags) = build_with(Some(&overlay_block(
+    let (table, diags) = build_with(Some(&bom_block(
         "    b.slot = PART.SHAPE_V2\n    b.slot = PART.SHAPE_V2\n",
     )));
     let (slot_class, _) = row_of(&table, "main.b.slot");
     assert_eq!(slot_class, "PART.SHAPE_V2", "the first row wins the bind");
     let key_diags: Vec<&mcc::McDiagnostic> = diags
         .iter()
-        .filter(|d| d.code == mcc::errcodes::BOM_OVERLAY_KEY_NOT_SLOT)
+        .filter(|d| d.code == mcc::errcodes::BOM_KEY_NOT_SLOT)
         .collect();
     assert_eq!(key_diags.len(), 1, "one duplicate report");
     assert!(
@@ -320,14 +320,14 @@ fn bomovl__duplicate_keys_same_value_warn_conflict_errors() {
     assert!(key_diags[0].msg.contains("keep one row"));
 
     // Conflicting values: one E duplicate report, first row still wins.
-    let (table, diags) = build_with(Some(&overlay_block(
+    let (table, diags) = build_with(Some(&bom_block(
         "    b.slot = PART.SHAPE_V2\n    b.slot = OTHER.THING\n",
     )));
     let (slot_class, _) = row_of(&table, "main.b.slot");
     assert_eq!(slot_class, "PART.SHAPE_V2", "the first row wins the bind");
     let key_diags: Vec<&mcc::McDiagnostic> = diags
         .iter()
-        .filter(|d| d.code == mcc::errcodes::BOM_OVERLAY_KEY_NOT_SLOT)
+        .filter(|d| d.code == mcc::errcodes::BOM_KEY_NOT_SLOT)
         .collect();
     assert_eq!(key_diags.len(), 1);
     assert!(
@@ -346,16 +346,16 @@ fn bomovl__duplicate_keys_same_value_warn_conflict_errors() {
 /// a lexical error in the carrier reports through the normal parse
 /// diagnostic domain (E1000 anchored at the overlay file's own uri).
 #[test]
-fn bomovl__parse_broken_carrier_reports_and_clears() {
+fn bom__parse_broken_carrier_reports_and_clears() {
     // Truncated row: the parser discards the block; nothing binds.
-    let (table, diags) = build_with(Some("overlay main { b.slot = \n"));
+    let (table, diags) = build_with(Some("bom main { b.slot = \n"));
     assert_eq!(
-        count_code(&diags, mcc::errcodes::BOM_OVERLAY_VALUE_NOT_DESCENDANT),
+        count_code(&diags, mcc::errcodes::BOM_VALUE_NOT_DESCENDANT),
         0,
         "no row survives to bind"
     );
     assert_eq!(
-        count_code(&diags, mcc::errcodes::BOM_OVERLAY_KEY_NOT_SLOT),
+        count_code(&diags, mcc::errcodes::BOM_KEY_NOT_SLOT),
         0
     );
     let (slot_class, slot_unselected) = row_of(&table, "main.b.slot");
@@ -367,13 +367,13 @@ fn bomovl__parse_broken_carrier_reports_and_clears() {
 
     // A lexical error (integer literal over 20 digits) lands in the
     // diagnostic domain under the overlay uri, and the registry still clears.
-    let (_, diags) = build_with(Some(&overlay_block(
+    let (_, diags) = build_with(Some(&bom_block(
         "    b.slot = 99999999999999999999999999999999\n",
     )));
     let e1000 = diags.iter().filter(|d| d.code == 1000).count();
     assert!(e1000 >= 1, "the E1000 lands in the diagnostic domain");
     assert_eq!(
-        count_code(&diags, mcc::errcodes::BOM_OVERLAY_KEY_NOT_SLOT),
+        count_code(&diags, mcc::errcodes::BOM_KEY_NOT_SLOT),
         0,
         "the registry cleared"
     );

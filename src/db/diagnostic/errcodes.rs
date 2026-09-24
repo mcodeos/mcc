@@ -1284,13 +1284,13 @@ pub const ADOPTED_FUNC_AMBIGUOUS: u32 = 5066;
 /// slot's declared abstract class (param-authoring-design.md section 4,
 /// U245, check (1) = E5067). Covers an unresolvable value name too: a name
 /// the defs do not know cannot be a descendant either.
-pub const BOM_OVERLAY_VALUE_NOT_DESCENDANT: u32 = 5067;
+pub const BOM_VALUE_NOT_DESCENDANT: u32 = 5067;
 
-/// BOM overlay key does not designate an abstract-declared slot: either the
+/// BOM block key does not designate an abstract-declared slot: either the
 /// instance at that path declares a concrete class, or no instance lives at
 /// the path at all (param-authoring-design.md section 4, U245, check (2),
 /// branches b2/b3 = E5068).
-pub const BOM_OVERLAY_KEY_NOT_SLOT: u32 = 5068;
+pub const BOM_KEY_NOT_SLOT: u32 = 5068;
 
 // Pass3: reference integrity (5100-5149)
 
@@ -2614,8 +2614,8 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(ADOPTS_NON_CAPABILITY, "Adoption target must be a capability.", "'{0}' is not a capability — use ':' to derive a variant from an abstract component"),
     entry!(CAPABILITY_SIGNAL_MISSING, "An adopting component must declare every capability signal (name + direction + interface).", "'{0}' is missing capability signal '{1}'; {2}"),
     entry!(ADOPTED_FUNC_AMBIGUOUS, "Two adopted capabilities expose the same func name and the component does not override it.", "adopted capabilities share func '{0}'; define '{0}' here to override"),
-    entry!(BOM_OVERLAY_VALUE_NOT_DESCENDANT, "A bom.overlay.mc value names a class that is not a `:` descendant of the slot's declared class.", "overlay key '{0}' names '{1}', which is not a `:` descendant of the slot's declared class '{2}' — the overlay picks a variant of the declared base, it does not retype the slot. Name a variant whose `: base` chain reaches '{2}', or change the module face to declare the base the overlay value derives from (param-authoring-design.md section 4)."),
-    entry!(BOM_OVERLAY_KEY_NOT_SLOT, "A bom.overlay.mc key does not designate an abstract-declared instance.", "overlay key '{0}' does not designate an abstract-declared slot ({1}) — the overlay binds part selections to slots, and a slot is an instance whose module declares it on an `abstract component` base. Remove the key, or make the module face declare the base and let the overlay pick the variant (param-authoring-design.md section 4)."),
+    entry!(BOM_VALUE_NOT_DESCENDANT, "A bom.mc value names a class that is not a `:` descendant of the slot's declared class.", "bom key '{0}' names '{1}', which is not a `:` descendant of the slot's declared class '{2}' — the bom block picks a variant of the declared base, it does not retype the slot. Name a variant whose `: base` chain reaches '{2}', or change the module face to declare the base the bom value derives from (param-authoring-design.md section 4)."),
+    entry!(BOM_KEY_NOT_SLOT, "A bom.mc key does not designate an abstract-declared instance.", "bom key '{0}' does not designate an abstract-declared slot ({1}) — the bom block binds part selections to slots, and a slot is an instance whose module declares it on an `abstract component` base. Remove the key, or make the module face declare the base and let the bom block pick the variant (param-authoring-design.md section 4)."),
     // section
     entry!(SPEC_KEY_UNDECLARED_PARAM, "Spec key references a parameter that is not declared.", "Spec key references a parameter that is not declared."),
     entry!(REF_INTEGRITY, "Reference integrity violation.", "Reference integrity violation."),
