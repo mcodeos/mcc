@@ -33,6 +33,7 @@ mod lock_pp_naming_ports;
 mod mcode_auto_load;
 mod module_port_interface_ref;
 mod net_island_l1;
+mod netlist_view_golden;
 mod open_lead;
 mod output_path_flag;
 mod param_call_site_key_binding;

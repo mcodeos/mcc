@@ -85,6 +85,7 @@ fn run_local(args: &ShowArgs) -> Result<()> {
         ShowTarget::Stage => show_stage(args),
         ShowTarget::OrgUnits => show_org_units(args),
         ShowTarget::Diagnostics => show_diagnostics(loaded.as_deref()),
+        ShowTarget::Netlist => show_netlist(loaded.as_deref()),
 
         // drill-down
         ShowTarget::Pins => drill_pins(require_name(args), args),
@@ -1599,6 +1600,50 @@ fn show_diagnostics(loaded: Option<&str>) -> Result<()> {
         return write_stage_text(&mcc::stages::diagview::render_diag_text(&view));
     }
     emit_stage_envelope(&view, "mcc show diagnostics")
+}
+
+/// The `netlist` read face (projection-schema-design.md §2.2; CIMP §1 U280):
+/// the flattening's connectivity as one projection envelope.
+///
+/// The read mirrors the export face's own: one flat pass2 run, then the
+/// copper islands off the flat table — the same builder
+/// ([`mcc::stages::netlistview::net_items`]) the JSON export consumes, so the
+/// two faces cannot spell the connectivity two ways. law C holds as on the
+/// other views: the exit code stays 0 whatever the items hold.
+fn show_netlist(loaded: Option<&str>) -> Result<()> {
+    let mod_name = loaded
+        .and_then(|uri| mcc::mcb_get_module_name_by_uri(&mcc::McURI::from(uri)))
+        .or_else(mcc::mcb_get_first_module_name)
+        .unwrap_or_else(|| "main".to_string());
+    let top = mcc::cli::globals()
+        .top
+        .clone()
+        .unwrap_or_else(|| mod_name.clone());
+    let Some(uri) = loaded else {
+        return Ok(());
+    };
+    let entry = mcc::McSpaceName {
+        ident: mcc::McIds::from(mod_name.as_str()),
+        uri: mcc::uri_intern(uri),
+    };
+    // A flattening that did not happen leaves nothing to read — fail loudly
+    // rather than print an empty reading and say nothing (the U93 split).
+    let (_tree, table) = match mcc::mcb_pass2_flat(&entry, 1) {
+        Ok(pair) => pair,
+        Err(e) => die!("mcc::show", 1, "netlist: flat pass2 failed: {e}"),
+    };
+    let view = mcc::stages::netlistview::netlist_view(&top, &table);
+
+    if matches!(
+        mcc::cli::globals().format,
+        OutputFormat::Text | OutputFormat::Csv
+    ) {
+        // CSV falls back to the text face for the same reason `show stage`
+        // does: a fixed-width readout is not CSV-safe (a path may contain a
+        // comma), so a real CSV face would be a decision of its own.
+        return write_stage_text(&mcc::stages::netlistview::render_netlist_text(&view));
+    }
+    emit_stage_envelope(&view, "mcc show netlist")
 }
 
 /// Write the stage text face to `--output` or stdout, the same way

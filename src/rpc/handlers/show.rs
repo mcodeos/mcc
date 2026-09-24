@@ -425,6 +425,32 @@ pub fn handle_show_diagnostics(_params: Option<Value>) -> RpcResult {
     Ok(serde_json::to_value(payload).unwrap_or(Value::Null))
 }
 
+// === handle_show_netlist (CIMP §1 U280 second half, second slice) ===
+
+/// `show.netlist`: the flattening's connectivity of the loaded workspace.
+///
+/// The same rows the `mcc show netlist` CLI face emits, built by the same one
+/// read ([`mcc::stages::netlistview::netlist_view`]) the JSON export consumes
+/// — one item per copper island with its member pin paths, never a second
+/// derivation. The result is the projection payload itself
+/// ([`StageViewData`]) with `view` = `netlist`; the CLI additionally attaches
+/// it under the `stage` key of its command envelope. A readout, never a gate.
+pub fn handle_show_netlist(_params: Option<Value>) -> RpcResult {
+    let entry_mod = crate::mcb_iter_modules().into_iter().next();
+    let Some((name, uri)) = entry_mod else {
+        return Err(JsonRpcError::custom(32107, "no module loaded"));
+    };
+    let entry = crate::McSpaceName {
+        ident: crate::McIds::from(name.as_str()),
+        uri: crate::uri_intern(&uri),
+    };
+    let (_tree, table) = crate::mcb_pass2_flat(&entry, 1)
+        .map_err(|e| JsonRpcError::custom(32107, &format!("netlist: flat pass2 failed: {e}")))?;
+    let view = crate::stages::netlistview::netlist_view(&name, &table);
+    let payload = crate::stages::payload::StageViewData::from(&view);
+    Ok(serde_json::to_value(payload).unwrap_or(Value::Null))
+}
+
 // === handle_show_file (lines 2778-2822 in original) ===
 
 pub fn handle_show_file(params: Option<Value>) -> RpcResult {

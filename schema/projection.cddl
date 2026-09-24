@@ -67,7 +67,19 @@ circuit-node = {
 ; ---- §2.2 netlist: connectivity projection ------------------------------
 ; Nets / points / instance members + module boundary ports and bus lanes.
 ; Shared by export and the electrical snapshot; the item shape is the
-; export/netlist face expressed as envelope items (doc §4).
+; export/netlist face expressed as envelope items (doc §4). v1 carries the
+; face as it exists: one item per copper island (the flat table's segments
+; folded by shared point ids, U158), named by its best member, with the
+; member pin paths in island order. Boundary ports and bus lanes arrive as
+; ordinary member points here; a spelling of their own is a later decision,
+; not a v1 gap.
+
+net = {
+  name: tstr                ; the island's name: a named member's name, or the
+                            ; engine `_netN` spelling for copper no statement
+                            ; named; same-spelling islands disambiguate `#2`…
+  points: [* tstr]          ; member pin paths, ascending net id, deduplicated
+}
 
 ; ---- §2.3 core-erc: extension-tool snapshot -----------------------------
 ; netlist connectivity elements + core_erc[] (flat net_diags aggregation,
