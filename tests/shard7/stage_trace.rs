@@ -279,6 +279,28 @@ fn loc_key(item: &Value) -> String {
     format!("{uri}:{line}")
 }
 
+/// A source position in the display form the statement keys carry.
+///
+/// The keys stamp the U274 display form of their URI (`viz::srcuri`): the
+/// project root the face resolved is stripped, so a position spells
+/// `src/hbl.mc:19`, never the machine path. The root here is the one
+/// `init_local` resolves from the `-F` target: the nearest `project.toml`
+/// upward from the file, else the file's directory. (`loc.uri` still carries
+/// the absolute path — that spelling matches [`loc_key`], not this one.)
+fn position_key(entry: &Path, line: usize) -> String {
+    let mut root = entry.parent().unwrap_or(entry).to_path_buf();
+    let mut probe = Some(root.as_path());
+    while let Some(dir) = probe {
+        if dir.join("project.toml").is_file() {
+            root = dir.to_path_buf();
+            break;
+        }
+        probe = dir.parent();
+    }
+    let rel = entry.strip_prefix(&root).unwrap_or(entry);
+    format!("{}:{line}", rel.to_string_lossy())
+}
+
 /// The projection of one run, re-serialized so two runs compare as bytes.
 fn projection_bytes(stdout: &str) -> String {
     serde_json::to_string(&stage_of(stdout)).expect("the projection serializes")
@@ -330,7 +352,7 @@ fn two_runs_are_byte_identical_on_every_face() {
     let entry = hbl_entry();
     // A key whose walk reaches all five stages: a walk that stopped early would
     // leave most of the projection untested for stability.
-    let key = format!("{}:19", entry.display());
+    let key = position_key(&entry, 19);
 
     let (a_json, _, ok) = run_trace_in(&first, &entry, &key, &["-f", "json"]);
     assert!(ok, "trace -f json failed");
@@ -365,7 +387,7 @@ fn two_runs_are_byte_identical_on_every_face() {
 fn the_walk_always_prints_every_stage_in_chain_order() {
     let cwd = scratch("order");
     let entry = hbl_entry();
-    let view = trace_of(&cwd, &entry, &format!("{}:19", entry.display()), &[]);
+    let view = trace_of(&cwd, &entry, &position_key(&entry, 19), &[]);
     assert_eq!(
         stages_of(&view),
         STAGES.to_vec(),
@@ -441,7 +463,7 @@ fn the_form_the_readout_reports_is_the_form_it_parsed() {
         ("N1:0", "domain"),
         ("main.V1V2", "canon"),
         (&format!("{}::main", entry.display()), "def"),
-        (&format!("{}:19", entry.display()), "loc"),
+        (&position_key(&entry, 19), "loc"),
     ];
     for (key, form) in cases {
         let view = trace_of(&cwd, &entry, key, &[]);
@@ -463,7 +485,7 @@ fn three_forms_reach_one_object_and_walk_it_identically() {
     // statement is written on — three ways to name one thing.
     let by_domain = trace_of(&cwd, &entry, "N1:0", &[]);
     let by_canon = trace_of(&cwd, &entry, "main.V1V2", &[]);
-    let by_loc = trace_of(&cwd, &entry, &format!("{}:19", entry.display()), &[]);
+    let by_loc = trace_of(&cwd, &entry, &position_key(&entry, 19), &[]);
 
     // Two forms that name the *object* must walk it identically.
     assert_eq!(
@@ -508,7 +530,7 @@ fn a_source_position_resolves_to_the_statement_it_names() {
     assert_eq!(second, first + 1, "this lock needs the two lines adjacent");
 
     for (line, needle) in [(first, "FLASH.GD25Q32E"), (second, "MCU513.i2c()")] {
-        let view = trace_of(&cwd, &entry, &format!("{}:{line}", entry.display()), &[]);
+        let view = trace_of(&cwd, &entry, &position_key(&entry, line), &[]);
         assert_eq!(
             row_at(&view, "src")["loc"]["line"],
             line as u64,
@@ -539,7 +561,7 @@ fn a_statement_the_circuit_never_took_reports_which_stage_stopped_it() {
     let (stdout, stderr, ok) = run_trace_in(
         &cwd,
         &entry,
-        &format!("{}:{line}", entry.display()),
+        &position_key(&entry, line),
         &["-f", "json"],
     );
     assert!(
@@ -577,7 +599,7 @@ fn a_statement_the_circuit_never_took_reports_which_stage_stopped_it() {
     // The control: the same construct that *is* taken walks the whole chain, so
     // "everything stops at p2" cannot pass this test.
     let control = line_of(src, "CAP c1(1)", 1);
-    let view = trace_of(&cwd, &entry, &format!("{}:{control}", entry.display()), &[]);
+    let view = trace_of(&cwd, &entry, &position_key(&entry, control), &[]);
     assert_eq!(class_at(&view, "p2"), "carry");
     assert_eq!(class_at(&view, "vec"), "carry");
     assert_eq!(class_at(&view, "viz"), "carry");
@@ -602,8 +624,8 @@ fn two_statements_alike_at_two_positions_keep_their_own_rows() {
     let second = line_of(src, "c2.Foo([VDD, GND])", 2);
     assert_ne!(first, second);
 
-    let a = trace_of(&cwd, &entry, &format!("{}:{first}", entry.display()), &[]);
-    let b = trace_of(&cwd, &entry, &format!("{}:{second}", entry.display()), &[]);
+    let a = trace_of(&cwd, &entry, &position_key(&entry, first), &[]);
+    let b = trace_of(&cwd, &entry, &position_key(&entry, second), &[]);
 
     // Each position traced its own statement: the source row differs, so a walk
     // that answered by spelling would have produced two identical rows here.
@@ -720,6 +742,8 @@ fn the_class_a_walk_prints_is_the_class_the_hop_prints() {
     let mut seen: BTreeMap<String, usize> = BTreeMap::new();
     for (needle, nth, class) in wanted {
         let line = line_of(&src, needle, nth);
+        // The hop's own rows carry the absolute `loc.uri`; the trace key is the
+        // display form the statement keys use. One position, two spellings.
         let key = format!("{}:{line}", entry.display());
         let hop = by_loc
             .get(&key)
@@ -728,7 +752,7 @@ fn the_class_a_walk_prints_is_the_class_the_hop_prints() {
             hop, class,
             "the fixture does not spell `{needle}` as a {class}"
         );
-        let view = trace_of(&cwd, &entry, &key, &[]);
+        let view = trace_of(&cwd, &entry, &position_key(&entry, line), &[]);
         assert_eq!(
             class_at(&view, "p2"),
             *class,
@@ -787,7 +811,7 @@ fn the_key_column_marks_what_it_did_not_print() {
     let wide = hbl_sibling("us513.mc");
     let src = std::fs::read_to_string(&wide).expect("read the sibling source");
     let line = line_of(&src, "UC.6 -> CAP", 1);
-    let key = format!("{}:{line}", wide.display());
+    let key = position_key(&wide, line);
 
     let text = trace_text_of(&cwd, &entry, &key);
     let cells = text_row(&text, "p2");

@@ -517,15 +517,19 @@ fn contains(sources: &mut SourceText, uri: &str, start: usize, end: usize, line:
 
 /// Whether two spellings name the same file.
 ///
-/// A key's `uri` rarely matches a clause's byte for byte: the loader stores the
-/// path it resolved (`/private/tmp/…/twice.mc`), while the reader types the one
-/// they passed to `-F` (`twice.mc`), or the one the design's sample uses
-/// (`lib/power.mc`). Comparing the strings alone would make a file answer to
-/// only one of its spellings. The comparison is on the **path**, never on the
-/// file's name: `a/power.mc` and `b/power.mc` are two files and stay two — a
-/// name-only match is the fallback §5.2 hard constraint 2 forbids.
+/// A key's `uri` rarely matches a clause's byte for byte: the clause list
+/// carries the U274 display form (`src/hbl.mc`), while the reader types the
+/// path they passed to `-F` (`/private/tmp/…/twice.mc`) or the one the
+/// design's sample uses (`lib/power.mc`). Each spelling is resolved the way
+/// the loader resolves a `use` path — absolute as-is, relative against the
+/// project root, then the system root ([`crate::viz::srcuri::resolve`]) —
+/// before the comparison. It is on the **path**, never on the file's name:
+/// `a/power.mc` and `b/power.mc` are two files and stay two — a name-only
+/// match is the fallback §5.2 hard constraint 2 forbids.
 fn same_file(a: &str, b: &str) -> bool {
-    match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
+    let project = crate::db::infra::init::mcb_get_project_root();
+    let res = |s: &str| crate::viz::srcuri::resolve(s, &project);
+    match (res(a).canonicalize(), res(b).canonicalize()) {
         (Ok(x), Ok(y)) => x == y,
         _ => false,
     }
@@ -592,11 +596,17 @@ fn owning_clause(
         .iter()
         .find(|i| i["text"].is_string() && holds(i, "to", key))?;
     let k = clause["key"].as_str()?;
+    // The hop's statement key is the U274 display form; the clause list carries
+    // the path the loader resolved. The file is matched as a file (the same
+    // `use`-path resolution a reader's spelling gets), the text is read under
+    // the clause's own spelling.
     let (uri, line) = k.rsplit_once(':')?;
     let line: u32 = line.parse().ok()?;
-    let text = sources.text(uri).unwrap_or_default().to_string();
     clauses.iter().position(|(u, start, _, _)| {
-        u == uri && { crate::hierarchy::line_of_byte(&text, *start) == line }
+        same_file(u, uri) && {
+            let text = sources.text(u).unwrap_or_default().to_string();
+            crate::hierarchy::line_of_byte(&text, *start) == line
+        }
     })
 }
 
@@ -647,7 +657,9 @@ fn clause_row(
     let (form, key, detail) = match stage {
         "src" => (
             "loc",
-            format!("{uri}:{line}"),
+            // The key spelling is the U274 display form — the same one the
+            // hop's statement keys stamp — so the two sides compare equal.
+            format!("{}:{line}", crate::viz::srcuri::display(uri)),
             format!("\"{}\"", text.trim()),
         ),
         _ => (
