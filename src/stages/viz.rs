@@ -434,14 +434,14 @@ fn face_name(role: AttrRole) -> Option<&'static str> {
 /// nothing is not published as an empty row. That is a reading of the drawing,
 /// not a defect in it.
 ///
-/// **Not in [`VIZ_LAW`]**, deliberately, and this is the cost: the class set
-/// there is what a difference is aligned under, and a class outside it is skipped
-/// by `Law::index` — so an intent row is **not itself diffed**, and a change of
-/// attribution with an unchanged net set shows up only through `net_refs`. The
-/// `group` class took the same route when it landed, and the trailing number of
-/// the key table (`stage.viz.keys.1`) was left alone then for the same reason.
-/// When the derived rows do enter the law — `group` and `intent` together, since
-/// they are one kind of row — the number goes to `.2` once.
+/// **In [`VIZ_LAW`]**, together with the `group` class — the two are one kind of
+/// row (an attribution edge to the nets it names), so they entered the class set
+/// in the same step and the key table went to `stage.viz.keys.2` once. Before
+/// that a change of attribution with an unchanged net set was invisible to
+/// `mcc diff`: the row was skipped by `Law::index`, and only `net_refs` — which
+/// reads pins, not claims — still spoke. The row's members are compared as a
+/// **set** without the run-local `nid` (`nets_set`, see `stage_diff`), so a
+/// renumbered drawing does not read as every claim having changed.
 ///
 /// [`VIZ_LAW`]: crate::stages::stage_diff::VIZ_LAW
 fn intent_items(claimed: Vec<Value>) -> Vec<Value> {

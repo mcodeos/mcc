@@ -336,7 +336,7 @@ fn a_reading_under_another_key_table_is_refused() {
 
     let stderr = refused(&run_dir, &older, &a);
     assert!(
-        stderr.contains("stage.viz.keys.0") && stderr.contains("stage.viz.keys.1"),
+        stderr.contains("stage.viz.keys.0") && stderr.contains("stage.viz.keys.2"),
         "the message must name both tables: {stderr}"
     );
 }
@@ -438,7 +438,123 @@ fn each_side_reports_the_build_that_produced_it() {
         "side B's producer is reported beside it"
     );
     assert_eq!(
-        stage["key_table"], "stage.viz.keys.1",
+        stage["key_table"], "stage.viz.keys.2",
         "and the table the rows were taken under is stated by the answer"
     );
+}
+
+// ── The derived rows are diffed (the law hole §6.8 named) ──
+
+/// The hole §6.8 of the view model named, closed: an **attribution** change with
+/// an **unchanged net set** is seen.
+///
+/// The fixture drops `EARTH`'s `@role(earth)` declaration while the connection
+/// that draws it stays, so the drawing is the same drawing — same nets, same
+/// pins, same groups — and only the intent family's claim list loses a member.
+/// While the derived rows stood outside [`stage.viz`]'s law this read as **zero
+/// changes**: `net_refs` reads pins, not claims, and a skipped class is skipped
+/// by `Law::index` on both sides. The `intent` row is compared as a **set**
+/// without the run-local `nid`, so the lock fails on the one real delta rather
+/// than on renumbering noise.
+///
+/// [`stage.viz`]: mcc::stages::stage_diff::VIZ_LAW
+#[test]
+fn an_attribution_change_with_an_unchanged_net_set_is_seen() {
+    let run_dir = scratch("claim-run");
+    let base = source(
+        "claim-base",
+        r#"
+component CAP(cap::INT) {
+    pins = [
+        1 = 1
+        2 = 2
+    ]
+    func Cap([n1, n2]) {
+        n1 - this - n2
+    }
+}
+module main {
+    conduit EARTH @role(earth)
+    conduit ESDGND @role(protective)
+    CAP c1(1)
+    CAP c2(1)
+    c1.1 -> EARTH
+    c2.1 -> ESDGND
+}
+"#,
+    );
+    // The declaration is commented out — the line keeps its place, so no
+    // statement shifts and the group rows cannot churn (and a bare `conduit`
+    // would not do: the conduit itself is the claim, `l1_refs` takes every one).
+    // Nothing about the drawing's objects moved.
+    let unclaimed = source(
+        "claim-unclaimed",
+        r#"
+component CAP(cap::INT) {
+    pins = [
+        1 = 1
+        2 = 2
+    ]
+    func Cap([n1, n2]) {
+        n1 - this - n2
+    }
+}
+module main {
+    // conduit EARTH @role(earth)
+    conduit ESDGND @role(protective)
+    CAP c1(1)
+    CAP c2(1)
+    c1.1 -> EARTH
+    c2.1 -> ESDGND
+}
+"#,
+    );
+
+    let stage = diff_stage(&run_dir, &base, &unclaimed);
+
+    let intent_rows: Vec<&Value> = stage["items"]
+        .as_array()
+        .expect("items")
+        .iter()
+        .filter(|r| r["kind"] == "intent")
+        .collect();
+    assert_eq!(
+        intent_rows.len(),
+        1,
+        "exactly the attribution row changed: {}",
+        stage["items"]
+    );
+    let row = intent_rows[0];
+    assert_eq!(
+        row["type"], "modify",
+        "the row survives, its claim list does not: {row}"
+    );
+    assert_eq!(row["id"], "power-intent", "{row}");
+    let delta = row["delta"]["nets_set"].clone();
+    assert!(!delta.is_null(), "the delta is the claim list: {row}");
+    let to_members = delta["to"].as_array().expect("side B claims");
+    let kept = to_members
+        .iter()
+        .filter(|m| delta["from"].as_array().expect("side A claims").contains(m))
+        .count();
+    assert_eq!(
+        kept,
+        to_members.len(),
+        "side B's claims are the subset side A keeps — one member lost, none gained: {delta}"
+    );
+
+    // And the net set really is unchanged: no box, pin, group or net row moved.
+    // This half is what makes the lock about attribution and not about drawing.
+    for kind in ["box", "pin", "group", "net"] {
+        let got = stage["items"]
+            .as_array()
+            .expect("items")
+            .iter()
+            .filter(|r| r["kind"] == kind)
+            .count();
+        assert_eq!(
+            got, 0,
+            "`{kind}` rows must not move — the drawing did not: {row}"
+        );
+    }
 }
