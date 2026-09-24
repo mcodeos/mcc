@@ -627,6 +627,15 @@ pub enum ShowTarget {
     // issues no id: it is the directory of the bridge, not the bridge.
     OrgUnits,
 
+    // The collected diagnostics of the loaded world as one read projection
+    // (projection-schema-design.md §2.4; CIMP §1 U280): pass1 / pass2 / flat
+    // net+ERC findings from the workspace store, deduped and sorted by
+    // `(uri, line, pos, code, msg)`. Emits the projection envelope with
+    // `view` = "diagnostics" — the first of the six canonical CDDL words to
+    // carry its serde payload group — and renders to both faces. A readout,
+    // never a gate: the exit code stays 0 however many errors the items hold.
+    Diagnostics,
+
     // Entity internals drill-down (<name> = owning entity, required)
     // Pins of a component / interface
     Pins,
@@ -679,6 +688,7 @@ impl ShowTarget {
             Self::Ast => "ast",
             Self::Stage => "stage",
             Self::OrgUnits => "org-units",
+            Self::Diagnostics => "diagnostics",
             Self::Pins => "pins",
             Self::Ports => "ports",
             Self::Labels => "labels",

@@ -84,6 +84,7 @@ fn run_local(args: &ShowArgs) -> Result<()> {
         ShowTarget::Sim => show_sim(args),
         ShowTarget::Stage => show_stage(args),
         ShowTarget::OrgUnits => show_org_units(args),
+        ShowTarget::Diagnostics => show_diagnostics(loaded.as_deref()),
 
         // drill-down
         ShowTarget::Pins => drill_pins(require_name(args), args),
@@ -1551,6 +1552,53 @@ fn render_org_units_text(view: &mcc::stages::StageView) -> String {
         ));
     }
     lines.join("\n")
+}
+
+/// The `diagnostics` read face (projection-schema-design.md §2.4; CIMP §1
+/// U280): the collected diagnostics of the loaded world as one projection
+/// envelope.
+///
+/// The read mirrors `mcc check`'s per-world collection: the entry resolved
+/// the way `check_one_world` resolves it, one tolerated flat pass2 run (its
+/// net/ERC findings land in the workspace store), then the store as a whole.
+/// The view builder dedups and sorts, so the envelope is a function of the
+/// world rather than of the store's append order.
+///
+/// law C holds here in both directions: the flat run's `Err` is tolerated so
+/// a world that cannot flatten still reports what pass1 collected, and the
+/// face's exit code stays 0 however many errors the items carry — this is a
+/// readout, not a gate.
+fn show_diagnostics(loaded: Option<&str>) -> Result<()> {
+    let mod_name = loaded
+        .and_then(|uri| mcc::mcb_get_module_name_by_uri(&mcc::McURI::from(uri)))
+        .or_else(mcc::mcb_get_first_module_name)
+        .unwrap_or_else(|| "main".to_string());
+    if let Some(uri) = loaded {
+        let entry = mcc::McSpaceName {
+            ident: mcc::McIds::from(mod_name.as_str()),
+            uri: mcc::uri_intern(uri),
+        };
+        let _ = mcc::mcb_pass2_flat(&entry, 1);
+    }
+    let diags = mcc::mcc_diagnose_all();
+
+    let top = mcc::cli::globals()
+        .top
+        .clone()
+        .or_else(mcc::mcb_get_first_module_name)
+        .unwrap_or_default();
+    let view = mcc::stages::diagview::diagnostics_view(&top, &diags);
+
+    if matches!(
+        mcc::cli::globals().format,
+        OutputFormat::Text | OutputFormat::Csv
+    ) {
+        // CSV falls back to the text face for the same reason `show stage`
+        // does: a fixed-width readout is not CSV-safe (a path may contain a
+        // comma), so a real CSV face would be a decision of its own.
+        return write_stage_text(&mcc::stages::diagview::render_diag_text(&view));
+    }
+    emit_stage_envelope(&view, "mcc show diagnostics")
 }
 
 /// Write the stage text face to `--output` or stdout, the same way

@@ -14,6 +14,7 @@ mod bom_overlay_hbl;
 mod build_dir_net_checks;
 mod build_products;
 mod dedup_id_coverage;
+mod diag_view_golden;
 mod det_probe;
 mod diff_saved_readings;
 mod equi_e2e;
