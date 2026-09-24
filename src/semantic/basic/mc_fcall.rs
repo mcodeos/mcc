@@ -843,6 +843,9 @@ impl McFuncCall {
                             && !crate::semantic::basic::mc_phrase::declare_has_instance_params(
                                 &inner,
                             )
+                            && !crate::semantic::basic::mc_phrase::declare_instance_precedes_class(
+                                &inner,
+                            )
                             && declared.iter().all(|n| context.has_local_decl(n));
                         if registered {
                             // Lane-structured `Endpoint(List)` of per-member

@@ -954,10 +954,13 @@ impl McFunction {
                             // caller against these instances (mc_phrase
                             // MCAST_INSTANCE) instead of the named-ctor route.
                             if let Some(decl) = Self::find_nested_declare(&subnode) {
-                                // Named-ctor faces (`XTAL2 y(...)`) keep the
-                                // legacy route — only the params-first shape
-                                // (every instance bare) registers here.
+                                // Named-ctor faces (`XTAL2 y(...)`) and named
+                                // inline constructions (`R442::RES(1MΩ)`) keep
+                                // the legacy route — only the params-first
+                                // shape (every instance bare, class written
+                                // first) registers here.
                                 if !crate::semantic::basic::mc_phrase::declare_has_instance_params(&decl)
+                                    && !crate::semantic::basic::mc_phrase::declare_instance_precedes_class(&decl)
                                 {
                                     self.parse_declare_note(&decl, &uri, &seen_callers);
                                 }
