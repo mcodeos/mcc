@@ -395,6 +395,62 @@ pub fn handle_show_org_units(_params: Option<Value>) -> RpcResult {
     Ok(serde_json::to_value(payload).unwrap_or(Value::Null))
 }
 
+// === handle_show_diagnostics (CIMP §1 U280 second half, first slice) ===
+
+/// `show.diagnostics`: the collected diagnostics of the loaded workspace.
+///
+/// The same rows the `mcc show diagnostics` CLI face emits, built by the same
+/// one read ([`mcc::stages::diagview::diagnostics_view`]): the entry resolved
+/// the way `mcc check` resolves it, one tolerated flat pass2 run whose
+/// net/ERC findings land in the store, then the store as a whole. The result
+/// is the projection payload itself ([`StageViewData`]) with `view` =
+/// `diagnostics`; the CLI additionally attaches it under the `stage` key of
+/// its command envelope. A readout, never a gate: a full error count fails
+/// nothing here.
+pub fn handle_show_diagnostics(_params: Option<Value>) -> RpcResult {
+    // The entry the flat run needs: the workspace's first registered module,
+    // the same fallback chain the CLI face applies to the URI it was handed.
+    let entry_mod = crate::mcb_iter_modules().into_iter().next();
+    if let Some((name, uri)) = entry_mod {
+        let entry = crate::McSpaceName {
+            ident: crate::McIds::from(name.as_str()),
+            uri: crate::uri_intern(&uri),
+        };
+        let _ = crate::mcb_pass2_flat(&entry, 1);
+    }
+    let diags = crate::mcc_diagnose_all();
+    let top = crate::mcb_get_first_module_name().unwrap_or_default();
+    let view = crate::stages::diagview::diagnostics_view(&top, &diags);
+    let payload = crate::stages::payload::StageViewData::from(&view);
+    Ok(serde_json::to_value(payload).unwrap_or(Value::Null))
+}
+
+// === handle_show_netlist (CIMP §1 U280 second half, second slice) ===
+
+/// `show.netlist`: the flattening's connectivity of the loaded workspace.
+///
+/// The same rows the `mcc show netlist` CLI face emits, built by the same one
+/// read ([`mcc::stages::netlistview::netlist_view`]) the JSON export consumes
+/// — one item per copper island with its member pin paths, never a second
+/// derivation. The result is the projection payload itself
+/// ([`StageViewData`]) with `view` = `netlist`; the CLI additionally attaches
+/// it under the `stage` key of its command envelope. A readout, never a gate.
+pub fn handle_show_netlist(_params: Option<Value>) -> RpcResult {
+    let entry_mod = crate::mcb_iter_modules().into_iter().next();
+    let Some((name, uri)) = entry_mod else {
+        return Err(JsonRpcError::custom(32107, "no module loaded"));
+    };
+    let entry = crate::McSpaceName {
+        ident: crate::McIds::from(name.as_str()),
+        uri: crate::uri_intern(&uri),
+    };
+    let (_tree, table) = crate::mcb_pass2_flat(&entry, 1)
+        .map_err(|e| JsonRpcError::custom(32107, &format!("netlist: flat pass2 failed: {e}")))?;
+    let view = crate::stages::netlistview::netlist_view(&name, &table);
+    let payload = crate::stages::payload::StageViewData::from(&view);
+    Ok(serde_json::to_value(payload).unwrap_or(Value::Null))
+}
+
 // === handle_show_file (lines 2778-2822 in original) ===
 
 pub fn handle_show_file(params: Option<Value>) -> RpcResult {

@@ -7,7 +7,7 @@ use crate::instant::insttab::{InstKind, InstTable};
 use crate::instant::nettab::NetTableStore;
 use crate::McModuleInst;
 use crate::NetPoint;
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::collections::BTreeMap;
 
 /// How a net point names its owning instance.
@@ -30,8 +30,9 @@ fn is_anon(name: &str) -> bool {
 }
 
 /// A name no export may carry: the deliberate no-connect bucket and the
-/// parse-error marker.
-fn is_excluded(name: &str) -> bool {
+/// parse-error marker. Shared with the `netlist` projection, whose items are
+/// this face's JSON items on the envelope (`stages::netlistview`).
+pub(crate) fn is_excluded(name: &str) -> bool {
     name == "NC" || name.starts_with(crate::semantic::basic::mc_bus::McBus::ERROR_PREFIX)
 }
 
@@ -41,10 +42,10 @@ pub fn build_netlist(table: &InstTable, top: &str, format: u8) -> (String, Value
         nets.into_iter().filter(|(n, _)| !is_excluded(n)).collect();
     let count = nets.len();
     if format == 1 {
-        let items: Vec<Value> = nets
-            .iter()
-            .map(|(name, points)| json!({ "name": name, "points": points }))
-            .collect();
+        // The projection face builds its items from the same builder, so the
+        // two faces cannot spell the connectivity two ways (§4 convergence).
+        let items = crate::stages::netlistview::net_items(table);
+        debug_assert_eq!(items.len(), count, "the shared builder and the export filter drifted");
         (String::new(), Value::Array(items), count)
     } else {
         let mut out = String::new();
@@ -288,5 +289,19 @@ mod tests {
         let point = NetPoint::new("V5V", IOType::None, None);
         assert_eq!(pin_label(&point, "main", PointNaming::Local), "V5V");
         assert_eq!(pin_label(&point, "main", PointNaming::Hierarchical), "V5V");
+    }
+
+    /// The deliberate no-connect bucket and the parse-error marker are not
+    /// copper; a named net and an anonymous engine island both are. The
+    /// projection view shares this same exclusion via [`super::is_excluded`].
+    #[test]
+    fn the_exclusion_drops_buckets_and_keeps_copper() {
+        assert!(is_excluded("NC"), "the no-connect bucket is not copper");
+        assert!(
+            is_excluded("<error:shape_mismatch>"),
+            "the parse-error marker is not copper"
+        );
+        assert!(!is_excluded("VDD"), "a named net is copper");
+        assert!(!is_excluded("_net14"), "an anonymous island is still copper");
     }
 }

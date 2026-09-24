@@ -1,0 +1,52 @@
+{
+  "bare": {
+    "counts": {
+      "nets": 0,
+      "points": 0
+    },
+    "items": [],
+    "key_table": null,
+    "layout_version": null,
+    "mcc_version": "0.0.0-test",
+    "metric_schema_version": null,
+    "render_version": null,
+    "schema_version": "proj.1.1",
+    "top": "main",
+    "top_ver": null,
+    "view": "netlist",
+    "world_ver": null
+  },
+  "wired": {
+    "counts": {
+      "nets": 2,
+      "points": 5
+    },
+    "items": [
+      {
+        "name": "VDD",
+        "points": [
+          "VDD",
+          "r1.1",
+          "r2.2"
+        ]
+      },
+      {
+        "name": "_net0",
+        "points": [
+          "r1.2",
+          "r2.1"
+        ]
+      }
+    ],
+    "key_table": null,
+    "layout_version": null,
+    "mcc_version": "0.0.0-test",
+    "metric_schema_version": null,
+    "render_version": null,
+    "schema_version": "proj.1.1",
+    "top": "main",
+    "top_ver": null,
+    "view": "netlist",
+    "world_ver": null
+  }
+}

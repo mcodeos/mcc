@@ -881,6 +881,14 @@ pub fn assign_regions(graph: &McVecGraph, topos: &mut [NetTopology]) -> usize {
         }
     }
 
+    // ★ U284: the chain plan is consulted from Pass 1.5 onward (coupling,
+    // satellite pull/yield, weak marking, and the R0 reading pass): a ground
+    // COLUMN's arm nets are one side-decision unit and no pass may re-orient
+    // one of them on its own. `chain_plan_for` is pure topology (net kind,
+    // groups, pin IO, endpoint box kinds) and reads no rect, so hoisting it
+    // here changes nothing it sees.
+    let chain = chain_plan_for(graph, topos, layer_anchor);
+
     // Pass 1.5 (★ M7.1): netlist-driven side coupling
     //
     // ★ U162①: nets the coupling/satellite passes MOVE are recorded here so the
@@ -918,6 +926,12 @@ pub fn assign_regions(graph: &McVecGraph, topos: &mut [NetTopology]) -> usize {
         for (i, j) in pairs {
             if !is_w_e_opposite(topos[i].lane.region, topos[j].lane.region) {
                 continue; // already the same side (or one of them is a N/S rail)
+            }
+            // ★ U284: a ground COLUMN's arm nets are bound to their sibling
+            // arms by the shared node's one x — the coupling may not spend
+            // that side on its own loop-closing logic (see Pass 2.5).
+            if chain.column_live_nets.contains(&i) || chain.column_live_nets.contains(&j) {
+                continue;
             }
             // The weaker pin gives way; equal strength falls back to the anchor
             // pin's electrical rank (a source outranks a sink), `nid` last.
@@ -1071,6 +1085,10 @@ pub fn assign_regions(graph: &McVecGraph, topos: &mut [NetTopology]) -> usize {
                 if moved_here[i] || !resolved[i] || !keep.contains(&i) {
                     continue;
                 }
+                // ★ U284: ground COLUMN arm nets are not pull candidates.
+                if chain.column_live_nets.contains(&i) {
+                    continue;
+                }
                 if !is_w_e_opposite(topos[i].lane.region, region)
                     || strength[i] >= SideStrength::RailDriver
                 {
@@ -1106,6 +1124,10 @@ pub fn assign_regions(graph: &McVecGraph, topos: &mut [NetTopology]) -> usize {
 
             for i in 0..topos.len() {
                 if yielded[i] || moved_here[i] || keep.contains(&i) || !resolved[i] {
+                    continue;
+                }
+                // ★ U284: ground COLUMN arm nets are not yield candidates.
+                if chain.column_live_nets.contains(&i) {
                     continue;
                 }
                 if topos[i].lane.region != region || strength[i] >= SideStrength::RailDriver {
@@ -1217,11 +1239,11 @@ pub fn assign_regions(graph: &McVecGraph, topos: &mut [NetTopology]) -> usize {
     // run's row or the part between them cannot be collinear.
     //
     // `chain_plan_for` is pure topology (net kind, groups, pin IO, endpoint box
-    // kinds, satellite membership) and reads no region, so running it here —
-    // before `assign_rows` runs it again — cannot produce a different answer.
-    // A2 is untouched.
+    // kinds, satellite membership) and reads no region; it is bound once at the
+    // top of the pass chain (★ U284) and the Pass 1.75 adoption reads that same
+    // binding — before `assign_rows` runs it again — so it cannot produce a
+    // different answer.
     {
-        let chain = chain_plan_for(graph, topos, layer_anchor);
         let adopt: Vec<(usize, Region)> = (0..topos.len())
             .filter(|&i| topos[i].net_kind == NetKind::Ground)
             .filter_map(|i| {
@@ -1280,7 +1302,12 @@ pub fn assign_regions(graph: &McVecGraph, topos: &mut [NetTopology]) -> usize {
             }
             topos[i].lane.region = r;
             resolved[i] = true;
-            weak[i] = true;
+            // ★ U284: a ground COLUMN's arm net keeps the side it resolved to —
+            // marking it weak would let a later sweep revise it against its
+            // sibling arms (the shared node cannot follow both).
+            if !chain.column_live_nets.contains(&i) {
+                weak[i] = true;
+            }
             changed = true;
         }
         if !changed {
@@ -1307,6 +1334,14 @@ pub fn assign_regions(graph: &McVecGraph, topos: &mut [NetTopology]) -> usize {
     // ground (Pass 0 / the adoption pass own grounds), and the anchor
     // endpoint must sit at one END of the statement order — anywhere else and
     // the net is a fanout the reading law cannot orient.
+    //
+    // ★ U284: nor may it be the live net of a ground COLUMN's arm. A shared
+    // node strings ALL of its arms onto one vertical, so an arm's side is
+    // bound by its sibling arms, not by its own statement order — re-orienting
+    // one arm alone tears the node across the anchor and the ground trunk
+    // degrades into a horizontal wire slicing every row (the `moddcdc` break:
+    // `VDD_3V3` read East while its sibling arm net `_net1` read West, and
+    // A7/A10/A22/A24/A29 fell with the column).
     {
         let endpoints_of = |nid: i64| -> Option<&Vec<crate::vector::graph::netdef::EndpointRef>> {
             graph
@@ -1317,6 +1352,9 @@ pub fn assign_regions(graph: &McVecGraph, topos: &mut [NetTopology]) -> usize {
         };
         for i in 0..topos.len() {
             if !resolved[i] || weak[i] || coupling_moved.contains(&i) {
+                continue;
+            }
+            if chain.column_live_nets.contains(&i) {
                 continue;
             }
             if !matches!(topos[i].lane.region, Region::West | Region::East) {
@@ -4635,6 +4673,19 @@ fn resolve_columns_for_side(graph: &mut McVecGraph, topos: &[NetTopology], layer
     for (box_id, cx) in &series_x {
         if let Some(b) = graph.boxes.iter_mut().find(|b| b.id == *box_id) {
             b.x = cx - b.w / 2.0;
+            // ★ U284: a series placement is FINAL (run joints/tails and the
+            // ground-column arms alike), so it must survive the unplaced-box
+            // fallback in `layout_device_layer` — which would otherwise reset
+            // any box no topology lane claimed back to the fallback slot
+            // (500, 100). That is exactly how the UC ground column was torn
+            // again after `chain_origins` had collapsed it: `_C2` is the
+            // terminal-only net `VCC_1V2`'s anchor, so no pass ever locked it,
+            // and the fallback yanked it back east of the whole column (A24's
+            // same-side crossing). Only already-sized boxes lock; a zero-extent
+            // box still needs the fallback's pin-derived sizing.
+            if b.w > 0.0 && b.h > 0.0 {
+                b.geom_locked = true;
+            }
         }
     }
     let mut west: Vec<SideMember> = Vec::new();
