@@ -198,7 +198,8 @@ extern int mca_debug;
     MCUVAL_CHARGE = 396,           /* MCUVAL_CHARGE  */
     MC_WS = 397,                   /* MC_WS  */
     MC_SINGLE_COMMENT = 398,       /* MC_SINGLE_COMMENT  */
-    MC_MULTI_COMMENT = 399         /* MC_MULTI_COMMENT  */
+    MC_MULTI_COMMENT = 399,        /* MC_MULTI_COMMENT  */
+    IDA_BASE_PREC = 400            /* IDA_BASE_PREC  */
   };
   typedef enum mca_tokentype mca_token_kind_t;
 #endif

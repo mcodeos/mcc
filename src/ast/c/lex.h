@@ -26,5 +26,6 @@ extern mc_lex_token* g_token_head;
 extern mc_lex_token* g_current_token;
 extern mc_lex_token* g_last_token;
 extern const char* g_lex_file;
+extern const char* g_lex_src;   // U292 step 2: source base for byte-exact spans
 
 #endif /* __LEX_H__ */

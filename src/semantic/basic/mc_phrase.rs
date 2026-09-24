@@ -298,8 +298,9 @@ fn expand_inner_square_items(items: &[crate::semantic::basic::mc_ida::SquareItem
 /// Split a nested-subscript spelling's inner member group off its segment
 /// tree (`S[1:4][1,2]` → array prefix `S[1:4]` + member group `["1","2"]`).
 ///
-/// The C lexer folds the whole spelling into ONE IDA token (lex.re
-/// IDA_SQUARE_SEG juxtaposition), so both bracket groups ride the segment
+/// The C side folds the whole spelling into ONE IDA node (MCTP_IDA glue head
+/// plus the grammar-built bracket chain, U292 step 2), so both bracket groups
+/// ride the segment
 /// tree as trailing embedded `Square`s (single-Ida form), or — when the
 /// grammar produced separate id segments — as trailing outer `Square`
 /// segments. In either shape the split point is the same: the LAST TWO
