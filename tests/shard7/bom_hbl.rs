@@ -2,7 +2,7 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! U245 pilot on the hbl corpus: `bom.overlay.mc` at the project root binds
+//! U245 pilot on the hbl corpus: `bom.mc` at the project root binds
 //! the abstract `LDO.SOT23_5` slot to the `LDO.SGM2019_33YN5G_TR` variant.
 //! The flat row rides the variant's identity (class name, partno) while the
 //! pins stay the base's, both overlay checks stay silent, and the row is
@@ -18,7 +18,7 @@ fn hbl_project_dir() -> PathBuf {
 }
 
 #[test]
-fn bomovl__hbl_fixture_overlay_binds_the_ldo_slot() {
+fn bom__hbl_fixture_bom_binds_the_ldo_slot() {
     let _guard = common::lock();
     let project_root = hbl_project_dir();
     let entry_uri = project_root
@@ -46,13 +46,13 @@ fn bomovl__hbl_fixture_overlay_binds_the_ldo_slot() {
     for d in mcc::mcc_diagnose_all() {
         assert_ne!(
             d.code,
-            mcc::errcodes::BOM_OVERLAY_VALUE_NOT_DESCENDANT,
+            mcc::errcodes::BOM_VALUE_NOT_DESCENDANT,
             "the pilot bind must be legal: {}",
             d.msg
         );
         assert_ne!(
             d.code,
-            mcc::errcodes::BOM_OVERLAY_KEY_NOT_SLOT,
+            mcc::errcodes::BOM_KEY_NOT_SLOT,
             "the pilot key must hit a real slot: {}",
             d.msg
         );

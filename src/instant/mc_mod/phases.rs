@@ -676,7 +676,7 @@ impl InstantiationBuilder {
                     // surface (pins, spec, unselected marker, class name) reads
                     // the bound def. A failed bind records its outcome for the
                     // ERC checks and keeps the declared base.
-                    let bound = crate::instant::bom_overlay::apply_binding(
+                    let bound = crate::instant::bom::apply_binding(
                         &self.current_path,
                         &c.name.to_string(),
                         &c.base,

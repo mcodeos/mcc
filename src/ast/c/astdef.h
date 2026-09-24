@@ -256,8 +256,8 @@
 #define MCAST_UNIT_DIV                  333
 #define MCAST_UNIT_MUL                  334
 #define MCAST_UNIT_GROUP                335
-//1c. top-level overlay sidecar statement (U267): `overlay <top> { rows }`
-#define MCAST_OVERLAY                   336
+//1c. top-level bom sidecar statement (U267): `bom <top> { rows }` (U290 renamed the keyword; the node slot is unchanged)
+#define MCAST_BOM                       336
 
 
 //---------------------------

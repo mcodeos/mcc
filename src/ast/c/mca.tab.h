@@ -87,7 +87,7 @@ extern int mca_debug;
     MCK_DOMAIN = 285,              /* MCK_DOMAIN  */
     MCK_RAIL = 286,                /* MCK_RAIL  */
     MCK_PARTITION = 287,           /* MCK_PARTITION  */
-    MCK_OVERLAY = 288,             /* MCK_OVERLAY  */
+    MCK_BOM = 288,                 /* MCK_BOM  */
     MCOP_EQUAL = 289,              /* MCOP_EQUAL  */
     MCK_PINS = 290,                /* MCK_PINS  */
     MCOP_PLUSEQUAL = 291,          /* MCOP_PLUSEQUAL  */

@@ -4,9 +4,9 @@
 
 //! BOM overlay: engineering-level part selection over abstract slots.
 //!
-//! `bom.overlay.mc` sits at a project root as a sidecar (not in the `use`
+//! `bom.mc` sits at a project root as a sidecar (not in the `use`
 //! topology; discovery walks up from the entry file per build). The carrier is
-//! mc grammar — one `overlay <top> { path = Class }` block whose `path =
+//! mc grammar — one `bom <top> { path = Class }` block whose `path =
 //! Class` rows keep the row grammar of the retired `define` table, so the mc
 //! parser reads it with real
 //! lex spans and normal parse diagnostics. Keys are instance paths relative
@@ -19,7 +19,7 @@
 
 use crate::ast::node::AstNode;
 use crate::ast::{bindings::Frontend, macros::{
-    MCAST_ATT_ID, MCAST_ATT_VALUES, MCAST_ATTRIBUTE, MCAST_BODY, MCAST_NAME, MCAST_OVERLAY,
+    MCAST_ATT_ID, MCAST_ATT_VALUES, MCAST_ATTRIBUTE, MCAST_BODY, MCAST_NAME, MCAST_BOM,
 }};
 use std::collections::BTreeMap;
 use std::ffi::CString;
@@ -27,7 +27,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{LazyLock, RwLock};
 
-pub(crate) const OVERLAY_FILE: &str = "bom.overlay.mc";
+pub(crate) const BOM_FILE: &str = "bom.mc";
 
 /// One overlay row as read: the U245 §4 seam contract quadruple. The value is
 /// a name, not a resolution — identity is minted by the DefRegistry alone.
@@ -43,7 +43,7 @@ pub(crate) struct BindingRow {
     pub uri: String,
 }
 
-/// Outcome of one bind attempt, recorded per overlay key for the ERC checks.
+/// Outcome of one bind attempt, recorded per bom key for the ERC checks.
 #[derive(Debug, Clone)]
 pub(crate) enum BindOutcome {
     /// Slot bound to the variant def.
@@ -77,7 +77,7 @@ pub(crate) struct DuplicateRow {
 }
 
 #[derive(Debug, Default)]
-struct BomOverlayState {
+struct BomState {
     root: Option<PathBuf>,
     /// Canonical entry uri of the build in flight (set by [`begin_build`]).
     entry: Option<String>,
@@ -85,19 +85,19 @@ struct BomOverlayState {
     header_top: Option<String>,
     /// Rows in file order; the read face's single product.
     rows: Vec<BindingRow>,
-    /// overlay key (top-relative instance path) -> variant class name;
+    /// bom key (top-relative instance path) -> variant class name;
     /// first row wins on duplicates.
     entries: BTreeMap<String, String>,
     duplicates: Vec<DuplicateRow>,
-    /// overlay key -> (canonical instance path, bind outcome); per build run
+    /// bom key -> (canonical instance path, bind outcome); per build run
     binds: BTreeMap<String, (String, BindOutcome)>,
 }
 
-static BOM_OVERLAY: LazyLock<RwLock<BomOverlayState>> =
-    LazyLock::new(|| RwLock::new(BomOverlayState::default()));
+static BOM_STATE: LazyLock<RwLock<BomState>> =
+    LazyLock::new(|| RwLock::new(BomState::default()));
 
 /// Load the overlay that owns `dir` (the nearest ancestor carrying an
-/// `OVERLAY_FILE`), replacing whatever the registry held. No ancestor carries
+/// `BOM_FILE`), replacing whatever the registry held. No ancestor carries
 /// one, or the file does not parse, clears the registry — a build whose board
 /// has no overlay has no slots to bind. Parse failures report through the
 /// normal parse diagnostic domain (E1000 + parser dlog under the overlay
@@ -106,7 +106,7 @@ fn load_for_dir(dir: &Path) {
     let mut hit: Option<(PathBuf, String)> = None;
     let mut cur = Some(dir.to_path_buf());
     while let Some(d) = cur {
-        let candidate = d.join(OVERLAY_FILE);
+        let candidate = d.join(BOM_FILE);
         if let Ok(t) = fs::read_to_string(&candidate) {
             hit = Some((d, t));
             break;
@@ -114,7 +114,7 @@ fn load_for_dir(dir: &Path) {
         cur = d.parent().map(|p| p.to_path_buf());
     }
     let Some((root, text)) = hit else {
-        let mut state = BOM_OVERLAY.write().expect("bom overlay lock");
+        let mut state = BOM_STATE.write().expect("bom overlay lock");
         state.root = None;
         state.rows.clear();
         state.header_top = None;
@@ -122,8 +122,8 @@ fn load_for_dir(dir: &Path) {
         state.duplicates.clear();
         return;
     };
-    let uri = root.join(OVERLAY_FILE).to_string_lossy().into_owned();
-    let (header_top, rows, duplicates, parse_ok) = parse_overlay(&text, &uri);
+    let uri = root.join(BOM_FILE).to_string_lossy().into_owned();
+    let (header_top, rows, duplicates, parse_ok) = parse_bom(&text, &uri);
     let mut entries = BTreeMap::new();
     if parse_ok {
         // First row wins: a duplicate never replaces the earlier selection
@@ -134,7 +134,7 @@ fn load_for_dir(dir: &Path) {
                 .or_insert_with(|| row.value_class.clone());
         }
     }
-    let mut state = BOM_OVERLAY.write().expect("bom overlay lock");
+    let mut state = BOM_STATE.write().expect("bom overlay lock");
     state.root = Some(root);
     state.header_top = header_top;
     state.rows = rows;
@@ -142,12 +142,12 @@ fn load_for_dir(dir: &Path) {
     state.duplicates = duplicates;
 }
 
-/// Parse one `bom.overlay.mc` through the standard C parser. Returns the
+/// Parse one `bom.mc` through the standard C parser. Returns the
 /// header top, the rows in file order, the duplicate-key list, and whether
 /// the parse came back clean (an error token clears the registry at the
 /// caller). Diagnostics drain into the workspace under the overlay file's
 /// own uri, exactly as a circuit file's parse errors do.
-fn parse_overlay(
+fn parse_bom(
     text: &str,
     uri: &str,
 ) -> (
@@ -189,10 +189,10 @@ fn parse_overlay(
                 let mut cur = ast.get_next();
                 while let Some(stmt) = cur {
                     cur = stmt.get_next();
-                    if !stmt.is_type(MCAST_OVERLAY) {
+                    if !stmt.is_type(MCAST_BOM) {
                         continue;
                     }
-                    // overlay <top> { rows }: sub = [MCAST_NAME, MCAST_BODY].
+                    // bom <top> { rows }: sub = [MCAST_NAME, MCAST_BODY].
                     // Single block per file (v1); a second block is ignored.
                     if header_top.is_none() {
                         header_top = stmt
@@ -345,7 +345,7 @@ pub(crate) fn begin_build(entry_uri: &str) {
     if let Some(dir) = parent {
         load_for_dir(&dir);
     }
-    let mut state = BOM_OVERLAY.write().expect("bom overlay lock");
+    let mut state = BOM_STATE.write().expect("bom overlay lock");
     state.binds.clear();
     state.entry = Some(entry);
 }
@@ -354,7 +354,7 @@ pub(crate) fn begin_build(entry_uri: &str) {
 /// that build enters through a file under the discovered root (true by
 /// construction for a discovered overlay, false once discovery cleared the
 /// registry).
-fn overlay_active(state: &BomOverlayState) -> bool {
+fn bom_active(state: &BomState) -> bool {
     let Some(root) = &state.root else {
         return false;
     };
@@ -364,10 +364,10 @@ fn overlay_active(state: &BomOverlayState) -> bool {
         .is_some_and(|e| Path::new(e).starts_with(root))
 }
 
-/// The overlay key for a component instance declared inside the module being
+/// The bom key for a component instance declared inside the module being
 /// built at `current_path` (`"main.modldo"` + `ldo` -> `"modldo.ldo"`): the
 /// canonical path minus the leading top-module segment.
-pub(crate) fn overlay_key(current_path: &str, inst: &str) -> String {
+pub(crate) fn bom_key(current_path: &str, inst: &str) -> String {
     match current_path.split_once('.') {
         Some((_top, rest)) => format!("{rest}.{inst}"),
         None => inst.to_string(),
@@ -386,10 +386,10 @@ pub(crate) fn apply_binding(
     declared: &std::sync::Arc<crate::semantic::component::McComponent>,
     uri: &crate::McURI,
 ) -> Option<std::sync::Arc<crate::semantic::component::McComponent>> {
-    let key = overlay_key(current_path, inst);
+    let key = bom_key(current_path, inst);
     let value = {
-        let state = BOM_OVERLAY.read().expect("bom overlay lock");
-        if !overlay_active(&state) {
+        let state = BOM_STATE.read().expect("bom overlay lock");
+        if !bom_active(&state) {
             None
         } else {
             // The header names the top it binds; a build whose top differs
@@ -436,7 +436,7 @@ pub(crate) fn apply_binding(
 }
 
 fn record(key: String, path: String, outcome: BindOutcome) {
-    BOM_OVERLAY
+    BOM_STATE
         .write()
         .expect("bom overlay lock")
         .binds
@@ -477,8 +477,8 @@ fn def_id_of(comp: &crate::semantic::component::McComponent) -> Option<crate::De
 /// The bind ledger read face for the ERC checks: (key, canonical instance
 /// path, outcome) triples, in key order.
 pub(crate) fn bind_outcomes() -> Vec<(String, String, BindOutcome)> {
-    let state = BOM_OVERLAY.read().expect("bom overlay lock");
-    if !overlay_active(&state) {
+    let state = BOM_STATE.read().expect("bom overlay lock");
+    if !bom_active(&state) {
         return Vec::new();
     }
     state
@@ -490,8 +490,8 @@ pub(crate) fn bind_outcomes() -> Vec<(String, String, BindOutcome)> {
 
 /// Overlay keys that no bind attempt ever consumed (dangling paths).
 pub(crate) fn dangling_keys() -> Vec<String> {
-    let state = BOM_OVERLAY.read().expect("bom overlay lock");
-    if !overlay_active(&state) {
+    let state = BOM_STATE.read().expect("bom overlay lock");
+    if !bom_active(&state) {
         return Vec::new();
     }
     state
@@ -503,8 +503,8 @@ pub(crate) fn dangling_keys() -> Vec<String> {
 }
 
 /// The class name a key maps to (for check messages).
-pub(crate) fn overlay_value(key: &str) -> Option<String> {
-    BOM_OVERLAY
+pub(crate) fn bom_value(key: &str) -> Option<String> {
+    BOM_STATE
         .read()
         .expect("bom overlay lock")
         .entries
@@ -515,8 +515,8 @@ pub(crate) fn overlay_value(key: &str) -> Option<String> {
 /// The read face for check anchoring: a key's row span (real lex span) and
 /// the overlay file uri, so E5067/E5068 point at the overlay row itself.
 pub(crate) fn row_anchor(key: &str) -> Option<((u32, u32), String)> {
-    let state = BOM_OVERLAY.read().expect("bom overlay lock");
-    if !overlay_active(&state) {
+    let state = BOM_STATE.read().expect("bom overlay lock");
+    if !bom_active(&state) {
         return None;
     }
     state
@@ -528,8 +528,8 @@ pub(crate) fn row_anchor(key: &str) -> Option<((u32, u32), String)> {
 
 /// Duplicate keys inside one overlay block, in file order.
 pub(crate) fn duplicate_rows() -> Vec<DuplicateRow> {
-    let state = BOM_OVERLAY.read().expect("bom overlay lock");
-    if !overlay_active(&state) {
+    let state = BOM_STATE.read().expect("bom overlay lock");
+    if !bom_active(&state) {
         return Vec::new();
     }
     state.duplicates.clone()
