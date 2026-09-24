@@ -2647,9 +2647,9 @@ pub(crate) fn extract_lib_dependencies(contents: &str) -> Option<Vec<String>> {
 
 /// Handle def RPC — go-to-definition for a symbol.
 
-// Capabilities
+// Recipes
 
-/// Handle capabilities RPC — self-describing API for AI discovery.
+/// Handle recipes RPC — self-describing API for AI discovery.
 
 // Unified Lookup (F12/pass1-pass2)
 

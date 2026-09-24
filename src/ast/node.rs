@@ -164,7 +164,7 @@ impl AstNode {
     /// them from here, so no face can disagree about which clauses a body
     /// holds — a partition cannot be read by one walk and rejected by the
     /// next, which is what each body's own catch-all did before this existed
-    /// (measured: E3081 in a module body, E5058 in a capability, E5253/E5255/
+    /// (measured: E3081 in a module body, E5058 in a recipe, E5253/E5255/
     /// E5261 in a component, an interface and a define).
     ///
     /// The partition's own name and level word are not returned: they are the

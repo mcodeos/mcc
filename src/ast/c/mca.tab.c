@@ -115,7 +115,7 @@ enum yysymbol_kind_t
   YYSYMBOL_MCK_ENUM = 21,                  /* MCK_ENUM  */
   YYSYMBOL_MCPT_LCURLY = 22,               /* MCPT_LCURLY  */
   YYSYMBOL_MCPT_RCURLY = 23,               /* MCPT_RCURLY  */
-  YYSYMBOL_MCK_CAPABILITY = 24,            /* MCK_CAPABILITY  */
+  YYSYMBOL_MCK_RECIPE = 24,                /* MCK_RECIPE  */
   YYSYMBOL_MCK_ABSTRACT = 25,              /* MCK_ABSTRACT  */
   YYSYMBOL_MCPT_SEMICOLON = 26,            /* MCPT_SEMICOLON  */
   YYSYMBOL_MCPT_COMMA = 27,                /* MCPT_COMMA  */
@@ -252,7 +252,7 @@ enum yysymbol_kind_t
   YYSYMBOL_mc_interface = 158,             /* mc_interface  */
   YYSYMBOL_mc_enum = 159,                  /* mc_enum  */
   YYSYMBOL_mc_bom = 160,                   /* mc_bom  */
-  YYSYMBOL_mc_capability = 161,            /* mc_capability  */
+  YYSYMBOL_mc_recipe = 161,                /* mc_recipe  */
   YYSYMBOL_mc_component_derivs = 162,      /* mc_component_derivs  */
   YYSYMBOL_mc_component_variant = 163,     /* mc_component_variant  */
   YYSYMBOL_mc_component_adopts = 164,      /* mc_component_adopts  */
@@ -2821,9 +2821,9 @@ static const char *const yytname[] =
   "MCTP_ID", "MCTP_IDA", "MCOP_UNDERSCORE", "MCK_PUB", "MCK_USE",
   "MCPT_COLON", "MCK_AS", "MCPT_DOT", "MCPT_AT", "MCK_MC", "MCK_COMPONENT",
   "MCK_MODULE", "MCK_INTERFACE", "MCK_ENUM", "MCPT_LCURLY", "MCPT_RCURLY",
-  "MCK_CAPABILITY", "MCK_ABSTRACT", "MCPT_SEMICOLON", "MCPT_COMMA",
-  "MCK_ROLE", "MCK_CONDUIT", "MCK_DOMAIN", "MCK_RAIL", "MCK_PARTITION",
-  "MCK_BOM", "MCOP_EQUAL", "MCK_PINS", "MCOP_PLUSEQUAL", "MCOP_EQUALEQUAL",
+  "MCK_RECIPE", "MCK_ABSTRACT", "MCPT_SEMICOLON", "MCPT_COMMA", "MCK_ROLE",
+  "MCK_CONDUIT", "MCK_DOMAIN", "MCK_RAIL", "MCK_PARTITION", "MCK_BOM",
+  "MCOP_EQUAL", "MCK_PINS", "MCOP_PLUSEQUAL", "MCOP_EQUALEQUAL",
   "MCOP_NOTEQUAL", "MCOP_LESSTHAN", "MCOP_GREATERTHAN", "MCOP_LESSEQTHAN",
   "MCOP_GREATEREQTHAN", "MCOP_DOUBLEARROW", "MCOP_LEFTARROW",
   "MCOP_RIGHTARROW", "MCOP_PLUS", "MCOP_MINUS", "MCOP_AND", "MCOP_OR",
@@ -2850,7 +2850,7 @@ static const char *const yytname[] =
   "IDA_BASE_PREC", "$accept", "start", "mc_tops", "mc_top", "mc_use",
   "mc_uri", "mc_prefix", "mc_uri_trunk", "mc_levels", "mc_class_name",
   "mc_component", "mc_module", "mc_interface", "mc_enum", "mc_bom",
-  "mc_capability", "mc_component_derivs", "mc_component_variant",
+  "mc_recipe", "mc_component_derivs", "mc_component_variant",
   "mc_component_adopts", "mc_body", "mc_clauses", "mc_clause",
   "mc_attribute", "mc_attr_values", "mc_attr_value", "mc_attr_lines",
   "mc_attribute_pin", "mc_pins_lines", "mc_pins_line", "mc_pin_idn",
@@ -3160,7 +3160,7 @@ yyuserAction (yyRuleNum yyrule, int yyrhslen, yyGLRStackItem* yyvsp,
                { mc_value_link(mcast, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)); }
     break;
   case 15:
-                      { mc_value_link(mcast, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)); }
+                  { mc_value_link(mcast, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)); }
     break;
   case 16:
               { ((*yyvalp).value) = NULL; mc_dlog_add(MCD_E1002_TOP_SKIPPED, 1, g_last_token ? g_last_token->tpos : 0, g_last_token ? g_last_token->tlen : 0, NULL); }
@@ -3399,7 +3399,7 @@ yyuserAction (yyRuleNum yyrule, int yyrhslen, yyGLRStackItem* yyvsp,
   case 51:
 {
     
-    ((*yyvalp).value) = mc_value_create_node(MCAST_CAPABILITY, mc_value_link(mc_value_create_node(MCAST_NAME, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value)), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)));
+    ((*yyvalp).value) = mc_value_create_node(MCAST_RECIPE, mc_value_link(mc_value_create_node(MCAST_NAME, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value)), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)));
 }
     break;
   case 52:

@@ -2,19 +2,19 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! `capability` container — a role circuit recipe (abstract-variant-capability-plan §3).
+//! `recipe` container — a role circuit recipe (abstract-variant-capability-plan §3).
 //!
-//! A capability is a *declaration-only* container: a set of **signal
+//! A recipe is a *declaration-only* container: a set of **signal
 //! declarations** (`psnk [VCC,GND]`, `io uart[RO,DI]::UART.TTL(DTE)`, … — the
 //! module-port family grammar, minus physical pin numbers) plus **funcs** that
 //! are written against those declared signals (contract §3.2). It is not
 //! placeable, has no partno/package/spec, no construction params, no
 //! derivation (§3.1 — the grammar simply has no slots for them).
 //!
-//! A component adopts a capability with `:: Cap`; its funcs then become
+//! A component adopts a recipe with `:: Cap`; its funcs then become
 //! effective methods of the adopter (§5), expanded in the adopting instance's
-//! scope at call time. Capability func bodies are parsed once here, at load
-//! time, resolved against the capability's *own* declared signals — body-name
+//! scope at call time. Recipe func bodies are parsed once here, at load
+//! time, resolved against the recipe's *own* declared signals — body-name
 //! resolution is lexical against the defining def's members (§3.2) — so the
 //! def is self-contained and needs no AST retention.
 //!
@@ -33,11 +33,11 @@ use crate::semantic::mc_func::{HasFindInst, McFunctions};
 use crate::semantic::mc_inst::{McInstance, McInstances};
 use crate::McURI;
 
-/// A capability definition (`capability DecoupledPower { … }`).
+/// A recipe definition (`recipe DecoupledPower { … }`).
 #[derive(Debug, Clone)]
-pub struct McCapability {
+pub struct McRecipe {
     pub name: McIds,
-    /// File the capability was declared in (LSP / diagnostics anchor).
+    /// File the recipe was declared in (LSP / diagnostics anchor).
     pub uri: McURI,
     /// Declared signals, parsed with the module-port machinery
     /// (net_ports / declare clauses → IOType-bearing entries + vector groups).
@@ -53,9 +53,9 @@ pub struct McCapability {
     pub anon_counter: usize,
 }
 
-impl McCapability {
+impl McRecipe {
     pub fn new(node: &AstNode, uri: &McURI) -> Option<Self> {
-        // MCAST_CAPABILITY
+        // MCAST_RECIPE
         // |- MCAST_NAME - MCAST_BODY
         let subnodes = node.get_sub_node()?;
 
@@ -67,7 +67,7 @@ impl McCapability {
                 .get_sub_node()?,
         )?;
 
-        // Span from the capability name (MCAST_NAME → MCAST_IDS), not the whole node
+        // Span from the recipe name (MCAST_NAME → MCAST_IDS), not the whole node
         let name_node = subnodes.iter().find(|x| x.is_type(MCAST_NAME))?;
         let ids_node = name_node.get_sub_node()?;
         let start = ids_node.get_pos() as usize;
@@ -82,7 +82,7 @@ impl McCapability {
             anon_counter: 1,
         };
         // ★ LSP: enclosing scope name for instance registration (module sets
-        // this at parse_body; capability func clauses are parsed below).
+        // this at parse_body; recipe func clauses are parsed below).
         cap.signals.scope = Some(cap_name.to_string());
 
         //2. body — signals first, then funcs (a func body resolves against the
@@ -104,17 +104,17 @@ impl McCapability {
                         MCAST_FUNCTION => {
                             func_nodes.push(clause);
                         }
-                        // Capability bodies may contain *only* signal declarations
+                        // Recipe bodies may contain *only* signal declarations
                         // and funcs (§3.1): no attrs (partno/package/spec), no
                         // pins=[…], no net/connection stmts, no declares, no role,
                         // no conditionals.
                         _ => {
                             let msg = crate::errcodes::format_msg(
-                                crate::errcodes::CAPABILITY_BODY_INVALID,
+                                crate::errcodes::RECIPE_BODY_INVALID,
                                 &[&cap_name.to_string()],
                             );
                             crate::db::diagnostic::diagnostic::dlog_error(
-                                crate::errcodes::CAPABILITY_BODY_INVALID,
+                                crate::errcodes::RECIPE_BODY_INVALID,
                                 &clause,
                                 &msg,
                             );
@@ -124,8 +124,8 @@ impl McCapability {
             }
         }
 
-        //3. funcs (parse header + body with the capability as scope)
-        let context = unsafe { &mut *(&mut cap as *mut McCapability) as &mut dyn HasFindInst };
+        //3. funcs (parse header + body with the recipe as scope)
+        let context = unsafe { &mut *(&mut cap as *mut McRecipe) as &mut dyn HasFindInst };
         for x in func_nodes {
             // ★ LSP: register interface class refs from the func header
             // (`func Bypass(c::CAP(100nF,10V))` → `CAP`) so goto-def / hover
@@ -134,13 +134,13 @@ impl McCapability {
             cap.funcs.parse(&x, context);
         }
 
-        //4. §3.2 self-consistency: a capability func body must reference only
+        //4. §3.2 self-consistency: a recipe func body must reference only
         //   declared signals, its own params, and func-local instances — the
-        //   capability's *full* name set is its signal table, resolved
+        //   recipe's *full* name set is its signal table, resolved
         //   lexically against the def (§3.2), so the def must be self-consistent
         //   at load. `floating_candidates` holds every bare name that survived
         //   the param / func-local filter; component/module defer these to the
-        //   E3136 finish-time recheck, but a capability is never instantiated
+        //   E3136 finish-time recheck, but a recipe is never instantiated
         //   or finished, so the violation is reported here. One diagnostic per
         //   distinct name (first occurrence).
         for f in cap.funcs.iter() {
@@ -150,11 +150,11 @@ impl McCapability {
                     continue;
                 }
                 let msg = crate::errcodes::format_msg(
-                    crate::errcodes::CAPABILITY_FUNC_UNRESOLVED_REF,
+                    crate::errcodes::RECIPE_FUNC_UNRESOLVED_REF,
                     &[name],
                 );
                 crate::db::diagnostic::diagnostic::dlog_error_at(
-                    crate::errcodes::CAPABILITY_FUNC_UNRESOLVED_REF,
+                    crate::errcodes::RECIPE_FUNC_UNRESOLVED_REF,
                     *pos,
                     *len,
                     &msg,
@@ -166,16 +166,16 @@ impl McCapability {
     }
 }
 
-// HasFindInst for McCapability — func-body name scope (§3.2)
+// HasFindInst for McRecipe — func-body name scope (§3.2)
 //
-// The body scope is the capability's own declared signals (module-port family),
+// The body scope is the recipe's own declared signals (module-port family),
 // reached through the module-style category chain. `add_*` / `parse_declare`
-// mirror `McComponent` so capability func bodies support the same statement
+// mirror `McComponent` so recipe func bodies support the same statement
 // shapes as component func bodies (chained subinstance declares register into
 // `signals` with IOType::None — never a declared *port*, so the §4.2
 // consistency surface, which reads the declared signal set, is unpolluted).
 
-impl HasFindInst for McCapability {
+impl HasFindInst for McRecipe {
     fn find_inst(&self, id: &str) -> Option<McInstance> {
         self.find_inst_with_span(id).map(|(inst, _)| inst)
     }
@@ -188,7 +188,7 @@ impl HasFindInst for McCapability {
         &self,
         id: &str,
     ) -> Option<(McInstance, Option<std::ops::Range<usize>>)> {
-        crate::semantic::scope::capability_scope(self)
+        crate::semantic::scope::recipe_scope(self)
             .resolve(id)
             .map(|r| (r.inst, r.span))
     }
@@ -304,12 +304,12 @@ impl HasFindInst for McCapability {
 
 // Display implementation - concise format output
 
-impl std::fmt::Display for McCapability {
+impl std::fmt::Display for McRecipe {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let n_signals = self.signals.iter_ports().count();
         writeln!(
             f,
-            "Capability {} ({} signals, {} funcs)",
+            "Recipe {} ({} signals, {} funcs)",
             self.name,
             n_signals,
             self.funcs.len()

@@ -65,7 +65,7 @@ pub use crate::semantic::{
         mc_fcall::{McFuncCall, ReturnShape},
         mc_phrase::McPhrase,
     },
-    capability::McCapability,
+    recipe::McRecipe,
     component::{
         mc_pins::{McPinPort, McPins},
         Mc2Component, McComponent,
@@ -125,7 +125,7 @@ pub use builder::{
 pub use db::defmember::DefMemberId;
 // ── Definition-space checkpoint / diff (design §10; T6-② wiring) ──
 pub use db::defregistry::{
-    adopted_capabilities_of, adopters_of, changed_files, checkpoint, cluster_of, def_id,
+    adopted_recipes_of, adopters_of, changed_files, checkpoint, cluster_of, def_id,
     def_member_id_of, diff_since, diff_versions, kind_of, latest_checkpoint, variant_base_of,
     Checkpoint, DefChange, DefChangeKind, DefId, DefKind, DefValue, FuncDef,
     RegistryEntrySnapshot, DEF_KIND_ORDER,

@@ -142,8 +142,8 @@ pub struct McComponent {
     /// Declared variant base name (`component X : Base`, MCAST_VARIANT).
     /// Resolved + materialized at link time; the registry records `variant_of`.
     pub variant_base: Option<McIds>,
-    /// Declared capability names adopted via `::` (MCAST_ADOPTS), in declaration
-    /// order. Resolved to capability defs at link time (registry `adopts` ledger).
+    /// Declared recipe names adopted via `::` (MCAST_ADOPTS), in declaration
+    /// order. Resolved to recipe defs at link time (registry `adopts` ledger).
     pub adopts: Vec<McIds>,
 }
 
@@ -253,7 +253,7 @@ impl McComponent {
             .and_then(|ids| McIds::new_with_dot(&ids));
         // MCAST_ADOPTS wraps the adopt list as a sibling chain of name nodes
         // under its `.sub` (each `MCAST_IDS`/`MCAST_ID`/`MCAST_IDA` one
-        // capability; `:: GuardA, GuardB` → two sibling IDs nodes). `.iter()`
+        // recipe; `:: GuardA, GuardB` → two sibling IDs nodes). `.iter()`
         // on the wrapper would walk its OWN `.next` siblings (the body), so the
         // list must be read from the wrapper's first child forward.
         let adopts: Vec<McIds> = subnodes
@@ -378,7 +378,7 @@ impl McComponent {
         }
 
         // 0.2 parse-time header constraints (abstract-variant-capability plan
-        //    §2.4/§7.2). Target-kind checks (`:` base abstract, `::` capability)
+        //    §2.4/§7.2). Target-kind checks (`:` base abstract, `::` recipe)
         //    are deferred to the link pass — the target may load later.
         let is_variant = variant_base.is_some();
         if has_abstract && is_variant {

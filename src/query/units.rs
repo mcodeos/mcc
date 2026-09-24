@@ -8,7 +8,7 @@
 //!
 //! | unit | why it needs a row of its own | its key |
 //! |---|---|---|
-//! | `component` / `module` / `interface` / `enum` / `capability` | a def, listed by `all_defs` | its name, in its file |
+//! | `component` / `module` / `interface` / `enum` / `recipe` | a def, listed by `all_defs` | its name, in its file |
 //! | `func` | a member of its host (design §12.1) | `(host, name)` |
 //! | `bus` | carries no `DefId` (T12) | its name, in its host |
 //! | `clause` | no declaration object at all (§1) | its position `(uri, start)` |
@@ -245,7 +245,7 @@ pub fn host_func_names(data: &DefValue) -> Vec<String> {
     match data {
         DefValue::Module(m) => m.funcs.iter().map(|f| f.name.to_string()).collect(),
         DefValue::Component(c) => c.funcs.iter().map(|f| f.name.to_string()).collect(),
-        DefValue::Capability(c) => c.funcs.iter().map(|f| f.name.to_string()).collect(),
+        DefValue::Recipe(c) => c.funcs.iter().map(|f| f.name.to_string()).collect(),
         _ => Vec::new(),
     }
 }
@@ -259,7 +259,7 @@ fn def_span_start(data: &DefValue) -> Option<u32> {
         DefValue::Component(c) => start(&c.span),
         DefValue::Interface(i) => start(&i.span),
         DefValue::Enum(e) => Some(e.span[0]),
-        DefValue::Capability(c) => start(&c.span),
+        DefValue::Recipe(c) => start(&c.span),
         DefValue::Func(_) => None,
     }
 }

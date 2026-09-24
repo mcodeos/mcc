@@ -18,7 +18,7 @@
 //! store on every later reader.
 
 use crate::db::defregistry::{
-    adopted_capabilities_of, def_id_by_identity, live_entry_by_id, variant_base_of,
+    adopted_recipes_of, def_id_by_identity, live_entry_by_id, variant_base_of,
 };
 use crate::db::diagnostic::diagnostic::{Diagnostic, DiagnosticLevel, Location};
 use crate::eval::Value;
@@ -207,7 +207,7 @@ fn find_instance<'a>(table: &'a InstTable, root: u32, target: &str) -> Option<&'
 }
 
 /// The faces a class row can expect of an instance (§3): the class itself,
-/// its variant base chain, and its adopted capabilities — exact def idents
+/// its variant base chain, and its adopted recipes — exact def idents
 /// read from the registry, the same keys `::` binding reads. Never derived
 /// from names.
 fn class_faces(entry: &InstEntry) -> Vec<String> {
@@ -230,7 +230,7 @@ fn class_faces(entry: &InstEntry) -> Vec<String> {
             None => break,
         }
     }
-    for cap in adopted_capabilities_of(host) {
+    for cap in adopted_recipes_of(host) {
         if let Some((csn, _)) = live_entry_by_id(cap) {
             faces.push(csn.ident.to_string());
         }

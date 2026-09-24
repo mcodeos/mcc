@@ -277,9 +277,9 @@ pub fn mcb_iter_ports() -> Vec<(String, String, String, String)> {
 pub struct FuncRow {
     /// The func name, relative to its host.
     pub func: String,
-    /// The module / component / capability that carries the `funcs` table.
+    /// The module / component / recipe that carries the `funcs` table.
     pub host: String,
-    /// That host's kind word (`module` / `component` / `capability`).
+    /// That host's kind word (`module` / `component` / `recipe`).
     pub host_kind: String,
     pub uri: String,
     /// Byte offset of the func's own declaration, when the parse recorded one.
@@ -312,7 +312,7 @@ pub struct BusRow {
 /// a **canonical** key, which is why this is the one unit of the six that stays
 /// comparable across builds as long as its file is unchanged (§3 ④).
 pub struct ClauseRow {
-    /// The module / component / capability whose body carries the statement.
+    /// The module / component / recipe whose body carries the statement.
     pub host: String,
     pub host_kind: String,
     /// The func whose body carries it; empty for the host's own body.
@@ -336,7 +336,7 @@ pub fn mcb_iter_funcs() -> Vec<FuncRow> {
         let funcs = match &data {
             crate::DefValue::Module(m) => &m.funcs,
             crate::DefValue::Component(c) => &c.funcs,
-            crate::DefValue::Capability(c) => &c.funcs,
+            crate::DefValue::Recipe(c) => &c.funcs,
             _ => continue,
         };
         for f in funcs.iter() {
@@ -420,7 +420,7 @@ pub fn mcb_iter_clauses() -> Vec<ClauseRow> {
                 &m.funcs
             }
             crate::DefValue::Component(c) => &c.funcs,
-            crate::DefValue::Capability(c) => &c.funcs,
+            crate::DefValue::Recipe(c) => &c.funcs,
             _ => continue,
         };
         for f in funcs.iter() {

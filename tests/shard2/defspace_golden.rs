@@ -467,22 +467,22 @@ fn def_defspace__p08_f12_dump_deterministic_across_clean_loads() {
     );
 }
 
-/// P9 (abstract-variant-capability-plan P1): a capability def registers as
+/// P9 (abstract-variant-capability-plan P1): a recipe def registers as
 /// its own def kind under the declaring file identity — reachable through the
 /// typed registry lookups, mirrored in the workspace lifecycle tables, and
 /// enumerated by the workspace/unified views. Declared signals land in the
-/// capability's signal table (module-port machinery) and funcs parse at load
+/// recipe's signal table (module-port machinery) and funcs parse at load
 /// time into its func table (the data `register_host_funcs` mirrors). A
-/// capability body clause outside the allowed set (signal decls + funcs) is a
+/// recipe body clause outside the allowed set (signal decls + funcs) is a
 /// §3.1 body violation, reported at the load.
 #[test]
-fn def_defspace__p09_capability_container_registers_and_rejects_foreign_body_clauses() {
+fn def_defspace__p09_recipe_container_registers_and_rejects_foreign_body_clauses() {
     let _lock = common::lock();
     common::reset();
 
     let good_uri = "/virtual/p09_good_cap.mc".to_string();
     let good = r#"
-capability DecoupledPower
+recipe DecoupledPower
 {
     psnk VCC
     psnk GND
@@ -501,58 +501,58 @@ capability DecoupledPower
     let ds = mcc::definition_space();
     let sn = mcc::McSpaceName::new(&mcc::McIds::from("DecoupledPower"), good_uri.clone());
     let cap = ds
-        .get_capability(&sn)
-        .expect("capability registers under its declaring identity");
+        .get_recipe(&sn)
+        .expect("recipe registers under its declaring identity");
     assert_eq!(cap.name.to_string(), "DecoupledPower");
     assert_eq!(
         cap.signals.iter_ports().count(),
         3,
-        "declared pwr/io signals land in the capability signal table"
+        "declared pwr/io signals land in the recipe signal table"
     );
     assert_eq!(
         cap.funcs.len(),
         1,
-        "func parses at load time into the capability func table"
+        "func parses at load time into the recipe func table"
     );
     assert!(
         cap.funcs.find("Idle").is_some(),
-        "the func is addressable by name on the capability def"
+        "the func is addressable by name on the recipe def"
     );
 
-    // Workspace + unified views both see the project capability.
+    // Workspace + unified views both see the project recipe.
     assert!(
-        ds.get_workspace_capability(&sn).is_some(),
-        "workspace-only view resolves the project capability"
+        ds.get_workspace_recipe(&sn).is_some(),
+        "workspace-only view resolves the project recipe"
     );
     assert!(
-        ds.all_capabilities()
+        ds.all_recipes()
             .iter()
             .any(|(k, _)| k.ident.to_string() == "DecoupledPower"),
-        "unified enumeration includes the capability"
+        "unified enumeration includes the recipe"
     );
     assert!(
-        ds.workspace_capabilities()
+        ds.workspace_recipes()
             .iter()
             .any(|(k, _)| k.ident.to_string() == "DecoupledPower"),
-        "workspace enumeration includes the capability"
+        "workspace enumeration includes the recipe"
     );
 
-    // Clean load: no CAPABILITY_BODY_INVALID (nor any error) for the good body.
+    // Clean load: no RECIPE_BODY_INVALID (nor any error) for the good body.
     let good_diags = mcc::mcc_diagnose(&good_uri);
     assert!(
         !good_diags
             .iter()
-            .any(|d| d.code == mcc::errcodes::CAPABILITY_BODY_INVALID),
-        "well-formed capability body must not report CAPABILITY_BODY_INVALID"
+            .any(|d| d.code == mcc::errcodes::RECIPE_BODY_INVALID),
+        "well-formed recipe body must not report RECIPE_BODY_INVALID"
     );
 
-    // An attribute clause inside a capability body is outside §3.1's allowed
+    // An attribute clause inside a recipe body is outside §3.1's allowed
     // set (signal declarations + funcs only).
     let bad_uri = "/virtual/p09_bad_cap.mc".to_string();
     let bad = r#"
-capability BadCap
+recipe BadCap
 {
-    name = "not allowed in a capability"
+    name = "not allowed in a recipe"
 }
 "#;
     mcc::mcc_load_from_string(&bad_uri, bad);
@@ -560,9 +560,9 @@ capability BadCap
     assert!(
         bad_diags
             .iter()
-            .any(|d| d.code == mcc::errcodes::CAPABILITY_BODY_INVALID),
-        "attribute clause inside a capability body reports \
-         CAPABILITY_BODY_INVALID; got {:?}",
+            .any(|d| d.code == mcc::errcodes::RECIPE_BODY_INVALID),
+        "attribute clause inside a recipe body reports \
+         RECIPE_BODY_INVALID; got {:?}",
         bad_diags
             .iter()
             .map(|d| (d.code, d.msg.clone()))
@@ -571,11 +571,11 @@ capability BadCap
 
     // §3.2 self-consistency: a func body name that is neither a declared
     // signal, a func param, nor a func-local instance is an unresolved ref at
-    // load (the capability is never instantiated, so no E3136-style finish
+    // load (the recipe is never instantiated, so no E3136-style finish
     // recheck would ever catch it).
     let loose_uri = "/virtual/p09_loose_cap.mc".to_string();
     let loose = r#"
-capability LooseCap
+recipe LooseCap
 {
     io VBUS
 
@@ -590,9 +590,9 @@ capability LooseCap
     assert!(
         loose_diags
             .iter()
-            .any(|d| d.code == mcc::errcodes::CAPABILITY_FUNC_UNRESOLVED_REF),
-        "a func body name outside the capability name set reports \
-         CAPABILITY_FUNC_UNRESOLVED_REF; got {:?}",
+            .any(|d| d.code == mcc::errcodes::RECIPE_FUNC_UNRESOLVED_REF),
+        "a func body name outside the recipe name set reports \
+         RECIPE_FUNC_UNRESOLVED_REF; got {:?}",
         loose_diags
             .iter()
             .map(|d| (d.code, d.msg.clone()))
@@ -600,10 +600,10 @@ capability LooseCap
     );
 }
 
-/// P10 (abstract-variant-capability-plan P2 §4.2/§5): capability adoption
+/// P10 (abstract-variant-capability-plan P2 §4.2/§5): recipe adoption
 /// (`component X :: Cap`) link/consistency verdicts.
 ///
-/// Each scenario is a self-contained load (capability + adopter in one file).
+/// Each scenario is a self-contained load (recipe + adopter in one file).
 /// The post-parse adoption check runs for the re-derived file, so the
 /// diagnostics land on that file's uri. `mcc_diagnose` returns per-uri diags;
 /// `any_code` scopes the check without naming the returned diagnostic type.
@@ -620,11 +620,11 @@ fn def_defspace__p10_adoption_consistency_and_func_ambiguity() {
     let _lock = common::lock();
     common::reset();
 
-    // ── Conformant adopter: every capability-declared signal is realized by
+    // ── Conformant adopter: every recipe-declared signal is realized by
     //    an adopter member with a compatible direction, so no §4.2/§5 error.
     let ok_uri = "/virtual/p10_ok.mc".to_string();
     let ok_src = r#"
-capability Pwr
+recipe Pwr
 {
     psnk VCC
     psnk GND
@@ -643,14 +643,14 @@ abstract component Powered :: Pwr
     mcc::mcc_load_from_string(&ok_uri, ok_src);
     let ok = mcc::mcc_diagnose(&ok_uri);
     assert!(
-        !any_code(&ok, mcc::errcodes::CAPABILITY_SIGNAL_MISSING, |d| d.code),
-        "conformant adopter reports CAPABILITY_SIGNAL_MISSING: {:?}",
+        !any_code(&ok, mcc::errcodes::RECIPE_SIGNAL_MISSING, |d| d.code),
+        "conformant adopter reports RECIPE_SIGNAL_MISSING: {:?}",
         ok.iter()
             .map(|d| (d.code, d.msg.clone()))
             .collect::<Vec<_>>()
     );
     assert!(
-        !any_code(&ok, mcc::errcodes::ADOPTS_NON_CAPABILITY, |d| d.code)
+        !any_code(&ok, mcc::errcodes::ADOPTS_NON_RECIPE, |d| d.code)
             && !any_code(&ok, mcc::errcodes::ADOPTED_FUNC_AMBIGUOUS, |d| d.code),
         "conformant adopter reports an adoption error: {:?}",
         ok.iter()
@@ -658,12 +658,12 @@ abstract component Powered :: Pwr
             .collect::<Vec<_>>()
     );
 
-    // ── pwr-capability ↔ `in`-rail leniency: a power signal is satisfied by
+    // ── pwr-recipe ↔ `in`-rail leniency: a power signal is satisfied by
     //    an `in` member (the library convention `in [VCC,GND]::DC(...)`), not
     //    only by another `psnk` rail.
     let rail_uri = "/virtual/p10_in_rail.mc".to_string();
     let rail_src = r#"
-capability Rail
+recipe Rail
 {
     psnk VDD
 }
@@ -678,17 +678,17 @@ abstract component InRail :: Rail
     mcc::mcc_load_from_string(&rail_uri, rail_src);
     let rail = mcc::mcc_diagnose(&rail_uri);
     assert!(
-        !any_code(&rail, mcc::errcodes::CAPABILITY_SIGNAL_MISSING, |d| d.code),
-        "a `psnk` capability signal matches an `in` power-rail member; got {:?}",
+        !any_code(&rail, mcc::errcodes::RECIPE_SIGNAL_MISSING, |d| d.code),
+        "a `psnk` recipe signal matches an `in` power-rail member; got {:?}",
         rail.iter()
             .map(|d| (d.code, d.msg.clone()))
             .collect::<Vec<_>>()
     );
 
-    // ── Missing signal: adopter forgets `io VBUS` the capability declares.
+    // ── Missing signal: adopter forgets `io VBUS` the recipe declares.
     let miss_uri = "/virtual/p10_missing.mc".to_string();
     let miss_src = r#"
-capability Pwr2
+recipe Pwr2
 {
     psnk VCC
     psnk GND
@@ -706,16 +706,16 @@ abstract component Slim :: Pwr2
     mcc::mcc_load_from_string(&miss_uri, miss_src);
     let miss = mcc::mcc_diagnose(&miss_uri);
     assert!(
-        any_code(&miss, mcc::errcodes::CAPABILITY_SIGNAL_MISSING, |d| d.code),
-        "adopter missing a capability-declared signal reports \
-         CAPABILITY_SIGNAL_MISSING; got {:?}",
+        any_code(&miss, mcc::errcodes::RECIPE_SIGNAL_MISSING, |d| d.code),
+        "adopter missing a recipe-declared signal reports \
+         RECIPE_SIGNAL_MISSING; got {:?}",
         miss.iter()
             .map(|d| (d.code, d.msg.clone()))
             .collect::<Vec<_>>()
     );
     let msg = miss
         .iter()
-        .find(|d| d.code == mcc::errcodes::CAPABILITY_SIGNAL_MISSING)
+        .find(|d| d.code == mcc::errcodes::RECIPE_SIGNAL_MISSING)
         .map(|d| d.msg.clone())
         .unwrap_or_default();
     assert!(
@@ -723,11 +723,11 @@ abstract component Slim :: Pwr2
         "missing-signal message names the absent member; got: {msg}"
     );
 
-    // ── Direction conflict: capability declares `out DRV`, adopter exposes
+    // ── Direction conflict: recipe declares `out DRV`, adopter exposes
     //    it `in` — present by name but not direction-compatible.
     let dir_uri = "/virtual/p10_dir.mc".to_string();
     let dir_src = r#"
-capability Driver
+recipe Driver
 {
     out DRV
 }
@@ -742,23 +742,23 @@ abstract component WrongIn :: Driver
     mcc::mcc_load_from_string(&dir_uri, dir_src);
     let dir = mcc::mcc_diagnose(&dir_uri);
     assert!(
-        any_code(&dir, mcc::errcodes::CAPABILITY_SIGNAL_MISSING, |d| d.code),
-        "direction-incompatible member reports CAPABILITY_SIGNAL_MISSING; got {:?}",
+        any_code(&dir, mcc::errcodes::RECIPE_SIGNAL_MISSING, |d| d.code),
+        "direction-incompatible member reports RECIPE_SIGNAL_MISSING; got {:?}",
         dir.iter()
             .map(|d| (d.code, d.msg.clone()))
             .collect::<Vec<_>>()
     );
     let dir_msg = dir
         .iter()
-        .find(|d| d.code == mcc::errcodes::CAPABILITY_SIGNAL_MISSING)
+        .find(|d| d.code == mcc::errcodes::RECIPE_SIGNAL_MISSING)
         .map(|d| d.msg.clone())
         .unwrap_or_default();
     assert!(
         dir_msg.contains("out") && dir_msg.contains("in"),
-        "direction hint contrasts capability and adopter directions; got: {dir_msg}"
+        "direction hint contrasts recipe and adopter directions; got: {dir_msg}"
     );
 
-    // ── `::` on a non-capability (here another abstract component) is the
+    // ── `::` on a non-recipe (here another abstract component) is the
     //    wrong-operator error, not an unresolved class.
     let noncap_uri = "/virtual/p10_noncap.mc".to_string();
     let noncap_src = r#"
@@ -779,19 +779,19 @@ component WrongCapUse :: AbsRail
     mcc::mcc_load_from_string(&noncap_uri, noncap_src);
     let noncap = mcc::mcc_diagnose(&noncap_uri);
     assert!(
-        any_code(&noncap, mcc::errcodes::ADOPTS_NON_CAPABILITY, |d| d.code),
-        "`::` on an abstract component reports ADOPTS_NON_CAPABILITY; got {:?}",
+        any_code(&noncap, mcc::errcodes::ADOPTS_NON_RECIPE, |d| d.code),
+        "`::` on an abstract component reports ADOPTS_NON_RECIPE; got {:?}",
         noncap
             .iter()
             .map(|d| (d.code, d.msg.clone()))
             .collect::<Vec<_>>()
     );
 
-    // ── §5 conflict: two adopted capabilities share a func name the host does
+    // ── §5 conflict: two adopted recipes share a func name the host does
     //    not override → ADOPTED_FUNC_AMBIGUOUS.
     let amb_uri = "/virtual/p10_amb.mc".to_string();
     let amb_src = r#"
-capability GuardA
+recipe GuardA
 {
     io VA
 
@@ -801,7 +801,7 @@ capability GuardA
     }
 }
 
-capability GuardB
+recipe GuardB
 {
     io VB
 
@@ -829,7 +829,7 @@ component TwinLock :: GuardA, GuardB
             .collect::<Vec<_>>()
     );
     assert!(
-        !any_code(&amb, mcc::errcodes::CAPABILITY_SIGNAL_MISSING, |d| d.code),
+        !any_code(&amb, mcc::errcodes::RECIPE_SIGNAL_MISSING, |d| d.code),
         "the ambiguity case realizes all signals; got {:?}",
         amb.iter()
             .map(|d| (d.code, d.msg.clone()))
@@ -840,7 +840,7 @@ component TwinLock :: GuardA, GuardB
     //    name is resolved by the own func, so no ambiguity is reported.
     let ovr_uri = "/virtual/p10_override.mc".to_string();
     let ovr_src = r#"
-capability GuardC
+recipe GuardC
 {
     io VC
 
@@ -850,7 +850,7 @@ capability GuardC
     }
 }
 
-capability GuardD
+recipe GuardD
 {
     io VD
 
@@ -885,7 +885,7 @@ component TwinOpen :: GuardC, GuardD
 }
 
 /// P11 (abstract-variant-capability-plan P2 §2.4): an instance-method call on
-/// a placed host resolves to an ADOPTED capability func and expands its body
+/// a placed host resolves to an ADOPTED recipe func and expands its body
 /// against the host's member surface. `Fetcher` declares one signal `VBUS`
 /// plus `func Strap([rp]) { rp -> VBUS }` (`ref` is a reserved keyword, so the
 /// reference port is named `rp`); concrete `FetcherChip :: Fetcher`
@@ -894,13 +894,13 @@ component TwinOpen :: GuardC, GuardD
 /// the host member (a net touching both `REF` and `U1`); without it the call
 /// finds no method and produces no such product.
 #[test]
-fn def_defspace__p11_adopted_capability_func_dispatches_on_host_instance() {
+fn def_defspace__p11_adopted_recipe_func_dispatches_on_host_instance() {
     let _lock = common::lock();
     common::reset();
 
     let uri = mcc::McURI::from("/virtual/p11_adopt_dispatch.mc");
     let src = r#"
-capability Fetcher
+recipe Fetcher
 {
     io VBUS
 
@@ -945,7 +945,7 @@ module main
 
     assert!(
         nets.iter().any(|n| n.contains("U1") && n.contains("REF")),
-        "the adopted capability func 'Strap' wired the module net onto the host \
+        "the adopted recipe func 'Strap' wired the module net onto the host \
          member (net touching both U1 and REF); netlist:\n{}",
         nets.join("\n")
     );
@@ -1264,7 +1264,7 @@ abstract component CBad2 : ABase
     common::reset();
     let bad3 = "/virtual/p13_lock_both.mc".to_string();
     let src3 = r#"
-capability SomeCap
+recipe SomeCap
 {
     io VA
 }
@@ -1323,9 +1323,9 @@ component WVariant : RealR
 
 /// P14 (abstract-variant-capability plan P4 §4.3 / §8.1 / §8.3): the typed
 /// derivation/adoption relations served off the registry ledgers — typed
-/// `variant_base_of` / `cluster_of` / `adopted_capabilities_of` / `adopters_of`
+/// `variant_base_of` / `cluster_of` / `adopted_recipes_of` / `adopters_of`
 /// root queries plus the `defs.relations` RPC surface. One file carries an
-/// abstract base + a materialized variant and an abstract capability host, so
+/// abstract base + a materialized variant and an abstract recipe host, so
 /// every reverse edge has a live answer.
 #[test]
 fn def_defspace__p14_variant_and_adoption_relation_queries() {
@@ -1333,7 +1333,7 @@ fn def_defspace__p14_variant_and_adoption_relation_queries() {
     common::reset();
     let uri = "/virtual/p14_relations.mc".to_string();
     let src = r#"
-capability Pwr
+recipe Pwr
 {
     psnk VCC
 }
@@ -1369,7 +1369,7 @@ abstract component CapHost :: Pwr
     let abuf_id = mcc::def_id(&sn("ABuf"), mcc::DefKind::Component).expect("ABuf def id");
     let bbuf_id = mcc::def_id(&sn("BBuf"), mcc::DefKind::Component).expect("BBuf def id");
     let caphost_id = mcc::def_id(&sn("CapHost"), mcc::DefKind::Component).expect("CapHost def id");
-    let pwr_id = mcc::def_id(&sn("Pwr"), mcc::DefKind::Capability).expect("Pwr def id");
+    let pwr_id = mcc::def_id(&sn("Pwr"), mcc::DefKind::Recipe).expect("Pwr def id");
 
     // ── §8.1/§8.3 reverse edges on the ledgers.
     assert_eq!(
@@ -1392,12 +1392,12 @@ abstract component CapHost :: Pwr
         "a concrete variant has no further variants"
     );
     assert_eq!(
-        mcc::adopted_capabilities_of(caphost_id),
+        mcc::adopted_recipes_of(caphost_id),
         vec![pwr_id],
-        "adopted_capabilities_of(CapHost) = [Pwr] in declaration order"
+        "adopted_recipes_of(CapHost) = [Pwr] in declaration order"
     );
     assert!(
-        mcc::adopted_capabilities_of(bbuf_id).is_empty(),
+        mcc::adopted_recipes_of(bbuf_id).is_empty(),
         "a pure variant adopts nothing of its own"
     );
     assert_eq!(
@@ -1431,9 +1431,9 @@ abstract component CapHost :: Pwr
     );
 
     let r = rel(serde_json::json!({
-        "name": "Pwr", "uri": uri, "kind": "capability"
+        "name": "Pwr", "uri": uri, "kind": "recipe"
     }));
-    assert_eq!(r["kind"].as_str(), Some("capability"));
+    assert_eq!(r["kind"].as_str(), Some("recipe"));
     let adopters = r["relations"]["adopters"]
         .as_array()
         .expect("adopters list");
@@ -1443,7 +1443,7 @@ abstract component CapHost :: Pwr
     let r = rel(serde_json::json!({ "name": "CapHost", "uri": uri }));
     assert_eq!(r["relations"]["declaredAdopts"][0].as_str(), Some("Pwr"));
     assert_eq!(
-        r["relations"]["adoptedCapabilities"][0]["name"].as_str(),
+        r["relations"]["adoptedRecipes"][0]["name"].as_str(),
         Some("Pwr")
     );
     assert!(
