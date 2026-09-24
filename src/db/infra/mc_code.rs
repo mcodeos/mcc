@@ -7226,6 +7226,26 @@ module main
                 "real class root must not trigger the family fallback, got {n}"
             );
         }
+
+        // A typed tail segment (`DC.S` → root `DC`, prefix `S`) matches the
+        // family items on their last segment, not on the full dotted name.
+        let tail_resp = crate::lsp::completion::complete_member_at_pos(
+            &uri.as_str(),
+            cursor,
+            "DC",
+            Some("DC2"),
+        );
+        let tail_members: Vec<String> = tail_resp["layers"]["Member"]
+            .as_array()
+            .expect("Member layer present")
+            .iter()
+            .map(|it| it["name"].as_str().expect("member name").to_string())
+            .collect();
+        assert_eq!(
+            tail_members,
+            vec!["DC.DC20"],
+            "tail-segment prefix must filter family items (`DC2` keeps only DC.DC20)"
+        );
     }
 
     /// Regression: declareb instances inside net expressions must be registered
