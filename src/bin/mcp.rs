@@ -225,6 +225,16 @@ pub struct StageViewRequest {
     /// Chain segment: p1 | p2 | vec | viz. Default p2.
     #[schemars(description = "Chain segment: p1 | p2 | vec | viz. Default p2.")]
     pub segment: Option<String>,
+    /// Slice selectors for the viz segment (query-DSL predicates over net
+    /// records: `name` — exact / glob / regex — and `intent`, the family that
+    /// claims the net). Repeatable; several union. viz only.
+    #[serde(default)]
+    #[schemars(description = "Slice selectors for the viz segment, e.g. intent=power-intent or name=VCC*")]
+    pub select: Vec<String>,
+    /// Slice exclusions, same form as `select`; subtracted from it. viz only.
+    #[serde(default)]
+    #[schemars(description = "Slice exclusions for the viz segment, same form as select")]
+    pub exclude: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -634,7 +644,22 @@ impl MccMcpServer {
                 let seg = mcc::stages::StageSeg::parse(name).ok_or_else(|| {
                     format!("unknown stage segment '{name}'\nexpected one of: p1 | p2 | vec | viz")
                 })?;
-                Ok(mcc::stages::read::build_segment(seg, loaded))
+                let mut view = mcc::stages::read::build_segment(seg, loaded);
+                if !req.select.is_empty() || !req.exclude.is_empty() {
+                    if seg != mcc::stages::StageSeg::Viz {
+                        return Err(
+                            "select / exclude slice the drawn subgraph; only the viz segment \
+                             accepts them"
+                                .to_string(),
+                        );
+                    }
+                    let selection = mcc::stages::slice::Selection::compile(
+                        &req.select,
+                        &req.exclude,
+                    )?;
+                    view = mcc::stages::slice::apply_viz(view, &selection)?;
+                }
+                Ok(view)
             },
         )
     }

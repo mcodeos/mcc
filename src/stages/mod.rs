@@ -39,6 +39,7 @@ pub mod p2;
 pub mod projmodel;
 pub mod payload;
 pub mod read;
+pub mod slice;
 pub mod stage_diff;
 pub mod top_ver;
 pub mod trace;

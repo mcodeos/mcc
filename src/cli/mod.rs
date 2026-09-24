@@ -532,6 +532,21 @@ pub struct ShowArgs {
     /// shown. `show defs` defaults to every loaded layer (all) instead.
     #[arg(long, value_enum)]
     pub scope: Option<ShowScope>,
+
+    /// `show stage viz`: slice the drawing to the nets the expression selects
+    /// (a post-filter over the frozen items, projection-schema-design.md §1).
+    /// Repeatable; several expressions union. Each expression is one query-DSL
+    /// predicate over a net record with two fields: `name` (exact, glob with
+    /// `*`/`?`, regex with `~=`) and `intent` (the family that claims the net,
+    /// e.g. `intent=power-intent`). and/or/not compose.
+    #[arg(long, value_name = "EXPR")]
+    pub select: Vec<String>,
+
+    /// `show stage viz`: nets to subtract from the selection, in the same
+    /// expression form as `--select`. Exclusion never makes a selection a
+    /// no-op; subtracting everything still fails loudly.
+    #[arg(long, value_name = "EXPR")]
+    pub exclude: Vec<String>,
 }
 
 /// Definition layers for `show all` (`--scope`).
