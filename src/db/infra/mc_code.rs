@@ -304,7 +304,6 @@ fn snapshot_export_signature(uri: &str) -> std::collections::BTreeSet<ExportSig>
         DefKind::Module,
         DefKind::Interface,
         DefKind::Enum,
-        DefKind::Define,
         DefKind::Capability,
         DefKind::Func,
     ] {
