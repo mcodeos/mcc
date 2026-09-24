@@ -35,6 +35,9 @@ struct CheckBatch {
     diags: Vec<mcc::McDiagnostic>,
     net_errors: usize,
     pin_errors: usize,
+    /// Aggregated acceptance verdict counts (pass, fail, defer) over every
+    /// world whose top declared an `expects` ledger; `None` when none did.
+    expect: Option<(usize, usize, usize)>,
 }
 
 /// Ask one definition space everything `check` asks, and keep the answer.
@@ -89,7 +92,32 @@ fn check_one_world(uri: &McURI, args: &CheckArgs, batch: &mut CheckBatch) {
     // formal count exactly) surface in the check overview too. pass2 errors
     // are recorded in the global store via diagnostic_log; a failed flat run
     // is tolerated so the overview still reports whatever pass1 collected.
-    let _ = mcc::mcb_pass2_flat(&entry, 1);
+    // The returned flat table is also what the acceptance engine judges the
+    // entry module's `expects` ledger on (circuit-intent-acceptance-design.md
+    // §4): one instantiation, two consumers. The engine's rows come back in
+    // result form and are appended below — never logged into the workspace.
+    if let Ok((_tree, table)) = mcc::mcb_pass2_flat(&entry, 1) {
+        if let Some((_, module)) = mcc::definition_space()
+            .workspace_modules()
+            .into_iter()
+            .find(|(sn, _)| {
+                sn.ident.to_string() == mod_name && sn.uri == mcc::uri_intern(uri)
+            })
+            .or_else(|| {
+                mcc::definition_space().workspace_modules().into_iter().find(|(sn, _)| {
+                    sn.ident.to_string() == mod_name
+                })
+            })
+        {
+            if !module.expects.is_empty() {
+                let report = mcc::check::expectation::run(&table, &module.expects, &module.uri);
+                let (p, f, d) = report.counts();
+                let agg = batch.expect.unwrap_or((0, 0, 0));
+                batch.expect = Some((agg.0 + p, agg.1 + f, agg.2 + d));
+                batch.diags.extend(report.diagnostics);
+            }
+        }
+    }
 
     batch.diags.extend(mcc::mcc_diagnose_all());
 }
@@ -316,6 +344,12 @@ pub fn run(args: &CheckArgs) -> Result<CheckOutcome> {
             eprintln!("✓ check: no diagnostics");
         } else {
             eprintln!("check: {} errors, {} warnings", error_count, warning_count);
+        }
+        if let Some((pass, fail, defer)) = batch.expect {
+            eprintln!(
+                "expectation: {} pass, {} fail, {} defer (d rows wait for sim, they do not gate the exit)",
+                pass, fail, defer
+            );
         }
         if args.ledger.is_some() {
             print_ledger(&ledger_report);
