@@ -611,7 +611,7 @@ pub enum ShowTarget {
     // `--full` widens the rail contract columns, `--decaps` unfolds decouplers.
     Pwrflow,
     // Sim model-profile view (Pass2, uses --top): the model profile registry
-    // (worldmodel-design §7 W3 -- per-role curated sim capability cards read
+    // (worldmodel-design §7 W3 -- per-role curated sim recipe cards read
     // from each library's `sim/` sidecar) joined to the built world: one row
     // per instance adoption lane with its card's tier and missing parameters,
     // `not-curated` made explicit where no card covers a role face. Data layer

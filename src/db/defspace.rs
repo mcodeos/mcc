@@ -21,11 +21,11 @@
 
 use super::cmie::tables::WorkspaceManager;
 use crate::db::defregistry::{
-    peel_capabilities, peel_components, peel_enums, peel_interfaces, peel_modules,
+    peel_recipes, peel_components, peel_enums, peel_interfaces, peel_modules,
     DefKind, DefValue, DomainFilter,
 };
 use crate::db::infra::mc_code::McCode;
-use crate::semantic::capability::McCapability;
+use crate::semantic::recipe::McRecipe;
 use crate::semantic::component::McComponent;
 use crate::semantic::mc_enum::McEnumDef;
 use crate::semantic::mc_ifs::McInterface;
@@ -201,11 +201,11 @@ impl<'a> DefinitionSpace<'a> {
         self.ws.registry().get_enum(sn)
     }
 
-    /// Look up a capability by its `McSpaceName`. Capability is not a class
+    /// Look up a recipe by its `McSpaceName`. Recipe is not a class
     /// kind (never in the system name index); this typed registry read is the
     /// link-time resolution path (`::` adoption, P2).
-    pub fn get_capability(&self, sn: &McSpaceName) -> Option<Arc<McCapability>> {
-        self.ws.registry().get_capability(sn)
+    pub fn get_recipe(&self, sn: &McSpaceName) -> Option<Arc<McRecipe>> {
+        self.ws.registry().get_recipe(sn)
     }
 
     // ── Unified definition view: whole-table enumeration ──
@@ -235,7 +235,7 @@ impl<'a> DefinitionSpace<'a> {
     /// own `funcs` table rather than off the arena's func rows: those rows
     /// carry a display label whose order says nothing about the host's, and
     /// the host's table is where the author's order lives. Only the kinds that
-    /// can host func members are walked (module / component / capability), the
+    /// can host func members are walked (module / component / recipe), the
     /// same three `register_host_funcs` registers for.
     pub fn all_funcs(&self) -> Vec<(String, DefKind, String, String)> {
         let mut rows: Vec<(String, DefKind, String, String)> = Vec::new();
@@ -243,7 +243,7 @@ impl<'a> DefinitionSpace<'a> {
             let names: Vec<String> = match &data {
                 DefValue::Module(m) => m.funcs.iter().map(|f| f.name.to_string()).collect(),
                 DefValue::Component(c) => c.funcs.iter().map(|f| f.name.to_string()).collect(),
-                DefValue::Capability(c) => c.funcs.iter().map(|f| f.name.to_string()).collect(),
+                DefValue::Recipe(c) => c.funcs.iter().map(|f| f.name.to_string()).collect(),
                 _ => continue,
             };
             for name in names {
@@ -308,12 +308,12 @@ impl<'a> DefinitionSpace<'a> {
         )
     }
 
-    /// Enumerate every live capability definition (any domain).
-    pub fn all_capabilities(&self) -> Vec<(McSpaceName, Arc<McCapability>)> {
-        peel_capabilities(
+    /// Enumerate every live recipe definition (any domain).
+    pub fn all_recipes(&self) -> Vec<(McSpaceName, Arc<McRecipe>)> {
+        peel_recipes(
             self.ws
                 .registry()
-                .enumerate(DefKind::Capability, DomainFilter::Any),
+                .enumerate(DefKind::Recipe, DomainFilter::Any),
         )
     }
 
@@ -347,9 +347,9 @@ impl<'a> DefinitionSpace<'a> {
         self.ws.registry().get_workspace_enum(sn)
     }
 
-    /// Look up a capability by its `McSpaceName` in the project domain only.
-    pub fn get_workspace_capability(&self, sn: &McSpaceName) -> Option<Arc<McCapability>> {
-        self.ws.registry().get_workspace_capability(sn)
+    /// Look up a recipe by its `McSpaceName` in the project domain only.
+    pub fn get_workspace_recipe(&self, sn: &McSpaceName) -> Option<Arc<McRecipe>> {
+        self.ws.registry().get_workspace_recipe(sn)
     }
 
     /// Enumerate every project (workspace) component definition.
@@ -388,12 +388,12 @@ impl<'a> DefinitionSpace<'a> {
         )
     }
 
-    /// Enumerate every project (workspace) capability definition.
-    pub fn workspace_capabilities(&self) -> Vec<(McSpaceName, Arc<McCapability>)> {
-        peel_capabilities(
+    /// Enumerate every project (workspace) recipe definition.
+    pub fn workspace_recipes(&self) -> Vec<(McSpaceName, Arc<McRecipe>)> {
+        peel_recipes(
             self.ws
                 .registry()
-                .enumerate(DefKind::Capability, DomainFilter::Project),
+                .enumerate(DefKind::Recipe, DomainFilter::Project),
         )
     }
 
@@ -484,12 +484,12 @@ impl<'a> DefinitionSpace<'a> {
         )
     }
 
-    /// Enumerate every *system-library* capability definition (P5).
-    pub fn system_capabilities(&self) -> Vec<(McSpaceName, Arc<McCapability>)> {
-        peel_capabilities(
+    /// Enumerate every *system-library* recipe definition (P5).
+    pub fn system_recipes(&self) -> Vec<(McSpaceName, Arc<McRecipe>)> {
+        peel_recipes(
             self.ws
                 .registry()
-                .enumerate(DefKind::Capability, DomainFilter::System),
+                .enumerate(DefKind::Recipe, DomainFilter::System),
         )
     }
 }

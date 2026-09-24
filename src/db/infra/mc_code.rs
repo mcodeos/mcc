@@ -304,7 +304,7 @@ fn snapshot_export_signature(uri: &str) -> std::collections::BTreeSet<ExportSig>
         DefKind::Module,
         DefKind::Interface,
         DefKind::Enum,
-        DefKind::Capability,
+        DefKind::Recipe,
         DefKind::Func,
     ] {
         for (sn, _) in registry.enumerate_in_uri(kind, DomainFilter::Any, uri) {
@@ -1759,7 +1759,7 @@ impl McCode {
                 || node.is_type(MCAST_COMPONENT)
                 || node.is_type(MCAST_MODULE)
                 || node.is_type(MCAST_ENUM)
-                || node.is_type(MCAST_CAPABILITY)
+                || node.is_type(MCAST_RECIPE)
             {
                 let decl_type = node.get_type();
                 let subnodes = node.get_sub_node().expect(MISSING_SUBNODE);
@@ -1992,16 +1992,16 @@ impl McCode {
                         }
                     }
                 }
-                MCAST_CAPABILITY => {
-                    // Capability is a declaration-only container (signal
+                MCAST_RECIPE => {
+                    // Recipe is a declaration-only container (signal
                     // declarations + role funcs): registered as its own def
                     // kind, but NOT as a class kind — no add_global_class, not
                     // instantiable. It is a duplicate-catch member of the file's
-                    // name set (component X vs capability X → DEF_ALREADY_EXISTS
+                    // name set (component X vs recipe X → DEF_ALREADY_EXISTS
                     // via parse_cmie_names), so a re-insert here is a cross-file
-                    // DUP_CAPABILITY.
+                    // DUP_RECIPE.
                     if let Some(cap) =
-                        crate::semantic::capability::McCapability::new(&node, &self.uri)
+                        crate::semantic::recipe::McRecipe::new(&node, &self.uri)
                     {
                         let space_name = McSpaceName {
                             ident: cap.name.clone(),
@@ -2010,13 +2010,13 @@ impl McCode {
                         if workspace::WORKSPACE.insert_def(
                             &space_name,
                             domain.clone(),
-                            DefValue::Capability(Arc::new(cap)),
+                            DefValue::Recipe(Arc::new(cap)),
                         ) == InsertOutcome::Duplicate
                         {
                             dlog_error(
-                                crate::errcodes::DUP_CAPABILITY,
+                                crate::errcodes::DUP_RECIPE,
                                 &node,
-                                &crate::errcodes::format_msg(crate::errcodes::DUP_CAPABILITY, &[]),
+                                &crate::errcodes::format_msg(crate::errcodes::DUP_RECIPE, &[]),
                             );
                         }
                     }
@@ -2031,7 +2031,7 @@ impl McCode {
                 || node.is_type(MCAST_COMPONENT)
                 || node.is_type(MCAST_MODULE)
                 || node.is_type(MCAST_ENUM)
-                || node.is_type(MCAST_CAPABILITY)
+                || node.is_type(MCAST_RECIPE)
             {
                 if let Some(subnodes) = node.get_sub_node() {
                     if let Some(name_node) = subnodes.iter().find(|x| x.is_type(MCAST_NAME)) {

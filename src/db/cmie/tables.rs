@@ -26,7 +26,7 @@
 
 use crate::db::diagnostic::diagnostic::DiagnosticManager;
 use crate::db::infra::mc_code::McCode;
-use crate::semantic::capability::McCapability;
+use crate::semantic::recipe::McRecipe;
 use crate::semantic::component::McComponent;
 use crate::semantic::mc_enum::McEnumDef;
 use crate::semantic::mc_ifs::McInterface;
@@ -129,7 +129,7 @@ struct WorkspaceSnapshot {
     components: DashMap<McSpaceName, Arc<McComponent>>,
     interfaces: DashMap<McSpaceName, Arc<McInterface>>,
     enums: DashMap<McSpaceName, Arc<McEnumDef>>,
-    capabilities: DashMap<McSpaceName, Arc<McCapability>>,
+    recipes: DashMap<McSpaceName, Arc<McRecipe>>,
     diagnostics: DiagnosticManager,
     // §12.1 DefinitionSpace manifest (loaded source domains + lib boundary).
     sources: DashMap<McURI, crate::db::defspace::SourceDomain>,
@@ -156,7 +156,7 @@ pub struct WorkspaceManager {
     pub(crate) components: DashMap<McSpaceName, Arc<McComponent>>,
     pub(crate) interfaces: DashMap<McSpaceName, Arc<McInterface>>,
     pub(crate) enums: DashMap<McSpaceName, Arc<McEnumDef>>,
-    pub(crate) capabilities: DashMap<McSpaceName, Arc<McCapability>>,
+    pub(crate) recipes: DashMap<McSpaceName, Arc<McRecipe>>,
     pub(crate) diagnostics: Mutex<DiagnosticManager>,
 
     /// The active world. Its `root` is the identity — see [`world_key`].
@@ -212,7 +212,7 @@ impl WorkspaceManager {
             components: DashMap::new(),
             interfaces: DashMap::new(),
             enums: DashMap::new(),
-            capabilities: DashMap::new(),
+            recipes: DashMap::new(),
             diagnostics: Mutex::new(DiagnosticManager::new()),
             meta: Mutex::new(WorkspaceMeta::default()),
             saved: Mutex::new(HashMap::new()),
@@ -301,7 +301,7 @@ impl WorkspaceManager {
         self.components.clear();
         self.interfaces.clear();
         self.enums.clear();
-        self.capabilities.clear();
+        self.recipes.clear();
         self.lsp.class_table.lock().unwrap().clear();
         self.diagnostics.lock().unwrap().clear();
         self.sources.clear();
@@ -407,7 +407,7 @@ impl WorkspaceManager {
         let components = clone_and_clear(&self.components);
         let interfaces = clone_and_clear(&self.interfaces);
         let enums = clone_and_clear(&self.enums);
-        let capabilities = clone_and_clear(&self.capabilities);
+        let recipes = clone_and_clear(&self.recipes);
         let sources = clone_and_clear(&self.sources);
         let libs = clone_and_clear(&self.libs);
         let blibs = clone_and_clear(&self.blibs);
@@ -427,7 +427,7 @@ impl WorkspaceManager {
             components,
             interfaces,
             enums,
-            capabilities,
+            recipes,
             diagnostics,
             sources,
             libs,
@@ -451,7 +451,7 @@ impl WorkspaceManager {
         fill_dashmap(&self.components, snap.components);
         fill_dashmap(&self.interfaces, snap.interfaces);
         fill_dashmap(&self.enums, snap.enums);
-        fill_dashmap(&self.capabilities, snap.capabilities);
+        fill_dashmap(&self.recipes, snap.recipes);
         fill_dashmap(&self.sources, snap.sources);
         fill_dashmap(&self.libs, snap.libs);
         fill_dashmap(&self.blibs, snap.blibs);
@@ -484,7 +484,7 @@ impl WorkspaceManager {
             &self.modules,
             &self.interfaces,
             &self.enums,
-            &self.capabilities,
+            &self.recipes,
         );
         // Phase 5: restore the world's system-library segment alongside its
         // project defs.

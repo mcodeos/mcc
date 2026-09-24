@@ -22,11 +22,11 @@
 //      for one to be named after.
 //   2. Every body that holds clauses reads them through the one walk, not just
 //      the module body: a partition in a component, an interface and
-//      a capability is transparent too. Each is proved by the *content* it was
+//      a recipe is transparent too. Each is proved by the *content* it was
 //      supposed to contribute (the pin table, the attribute, the signal table),
 //      not by the absence of a complaint — a body that swallowed the partition
 //      would be silent about the component pins and still silent about the
-//      capability signals.
+//      recipe signals.
 //   3. A partition must be named. `block { … }` is not a clause the grammar can
 //      reduce, so it is reported — and, as everywhere else, the report does not
 //      block the board: the clauses inside are read as the body's own, which is
@@ -217,12 +217,12 @@ fn u122__a_partition_groups_without_opening_a_scope() {
 
 /// One source holding a partition in each of the three other definition bodies,
 /// each partition holding the clause that body exists for: pins in a component
-/// and in an interface, a signal in a capability. (The fourth body the lock
+/// and in an interface, a signal in a recipe. (The fourth body the lock
 /// used to cover, the `define`, retired with its keyword in b3953, U267③.)
 ///
 /// Each is asserted on the **content it contributed**, so a body that stopped
 /// at the partition cannot pass by saying nothing: the component and interface
-/// pin tables would be empty, and the capability's signal table would hold
+/// pin tables would be empty, and the recipe's signal table would hold
 /// no port.
 const EVERY_BODY: &str = r#"component CAP2
 {
@@ -246,7 +246,7 @@ interface IF2
     }
 }
 
-capability CAPX
+recipe CAPX
 {
     block meta
     {
@@ -311,9 +311,9 @@ fn u122__a_partition_is_transparent_in_every_body() {
     ipins.sort();
     assert_eq!(ipins.len(), 2, "interface pins: {ipins:?}");
 
-    // capability: the declared signal lives inside the partition and must be in
-    // the capability's own signal table.
-    let caps = mcc::definition_space().workspace_capabilities();
+    // recipe: the declared signal lives inside the partition and must be in
+    // the recipe's own signal table.
+    let caps = mcc::definition_space().workspace_recipes();
     let capx = caps
         .iter()
         .find(|(_, c)| c.name.to_string() == "CAPX")
@@ -327,7 +327,7 @@ fn u122__a_partition_is_transparent_in_every_body() {
     signals.sort();
     assert!(
         signals.iter().any(|s| s == "VCC") && signals.iter().any(|s| s == "SDA"),
-        "capability signals: {signals:?}"
+        "recipe signals: {signals:?}"
     );
 }
 

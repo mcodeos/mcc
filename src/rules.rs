@@ -149,7 +149,7 @@ pub enum RulePlane {
 pub enum Acceptance {
     /// The circuit obeys a written language rule.
     Legal,
-    /// A declared capability/interface contract holds.
+    /// A declared recipe/interface contract holds.
     Contract,
     /// The declared intent is fulfilled (assertions / effect comparison).
     Fulfillment,
@@ -2175,9 +2175,9 @@ mod tests {
         crate::errcodes::TYPE_INCOMPATIBLE,
         // adopt
         crate::errcodes::VARIANT_BASE_NON_ABSTRACT,
-        crate::errcodes::ADOPTS_NON_CAPABILITY,
+        crate::errcodes::ADOPTS_NON_RECIPE,
         crate::errcodes::ADOPTED_FUNC_AMBIGUOUS,
-        crate::errcodes::CAPABILITY_SIGNAL_MISSING,
+        crate::errcodes::RECIPE_SIGNAL_MISSING,
     ];
 
     #[test]
@@ -3702,13 +3702,13 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         lock = "tests/defspace_golden.rs",
     },
     declare_post_parse_rule! {
-        code = crate::errcodes::ADOPTS_NON_CAPABILITY,
-        name = "adopts-non-capability",
-        title = "'::' target is not a capability",
+        code = crate::errcodes::ADOPTS_NON_RECIPE,
+        name = "adopts-non-recipe",
+        title = "'::' target is not a recipe",
         severity = Error,
         domain = RefIntegrity,
         host = "adopt",
-        doc = "'::' target is not a capability.",
+        doc = "'::' target is not a recipe.",
         lock = "tests/defspace_golden.rs",
     },
     declare_post_parse_rule! {
@@ -3718,17 +3718,17 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         severity = Error,
         domain = Duplicate,
         host = "adopt",
-        doc = "Two adopted capabilities expose the same func name.",
+        doc = "Two adopted recipes expose the same func name.",
         lock = "tests/defspace_golden.rs",
     },
     declare_post_parse_rule! {
-        code = crate::errcodes::CAPABILITY_SIGNAL_MISSING,
-        name = "capability-signal-missing",
-        title = "capability signal is missing",
+        code = crate::errcodes::RECIPE_SIGNAL_MISSING,
+        name = "recipe-signal-missing",
+        title = "recipe signal is missing",
         severity = Error,
         domain = Structure,
         host = "adopt",
-        doc = "Adopting component misses a declared capability signal.",
+        doc = "Adopting component misses a declared recipe signal.",
         lock = "tests/defspace_golden.rs",
     },
 ];

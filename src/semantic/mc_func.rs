@@ -421,7 +421,7 @@ pub trait HasFindInst {
     /// The default `None` is the rule's **scope** half, not a fallback: only a
     /// scope that owns power-intent declarations can answer, and of the trait's
     /// implementors that is `McModule` alone. A func body, component, interface,
-    /// enum or capability that sees a domain name from further out therefore
+    /// enum or recipe that sees a domain name from further out therefore
     /// leaves it alone (R4: resolution happens in the owning scope, never up or
     /// down the instance tree).
     fn domain_pair_named(&self, _name: &str) -> Option<crate::semantic::module::pi::L1DomainPair> {

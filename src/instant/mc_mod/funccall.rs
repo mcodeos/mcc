@@ -566,7 +566,7 @@ impl InstantiationBuilder {
             }
             InstEntry::Component(comp) => {
                 // Component method (e.g. uC.power(...), mcu.uC.i2c(...)) —
-                // §5 effective method set: own func, else adopted-capability func.
+                // §5 effective method set: own func, else adopted-recipe func.
                 if let Some(func) = crate::db::defregistry::effective_method(&comp.def, name_str) {
                     let func_clone = func;
                     crate::db::diagnostic::diagnostic::dlog_trace(

@@ -450,15 +450,15 @@ fn def_ref_json(id: crate::db::defregistry::DefId) -> Option<Value> {
 ///   component and materialized, `variantBase` (the base identity);
 /// - an *abstract* component reports `cluster` — every materialized
 ///   variant that derived from it;
-/// - a component that adopts capabilities reports `declaredAdopts`
-///   (the `:: Cap…` clause names) and `adoptedCapabilities` (the resolved
-///   capability identities, declaration order);
-/// - a *capability* reports `adopters` — every host component whose
+/// - a component that adopts recipes reports `declaredAdopts`
+///   (the `:: Cap…` clause names) and `adoptedRecipes` (the resolved
+///   recipe identities, declaration order);
+/// - a *recipe* reports `adopters` — every host component whose
 ///   `::` list resolves to it.
 ///
 /// `name` + `uri` pin one identity; when the name+uri holds a def of more
-/// than one kind the optional `kind` (component|capability|module|interface|
-/// enum|define) disambiguates, defaulting to component then capability. An
+/// than one kind the optional `kind` (component|recipe|module|interface|
+/// enum|define) disambiguates, defaulting to component then recipe. An
 /// unknown / tombstoned def answers `defId: null` and empty sets, never an
 /// error (mirrors `defs.dependents`).
 pub fn handle_defs_relations(params: Option<Value>) -> RpcResult {
@@ -477,7 +477,7 @@ pub fn handle_defs_relations(params: Option<Value>) -> RpcResult {
     );
     let kind_of = |k: &str| match k {
         "component" => Some(DefKind::Component),
-        "capability" => Some(DefKind::Capability),
+        "recipe" => Some(DefKind::Recipe),
         "module" => Some(DefKind::Module),
         "interface" => Some(DefKind::Interface),
         "enum" => Some(DefKind::Enum),
@@ -490,7 +490,7 @@ pub fn handle_defs_relations(params: Option<Value>) -> RpcResult {
                     -32602,
                     &format!(
                         "defs.relations: unknown kind '{}', expected one of \
-                         component|capability|module|interface|enum",
+                         component|recipe|module|interface|enum",
                         k
                     ),
                 ));
@@ -499,10 +499,10 @@ pub fn handle_defs_relations(params: Option<Value>) -> RpcResult {
         }
         None => {
             // Component first (variant / cluster / adoption relations all live
-            // on component defs), then capability (adopters).
+            // on component defs), then recipe (adopters).
             let mut hit = def_id(&sn, DefKind::Component).map(|i| (i, "component"));
             if hit.is_none() {
-                hit = def_id(&sn, DefKind::Capability).map(|i| (i, "capability"));
+                hit = def_id(&sn, DefKind::Recipe).map(|i| (i, "recipe"));
             }
             hit
         }
@@ -515,10 +515,10 @@ pub fn handle_defs_relations(params: Option<Value>) -> RpcResult {
     };
 
     use crate::db::defregistry::{
-        adopted_capabilities_of, adopters_of, cluster_of, variant_base_of,
+        adopted_recipes_of, adopters_of, cluster_of, variant_base_of,
     };
     let mut relations = serde_json::Map::new();
-    if kind == "capability" {
+    if kind == "recipe" {
         let adopters: Vec<Value> = adopters_of(id)
             .into_iter()
             .filter_map(def_ref_json)
@@ -545,11 +545,11 @@ pub fn handle_defs_relations(params: Option<Value>) -> RpcResult {
         if let Some(base_id) = variant_base_of(id) {
             relations.insert("variantBase".into(), json!(def_ref_json(base_id)));
         }
-        let caps: Vec<Value> = adopted_capabilities_of(id)
+        let caps: Vec<Value> = adopted_recipes_of(id)
             .into_iter()
             .filter_map(def_ref_json)
             .collect();
-        relations.insert("adoptedCapabilities".into(), json!(caps));
+        relations.insert("adoptedRecipes".into(), json!(caps));
         // cluster is meaningful for an abstract base; empty otherwise.
         let cluster: Vec<Value> = cluster_of(id)
             .into_iter()

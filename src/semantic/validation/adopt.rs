@@ -10,12 +10,12 @@
 //! check. These three diagnostics are the *user-facing* half of the same link
 //! pass, attributed to the adopting component's file:
 //!
-//! - `ADOPTS_NON_CAPABILITY` — a `::` target that resolves to a live
-//!   non-capability def (a component/module …), with the use-`:` hint.
-//! - `CAPABILITY_SIGNAL_MISSING` — the adopting component does not declare a
-//!   signal (name, or a group label + its member) the adopted capability
+//! - `ADOPTS_NON_RECIPE` — a `::` target that resolves to a live
+//!   non-recipe def (a component/module …), with the use-`:` hint.
+//! - `RECIPE_SIGNAL_MISSING` — the adopting component does not declare a
+//!   signal (name, or a group label + its member) the adopted recipe
 //!   funcs are written against, or declares it with an incompatible direction.
-//! - `ADOPTED_FUNC_AMBIGUOUS` — two adopted capabilities expose the same func
+//! - `ADOPTED_FUNC_AMBIGUOUS` — two adopted recipes expose the same func
 //!   name and the component does not override it with its own func.
 //! - `VARIANT_BASE_NON_ABSTRACT` — a `: Base` variant whose declared base
 //!   resolves to a def that is not an abstract component (P4 §7.1), with the
@@ -37,7 +37,7 @@ pub struct AdoptionCheck;
 
 impl ValidationCheck for AdoptionCheck {
     fn name(&self) -> &'static str {
-        "capability_adoption"
+        "recipe_adoption"
     }
     fn phase(&self) -> CheckPhase {
         CheckPhase::PostParse
@@ -84,15 +84,15 @@ impl ValidationCheck for AdoptionCheck {
             let f = analyze_host_adoption(comp);
             let host = comp.name.to_string();
 
-            for name in &f.non_capabilities {
-                let msg = errcodes::format_msg(errcodes::ADOPTS_NON_CAPABILITY, &[&name]);
+            for name in &f.non_recipes {
+                let msg = errcodes::format_msg(errcodes::ADOPTS_NON_RECIPE, &[&name]);
                 acc.push(CheckResult {
                     check_name: self.name(),
                     severity: CheckSeverity::Error,
                     uri: Some(uri.clone()),
                     span: None,
                     message: msg,
-                    code: errcodes::ADOPTS_NON_CAPABILITY,
+                    code: errcodes::ADOPTS_NON_RECIPE,
                 });
             }
             for func in &f.ambiguous_funcs {
@@ -108,7 +108,7 @@ impl ValidationCheck for AdoptionCheck {
             }
             for ms in &f.missing_signals {
                 let msg = errcodes::format_msg(
-                    errcodes::CAPABILITY_SIGNAL_MISSING,
+                    errcodes::RECIPE_SIGNAL_MISSING,
                     &[&host, &ms.form, &ms.hint],
                 );
                 acc.push(CheckResult {
@@ -117,7 +117,7 @@ impl ValidationCheck for AdoptionCheck {
                     uri: Some(uri.clone()),
                     span: None,
                     message: msg,
-                    code: errcodes::CAPABILITY_SIGNAL_MISSING,
+                    code: errcodes::RECIPE_SIGNAL_MISSING,
                 });
             }
         }

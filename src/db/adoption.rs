@@ -5,19 +5,19 @@
 //! Capability adoption (`:: Cap`) name resolution (abstract-variant-capability
 //! plan §4.1/§2.1).
 //!
-//! The `adopts` list on a component header names capability defs. Each name is
+//! The `adopts` list on a component header names recipe defs. Each name is
 //! resolved the same way a class reference in the same header resolves (P3 own
 //! file → P4 use chain → P5 system), *minus* the class-specific machinery: a
-//! capability is never an `McCMIE`/`add_global_class` symbol, so the layer walk
+//! recipe is never an `McCMIE`/`add_global_class` symbol, so the layer walk
 //! here is a single visibility-table hit (`WORKSPACE.visibility`, which already
 //! mirrors every declared symbol a file can see — own decls shadow imports) plus
-//! a system-lib capability-name fallback.
+//! a system-lib recipe-name fallback.
 //!
 //! Pure analysis, no diagnostics, no mutation: the registry link seam
 //! ([`crate::db::defregistry::RegistryState::sync_derivation_edges`]) and the
 //! re-derived-file validation check both call this and each turn the verdicts
 //! into their own side of the contract (silent ledger fill vs. the
-//! `ADOPTS_NON_CAPABILITY` / `CAPABILITY_SIGNAL_MISSING` /
+//! `ADOPTS_NON_RECIPE` / `RECIPE_SIGNAL_MISSING` /
 //! `ADOPTED_FUNC_AMBIGUOUS` diagnostics).
 
 use crate::db::cmie::tables as workspace;
@@ -30,25 +30,25 @@ use crate::{McIds, McURI};
 /// What a `::` adopt name resolved to.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AdoptTarget {
-    /// The capability def that adopts into the host, by registry id.
-    Capability(DefId),
-    /// Visible name resolved to a def that is *not* a capability (component,
-    /// module, …) — `ADOPTS_NON_CAPABILITY`. The visible target's identity is
+    /// The recipe def that adopts into the host, by registry id.
+    Recipe(DefId),
+    /// Visible name resolved to a def that is *not* a recipe (component,
+    /// module, …) — `ADOPTS_NON_RECIPE`. The visible target's identity is
     /// carried for the message.
-    NonCapability(McSpaceName),
+    NonRecipe(McSpaceName),
     /// Nothing visible or system-defined under this name.
     Unresolved(String),
 }
 
-/// Resolve one capability-adoption name as seen from `from_uri` (the adopting
+/// Resolve one recipe-adoption name as seen from `from_uri` (the adopting
 /// file). Layered exactly like class resolution: the file's own visibility
 /// table first (P3 own-file decl shadows imports, P4 use chain already merged
 /// by [`sync_visibility`](crate::db::infra::mc_code::McCode::sync_visibility)),
-/// then the per-world system-lib capability table by name (P5). A name that
-/// resolves to a live def of any other kind is `NonCapability`, never
+/// then the per-world system-lib recipe table by name (P5). A name that
+/// resolves to a live def of any other kind is `NonRecipe`, never
 /// `Unresolved`, so the wrong-operator hint (use `:` for an abstract component)
 /// fires on the exact shadowed symbol.
-pub fn resolve_capability_name(from_uri: &McURI, name: &McIds) -> AdoptTarget {
+pub fn resolve_recipe_name(from_uri: &McURI, name: &McIds) -> AdoptTarget {
     let canonical = crate::build::pass1::canonicalize_project_uri(from_uri);
     let name_str = name.to_string();
 
@@ -60,13 +60,13 @@ pub fn resolve_capability_name(from_uri: &McURI, name: &McIds) -> AdoptTarget {
         return classify_visible(&entry.winner.name);
     }
 
-    // P5 — system-lib capability by name only (capabilities are excluded from
+    // P5 — system-lib recipe by name only (recipes are excluded from
     // `system_name_index`, so this is the one scan `resolve_class`'s system
     // lookup cannot serve).
     let ds = crate::definition_space();
-    for (csn, cap) in ds.system_capabilities() {
+    for (csn, cap) in ds.system_recipes() {
         if cap.name.to_string() == name_str {
-            return AdoptTarget::Capability(match def_id(&csn, DefKind::Capability) {
+            return AdoptTarget::Recipe(match def_id(&csn, DefKind::Recipe) {
                 Some(id) => id,
                 None => {
                     // Def is live in the peel but its id vanished (tombstoned
@@ -80,11 +80,11 @@ pub fn resolve_capability_name(from_uri: &McURI, name: &McIds) -> AdoptTarget {
     AdoptTarget::Unresolved(name_str)
 }
 
-/// Classify a visibility-table hit: a live capability, a live non-capability
+/// Classify a visibility-table hit: a live recipe, a live non-recipe
 /// (wrong operator), or unresolved (hit row for a def that is no longer live).
 fn classify_visible(sn: &McSpaceName) -> AdoptTarget {
-    if let Some(id) = def_id(sn, DefKind::Capability) {
-        return AdoptTarget::Capability(id);
+    if let Some(id) = def_id(sn, DefKind::Recipe) {
+        return AdoptTarget::Recipe(id);
     }
     let is_other_kind = [
         DefKind::Component,
@@ -95,7 +95,7 @@ fn classify_visible(sn: &McSpaceName) -> AdoptTarget {
     .iter()
     .any(|&k| def_id(sn, k).is_some());
     if is_other_kind {
-        return AdoptTarget::NonCapability(sn.clone());
+        return AdoptTarget::NonRecipe(sn.clone());
     }
     AdoptTarget::Unresolved(sn.ident.to_string())
 }
@@ -123,7 +123,7 @@ pub enum VariantBaseTarget {
 }
 
 /// Resolve one variant-base name as seen from `from_uri` (the variant's own
-/// file), mirroring [`resolve_capability_name`]'s layer walk but against class
+/// file), mirroring [`resolve_recipe_name`]'s layer walk but against class
 /// symbols: the file's own visibility table first, then the per-world
 /// system-lib component table by name. A name that resolves to a live def of
 /// any other shape is `NonAbstract`, never `Unresolved`, so the
@@ -215,7 +215,7 @@ fn apply_attr_overrides(base: &mut McAttributes, child: &McAttributes) {
     }
 }
 
-// §4.2 / §5 host analysis — capability-adoption consistency & func collisions
+// §4.2 / §5 host analysis — recipe-adoption consistency & func collisions
 //
 // Both consumers of the resolver (the silent link seam and the re-derived-file
 // validation check) need the *consequences* of adoption on a host def, so the
@@ -223,36 +223,36 @@ fn apply_attr_overrides(base: &mut McAttributes, child: &McAttributes) {
 // verdicts to diagnostics. The §4.2 matcher is the first-cut implementation
 // the plan marks as pending golden empirical tuning: presence is exact-name membership on the
 // adopter's declared member surface (`McPins.names_to_id`), and direction
-// compatibility uses the provisional table — a capability `psnk` signal matches
+// compatibility uses the provisional table — a recipe `psnk` signal matches
 // an adopter `in`/`io` rail (power rails parse as `in [..]::DC()`, per the
 // golden), an `in` signal never matches an adopter `out`, and so on. Grouping
 // is NOT flexible here (declared label/member names must line up); cross-group
 // name flexibility is tracked separately (Open D2) and out of P2 scope.
 
-use crate::semantic::capability::McCapability;
+use crate::semantic::recipe::McRecipe;
 use crate::semantic::common::IOType;
 use crate::semantic::component::mc_pins::McPinPort;
 use crate::semantic::mc_inst::McInstance;
 
-/// One capability-declared signal that the adopter does not realize.
+/// One recipe-declared signal that the adopter does not realize.
 #[derive(Debug, Clone)]
 pub struct MissingSignal {
     /// The referenceable form the adopter lacks (e.g. `uart`, `uart.RO`, `VCC`).
     pub form: String,
     /// Concrete fix hint for the diagnostic message (names the declaring
-    /// capability so a multi-capability adopter stays unambiguous).
+    /// recipe so a multi-recipe adopter stays unambiguous).
     pub hint: String,
 }
 
 /// Everything the §4.2/§5 checks need to know about one adopting host.
 #[derive(Debug, Default)]
 pub struct HostAdoptionFindings {
-    /// `::` target names that resolved to a non-capability (`ADOPTS_NON_CAPABILITY`).
-    pub non_capabilities: Vec<String>,
-    /// Func names two adopted capabilities share and the host does not override
+    /// `::` target names that resolved to a non-recipe (`ADOPTS_NON_RECIPE`).
+    pub non_recipes: Vec<String>,
+    /// Func names two adopted recipes share and the host does not override
     /// (`ADOPTED_FUNC_AMBIGUOUS`).
     pub ambiguous_funcs: Vec<String>,
-    /// Capability-declared signals missing on the adopter (`CAPABILITY_SIGNAL_MISSING`).
+    /// Recipe-declared signals missing on the adopter (`RECIPE_SIGNAL_MISSING`).
     pub missing_signals: Vec<MissingSignal>,
 }
 
@@ -267,23 +267,23 @@ pub fn analyze_host_adoption(comp: &McComponent) -> HostAdoptionFindings {
     }
     let from_uri = comp.uri.clone();
 
-    // Resolve each adopt name once; collect capability defs for §4.2 and §5.
-    let mut caps: Vec<(String, std::sync::Arc<McCapability>)> = Vec::new();
+    // Resolve each adopt name once; collect recipe defs for §4.2 and §5.
+    let mut caps: Vec<(String, std::sync::Arc<McRecipe>)> = Vec::new();
     for name in &comp.adopts {
-        match resolve_capability_name(&from_uri, name) {
-            AdoptTarget::Capability(id) => {
-                if let Some((_, crate::db::defregistry::DefValue::Capability(cap))) =
+        match resolve_recipe_name(&from_uri, name) {
+            AdoptTarget::Recipe(id) => {
+                if let Some((_, crate::db::defregistry::DefValue::Recipe(cap))) =
                     crate::db::defregistry::live_entry_by_id(id)
                 {
                     caps.push((name.to_string(), cap));
                 }
             }
-            AdoptTarget::NonCapability(_) => out.non_capabilities.push(name.to_string()),
+            AdoptTarget::NonRecipe(_) => out.non_recipes.push(name.to_string()),
             AdoptTarget::Unresolved(_) => {} // existing unresolved-name path (plan §2.1)
         }
     }
 
-    // §5 — adopted-func ambiguity: a name two capabilities share is ambiguous
+    // §5 — adopted-func ambiguity: a name two recipes share is ambiguous
     // unless the host overrides it with its own func.
     if caps.len() >= 2 {
         let own: std::collections::HashSet<String> =
@@ -302,10 +302,10 @@ pub fn analyze_host_adoption(comp: &McComponent) -> HostAdoptionFindings {
         out.ambiguous_funcs.sort();
     }
 
-    // §4.2 — every declared signal of every adopted capability must be
+    // §4.2 — every declared signal of every adopted recipe must be
     // realizable on the adopter's declared member surface.
     for (_, cap) in &caps {
-        for (form, cap_dir) in capability_signal_forms(&cap) {
+        for (form, cap_dir) in recipe_signal_forms(&cap) {
             match comp.pins.names_to_id.get(&form) {
                 Some(port) => {
                     // Present — direction must be compatible when both sides
@@ -327,7 +327,7 @@ pub fn analyze_host_adoption(comp: &McComponent) -> HostAdoptionFindings {
                     out.missing_signals.push(MissingSignal {
                         form: form.clone(),
                         hint: format!(
-                            "capability '{}' declares it — {}",
+                            "recipe '{}' declares it — {}",
                             cap.name,
                             missing_form_hint(&form)
                         ),
@@ -339,11 +339,11 @@ pub fn analyze_host_adoption(comp: &McComponent) -> HostAdoptionFindings {
     out
 }
 
-/// The declared member/referenceable forms of a capability's signal table:
+/// The declared member/referenceable forms of a recipe's signal table:
 /// scalars as their name, curly buses as the bus label plus one dotted form
 /// per member (`uart`, `uart.RO`, `uart.DI`). Square-only vectors register
 /// under an anonymous `@N` key and are skipped (nothing referenceable).
-fn capability_signal_forms(cap: &McCapability) -> Vec<(String, IOType)> {
+fn recipe_signal_forms(cap: &McRecipe) -> Vec<(String, IOType)> {
     let mut forms = Vec::new();
     for (key, (io, inst)) in cap.signals.insts() {
         if key.starts_with('@') {
@@ -388,7 +388,7 @@ fn pin_dir(
 }
 
 /// Provisional §4.2 direction-compatibility table (plan §4.2 — tuned by golden).
-/// A capability `psnk` signal is satisfied by an adopter `in`/`io` rail: library
+/// A recipe `psnk` signal is satisfied by an adopter `in`/`io` rail: library
 /// power pins are declared `in [..]::DC()` (probe-confirmed), and the doc's
 /// row `psnk ↔ in/io*` marks exactly that case. Every other pair is strict.
 fn dir_compatible(cap: &IOType, adopt: &IOType) -> bool {
@@ -416,7 +416,7 @@ fn io_label(io: &IOType) -> &'static str {
 
 fn dir_conflict_hint(cap_name: &str, cap_dir: &IOType, adopt_dir: &IOType) -> String {
     format!(
-        "capability '{}' declares it {} but the component member is {}; \
+        "recipe '{}' declares it {} but the component member is {}; \
          declare a compatible direction (in/out/io, or psrc/psnk/psbi for a power rail)",
         cap_name,
         io_label(cap_dir),

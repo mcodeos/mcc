@@ -34,7 +34,7 @@ use crate::query::lookup::ContainerRef;
 use crate::semantic::basic::mc_bus::McBus;
 use crate::semantic::basic::mc_ids::McIds;
 use crate::semantic::basic::mc_paramd::McParamDeclares;
-use crate::semantic::capability::McCapability;
+use crate::semantic::recipe::McRecipe;
 use crate::semantic::common::IOType;
 use crate::semantic::component::mc_attr::McAttributes;
 use crate::semantic::component::mc_pins::{McPinPort, McPins};
@@ -572,10 +572,10 @@ pub fn module_scope<'a>(m: &'a McModule) -> ScopeChain<'a, Resolved> {
     ])
 }
 
-/// Capability category chain (① ports → ② labels → ③ non-port insts →
-/// ④ funcs). A capability's body scope is exactly its declared signals
+/// Recipe category chain (① ports → ② labels → ③ non-port insts →
+/// ④ funcs). A recipe's body scope is exactly its declared signals
 /// (module-port family) plus its role funcs; no params (grammar has none).
-pub fn capability_scope<'a>(c: &'a McCapability) -> ScopeChain<'a, Resolved> {
+pub fn recipe_scope<'a>(c: &'a McRecipe) -> ScopeChain<'a, Resolved> {
     ScopeChain::new(vec![
         Box::new(PortsScope::new(&c.signals)),
         Box::new(LabelsScope::new(&c.signals)),

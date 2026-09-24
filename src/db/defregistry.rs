@@ -57,7 +57,7 @@
 
 use crate::db::cmie::tables as workspace;
 use crate::db::defmember::{DefMemberId, MemberLedger};
-use crate::semantic::capability::McCapability;
+use crate::semantic::recipe::McRecipe;
 use crate::semantic::common::UriId;
 use crate::semantic::component::McComponent;
 use crate::semantic::mc_enum::McEnumDef;
@@ -86,7 +86,7 @@ pub enum LoadDomain {
 }
 
 /// The seven definition kinds: the AST top-level class templates (component,
-/// module, interface, enum, define — design §13.2), the capability container
+/// module, interface, enum, define — design §13.2), the recipe container
 /// (abstract-variant-capability-plan §3; not a class kind — never in the
 /// system name index), plus the function-template addressing entries
 /// (design §12.1 / §13.6 delta 1).
@@ -98,7 +98,7 @@ pub enum DefKind {
     Module,
     Interface,
     Enum,
-    Capability,
+    Recipe,
     Func,
 }
 
@@ -116,23 +116,22 @@ impl DefKind {
             DefKind::Module => "module",
             DefKind::Interface => "interface",
             DefKind::Enum => "enum",
-            DefKind::Capability => "capability",
+            DefKind::Recipe => "recipe",
             DefKind::Func => "func",
         }
     }
 
     /// The kind's plural word, for a count line or a group label.
     ///
-    /// Spelled per variant rather than by appending an `s`: two of the seven
-    /// pluralise irregularly (`capability` → `capabilities`) and one ends in
-    /// `s` already, so a suffix rule would print `capabilitys`.
+    /// Spelled per variant rather than by appending an `s`, so the table
+    /// stays correct per kind even if a future kind pluralises irregularly.
     pub fn group(self) -> &'static str {
         match self {
             DefKind::Component => "components",
             DefKind::Module => "modules",
             DefKind::Interface => "interfaces",
             DefKind::Enum => "enums",
-            DefKind::Capability => "capabilities",
+            DefKind::Recipe => "recipes",
             DefKind::Func => "funcs",
         }
     }
@@ -153,7 +152,7 @@ pub const DEF_KIND_ORDER: [DefKind; 5] = [
     DefKind::Component,
     DefKind::Interface,
     DefKind::Enum,
-    DefKind::Capability,
+    DefKind::Recipe,
 ];
 
 /// A function template's addressing entry (design §12.1 / §13.6 delta 1).
@@ -181,7 +180,7 @@ pub struct FuncDef {
 
 /// One member of a host def's *effective* method set (abstract-variant-capability
 /// plan §5): a func reachable on instances of an adopting component. A func is
-/// either declared on the host itself or adopted from one of the capabilities
+/// either declared on the host itself or adopted from one of the recipes
 /// the host `::`-adopts. The effective set is cached at link time by
 /// [`RegistryState::sync_derivation_edges`] (own funcs first, then adopted
 /// funcs in adopt order) so dispatch stays a zero-recursion lookup (§5, §8.2);
@@ -198,23 +197,23 @@ pub struct EffFunc {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EffFuncSource {
     /// Declared on the host def itself. Always outranks an adopted same-name
-    /// func (self-override, §5), so a capability func sharing a host func name
+    /// func (self-override, §5), so a recipe func sharing a host func name
     /// never enters the set.
     Own,
-    /// Adopted from this capability def (`::`), carrying the capability's
+    /// Adopted from this recipe def (`::`), carrying the recipe's
     /// [`DefId`].
-    Capability(DefId),
+    Recipe(DefId),
 }
 
 /// Tagged definition value: one [`insert`] writes any of the definition
-/// kinds (Component / Module / Interface / Enum / Capability / Func).
+/// kinds (Component / Module / Interface / Enum / Recipe / Func).
 #[derive(Clone)]
 pub enum DefValue {
     Component(Arc<McComponent>),
     Module(Arc<McModule>),
     Interface(Arc<McInterface>),
     Enum(Arc<McEnumDef>),
-    Capability(Arc<McCapability>),
+    Recipe(Arc<McRecipe>),
     Func(FuncDef),
 }
 
@@ -225,7 +224,7 @@ impl DefValue {
             DefValue::Module(_) => DefKind::Module,
             DefValue::Interface(_) => DefKind::Interface,
             DefValue::Enum(_) => DefKind::Enum,
-            DefValue::Capability(_) => DefKind::Capability,
+            DefValue::Recipe(_) => DefKind::Recipe,
             DefValue::Func(_) => DefKind::Func,
         }
     }
@@ -342,7 +341,7 @@ pub(crate) struct RegistryState {
     /// func members).
     host_funcs: DashMap<(DefId, String), DefId>,
     /// P2 (abstract-variant-capability plan §4.1/§8.1): host component def →
-    /// the [`DefId`]s of the capability defs it `::`-adopts, in declaration
+    /// the [`DefId`]s of the recipe defs it `::`-adopts, in declaration
     /// order. A *derived* relation — the declaration itself lives on the
     /// component def's `adopts` list — so it is rebuilt from the live defs by
     /// [`RegistryState::sync_derivation_edges`] on every load round and is
@@ -352,9 +351,9 @@ pub(crate) struct RegistryState {
     /// is a live scan over this ledger.
     adopts: DashMap<DefId, Vec<DefId>>,
     /// P2 (§5/§8.2): a host component def's cached effective method set — own
-    /// funcs, then each adopted capability's funcs in adopt order (a func the
-    /// host overrides never appears from the capability; a name two adopted
-    /// capabilities share is omitted — the caller reports
+    /// funcs, then each adopted recipe's funcs in adopt order (a func the
+    /// host overrides never appears from the recipe; a name two adopted
+    /// recipes share is omitted — the caller reports
     /// `ADOPTED_FUNC_AMBIGUOUS`). Sibling of `adopts`: rebuilt by
     /// [`RegistryState::sync_derivation_edges`], not checkpoint-serialized.
     effective_funcs: DashMap<DefId, Vec<EffFunc>>,
@@ -432,9 +431,9 @@ fn kind_priority(kind: DefKind) -> u8 {
         DefKind::Module => 1,
         DefKind::Interface => 2,
         DefKind::Enum => 3,
-        // Capability never enters the name index (not a class kind) — kept for
+        // Recipe never enters the name index (not a class kind) — kept for
         // exhaustive matches only.
-        DefKind::Capability => 5,
+        DefKind::Recipe => 5,
         DefKind::Func => 6,
     }
 }
@@ -467,7 +466,7 @@ impl RegistryState {
             Some(host_id) => {
                 if matches!(
                     kind,
-                    DefKind::Component | DefKind::Module | DefKind::Capability
+                    DefKind::Component | DefKind::Module | DefKind::Recipe
                 ) {
                     self.register_host_funcs(sn, host_id, def, domain);
                 }
@@ -576,7 +575,7 @@ impl RegistryState {
         );
         self.uri_index.entry(sn.uri).or_default().push(id);
         if matches!(domain, LoadDomain::SystemLib(_))
-            && !matches!(kind, DefKind::Func | DefKind::Capability)
+            && !matches!(kind, DefKind::Func | DefKind::Recipe)
         {
             self.system_index_add(&name, kind, id);
         }
@@ -715,7 +714,7 @@ impl RegistryState {
                     self.register_func_member(sn, host_id, &f.name.to_string(), domain);
                 }
             }
-            DefValue::Capability(cap) => {
+            DefValue::Recipe(cap) => {
                 for f in cap.funcs.iter() {
                     self.register_func_member(sn, host_id, &f.name.to_string(), domain);
                 }
@@ -852,7 +851,7 @@ impl RegistryState {
             .filter(|e| {
                 matches!(
                     e.kind,
-                    DefKind::Component | DefKind::Module | DefKind::Capability
+                    DefKind::Component | DefKind::Module | DefKind::Recipe
                 ) && filter_matches(&e.domain, scope)
                     && e.data.is_none()
             })
@@ -1073,7 +1072,7 @@ impl RegistryState {
                 continue;
             };
             match &e.def {
-                DefValue::Component(_) | DefValue::Module(_) | DefValue::Capability(_) => {
+                DefValue::Component(_) | DefValue::Module(_) | DefValue::Recipe(_) => {
                     self.register_host_funcs(&e.sn, host_id, &e.def, &e.domain);
                 }
                 _ => {}
@@ -1095,7 +1094,7 @@ impl RegistryState {
         modules: &DashMap<McSpaceName, Arc<McModule>>,
         interfaces: &DashMap<McSpaceName, Arc<McInterface>>,
         enums: &DashMap<McSpaceName, Arc<McEnumDef>>,
-        capabilities: &DashMap<McSpaceName, Arc<McCapability>>,
+        recipes: &DashMap<McSpaceName, Arc<McRecipe>>,
     ) {
         for e in components.iter() {
             if let Some(host_id) = self.register(
@@ -1143,17 +1142,17 @@ impl RegistryState {
                 &DefValue::Enum(e.value().clone()),
             );
         }
-        for e in capabilities.iter() {
+        for e in recipes.iter() {
             if let Some(host_id) = self.register(
                 e.key(),
-                DefKind::Capability,
+                DefKind::Recipe,
                 &LoadDomain::Project,
-                &DefValue::Capability(e.value().clone()),
+                &DefValue::Recipe(e.value().clone()),
             ) {
                 self.register_host_funcs(
                     e.key(),
                     host_id,
-                    &DefValue::Capability(e.value().clone()),
+                    &DefValue::Recipe(e.value().clone()),
                     &LoadDomain::Project,
                 );
             }
@@ -1198,7 +1197,7 @@ impl RegistryState {
         was_live_system: bool,
         now_domain: &LoadDomain,
     ) {
-        if matches!(kind, DefKind::Func | DefKind::Capability) {
+        if matches!(kind, DefKind::Func | DefKind::Recipe) {
             return;
         }
         let now_system = matches!(now_domain, LoadDomain::SystemLib(_));
@@ -1472,10 +1471,10 @@ impl RegistryState {
         }
     }
 
-    /// Look up a capability by its `McSpaceName` (any domain).
-    pub(crate) fn get_capability(&self, sn: &McSpaceName) -> Option<Arc<McCapability>> {
-        match self.live_entry(sn, DefKind::Capability)? {
-            DefValue::Capability(c) => Some(c),
+    /// Look up a recipe by its `McSpaceName` (any domain).
+    pub(crate) fn get_recipe(&self, sn: &McSpaceName) -> Option<Arc<McRecipe>> {
+        match self.live_entry(sn, DefKind::Recipe)? {
+            DefValue::Recipe(c) => Some(c),
             _ => None,
         }
     }
@@ -1556,11 +1555,11 @@ impl RegistryState {
         }
     }
 
-    /// Look up a capability by its `McSpaceName` in the project (workspace)
+    /// Look up a recipe by its `McSpaceName` in the project (workspace)
     /// domain.
-    pub(crate) fn get_workspace_capability(&self, sn: &McSpaceName) -> Option<Arc<McCapability>> {
-        match self.live_entry_in(sn, DefKind::Capability, DomainFilter::Project)? {
-            DefValue::Capability(c) => Some(c),
+    pub(crate) fn get_workspace_recipe(&self, sn: &McSpaceName) -> Option<Arc<McRecipe>> {
+        match self.live_entry_in(sn, DefKind::Recipe, DomainFilter::Project)? {
+            DefValue::Recipe(c) => Some(c),
             _ => None,
         }
     }
@@ -1586,7 +1585,7 @@ impl RegistryState {
             .iter()
             .filter(|e| {
                 e.data.is_some()
-                    && !matches!(e.kind, DefKind::Func | DefKind::Capability)
+                    && !matches!(e.kind, DefKind::Func | DefKind::Recipe)
                     && matches!(e.domain, LoadDomain::SystemLib(_))
                     && crate::semantic::basic::equivalent::are_equivalent(&e.sn.ident, &query)
             })
@@ -1712,7 +1711,7 @@ impl RegistryState {
     }
 }
 
-// P2 — capability adoption (`::`): declaration-relation ledgers (§8.1/§8.2)
+// P2 — recipe adoption (`::`): declaration-relation ledgers (§8.1/§8.2)
 //
 // `adopts` and `effective_funcs` are *derived* relations of the live defs
 // (the declarations live on each component def's own `adopts` list), so they
@@ -1720,7 +1719,7 @@ impl RegistryState {
 // and never serialized — a full reload re-derives them exactly like
 // `member_ledgers`/`host_funcs`, and incremental re-derives refresh them at
 // the same seam that re-registers the def. Reads are plain DashMap lookups;
-// reverse queries (adopters of a capability, the effective method set of a
+// reverse queries (adopters of a recipe, the effective method set of a
 // host) are live scans over the same ledgers.
 
 impl RegistryState {
@@ -1729,7 +1728,7 @@ impl RegistryState {
     /// component defs. See the free [`sync_derivation_edges`] wrapper for the
     /// load-round contract (call site, idempotence, diagnostic split).
     pub(crate) fn sync_derivation_edges(&self) {
-        use crate::db::adoption::{resolve_capability_name, AdoptTarget};
+        use crate::db::adoption::{resolve_recipe_name, AdoptTarget};
         self.adopts.clear();
         self.effective_funcs.clear();
         self.variant_of.clear();
@@ -1763,7 +1762,7 @@ impl RegistryState {
             let from_uri = crate::McURI::from(sn.uri_string().as_ref());
             let mut cap_ids: Vec<DefId> = Vec::with_capacity(comp.adopts.len());
             for name in &comp.adopts {
-                if let AdoptTarget::Capability(id) = resolve_capability_name(&from_uri, name) {
+                if let AdoptTarget::Recipe(id) = resolve_recipe_name(&from_uri, name) {
                     cap_ids.push(id);
                 }
             }
@@ -1774,10 +1773,10 @@ impl RegistryState {
                 continue;
             }
             self.adopts.insert(host_id, cap_ids.clone());
-            let caps: Vec<Arc<McCapability>> = cap_ids
+            let caps: Vec<Arc<McRecipe>> = cap_ids
                 .iter()
                 .filter_map(|&id| match self.live_entry_by_id(id) {
-                    Some((_, DefValue::Capability(c))) => Some(c),
+                    Some((_, DefValue::Recipe(c))) => Some(c),
                     _ => None,
                 })
                 .collect();
@@ -1857,7 +1856,7 @@ impl RegistryState {
         self.mutated.store(true, Ordering::Relaxed);
         if matches!(
             kind,
-            DefKind::Component | DefKind::Module | DefKind::Capability
+            DefKind::Component | DefKind::Module | DefKind::Recipe
         ) {
             self.register_host_funcs(sn, id, def, &domain);
         }
@@ -1885,16 +1884,16 @@ impl RegistryState {
     }
 
     /// The effective method set of one host (abstract-variant-capability plan
-    /// §5): own funcs first, then each adopted capability's funcs in adopt
+    /// §5): own funcs first, then each adopted recipe's funcs in adopt
     /// order — a name the host overrides never comes through from a
-    /// capability, and a name two capabilities share is omitted (ambiguous;
+    /// recipe, and a name two recipes share is omitted (ambiguous;
     /// the adopter is reported `ADOPTED_FUNC_AMBIGUOUS` and must add an
     /// override before a call resolves).
     fn build_effective_funcs(
         &self,
         host: &McComponent,
         cap_ids: &[DefId],
-        caps: &[Arc<McCapability>],
+        caps: &[Arc<McRecipe>],
     ) -> Vec<EffFunc> {
         let mut eff: Vec<EffFunc> = Vec::new();
         for f in host.funcs.iter() {
@@ -1906,7 +1905,7 @@ impl RegistryState {
         let own: std::collections::HashSet<String> =
             host.funcs.iter().map(|f| f.name.to_string()).collect();
         // First pass: per adopted func name, the adopt index that first claims
-        // it (declaration order) and the names two capabilities share.
+        // it (declaration order) and the names two recipes share.
         let mut first_cap: std::collections::HashMap<String, usize> =
             std::collections::HashMap::new();
         let mut collided: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -1932,7 +1931,7 @@ impl RegistryState {
                 if first_cap.get(&nm) == Some(&i) {
                     eff.push(EffFunc {
                         name: nm,
-                        source: EffFuncSource::Capability(cap_ids[i]),
+                        source: EffFuncSource::Recipe(cap_ids[i]),
                     });
                 }
             }
@@ -1940,15 +1939,15 @@ impl RegistryState {
         eff
     }
 
-    /// The capability defs a host adopts, in declaration order (P2 §4.1/§8.1).
-    fn adopted_capabilities_of(&self, host_id: DefId) -> Vec<DefId> {
+    /// The recipe defs a host adopts, in declaration order (P2 §4.1/§8.1).
+    fn adopted_recipes_of(&self, host_id: DefId) -> Vec<DefId> {
         self.adopts
             .get(&host_id)
             .map(|v| v.clone())
             .unwrap_or_default()
     }
 
-    /// Every live host def that adopts `cap_id` (§8.3 `adopters(capability)`
+    /// Every live host def that adopts `cap_id` (§8.3 `adopters(recipe)`
     /// — reverse of `adopts`; a live scan, like `member_ledgers` reverse
     /// reads).
     fn adopters_of(&self, cap_id: DefId) -> Vec<DefId> {
@@ -1970,9 +1969,9 @@ impl RegistryState {
     }
 
     /// One effective method by name on a live host def (abstract-variant-
-    /// capability plan §5): the [`McFunction`] resolves on the def that owns
-    /// it — the host for an `Own` entry, the adopted capability def for a
-    /// `Capability` entry. `None` when the host has no such func, own or
+    /// recipe plan §5): the [`McFunction`] resolves on the def that owns
+    /// it — the host for an `Own` entry, the adopted recipe def for a
+    /// `Recipe` entry. `None` when the host has no such func, own or
     /// adopted — the caller keeps its existing no-method path.
     fn effective_method_of(
         &self,
@@ -1987,12 +1986,12 @@ impl RegistryState {
             .find(|e| e.name == name)?;
         let owner_id = match eff.source {
             EffFuncSource::Own => host_id,
-            EffFuncSource::Capability(id) => id,
+            EffFuncSource::Recipe(id) => id,
         };
         let (_, def) = self.live_entry_by_id(owner_id)?;
         match def {
             DefValue::Component(c) => c.funcs.find(&eff.name).cloned(),
-            DefValue::Capability(c) => c.funcs.find(&eff.name).cloned(),
+            DefValue::Recipe(c) => c.funcs.find(&eff.name).cloned(),
             _ => None,
         }
     }
@@ -2175,8 +2174,8 @@ fn declaration_lines(def: &DefValue) -> Vec<String> {
         DefValue::Func(f) => {
             lines.push(format!("func-entry {} {}", f.host, f.name));
         }
-        DefValue::Capability(c) => {
-            lines.push(format!("def capability {} {}", c.name, c.uri));
+        DefValue::Recipe(c) => {
+            lines.push(format!("def recipe {} {}", c.name, c.uri));
             push_func_lines(&c.funcs, &mut lines);
             push_inst_lines(&c.signals, &mut lines);
         }
@@ -2207,7 +2206,7 @@ pub fn remove_by_uri(uri: &str) {
     remove_by_uri_from(&workspace::WORKSPACE.modules, uri);
     remove_by_uri_from(&workspace::WORKSPACE.interfaces, uri);
     remove_by_uri_from(&workspace::WORKSPACE.enums, uri);
-    remove_by_uri_from(&workspace::WORKSPACE.capabilities, uri);
+    remove_by_uri_from(&workspace::WORKSPACE.recipes, uri);
 }
 
 /// Capture a versioned snapshot of the whole registry — every registered
@@ -2250,14 +2249,14 @@ pub fn cluster_of(abstract_id: DefId) -> Vec<DefId> {
     active().cluster_of(abstract_id)
 }
 
-/// P2 §8.1/§8.3 `adopted_capabilities_of(host_id)`: the capability defs one
+/// P2 §8.1/§8.3 `adopted_recipes_of(host_id)`: the recipe defs one
 /// component adopts, in declaration order.
-pub fn adopted_capabilities_of(host_id: DefId) -> Vec<DefId> {
-    active().adopted_capabilities_of(host_id)
+pub fn adopted_recipes_of(host_id: DefId) -> Vec<DefId> {
+    active().adopted_recipes_of(host_id)
 }
 
 /// P2 §8.3 `adopters_of(cap_id)`: every live host def that adopts the
-/// capability — the reverse of `adopts`, a live scan.
+/// recipe — the reverse of `adopts`, a live scan.
 pub fn adopters_of(cap_id: DefId) -> Vec<DefId> {
     active().adopters_of(cap_id)
 }
@@ -2276,7 +2275,7 @@ pub(crate) fn sync_derivation_edges() {
 
 /// §5 effective method resolution on a live component def: the host's own
 /// func wins (self-override), otherwise the func comes from an adopted
-/// capability (declaration order; an ambiguous shared name is excluded by the
+/// recipe (declaration order; an ambiguous shared name is excluded by the
 /// ledger until the host overrides it). Fast path: a def with no `adopts`
 /// resolves purely from its own funcs — no registry round-trip.
 pub(crate) fn effective_method(
@@ -2433,13 +2432,13 @@ pub(crate) fn peel_enums(
         .collect()
 }
 
-pub(crate) fn peel_capabilities(
+pub(crate) fn peel_recipes(
     items: Vec<(McSpaceName, DefValue)>,
-) -> Vec<(McSpaceName, Arc<McCapability>)> {
+) -> Vec<(McSpaceName, Arc<McRecipe>)> {
     items
         .into_iter()
         .filter_map(|(sn, d)| match d {
-            DefValue::Capability(c) => Some((sn, c)),
+            DefValue::Recipe(c) => Some((sn, c)),
             _ => None,
         })
         .collect()
@@ -2673,8 +2672,8 @@ fn write_physical(
         DefValue::Enum(def) => {
             insert_one(&ws.enums, sn.clone(), def);
         }
-        DefValue::Capability(def) => {
-            insert_one(&ws.capabilities, sn.clone(), def);
+        DefValue::Recipe(def) => {
+            insert_one(&ws.recipes, sn.clone(), def);
         }
         // Func entries are registry-only addressing metadata (design §12.1):
         // the host def holds the actual McFunction, so there is no physical
@@ -2718,7 +2717,7 @@ impl workspace::WorkspaceManager {
         remove_by_uri_from(&self.modules, uri);
         remove_by_uri_from(&self.interfaces, uri);
         remove_by_uri_from(&self.enums, uri);
-        remove_by_uri_from(&self.capabilities, uri);
+        remove_by_uri_from(&self.recipes, uri);
     }
 
     /// Remove every system-domain definition whose defining file is one of
@@ -2731,7 +2730,7 @@ impl workspace::WorkspaceManager {
         remove_by_uris_from(&self.modules, uris);
         remove_by_uris_from(&self.interfaces, uris);
         remove_by_uris_from(&self.enums, uris);
-        remove_by_uris_from(&self.capabilities, uris);
+        remove_by_uris_from(&self.recipes, uris);
     }
 }
 
@@ -2821,11 +2820,11 @@ mod tests {
         }))
     }
 
-    /// T12 (§2.5 member-boundary audit) + capability (abstract-variant-
-    /// capability-plan P1): the registry identity set is exactly the six
+    /// T12 (§2.5 member-boundary audit) + recipe (abstract-variant-
+    /// recipe-plan P1): the registry identity set is exactly the six
     /// definition kinds — the four class templates (component, module,
     /// interface, enum; the define template retired with the `define`
-    /// keyword in b3953, U267③), the capability container, and the func
+    /// keyword in b3953, U267③), the recipe container, and the func
     /// addressing entries. Labels and bus members are declaration structure
     /// plus symbol-layer naming, never registry entries, so a seventh variant
     /// here (or a removal) is a member-boundary drift and must fail loudly
@@ -2841,11 +2840,11 @@ mod tests {
             DefKind::Module => "module",
             DefKind::Interface => "interface",
             DefKind::Enum => "enum",
-            DefKind::Capability => "capability",
+            DefKind::Recipe => "recipe",
             DefKind::Func => "func",
         };
         assert_eq!(tag(DefKind::Func), "func");
-        assert_eq!(tag(DefKind::Capability), "capability");
+        assert_eq!(tag(DefKind::Recipe), "recipe");
     }
 
     /// T1 (G1 / D15.1): [`DefId`] allocation is a pure function of the

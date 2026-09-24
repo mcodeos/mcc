@@ -3132,7 +3132,7 @@ impl InstantiationBuilder {
                         let func_name_str = fc.func_name.to_string();
 
                         // Component instance method (§5 effective method set:
-                        // own func, else adopted-capability func).
+                        // own func, else adopted-recipe func).
                         let comp_func = self.find_component(&inst_name).and_then(|c| {
                             crate::db::defregistry::effective_method(&c.def, &func_name_str)
                         });

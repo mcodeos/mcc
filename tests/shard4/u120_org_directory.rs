@@ -34,7 +34,7 @@ use mcc::{DefKind, UnitKind};
 use serde_json::Value;
 
 const SOURCE: &str = r#"
-capability FILTER
+recipe FILTER
 {
     func smooth()
     {
@@ -42,7 +42,7 @@ capability FILTER
     }
 }
 
-capability LIMIT
+recipe LIMIT
 {
     func clamp()
     {
@@ -165,7 +165,7 @@ const CLASS_WORDS: [&str; 8] = [
     "component",
     "interface",
     "enum",
-    "capability",
+    "recipe",
     "func",
     "bus",
     "clause",
@@ -513,7 +513,7 @@ fn u120__one_func_name_in_two_hosts_yields_two_rows() {
     // func are told apart by the row and not only by its key.
     assert_eq!(by_key(&funcs, "AMP.reset")["host_kind"], "component");
     assert_eq!(by_key(&funcs, "main.drive")["host_kind"], "module");
-    assert_eq!(by_key(&funcs, "FILTER.smooth")["host_kind"], "capability");
+    assert_eq!(by_key(&funcs, "FILTER.smooth")["host_kind"], "recipe");
 }
 
 #[test]
@@ -616,7 +616,7 @@ fn u120__counts_name_the_eight_classes_and_no_diagnostic_word() {
         "components",
         "interfaces",
         "enums",
-        "capabilities",
+        "recipes",
         "funcs",
         "buses",
         "clauses",
