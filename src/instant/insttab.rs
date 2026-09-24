@@ -395,6 +395,18 @@ pub(crate) fn expectations_of_pin(
 /// so the flat rule never re-derives adoption from a pin shape or a name and
 /// the two readers cannot drift. `None` = the pin adopts no interface — a
 /// real answer, not a missing one: the gate says nothing about the pin.
+/// The direction shape a role's own pins declare (U112 ②): every member pin
+/// `in` → the lane is a **sink** (a consumer of its family's line), every
+/// member pin `out` → a **source**. Anything else — a mixed role (a DCE
+/// declares `out` TX beside `in` RX), an `inout` member, or a role with no
+/// direction words at all (the passive-leaf law keeps XTAL's roles bare) —
+/// reads `None`: no chain gate may judge it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LaneDir {
+    Source,
+    Sink,
+}
+
 #[derive(Debug, Clone)]
 pub struct IfaceLane {
     /// Interface family name — the definition's own name (`XTAL`, not the
@@ -415,6 +427,10 @@ pub struct IfaceLane {
     /// declared body — the author groups one body's terminals on one row, so
     /// two crystals on one part are two lanes (`XTAL_A::` / `XTAL_B::`).
     pub lane: String,
+    /// The role's declared pin-direction shape ([`LaneDir`]), decoded from
+    /// the role's own pins — the trigger of the chain-reach gate (U112 ②),
+    /// never a family or role name. `None` = no declared shape, never judged.
+    pub direction: Option<LaneDir>,
 }
 
 /// U217: which positional member of an AC mains face this endpoint is. The
@@ -499,6 +515,9 @@ pub(crate) fn iface_lane_of_pin(
     }
     let port = comp.def.pins.names_to_id.get(port_name)?;
     let crate::semantic::component::mc_pins::McPinPort::Interface(iface) = port else {
+        if std::env::var("MCC_CHAIN_DEBUG").is_ok() {
+            eprintln!("[lane] pin {pin_name} port {port_name:?} not an interface");
+        }
         return None;
     };
     let role = iface.params.iter().find_map(|p| match p {
@@ -533,13 +552,36 @@ pub(crate) fn iface_lane_of_pin(
     };
     let peer_role = first_values("peer").into_iter().next();
     let exclusive = first_values("exclusive").iter().any(|v| v == "true");
+    let direction = role_def.and_then(|r| lane_dir_of_pins(&r.pins));
     Some(IfaceLane {
         family: iface.base.name.to_string(),
         role,
         peer_role,
         exclusive,
         lane: port_name.to_string(),
+        direction,
     })
+}
+
+/// The direction shape a role's pins declare ([`LaneDir`]): all members `in`
+/// → sink, all `out` → source, anything mixed or direction-less → `None`.
+/// The same slots the U208 direction bridge reads
+/// ([`crate::semantic::component::mc_pins::McPins::member_directions`]) when
+/// it rides a member direction down to the adopting pin.
+fn lane_dir_of_pins(pins: &crate::semantic::component::mc_pins::McPins) -> Option<LaneDir> {
+    let mut dir: Option<LaneDir> = None;
+    for slot in pins.member_directions() {
+        let next = match slot {
+            Some(crate::semantic::common::IOType::In) => LaneDir::Sink,
+            Some(crate::semantic::common::IOType::Out) => LaneDir::Source,
+            _ => return None,
+        };
+        match dir {
+            Some(prev) if prev != next => return None,
+            _ => dir = Some(next),
+        }
+    }
+    dir
 }
 
 /// U217: the AC mains face a component pin's adoption row declares
