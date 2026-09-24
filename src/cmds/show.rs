@@ -86,6 +86,7 @@ fn run_local(args: &ShowArgs) -> Result<()> {
         ShowTarget::OrgUnits => show_org_units(args),
         ShowTarget::Diagnostics => show_diagnostics(loaded.as_deref()),
         ShowTarget::Netlist => show_netlist(loaded.as_deref()),
+        ShowTarget::Project => show_project(loaded.as_deref()),
 
         // drill-down
         ShowTarget::Pins => drill_pins(require_name(args), args),
@@ -1644,6 +1645,57 @@ fn show_netlist(loaded: Option<&str>) -> Result<()> {
         return write_stage_text(&mcc::stages::netlistview::render_netlist_text(&view));
     }
     emit_stage_envelope(&view, "mcc show netlist")
+}
+
+/// The `project-model` read face (projection-schema-design.md §2.1; CIMP §1
+/// U280): the hierarchical module/instance tree as one projection envelope.
+///
+/// The read is the full-fidelity flat build ([`mcc::mcb_pass2_flat_with`]) —
+/// the same workspace-grounded one-read the `netlist` face uses, kept whole
+/// instead of flattened away, because this view *is* the hierarchy. One
+/// builder ([`mcc::stages::projmodel::project_model_view`]) feeds both faces;
+/// law C holds as on the other views: the exit code stays 0 whatever the
+/// items hold.
+fn show_project(loaded: Option<&str>) -> Result<()> {
+    let Some(uri) = loaded else {
+        return Ok(());
+    };
+    // The top resolves the way every read face resolves it (`read::load`): an
+    // explicit `--top`, else the workspace's first module — a per-file module
+    // lookup here would pick by intern order and split the faces.
+    let top = mcc::cli::globals()
+        .top
+        .clone()
+        .or_else(mcc::mcb_get_first_module_name)
+        .or_else(|| {
+            loaded.and_then(|uri| mcc::mcb_get_module_name_by_uri(&mcc::McURI::from(uri)))
+        })
+        .unwrap_or_else(|| "main".to_string());
+    let entry = mcc::McSpaceName {
+        ident: mcc::McIds::from(top.as_str()),
+        uri: mcc::uri_intern(uri),
+    };
+    // A flattening that did not happen leaves nothing to read — fail loudly
+    // rather than print an empty reading and say nothing (the U93 split).
+    let (tree, table, arena, store, diags) = match mcc::mcb_pass2_flat_with(&entry, 1, None) {
+        Ok(parts) => parts,
+        Err(e) => die!("mcc::show", 1, "project: flat pass2 failed: {e}"),
+    };
+    let loaded = mcc::stages::read::Loaded::new(tree, table, arena, store, &top, diags.len());
+    let view = mcc::stages::projmodel::project_model_view(&loaded);
+
+    if matches!(
+        mcc::cli::globals().format,
+        OutputFormat::Text | OutputFormat::Csv
+    ) {
+        // CSV falls back to the text face for the same reason `show stage`
+        // does: a fixed-width readout is not CSV-safe (a path may contain a
+        // comma), so a real CSV face would be a decision of its own.
+        return write_stage_text(&mcc::stages::projmodel::render_project_model_text(
+            &view,
+        ));
+    }
+    emit_stage_envelope(&view, "mcc show project")
 }
 
 /// Write the stage text face to `--output` or stdout, the same way

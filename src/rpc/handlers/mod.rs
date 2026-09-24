@@ -2832,6 +2832,10 @@ pub static METHODS: &[MethodMeta] = &[
         consumer: "cli",
     },
     MethodMeta {
+        name: "show.project",
+        consumer: "cli",
+    },
+    MethodMeta {
         name: "show.nets",
         consumer: "cli",
     },
@@ -3113,6 +3117,7 @@ pub fn register_all(
     builder = builder.register_method("show.org-units", handle_show_org_units);
     builder = builder.register_method("show.diagnostics", handle_show_diagnostics);
     builder = builder.register_method("show.netlist", handle_show_netlist);
+    builder = builder.register_method("show.project", handle_show_project);
     builder = builder.register_method("show.file", handle_show_file);
     builder = builder.register_method("show.files", handle_show_files);
     builder = builder.register_method("show.enum", handle_show_enum);

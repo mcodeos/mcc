@@ -36,6 +36,7 @@ pub mod diagview;
 pub mod join;
 pub mod netlistview;
 pub mod p2;
+pub mod projmodel;
 pub mod payload;
 pub mod read;
 pub mod stage_diff;
@@ -126,8 +127,9 @@ pub const ORG_UNITS_VIEW: &str = "org-units";
 /// one place. The vocabulary ruling (b3907, CIMP U280) makes the six words of
 /// `schema/projection.cddl`'s `view-name` the canonical read projections; a
 /// face may publish one only once its serde payload group has landed — the
-/// carried words so far are `diagnostics` ([`diagview`]) and `netlist`
-/// ([`netlistview`]), the other four are still v1 reservations, and
+/// carried words so far are `diagnostics` ([`diagview`]), `netlist`
+/// ([`netlistview`]) and `project-model` ([`projmodel`]), the other three
+/// are still v1 reservations, and
 /// publishing one of those would be impersonating a projection that does not
 /// exist. The lock `tests/shard7/view_vocabulary.rs` reads the canonical
 /// words from the CDDL, holds every published word that equals a canonical
@@ -147,6 +149,7 @@ pub fn published_views() -> Vec<&'static str> {
         ORG_UNITS_VIEW,
         diagview::DIAGNOSTICS_VIEW,
         netlistview::NETLIST_VIEW,
+        projmodel::PROJECT_MODEL_VIEW,
         stage_diff::DIFF_P2_VIEW,
         stage_diff::DIFF_VEC_VIEW,
         stage_diff::DIFF_VIZ_VIEW,

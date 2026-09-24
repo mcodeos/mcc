@@ -1,0 +1,258 @@
+{
+  "defaults": {
+    "counts": {
+      "nodes": 3,
+      "ports": 5
+    },
+    "items": [
+      {
+        "children": [
+          {
+            "def": {
+              "kind": "component",
+              "name": "R",
+              "span": 1,
+              "uri": "/mcc/project-model-defaults.mc"
+            },
+            "id": "main.r1",
+            "params": {
+              "res": 10
+            },
+            "ports": [
+              {
+                "dir": "none",
+                "name": "1",
+                "net": "VDD"
+              },
+              {
+                "dir": "none",
+                "name": "2",
+                "net": "_net0"
+              }
+            ]
+          },
+          {
+            "def": {
+              "kind": "component",
+              "name": "R",
+              "span": 1,
+              "uri": "/mcc/project-model-defaults.mc"
+            },
+            "id": "main.r2",
+            "params": {
+              "res": 22
+            },
+            "ports": [
+              {
+                "dir": "none",
+                "name": "1",
+                "net": "_net0"
+              },
+              {
+                "dir": "none",
+                "name": "2",
+                "net": "VDD"
+              }
+            ]
+          }
+        ],
+        "def": {
+          "kind": "module",
+          "name": "main",
+          "span": 4,
+          "uri": "/mcc/project-model-defaults.mc"
+        },
+        "id": "main",
+        "params": {},
+        "ports": [
+          {
+            "dir": "inout",
+            "name": "VDD",
+            "net": "VDD"
+          }
+        ]
+      }
+    ],
+    "key_table": null,
+    "layout_version": null,
+    "mcc_version": "0.0.0-test",
+    "metric_schema_version": null,
+    "render_version": null,
+    "schema_version": "proj.1.1",
+    "top": "main",
+    "top_ver": null,
+    "view": "project-model",
+    "world_ver": null
+  },
+  "nested": {
+    "counts": {
+      "nodes": 3,
+      "ports": 5
+    },
+    "items": [
+      {
+        "children": [
+          {
+            "children": [
+              {
+                "def": {
+                  "kind": "component",
+                  "name": "CAP",
+                  "span": 3,
+                  "uri": "/mcc/project-model-nested.mc"
+                },
+                "id": "main.ldo._C1",
+                "params": {
+                  "cap": 1
+                },
+                "ports": [
+                  {
+                    "dir": "none",
+                    "name": "1",
+                    "net": "net"
+                  },
+                  {
+                    "dir": "none",
+                    "name": "2",
+                    "net": "VIN"
+                  }
+                ]
+              }
+            ],
+            "def": {
+              "kind": "module",
+              "name": "ZREG",
+              "span": 4,
+              "uri": "/mcc/project-model-nested.mc"
+            },
+            "id": "main.ldo",
+            "params": {},
+            "ports": [
+              {
+                "dir": "in",
+                "name": "VIN",
+                "net": "VIN"
+              }
+            ]
+          }
+        ],
+        "def": {
+          "kind": "module",
+          "name": "main",
+          "span": 4,
+          "uri": "/mcc/project-model-nested.mc"
+        },
+        "id": "main",
+        "params": {},
+        "ports": [
+          {
+            "dir": "inout",
+            "name": "VDD"
+          },
+          {
+            "dir": "inout",
+            "name": "GND"
+          }
+        ]
+      }
+    ],
+    "key_table": null,
+    "layout_version": null,
+    "mcc_version": "0.0.0-test",
+    "metric_schema_version": null,
+    "render_version": null,
+    "schema_version": "proj.1.1",
+    "top": "main",
+    "top_ver": null,
+    "view": "project-model",
+    "world_ver": null
+  },
+  "vector": {
+    "counts": {
+      "nodes": 4,
+      "ports": 5
+    },
+    "items": [
+      {
+        "children": [
+          {
+            "def": {
+              "kind": "vector",
+              "name": "r",
+              "span": 0,
+              "uri": ""
+            },
+            "id": "main.r",
+            "params": {},
+            "ports": []
+          },
+          {
+            "def": {
+              "kind": "component",
+              "name": "R",
+              "span": 1,
+              "uri": "/mcc/project-model-vector.mc"
+            },
+            "id": "main.r1",
+            "params": {},
+            "ports": [
+              {
+                "dir": "none",
+                "name": "1"
+              },
+              {
+                "dir": "none",
+                "name": "2"
+              }
+            ]
+          },
+          {
+            "def": {
+              "kind": "component",
+              "name": "R",
+              "span": 1,
+              "uri": "/mcc/project-model-vector.mc"
+            },
+            "id": "main.r2",
+            "params": {},
+            "ports": [
+              {
+                "dir": "none",
+                "name": "1"
+              },
+              {
+                "dir": "none",
+                "name": "2"
+              }
+            ]
+          }
+        ],
+        "def": {
+          "kind": "module",
+          "name": "main",
+          "span": 4,
+          "uri": "/mcc/project-model-vector.mc"
+        },
+        "id": "main",
+        "params": {},
+        "ports": [
+          {
+            "dir": "inout",
+            "name": "VDD",
+            "net": "VDD"
+          }
+        ]
+      }
+    ],
+    "key_table": null,
+    "layout_version": null,
+    "mcc_version": "0.0.0-test",
+    "metric_schema_version": null,
+    "render_version": null,
+    "schema_version": "proj.1.1",
+    "top": "main",
+    "top_ver": null,
+    "view": "project-model",
+    "world_ver": null
+  }
+}
