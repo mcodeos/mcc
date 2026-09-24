@@ -26,17 +26,21 @@ use crate::db::infra::init::*;
 ///   parsed): full re-derive via parse_pass1_modules_full. Such files were
 ///   cleared by parse_ast/parse_ast_from_string and carry fresh parser +
 ///   use-stage diagnostics that the module parse does NOT re-emit — keep them.
-/// - `modules_parsed && use_table_dirty`: its dependency graph changed since
-///   the lapper was built (create_lapper marks reverse-dependents dirty), so
-///   re-derive. Sweep its stale diagnostics first — everything it carries is
-///   re-emitted below.
-/// - `modules_parsed && !use_table_dirty` (clean): nothing changed, skip
-///   entirely — the file and its diagnostics stay as-is. This is what keeps
-///   repeated load_project/sem calls cheap instead of re-deriving every file.
+/// - `modules_parsed && use_table_dirty`: a dependency's export signature
+///   changed (or the file was newly added) since its lapper was built — the
+///   def-ref graph's invalidation domain marked it (U234 tier ③: the
+///   export-delta union of the use-line closure and the per-def edge-backed
+///   dependents) — so re-derive. Sweep its stale diagnostics first —
+///   everything it carries is re-emitted below.
+/// - `modules_parsed && !use_table_dirty` (clean): nothing it depends on
+///   changed, skip entirely — the file and its diagnostics stay as-is. This
+///   is what keeps repeated load_project/sem calls cheap instead of
+///   re-deriving every file.
 ///
-/// The dirty flag is set DURING the loop (a re-derived dependency marks its
-/// reverse-dependents dirty), so the clean/dirty decision must be made per
-/// file at loop time, in topo order (deps first), not pre-computed.
+/// The dirty flag is set DURING the loop (a re-derived dependency with a
+/// changed export signature marks its dependents), so the clean/dirty
+/// decision must be made per file at loop time, in topo order (deps first),
+/// not pre-computed.
 pub fn mcb_parse_all_modules() {
     // P2/P4 derivation seam (§0.4 of the abstract-variant-capability plan):
     // rebuild the registry's declaration-relation ledgers (`adopts` here;
@@ -156,6 +160,11 @@ pub fn mcb_parse_all_modules() {
             // as E5642) plus lapper rebuild. parse_pass1_modules_full is
             // idempotent across rounds — module registration replaces this
             // file's prior entry instead of firing a spurious DUP_MODULE.
+            // U234 tier ③: the export snapshot must precede any registration
+            // of this round — types for the from_string path already ran at
+            // load time, so the diff falls back to conservative marking
+            // there; disk re-adds captured earlier in their own parse_pass1.
+            crate::db::infra::mc_code::stash_export_snapshot(&uri);
             mcfile.parse_pass1_modules_full();
             // _guard drops here, automatically pops line_index
             re_derived.push(uri.clone());

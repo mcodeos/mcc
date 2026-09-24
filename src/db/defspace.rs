@@ -161,13 +161,15 @@ impl<'a> DefinitionSpace<'a> {
         self.ws.mcodes.iter()
     }
 
-    // ── Loading context: file dependency (reverse deps) ──
+    // ── Loading context: file dependency (use-line face) ──
 
-    /// Files that `use` this one — "who uses me" (§7.6). When file B's CMIE
-    /// defs change, iterate `reverse_deps[B]` to find the affected files whose
-    /// Use table needs rebuilding.
-    pub fn reverse_deps(&self, uri: &McURI) -> Option<Vec<McURI>> {
-        self.ws.reverse_deps.get(uri).map(|e| e.value().clone())
+    /// Files that `use` this one — "who uses me" (§7.6). The use-line face
+    /// of the def-ref graph (U234 tier ③; the former `reverse_deps` table):
+    /// one edge per `use` statement, recorded at lapper build regardless of
+    /// whether the target resolves. The invalidation consumers — the LSP
+    /// `affected_uris` and the export-delta marking — read it from here.
+    pub fn users_of_file(&self, uri: &McURI) -> Vec<McURI> {
+        self.ws.refgraph.users_of_file(uri)
     }
 
     // ── Unified definition view (any domain, one registry) ──
@@ -637,15 +639,15 @@ mod tests {
     }
 
     /// The loading context also exposes each loaded file's pass1 record and
-    /// the reverse-dependency index — LSP hover / goto-def / completion /
+    /// the use-line face — LSP hover / goto-def / completion /
     /// semantic-token reads reach file content through the definition space,
-    /// not the `mcodes` / `reverse_deps` tables directly.
+    /// not the `mcodes` tables or the graph directly.
     #[test]
-    fn def_space__source_content_and_reverse_deps_read_through_the_view() {
+    fn def_space__source_content_and_use_line_face_read_through_the_view() {
         let wm = WorkspaceManager::new();
         wm.mcodes.insert(uri("/mcc/a.mc"), McCode::new_empty());
-        wm.reverse_deps
-            .insert(uri("/mcc/b.mc"), vec![uri("/mcc/a.mc")]);
+        wm.refgraph
+            .record_use_line(&uri("/mcc/a.mc"), &uri("/mcc/b.mc"));
 
         let ds = DefinitionSpace::of(&wm);
         assert!(
@@ -655,10 +657,10 @@ mod tests {
         assert!(ds.source_file(&uri("/mcc/nope.mc")).is_none());
         assert_eq!(ds.source_files().count(), 1);
         assert_eq!(
-            ds.reverse_deps(&uri("/mcc/b.mc")),
-            Some(vec![uri("/mcc/a.mc")])
+            ds.users_of_file(&uri("/mcc/b.mc")),
+            vec![uri("/mcc/a.mc")]
         );
-        assert!(ds.reverse_deps(&uri("/mcc/a.mc")).is_none());
+        assert!(ds.users_of_file(&uri("/mcc/a.mc")).is_empty());
     }
 
     /// The unified definition view is empty over an empty workspace + empty

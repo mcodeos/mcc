@@ -13,11 +13,13 @@
 //! edge set is complete by construction. `record` dedups, so a resolution
 //! flowing through several layers stays a single edge.
 //!
-//! The current file-level `reverse_deps` stays as its coarse-grained subset
-//! ("who uses this file"); this graph is the def-level granularity ("who
-//! references this def"), feeding goto-def (out), who-uses (rev), and — once
-//! the instance layer lands — the def→circuits invalidation index (which is
-//! NOT held here, per §12.6).
+//! The graph is also the single invalidation index (U234 tier ③): beside the
+//! resolution edges it carries the file-level use-line face (`use_fwd` /
+//! `use_rev` — "who `use`s this file", recorded per `use` statement at
+//! lapper build). That face replaces the retired `reverse_deps` table as the
+//! conservative tier of the def-level invalidation domain; the def-level
+//! edges are the precise tier ("who references this def"), feeding goto-def
+//! (out), who-uses (rev), and the dirty-marking delta (per-def dependents).
 //!
 //! Edge granularity (honest boundary, T5): the `from` side is a ref-point
 //! `(referenced-name, referencing-file)`, not the enclosing def — pass1's
@@ -47,6 +49,7 @@
 
 use crate::db::defregistry::{def_id as registry_def_id, kind_of, live_entry_by_id, DefId};
 use crate::McSpaceName;
+use crate::McURI;
 use std::collections::HashSet;
 use dashmap::DashMap;
 
@@ -63,6 +66,16 @@ pub struct DefRefGraph {
     /// def's per-file map entries cannot cause a miss — over-approximation
     /// is free because the face post-filters on the exact def key.
     rev_files: DashMap<String, Vec<String>>,
+    /// Use-line face (U234 tier ③): from-file → the files it `use`s, and
+    /// the reverse. One edge per `use` statement, recorded at lapper build
+    /// regardless of whether the target resolves — an unresolved reference
+    /// leaves no resolution edge, so the use line is the only trace a later
+    /// target-side definition can be found by. This face carries the
+    /// conservative tier of the invalidation domain (the retired
+    /// `reverse_deps` table's "who uses this file") plus the closure walk
+    /// that propagates a non-empty export delta to transitive users.
+    use_fwd: DashMap<McURI, Vec<McURI>>,
+    use_rev: DashMap<McURI, Vec<McURI>>,
 }
 
 impl DefRefGraph {
@@ -163,10 +176,67 @@ impl DefRefGraph {
             .collect()
     }
 
+    /// Record a use-line edge `from uses to` (deduplicated, both faces).
+    /// Recorded per `use` statement at lapper build — resolution success is
+    /// not a precondition (the conservative tier must survive unresolved
+    /// targets, or a target-side definition appearing later could never be
+    /// traced back to this file).
+    pub fn record_use_line(&self, from: &McURI, to: &McURI) {
+        let mut f = self.use_fwd.entry(from.clone()).or_default();
+        if !f.contains(to) {
+            f.push(to.clone());
+        }
+        drop(f);
+        let mut r = self.use_rev.entry(to.clone()).or_default();
+        if !r.contains(from) {
+            r.push(from.clone());
+        }
+    }
+
+    /// Files that `use` `to` directly (the use-line rev face) — the LSP
+    /// `affected_uris` answer and the conservative tier of the dirty set.
+    pub fn users_of_file(&self, to: &McURI) -> Vec<McURI> {
+        self.use_rev.get(to).map(|v| v.clone()).unwrap_or_default()
+    }
+
+    /// Transitive users: `to`, everything that `use`s it, everything that
+    /// `use`s those, … (breadth-first over the use-line rev face, cycles
+    /// terminated by the visited set). The conservative tier of the dirty
+    /// set is this closure, not the direct users: a transitive user's
+    /// reference can resolve through an intermediate file's default-import
+    /// cascade, and an intermediate re-derive whose own export signature
+    /// did not change no longer propagates the marking (tier ③ delta), so
+    /// the closure must be walked explicitly.
+    pub fn user_closure_of_file(&self, to: &McURI) -> Vec<McURI> {
+        let mut out = Vec::new();
+        let mut visited: HashSet<McURI> = HashSet::new();
+        let mut frontier = vec![to.clone()];
+        while let Some(uri) = frontier.pop() {
+            for user in self.users_of_file(&uri) {
+                if visited.insert(user.clone()) {
+                    frontier.push(user.clone());
+                    out.push(user);
+                }
+            }
+        }
+        out
+    }
+
+    /// All use-line edges as `(from, targets)` pairs — used to rebuild a
+    /// restored world's use-line face alongside the resolution edges.
+    pub fn use_pairs(&self) -> Vec<(McURI, Vec<McURI>)> {
+        self.use_fwd
+            .iter()
+            .map(|e| (e.key().clone(), e.value().clone()))
+            .collect()
+    }
+
     pub fn clear(&self) {
         self.out.clear();
         self.rev.clear();
         self.rev_files.clear();
+        self.use_fwd.clear();
+        self.use_rev.clear();
     }
 
     /// Drop the ref-points of `uri` (U234) — the re-parse / file-removal
@@ -191,7 +261,13 @@ impl DefRefGraph {
 
     /// The ref-point-side sweep shared by both purge forms: drop out keys in
     /// the set, drop rev values in the set (empty rev buckets go too), drop
-    /// the set's files from the file-level projection.
+    /// the set's files from the file-level projection. The use-line face
+    /// sweeps one-sided the same way: only the purged files' **own** use
+    /// lines go (their rebuild re-records them); "X uses a purged file" rows
+    /// survive in `use_rev` — the users have not been rebuilt, and dropping
+    /// them would under-approximate the dirty set for the next target-side
+    /// change. A stale row over-approximates until the user's own rebuild
+    /// re-records its use lines.
     fn purge_ref_points(&self, uris: &[String]) {
         self.out.retain(|key, _| !uris.contains(&key.uri.as_uri().to_string()));
         self.rev.retain(|_, froms| {
@@ -202,6 +278,7 @@ impl DefRefGraph {
             refs.retain(|f| !uris.contains(f));
             !refs.is_empty()
         });
+        self.use_fwd.retain(|from, _| !uris.contains(from));
     }
 }
 
@@ -343,6 +420,79 @@ mod tests {
             "one row per referencing file, however many ref-points"
         );
         assert!(g.dependent_files_of_file("mcode/other.mc").is_empty());
+    }
+
+    /// U234 tier ③: the use-line face — record/dedup, direct users, the
+    /// transitive user closure, and the one-sided purge (the purged file's
+    /// own use lines go with its rebuild; rows pointing at it survive).
+    #[test]
+    fn def_refgraph__use_line_face_answers_users_closure_and_one_sided_purge() {
+        let g = DefRefGraph::new();
+        let (a, b, c, d) = (
+            "a.mc".to_string(),
+            "b.mc".to_string(),
+            "c.mc".to_string(),
+            "d.mc".to_string(),
+        );
+
+        g.record_use_line(&a, &c);
+        g.record_use_line(&b, &c);
+        g.record_use_line(&c, &d);
+        g.record_use_line(&a, &c); // duplicate use line stays a single edge
+
+        assert_eq!(
+            g.users_of_file(&c),
+            vec![a.clone(), b.clone()],
+            "direct users, insertion order"
+        );
+        assert_eq!(g.users_of_file(&d), vec![c.clone()], "c uses d: one user");
+        let closure_c = g.user_closure_of_file(&c);
+        assert_eq!(
+            closure_c,
+            vec![a.clone(), b.clone()],
+            "a and b use c; c's own use line does not loop back into the closure"
+        );
+        // Give d a second user so the closure walk from d has a hop to make.
+        g.record_use_line(&a, &d);
+        let mut closure_d = g.user_closure_of_file(&d);
+        closure_d.sort();
+        assert_eq!(
+            closure_d,
+            vec![a.clone(), b.clone(), c.clone()],
+            "d's closure: c (direct), a and b (through c)"
+        );
+
+        // use_pairs round-trips through clear + record_use_line (world
+        // restore rebuilds the face this way). Row order follows the map's
+        // iteration order, so compare as sets.
+        let pairs = g.use_pairs();
+        g.clear();
+        assert!(g.users_of_file(&c).is_empty());
+        for (from, tos) in pairs {
+            for to in tos {
+                g.record_use_line(&from, &to);
+            }
+        }
+        let mut users_d = g.users_of_file(&d);
+        users_d.sort();
+        assert_eq!(users_d, vec![a.clone(), c.clone()]);
+
+        // One-sided purge of c: c's own use lines go (c→d is re-recorded by
+        // c's rebuild), but the rows pointing at c survive — dropping them
+        // would under-approximate the dirty set for c's next change.
+        g.purge_file("c.mc");
+        let mut users_c = g.users_of_file(&c);
+        users_c.sort();
+        assert_eq!(users_c, vec![a, b], "users of c survive the purge of c");
+        assert!(
+            g.use_pairs().iter().all(|(from, _)| from != "c.mc"),
+            "c's own use-line rows went with its purge"
+        );
+        assert!(
+            g.users_of_file(&d).contains(&c),
+            "the stale 'c uses d' row survives in use_rev (over-approximation) \
+             until c's rebuild re-records it"
+        );
     }
 
     /// D15.3: a graph hit carries the registry [`DefId`] — one id answers

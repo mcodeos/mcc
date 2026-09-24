@@ -31,6 +31,19 @@ pub fn mcb_add(uri: &McURI) {
     };
 
     if let Some(mut mcfile) = McCode::new(&file_to_add, false) {
+        let already_exists = workspace::WORKSPACE.mcodes.contains_key(&canonical_uri);
+        if already_exists {
+            // U234 tier ③: capture the old export signature before the def
+            // sweep — the module parse's mark step diffs this against the
+            // re-derived state, so an edit that moves no def name-span
+            // marks no dependents.
+            crate::db::infra::mc_code::stash_export_snapshot(&canonical_uri);
+            // Re-add: drop this file's previous-generation defs BEFORE the
+            // re-parse (the from_string arm's order). The old position —
+            // after parse_pass1 — swept the freshly registered defs along
+            // with the stale ones.
+            remove_defines(&canonical_uri);
+        }
         // U234 tier ②: purge BEFORE the re-parse. parse_pass1 below already
         // re-records this file's resolution edges (the RefDefMap insert
         // chokepoint fires during it), so a purge after the parse would wipe
@@ -49,7 +62,6 @@ pub fn mcb_add(uri: &McURI) {
         match entry {
             dashmap::Entry::Occupied(mut occupied_entry) => {
                 // update pass
-                remove_defines(&canonical_uri);
                 occupied_entry.insert(mcfile);
             }
             dashmap::Entry::Vacant(vacant_entry) => {
@@ -82,6 +94,12 @@ pub fn mcb_add_from_string(uri: &McURI, content: &str) {
         };
         tracing::info!(target: "mcc::lsp", "mcb_add_from_string: already_exists={}", already_exists);
         if already_exists {
+            // U234 tier ③: capture the old export signature before the def
+            // sweep — the module parse's mark step diffs this against the
+            // re-derived state, so an edit that moves no def name-span marks
+            // no dependents. Insert-if-absent: the driver loop's own stash
+            // for this uri will not clobber it.
+            crate::db::infra::mc_code::stash_export_snapshot(&canonical_uri);
             remove_defines(&canonical_uri);
             // U234: the re-parse invalidates this file's resolution edges —
             // drop them before the new pass re-records.

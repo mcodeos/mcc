@@ -172,11 +172,6 @@ pub struct WorkspaceManager {
     // LSP tables -- extracted to db/symbol/workspace.rs
     pub(crate) lsp: crate::db::symbol::workspace::LspTables,
 
-    /// ★ §7.6: Reverse dependency index — "who uses me".
-    /// When file B's CMIE defs change, iterate `reverse_deps[B]` to find
-    /// affected files whose Use table needs rebuilding.
-    pub(crate) reverse_deps: DashMap<McURI, Vec<McURI>>,
-
     // §12.1 DefinitionSpace manifest: which sources are loaded and into which
     // domain (project vs system lib), plus the loaded library boundary.
     // Maintained by the loader chain (loader.rs / libmgr.rs); read through the
@@ -226,7 +221,6 @@ impl WorkspaceManager {
             meta: Mutex::new(WorkspaceMeta::default()),
             saved: Mutex::new(HashMap::new()),
             lsp: crate::db::symbol::workspace::LspTables::new(),
-            reverse_deps: DashMap::new(),
             sources: DashMap::new(),
             libs: DashMap::new(),
             blibs: DashMap::new(),
@@ -313,7 +307,6 @@ impl WorkspaceManager {
         self.enums.clear();
         self.defines.clear();
         self.capabilities.clear();
-        self.reverse_deps.clear();
         self.lsp.class_table.lock().unwrap().clear();
         self.diagnostics.lock().unwrap().clear();
         self.sources.clear();
@@ -472,12 +465,18 @@ impl WorkspaceManager {
         fill_dashmap(&self.blibs, snap.blibs);
         fill_dashmap(&self.visibility, snap.visibility);
         // Rebuild the restored world's ref graph from its out edges
-        // (record() reconstructs the rev side).
+        // (record() reconstructs the rev side), and the use-line face from
+        // its pairs (record_use_line reconstructs use_rev).
         let refgraph = snap.refgraph;
         self.refgraph.clear();
         for (from, tos) in refgraph.out_pairs() {
             for to in tos {
                 self.refgraph.record(&from, &to);
+            }
+        }
+        for (from, tos) in refgraph.use_pairs() {
+            for to in tos {
+                self.refgraph.record_use_line(&from, &to);
             }
         }
 
