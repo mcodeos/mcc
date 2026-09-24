@@ -167,6 +167,74 @@
     "view": "project-model",
     "world_ver": null
   },
+  "rated": {
+    "counts": {
+      "nodes": 2,
+      "ports": 3
+    },
+    "items": [
+      {
+        "children": [
+          {
+            "def": {
+              "kind": "component",
+              "name": "LDO",
+              "span": 3,
+              "uri": "/mcc/project-model-rated.mc"
+            },
+            "id": "main.r1",
+            "params": {
+              "vin": "3V",
+              "vout": "1V"
+            },
+            "ports": [
+              {
+                "dir": "none",
+                "name": "1"
+              },
+              {
+                "dir": "none",
+                "name": "2"
+              }
+            ],
+            "ratings": {
+              "vin": {
+                "high": "30V",
+                "low": "0V"
+              },
+              "vout": {
+                "low": "0.8V"
+              }
+            }
+          }
+        ],
+        "def": {
+          "kind": "module",
+          "name": "main",
+          "span": 4,
+          "uri": "/mcc/project-model-rated.mc"
+        },
+        "id": "main",
+        "params": {},
+        "ports": [
+          {
+            "dir": "inout",
+            "name": "VDD"
+          }
+        ]
+      }
+    ],
+    "key_table": null,
+    "layout_version": null,
+    "mcc_version": "0.0.0-test",
+    "metric_schema_version": null,
+    "render_version": null,
+    "schema_version": "proj.1.1",
+    "top": "main",
+    "top_ver": null,
+    "view": "project-model",
+    "world_ver": null
+  },
   "vector": {
     "counts": {
       "nodes": 4,

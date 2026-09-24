@@ -228,7 +228,8 @@ pub fn mcb_pass2_flat(
     entry: &McSpaceName,
     start_id: u32,
 ) -> Result<(MccProjectTree, InstTable), Box<dyn Error>> {
-    let (tree, table, _arena, _store, diags) = mcb_pass2_flat_with(entry, start_id, None)?;
+    let (tree, table, _arena, _store, diags, _net_results) =
+        mcb_pass2_flat_with(entry, start_id, None)?;
     // Validation wrapper: the `check --nets/--pins` and `mcc_build_flat` path.
     // Phase A: flatten returns the net-check diagnostics and the OWNING surface
     // decides logging — this validation surface logs them into the workspace;
@@ -248,6 +249,10 @@ pub fn mcb_pass2_flat(
 ///
 /// The flat net-check diagnostics are returned alongside the parts — this is a
 /// RENDER-oriented projection helper and does not log them; the caller decides.
+/// The checks also come back in result form (`pass2.net_checks`' rows, which
+/// name the checked object and carry the check label) — the `core-erc`
+/// projection reads those, and this is their one take-it-or-lose-it moment:
+/// `into_parts` consumes the [`DianLu`] that holds them.
 pub fn mcb_pass2_flat_with(
     entry: &McSpaceName,
     start_id: u32,
@@ -259,6 +264,7 @@ pub fn mcb_pass2_flat_with(
         NodeArena,
         InstanceStore,
         Vec<Diagnostic>,
+        Vec<crate::semantic::validation::nets::NetCheckResult>,
     ),
     Box<dyn Error>,
 > {
@@ -268,6 +274,7 @@ pub fn mcb_pass2_flat_with(
     let diags = dl.flatten_with_prefix(synthetic_prefix);
     let arena = dl.arena().clone();
     let store = dl.store().clone();
+    let net_results = dl.net_results().to_vec();
     let (tree, table) = dl.into_parts();
-    Ok((tree, table, arena, store, diags))
+    Ok((tree, table, arena, store, diags, net_results))
 }

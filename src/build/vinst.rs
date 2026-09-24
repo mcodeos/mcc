@@ -273,7 +273,8 @@ pub fn virtual_build_flat(
     // report E4112/E4116 on the unwired standalone component/interface view.
     let canonical_uri: crate::McURI = crate::db::infra::init::mcb_canonicalize_uri(uri).into();
     let ident = crate::McIds::from(mod_name.as_str());
-    let (tree, table, arena, store, _diags) = crate::build::pass2::mcb_pass2_flat_with(
+    let (tree, table, arena, store, _diags, _net_results) =
+        crate::build::pass2::mcb_pass2_flat_with(
         &crate::McSpaceName::new(&ident, canonical_uri),
         start_id,
         Some(&mod_name),

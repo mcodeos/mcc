@@ -470,10 +470,41 @@ pub fn handle_show_project(_params: Option<Value>) -> RpcResult {
         ident: crate::McIds::from(name.as_str()),
         uri: crate::uri_intern(&uri),
     };
-    let (tree, table, arena, store, _diags) = crate::mcb_pass2_flat_with(&entry, 1, None)
-        .map_err(|e| JsonRpcError::custom(32107, &format!("project: flat pass2 failed: {e}")))?;
+    let (tree, table, arena, store, _diags, _net_results) =
+        crate::mcb_pass2_flat_with(&entry, 1, None)
+            .map_err(|e| JsonRpcError::custom(32107, &format!("project: flat pass2 failed: {e}")))?;
     let loaded = crate::stages::read::Loaded::new(tree, table, arena, store, &name, _diags.len());
     let view = crate::stages::projmodel::project_model_view(&loaded);
+    let payload = crate::stages::payload::StageViewData::from(&view);
+    Ok(serde_json::to_value(payload).unwrap_or(Value::Null))
+}
+
+// === handle_show_core_erc (CIMP §1 U280 second half, fourth slice) ===
+
+/// `show.core-erc`: the extension-tool snapshot of the loaded workspace.
+///
+/// The same rows the `mcc show core-erc` CLI face emits, built by the same
+/// one read ([`mcc::stages::corercview::core_erc_view`]) — one item carrying
+/// the whole top: the netlist view's own islands, the flat electrical net
+/// checks (the `pass2.net_checks` rows the build envelope carries), and the
+/// reserved loc side table. The result is the projection payload itself
+/// ([`StageViewData`]) with `view` = `core-erc`; the CLI additionally
+/// attaches it under the `stage` key of its command envelope. A readout,
+/// never a gate.
+pub fn handle_show_core_erc(_params: Option<Value>) -> RpcResult {
+    let entry_mod = crate::mcb_iter_modules().into_iter().next();
+    let Some((name, uri)) = entry_mod else {
+        return Err(JsonRpcError::custom(32107, "no module loaded"));
+    };
+    let entry = crate::McSpaceName {
+        ident: crate::McIds::from(name.as_str()),
+        uri: crate::uri_intern(&uri),
+    };
+    let (_tree, table, _arena, _store, _diags, net_results) =
+        crate::mcb_pass2_flat_with(&entry, 1, None).map_err(|e| {
+            JsonRpcError::custom(32107, &format!("core-erc: flat pass2 failed: {e}"))
+        })?;
+    let view = crate::stages::corercview::core_erc_view(&name, &table, &net_results);
     let payload = crate::stages::payload::StageViewData::from(&view);
     Ok(serde_json::to_value(payload).unwrap_or(Value::Null))
 }
