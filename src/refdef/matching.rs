@@ -114,6 +114,9 @@ pub fn fill_refdef_layer2(
             // minted by register_def / add_class, neither of which emits
             // ClassRef), so the ClassRef candidate was a dead branch.
             SymbolKind::ClassRef => &[SymbolKind::ClassDef],
+            // Free named nets: a later use registers as NetRef and resolves
+            // to the implicit NetDef minted at first occurrence.
+            SymbolKind::NetRef => &[SymbolKind::NetDef],
             _ => &[],
         };
         // Try each candidate def kind

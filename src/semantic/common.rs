@@ -735,6 +735,8 @@ pub enum LookupSymbolKind {
     Instance,
     Define,
     Role,
+    /// Free named net (implicit NetDef at first occurrence).
+    Net,
     Unknown,
 }
 
@@ -754,6 +756,7 @@ impl LookupSymbolKind {
             Self::Instance => "instance",
             Self::Define => "define",
             Self::Role => "role",
+            Self::Net => "net",
             Self::Unknown => "unknown",
         }
     }

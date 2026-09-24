@@ -1105,7 +1105,7 @@ pub fn dump_symbols_f12_text(uri: &McURI) -> Option<String> {
             let mut containers_sorted: Vec<&String> = map.containers.iter().collect();
             containers_sorted.sort();
             out.push_str(&format!("  containers:{:?}\n", containers_sorted));
-            let kind_names: Vec<&str> = (0u8..=29)
+            let kind_names: Vec<&str> = (0u8..=31)
                 .map(|i| {
                     let k: SymbolKind = unsafe { std::mem::transmute(i) };
                     k.kind_name()

@@ -95,6 +95,10 @@ pub fn unified_lookup_all_layered(
     // P5: system library (mcode)
     collect_from_system_lib(filter, &mut results, &mut limiter);
 
+    // Net layer: free named nets (implicit NetDef at first occurrence).
+    // Authority is the refdef def_map — no second net-name table.
+    collect_nets(scope_path, &mut results, &mut limiter);
+
     let truncated = limiter.truncated_layers();
     (results, truncated)
 }
@@ -276,6 +280,14 @@ pub(crate) fn collect_module_symbols(
 ) {
     for (name, span) in m.insts.port_spans().iter() {
         if let Some(spans) = span.first() {
+            // Free named nets (inline-created, IOType::None labels) are not
+            // ports — the Net layer offers them with their NetDef identity.
+            if matches!(
+                m.insts.insts().get(name),
+                Some((crate::IOType::None, crate::semantic::mc_inst::McInstance::Label(_)))
+            ) {
+                continue;
+            }
             let kind = if m.insts.get_label_kind(name) == crate::LabelKind::Explicit {
                 crate::LookupSymbolKind::Label
             } else {
@@ -463,6 +475,99 @@ pub(crate) fn collect_from_project(
                 layer: crate::SpaceLayer::P4,
             },
         );
+    }
+}
+
+// === fn collect_nets( ===
+/// Collect free named nets for the Net completion layer (§8.1).
+///
+/// The authority is the refdef `def_map` produced by
+/// `lapper_free_net_defs` (mc_code.rs) — nets are read from the same table
+/// goto-def resolves against, never re-derived from source text. The current
+/// file comes first (P3 position); other workspace files follow (P4
+/// position, same no-use-chain-gating policy as [`collect_from_project`]).
+/// A name already delivered by an inner layer (or by the current file) is
+/// not repeated — inner shadows outer (§6.1).
+pub(crate) fn collect_nets(
+    scope_path: &crate::ScopePath,
+    results: &mut Vec<crate::LookupResult>,
+    limiter: &mut LayerLimiter,
+) {
+    let current = scope_path.uri.to_string();
+    let kind = crate::LookupSymbolKind::Net;
+    // Pass 1: current-file nets (they shadow same names in other files,
+    // regardless of DashMap iteration order).
+    let mut current_names: Vec<String> = Vec::new();
+    for entry in crate::definition_space().source_files() {
+        let uri = entry.key().to_string();
+        if uri != current {
+            continue;
+        }
+        let Ok(sem) = entry.value().symbols.lock() else {
+            continue;
+        };
+        for ((def_kind, raw), loc) in sem.def_map.iter() {
+            if *def_kind != crate::refdef::SymbolKind::NetDef {
+                continue;
+            }
+            let Some(name) = sem.def_names.get(&(*def_kind, *raw)) else {
+                continue;
+            };
+            // Inner-shadow: an inner layer already delivered this name.
+            if results.iter().any(|r| r.name == *name)
+                || current_names.iter().any(|n| n == name)
+            {
+                continue;
+            }
+            current_names.push(name.clone());
+            add_result(
+                results,
+                limiter,
+                crate::LookupResult {
+                    uri: uri.clone(),
+                    span: loc.byte_start as usize..loc.byte_end as usize,
+                    kind,
+                    container: None,
+                    scope: String::new(),
+                    name: name.clone(),
+                    layer: crate::SpaceLayer::Net,
+                },
+            );
+        }
+    }
+    // Pass 2: other workspace files (P4 position — no use-chain gating,
+    // same policy as collect_from_project).
+    for entry in crate::definition_space().source_files() {
+        let uri = entry.key().to_string();
+        if uri == current {
+            continue;
+        }
+        let Ok(sem) = entry.value().symbols.lock() else {
+            continue;
+        };
+        for ((def_kind, raw), loc) in sem.def_map.iter() {
+            if *def_kind != crate::refdef::SymbolKind::NetDef {
+                continue;
+            }
+            let Some(name) = sem.def_names.get(&(*def_kind, *raw)) else {
+                continue;
+            };
+            if results.iter().any(|r| r.name == *name) {
+                continue;
+            }
+            if !limiter.can_add(crate::SpaceLayer::Net) {
+                continue;
+            }
+            results.push(crate::LookupResult {
+                uri: uri.clone(),
+                span: loc.byte_start as usize..loc.byte_end as usize,
+                kind,
+                container: None,
+                scope: String::new(),
+                name: name.clone(),
+                layer: crate::SpaceLayer::Net,
+            });
+        }
     }
 }
 
