@@ -248,7 +248,7 @@ pub fn mcb_pass2_flat(
 ///
 /// The flat net-check diagnostics are returned alongside the parts — this is a
 /// RENDER-oriented projection helper and does not log them; the caller decides.
-pub(crate) fn mcb_pass2_flat_with(
+pub fn mcb_pass2_flat_with(
     entry: &McSpaceName,
     start_id: u32,
     synthetic_prefix: Option<&str>,

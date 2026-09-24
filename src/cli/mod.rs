@@ -646,6 +646,14 @@ pub enum ShowTarget {
     // gate: the exit code stays 0 however few islands the items hold.
     Netlist,
 
+    // The project model in one read (projection-schema-design.md §2.1; CIMP
+    // §1 U280): the hierarchical module/instance tree from the whole-world
+    // build — one item per circuit node with its definition site, declared
+    // parameters, ports bound to their islands, and children. Emits the
+    // projection envelope with `view` = "project-model" and renders to both
+    // faces. A readout, never a gate.
+    Project,
+
     // Entity internals drill-down (<name> = owning entity, required)
     // Pins of a component / interface
     Pins,
@@ -677,8 +685,8 @@ impl ShowTarget {
     /// Shared by clap's value parsing (the variant names are the tokens, with no
     /// `#[value(name = …)]` override anywhere in the enum) and by the emitted
     /// envelope's `command` — `mcc show <token>` — which is the **only**
-    /// discriminator among the 23 sub-faces sharing the `show` projection key:
-    /// 18 of their payloads carry no `type` field of their own. One table, so a
+    /// discriminator among the 24 sub-faces sharing the `show` projection key:
+    /// 19 of their payloads carry no `type` field of their own. One table, so a
     /// new sub-face cannot land a token in one place and not the other; the
     /// pairing is asserted by the test below.
     pub fn name(self) -> &'static str {
@@ -700,6 +708,7 @@ impl ShowTarget {
             Self::OrgUnits => "org-units",
             Self::Diagnostics => "diagnostics",
             Self::Netlist => "netlist",
+            Self::Project => "project",
             Self::Pins => "pins",
             Self::Ports => "ports",
             Self::Labels => "labels",

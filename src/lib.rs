@@ -115,7 +115,8 @@ pub use builder::{
     mcb_iter_funcs, mcb_iter_interfaces, mcb_iter_interfaces_with_span, mcb_iter_modules,
     mcb_iter_modules_with_span, mcb_iter_ports, mcb_lib_info, mcb_load_lib, mcb_load_lib_by_name,
     mcb_loaded_file_count, mcb_loaded_libs, mcb_module_count, mcb_parse_all_modules,
-    mcb_pass2_flat, mcb_print, mcb_print_lines, mcb_print_loaded_files, mcb_unload_lib,
+    mcb_pass2_flat, mcb_pass2_flat_with, mcb_print, mcb_print_lines, mcb_print_loaded_files,
+    mcb_unload_lib,
     resolve_lib_root, unified_lookup, unified_lookup_all, unified_lookup_all_layered, BusRow,
     ClauseRow, FuncRow, MccProjectTree, SubElementKind,
 };

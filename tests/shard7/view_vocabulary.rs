@@ -74,7 +74,7 @@ fn cddl_view_name_rule_is_exactly_the_six_ruled_words() {
 /// — kept honest by the member-set guard below and the golden byte lock in
 /// `diag_view_golden.rs`. Publishing a second canonical word means landing
 /// its group first, then adding it here.
-const CARRIED_CANONICAL_VIEWS: &[&str] = &["diagnostics", "netlist"];
+const CARRIED_CANONICAL_VIEWS: &[&str] = &["diagnostics", "netlist", "project-model"];
 
 #[test]
 fn no_published_view_impersonates_an_uncarried_canonical_word() {
@@ -106,6 +106,7 @@ fn registry_covers_every_producer_constant() {
     stamped.push(stages::ORG_UNITS_VIEW);
     stamped.push(stages::diagview::DIAGNOSTICS_VIEW);
     stamped.push(stages::netlistview::NETLIST_VIEW);
+    stamped.push(stages::projmodel::PROJECT_MODEL_VIEW);
     stamped.push(stages::stage_diff::DIFF_P2_VIEW);
     stamped.push(stages::stage_diff::DIFF_VEC_VIEW);
     stamped.push(stages::stage_diff::DIFF_VIZ_VIEW);
@@ -115,31 +116,33 @@ fn registry_covers_every_producer_constant() {
 }
 
 /// The member identifiers of one CDDL group, read from the schema file: the
-/// text from `marker` (e.g. `"diag ="`) to its closing `}` is the whole
-/// group; each member is the identifier before the `:` on a non-comment line,
-/// with the optional marker `?` stripped.
+/// text from `marker` (e.g. `"diag ="`) to the group's closing `}` is the
+/// whole group; each member is the identifier before the `:` on a
+/// non-comment line, with the optional marker `?` stripped. Brace depth is
+/// tracked so a group with single-line nested groups (`circuit-node`'s
+/// `params` map, `ports` array) parses whole.
 fn cddl_group_members(marker: &str) -> Vec<String> {
     let start = CDDL
         .find(marker)
         .unwrap_or_else(|| panic!("schema/projection.cddl has a `{marker}` group"));
-    let block = &CDDL[start..];
-    let end = block
-        .find('}')
-        .expect("the group is closed on the same rule");
     let mut members: Vec<String> = Vec::new();
-    for line in block[..=end].lines() {
-        let line = match line.split(';').next() {
-            Some(code) => code.trim(),
-            None => continue,
-        };
-        if line.is_empty() {
+    let mut depth = 0usize;
+    for line in CDDL[start..].lines() {
+        let code = line.split(';').next().unwrap_or("").trim();
+        if depth == 0 {
+            // The marker line itself opens the group.
+            depth = 1;
             continue;
         }
-        let name = line.trim_start_matches('?');
-        let Some((member, _)) = name.split_once(':') else {
-            continue;
-        };
-        members.push(member.trim().to_string());
+        let name = code.trim_start_matches('?');
+        if let Some((member, _)) = name.split_once(':') {
+            members.push(member.trim().to_string());
+        }
+        depth += code.matches('{').count() + code.matches('[').count();
+        depth -= code.matches('}').count() + code.matches(']').count();
+        if depth == 0 {
+            break;
+        }
     }
     members.sort();
     members
@@ -230,5 +233,67 @@ fn cddl_net_group_members_are_exactly_the_serialized_fields() {
         keys,
         cddl_group_members("net ="),
         "the serialized `net` item and the CDDL group drifted"
+    );
+}
+
+/// The same guard for the third carried group: the serialized key set of a
+/// fully-filled `CircuitNode` (children present) is exactly the CDDL
+/// `circuit-node` group's member set; a leaf omits only the optional
+/// `children`.
+#[test]
+fn cddl_circuit_node_group_members_are_exactly_the_serialized_fields() {
+    use mcc::stages::projmodel::{CircuitNode, DefSite, PortItem, TypedValue};
+
+    let def = || DefSite {
+        kind: "component".to_string(),
+        name: "R".to_string(),
+        uri: "m.".to_string(),
+        span: 4,
+    };
+    let leaf = |name: &str| CircuitNode {
+        id: name.to_string(),
+        def: def(),
+        params: {
+            let mut m = std::collections::BTreeMap::new();
+            m.insert("res".to_string(), TypedValue::Int(10));
+            m
+        },
+        ports: vec![PortItem {
+            name: "1".to_string(),
+            dir: "in",
+            net: Some("VDD".to_string()),
+        }],
+        children: None,
+    };
+    let full = CircuitNode {
+        children: Some(vec![leaf("main.r1")]),
+        ..leaf("main")
+    };
+
+    let keys = |v: &serde_json::Value| -> Vec<String> {
+        let mut keys: Vec<String> = v
+            .as_object()
+            .expect("CircuitNode serializes to an object")
+            .keys()
+            .cloned()
+            .collect();
+        keys.sort();
+        keys
+    };
+
+    let full_v = serde_json::to_value(&full).expect("full node serializes");
+    assert_eq!(
+        keys(&full_v),
+        cddl_group_members("circuit-node ="),
+        "the serialized `circuit-node` item and the CDDL group drifted"
+    );
+
+    let leaf_v = serde_json::to_value(leaf("main.r1")).expect("leaf serializes");
+    let mut required = cddl_group_members("circuit-node =");
+    required.retain(|m| m != "children");
+    assert_eq!(
+        keys(&leaf_v),
+        required,
+        "the leaf must omit only the optional member"
     );
 }

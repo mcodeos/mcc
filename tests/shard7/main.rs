@@ -36,6 +36,7 @@ mod net_island_l1;
 mod netlist_view_golden;
 mod open_lead;
 mod output_path_flag;
+mod projmodel_view_golden;
 mod param_call_site_key_binding;
 mod param_group_prefix;
 mod param_pin_same_name;
