@@ -154,6 +154,96 @@ def literal_value(kind, raw):
 
 
 MC_LEAD = re.compile(r"\A\s*(module|component|pub|use|io|net|pin|pins|attr|fn)\b")
+STMT_KW = re.compile(
+    r"^(in|out|io|net|pin|pins|psrc|psnk|psbi|block|attr|use|for|if|else|"
+    r"return|fn|let|pub|module|component|interface|rail|conduit|enum)\b"
+)
+STMT_LINE = re.compile(
+    r"^[A-Za-z_][\w.]*\s*(->|[.]\w|\[|=\s)"  # stmt head: ident .field / -> / [ / =
+)
+CONSTRUCTION = re.compile(r"^[A-Z0-9_]{2,}\s+[a-z_]")  # CHIP d1
+
+
+def stmt_like(line):
+    t = line.strip()
+    if not t or t.startswith("//") or t.startswith("@") or t in ("{", "}"):
+        return True
+    return bool(
+        STMT_LINE.match(t)
+        or STMT_KW.match(t)
+        or CONSTRUCTION.match(t)
+        or "=" in t
+        or "->" in t
+    )
+BARE_KW = re.compile(r"\A\s*(module|component|pub|use|io|net|pin|attr|fn)\s*\Z")
+CALL_OPEN = re.compile(r"\b([A-Za-z_][A-Za-z0-9_:]*)!?\s*\(")
+LET_RE = re.compile(
+    r"\blet\s+(?:mut\s+)?([A-Za-z_][A-Za-z0-9_]*)[^;{=]*=(.*?);", re.S
+)
+CONST_REF = re.compile(r"\b[A-Z][A-Z0-9_]{2,}\b")
+ASSERT_NAME = re.compile(r"^(assert|expect|panic|debug_assert)")
+
+
+def is_assert_name(name):
+    base = name.split("::")[-1]
+    if ASSERT_NAME.match(base):
+        return True
+    return base in {
+        "only", "count", "count_of", "reports", "wires",
+        "contains", "eq", "ne", "has",
+    }
+
+
+def find_call_spans(masked, s, e):
+    """(name, args_start, args_end) for every call in [s,e), balanced-paren."""
+    out = []
+    for cm in CALL_OPEN.finditer(masked, s, e):
+        depth = 0
+        k = cm.end() - 1
+        while k < e:
+            c = masked[k]
+            if c == "(":
+                depth += 1
+            elif c == ")":
+                depth -= 1
+                if depth == 0:
+                    break
+            k += 1
+        out.append((cm.group(1), cm.end(), k))
+    return out
+
+
+PLACEHOLDER = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
+UNRESOLVED_PH = re.compile(r"\{\}|\{[a-z_][a-z0-9_]*\}")
+
+
+def source_spans(masked, s, e):
+    """Union of spans where compiler-bound source lives.
+
+    Seeds: argument spans of every non-assert call (a test feeds the compiler
+    through helpers like build()/load_string()/push_str()). Then `let` RHS
+    spans join transitively while the bound name shows up inside a live span —
+    that is how `let body = "..."; build(CHIP, body)` marks its literal.
+    Literals inside assert!/expect! messages never join, so expectation text
+    stays out.
+    """
+    calls = find_call_spans(masked, s, e)
+    spans = [(a, b) for name, a, b in calls if not is_assert_name(name)]
+    lets = [
+        (mm.group(1), mm.start(2), mm.end(2))
+        for mm in LET_RE.finditer(masked, s, e)
+    ]
+    for _ in range(8):
+        joined = "\n".join(masked[a:b] for a, b in spans)
+        live = set(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", joined))
+        changed = False
+        for name, a, b in lets:
+            if name in live and (a, b) not in spans:
+                spans.append((a, b))
+                changed = True
+        if not changed:
+            break
+    return spans
 
 
 def is_mc_fragment(text):
@@ -163,8 +253,17 @@ def is_mc_fragment(text):
         return False
     if RUST_FMT_SPEC.search(text):
         return False  # an assert!/expect! message, not source
+    if BARE_KW.match(text):
+        return False  # a bare keyword token (registry word lists), not source
     if "\n" in text:
-        return "{" in text and bool(MC_HINT.search(text))
+        if "{" in text:
+            return bool(MC_HINT.search(text))
+        # A module *body* has no braces of its own (the shell supplies them);
+        # accept it when its lines look like statements, not prose.
+        lines = [ln for ln in text.split("\n") if ln.strip()]
+        return len(lines) >= 2 and sum(stmt_like(ln) for ln in lines) >= 0.8 * len(
+            lines
+        )
     # Single-line: accept only a leading mc keyword, so English sentences
     # that merely contain "use" or "if" stay out; dotted names are file
     # names/URIs, not source.
@@ -225,6 +324,19 @@ def const_fragments(rs, marks, strmarks):
     return out
 
 
+def doc_purpose(rs, line):
+    """The `///` doc comment block directly above the #[test], if any."""
+    raw = rs.split("\n")
+    i = line - 2  # 0-indexed line before the fn
+    while i >= 0 and raw[i].strip().startswith("#["):
+        i -= 1
+    doc = []
+    while i >= 0 and raw[i].strip().startswith("///"):
+        doc.append(raw[i].strip()[3:].strip())
+        i -= 1
+    return " ".join(reversed(doc))[:220]
+
+
 def collect():
     cases = []  # dicts: family, essence, frags, fixtures, assembled, path, line
     for base in SCAN_DIRS:
@@ -247,19 +359,45 @@ def collect():
                 consts = const_fragments(rs, marks, strmarks)
                 masked = mask(rs, marks)
                 for name, s, e in tests:
+                    spans = source_spans(masked, s, e)
+                    live_text = "".join(masked[a:b] for a, b in spans)
                     frags = []
+                    live_vals = []  # decoded text of live literals: inline
+                    # format! captures like "{RES2}" live only here, since
+                    # live_text comes from the masked (blanked) text
                     for kind, a, b, raw in strmarks:
                         if a < s or b > e:
                             continue
+                        if not any(pa <= a and b <= pb for pa, pb in spans):
+                            continue
                         val = literal_value(kind, raw)
-                        if val is None or not is_mc_fragment(val):
+                        if val is None:
+                            continue
+                        live_vals.append(val)
+                        if not is_mc_fragment(val):
                             continue
                         frags.append(val)
-                    body = masked[s:e]
+                    live_src = "\n".join(live_vals)
                     fixtures = []
+                    const_map = {}
                     for cname, cfrags in consts.items():
-                        if re.search(r"\b%s\b" % cname, body):
+                        if re.search(
+                            r"\b%s\b" % cname, live_text
+                        ) or re.search(r"\b%s\b" % cname, live_src):
                             fixtures.extend(cfrags)
+                            const_map[cname] = "\n".join(cfrags)
+                    # let-bound pure-string literals, for {var} placeholders
+                    varmap = {}
+                    for mm in LET_RE.finditer(masked, s, e):
+                        rhs = (mm.start(2), mm.end(2))
+                        inner = [
+                            literal_value(k, raw)
+                            for k, a, b, raw in strmarks
+                            if rhs[0] <= a and b <= rhs[1]
+                        ]
+                        inner = [v for v in inner if v is not None]
+                        if len(inner) == 1:
+                            varmap[mm.group(1)] = inner[0]
                     if not frags and not fixtures:
                         continue
                     line = rs.count("\n", 0, s) + 1
@@ -272,8 +410,8 @@ def collect():
                         if len(parts) == 2
                         else name[:80]
                     )
-                    assembled = any(
-                        FORMAT_PLACEHOLDER.search(f) for f in frags + fixtures
+                    purpose = doc_purpose(rs, line) or (essence or "case").replace(
+                        "_", " "
                     )
                     cases.append(
                         dict(
@@ -281,7 +419,9 @@ def collect():
                             essence=essence or "case",
                             frags=frags,
                             fixtures=fixtures,
-                            assembled=assembled,
+                            const_map=const_map,
+                            varmap=varmap,
+                            purpose=purpose,
                             path=rel,
                             line=line,
                             name=name,
@@ -365,170 +505,222 @@ def dedupe_variants(fixtures):
     return kept, alts
 
 
+def compose(piece, const_map, varmap, used, depth=0):
+    """Substitute `{NAME}` placeholders from consts / let-bound literals.
+
+    Runs on the raw format! text; `{{`/`}}` unescaping happens afterwards.
+    Names resolved here are recorded in `used` so their standalone copies can
+    be dropped from the piece list.
+    """
+    if depth > 5:
+        return piece
+
+    def repl(m):
+        nm = m.group(1)
+        if nm in const_map:
+            used.add(nm)
+            return compose(const_map[nm], const_map, varmap, used, depth + 1)
+        if nm in varmap:
+            used.add(nm)
+            return compose(varmap[nm], const_map, varmap, used, depth + 1)
+        return m.group(0)
+
+    return PLACEHOLDER.sub(repl, piece)
+
+
 def build_document(c):
-    """Return (active_lines, inactive_lines) for one case.
+    """Return (active_docs, inactive_pairs, unresolved).
 
     Layout: top-level definition docs (component/use libs) first, then the
     first module doc as the active source; later module docs and leftover
     body fragments become commented-out inactive alternatives. A case with
     no module doc gets its body wrapped in a `module main` shell.
     """
-    fixtures, fixture_alts = dedupe_variants(c["fixtures"])
-    frags = [
-        f.replace("{{", "{").replace("}}", "}")
-        for f in dedupe_overlap(fixtures + c["frags"])
-    ]
+    const_map, varmap = c["const_map"], c["varmap"]
+    used = set()
+    pieces = [compose(p, const_map, varmap, used) for p in c["fixtures"] + c["frags"]]
+    # a var/const consumed by a template must not also stand alone
+    used_contents = set()
+    for n in used:
+        src_txt = const_map.get(n) or varmap.get(n)
+        if src_txt is not None:
+            used_contents.add(compose(src_txt, const_map, varmap, set()).strip())
+    pieces = [p for p in pieces if p.strip() not in used_contents]
+    pieces = dedupe_overlap(pieces)
+    pieces, variant_alts = dedupe_variants(pieces)
+    frags = [f.replace("{{", "{").replace("}}", "}") for f in pieces]
     docs = split_docs(frags)
     has_module = lambda d: re.search(r"^\s*module\s+\w", d, re.M) is not None
-    libs = [d for d in docs if not has_module(d)]
+    TOP_DECL = re.compile(
+        r"^\s*(module|component|interface|pub|use|attr|rail|conduit|enum|fn)\b"
+    )
+    is_top = lambda d: bool(TOP_DECL.match(d))
     mains = [d for d in docs if has_module(d)]
+    libs = [d for d in docs if not has_module(d) and is_top(d)]
+    bodies = [d for d in docs if not has_module(d) and not is_top(d)]
     active, inactive = [], []
     if mains:
         active.extend(libs)
         active.append(mains[0])
         for k, d in enumerate(mains[1:], 1):
             inactive.append((f"inactive alternative {k}", d))
-    else:
-        shell = "\n".join(docs).rstrip("\n")
+        for k, d in enumerate(bodies, 1):
+            inactive.append((f"inactive body fragment {k}", d))
+    elif bodies:
+        active.extend(libs)
+        shell = "\n".join(bodies).rstrip("\n")
         active.append("module main {\n" + shell + "\n}")
-    for k, d in enumerate(fixture_alts, 1):
-        inactive.append((f"inactive fixture variant {k}", d))
-    return active, inactive
+    else:
+        active.extend(libs)
+    for k, d in enumerate(variant_alts, 1):
+        inactive.append((f"inactive variant {k}", d))
+    unresolved = any(UNRESOLVED_PH.search(d) for d in active)
+    return active, inactive, unresolved
 
 
-def verify_and_annotate(outdir, index_lines):
-    """Parse every emitted file with mcc and add a Verification header line.
+STAGE_DIR = "_stage"
+CLASSES = ("valid", "invalid", "template")
+HEADER_TOOL = (
+    "// Generated by scripts/extract-test-cases.py from the mcc test suite.\n"
+    "// Do not edit by hand: regenerate instead.\n"
+)
 
-    Statuses: parses clean / fires diagnostics (intended codes or a
-    reconstruction gap — cross-check Source) / not compilable (assembled).
-    """
+
+def file_body(c):
+    """The mc text of a case: active docs, then inactive alternatives."""
+    active, inactive, unresolved = c.setdefault(
+        "doc", build_document(c)
+    )
+    parts = ["\n".join(active).strip("\n")]
+    for label, d in inactive:
+        block = "\n".join("// " + ln if ln else "//" for ln in d.rstrip().split("\n"))
+        parts.append(f"// ---- {label} ----\n{block}")
+    return "\n\n".join(parts) + "\n"
+
+
+def run_mcc(path, mcc):
+    """(errors, codes) for one file via `mcc parse -q`."""
     import subprocess
+
+    try:
+        p = subprocess.run(
+            [mcc, "parse", "-q", path],
+            capture_output=True, text=True, timeout=60,
+        )
+    except Exception as e:
+        return -1, [f"spawn-failed:{e}"]
+    text = (p.stdout or "") + (p.stderr or "")
+    m = re.search(r"summary: errors=(\d+)", text)
+    errors = int(m.group(1)) if m else -1
+    codes = sorted(set(re.findall(r"[EW]\d{4}", text)))
+    return errors, codes
+
+
+def write_out(cases, outdir, mcc="mcc", workers=8):
+    """Two-phase pipeline: stage everything, parse, then finalize by class.
+
+    valid   -- mcc parse reports 0 errors
+    invalid -- mcc parse reports >0 errors (the negative / rejection cases)
+    template-- format!() runtime interpolation that never resolves to static
+               text; the placeholders below were values at runtime
+    """
     from concurrent.futures import ThreadPoolExecutor
 
-    files = []
-    for dirpath, _dirs, filenames in os.walk(outdir):
-        files += [os.path.join(dirpath, f) for f in filenames if f.endswith(".mc")]
-
-    def run(path):
-        txt = open(path, encoding="utf-8").read()
-        mm = re.search(r"^\s*module\s+(\w+)", txt, re.M)
-        top = mm.group(1) if mm else "main"
-        p = subprocess.run(
-            ["mcc", "parse", "-L", "-q", path, "--top", top],
-            capture_output=True, text=True,
-        )
-        s = re.search(r"summary: errors=(\d+)", p.stdout + p.stderr)
-        n = int(s.group(1)) if s else -1
-        codes = sorted(set(re.findall(r"\b[PE]\d{4}\b", p.stdout + p.stderr)))
-        return path, txt, top, n, codes
-
-    with ThreadPoolExecutor(max_workers=8) as ex:
-        for path, txt, top, n, codes in ex.map(run, files):
-            lines = txt.split("\n")
-            if "NOTE: this fn assembles" in txt:
-                v = "NOT COMPILABLE — format! placeholders were runtime interpolations"
-            elif n == 0:
-                v = f"parses clean (mcc, top={top})"
-            else:
-                cs = ", ".join(codes) if codes else "see mcc output"
-                v = (
-                    f"fires diagnostics [{cs}] — could be the case's intended "
-                    "codes or a reconstruction gap; cross-check Source"
-                )
-            out = []
-            for ln in lines:
-                out.append(ln)
-                if ln.startswith("// Source:"):
-                    out.append(f"// Verification: {v}")
-            open(path, "w", encoding="utf-8").write("\n".join(out))
-    index_lines.append("## Verification legend")
-    index_lines.append("")
-    index_lines.append(
-        "- `parses clean (mcc, top=…)` — the file loads with zero errors\n"
-        "- `fires diagnostics […]` — mcc reports codes; negative fixtures "
-        "fire their intended codes, others may be reconstruction gaps\n"
-        "- `NOT COMPILABLE` — the fn assembled its source with format!(); "
-        "the `{placeholders}` were runtime interpolations"
-    )
-    index_lines.append("")
-    with open(os.path.join(outdir, "INDEX.md"), "a", encoding="utf-8") as f:
-        f.write("\n".join(index_lines) + "\n")
-
-
-def write_out(cases, outdir):
-    if os.path.isdir(outdir):
-        shutil.rmtree(outdir)  # no stale files from a previous filter set
-    os.makedirs(outdir, exist_ok=True)
-    by_family = collections.defaultdict(list)
+    stage = os.path.join(outdir, STAGE_DIR)
+    if os.path.isdir(stage):
+        shutil.rmtree(stage)
+    fam_seq = collections.Counter()
     for c in cases:
-        by_family[c["family"]].append(c)
-    index = ["# mcc test-case extraction — for case code review", ""]
-    index.append(
-        f"{len(cases)} test cases with embedded .mc source, "
-        f"in {len(by_family)} family groups. One file per #[test] fn; "
-        "fragments are the fn's string literals in source order."
-    )
-    index.append("")
-    for family in sorted(by_family):
-        famdir = os.path.join(outdir, family)
-        os.makedirs(famdir, exist_ok=True)
-        by_family[family].sort(key=lambda c: (c["path"], c["line"]))
-        index.append(f"## {family}/ ({len(by_family[family])} cases)")
-        index.append("")
-        for idx, c in enumerate(by_family[family], 1):
-            fname = f"{idx:03d}__{c['essence']}.mc"
-            header = [
-                f"// Test case: {c['name']}",
-                f"// Source: {c['path']}:{c['line']}",
-            ]
-            if c["assembled"]:
-                header.append(
-                    "// NOTE: this fn assembles source with format!(); "
-                    "{placeholders} below were interpolations at runtime — "
-                    "not directly compilable."
-                )
-            body = []
-            active, inactive = build_document(c)
-            for k, frag in enumerate(active, 1):
-                if len(active) > 1:
-                    body.append(f"// ---- active part {k}/{len(active)} ----")
-                body.append(frag.rstrip("\n"))
-            for label, frag in inactive:
-                body.append(f"// ---- {label} (commented out) ----")
-                for line in frag.rstrip("\n").split("\n"):
-                    body.append("// " + line)
-            with open(
-                os.path.join(famdir, fname), "w", encoding="utf-8"
-            ) as f:
-                f.write("\n".join(header) + "\n\n" + "\n".join(body) + "\n")
-            src = (
-                f"{c['path']}:{c['line']}"
-                + (" (assembled)" if c["assembled"] else "")
-            )
-            index.append(f"- `{family}/{fname}` ← {src}")
-        index.append("")
+        fam_seq[c["family"]] += 1
+        c["num"] = fam_seq[c["family"]]
+        fam = os.path.join(stage, c["family"])
+        os.makedirs(fam, exist_ok=True)
+        c["stage"] = os.path.join(fam, "%03d__%s.mc" % (c["num"], c["essence"]))
+        with open(c["stage"], "w", encoding="utf-8") as f:
+            f.write(file_body(c))
+
+    with ThreadPoolExecutor(workers) as ex:
+        results = list(ex.map(lambda c: run_mcc(c["stage"], mcc), cases))
+    for c, (errors, codes) in zip(cases, results):
+        c["errors"], c["codes"] = errors, codes
+
+    # regenerate the tree from scratch: the class split renames everything
+    if os.path.isdir(outdir):
+        shutil.rmtree(outdir)
+    index = {k: [] for k in CLASSES}
+    counters = collections.Counter()
+    for c in cases:
+        active, inactive, unresolved = c["doc"]
+        if unresolved:
+            klass, why = "template", "format! runtime interpolation unresolved"
+        elif c["errors"] > 0:
+            klass = "invalid"
+            why = "mcc parse: %d error(s): %s" % (c["errors"], ", ".join(c["codes"]))
+        elif c["errors"] == 0:
+            klass, why = "valid", "mcc parse: 0 errors"
+        else:
+            klass, why = "invalid", "mcc parse failed to run: %s" % ", ".join(c["codes"])
+        counters[klass] += 1
+        counters[klass, c["family"]] += 1
+        n = counters[klass, c["family"]]
+        rel = os.path.join(klass, c["family"], "%03d__%s.mc" % (n, c["essence"]))
+        dest = os.path.join(outdir, rel)
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        ph = "\n".join(
+            sorted(set(UNRESOLVED_PH.findall("\n".join(active))))
+        )
+        head = [
+            f"// Case file: {rel}",
+            f"// Purpose: {c['purpose']}",
+            f"// Class: {klass} ({why})",
+        ]
+        if klass == "template" and ph:
+            head.append(f"// Unresolved placeholders: {ph}")
+        if klass == "invalid" and c["codes"]:
+            head.append("// Fired diagnostics: " + ", ".join(c["codes"]))
+        head += [
+            f"// Source: {c['path']}:{c['line']}  fn {c['name']}",
+            HEADER_TOOL.rstrip("\n"),
+        ]
+        with open(dest, "w", encoding="utf-8") as f:
+            f.write("\n".join(head) + "\n\n" + file_body(c))
+        index[klass].append((rel, c))
+
+    lines = [
+        "# mcc test-case extraction",
+        "",
+        "One `.mc` file per `#[test]` that embeds mc source, extracted by",
+        "`scripts/extract-test-cases.py`. Do not edit: regenerate instead.",
+        "",
+        "| Class | Meaning | Count |",
+        "|---|---|---|",
+        "| valid/ | mcc parse: 0 errors | %d |" % len(index["valid"]),
+        "| invalid/ | mcc parse reports errors (rejection cases) | %d |" % len(index["invalid"]),
+        "| template/ | format! runtime interpolation, no static text | %d |" % len(index["template"]),
+        "",
+    ]
+    for klass in CLASSES:
+        lines += [f"## {klass}/", ""]
+        for rel, c in sorted(index[klass]):
+            lines.append(f"- [{rel}]({rel}) — {c['purpose']} (`{c['path']}:{c['line']}`)")
+        lines.append("")
     with open(os.path.join(outdir, "INDEX.md"), "w", encoding="utf-8") as f:
-        f.write("\n".join(index) + "\n")
+        f.write("\n".join(lines))
+    return counters
 
 
 def main():
-    ap = argparse.ArgumentParser()
+    ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--out", default=os.path.join(ROOT, "build", "test-cases"))
-    ap.add_argument(
-        "--verify", action="store_true",
-        help="parse every emitted file with mcc and annotate the result",
-    )
+    ap.add_argument("--mcc", default="mcc", help="mcc binary used to classify")
+    ap.add_argument("--workers", type=int, default=8)
     args = ap.parse_args()
     cases = collect()
-    write_out(cases, args.out)
-    if args.verify:
-        verify_and_annotate(args.out, [])
-    total_frags = sum(len(c["frags"]) for c in cases)
-    assembled = sum(1 for c in cases if c["assembled"])
-    print(
-        f"{len(cases)} cases -> {args.out} "
-        f"({total_frags} fragments, {assembled} with format! placeholders)"
-    )
+    print(f"collected {len(cases)} cases", file=sys.stderr)
+    counters = write_out(cases, args.out, mcc=args.mcc, workers=args.workers)
+    for klass in CLASSES:
+        print(f"{klass}: {counters[klass]}", file=sys.stderr)
+    print(f"index: {os.path.join(args.out, 'INDEX.md')}", file=sys.stderr)
 
 
 if __name__ == "__main__":
