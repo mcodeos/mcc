@@ -273,6 +273,15 @@ pub struct ChainPlan {
     /// row and stops at the node's x; the node's own short vertical strings the
     /// cold pins together and carries the single glyph. See [`analyse`] step 3.6.
     pub ground_column: std::collections::BTreeSet<usize>,
+    /// ★ U284: the LIVE nets of the column arms — for every part in the
+    /// column's arm set, the non-ground net it bridges to. A shared node binds
+    /// all of its arms to ONE x, so an arm's side is not free for a later pass
+    /// to re-orient on its own: two arms whose live nets read in opposite
+    /// directions cannot both be satisfied, and the reading law must abstain
+    /// where the column model already decided. Consumers: the R0 reading pass
+    /// in `assign_regions` skips these nets (the same standing a RailDriver or
+    /// a sense net carries).
+    pub column_live_nets: std::collections::BTreeSet<usize>,
     /// part `box_id` → orientation.
     pub orientation: BTreeMap<i64, PartOrientation>,
 }
@@ -503,6 +512,7 @@ pub fn analyse(nets: &[NetView], parts: &[PartView]) -> ChainPlan {
     // "VDD_3V3 bus is thrown vertical, pointing down" the plan calls for.
     let mut ground_column: BTreeSet<usize> = BTreeSet::new();
     let mut column_parts: BTreeSet<i64> = BTreeSet::new();
+    let mut column_live_nets: BTreeSet<usize> = BTreeSet::new();
     for &g in &ground_taken {
         let live_parts: Vec<usize> = incident[g]
             .iter()
@@ -527,11 +537,13 @@ pub fn analyse(nets: &[NetView], parts: &[PartView]) -> ChainPlan {
             if matches!(ends[live].outer, EndUse::Part(_) | EndUse::Component) {
                 if ends[live].outer == EndUse::Part(parts[p].box_id) {
                     column_parts.insert(parts[p].box_id);
+                    column_live_nets.insert(live);
                 }
                 continue;
             }
             ends[live].outer = EndUse::Part(parts[p].box_id);
             column_parts.insert(parts[p].box_id);
+            column_live_nets.insert(live);
         }
     }
 
@@ -585,6 +597,7 @@ pub fn analyse(nets: &[NetView], parts: &[PartView]) -> ChainPlan {
         depth,
         ends,
         ground_column,
+        column_live_nets,
         orientation,
     }
 }
