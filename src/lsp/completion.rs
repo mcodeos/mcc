@@ -312,7 +312,7 @@ pub fn complete_member_at_pos(
 
     let member_items: Vec<Value> = unique
         .iter()
-        .filter(|it| prefix.map_or(true, |p| it.name.starts_with(p)))
+        .filter(|it| prefix.map_or(true, |p| member_matches_prefix(&it.name, p)))
         .take(crate::query::lookup::MAX_PER_LAYER)
         .map(|it| {
             json!({
@@ -356,6 +356,19 @@ fn enumerate_family_components(member_root: &str, out: &mut Vec<MemberItem>) {
         .collect();
     hits.sort_by(|a, b| a.name.cmp(&b.name));
     out.append(&mut hits);
+}
+
+/// Prefix match for member candidates. Plain member names (pins, params,
+/// funcs) match from the start; dotted family names (`DC.DC10`) also match
+/// on their last segment, because the client sends the text typed after the
+/// final dot (`DC.S` → root `DC`, prefix `S` → `DC.SRC`).
+fn member_matches_prefix(name: &str, prefix: &str) -> bool {
+    if name.starts_with(prefix) {
+        return true;
+    }
+    name.rsplit('.')
+        .next()
+        .is_some_and(|tail| tail.starts_with(prefix))
 }
 
 /// Resolve `member_root` to a member-enumeration source.
