@@ -4325,7 +4325,7 @@ fn chain_origins(
                 let aw = graph.boxes.iter().find(|b| b.id == bid).map(|b| b.w);
                 if let Some(aw) = aw.filter(|w| *w > 0.0) {
                     let placed = base_placed_set(graph, &series_x, layer_anchor);
-                    let (lo, hi) = rank_window(graph, topos, bid, g.nid, &placed);
+                    let (lo, hi) = rank_window(graph, topos, bid, g.nid, &placed, layer_anchor);
                     let own_ok = lo.is_none_or(|l| own - aw / 2.0 >= l - 0.5)
                         && hi.is_none_or(|h| own + aw / 2.0 <= h + 0.5);
                     let col_ok = lo.is_none_or(|l| x_col - aw / 2.0 >= l - 0.5)
@@ -4551,7 +4551,72 @@ fn rank_window(
     box_id: i64,
     owner_nid: i64,
     placed: &std::collections::BTreeMap<i64, (f64, f64)>,
+    layer_anchor: i64,
 ) -> (Option<f64>, Option<f64>) {
+    // ★ U284 (b3966): a same-run Series co-endpoint is where this net's own
+    // trunk segment ENDS — the run continues through it into the partner net,
+    // so the wire beyond belongs to the partner. It therefore bounds the
+    // segment (members read up to it) but carries no reading-order rank: a
+    // bridge member declared after it still hangs on THIS side of it
+    // (moddcdc `CAP_5`, declared after the `IND_1` joint, hangs on `__net_3`'s
+    // own segment west of the joint — reading it east of the joint dragged
+    // the drop across `VCC_1V2`'s trunk and reopened A10/A29).
+    let terminus_edge = |topo: &NetTopology,
+                         ti: usize,
+                         eid: i64,
+                         ex: f64,
+                         ew: f64,
+                         want_dir: Option<bool>|
+     -> Option<bool> {
+        // ★ b3966: the segment law binds only the net that is PLACING this
+        // member (its owner lane). A foreign net's window stays rank-based —
+        // its rank edges may reach beyond its own segment end, and mixing a
+        // segment boundary with a foreign beyond-segment rank edge manufactured
+        // conflicts that fell back to the wrong window (hbl UC `_R5`).
+        if topo.nid != owner_nid {
+            return None;
+        }
+        let group = topo.groups.iter().find(|g| g.box_id == eid)?;
+        let ebox = graph.boxes.iter().find(|b| b.id == eid)?;
+        let p = partner_info(topos, ti, group);
+        if !matches!(tap_role(ebox, topo, p.clone(), layer_anchor), TapRole::Series { .. }) {
+            return None;
+        }
+        // Only the collinear run continuation bounds the segment. A
+        // ground-column arm (M12.1) is a side tap, not the segment's end —
+        // and b3962's column adoption gives the ground net this run's
+        // `run_root`, so the root equality alone would let it through.
+        let Some(p) = p else { return None };
+        if p.ground_column || p.kind == NetKind::Ground {
+            return None;
+        }
+        if p.run_root != topo.run_root {
+            return None;
+        }
+
+        // `true` ⇒ members read up to the joint's WEST edge (the joint is the
+        // segment's east end); `false` ⇒ members read from its EAST edge.
+        // The anchor joint is the segment's ENTRY — the run reads AWAY from
+        // it (`VCC_1V2` is anchored on `IND_1` and its caps read east of the
+        // joint) — so it flips the side a non-anchor exit joint would set.
+        let is_anchor = topo.anchor == eid;
+        Some(match want_dir {
+            Some(east) => is_anchor != east,
+            None => {
+                let a = placed.get(&topo.anchor)?;
+                let ac = a.0 + a.1 / 2.0;
+                let sc = ex + ew / 2.0;
+                if sc > ac {
+                    true
+                } else if sc < ac {
+                    false
+                } else {
+                    return None;
+                }
+            }
+        })
+    };
+
     let mut lo: Option<f64> = None;
     let mut hi: Option<f64> = None;
     let mut own_lo: Option<f64> = None;
@@ -4572,17 +4637,18 @@ fn rank_window(
         // The R0 reading direction of THIS net (Pass 2.5's law): the anchor
         // endpoint first ⇒ the chain reads eastward; last ⇒ westward; mid-chain
         // ⇒ no reading law.
-        let want = topo.and_then(|t| {
+        let want_dir = topo.and_then(|t| {
             let first = n.endpoints.first().is_some_and(|e| e.box_id == t.anchor);
             let last = n.endpoints.last().is_some_and(|e| e.box_id == t.anchor);
             if first == last {
                 None
             } else if first {
-                Some(Region::East)
+                Some(true)
             } else {
-                Some(Region::West)
+                Some(false)
             }
         });
+        let want = want_dir.map(|east| if east { Region::East } else { Region::West });
         // ★ b3762: mirror the window ONLY when the declared-edge region
         // CONTRADICTS the net's own reading direction — a net whose anchor
         // pins sit on the declared Left edge while its statement order reads
@@ -4599,6 +4665,7 @@ fn rank_window(
         };
         let mut n_lo: Option<f64> = None;
         let mut n_hi: Option<f64> = None;
+        let ti = topo.and_then(|t| topos.iter().position(|x| x.nid == t.nid));
         for (r, e) in n.endpoints.iter().enumerate() {
             if r == my {
                 continue;
@@ -4607,6 +4674,19 @@ fn rank_window(
                 continue;
             };
             if ew <= 0.0 {
+                continue;
+            }
+            let east = topo
+                .zip(ti)
+                .and_then(|(t, ti)| terminus_edge(t, ti, e.box_id, ex, ew, want_dir));
+
+            if let Some(east) = east {
+                // Segment boundary, not a rank edge.
+                if east {
+                    n_hi = Some(n_hi.map_or(ex, |v| v.min(ex)));
+                } else {
+                    n_lo = Some(n_lo.map_or(ex + ew, |v| v.max(ex + ew)));
+                }
                 continue;
             }
             if (r < my) != mirrored {
@@ -4848,7 +4928,7 @@ fn resolve_columns_for_side(graph: &mut McVecGraph, topos: &[NetTopology], layer
             // west; with the window it allocates east of R442, back in
             // reading order.
             let (min_edge, max_edge) =
-                rank_window(graph, topos, group.box_id, topos[ti].nid, &base_placed);
+                rank_window(graph, topos, group.box_id, topos[ti].nid, &base_placed, layer_anchor);
             let m = SideMember {
                 idx: Some((ti, gi)),
                 role,
@@ -4920,7 +5000,7 @@ fn resolve_columns_for_side(graph: &mut McVecGraph, topos: &[NetTopology], layer
             Some(b) if b.w > 0.0 => (b.x, b.w),
             _ => continue,
         };
-        let (lo, hi) = rank_window(graph, topos, bid, topos[ti].nid, &placed_now);
+        let (lo, hi) = rank_window(graph, topos, bid, topos[ti].nid, &placed_now, layer_anchor);
         // A CONFLICTING window (both bounds, wrong way round) is not an order —
         // two of the net's placed co-endpoints already disagree. Moving to
         // either edge would break the other net's reading order blindly, so
