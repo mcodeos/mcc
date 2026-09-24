@@ -74,7 +74,7 @@ fn cddl_view_name_rule_is_exactly_the_six_ruled_words() {
 /// — kept honest by the member-set guard below and the golden byte lock in
 /// `diag_view_golden.rs`. Publishing a second canonical word means landing
 /// its group first, then adding it here.
-const CARRIED_CANONICAL_VIEWS: &[&str] = &["diagnostics"];
+const CARRIED_CANONICAL_VIEWS: &[&str] = &["diagnostics", "netlist"];
 
 #[test]
 fn no_published_view_impersonates_an_uncarried_canonical_word() {
@@ -105,6 +105,7 @@ fn registry_covers_every_producer_constant() {
     stamped.push(stages::trace::TRACE_VIEW);
     stamped.push(stages::ORG_UNITS_VIEW);
     stamped.push(stages::diagview::DIAGNOSTICS_VIEW);
+    stamped.push(stages::netlistview::NETLIST_VIEW);
     stamped.push(stages::stage_diff::DIFF_P2_VIEW);
     stamped.push(stages::stage_diff::DIFF_VEC_VIEW);
     stamped.push(stages::stage_diff::DIFF_VIZ_VIEW);
@@ -113,25 +114,25 @@ fn registry_covers_every_producer_constant() {
     assert_eq!(published, stamped, "the registry and the producers drifted");
 }
 
-/// The member identifiers of the CDDL `diag` group, read from the schema file:
-/// the text from `diag =` to its closing `}` is the whole group; each member
-/// is the identifier before the `:` on a non-comment line, with the optional
-/// marker `?` stripped.
-fn cddl_diag_members() -> Vec<String> {
+/// The member identifiers of one CDDL group, read from the schema file: the
+/// text from `marker` (e.g. `"diag ="`) to its closing `}` is the whole
+/// group; each member is the identifier before the `:` on a non-comment line,
+/// with the optional marker `?` stripped.
+fn cddl_group_members(marker: &str) -> Vec<String> {
     let start = CDDL
-        .find("diag =")
-        .expect("schema/projection.cddl has a diag group");
+        .find(marker)
+        .unwrap_or_else(|| panic!("schema/projection.cddl has a `{marker}` group"));
     let block = &CDDL[start..];
     let end = block
         .find('}')
-        .expect("the diag group is closed on the same rule");
+        .expect("the group is closed on the same rule");
     let mut members: Vec<String> = Vec::new();
     for line in block[..=end].lines() {
         let line = match line.split(';').next() {
             Some(code) => code.trim(),
             None => continue,
         };
-        if line.is_empty() || line.starts_with("diag") {
+        if line.is_empty() {
             continue;
         }
         let name = line.trim_start_matches('?');
@@ -180,7 +181,7 @@ fn cddl_diag_group_members_are_exactly_the_serialized_fields() {
     };
     assert_eq!(
         required(&full),
-        cddl_diag_members(),
+        cddl_group_members("diag ="),
         "the serialized `diag` item and the CDDL group drifted"
     );
 
@@ -205,4 +206,29 @@ fn cddl_diag_group_members_are_exactly_the_serialized_fields() {
         "absent optional members must be omitted, not serialized as null: {keys:?}"
     );
     assert_eq!(keys.len(), 4, "the required member set is code/level/msg/loc");
+}
+
+/// The same guard for the second carried group: the serialized key set of
+/// `NetItem` is exactly the CDDL `net` group's member set.
+#[test]
+fn cddl_net_group_members_are_exactly_the_serialized_fields() {
+    use mcc::stages::netlistview::NetItem;
+
+    let item = NetItem {
+        name: "VDD".to_string(),
+        points: vec!["r1.1".to_string(), "r2.2".to_string()],
+    };
+    let v = serde_json::to_value(&item).expect("NetItem serializes");
+    let mut keys: Vec<String> = v
+        .as_object()
+        .expect("NetItem serializes to an object")
+        .keys()
+        .cloned()
+        .collect();
+    keys.sort();
+    assert_eq!(
+        keys,
+        cddl_group_members("net ="),
+        "the serialized `net` item and the CDDL group drifted"
+    );
 }

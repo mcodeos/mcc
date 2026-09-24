@@ -636,6 +636,16 @@ pub enum ShowTarget {
     // never a gate: the exit code stays 0 however many errors the items hold.
     Diagnostics,
 
+    // The flattening's connectivity as one read projection
+    // (projection-schema-design.md §2.2; CIMP §1 U280): one item per copper
+    // island — the flat table's per-scope net segments folded by shared point
+    // ids — named by its best member, carrying the member pin paths. Shares
+    // one item builder with the export/netlist JSON face, so the two faces
+    // cannot spell the connectivity two ways. Emits the projection envelope
+    // with `view` = "netlist" and renders to both faces. A readout, never a
+    // gate: the exit code stays 0 however few islands the items hold.
+    Netlist,
+
     // Entity internals drill-down (<name> = owning entity, required)
     // Pins of a component / interface
     Pins,
@@ -667,8 +677,8 @@ impl ShowTarget {
     /// Shared by clap's value parsing (the variant names are the tokens, with no
     /// `#[value(name = …)]` override anywhere in the enum) and by the emitted
     /// envelope's `command` — `mcc show <token>` — which is the **only**
-    /// discriminator among the 22 sub-faces sharing the `show` projection key:
-    /// 16 of their payloads carry no `type` field of their own. One table, so a
+    /// discriminator among the 23 sub-faces sharing the `show` projection key:
+    /// 18 of their payloads carry no `type` field of their own. One table, so a
     /// new sub-face cannot land a token in one place and not the other; the
     /// pairing is asserted by the test below.
     pub fn name(self) -> &'static str {
@@ -689,6 +699,7 @@ impl ShowTarget {
             Self::Stage => "stage",
             Self::OrgUnits => "org-units",
             Self::Diagnostics => "diagnostics",
+            Self::Netlist => "netlist",
             Self::Pins => "pins",
             Self::Ports => "ports",
             Self::Labels => "labels",

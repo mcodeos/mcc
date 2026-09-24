@@ -34,6 +34,7 @@
 
 pub mod diagview;
 pub mod join;
+pub mod netlistview;
 pub mod p2;
 pub mod payload;
 pub mod read;
@@ -125,14 +126,14 @@ pub const ORG_UNITS_VIEW: &str = "org-units";
 /// one place. The vocabulary ruling (b3907, CIMP U280) makes the six words of
 /// `schema/projection.cddl`'s `view-name` the canonical read projections; a
 /// face may publish one only once its serde payload group has landed — the
-/// first and so far only carried word is `diagnostics`
-/// ([`diagview`]), the other five are still v1 reservations, and publishing
-/// one of those would be impersonating a projection that does not exist. The
-/// lock `tests/shard7/view_vocabulary.rs` reads the canonical words from the
-/// CDDL, holds every published word that equals a canonical word to the
-/// carried set, and holds this list equal to what the producers actually
-/// stamp — a new face adds its name here; no face invents a name anywhere
-/// else.
+/// carried words so far are `diagnostics` ([`diagview`]) and `netlist`
+/// ([`netlistview`]), the other four are still v1 reservations, and
+/// publishing one of those would be impersonating a projection that does not
+/// exist. The lock `tests/shard7/view_vocabulary.rs` reads the canonical
+/// words from the CDDL, holds every published word that equals a canonical
+/// word to the carried set, and holds this list equal to what the producers
+/// actually stamp — a new face adds its name here; no face invents a name
+/// anywhere else.
 pub fn published_views() -> Vec<&'static str> {
     vec![
         StageSeg::P1.view_name(),
@@ -145,6 +146,7 @@ pub fn published_views() -> Vec<&'static str> {
         trace::TRACE_VIEW,
         ORG_UNITS_VIEW,
         diagview::DIAGNOSTICS_VIEW,
+        netlistview::NETLIST_VIEW,
         stage_diff::DIFF_P2_VIEW,
         stage_diff::DIFF_VEC_VIEW,
         stage_diff::DIFF_VIZ_VIEW,
@@ -201,8 +203,8 @@ pub struct StageView {
     pub key_table: Option<String>,
     /// `stage.p1` | `stage.p2` | `stage.vec` | `stage.viz`, or one of the
     /// vocabularies assembled by [`StageView::with_view`] (`join` / `trace` /
-    /// `org-units` / `diagnostics`), which name what they read rather than a
-    /// pipeline stage.
+    /// `org-units` / `diagnostics` / `netlist`), which name what they read
+    /// rather than a pipeline stage.
     pub view: &'static str,
     /// What this view is scoped to.
     pub top: String,
@@ -237,7 +239,7 @@ impl StageView {
 
     /// Assemble a view whose vocabulary is its own.
     ///
-    /// `join`, `trace`, `org-units` and `diagnostics` publish their own `view`
+    /// `join`, `trace`, `org-units`, `diagnostics` and `netlist` publish their own `view`
     /// name and their own set of count words — a `join` groups by a rule the design fixes for
     /// it (the `drop` group on top), and the organization directory counts the
     /// units a definition space holds rather than the items of a pipeline
