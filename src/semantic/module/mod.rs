@@ -26,6 +26,8 @@ use crate::{
 };
 use std::sync::Arc;
 
+pub(crate) mod expects;
+use self::expects::Ledger;
 pub(crate) mod pi;
 use self::pi::McPowerDecls;
 
@@ -39,6 +41,9 @@ pub struct McModule {
     /// module is instantiated as a child box (SubModule); port names are listed
     /// per edge in counterclockwise package order.
     pub layout: McLayout,
+    /// `expects = [ ... ]` expectation rows declared in this module body
+    /// (declaration face only; storage, no engine yet).
+    pub expects: Ledger,
     pub insts: McInstances,
     pub stmts: Vec<McPhrase>,
     /// Source span for each connection stmt in `stmts` (parallel array).
@@ -128,6 +133,7 @@ impl McModule {
                 name: module_name,
                 params: McParamDeclares::new(),
                 layout: McLayout::default(),
+                expects: Ledger::default(),
                 funcs: McFunctions::new(),
                 pi: McPowerDecls::new(),
                 blocks: BlockPartitions {
@@ -187,6 +193,7 @@ impl McModule {
             name: McIds::from(name),
             params: McParamDeclares::new(),
             layout: McLayout::default(),
+            expects: Ledger::default(),
             insts: McInstances::new(),
             stmts: Vec::new(),
             stmt_spans: Vec::new(),
@@ -731,6 +738,10 @@ impl McModule {
                         // clause (E3081), as before.
                         if let Some(layout) = McLayout::new(&clause) {
                             self.layout = layout;
+                        } else if let Some(ledger) = Ledger::new(&clause) {
+                            // `expects = [ ... ]` — rows append so repeated
+                            // clauses accumulate.
+                            self.expects.rows.extend(ledger.rows);
                         } else {
                             dlog_error(
                                 crate::errcodes::UNEXPECTED_CLAUSE_TYPE,
