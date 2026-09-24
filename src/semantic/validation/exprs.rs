@@ -7,6 +7,7 @@
 //! Checks:
 //!   Q1 — `this` used outside instance context
 //!   Q3 — `_` as sole net endpoint
+//!   U283 — open lead: an anchored end meets a free `_`
 //!   E4 — constant expression overflow
 //!   V3 — reversed curly brace range (5:2)
 //!   V4 — single-element range (3:3)
@@ -33,6 +34,7 @@ impl ValidationCheck for ExprsCheck {
     fn run_post_parse(&self, acc: &mut CheckAccumulator) {
         check_this_outside_instance(acc); // Q1
         check_uscore_sole_endpoint(acc); // Q3
+        check_open_lead(acc); // U283
         check_constant_overflow(acc); // E4
         check_reversed_range(acc); // V3 + V4
         check_idx_key_collision(acc); // C5
@@ -106,6 +108,108 @@ fn check_uscore_sole_endpoint(acc: &mut CheckAccumulator) {
                 }
             }
         }
+    }
+}
+
+/// U283: open lead — an anchored end meets a free `_`
+/// (open-lead-design.md §2).
+///
+/// Per-statement census next to Q3: a series holding both anchored operands
+/// and a `_` placeholder leaves the anonymous point with exactly one anchor
+/// — a free end nothing can reach. Placeholders are statement-local and can
+/// never be connected by a parent layer, so the statement face may report.
+/// Two or more anchors make the anonymous point an interior splice (the
+/// star form `(a, b) -> _`) and stay silent; zero anchors is the floating
+/// wire, Q3's face. Anonymous wires never merge across statements, so the
+/// census counts per statement and never dedups.
+fn check_open_lead(acc: &mut CheckAccumulator) {
+    let modules = crate::definition_space().workspace_modules();
+    for (sn, module) in modules.iter() {
+        let uri = sn.uri.to_string();
+        if super::is_test_file(&uri) {
+            continue;
+        }
+        for phrase in &module.stmts {
+            match phrase {
+                // §10.6: a bare `(,)` group statement is a statement list —
+                // each branch stands alone for the census. A group nested as
+                // a series operand is instead a fan SHAPE (the point
+                // collectors flatten it onto one copper), so it is not
+                // expanded here; anchor_leaves sums its branches.
+                McPhrase::Group(_) => {
+                    if let Some(stmts) = phrase.expand_group_statements() {
+                        for stmt in &stmts {
+                            judge_open_lead(stmt, &uri, acc);
+                        }
+                    }
+                }
+                other => judge_open_lead(other, &uri, acc),
+            }
+        }
+    }
+}
+
+fn judge_open_lead(phrase: &McPhrase, uri: &str, acc: &mut CheckAccumulator) {
+    match phrase {
+        McPhrase::Series(items, _) => {
+            let Some(McPhrase::Lead(off)) = items.iter().find(|p| matches!(p, McPhrase::Lead(_)))
+            else {
+                return;
+            };
+            let off = *off as usize;
+            let anchors: usize = items
+                .iter()
+                .filter(|p| !matches!(p, McPhrase::Lead(_)))
+                .map(anchor_leaves)
+                .sum();
+            if anchors != 1 {
+                // 0 = floating wire (Q3's face); >=2 = interior splice, silent.
+                return;
+            }
+            let text = format!("{}", phrase);
+            acc.push(CheckResult {
+                check_name: "exprs",
+                severity: CheckSeverity::Warning,
+                uri: Some(uri.to_string()),
+                // A6: anchor the report where the free `_` was written.
+                span: Some(off..off + 1),
+                message: format!(
+                    "Open lead: '{}' leaves a free '_' placeholder — the \
+                     anonymous point gathers a single anchor and nothing can \
+                     reach it.",
+                    text.trim()
+                ),
+                code: crate::errcodes::OPEN_LEAD,
+            });
+        }
+        McPhrase::Parallel(items) => {
+            for branch in items {
+                judge_open_lead(branch, uri, acc);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Count the anchored endpoints an operand contributes to the statement's
+/// copper — an AST walk, no text inspection. An endpoint is one leaf per
+/// declared member; groups fan out into their branches; `_` contributes
+/// none.
+fn anchor_leaves(phrase: &McPhrase) -> usize {
+    match phrase {
+        McPhrase::Lead(_) => 0,
+        McPhrase::Endpoint(ep) => ep.get_left().iter().map(|b| b.member.len().max(1)).sum(),
+        McPhrase::Multiple(v) | McPhrase::Parallel(v) | McPhrase::Series(v, _) => {
+            v.iter().map(anchor_leaves).sum()
+        }
+        McPhrase::Reversed(inner) | McPhrase::Transposed(inner) | McPhrase::Member(inner, _) => {
+            anchor_leaves(inner)
+        }
+        McPhrase::Group(_) => phrase
+            .expand_group_statements()
+            .map(|stmts| stmts.iter().map(anchor_leaves).sum())
+            .unwrap_or(0),
+        McPhrase::Closure(_) | McPhrase::FuncCall(_) => 1,
     }
 }
 

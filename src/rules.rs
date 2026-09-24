@@ -2042,7 +2042,7 @@ mod tests {
     /// first-emission source order. This is the lock that keeps
     /// `POSTPARSE_RULES` byte-identical to the `validation/*` emission set;
     /// the object hosts stay the executor, so this anchors the catalog copy.
-    const POSTPARSE_ORDER: [u32; 97] = [
+    const POSTPARSE_ORDER: [u32; 98] = [
         // duplicate
         crate::errcodes::DUP_CMIE_CROSS_FILE,
         // dupwithin
@@ -2106,6 +2106,7 @@ mod tests {
         // exprs
         crate::errcodes::EXPR_THIS_TOP_LEVEL,
         crate::errcodes::EXPR_PLACEHOLDER_ONLY,
+        crate::errcodes::OPEN_LEAD,
         crate::errcodes::ATTR_LARGE_INT,
         crate::errcodes::ATTR_INFINITE_FLOAT,
         crate::errcodes::RANGE_SINGLE_ELEMENT,
@@ -3228,6 +3229,16 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = Structure,
         host = "exprs",
         doc = "Net connects only to '_' placeholder; the connection has no effect.",
+        lock = "tests/lock_pp_exprs.rs",
+    },
+    declare_post_parse_rule! {
+        code = crate::errcodes::OPEN_LEAD,
+        name = "open-lead",
+        title = "open lead: an anchored end meets a free '_' placeholder",
+        severity = Warning,
+        domain = Structure,
+        host = "exprs",
+        doc = "A statement whose anonymous '_' point gathers exactly one anchored endpoint leaves a free end nothing can reach; counted per statement, never merged across statements (open-lead doctrine).",
         lock = "tests/lock_pp_exprs.rs",
     },
     declare_post_parse_rule! {

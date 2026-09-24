@@ -824,31 +824,10 @@ impl<'a> McVecBuilder<'a> {
                 });
             }
 
-            // D2: FLOATING_PLACEHOLDER detection
-            // Check if any `_` placeholder (path starts with "(lead)_") failed to resolve.
-            for (i, p) in conn.points.iter().enumerate() {
-                if p.path.starts_with("(lead)_") {
-                    if let Some(pr) = per_point.get(i) {
-                        if pr.ids.is_empty() {
-                            let pos = p.src_pos.first().map(|s| s.offset).unwrap_or(0);
-                            diagnostic_log(
-                                crate::errcodes::FLOATING_PLACEHOLDER,
-                                DiagnosticLevel::Error,
-                                pos,
-                                1,
-                                &crate::errcodes::format_msg(
-                                    crate::errcodes::FLOATING_PLACEHOLDER,
-                                    &[
-                                        &net_name as &dyn std::fmt::Display,
-                                        &module_path as &dyn std::fmt::Display,
-                                    ],
-                                ),
-                                &[],
-                            );
-                        }
-                    }
-                }
-            }
+            // D2 (FLOATING_PLACEHOLDER) is retired (U283 ruling ③): the `_`
+            // placeholder faces answer to the open-lead census on the
+            // statement face — floating wire E5411, open lead E4065 — not to
+            // a vector-build-time check here.
 
             // D3: MERGED_SHORT detection
             // Check if multiple point paths (same or different) resolve to the
