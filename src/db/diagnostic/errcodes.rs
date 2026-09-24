@@ -2244,6 +2244,15 @@ pub const AC_NOMINAL_CONFLICT: u32 = 6058;
 /// family's object, never this gate's.
 pub const PROTECTIVE_PIN_NO_COPPER: u32 = 6059;
 
+/// U112 ② **chain-level source reach** (clock-intent-design.md §2.2): a role
+/// whose member pins all declare `in` — a sink-shaped lane of a
+/// unidirectional family — reaches no source endpoint of its own family
+/// along the adoption chain. The walk crosses whole nets and distributor
+/// instances; the defect is the orphan (zero reachable sources), never a
+/// second source (multi-input receivers are a legal shape). Triggered by the
+/// role's declared pin-direction shape, never a family or role name.
+pub const IFACE_CHAIN_SOURCE_UNREACHED: u32 = 6060;
+
 /// R3 **mixed bridge identity** (intent-reference-layer-design.md §10.4 bridge
 /// identity three-state): a `@bridge(X, Y)` whose two arguments disagree on
 /// kind — one names a whole-referenceable domain of the owning module, the
@@ -2767,4 +2776,5 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(AC_FACE_RETURN_MISSING, "An energized AC mains face leaves one of its members unconnected.", "AC face '{0}' declares the member group ({1}), but only '{2}' reaches a net — '{3}' is on no net at all, which makes the face a single-line supply: the return is the conductor the working current comes home on. Wire the return member to the face's return conductor, or drop the whole row if the face is not used (ac-interface-design.md §7, U217)."),
     entry!(AC_NOMINAL_CONFLICT, "Two AC mains faces state different region nominals on one copper.", "the net '{0}' carries two declared AC region nominals on one copper: '{2}' states {3}, while '{4}' states {5} — different {1}, not one mains, and the copper cannot be both. State the region nominal at the consumer faces and keep the region-neutral empty form on the inlet components (ac-interface-design.md §5/§7, U217)."),
     entry!(PROTECTIVE_PIN_NO_COPPER, "A pin declaring @role(protective) or @role(earth) shares a net with no protective conductor.", "the pin '{0}' declares @role({1}), but its net '{2}' touches no conductor the owning scope declares protective or earth — the role word is a promise about the copper, and a plain net does not keep it. Wire the pin to a `conduit`/port declared `@role(protective)`/`@role(earth)` (the single-point the clamp rules read), or drop the role word if the terminal is not protective (ac-interface-design.md §4/§7, U217; the beta ruling: PE is not an interface member, it lives in the role machinery)."),
+    entry!(IFACE_CHAIN_SOURCE_UNREACHED, "A sink-shaped adoption lane reaches no source of its family along the adoption chain.", "interface '{0}' lane '{1}' on '{2}' adopts role '{3}', whose pins all declare `in` — a sink-shaped lane — but no source endpoint of the same family is reachable along the adoption chain: the walk crossed every net the family's lanes lead to from here and found only further sink lanes. A unidirectional lane fed from nowhere is a dangling input — an orphan clock input is a clock that never arrives. Wire a source-role endpoint onto the chain (directly, or through a sink lane whose instance also declares a source pin of the same family), or drop the direction words if the lane is not genuinely a consumer (clock-intent-design.md §2.2, U112 ②)."),
 ];

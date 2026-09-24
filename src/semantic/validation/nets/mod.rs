@@ -171,6 +171,14 @@ pub(crate) use ac_face::{
 mod iface_peer;
 pub(crate) use iface_peer::check_iface_exclusive_peer;
 
+// U112 ② chain-level source-reach gate (clock-intent-design.md §2.2).
+// iface_chain.rs is a sibling leaf like iface_peer.rs: one owner
+// (6060 check_iface_chain_source) walks the adoption chain from each
+// sink-shaped lane — declared pin direction, never a name — and fires on
+// the orphan, zero reachable sources of the family.
+mod iface_chain;
+pub(crate) use iface_chain::check_iface_chain_source;
+
 /// Run all electrical net checks and return diagnostics.
 ///
 /// FlatErc rules are declared — and ordered — in `crate::rules`

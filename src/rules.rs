@@ -65,7 +65,8 @@ use crate::semantic::validation::nets::{
     check_driver_conflict, check_earth_dc_leak, check_element_dissipation,
     check_exposed_clamp_coverage, check_exposed_clamp_downstream, check_filter_subface_overreach,
     check_ac_face_return, check_ac_nominal_conflict, check_floating_inputs,
-    check_floating_outputs, check_iface_exclusive_peer, check_protective_pin_copper,
+    check_floating_outputs, check_iface_chain_source, check_iface_exclusive_peer,
+    check_protective_pin_copper,
     check_isolated_dc_bridge, check_nc_connected,
     check_net_budget, check_overlay_key_slot, check_overlay_value_descendant,
     check_pin_contract_decode, check_pin_contract_return_member,
@@ -1379,6 +1380,20 @@ pub static FLAT_ERC_RULES: &[FlatErcRule] = &[
         overridable = false,
         owner = check_protective_pin_copper,
     },
+    // U112 ② chain-level source-reach gate (clock-intent-design.md §2.2);
+    // table tail, tracking the FLAT_ERC_ORDER append (§5-5).
+    declare_flat_erc_rule! {
+        code = crate::errcodes::IFACE_CHAIN_SOURCE_UNREACHED,
+        name = "iface-chain-source",
+        title = "a sink-shaped adoption lane reaches no source of its family along the adoption chain",
+        severity = Error,
+        domain = Connectivity,
+        family = None,
+        doc = "U112 ② (clock-intent-design.md §2.2, the chain-level source-reach gate): a role whose member pins all declare `in` is a sink lane of a unidirectional family, and its defect is not a torn pairing but a dangling feed — no source endpoint of the same family reachable along the adoption chain. The walk starts at the sink's own net and crosses wherever the family's lanes lead: a sink lane whose owner instance also declares a source pin of the same family on another net is a distributor and its source net joins the walk; reaching any source — directly or through distributors — satisfies the lane. Reachability, never uniqueness: a multi-input receiver fed from several transmitters is a legal shape (the exclusive-peer gate's own silence law). The trigger is the role's declared pin-direction shape, decoded at flatten time into the lane carry, never a family or role name: a direction-less role (the passive-leaf pair) and a mixed role (out TX beside in RX) read no shape and are never judged; source-shaped lanes stay silent everywhere — an unconnected source drives nothing, the load law, not an orphan.",
+        lock = "tests/shard7/iface_chain.rs",
+        overridable = false,
+        owner = check_iface_chain_source,
+    },
 ];
 
 // Declaration scope (pins / declaration semantics)
@@ -1941,7 +1956,8 @@ mod tests {
         CLAMP_REF_NOT_PROTECTIVE, COMBINE_OUTPUT_TOL, CROSS_BARRIER_NET,
         DECOUPLING_RETURN_MISMATCH, DEVICE_RETURN_SPAN_UNDECLARED, EARTH_DC_LEAK,
         EXPOSED_NET_DOWNSTREAM_UNPROTECTED, EXPOSED_NET_NO_CLAMP, FILTER_SUBFACE_OVERREACH,
-        IFACE_EXCLUSIVE_PEER_CONFLICT, ISOLATED_DC_BRIDGE, NET_BACKFEED_RISK,
+        IFACE_CHAIN_SOURCE_UNREACHED, IFACE_EXCLUSIVE_PEER_CONFLICT, ISOLATED_DC_BRIDGE,
+        NET_BACKFEED_RISK,
         NET_BIDIR_UNCONNECTED, NET_BUDGET_EXCEEDED,
         NET_DANGLING_ENDPOINT, NET_INPUT_UNCONNECTED, NET_INSTANCE_UNCONNECTED,
         NET_MODULE_PORT_UNCONNECTED, NET_MULTI_DRIVE, NET_NC_CONNECTED, NET_NO_DRIVER,
@@ -1962,7 +1978,7 @@ mod tests {
     /// The execution order of the migrated `nets::run_net_checks` call table.
     /// This is the lock that keeps catalog declaration order byte-identical to
     /// the pre-registry runner sequence.
-    const FLAT_ERC_ORDER: [u32; 59] = [
+    const FLAT_ERC_ORDER: [u32; 60] = [
         NET_MULTI_DRIVE,                    // P1
         NET_NO_DRIVER,                      // P2
         NET_INPUT_UNCONNECTED,              // P5
@@ -2022,6 +2038,7 @@ mod tests {
         AC_FACE_RETURN_MISSING,  // U217 AC face return gate (tail append)
         AC_NOMINAL_CONFLICT,     // U217 AC region-nominal gate (tail append)
         PROTECTIVE_PIN_NO_COPPER, // U217 protective-word gate (tail append)
+        IFACE_CHAIN_SOURCE_UNREACHED, // U112 ② chain-level source reach (tail append)
     ];
 
     /// The report-row tags of the netcheck R-series. This is the lock that

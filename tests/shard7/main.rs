@@ -23,6 +23,7 @@ mod expr_dot_curly;
 mod flatten_net_check_diagnostics;
 mod floating_label;
 mod ghost_port_boundary;
+mod iface_chain;
 mod iface_connect_rule;
 mod iface_exclusive_peer;
 mod iface_param_pin_same_name;
