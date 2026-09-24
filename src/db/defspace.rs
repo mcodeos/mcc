@@ -21,13 +21,12 @@
 
 use super::cmie::tables::WorkspaceManager;
 use crate::db::defregistry::{
-    peel_capabilities, peel_components, peel_defines, peel_enums, peel_interfaces, peel_modules,
+    peel_capabilities, peel_components, peel_enums, peel_interfaces, peel_modules,
     DefKind, DefValue, DomainFilter,
 };
 use crate::db::infra::mc_code::McCode;
 use crate::semantic::capability::McCapability;
 use crate::semantic::component::McComponent;
-use crate::semantic::mc_define::McDefineDef;
 use crate::semantic::mc_enum::McEnumDef;
 use crate::semantic::mc_ifs::McInterface;
 use crate::semantic::module::McModule;
@@ -202,11 +201,6 @@ impl<'a> DefinitionSpace<'a> {
         self.ws.registry().get_enum(sn)
     }
 
-    /// Look up a define by its `McSpaceName`.
-    pub fn get_define(&self, sn: &McSpaceName) -> Option<Arc<McDefineDef>> {
-        self.ws.registry().get_define(sn)
-    }
-
     /// Look up a capability by its `McSpaceName`. Capability is not a class
     /// kind (never in the system name index); this typed registry read is the
     /// link-time resolution path (`::` adoption, P2).
@@ -314,15 +308,6 @@ impl<'a> DefinitionSpace<'a> {
         )
     }
 
-    /// Enumerate every live define definition (any domain).
-    pub fn all_defines(&self) -> Vec<(McSpaceName, Arc<McDefineDef>)> {
-        peel_defines(
-            self.ws
-                .registry()
-                .enumerate(DefKind::Define, DomainFilter::Any),
-        )
-    }
-
     /// Enumerate every live capability definition (any domain).
     pub fn all_capabilities(&self) -> Vec<(McSpaceName, Arc<McCapability>)> {
         peel_capabilities(
@@ -360,11 +345,6 @@ impl<'a> DefinitionSpace<'a> {
     /// Look up an enum by its `McSpaceName` in the project domain only.
     pub fn get_workspace_enum(&self, sn: &McSpaceName) -> Option<Arc<McEnumDef>> {
         self.ws.registry().get_workspace_enum(sn)
-    }
-
-    /// Look up a define by its `McSpaceName` in the project domain only.
-    pub fn get_workspace_define(&self, sn: &McSpaceName) -> Option<Arc<McDefineDef>> {
-        self.ws.registry().get_workspace_define(sn)
     }
 
     /// Look up a capability by its `McSpaceName` in the project domain only.
@@ -405,15 +385,6 @@ impl<'a> DefinitionSpace<'a> {
             self.ws
                 .registry()
                 .enumerate(DefKind::Enum, DomainFilter::Project),
-        )
-    }
-
-    /// Enumerate every project (workspace) define definition.
-    pub fn workspace_defines(&self) -> Vec<(McSpaceName, Arc<McDefineDef>)> {
-        peel_defines(
-            self.ws
-                .registry()
-                .enumerate(DefKind::Define, DomainFilter::Project),
         )
     }
 
@@ -678,7 +649,6 @@ mod tests {
         assert!(ds.get_module(&sn).is_none());
         assert!(ds.get_interface(&sn).is_none());
         assert!(ds.get_enum(&sn).is_none());
-        assert!(ds.get_define(&sn).is_none());
     }
 
     /// P0.1 golden sample (defspace-refactor-implementation.md Phase 0): the
@@ -796,7 +766,6 @@ mod tests {
         assert!(ds.get_module(&sn).is_none());
         assert!(ds.get_interface(&sn).is_none());
         assert!(ds.get_enum(&sn).is_none());
-        assert!(ds.get_define(&sn).is_none());
 
         // Removing the project file's layer alone falls back to the intact
         // system def — the T8 fallback read, no mcode reload required.

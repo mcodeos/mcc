@@ -123,9 +123,7 @@ fn check_missing_cmie(acc: &mut CheckAccumulator) {
     //   from user code.
     //
     // §12.4 rule 1: one merged read through the DefinitionSpace view
-    // (workspace then system lib, deduped by identity). Defines are
-    // workspace-only there (the global defines table is empty), so all_defines()
-    // covers them with the same entries.
+    // (workspace then system lib, deduped by identity).
     let ds = crate::definition_space();
     let mut known: HashSet<String> = HashSet::new();
     for (sn, _) in ds.all_components() {
@@ -138,9 +136,6 @@ fn check_missing_cmie(acc: &mut CheckAccumulator) {
         known.insert(sn.ident.to_string());
     }
     for (sn, _) in ds.all_enums() {
-        known.insert(sn.ident.to_string());
-    }
-    for (sn, _) in ds.all_defines() {
         known.insert(sn.ident.to_string());
     }
 

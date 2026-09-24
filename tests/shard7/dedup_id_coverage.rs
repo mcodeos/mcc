@@ -61,9 +61,10 @@ fn copy_dir(src: &std::path::Path, dst: &std::path::Path) {
     }
 }
 
-/// The five sources of the fixture, as `(path, pristine text)`.
+/// The four sources of the fixture, as `(path, pristine text)`. (bom.mc
+/// retired with the `define` keyword in b3953, U267③.)
 fn sources(proj: &std::path::Path) -> Vec<(String, String)> {
-    ["hbl.mc", "power.mc", "us513.mc", "periph.mc", "bom.mc"]
+    ["hbl.mc", "power.mc", "us513.mc", "periph.mc"]
         .iter()
         .map(|f| {
             let p = proj.join("src").join(f);

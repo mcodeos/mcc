@@ -23,8 +23,6 @@
 //!   * 5255 INTERFACE_EMPTY               - extra.rs:290 interface with no pins or roles
 //!   * 5257 COMPONENT_MIXED_CASE          - extra.rs:506 mixed-case component name
 //!   * 5258 BUS_DUPLICATE_MEMBER          - extra.rs:469 duplicate bus member in a module
-//!   * 5260 DEFINE_NO_ATTRS               - extra.rs:384 define with no attributes
-//!   * 5261 DEFINE_NON_ATTR_CLAUSE        - extra.rs:399 define body holds a non-attribute clause
 //!   * 5263 FUNC_SHARES_NAME_WITH_PORT    - extra.rs:573 func name equals a port/param name
 //!   * 5267 SPEC_KEY_DUPLICATE            - extra.rs:671 duplicate sub-key inside a `spec` value
 //!
@@ -320,41 +318,6 @@ fn lock_pp_extra__bus_duplicate_member_5258_fires() {
 module main { SUB_BUS u1 }
 "#;
     assert_fires_clean(5258, source);
-}
-
-// E5260 DEFINE_NO_ATTRS (extra.rs:384 check_empty_defines U5): a define whose
-// attribute list is empty.
-#[test]
-fn lock_pp_extra__define_no_attrs_5260_fires() {
-    let source = r#"define D_NOATTR
-{
-}
-module main
-{
-    io VDD
-}
-"#;
-    assert_fires_clean(5260, source);
-}
-
-// E5261 DEFINE_NON_ATTR_CLAUSE (extra.rs:399 check_empty_defines U4): a define
-// whose body mixes a real attribute (`partno`) with a net clause. Net clauses
-// are syntactically accepted inside define bodies but are flagged because a
-// define should only hold attributes. The present attribute keeps E5260 from
-// firing, isolating E5261.
-#[test]
-fn lock_pp_extra__define_non_attr_clause_5261_fires() {
-    let source = r#"define D_MIXED
-{
-    partno = "abc"
-    gnd - g0
-}
-module main
-{
-    io VDD
-}
-"#;
-    assert_fires_clean(5261, source);
 }
 
 // E5263 FUNC_SHARES_NAME_WITH_PORT (extra.rs:573 check_func_name_conflict R5):

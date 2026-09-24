@@ -733,7 +733,6 @@ pub enum LookupSymbolKind {
     Param,
     Pin,
     Instance,
-    Define,
     Role,
     /// Free named net (implicit NetDef at first occurrence).
     Net,
@@ -754,7 +753,6 @@ impl LookupSymbolKind {
             Self::Param => "param",
             Self::Pin => "pin",
             Self::Instance => "instance",
-            Self::Define => "define",
             Self::Role => "role",
             Self::Net => "net",
             Self::Unknown => "unknown",

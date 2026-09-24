@@ -13,7 +13,7 @@
 //   1. `DefinitionSpace::all_defs` walks exactly the kinds `DEF_KIND_ORDER`
 //      names, in that order, and never yields a `Func` row (a func is its
 //      host's member, so its read is the host-member one).
-//   2. `org_unit_items` covers all nine class words, joins the def half and
+//   2. `org_unit_items` covers all eight class words, joins the def half and
 //      the unit half in one place, and orders by `(kind, canonical key)`.
 //   3. No row of the directory keys on a number: a key is a name, a
 //      `host.member` pair or a source position, never an arena id.
@@ -102,16 +102,6 @@ enum MODE { A, B }
 
 enum KIND { C, D }
 
-define CFG
-{
-    X = 1
-}
-
-define ALT
-{
-    Y = 2
-}
-
 module main(psnk GND)
 {
     out SIG{P, N}
@@ -167,14 +157,14 @@ module aux_top(psnk GND)
 }
 "#;
 
-/// The nine class words the directory can hold, in display order: the six def
-/// kinds (no `Func` — a func is a host member) then the three unit kinds.
-const CLASS_WORDS: [&str; 9] = [
+/// The eight class words the directory can hold, in display order: the five
+/// def kinds (no `Func` — a func is a host member) then the three unit kinds.
+/// (The `define` kind retired with the keyword in b3953, U267③.)
+const CLASS_WORDS: [&str; 8] = [
     "module",
     "component",
     "interface",
     "enum",
-    "define",
     "capability",
     "func",
     "bus",
@@ -220,7 +210,7 @@ fn directory() -> (
         .map(|(kind, sn, _)| (kind, sn.ident.to_string(), sn.uri.to_string()))
         .collect();
     assert!(
-        defs.len() >= 12,
+        defs.len() >= 10,
         "the fixture contributes two of every def kind: {defs:?}"
     );
     let unit = |kind: UnitKind| -> Vec<Value> {
@@ -613,7 +603,7 @@ fn u120__a_bus_row_carries_its_members_and_its_host() {
 // 5. The counts, and the one word that must not be among them.
 
 #[test]
-fn u120__counts_name_the_nine_classes_and_no_diagnostic_word() {
+fn u120__counts_name_the_eight_classes_and_no_diagnostic_word() {
     let _guard = common::lock();
     let (items, _, _, _, _) = directory();
     let counts = mcc::org_unit_counts(&items);
@@ -626,7 +616,6 @@ fn u120__counts_name_the_nine_classes_and_no_diagnostic_word() {
         "components",
         "interfaces",
         "enums",
-        "defines",
         "capabilities",
         "funcs",
         "buses",

@@ -42,7 +42,7 @@ pub fn mcb_add(uri: &McURI) {
             // re-parse (the from_string arm's order). The old position —
             // after parse_pass1 — swept the freshly registered defs along
             // with the stale ones.
-            remove_defines(&canonical_uri);
+            remove_project_defs(&canonical_uri);
         }
         // U234 tier ②: purge BEFORE the re-parse. parse_pass1 below already
         // re-records this file's resolution edges (the RefDefMap insert
@@ -100,7 +100,7 @@ pub fn mcb_add_from_string(uri: &McURI, content: &str) {
             // no dependents. Insert-if-absent: the driver loop's own stash
             // for this uri will not clobber it.
             crate::db::infra::mc_code::stash_export_snapshot(&canonical_uri);
-            remove_defines(&canonical_uri);
+            remove_project_defs(&canonical_uri);
             // U234: the re-parse invalidates this file's resolution edges —
             // drop them before the new pass re-records.
             workspace::WORKSPACE
@@ -385,7 +385,7 @@ pub fn mcb_add_recursive(uri: &McURI, loaded: &mut HashSet<String>, is_system_li
     if need_parse {
         trace!(target: "mcc::builder", file = %file_str, "load: parse_pass1_types");
         crate::current_uri::set(&canonical_uri);
-        remove_defines(&canonical_uri);
+        remove_project_defs(&canonical_uri);
         mcfile.parse_pass1_types();
         // Update spacenames in prj_mcodes
         workspace::WORKSPACE
@@ -587,9 +587,9 @@ pub fn mcb_print_loaded_files() {
 pub fn mcb_remove(uri: &McURI) {
     let canonical_uri = canonicalize_project_uri(uri);
 
-    remove_defines(uri);
+    remove_project_defs(uri);
     if canonical_uri != *uri {
-        remove_defines(&canonical_uri);
+        remove_project_defs(&canonical_uri);
     }
     // U234: the removal drops the files' resolution edges from the graph
     // (both uri spellings, mirroring the double registry removal).
@@ -623,12 +623,14 @@ pub fn mcb_remove(uri: &McURI) {
     workspace::WORKSPACE.registry().checkpoint_if_changed();
 }
 
-// === fn remove_defines(uri: &McURI) { ===
+// === fn remove_project_defs(uri: &McURI) { ===
 /// Remove every definition this project file registered, from both physical
 /// tables and the registry's project layer — delegated to the single write
 /// entry (defregistry.rs). T8 (M2): the project layer is tombstoned while a
 /// live same-key system-lib def the file was shadowing survives as the read
 /// fallback (deleting a project source file never destroys mcode data).
-pub(crate) fn remove_defines(uri: &McURI) {
+/// (Named for its old define-only scope; since b3953 the `define` keyword is
+/// gone and this removes all project def kinds.)
+pub(crate) fn remove_project_defs(uri: &McURI) {
     workspace::WORKSPACE.remove_project_defs_by_uri(uri.as_str());
 }

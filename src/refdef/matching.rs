@@ -99,7 +99,6 @@ pub fn fill_refdef_layer2(
                 SymbolKind::EnumDef,
                 SymbolKind::EnumValDef,
                 SymbolKind::RoleDef,
-                SymbolKind::DefineDef,
                 SymbolKind::AttrDef,
                 SymbolKind::BusDef, // ★ R7: bus refs may resolve via FuncParamRef
                 SymbolKind::BusMemberDef, // ★ §3.4.3 (rev): member refs too

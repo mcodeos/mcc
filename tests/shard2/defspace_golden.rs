@@ -15,7 +15,7 @@
 //!   table entry and the P5 system view exposes only the global (system-lib)
 //!   table. (The workspace-first precedence itself is unit-tested in
 //!   `src/db/defspace.rs` against a synthetic same-key collision, because the
-//!   write side `remove_defines` cannot leave both tables holding one key.)
+//!   write side `remove_project_defs` cannot leave both tables holding one key.)
 //! - P0.2: mcbase split — system-lib defs land in the global tables (P5
 //!   visible), project defs land in the workspace tables (unified view only).
 //! - P0.4: library load/unload symbol behavior — mcode defs keep global

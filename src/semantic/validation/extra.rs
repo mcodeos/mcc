@@ -95,8 +95,6 @@ impl ValidationCheck for ExtraCheck {
         check_interface_structure(acc);
         // R4: empty function bodies
         check_empty_functions(acc);
-        // U5: empty defines
-        check_empty_defines(acc);
         // D2: instance class not found
         check_instance_class_found(acc);
         // D3: bus member collision
@@ -365,49 +363,6 @@ fn check_default_type_mismatch(acc: &mut CheckAccumulator) {
                     }
                     _ => {}
                 }
-            }
-        }
-    }
-}
-
-/// U4/U5: defines with non-attribute clauses or empty body.
-fn check_empty_defines(acc: &mut CheckAccumulator) {
-    let defines = crate::definition_space().workspace_defines();
-    for (sn, def) in defines.iter() {
-        let uri = sn.uri.to_string();
-        if super::is_test_file(&uri) {
-            continue;
-        }
-        let def_span = Some(def.span.start..def.span.end);
-        // U5: empty define (no attrs and empty body)
-        if def.attrs.is_empty() {
-            acc.push(CheckResult {
-                check_name: "extra",
-                severity: CheckSeverity::Warning,
-                uri: Some(uri.clone()),
-                span: def_span.clone(),
-                message: format!("Define '{}' has no attributes.", def.name),
-                code: crate::errcodes::DEFINE_NO_ATTRS,
-            });
-        }
-        // U4: define with non-attribute body clauses — scan body AST. The scan
-        // reads the body's clauses with an in-body partition made transparent:
-        // `block` groups what is written there and is not itself a clause, so a
-        // partition holding only attributes must not be reported as a
-        // non-attribute clause.
-        for child in def.body.clause_list() {
-            let ct = child.get_type();
-            if ct != crate::MCAST_ATTRIBUTE {
-                acc.push(CheckResult {
-                    check_name: "extra", severity: CheckSeverity::Warning,
-                    uri: Some(uri), span: def_span.clone(),
-                    message: format!(
-                        "Define '{}' contains non-attribute clause (type={}). Defines should only contain attributes.",
-                        def.name, ct
-                    ),
-                    code: crate::errcodes::DEFINE_NON_ATTR_CLAUSE,
-                });
-                break;
             }
         }
     }

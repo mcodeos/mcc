@@ -21,7 +21,7 @@
 //      own paths, with no segment for the partition, because there is no scope
 //      for one to be named after.
 //   2. Every body that holds clauses reads them through the one walk, not just
-//      the module body: a partition in a component, an interface, a `define` and
+//      the module body: a partition in a component, an interface and
 //      a capability is transparent too. Each is proved by the *content* it was
 //      supposed to contribute (the pin table, the attribute, the signal table),
 //      not by the absence of a complaint — a body that swallowed the partition
@@ -215,14 +215,14 @@ fn u122__a_partition_groups_without_opening_a_scope() {
 
 // -- 2. every body that holds clauses is transparent, not only the module body --
 
-/// One source holding a partition in each of the four other definition bodies,
+/// One source holding a partition in each of the three other definition bodies,
 /// each partition holding the clause that body exists for: pins in a component
-/// and in an interface, an attribute in a `define`, a signal in a capability.
+/// and in an interface, a signal in a capability. (The fourth body the lock
+/// used to cover, the `define`, retired with its keyword in b3953, U267③.)
 ///
 /// Each is asserted on the **content it contributed**, so a body that stopped
 /// at the partition cannot pass by saying nothing: the component and interface
-/// pin tables would be empty, the define would carry no attribute and draw the
-/// non-attribute-clause warning, and the capability's signal table would hold
+/// pin tables would be empty, and the capability's signal table would hold
 /// no port.
 const EVERY_BODY: &str = r#"component CAP2
 {
@@ -243,14 +243,6 @@ interface IF2
             1 = A
             2 = B
         ]
-    }
-}
-
-define DEF2
-{
-    block meta
-    {
-        partno = "X-1"
     }
 }
 
@@ -318,27 +310,6 @@ fn u122__a_partition_is_transparent_in_every_body() {
     let mut ipins: Vec<String> = if2.pins.names_to_id.keys().cloned().collect();
     ipins.sort();
     assert_eq!(ipins.len(), 2, "interface pins: {ipins:?}");
-
-    // define: the attribute written inside the partition is the define's, and
-    // the body is not reported as holding a non-attribute clause.
-    let defines = mcc::definition_space().workspace_defines();
-    let def2 = defines
-        .iter()
-        .find(|(_, d)| d.name.to_string() == "DEF2")
-        .map(|(_, d)| d.clone())
-        .expect("DEF2 must be declared");
-    assert!(
-        def2.attrs.find(&McIds::from("partno")).is_some(),
-        "the define's attribute lives inside the partition"
-    );
-    assert_eq!(
-        diags
-            .iter()
-            .filter(|d| d.code == mcc::errcodes::DEFINE_NON_ATTR_CLAUSE)
-            .count(),
-        0,
-        "a partition is not a clause, so it is not a non-attribute clause: {diags:?}"
-    );
 
     // capability: the declared signal lives inside the partition and must be in
     // the capability's own signal table.

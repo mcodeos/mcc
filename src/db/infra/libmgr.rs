@@ -145,7 +145,7 @@ fn find_lib_dir(root: &Path, name: &str) -> Option<std::path::PathBuf> {
 ///
 /// A library file that is re-entered through a project entry point (did_open /
 /// load_project / sem on a file inside `~/.mcode/mcode`) must keep its
-/// definitions in the global system tables. Otherwise `remove_defines` strips
+/// definitions in the global system tables. Otherwise `remove_project_defs` strips
 /// its entries from the global tables while the re-parse registers them into
 /// the active workspace, so the P5 system lookup loses the class and member
 /// resolution breaks (E3071 for `CAP(...).Cap(_)`).

@@ -4,8 +4,8 @@
 
 //! Process-global process roots.
 //!
-//! Phase 5: the five system-library definition tables (`mcc_components`,
-//! `mcc_modules`, `mcc_interfaces`, `mcc_enums`, `mcc_defines`) are gone —
+//! Phase 5: the system-library definition tables (`mcc_components`,
+//! `mcc_modules`, `mcc_interfaces`, `mcc_enums`) are gone —
 //! system-lib definitions live per-world in the definition registry and the
 //! workspace tables. Only the system/project root paths remain global.
 

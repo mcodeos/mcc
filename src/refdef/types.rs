@@ -150,6 +150,11 @@ pub enum SymbolKind {
     EnumValRef = 19,
     RoleDef = 20,
     ParamDef = 21,
+    /// Reserved number: was `DefineDef` — retired with the `define` keyword
+    /// (b3956, U267③). Never produced, never parsed (`"define_def"` was
+    /// dropped from [`SymbolKind::parse`]); the number stays valid because
+    /// the sem payload's `kind_names` sweep transmutes `0..=29` into this
+    /// enum, and a hole here would be an invalid-enum construction.
     DefineDef = 22,
     AttrDef = 23,
     /// ★ §15.1: Function parameter reference at call site.
@@ -203,7 +208,6 @@ impl SymbolKind {
             "enum_value_ref" => Some(Self::EnumValRef),
             "role_def" => Some(Self::RoleDef),
             "param_def" => Some(Self::ParamDef),
-            "define_def" => Some(Self::DefineDef),
             "attr_def" => Some(Self::AttrDef),
             "func_param_ref" => Some(Self::FuncParamRef),
             "bus_def" => Some(Self::BusDef),
@@ -244,7 +248,6 @@ impl SymbolKind {
             19 => Some(Self::EnumValRef),
             20 => Some(Self::RoleDef),
             21 => Some(Self::ParamDef),
-            22 => Some(Self::DefineDef),
             23 => Some(Self::AttrDef),
             24 => Some(Self::FuncParamRef),
             25 => Some(Self::BusDef),
@@ -302,7 +305,7 @@ impl SymbolKind {
             Self::EnumValRef => "EnumValRef",
             Self::RoleDef => "RoleDef",
             Self::ParamDef => "ParamDef",
-            Self::DefineDef => "DefineDef",
+            Self::DefineDef => "DefineDef", // reserved number, retired kind
             Self::AttrDef => "AttrDef",
             Self::FuncParamRef => "FuncParamRef",
             Self::BusDef => "BusDef",

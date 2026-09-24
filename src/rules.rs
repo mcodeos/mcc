@@ -2042,7 +2042,7 @@ mod tests {
     /// first-emission source order. This is the lock that keeps
     /// `POSTPARSE_RULES` byte-identical to the `validation/*` emission set;
     /// the object hosts stay the executor, so this anchors the catalog copy.
-    const POSTPARSE_ORDER: [u32; 98] = [
+    const POSTPARSE_ORDER: [u32; 96] = [
         // duplicate
         crate::errcodes::DUP_CMIE_CROSS_FILE,
         // dupwithin
@@ -2122,8 +2122,6 @@ mod tests {
         crate::errcodes::PARAM_INT_DEFAULT_STRING,
         crate::errcodes::PARAM_STRING_DEFAULT_NUMERIC,
         crate::errcodes::PARAM_UV_DEFAULT_NO_UNIT,
-        crate::errcodes::DEFINE_NO_ATTRS,
-        crate::errcodes::DEFINE_NON_ATTR_CLAUSE,
         crate::errcodes::INST_CLASS_NOT_LOADED,
         crate::errcodes::BUS_DUPLICATE_MEMBER,
         crate::errcodes::COMPONENT_MIXED_CASE,
@@ -3381,26 +3379,6 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = Structure,
         host = "extra",
         doc = "Unit-value param default has no unit suffix (e.g. '5V').",
-        lock = "tests/lock_pp_extra.rs",
-    },
-    declare_post_parse_rule! {
-        code = crate::errcodes::DEFINE_NO_ATTRS,
-        name = "define-no-attrs",
-        title = "define has no attributes",
-        severity = Warning,
-        domain = Structure,
-        host = "extra",
-        doc = "Define has no attributes.",
-        lock = "tests/lock_pp_extra.rs",
-    },
-    declare_post_parse_rule! {
-        code = crate::errcodes::DEFINE_NON_ATTR_CLAUSE,
-        name = "define-non-attr-clause",
-        title = "define contains a non-attribute clause",
-        severity = Warning,
-        domain = Structure,
-        host = "extra",
-        doc = "Define contains a non-attribute clause.",
         lock = "tests/lock_pp_extra.rs",
     },
     declare_post_parse_rule! {

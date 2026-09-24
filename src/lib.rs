@@ -70,7 +70,6 @@ pub use crate::semantic::{
         mc_pins::{McPinPort, McPins},
         Mc2Component, McComponent,
     },
-    mc_define::McDefineDef,
     mc_enum::McEnumDef,
     mc_ifs::{Mc2Interface, McInterface},
     mc_inst::{LabelKind, McInstance, McInstances},
