@@ -259,6 +259,75 @@ pub(crate) fn line_col_or_first(index: &LineIndex, pos: u32) -> (u32, u32) {
     }
 }
 
+// ── U234 tier ③: def-level invalidation (the export-signature delta) ──
+
+/// One row of a file's export signature: `(kind, name)` over every registry
+/// def the file owns. The face a `use`-dependent re-derives from is exactly
+/// which `(kind, name)` pairs the file exports, so adding, removing, or
+/// renaming a def makes the delta non-empty and marks the dependents.
+/// Deliberately not the name span: spans are absolute byte offsets, so any
+/// edit earlier in the file shifts every later def's row without any change
+/// to the export face — the mark step would noise-mark on pure insertions.
+/// Body changes (pins, params) never touch the name anyway and were never
+/// caught by a span row either; those stay on the conservative sweep (tier ②
+/// marks on any non-empty delta, body edits included — the demotion here is
+/// for signature-preserving edits only).
+type ExportSig = (u8, String);
+
+// Export signatures captured BEFORE a re-derive's first registration, keyed
+// by canonical uri. Stashed by the re-derive entries (`McCode::parse_pass1`
+// and — before its def sweep — `mcb_add_from_string`) and consumed (removed)
+// by `parse_pass1_modules_full`'s mark step. Insert-if-absent: the earliest
+// capture on a uri wins, so a driver-loop round never clobbers the loader's
+// pre-sweep capture. Absent when the full derive was entered without a
+// capture — the mark step then treats the delta as non-empty (the
+// pre-tier-③ behavior of unconditionally marking the dependents).
+/// The slot type behind `EXPORT_SNAPSHOTS_BEFORE_REDERIVE` (a plain alias —
+/// the thread_local! macro mis-parses a `>>`-terminated generic type).
+type ExportSnapshotMap =
+    std::cell::RefCell<std::collections::HashMap<McURI, std::collections::BTreeSet<ExportSig>>>;
+
+thread_local! {
+    static EXPORT_SNAPSHOTS_BEFORE_REDERIVE: ExportSnapshotMap =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+/// Capture the live export signature of `uri` (one row per registry def,
+/// any load domain — a project file and an mcbase system-lib file both
+/// register under their own uri).
+fn snapshot_export_signature(uri: &str) -> std::collections::BTreeSet<ExportSig> {
+    use crate::db::defregistry::{DefKind, DomainFilter};
+    let registry = workspace::WORKSPACE.registry();
+    let mut sig = std::collections::BTreeSet::new();
+    for kind in [
+        DefKind::Component,
+        DefKind::Module,
+        DefKind::Interface,
+        DefKind::Enum,
+        DefKind::Define,
+        DefKind::Capability,
+        DefKind::Func,
+    ] {
+        for (sn, _) in registry.enumerate_in_uri(kind, DomainFilter::Any, uri) {
+            sig.insert((kind as u8, sn.ident.to_string()));
+        }
+    }
+    sig
+}
+
+/// Stash the pre-re-derive export snapshot for `uri` (see
+/// `EXPORT_SNAPSHOTS_BEFORE_REDERIVE`). Insert-if-absent: the earliest
+/// capture for a uri wins (the loader's pre-sweep capture must not be
+/// clobbered by the driver loop's own stash for the same file). The parse
+/// is synchronous on the calling thread, so the entry is consumed by the
+/// full derive's mark step on this thread.
+pub(crate) fn stash_export_snapshot(uri: &str) {
+    EXPORT_SNAPSHOTS_BEFORE_REDERIVE.with(|slot| {
+        let mut map = slot.borrow_mut();
+        map.entry(uri.to_string()).or_insert_with(|| snapshot_export_signature(uri));
+    });
+}
+
 ////////////////////////////////
 impl McCode {
     pub(crate) fn collect_direct_uses(&self, current_path: &Path) -> Vec<McUse> {
@@ -2294,12 +2363,36 @@ impl McCode {
         // module-level symbols are registered before ref resolution.
         self.create_lapper(); // includes inline Layer 2 + consolidate_ref_def_map (Layer 1 + name_index)
 
-        // ★ §7.6: Mark dependent files dirty — their Use table P4 entries
-        // may need refreshing because this file's CMIE defs changed.
+        // ★ §7.6 / U234 tier ③: mark the dependents dirty — but only when
+        // this re-derive actually changed the file's export signature (the
+        // delta against the pre-parse snapshot). An unchanged signature (a
+        // body or comment edit — def spans are name spans and do not move)
+        // marks nobody: every byte the dependents' tables copied from this
+        // file is still identical, and their diagnostics cannot change.
+        //
+        // When the delta is non-empty the dirty set is the transitive user
+        // closure over the use-line face. The conservative tier is the whole
+        // closure, not a per-def routing over the changed defs: every
+        // recorded resolution edge is use-chain-backed, so the edge-backed
+        // files are always a subset of this closure, while the files the
+        // closure adds — unresolved references (a miss leaves no edge) and
+        // P4 visibility shifts — are exactly the ones per-def routing would
+        // lose. Narrowing to the changed defs' referencers waits for a
+        // miss-edge face (honest margin, U234).
+        //
+        // This is the same domain the pre-tier-③ cascade produced (each
+        // unconditional mark, re-derived by the driver in topo order, marked
+        // its own users again); the delta gate in front of it is the
+        // demotion. No snapshot capture (direct full-derive entry) counts as
+        // a non-empty delta.
         let canonical_self = crate::build::pass1::canonicalize_project_uri(&self.uri);
-        if let Some(deps) = workspace::WORKSPACE.reverse_deps.get(&canonical_self) {
-            for dep_uri in deps.value().iter() {
-                if let Some(mut dep_file) = workspace::WORKSPACE.mcodes.get_mut(dep_uri) {
+        let before = EXPORT_SNAPSHOTS_BEFORE_REDERIVE.with(|slot| {
+            slot.borrow_mut().remove(&canonical_self)
+        });
+        let live = snapshot_export_signature(&self.uri);
+        if before.is_none_or(|b| b != live) {
+            for dep_uri in workspace::WORKSPACE.refgraph.user_closure_of_file(&canonical_self) {
+                if let Some(mut dep_file) = workspace::WORKSPACE.mcodes.get_mut(&dep_uri) {
                     dep_file.use_table_dirty = true;
                 }
             }
@@ -2309,6 +2402,11 @@ impl McCode {
     /// Backward-compatible interface: parse all definitions sequentially (single-file scenario or
     /// system library)
     pub fn parse_pass1(&mut self) {
+        // U234 tier ③: capture this file's export signature before the first
+        // registration of the re-derive (types register below) so the module
+        // parse's mark step can diff the delta and demote the file-level
+        // dependent sweep when nothing changed.
+        stash_export_snapshot(&self.uri);
         self.parse_pass1_types();
         self.parse_pass1_modules();
     }
@@ -3101,14 +3199,13 @@ impl McCode {
             // name_index disagreed with pre-consolidation visibility.
             for mc_use in &self.uselist {
                 let target_uri = crate::build::pass1::canonicalize_project_uri(&mc_use.uri);
-                // ★ §7.6: Register reverse dependency — "self uses target"
-                let mut deps = workspace::WORKSPACE
-                    .reverse_deps
-                    .entry(target_uri.clone())
-                    .or_default();
-                if !deps.contains(&self.uri) {
-                    deps.push(self.uri.clone());
-                }
+                // ★ §7.6 / U234 tier ③: record the use-line edge in the
+                // def-ref graph (dedup inside). The former `reverse_deps`
+                // table held exactly this information; it lives on the graph
+                // now so the invalidation domain has a single index.
+                workspace::WORKSPACE
+                    .refgraph
+                    .record_use_line(&self.uri, &target_uri);
             }
 
             // P4 candidates: every imported key of this file's spacenames,
@@ -8006,6 +8103,122 @@ module main
                 .dependent_files_of_file(b_uri.as_str())
                 .contains(&a_uri),
             "the file projection survives the re-add too"
+        );
+    }
+
+    /// U234 tier ③: the export-signature delta gates the dependent sweep.
+    /// A body comment moves no def name-span, so the signature is unchanged
+    /// and the user stays clean; a new component is a new signature row and
+    /// marks the whole use-line user closure. Driven through `mcb_add` (no
+    /// driver round) so the marked flags are observable — the driver would
+    /// consume and clear them within the same round.
+    #[test]
+    fn def_mccode__export_delta_demotes_the_dependent_sweep() {
+        let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");
+        let (a_uri, b_uri) = refgraph_inst_label_project("refgraph-delta");
+        let user_flag = |uri: &str| {
+            workspace::WORKSPACE
+                .mcodes
+                .get(uri)
+                .map(|f| f.value().use_table_dirty)
+                .unwrap_or(false)
+        };
+        assert!(!user_flag(&a_uri), "baseline: a clean round leaves a clean");
+
+        let dir = std::path::Path::new(b_uri.as_str())
+            .parent()
+            .expect("fixture dir")
+            .to_path_buf();
+        let body_edit = "component V6LED\n{\n    // pinout tune note\n    pins = [\n        1 = A\n        2 = K\n    ]\n}\n";
+        std::fs::write(dir.join("b.mc"), body_edit).unwrap();
+        crate::build::loader::mcb_add(&crate::McURI::from(b_uri.as_str()));
+        assert!(
+            !user_flag(&a_uri),
+            "an unchanged export signature marks nobody"
+        );
+
+        let sig_edit = "component V6LED\n{\n    pins = [\n        1 = A\n        2 = K\n    ]\n}\n\ncomponent V6RES\n{\n    pins = [\n        1 = A\n        2 = K\n    ]\n}\n";
+        std::fs::write(dir.join("b.mc"), sig_edit).unwrap();
+        crate::build::loader::mcb_add(&crate::McURI::from(b_uri.as_str()));
+        assert!(
+            user_flag(&a_uri),
+            "a changed export signature marks the user closure"
+        );
+    }
+
+    /// U234 tier ③: the conservative tier is the transitive user closure.
+    /// c's signature change must reach a (a uses b, b uses c, a references
+    /// nothing of c itself) — under the delta gate an intermediate file's
+    /// own unchanged signature no longer propagates the mark, so the
+    /// closure is walked explicitly at the changed file.
+    #[test]
+    fn def_mccode__use_line_closure_propagates_the_delta_mark_to_transitive_users() {
+        let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");
+        crate::mcc_init_no_lib();
+        crate::mcc_set_system_root(std::path::Path::new(""));
+        crate::mcc_clear_workspace();
+
+        let dir =
+            std::env::temp_dir().join(format!("mcc-refgraph-closure-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let c_src = "component V6LED\n{\n    pins = [\n        1 = A\n        2 = K\n    ]\n}\n";
+        let b_src = "use ./c.mc\n\nmodule top\n{\n    io GND\n    V6LED led1\n    led1.1 -> VCC5\n    led1.2 -> GND\n}\n";
+        let a_src = "use ./b.mc\n\nmodule mid\n{\n    io GND\n}\n";
+        std::fs::write(dir.join("c.mc"), c_src).unwrap();
+        std::fs::write(dir.join("b.mc"), b_src).unwrap();
+        std::fs::write(dir.join("a.mc"), a_src).unwrap();
+
+        let uri_of = |name: &str| {
+            crate::build::pass1::canonicalize_project_uri(
+                &dir.join(name).to_string_lossy().into_owned(),
+            )
+        };
+        let (a_uri, b_uri, c_uri) = (uri_of("a.mc"), uri_of("b.mc"), uri_of("c.mc"));
+        crate::build::loader::mcb_add(&crate::McURI::from(c_uri.as_str()));
+        crate::build::loader::mcb_add(&crate::McURI::from(b_uri.as_str()));
+        crate::build::loader::mcb_add(&crate::McURI::from(a_uri.as_str()));
+
+        let user_flag = |uri: &str| {
+            workspace::WORKSPACE
+                .mcodes
+                .get(uri)
+                .map(|f| f.value().use_table_dirty)
+                .unwrap_or(false)
+        };
+        assert!(!user_flag(&a_uri) && !user_flag(&b_uri), "clean baseline");
+
+        // Signature change at the head of the chain: both the direct user
+        // (b) and the transitive user (a) are marked by one closure walk.
+        let c_edit = "component V6LED\n{\n    pins = [\n        1 = A\n        2 = K\n    ]\n}\n\ncomponent V6RES\n{\n    pins = [\n        1 = A\n        2 = K\n    ]\n}\n";
+        std::fs::write(dir.join("c.mc"), c_edit).unwrap();
+        crate::build::loader::mcb_add(&crate::McURI::from(c_uri.as_str()));
+        assert!(
+            user_flag(&b_uri),
+            "the direct user is marked"
+        );
+        assert!(
+            user_flag(&a_uri),
+            "the transitive user is marked by the closure walk"
+        );
+
+        // Consume the marks the way the pass1 driver would (a dirty file is
+        // re-derived and its flag cleared) — otherwise the segment-2 marks
+        // bleed into segment 3's assertion.
+        for u in [&b_uri, &a_uri] {
+            if let Some(mut f) = workspace::WORKSPACE.mcodes.get_mut(u) {
+                f.use_table_dirty = false;
+            }
+        }
+
+        // And the demotion works through the chain too: a body-only edit at
+        // c marks neither.
+        let c_body = "component V6LED\n{\n    // pinout tune note\n    pins = [\n        1 = A\n        2 = K\n    ]\n}\n\ncomponent V6RES\n{\n    pins = [\n        1 = A\n        2 = K\n    ]\n}\n";
+        std::fs::write(dir.join("c.mc"), c_body).unwrap();
+        crate::build::loader::mcb_add(&crate::McURI::from(c_uri.as_str()));
+        assert!(
+            !user_flag(&a_uri) && !user_flag(&b_uri),
+            "an unchanged signature at the chain head marks nobody"
         );
     }
 

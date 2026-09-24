@@ -243,11 +243,13 @@ fn def_defspace__p04_lib_load_unload_symbol_visibility() {
     );
 }
 
-/// P0.5: reverse_deps — the "who uses me" file index (design §7.6) is built
-/// from the use table and survives a re-parse of the used file, so the LSP
-/// dirty-file propagation can find the affected files.
+/// P0.5: the use-line face — the "who uses me" index (design §7.6; U234
+/// tier ③: now the def-ref graph's use-line face, carrying the retired
+/// `reverse_deps` table's domain) is built from the use table and survives
+/// a re-parse of the used file, so the LSP dirty-file propagation can find
+/// the affected files.
 #[test]
-fn def_defspace__p05_reverse_deps_tracks_who_uses_me() {
+fn def_defspace__p05_use_line_face_tracks_who_uses_me() {
     let _lock = common::lock();
     common::reset();
 
@@ -269,18 +271,20 @@ fn def_defspace__p05_reverse_deps_tracks_who_uses_me() {
 
     let ds = mcc::definition_space();
     assert_eq!(
-        ds.reverse_deps(&b_uri),
-        Some(vec![a_uri.clone()]),
-        "a uses b: reverse deps records the edge"
+        ds.users_of_file(&b_uri),
+        vec![a_uri.clone()],
+        "a uses b: the use-line face records the edge"
     );
 
-    // Re-parse b with new content: the use index must survive.
+    // Re-parse b with new content: the use index must survive (the purge is
+    // one-sided — the re-added file's own use lines go, rows pointing at it
+    // stay).
     mcc::mcc_load_from_string(&b_uri, &component_src("GOLD_IC", &["A", "B"]));
     let ds = mcc::definition_space();
     assert_eq!(
-        ds.reverse_deps(&b_uri),
-        Some(vec![a_uri]),
-        "reverse deps survive a re-parse of the used file"
+        ds.users_of_file(&b_uri),
+        vec![a_uri],
+        "the use-line face survives a re-parse of the used file"
     );
 }
 

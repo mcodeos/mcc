@@ -241,10 +241,11 @@ pub fn try_lookup_sem(candidates: &[McURI]) -> Option<Value> {
                 .map(|s| crate::ast::sem::symbol_table_to_json(&s, mc_uri))
                 .unwrap_or_else(|_| serde_json::json!({}));
 
-            // ★ §7.6: Affected files via reverse_deps — files that `use` this one
-            let affected: Vec<String> = crate::definition_space()
-                .reverse_deps(mc_uri)
-                .unwrap_or_default();
+            // ★ §7.6 / U234 tier ③: Affected files via the def-ref graph's
+            // use-line face — files that `use` this one (the retired
+            // `reverse_deps` table's answer, same domain, one index).
+            let affected: Vec<String> =
+                crate::definition_space().users_of_file(mc_uri);
 
             // ★ §7.6 / U94: Stable result_id for mcext dedup — the content
             // fingerprint of the two things the consumer caches under it, the
