@@ -1,0 +1,111 @@
+{
+  "broken": {
+    "counts": {
+      "advisories": 0,
+      "errors": 1,
+      "infos": 0,
+      "warnings": 6
+    },
+    "items": [
+      {
+        "code": "E4119",
+        "level": "warning",
+        "loc": {
+          "line": 3,
+          "span": null,
+          "uri": "/mcc/diag-view-broken.mc"
+        },
+        "msg": "Pin 'main.r1.1' is not connected to any net."
+      },
+      {
+        "code": "E4119",
+        "level": "warning",
+        "loc": {
+          "line": 4,
+          "span": null,
+          "uri": "/mcc/diag-view-broken.mc"
+        },
+        "msg": "Pin 'main.r1.2' is not connected to any net."
+      },
+      {
+        "code": "E4112",
+        "level": "warning",
+        "loc": {
+          "line": 9,
+          "span": null,
+          "uri": "/mcc/diag-view-broken.mc"
+        },
+        "msg": "Instance 'main.r1' has no pins connected to any net."
+      },
+      {
+        "code": "E4116",
+        "level": "warning",
+        "loc": {
+          "line": 9,
+          "span": null,
+          "uri": "/mcc/diag-view-broken.mc"
+        },
+        "msg": "'main.r1' has 0 of 2 pins connected."
+      },
+      {
+        "code": "E5252",
+        "level": "warning",
+        "loc": {
+          "line": 10,
+          "span": 4,
+          "uri": "/mcc/diag-view-broken.mc"
+        },
+        "msg": "Function 'main' has an empty body."
+      },
+      {
+        "code": "E3134",
+        "level": "warning",
+        "loc": {
+          "line": 11,
+          "span": 15,
+          "uri": "/mcc/diag-view-broken.mc"
+        },
+        "msg": "Connection statement dropped (McPhrase::new returned None): `r1`"
+      },
+      {
+        "code": "E3179",
+        "level": "error",
+        "loc": {
+          "line": 11,
+          "span": 8,
+          "uri": "/mcc/diag-view-broken.mc"
+        },
+        "msg": "Pin(s) 'NOPIN' not found in component 'r1'. Available pins: [1, 2, A, B]"
+      }
+    ],
+    "key_table": null,
+    "layout_version": null,
+    "mcc_version": "0.0.0-test",
+    "metric_schema_version": null,
+    "render_version": null,
+    "schema_version": "proj.1.1",
+    "top": "main",
+    "top_ver": null,
+    "view": "diagnostics",
+    "world_ver": null
+  },
+  "clean": {
+    "counts": {
+      "advisories": 0,
+      "errors": 0,
+      "infos": 0,
+      "warnings": 0
+    },
+    "items": [],
+    "key_table": null,
+    "layout_version": null,
+    "mcc_version": "0.0.0-test",
+    "metric_schema_version": null,
+    "render_version": null,
+    "schema_version": "proj.1.1",
+    "top": "main",
+    "top_ver": null,
+    "view": "diagnostics",
+    "world_ver": null
+  }
+}
