@@ -669,6 +669,14 @@ pub enum ShowTarget {
     // faces. A readout, never a gate.
     Project,
 
+    // The extension-tool snapshot in one read (projection-schema-design.md
+    // §2.3; CIMP §1 U280): the check-model the ERC extension tool consumes —
+    // one item carrying the whole top: the `netlist` view's own islands, the
+    // flat electrical net checks (tools never recompute), and the reserved
+    // loc side table. Emits the projection envelope with `view` = "core-erc"
+    // and renders to both faces. A readout, never a gate.
+    CoreErc,
+
     // Entity internals drill-down (<name> = owning entity, required)
     // Pins of a component / interface
     Pins,
@@ -724,6 +732,7 @@ impl ShowTarget {
             Self::Diagnostics => "diagnostics",
             Self::Netlist => "netlist",
             Self::Project => "project",
+            Self::CoreErc => "core-erc",
             Self::Pins => "pins",
             Self::Ports => "ports",
             Self::Labels => "labels",

@@ -61,6 +61,15 @@ const CASES: &[Case] = &[
         top: "main",
         src: "component R {\n    pins = [\n        1 = A\n        2 = B\n    ]\n}\nmodule main {\n    io VDD\n    R r[1:2];\n    func main() {\n        r.1 -> VDD\n    }\n}",
     },
+    Case {
+        name: "rated",
+        // The class declares a `ratings` clause: the node carries the
+        // def-side bounds verbatim (the sides are the author's notation), a
+        // single-sided bound serializes only its stated side, and a class
+        // without the clause carries no member at all.
+        top: "main",
+        src: "component LDO (vin::UV.VOLT, vout::UV.VOLT) {\n    pins = [\n        1 = IN\n        2 = OUT\n    ]\n    ratings = [ vin:[low:0V, high:30V], vout:[low:0.8V] ]\n}\nmodule main {\n    io VDD\n    LDO r1(3V, 1V)\n}",
+    },
 ];
 
 /// Build one case in a fresh workspace and return the normalized payload.
@@ -75,7 +84,7 @@ fn build_case(c: &Case) -> StageViewData {
         ident: mcc::McIds::from(c.top),
         uri: mcc::uri_intern(&uri),
     };
-    let (tree, table, arena, store, diags) =
+    let (tree, table, arena, store, diags, _net_results) =
         mcc::mcb_pass2_flat_with(&entry, 1, None).expect("flat pass2 runs");
     let loaded = Loaded::new(tree, table, arena, store, c.top, diags.len());
     let view = projmodel::project_model_view(&loaded);

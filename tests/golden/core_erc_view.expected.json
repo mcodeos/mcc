@@ -1,0 +1,161 @@
+{
+  "bare": {
+    "counts": {
+      "findings": 8,
+      "nets": 0,
+      "points": 0
+    },
+    "items": [
+      {
+        "findings": [
+          {
+            "check": "unwired-instance",
+            "code": "E4112",
+            "level": "warning",
+            "loc": {
+              "line": 8,
+              "span": null,
+              "uri": "/mcc/core-erc-view-bare.mc"
+            },
+            "msg": "Instance 'main.r1' has no pins connected to any net.",
+            "net": "main.r1"
+          },
+          {
+            "check": "unwired-instance",
+            "code": "E4112",
+            "level": "warning",
+            "loc": {
+              "line": 9,
+              "span": null,
+              "uri": "/mcc/core-erc-view-bare.mc"
+            },
+            "msg": "Instance 'main.r2' has no pins connected to any net.",
+            "net": "main.r2"
+          },
+          {
+            "check": "pin-count-mismatch",
+            "code": "E4116",
+            "level": "warning",
+            "loc": {
+              "line": 8,
+              "span": null,
+              "uri": "/mcc/core-erc-view-bare.mc"
+            },
+            "msg": "'main.r1' has 0 of 2 pins connected.",
+            "net": "main.r1"
+          },
+          {
+            "check": "pin-count-mismatch",
+            "code": "E4116",
+            "level": "warning",
+            "loc": {
+              "line": 9,
+              "span": null,
+              "uri": "/mcc/core-erc-view-bare.mc"
+            },
+            "msg": "'main.r2' has 0 of 2 pins connected.",
+            "net": "main.r2"
+          },
+          {
+            "check": "unwired-pin",
+            "code": "E4119",
+            "level": "warning",
+            "loc": {
+              "line": 3,
+              "span": null,
+              "uri": "/mcc/core-erc-view-bare.mc"
+            },
+            "msg": "Pin 'main.r1.1' is not connected to any net.",
+            "net": "main.r1.1"
+          },
+          {
+            "check": "unwired-pin",
+            "code": "E4119",
+            "level": "warning",
+            "loc": {
+              "line": 4,
+              "span": null,
+              "uri": "/mcc/core-erc-view-bare.mc"
+            },
+            "msg": "Pin 'main.r1.2' is not connected to any net.",
+            "net": "main.r1.2"
+          },
+          {
+            "check": "unwired-pin",
+            "code": "E4119",
+            "level": "warning",
+            "loc": {
+              "line": 3,
+              "span": null,
+              "uri": "/mcc/core-erc-view-bare.mc"
+            },
+            "msg": "Pin 'main.r2.1' is not connected to any net.",
+            "net": "main.r2.1"
+          },
+          {
+            "check": "unwired-pin",
+            "code": "E4119",
+            "level": "warning",
+            "loc": {
+              "line": 4,
+              "span": null,
+              "uri": "/mcc/core-erc-view-bare.mc"
+            },
+            "msg": "Pin 'main.r2.2' is not connected to any net.",
+            "net": "main.r2.2"
+          }
+        ],
+        "nets": []
+      }
+    ],
+    "key_table": null,
+    "layout_version": null,
+    "mcc_version": "0.0.0-test",
+    "metric_schema_version": null,
+    "render_version": null,
+    "schema_version": "proj.1.1",
+    "top": "main",
+    "top_ver": null,
+    "view": "core-erc",
+    "world_ver": null
+  },
+  "wired": {
+    "counts": {
+      "findings": 0,
+      "nets": 2,
+      "points": 5
+    },
+    "items": [
+      {
+        "findings": [],
+        "nets": [
+          {
+            "name": "VDD",
+            "points": [
+              "VDD",
+              "r1.1",
+              "r2.2"
+            ]
+          },
+          {
+            "name": "_net0",
+            "points": [
+              "r1.2",
+              "r2.1"
+            ]
+          }
+        ]
+      }
+    ],
+    "key_table": null,
+    "layout_version": null,
+    "mcc_version": "0.0.0-test",
+    "metric_schema_version": null,
+    "render_version": null,
+    "schema_version": "proj.1.1",
+    "top": "main",
+    "top_ver": null,
+    "view": "core-erc",
+    "world_ver": null
+  }
+}

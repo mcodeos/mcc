@@ -71,15 +71,32 @@ pub struct PortItem {
     pub net: Option<String>,
 }
 
+/// CDDL `ratings-bound = { ?low, ?high }` — one entry of the node's class
+/// `ratings` clause (ratings-param-constraint-design.md §8 ③: the def-side
+/// bounds ride the model). The sides carry the author's notation verbatim
+/// (`2500mV` reads back as `2500mV`); normalizing into base units is the
+/// gate's job, not the wire's. A side the clause does not state is absent,
+/// never null.
+#[derive(Debug, Clone, Serialize)]
+pub struct RatingsBound {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub low: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub high: Option<String>,
+}
+
 /// CDDL `circuit-node` — one node of the project model. `children` is absent
 /// on a leaf; the CDDL's `?` marks it optional (`slice.depth` controls — v1
-/// always walks to full depth).
+/// always walks to full depth). So is `ratings`: present on a component node
+/// whose class declares the clause, absent — not an empty map — otherwise.
 #[derive(Debug, Clone, Serialize)]
 pub struct CircuitNode {
     pub id: String,
     pub def: DefSite,
     pub params: BTreeMap<String, TypedValue>,
     pub ports: Vec<PortItem>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ratings: Option<BTreeMap<String, RatingsBound>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub children: Option<Vec<CircuitNode>>,
 }
@@ -94,6 +111,32 @@ fn island_index(table: &crate::InstTable) -> HashMap<String, String> {
             points.into_iter().map(move |p| (p, name.clone()))
         })
         .collect()
+}
+
+/// The class's `ratings` clause, read once per node off its definition. An
+/// empty clause is no member at all: the map carries bounds, not absences.
+/// (The reader is `mc_ratings::read_ratings`; sides the clause wrote but the
+/// reader could not parse are the gate's E5360 business, not the model's.)
+fn ratings_of(
+    def: &crate::semantic::component::McComponent,
+) -> Option<BTreeMap<String, RatingsBound>> {
+    let entries = crate::semantic::component::mc_ratings::read_ratings(&def.attrs);
+    if entries.is_empty() {
+        return None;
+    }
+    use crate::semantic::component::mc_ratings::RatingsSide;
+    let mut out = BTreeMap::new();
+    for e in entries {
+        let param = e.param.clone();
+        out.insert(
+            param,
+            RatingsBound {
+                low: e.side_text(RatingsSide::Low),
+                high: e.side_text(RatingsSide::High),
+            },
+        );
+    }
+    Some(out)
 }
 
 /// The declared parameters that carry a value — bound or declaration default
@@ -188,10 +231,12 @@ fn build_node(
     islands: &HashMap<String, String>,
 ) -> Option<CircuitNode> {
     let node = view.node(id)?;
-    let (def, params, ports) = match node.kind {
+    let (def, params, ports, ratings) = match node.kind {
         NodeKind::Module => {
             let inst = view.store().module(id)?;
-            module_fields(inst, islands)
+            let (def, params, ports) = module_fields(inst, islands);
+            // `ratings` is a component-head clause; a module carries none.
+            (def, params, ports, None)
         }
         NodeKind::Device => {
             let inst = view.store().component(id)?;
@@ -204,6 +249,7 @@ fn build_node(
                 },
                 param_map(&inst.params),
                 component_ports(inst, islands),
+                ratings_of(&inst.def),
             )
         }
         // A grouping header (`c[1:2]`): real identity, no definition of its
@@ -217,6 +263,7 @@ fn build_node(
             },
             BTreeMap::new(),
             Vec::new(),
+            None,
         ),
         NodeKind::Port => return None,
     };
@@ -227,6 +274,7 @@ fn build_node(
         def,
         params,
         ports,
+        ratings,
         children: (!children.is_empty()).then_some(children),
     })
 }
@@ -252,6 +300,8 @@ pub fn project_model_items(loaded: &Loaded) -> Vec<Value> {
         def,
         params,
         ports,
+        // The top module is a module, and `ratings` is a component clause.
+        ratings: None,
         children: (!children.is_empty()).then_some(children),
     };
     vec![serde_json::to_value(&root).unwrap_or(Value::Null)]

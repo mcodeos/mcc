@@ -61,7 +61,22 @@ circuit-node = {
   def: def-site
   params: { * tstr => typed }   ; declared params incl. ratings fields (doc §6)
   ports: [* { name: tstr, dir: tstr, ? net: tstr }]
+  ? ratings: { * tstr => ratings-bound }   ; the node's class ratings clause,
+                                           ; when it declares one (ratings
+                                           ; design §8 ③: the def-side bounds
+                                           ; ride the model; repeated per
+                                           ; instance of the class, as derived
+                                           ; data always is)
   ? children: [* circuit-node]  ; slice.depth controls
+}
+
+; One ratings side pair, as written: the sides carry the author's notation
+; verbatim (`2500mV` reads back as `2500mV`) -- normalizing into base units
+; is the engine's job (ratings gate), not the wire's. A side the clause does
+; not state is absent, never null.
+ratings-bound = {
+  ? low: tstr
+  ? high: tstr
 }
 
 ; ---- §2.2 netlist: connectivity projection ------------------------------
@@ -85,8 +100,39 @@ net = {
 ; netlist connectivity elements + core_erc[] (flat net_diags aggregation,
 ; tools never recompute) + a loc side table consulted only by reported
 ; items. v1 shape = erc-extension §3.2 check-model with its header fields
-; absorbed into the envelope (world_ver / mcc_version). Field names await
-; the .mc ratings syntax finalization (doc §6, non-blocking).
+; absorbed into the envelope (world_ver / mcc_version). One item carries the
+; whole top's snapshot (the same one-root-item spelling the circuit-node
+; tree uses). The nets half is the §2.2 net group verbatim, built by the
+; netlist view's own builder -- never a second connectivity spelling. The
+; findings half is the flat electrical net checks in the result form the
+; build envelope carries (`pass2.net_checks`), kept as a parallel array that
+; names its object verbatim: a check may name a pin path or an instance path
+; rather than a net, so the join to `nets` is the consumer's, never the
+; wire's.
+
+core-erc-finding = {
+  code: tstr                ; `E{:04}`, the same spelling `diag.code` uses
+  level: "error" / "warning" / "advisory" / "info"
+  check: tstr               ; the check's label (rules.rs single source)
+  msg: tstr
+  net: tstr                 ; the object the check named -- a net, a pin path
+                            ; or an instance path, verbatim, not joined
+  loc: loc                  ; the finding's own site; a finding with no site
+                            ; serializes the empty uri, not a borrowed one
+  ? fix_hint: tstr          ; mechanically executable action (zero producer
+                            ; today, as on diag)
+}
+
+core-erc-snapshot = {
+  nets: [* net]             ; §2.2 group verbatim, one builder
+  findings: [* core-erc-finding]
+  ? loc: { * tstr => loc }  ; the side table: object name -> source site.
+                            ; Reserved: the flat table carries no source
+                            ; site for a net today, so v1 serializes no
+                            ; table; every finding carries its own site
+                            ; inline, which is the only consultation the
+                            ; v1 items need.
+}
 
 ; ---- §2.4 diagnostics: diagnostics inline -------------------------------
 

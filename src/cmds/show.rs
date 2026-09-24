@@ -87,6 +87,7 @@ fn run_local(args: &ShowArgs) -> Result<()> {
         ShowTarget::Diagnostics => show_diagnostics(loaded.as_deref()),
         ShowTarget::Netlist => show_netlist(loaded.as_deref()),
         ShowTarget::Project => show_project(loaded.as_deref()),
+        ShowTarget::CoreErc => show_core_erc(loaded.as_deref()),
 
         // drill-down
         ShowTarget::Pins => drill_pins(require_name(args), args),
@@ -1698,10 +1699,11 @@ fn show_project(loaded: Option<&str>) -> Result<()> {
     };
     // A flattening that did not happen leaves nothing to read — fail loudly
     // rather than print an empty reading and say nothing (the U93 split).
-    let (tree, table, arena, store, diags) = match mcc::mcb_pass2_flat_with(&entry, 1, None) {
-        Ok(parts) => parts,
-        Err(e) => die!("mcc::show", 1, "project: flat pass2 failed: {e}"),
-    };
+    let (tree, table, arena, store, diags, _net_results) =
+        match mcc::mcb_pass2_flat_with(&entry, 1, None) {
+            Ok(parts) => parts,
+            Err(e) => die!("mcc::show", 1, "project: flat pass2 failed: {e}"),
+        };
     let loaded = mcc::stages::read::Loaded::new(tree, table, arena, store, &top, diags.len());
     let view = mcc::stages::projmodel::project_model_view(&loaded);
 
@@ -1717,6 +1719,57 @@ fn show_project(loaded: Option<&str>) -> Result<()> {
         ));
     }
     emit_stage_envelope(&view, "mcc show project")
+}
+
+/// The `core-erc` read face (projection-schema-design.md §2.3; CIMP §1 U280):
+/// the extension-tool snapshot as one projection envelope.
+///
+/// The read is the same full-fidelity flat build the `project` face takes,
+/// kept whole for the extra piece this view needs: the flat electrical net
+/// checks in result form (`pass2.net_checks`' rows), which `into_parts` would
+/// otherwise drop with the [`mcc::DianLu`] that holds them. The snapshot's
+/// connectivity half is built by [`mcc::stages::netlistview::net_items`] —
+/// the netlist face's own builder, so the two faces cannot spell the
+/// connectivity two ways. law C holds as on the other views: the exit code
+/// stays 0 whatever the findings hold.
+fn show_core_erc(loaded: Option<&str>) -> Result<()> {
+    let Some(uri) = loaded else {
+        return Ok(());
+    };
+    // The top resolves the way every read face resolves it (`read::load`): an
+    // explicit `--top`, else the workspace's first module — a per-file module
+    // lookup here would pick by intern order and split the faces.
+    let top = mcc::cli::globals()
+        .top
+        .clone()
+        .or_else(mcc::mcb_get_first_module_name)
+        .or_else(|| {
+            loaded.and_then(|uri| mcc::mcb_get_module_name_by_uri(&mcc::McURI::from(uri)))
+        })
+        .unwrap_or_else(|| "main".to_string());
+    let entry = mcc::McSpaceName {
+        ident: mcc::McIds::from(top.as_str()),
+        uri: mcc::uri_intern(uri),
+    };
+    // A flattening that did not happen leaves nothing to read — fail loudly
+    // rather than print an empty reading and say nothing (the U93 split).
+    let (_tree, table, _arena, _store, _diags, net_results) =
+        match mcc::mcb_pass2_flat_with(&entry, 1, None) {
+            Ok(parts) => parts,
+            Err(e) => die!("mcc::show", 1, "core-erc: flat pass2 failed: {e}"),
+        };
+    let view = mcc::stages::corercview::core_erc_view(&top, &table, &net_results);
+
+    if matches!(
+        mcc::cli::globals().format,
+        OutputFormat::Text | OutputFormat::Csv
+    ) {
+        // CSV falls back to the text face for the same reason `show stage`
+        // does: a fixed-width readout is not CSV-safe (a path may contain a
+        // comma), so a real CSV face would be a decision of its own.
+        return write_stage_text(&mcc::stages::corercview::render_core_erc_text(&view));
+    }
+    emit_stage_envelope(&view, "mcc show core-erc")
 }
 
 /// Write the stage text face to `--output` or stdout, the same way

@@ -74,7 +74,7 @@ fn cddl_view_name_rule_is_exactly_the_six_ruled_words() {
 /// — kept honest by the member-set guard below and the golden byte lock in
 /// `diag_view_golden.rs`. Publishing a second canonical word means landing
 /// its group first, then adding it here.
-const CARRIED_CANONICAL_VIEWS: &[&str] = &["diagnostics", "netlist", "project-model"];
+const CARRIED_CANONICAL_VIEWS: &[&str] = &["core-erc", "diagnostics", "netlist", "project-model"];
 
 #[test]
 fn no_published_view_impersonates_an_uncarried_canonical_word() {
@@ -107,6 +107,7 @@ fn registry_covers_every_producer_constant() {
     stamped.push(stages::diagview::DIAGNOSTICS_VIEW);
     stamped.push(stages::netlistview::NETLIST_VIEW);
     stamped.push(stages::projmodel::PROJECT_MODEL_VIEW);
+    stamped.push(stages::corercview::CORE_ERC_VIEW);
     stamped.push(stages::stage_diff::DIFF_P2_VIEW);
     stamped.push(stages::stage_diff::DIFF_VEC_VIEW);
     stamped.push(stages::stage_diff::DIFF_VIZ_VIEW);
@@ -242,7 +243,7 @@ fn cddl_net_group_members_are_exactly_the_serialized_fields() {
 /// `children`.
 #[test]
 fn cddl_circuit_node_group_members_are_exactly_the_serialized_fields() {
-    use mcc::stages::projmodel::{CircuitNode, DefSite, PortItem, TypedValue};
+    use mcc::stages::projmodel::{CircuitNode, DefSite, PortItem, RatingsBound, TypedValue};
 
     let def = || DefSite {
         kind: "component".to_string(),
@@ -263,10 +264,22 @@ fn cddl_circuit_node_group_members_are_exactly_the_serialized_fields() {
             dir: "in",
             net: Some("VDD".to_string()),
         }],
+        ratings: None,
         children: None,
     };
     let full = CircuitNode {
         children: Some(vec![leaf("main.r1")]),
+        ratings: {
+            let mut m = std::collections::BTreeMap::new();
+            m.insert(
+                "res".to_string(),
+                RatingsBound {
+                    low: Some("1V".to_string()),
+                    high: Some("30V".to_string()),
+                },
+            );
+            Some(m)
+        },
         ..leaf("main")
     };
 
@@ -290,10 +303,117 @@ fn cddl_circuit_node_group_members_are_exactly_the_serialized_fields() {
 
     let leaf_v = serde_json::to_value(leaf("main.r1")).expect("leaf serializes");
     let mut required = cddl_group_members("circuit-node =");
-    required.retain(|m| m != "children");
+    required.retain(|m| m != "children" && m != "ratings");
     assert_eq!(
         keys(&leaf_v),
         required,
-        "the leaf must omit only the optional member"
+        "the leaf must omit only the optional members"
+    );
+}
+
+/// The `ratings-bound` group: both sides serialize when the clause states
+/// them, and a single-sided bound omits the absent side rather than writing
+/// a null.
+#[test]
+fn cddl_ratings_bound_group_members_are_exactly_the_serialized_fields() {
+    use mcc::stages::projmodel::RatingsBound;
+
+    let keys = |b: &RatingsBound| -> Vec<String> {
+        let v = serde_json::to_value(b).expect("RatingsBound serializes");
+        let mut keys: Vec<String> = v
+            .as_object()
+            .expect("RatingsBound serializes to an object")
+            .keys()
+            .cloned()
+            .collect();
+        keys.sort();
+        keys
+    };
+
+    let full = RatingsBound {
+        low: Some("0V".to_string()),
+        high: Some("30V".to_string()),
+    };
+    assert_eq!(
+        keys(&full),
+        cddl_group_members("ratings-bound ="),
+        "the serialized `ratings-bound` and the CDDL group drifted"
+    );
+
+    let single = RatingsBound {
+        low: Some("0.8V".to_string()),
+        high: None,
+    };
+    assert_eq!(keys(&single), vec!["low".to_string()]);
+}
+
+/// The fourth carried group: the `core-erc-snapshot` item's serialized key
+/// set is exactly the CDDL member set, and each `core-erc-finding`'s is the
+/// finding group's — full when `fix_hint` is present, required-only when
+/// absent.
+#[test]
+fn cddl_core_erc_groups_members_are_exactly_the_serialized_fields() {
+    use mcc::stages::corercview::{CoreErcSnapshot, Finding};
+    use mcc::stages::diagview::{DiagLoc, Level};
+
+    let keys = |v: &serde_json::Value| -> Vec<String> {
+        let mut keys: Vec<String> = v
+            .as_object()
+            .expect("serializes to an object")
+            .keys()
+            .cloned()
+            .collect();
+        keys.sort();
+        keys
+    };
+
+    let finding = |fix_hint: Option<String>| Finding {
+        code: "E4112".to_string(),
+        level: Level::Warning,
+        check: "unwired-instance".to_string(),
+        msg: "msg".to_string(),
+        net: "r1".to_string(),
+        loc: DiagLoc {
+            uri: "file://x.mc".to_string(),
+            line: 3,
+            span: None,
+        },
+        fix_hint,
+    };
+    let full = finding(Some("hint".to_string()));
+    assert_eq!(
+        keys(&serde_json::to_value(&full).expect("finding serializes")),
+        cddl_group_members("core-erc-finding ="),
+        "the serialized `core-erc-finding` and the CDDL group drifted"
+    );
+    let minimal = finding(None);
+    let mut required = cddl_group_members("core-erc-finding =");
+    required.retain(|m| m != "fix_hint");
+    assert_eq!(
+        keys(&serde_json::to_value(&minimal).expect("finding serializes")),
+        required,
+        "the absent fix_hint must be omitted, not serialized as null"
+    );
+
+    let snapshot = CoreErcSnapshot {
+        nets: vec![serde_json::json!({ "name": "VDD", "points": ["r1.1"] })],
+        findings: vec![full],
+        loc: Some(std::collections::BTreeMap::new()),
+    };
+    assert_eq!(
+        keys(&serde_json::to_value(&snapshot).expect("snapshot serializes")),
+        cddl_group_members("core-erc-snapshot ="),
+        "the serialized `core-erc-snapshot` and the CDDL group drifted"
+    );
+    let v1 = CoreErcSnapshot {
+        loc: None,
+        ..snapshot
+    };
+    let mut required = cddl_group_members("core-erc-snapshot =");
+    required.retain(|m| m != "loc");
+    assert_eq!(
+        keys(&serde_json::to_value(&v1).expect("snapshot serializes")),
+        required,
+        "v1 serializes no loc side table until a producer exists"
     );
 }

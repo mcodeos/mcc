@@ -32,6 +32,7 @@
 //!   one); the canonical key is the only thing that survives a rebuild (§2,
 //!   §2.4, §3.7 discipline 2/3). Every item therefore carries **both**.
 
+pub mod corercview;
 pub mod diagview;
 pub mod join;
 pub mod netlistview;
@@ -129,8 +130,8 @@ pub const ORG_UNITS_VIEW: &str = "org-units";
 /// `schema/projection.cddl`'s `view-name` the canonical read projections; a
 /// face may publish one only once its serde payload group has landed — the
 /// carried words so far are `diagnostics` ([`diagview`]), `netlist`
-/// ([`netlistview`]) and `project-model` ([`projmodel`]), the other three
-/// are still v1 reservations, and
+/// ([`netlistview`]), `project-model` ([`projmodel`]) and `core-erc`
+/// ([`corercview`]), the other two are still v1 reservations, and
 /// publishing one of those would be impersonating a projection that does not
 /// exist. The lock `tests/shard7/view_vocabulary.rs` reads the canonical
 /// words from the CDDL, holds every published word that equals a canonical
@@ -151,6 +152,7 @@ pub fn published_views() -> Vec<&'static str> {
         diagview::DIAGNOSTICS_VIEW,
         netlistview::NETLIST_VIEW,
         projmodel::PROJECT_MODEL_VIEW,
+        corercview::CORE_ERC_VIEW,
         stage_diff::DIFF_P2_VIEW,
         stage_diff::DIFF_VEC_VIEW,
         stage_diff::DIFF_VIZ_VIEW,
