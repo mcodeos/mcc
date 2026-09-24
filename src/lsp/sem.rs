@@ -64,8 +64,9 @@ pub fn classify_token_by_symbol(
 /// Must match the fixed list in the VSCode extension (`mcext-main`
 /// `semtok.rs::is_mcode_keyword`) exactly — the server is the authority but it
 /// must reproduce the plugin's observable behavior. The lexer marks many things
-/// as KEYWORD (real MCK_* keywords, MCU_* units, and plain MCTP_ID/MCTP_IDA
-/// identifiers); only this list keeps the KEYWORD color, everything else falls
+/// as KEYWORD (real MCK_* keywords, MCU_* units, and plain identifier tokens
+/// (MCTP_ID and the MCTP_IDA glued-head form); only this list keeps the
+/// KEYWORD color, everything else falls
 /// back to VARIABLE(9). Note this deliberately mirrors the plugin's set: the
 /// type/unit words `hex` and the uppercase physical units (VOLT/AMP/...) are
 /// NOT included, while `bool`/`true`/`false` ARE (matching the plugin).
@@ -173,8 +174,8 @@ fn classify_token(
     }
 
     // Fall back to the text-based keyword/unit check. The lexer reports KEYWORD
-    // for plain identifiers too (MCTP_ID/MCTP_IDA), so anything that is not a
-    // real keyword or unit becomes a variable.
+    // for plain identifiers too (MCTP_ID and the MCTP_IDA glued-head form), so
+    // anything that is not a real keyword or unit becomes a variable.
     let word = text.get(position..position + length);
     match word {
         Some(w) if is_lexer_keyword(w) => (13, None),
