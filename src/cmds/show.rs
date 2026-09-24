@@ -1448,13 +1448,34 @@ fn show_stage(args: &ShowArgs) -> Result<()> {
         );
     };
 
+    // The slice face is a `stage.viz` reading today: the selector vocabulary
+    // (net name / intent family) is that view's. Another segment given a
+    // selector is a caller error, not a silently ignored flag.
+    if (!args.select.is_empty() || !args.exclude.is_empty()) && seg != mcc::stages::StageSeg::Viz {
+        die!(
+            "mcc::show",
+            2,
+            "--select / --exclude slice the drawn subgraph; only 'viz' accepts them"
+        );
+    }
+
     // The file: `-F` wins, else the cwd manifest that `prepare` already loaded
     // through. A directory resolves to its manifest entry file.
     let target = crate::cmds::manifest::effective_target(args.file.as_deref());
-    let view = match build_stage_view(seg, target.as_deref()) {
+    let mut view = match build_stage_view(seg, target.as_deref()) {
         Ok(v) => v,
         Err(e) => die!("mcc::show", 1, "{e}"),
     };
+    if seg == mcc::stages::StageSeg::Viz {
+        let selection = match mcc::stages::slice::Selection::compile(&args.select, &args.exclude) {
+            Ok(s) => s,
+            Err(e) => die!("mcc::show", 2, "{e}"),
+        };
+        view = match mcc::stages::slice::apply_viz(view, &selection) {
+            Ok(v) => v,
+            Err(e) => die!("mcc::show", 2, "{e}"),
+        };
+    }
 
     if matches!(
         mcc::cli::globals().format,

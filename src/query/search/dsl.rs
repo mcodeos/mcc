@@ -17,7 +17,7 @@
 //! atom        := "(" expr ")" | predicate
 //! predicate   := field op value | "attr" "(" name ")"
 //! op          := "=" | "!=" | "~=" | ">" | "<" | ">=" | "<="
-//! field       := "name" | "kind" | "class" | "attr" "(" name ")"
+//! field       := "name" | "kind" | "class" | "intent" | "attr" "(" name ")"
 //! value       := number | string | bareword
 //! ```
 //!
@@ -59,6 +59,11 @@ pub enum Field {
     Name,
     Kind,
     Class,
+    /// The intent family that claims the record (`power-intent`, …), or no
+    /// value when nothing claims it. Only records that carry an attribution —
+    /// today the `stage.viz` slice's per-net records — supply it; every other
+    /// view rejects the word through `validate_allowed_fields`.
+    Intent,
     Attr(String),
 }
 
@@ -69,6 +74,7 @@ impl Field {
             Field::Name => "name",
             Field::Kind => "kind",
             Field::Class => "class",
+            Field::Intent => "intent",
             Field::Attr(_) => "attr",
         }
     }
@@ -182,7 +188,9 @@ pub fn matches_definition(
     class: Option<&str>,
     uri: Option<&str>,
 ) -> bool {
-    eval(query, kind, name, class, uri, &[], false)
+    // Definitions carry no intent attribution (the word belongs to the
+    // per-net records of the viz slice), so it is always `None` here.
+    eval(query, kind, name, class, None, uri, &[], false)
 }
 
 /// Full path: for `Attr(...)` and `AttrExists`, fetch attrs via the caller-
@@ -196,7 +204,7 @@ pub fn matches_definition_with_attrs(
     uri: Option<&str>,
     attrs: &[(String, String)],
 ) -> bool {
-    eval(query, kind, name, class, uri, attrs, true)
+    eval(query, kind, name, class, None, uri, attrs, true)
 }
 
 fn eval(
@@ -204,23 +212,24 @@ fn eval(
     kind: Option<&str>,
     name: Option<&str>,
     class: Option<&str>,
+    intent: Option<&str>,
     uri: Option<&str>,
     attrs: &[(String, String)],
     attrs_resolved: bool,
 ) -> bool {
     match query {
         Expr::And(a, b) => {
-            let la = eval(a, kind, name, class, uri, attrs, attrs_resolved);
-            let lb = eval(b, kind, name, class, uri, attrs, attrs_resolved);
+            let la = eval(a, kind, name, class, intent, uri, attrs, attrs_resolved);
+            let lb = eval(b, kind, name, class, intent, uri, attrs, attrs_resolved);
             la && lb
         }
         Expr::Or(a, b) => {
-            let la = eval(a, kind, name, class, uri, attrs, attrs_resolved);
-            let lb = eval(b, kind, name, class, uri, attrs, attrs_resolved);
+            let la = eval(a, kind, name, class, intent, uri, attrs, attrs_resolved);
+            let lb = eval(b, kind, name, class, intent, uri, attrs, attrs_resolved);
             la || lb
         }
-        Expr::Not(e) => !eval(e, kind, name, class, uri, attrs, attrs_resolved),
-        Expr::Predicate(p) => eval_pred(p, kind, name, class, uri, attrs, attrs_resolved),
+        Expr::Not(e) => !eval(e, kind, name, class, intent, uri, attrs, attrs_resolved),
+        Expr::Predicate(p) => eval_pred(p, kind, name, class, intent, uri, attrs, attrs_resolved),
     }
 }
 
@@ -229,12 +238,13 @@ fn eval_pred(
     kind: Option<&str>,
     name: Option<&str>,
     class: Option<&str>,
+    intent: Option<&str>,
     uri: Option<&str>,
     attrs: &[(String, String)],
     _attrs_resolved: bool,
 ) -> bool {
     match p {
-        Predicate::Comparison(c) => eval_comparison(c, kind, name, class, uri, attrs),
+        Predicate::Comparison(c) => eval_comparison(c, kind, name, class, intent, uri, attrs),
         Predicate::AttrExists(name) => {
             // Module/Enum: no attrs possible.
             match kind {
@@ -250,6 +260,7 @@ fn field_value<'a>(
     kind: Option<&'a str>,
     name: Option<&'a str>,
     class: Option<&'a str>,
+    intent: Option<&'a str>,
     _uri: Option<&'a str>,
     attrs: &'a [(String, String)],
 ) -> Option<&'a str> {
@@ -257,6 +268,7 @@ fn field_value<'a>(
         Field::Name => name,
         Field::Kind => kind,
         Field::Class => class,
+        Field::Intent => intent,
         Field::Attr(n) => attrs.iter().find(|(k, _)| k == n).map(|(_, v)| v.as_str()),
     }
 }
@@ -266,6 +278,7 @@ fn eval_comparison(
     kind: Option<&str>,
     name: Option<&str>,
     class: Option<&str>,
+    intent: Option<&str>,
     uri: Option<&str>,
     attrs: &[(String, String)],
 ) -> bool {
@@ -297,7 +310,7 @@ fn eval_comparison(
         }
     }
 
-    let lhs = field_value(&c.field, kind, name, class, uri, attrs);
+    let lhs = field_value(&c.field, kind, name, class, intent, uri, attrs);
     value_match(c, lhs)
 }
 
@@ -380,6 +393,7 @@ where
     let kind = item.get("kind").and_then(|v| v.as_str());
     let name = item.get("name").and_then(|v| v.as_str());
     let class = item.get("class").and_then(|v| v.as_str());
+    let intent = item.get("intent").and_then(|v| v.as_str());
     let uri = item.get("uri").and_then(|v| v.as_str());
     let attrs = if needs_attrs(query) {
         match (name, uri) {
@@ -389,7 +403,7 @@ where
     } else {
         Vec::new()
     };
-    eval(query, kind, name, class, uri, &attrs, true)
+    eval(query, kind, name, class, intent, uri, &attrs, true)
 }
 
 /// Backward-compat convenience: when no resolver is provided, `attr(...)`
@@ -663,12 +677,13 @@ impl<'a> Parser<'a> {
             }
             return Ok(Field::Attr(name));
         }
-        // Plain identifier → name/kind/class
+        // Plain identifier → name/kind/class/intent
         let id = self.parse_identifier()?;
         Ok(match id.to_ascii_lowercase().as_str() {
             "name" => Field::Name,
             "kind" => Field::Kind,
             "class" => Field::Class,
+            "intent" => Field::Intent,
             // Forgiving: unknown identifiers treated as a custom field? No —
             // we reject here so the user gets a clear error.
             _ => return Err(self.err(format!("unknown field '{}'", id))),
@@ -867,14 +882,18 @@ impl<'a> Parser<'a> {
 
     fn parse_bareword(&mut self) -> Result<String> {
         let mut s = self.parse_identifier()?;
-        // Bareword values may include glob chars (`*`/`?`) and version-like
-        // dotted continuation (=v1.0); identifier chars may follow a dot.
+        // Bareword values may include glob chars (`*`/`?`), version-like
+        // dotted continuation (=v1.0), and an inner `-` (kebab-case words —
+        // `power-intent`); identifier chars may follow a dot or dash. A
+        // leading `-` still parses as a number sign (parse_value routes it
+        // before this), so only inner dashes reach here.
         loop {
             match self.peek() {
                 Some(c)
                     if c == '*'
                         || c == '?'
                         || c == '.'
+                        || c == '-'
                         || c.is_ascii_alphanumeric()
                         || c == '_' =>
                 {
