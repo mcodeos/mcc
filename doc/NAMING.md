@@ -75,7 +75,7 @@ REG.BUCK_BOOST   Buck-boost switching regulator
 Rules:
 - Technology variants use standard abbreviations: `SCH`, `ZEN`, `TVS`, `LDO`.
 - Transistor polarity/channel uses standard notation: `NPN`, `PNP`, `NMOS`, `PMOS`.
-- Package variants may be used where they disambiguate: `XTAL.SMD`, `FUSE.SMD`.
+- Package variants may be used where they disambiguate: `FUSE.SMD`.
 
 ### 2.3 Connector Namespaces
 
