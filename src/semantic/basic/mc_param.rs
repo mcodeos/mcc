@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use super::mc_ids::IdsSegment;
 use super::mc_opd::McOpd;
 pub use super::mc_paramd::*;
+use crate::semantic::basic::mc_conds::{CondFamily, CondParam};
 use crate::semantic::component::mc_attr::{McAttrVal, McAttribute};
 use crate::semantic::mc_func::HasFindInst;
 use crate::{
@@ -23,7 +24,6 @@ use crate::{
 
 /// Global counter for R05 UNRESOLVED: unit-typed arguments that cannot claim any formal slot.
 pub static R05_UNRESOLVED_UNIT: AtomicUsize = AtomicUsize::new(0);
-
 /// Reset the R05 counter (call before each build run).
 pub fn reset_r05_counter() {
     R05_UNRESOLVED_UNIT.store(0, Ordering::Relaxed);
@@ -53,6 +53,20 @@ pub enum McParamValue {
 }
 
 impl McParamValue {
+    /// The lexical family this value was written in (U144 residual 3): a
+    /// string literal is the quoted family, a numeric token the engine's
+    /// own, an identifier or keyword constant the bare face. Forms that
+    /// carry no word family (placeholder, NC, phrase, set, inline
+    /// attributes) fall back to the bare face.
+    pub fn cond_family(&self) -> CondFamily {
+        match self {
+            McParamValue::String(_) => CondFamily::Quoted,
+            McParamValue::Int(_) | McParamValue::Hex(_) | McParamValue::Float(_)
+            | McParamValue::UValue(_) => CondFamily::Numeric,
+            _ => CondFamily::Bare,
+        }
+    }
+
     /// Parse parameter value from an AST node
     pub fn new(node: &AstNode, context: &mut dyn HasFindInst) -> Option<Self> {
         match node.get_type() {
@@ -1562,6 +1576,33 @@ impl McParamBindings {
             .collect()
     }
 
+    /// Convert bindings to condition-evaluator input (U144 residual 3):
+    /// the same rows as [`Self::to_params_for_eval`], with each value's
+    /// lexical family carried beside its text — a bound string literal
+    /// reads as the quoted family, an identifier or keyword constant as
+    /// the bare face. An unbound parameter contributes its declaration's
+    /// default with the family that default was written in (CIMP U54).
+    pub fn to_cond_params(&self) -> Vec<CondParam> {
+        self.bindings
+            .iter()
+            .filter_map(|b| {
+                let name = b.declare.get_primary_name()?;
+                let (text, family) = match b.get_value() {
+                    Some(v) => (format!("{v}"), v.cond_family()),
+                    None => match b.declare.get_cond_default() {
+                        Some(p) => (p.text, p.family),
+                        None => (String::new(), CondFamily::Bare),
+                    },
+                };
+                Some(CondParam {
+                    name: McIds::from(name.as_str()),
+                    text,
+                    family,
+                })
+            })
+            .collect()
+    }
+
     /// Get all bindings
     pub fn iter(&self) -> impl Iterator<Item = &McParamBinding> {
         self.bindings.iter()
@@ -1722,6 +1763,7 @@ mod tests {
         let mut declares = McParamDeclares::new();
         declares.push(McParamDeclare {
             kind: McParamDeclareKind::Single(McIds::from("GND")),
+        default_quoted: false,
             param_type: McParamType {
                 kind: McParamTypeKind::Unknown,
                 direction: None,
@@ -1756,6 +1798,7 @@ mod tests {
         let mut declares = McParamDeclares::new();
         declares.push(McParamDeclare {
             kind: McParamDeclareKind::Single(McIds::from("partno")),
+        default_quoted: false,
             param_type: McParamType {
                 kind: McParamTypeKind::Unknown,
                 direction: None,
@@ -1764,6 +1807,7 @@ mod tests {
         });
         declares.push(McParamDeclare {
             kind: McParamDeclareKind::Single(McIds::from("rating")),
+        default_quoted: false,
             param_type: McParamType {
                 kind: McParamTypeKind::Unknown,
                 direction: None,
@@ -1806,6 +1850,7 @@ mod tests {
         let mut declares = McParamDeclares::new();
         declares.push(McParamDeclare {
             kind: McParamDeclareKind::Single(McIds::from("partno")),
+        default_quoted: false,
             param_type: McParamType {
                 kind: McParamTypeKind::Unknown,
                 direction: None,
@@ -1814,6 +1859,7 @@ mod tests {
         });
         declares.push(McParamDeclare {
             kind: McParamDeclareKind::Single(McIds::from("rating")),
+        default_quoted: false,
             param_type: McParamType {
                 kind: McParamTypeKind::Unknown,
                 direction: None,
@@ -1845,6 +1891,7 @@ mod tests {
     fn single_declare(name: &str) -> McParamDeclare {
         McParamDeclare {
             kind: McParamDeclareKind::Single(McIds::from(name)),
+        default_quoted: false,
             param_type: McParamType::default(),
             default_val: None,
         }
@@ -2039,6 +2086,7 @@ mod tests {
             }),
             param_type: McParamType::default(),
             default_val: None,
+            default_quoted: false,
         });
 
         let values = vec![McParamValue::Ids(McIds::from("X7R"))];
@@ -2061,6 +2109,7 @@ mod tests {
             }),
             param_type: McParamType::default(),
             default_val: None,
+            default_quoted: false,
         });
 
         let values = vec![McParamValue::Opd(McOpd::Id(dotted(&["CAP", "X7R"])))];
@@ -2098,6 +2147,7 @@ mod tests {
             }),
             param_type: McParamType::default(),
             default_val: None,
+            default_quoted: false,
         });
 
         // ZZZ is not a CAP member: claiming fails and validation rejects it.
@@ -2114,6 +2164,7 @@ mod tests {
         let mut declares = McParamDeclares::new();
         declares.push(McParamDeclare {
             kind: McParamDeclareKind::Single(McIds::from("dc24v")),
+        default_quoted: false,
             param_type: McParamType {
                 kind: McParamTypeKind::Interface {
                     class_name: String::from("DC"),
@@ -2153,6 +2204,7 @@ mod tests {
         let binding = McParamBinding::new(
             McParamDeclare {
                 kind: McParamDeclareKind::Multiple(vec![McIds::from("VCC24"), McIds::from("GND")]),
+            default_quoted: false,
                 param_type: McParamType {
                     kind: McParamTypeKind::Unknown,
                     direction: None,
@@ -2187,6 +2239,7 @@ mod tests {
         let binding = McParamBinding::new(
             McParamDeclare {
                 kind: McParamDeclareKind::Multiple(vec![McIds::from("VCC24"), McIds::from("GND")]),
+            default_quoted: false,
                 param_type: McParamType {
                     kind: McParamTypeKind::Unknown,
                     direction: None,

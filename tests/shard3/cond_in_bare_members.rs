@@ -7,9 +7,12 @@
 //! `if (sel in [A, B, C])` reached the member collector as bare identifier
 //! nodes, but only `MCAST_STRING` items were read — bare members were skipped,
 //! `values` stayed empty, and the condition never matched, silently. The
-//! collector now takes a bare member's own text, so `sel = B` matches both the
-//! bare `B` and the quoted `"B"` member: same-face equality with the bare
-//! default (U144 strict-comparison ruling).
+//! collector now takes a bare member's own text, so `sel = B` matches the bare
+//! `B` member.
+//!
+//! Members of the other word family never match (U144, ruling of 2026-09-20):
+//! a bare default skips quoted members without a diagnostic, because the `in`
+//! face has no single judge to report at.
 
 use serde_json::Value;
 use std::process::Command;
@@ -70,28 +73,30 @@ fn cond_in__bare_member_miss_takes_else_branch() {
     );
 }
 
-/// The quoted form keeps working: a bare default matches a quoted member.
+/// A quoted member never matches a bare default (U144, ruling of 2026-09-20):
+/// the cross-family members are skipped, so the else branch wins.
 #[test]
-fn cond_in__quoted_member_regression_still_hits() {
+fn cond_in__quoted_member_of_a_bare_default_never_matches() {
     let result = parse(
         "component SEL(sel = B)\n{\n    name = \"SEL\"\n    pins = [1 = P]\n    if (sel in [\"A\", \"B\", \"C\"]) { pins += [2 = Q_IN] }\n    else { pins += [3 = Q_OUT] }\n}\n\nmodule main\n{\n    SEL sel_a\n}\n",
     );
     let pins = instance_pins(&result);
     assert!(
-        pins.contains(&"Q_IN".to_string()) && !pins.contains(&"Q_OUT".to_string()),
-        "sel = B must match in [\"A\", \"B\", \"C\"]; pins: {pins:?}"
+        pins.contains(&"Q_OUT".to_string()) && !pins.contains(&"Q_IN".to_string()),
+        "sel = B must not match the quoted [\"A\", \"B\", \"C\"]; pins: {pins:?}"
     );
 }
 
-/// Mixed list: bare and quoted members live in one condition side by side.
+/// Mixed list: only the members in the default's own family are candidates.
 #[test]
-fn cond_in__mixed_bare_and_quoted_members() {
+fn cond_in__mixed_list_candidates_come_from_one_family_only() {
     let result = parse(
         "component SEL(sel = B)\n{\n    name = \"SEL\"\n    pins = [1 = P]\n    if (sel in [A, \"B\"]) { pins += [2 = Q_IN] }\n    else { pins += [3 = Q_OUT] }\n}\n\nmodule main\n{\n    SEL sel_a\n}\n",
     );
     let pins = instance_pins(&result);
     assert!(
-        pins.contains(&"Q_IN".to_string()) && !pins.contains(&"Q_OUT".to_string()),
-        "sel = B must match in [A, \"B\"]; pins: {pins:?}"
+        pins.contains(&"Q_OUT".to_string()) && !pins.contains(&"Q_IN".to_string()),
+        "the quoted \"B\" must not match a bare default even next to a bare A; \
+         pins: {pins:?}"
     );
 }

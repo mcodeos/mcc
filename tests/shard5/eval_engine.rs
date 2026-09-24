@@ -17,7 +17,7 @@
 
 use crate::common;
 
-use mcc::{McCondOperand, McCondition, McConds, McIds, McURI};
+use mcc::{CondFamily, CondParam, InMember, McCondOperand, McCondition, McConds, McIds, McURI};
 
 const SOURCE: &str = r#"
 component REG_IFACE (partno)
@@ -77,8 +77,8 @@ module main { io VDD }
     // The condition is built directly so the comparison itself is under test,
     // not the parse of a unit literal.
     let cond = eq(ident("volt"), lit("1.2V"));
-    let same = vec![(McIds::from("volt"), "1200mV".to_string())];
-    let other = vec![(McIds::from("volt"), "1300mV".to_string())];
+    let same = vec![CondParam::guessed(McIds::from("volt"), "1200mV".to_string())];
+    let other = vec![CondParam::guessed(McIds::from("volt"), "1300mV".to_string())];
 
     assert!(
         McConds::check_condition(&cond, &same, None),
@@ -91,7 +91,7 @@ module main { io VDD }
 
     // The other direction: the literal carries the scaled notation.
     let cond_mv = eq(ident("volt"), lit("1200mV"));
-    let volts = vec![(McIds::from("volt"), "1.2V".to_string())];
+    let volts = vec![CondParam::guessed(McIds::from("volt"), "1.2V".to_string())];
     assert!(
         McConds::check_condition(&cond_mv, &volts, None),
         "1.2V must equal 1200mV"
@@ -109,8 +109,8 @@ fn eval__unitless_number_adopts_the_dimensioned_family() {
         left: ident("volt"),
         right: lit("0"),
     };
-    let negative = vec![(McIds::from("volt"), "-2.5V".to_string())];
-    let positive = vec![(McIds::from("volt"), "2.5V".to_string())];
+    let negative = vec![CondParam::guessed(McIds::from("volt"), "-2.5V".to_string())];
+    let positive = vec![CondParam::guessed(McIds::from("volt"), "2.5V".to_string())];
     assert!(
         McConds::check_condition(&cond, &negative, None),
         "-2.5V must be below the bare 0"
@@ -122,7 +122,7 @@ fn eval__unitless_number_adopts_the_dimensioned_family() {
 
     // The bare side may equally be the left operand.
     let cond_zero_first = eq(lit("0V"), ident("volt"));
-    let zero = vec![(McIds::from("volt"), "0".to_string())];
+    let zero = vec![CondParam::guessed(McIds::from("volt"), "0".to_string())];
     assert!(McConds::check_condition(&cond_zero_first, &zero, None));
 }
 
@@ -133,8 +133,8 @@ fn eval__hex_and_decimal_are_the_same_number() {
     common::reset();
 
     let cond = eq(ident("address"), lit("0x36"));
-    let decimal = vec![(McIds::from("address"), "54".to_string())];
-    let hex = vec![(McIds::from("address"), "0x36".to_string())];
+    let decimal = vec![CondParam::guessed(McIds::from("address"), "54".to_string())];
+    let hex = vec![CondParam::guessed(McIds::from("address"), "0x36".to_string())];
     assert!(McConds::check_condition(&cond, &decimal, None));
     assert!(McConds::check_condition(&cond, &hex, None));
 
@@ -142,7 +142,7 @@ fn eval__hex_and_decimal_are_the_same_number() {
         left: ident("address"),
         right: lit("0x01"),
     };
-    let odd = vec![(McIds::from("address"), "0x37".to_string())];
+    let odd = vec![CondParam::guessed(McIds::from("address"), "0x37".to_string())];
     assert!(McConds::check_condition(&cond_bit, &odd, None));
 }
 
@@ -154,19 +154,25 @@ fn eval__in_list_uses_the_same_values() {
 
     let rails = McCondition::In {
         left: ident("volt"),
-        values: vec!["1200mV".to_string(), "3.3V".to_string()],
+        values: vec![
+            InMember { text: "1200mV".to_string(), family: CondFamily::Numeric },
+            InMember { text: "3.3V".to_string(), family: CondFamily::Numeric },
+        ],
     };
-    let scaled = vec![(McIds::from("volt"), "1.2V".to_string())];
-    let unlisted = vec![(McIds::from("volt"), "1.5V".to_string())];
+    let scaled = vec![CondParam::guessed(McIds::from("volt"), "1.2V".to_string())];
+    let unlisted = vec![CondParam::guessed(McIds::from("volt"), "1.5V".to_string())];
     assert!(McConds::check_condition(&rails, &scaled, None));
     assert!(!McConds::check_condition(&rails, &unlisted, None));
 
     // A list of bare numbers against a dimensioned operand of the same family.
     let numbers = McCondition::In {
         left: ident("volt"),
-        values: vec!["0".to_string(), "5".to_string()],
+        values: vec![
+            InMember { text: "0".to_string(), family: CondFamily::Numeric },
+            InMember { text: "5".to_string(), family: CondFamily::Numeric },
+        ],
     };
-    let zero = vec![(McIds::from("volt"), "0V".to_string())];
+    let zero = vec![CondParam::guessed(McIds::from("volt"), "0V".to_string())];
     assert!(McConds::check_condition(&numbers, &zero, None));
 }
 
@@ -178,7 +184,7 @@ fn eval__ill_typed_comparison_is_reported() {
     common::reset();
 
     let cond = eq(lit("auto"), lit("1.2V"));
-    let params: Vec<(McIds, String)> = Vec::new();
+    let params: Vec<CondParam> = Vec::new();
     let err = McConds::check_condition_result(&cond, &params, None)
         .expect_err("text against a quantity must not evaluate");
     assert_eq!(
@@ -193,7 +199,7 @@ fn eval__ill_typed_comparison_is_reported() {
 
     // Two pieces of text still compare as text (partno == "PA9555").
     let text_cond = eq(ident("package_style"), lit("DFN"));
-    let text_params = vec![(McIds::from("package_style"), "DFN".to_string())];
+    let text_params = vec![CondParam::guessed(McIds::from("package_style"), "DFN".to_string())];
     assert!(McConds::check_condition(&text_cond, &text_params, None));
 
     // Text has no order: `"A" < "B"` is not a comparison the domain defines.
@@ -232,7 +238,7 @@ fn eval__func_branch_follows_the_bound_value() {
     assert_eq!(conds.if_blocks.len(), 2, "if/else if must both be parsed");
 
     let branch = |text: &str| -> String {
-        let params = vec![(McIds::from("volt"), text.to_string())];
+        let params = vec![CondParam::guessed(McIds::from("volt"), text.to_string())];
         conds
             .evaluate(&params)
             .0

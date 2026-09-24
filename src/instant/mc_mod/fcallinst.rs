@@ -23,6 +23,7 @@ use crate::instant::insttab::InstOrigin;
 use crate::instant::mc_comp::McComponentInst;
 use crate::instant::mc_net::{InstError, NetPoint};
 use crate::instant::provenance::ExpansionKind;
+use crate::semantic::basic::mc_conds::{CondFamily, CondParam};
 use crate::semantic::basic::mc_bus::McBus;
 use crate::semantic::basic::mc_closure::McClosure;
 use crate::semantic::basic::mc_endpoint::{McEndpoint, McInstanceRef};
@@ -769,12 +770,16 @@ impl InstantiationBuilder {
 
                 // ── Process conditional blocks (if/else if/else) ──
                 if !func_def.conds.is_empty() {
-                    let params: Vec<(crate::McIds, String)> = bindings
+                    let params: Vec<CondParam> = bindings
                         .iter()
                         .filter_map(|b| {
                             let name = b.declare.get_primary_name()?;
-                            let value = b.get_value().map(|v| v.to_string()).unwrap_or_default();
-                            Some((crate::McIds::from(name.as_str()), value))
+                            let value = b.get_value();
+                            Some(CondParam {
+                                name: crate::McIds::from(name.as_str()),
+                                text: value.map(|v| v.to_string()).unwrap_or_default(),
+                                family: value.map(|v| v.cond_family()).unwrap_or(CondFamily::Bare),
+                            })
                         })
                         .collect();
                     for conds in &func_def.conds {
@@ -1736,12 +1741,16 @@ impl InstantiationBuilder {
         // ── Process conditional blocks in sub-module ──
         // (same re-entry lift pattern as Phase A: freeze back after the run)
         if !func_def.conds.is_empty() {
-            let params: Vec<(crate::McIds, String)> = bindings
+            let params: Vec<CondParam> = bindings
                 .iter()
                 .filter_map(|b| {
                     let name = b.declare.get_primary_name()?;
-                    let value = b.get_value().map(|v| v.to_string()).unwrap_or_default();
-                    Some((crate::McIds::from(name.as_str()), value))
+                    let value = b.get_value();
+                    Some(CondParam {
+                        name: crate::McIds::from(name.as_str()),
+                        text: value.map(|v| v.to_string()).unwrap_or_default(),
+                        family: value.map(|v| v.cond_family()).unwrap_or(CondFamily::Bare),
+                    })
                 })
                 .collect();
 
@@ -2277,12 +2286,16 @@ impl InstantiationBuilder {
         // ── Process conditional blocks (if/else if/else) ──
         if !func_def.conds.is_empty() {
             // Convert bindings to (McIds, String) pairs for condition evaluation
-            let params: Vec<(crate::McIds, String)> = bindings
+            let params: Vec<CondParam> = bindings
                 .iter()
                 .filter_map(|b| {
                     let name = b.declare.get_primary_name()?;
-                    let value = b.get_value().map(|v| v.to_string()).unwrap_or_default();
-                    Some((crate::McIds::from(name.as_str()), value))
+                    let value = b.get_value();
+                    Some(CondParam {
+                        name: crate::McIds::from(name.as_str()),
+                        text: value.map(|v| v.to_string()).unwrap_or_default(),
+                        family: value.map(|v| v.cond_family()).unwrap_or(CondFamily::Bare),
+                    })
                 })
                 .collect();
 
