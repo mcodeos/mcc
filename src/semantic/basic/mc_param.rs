@@ -945,6 +945,15 @@ impl McParamBindings {
         }
     }
 
+    /// The binding of the formal named `name`, when one exists. Readers that
+    /// judge a value after binding (the ratings gate) go through here rather
+    /// than through the raw vec.
+    pub(crate) fn find_by_name(&self, name: &str) -> Option<&McParamBinding> {
+        self.bindings
+            .iter()
+            .find(|b| b.declare.get_primary_name().is_some_and(|p| p == name))
+    }
+
     /// Carry `source`'s call-site key assignments onto `self`. A rewrite that
     /// republishes the bound values only ([`Self::from_bindings`] through
     /// `align_vector_bindings`) would otherwise drop the assignments.

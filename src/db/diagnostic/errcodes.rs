@@ -1435,6 +1435,13 @@ pub const ATTR_KEY_DUPLICATE: u32 = 5359;
 /// carries a value.
 pub const ATTR_VALUE_NOT_IN_VOCABULARY: u32 = 5360;
 
+/// An instance's parameter value falls outside the interval the class's
+/// `ratings` clause declares for it (ratings-param-constraint-design.md §3).
+pub const RATING_PARAM_OUT_OF_RANGE: u32 = 5361;
+
+/// A `ratings` entry key names no constructor parameter of its class.
+pub const RATING_KEY_NOT_A_PARAM: u32 = 5362;
+
 // Pass3: enum / expression checks (5400-5449)
 
 /// Enum has a duplicate value.
@@ -2658,6 +2665,8 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(ATTR_DOTTED_NAME_UNRESOLVED, "Dotted attribute name starts with an unregistered key.", "Dotted attribute name starts with a key that is neither the component name nor a registered attribute key."),
     entry!(ATTR_KEY_DUPLICATE, "Attribute key declared more than once in one attribute list.", "Attribute key is declared more than once in one attribute list."),
     entry!(ATTR_VALUE_NOT_IN_VOCABULARY, "Attribute value is outside the key's registered word set.", "Attribute value is outside the key's registered word set."),
+    entry!(RATING_PARAM_OUT_OF_RANGE, "An instance parameter value falls outside the interval its class's ratings clause declares.", "Instance '{0}' of component '{1}': parameter '{2}' = {3} violates its ratings ({4} {5}). Set the value within the declared bounds or choose a part whose ratings admit it."),
+    entry!(RATING_KEY_NOT_A_PARAM, "A ratings entry key names no constructor parameter of its class.", "Ratings key '{0}' in component '{1}' names no constructor parameter. Key each entry with a parameter declared in the class signature."),
     // section
     entry!(ENUM_DUPLICATE_VALUE, "Enum has a duplicate value.", "Enum has a duplicate value."),
     entry!(ENUM_MEMBER_DOT, "Enum member contains a dot.", "Enum member contains a dot."),

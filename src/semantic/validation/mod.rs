@@ -133,6 +133,7 @@ impl CheckRegistry {
         r.register(Box::new(floating::FloatingLabelCheck));
         r.register(Box::new(gate::GateCheck));
         r.register(Box::new(insts::InstsCheck));
+        r.register(Box::new(ratings::RatingsCheck));
         r.register(Box::new(body::BodyCheck));
         r.register(Box::new(hw::HwCheck));
         r.register(Box::new(types::TypesCheck));
@@ -181,6 +182,7 @@ pub mod nets;
 pub mod pins;
 pub mod ports;
 pub(crate) mod pwrflow;
+pub mod ratings;
 pub mod refs;
 pub mod style;
 pub mod types;
