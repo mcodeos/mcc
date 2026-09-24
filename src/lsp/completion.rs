@@ -225,6 +225,7 @@ pub fn complete_at_pos(uri: &str, position: usize, prefix: Option<&str>) -> Valu
         SpaceLayer::P3,
         SpaceLayer::P4,
         SpaceLayer::P5,
+        SpaceLayer::Net,
     ];
     let mut layers = serde_json::Map::new();
     for layer in layer_order {
@@ -289,6 +290,11 @@ pub fn complete_member_at_pos(
     let mut items = Vec::new();
     if let Some(source) = resolve_member_source(uri, position, member_root) {
         enumerate_source(&source, &mut items);
+    } else {
+        // No class/instance behind the root: try the dotted-family fallback —
+        // `DC.` in `DC.DC10` names a family prefix, not a class, so list the
+        // family's components (U258 ⑦).
+        enumerate_family_components(member_root, &mut items);
     }
 
     // Dedup by (name, kind) — pins may appear both as whole names and as
@@ -324,6 +330,32 @@ pub fn complete_member_at_pos(
         "layers": { "Member": member_items },
         "truncated_layers": [],
     })
+}
+
+/// Dotted-family fallback for member completion (U258 ⑦).
+///
+/// When `member_root` resolves to no class or instance, components whose
+/// full dotted name starts with `{member_root}.` (e.g. root `DC` lists
+/// `DC.DC10`, `DC.DC20`) are offered as members. A root that resolves to a
+/// real class never reaches here, so genuine members always win.
+fn enumerate_family_components(member_root: &str, out: &mut Vec<MemberItem>) {
+    if member_root.is_empty() || member_root.contains('.') {
+        return;
+    }
+    let prefix = format!("{member_root}.");
+    let mut hits: Vec<MemberItem> = crate::definition_space()
+        .all_components()
+        .iter()
+        .filter(|(sn, _)| sn.ident.to_string().starts_with(&prefix))
+        .map(|(sn, comp)| MemberItem {
+            name: sn.ident.to_string(),
+            kind: LookupSymbolKind::Component,
+            uri: sn.uri.to_string(),
+            span: comp.span.start..comp.span.end,
+        })
+        .collect();
+    hits.sort_by(|a, b| a.name.cmp(&b.name));
+    out.append(&mut hits);
 }
 
 /// Resolve `member_root` to a member-enumeration source.

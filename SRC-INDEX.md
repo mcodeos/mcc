@@ -31,7 +31,7 @@ range (threshold 40KB).
 | File | Size | Declarations |
 |---|---|---|
 | `viz/layout/equipotential_tree.rs` | 409 KB | 203 |
-| `db/infra/mc_code.rs` | 388 KB | 117 |
+| `db/infra/mc_code.rs` | 406 KB | 122 |
 | `semantic/basic/mc_phrase.rs` | 338 KB | 80 |
 | `semantic/component/mc_pins/mod.rs` | 236 KB | 109 |
 | `semantic/validation/nets/mod.rs` | 205 KB | 134 |
@@ -64,16 +64,16 @@ range (threshold 40KB).
 | `builder/` | 1 | 0 KB |
 | `cli/` | 7 | 113 KB |
 | `cmds/` | 28 | 503 KB |
-| `db/` | 28 | 1018 KB |
+| `db/` | 28 | 1035 KB |
 | `eval/` | 2 | 50 KB |
 | `export/` | 7 | 183 KB |
 | `instant/` | 41 | 1623 KB |
-| `lsp/` | 7 | 68 KB |
+| `lsp/` | 7 | 70 KB |
 | `output/` | 7 | 107 KB |
-| `query/` | 9 | 163 KB |
-| `refdef/` | 7 | 123 KB |
+| `query/` | 9 | 167 KB |
+| `refdef/` | 7 | 126 KB |
 | `rpc/` | 16 | 306 KB |
-| `semantic/` | 91 | 2750 KB |
+| `semantic/` | 91 | 2751 KB |
 | `stages/` | 12 | 323 KB |
 | `vector/` | 26 | 496 KB |
 | `viz/` | 98 | 2467 KB |
@@ -2233,52 +2233,57 @@ db/infra/mc_code.rs#L3785  fn lapper_global_classes
 db/infra/mc_code.rs#L4088  fn lapper_instance_decls_and_refs
 db/infra/mc_code.rs#L4231  fn lapper_interfaces
 db/infra/mc_code.rs#L4398  fn lapper_module_ports
-db/infra/mc_code.rs#L4758  fn chain_def_scope
-db/infra/mc_code.rs#L4776  fn register_chain_base_ref
-db/infra/mc_code.rs#L4827  fn lapper_function_params
-db/infra/mc_code.rs#L4966  fn lapper_component_defs_register
-db/infra/mc_code.rs#L5109  fn lapper_component_defs
-db/infra/mc_code.rs#L5399  fn lapper_component_func_pin_refs
-db/infra/mc_code.rs#L5504  fn find_enum_class_cross_file
-db/infra/mc_code.rs#L5580  fn lapper_enum_refs
-db/infra/mc_code.rs#L5777  fn lapper_scoped_enum_bare_refs
-db/infra/mc_code.rs#L5927  fn build_scope_walk
-db/infra/mc_code.rs#L6034  fn lapper_func_define_role
-db/infra/mc_code.rs#L6405  fn extract_class_name
-db/infra/mc_code.rs#L6439  fn extract_chain_base_instance
-db/infra/mc_code.rs#L6491  fn find_instance_class_name
-db/infra/mc_code.rs#L6516  fn dlog_parser_message
-db/infra/mc_code.rs#L6564  fn extract_dot_pair
-db/infra/mc_code.rs#L6607  mod tests
-db/infra/mc_code.rs#L6625  fn def_mccode__func_entries_mirror_host_funcs_across_reload
-db/infra/mc_code.rs#L6838  fn def_mccode__declareb_inline_inst_registers_lsp_declaration
-db/infra/mc_code.rs#L6939  fn def_mccode__module_member_chain_refs_resolve_in_lapper
-db/infra/mc_code.rs#L7036  fn def_mccode__fcall_chain_member_resolves_to_instance_pin
-db/infra/mc_code.rs#L7124  fn def_mccode__position_hover_resolves_same_name_enum_and_component
-db/infra/mc_code.rs#L7131  enum CAP
-db/infra/mc_code.rs#L7195  fn def_mccode__position_goto_def_resolves_same_name_enum_and_component
-db/infra/mc_code.rs#L7202  enum CAP
-db/infra/mc_code.rs#L7251  fn def_mccode__completion_keeps_same_name_enum_and_component_candidates
-db/infra/mc_code.rs#L7258  enum CAP
-db/infra/mc_code.rs#L7319  fn def_mccode__ref_def_map_entries_carry_ast_def_names
-db/infra/mc_code.rs#L7429  fn def_mccode__visibility_table_matches_import_forms
-db/infra/mc_code.rs#L7607  fn def_mccode__refgraph_records_cross_file_resolution_edges
-db/infra/mc_code.rs#L7690  fn def_mccode__refgraph_edges_survive_reparse_without_stale_hits
-db/infra/mc_code.rs#L7744  fn refgraph_two_file_project
-db/infra/mc_code.rs#L7774  fn refgraph_edge_pair
-db/infra/mc_code.rs#L7793  fn def_mccode__refgraph_locked_resolution_records_edges
-db/infra/mc_code.rs#L7827  fn def_mccode__refgraph_declare_class_registration_records_edges
-db/infra/mc_code.rs#L7852  fn def_mccode__refgraph_gotodef_records_edges
-db/infra/mc_code.rs#L7879  fn refgraph_inst_label_project
-db/infra/mc_code.rs#L7916  fn def_mccode__refgraph_whitelisted_def_to_refs_entries_are_edge_backed
-db/infra/mc_code.rs#L7973  fn def_mccode__find_at_graph_prefilter_matches_the_full_scan
-db/infra/mc_code.rs#L8086  fn def_mccode__refgraph_readd_keeps_freshly_recorded_edges
-db/infra/mc_code.rs#L8116  fn def_mccode__export_delta_demotes_the_dependent_sweep
-db/infra/mc_code.rs#L8155  fn def_mccode__use_line_closure_propagates_the_delta_mark_to_transitive_users
-db/infra/mc_code.rs#L8231  fn def_defres__func_local_declaration_shadows_container_name_in_the_index
-db/infra/mc_code.rs#L8308  fn def_mccode__parse_level_reparse_diff_reports_edited_def_only
-db/infra/mc_code.rs#L8387  fn def_mccode__module_port_ledger_stable_across_mid_insert_reparse
-db/infra/mc_code.rs#L8460  fn def_mccode__alias_p4_name_index_and_gotodef_agree_with_phase6
+db/infra/mc_code.rs#L4822  fn is_free_net_candidate
+db/infra/mc_code.rs#L4839  fn lapper_free_net_defs
+db/infra/mc_code.rs#L4906  fn chain_def_scope
+db/infra/mc_code.rs#L4924  fn register_chain_base_ref
+db/infra/mc_code.rs#L4975  fn lapper_function_params
+db/infra/mc_code.rs#L5114  fn lapper_component_defs_register
+db/infra/mc_code.rs#L5257  fn lapper_component_defs
+db/infra/mc_code.rs#L5547  fn lapper_component_func_pin_refs
+db/infra/mc_code.rs#L5652  fn find_enum_class_cross_file
+db/infra/mc_code.rs#L5728  fn lapper_enum_refs
+db/infra/mc_code.rs#L5925  fn lapper_scoped_enum_bare_refs
+db/infra/mc_code.rs#L6075  fn build_scope_walk
+db/infra/mc_code.rs#L6182  fn lapper_func_define_role
+db/infra/mc_code.rs#L6553  fn extract_class_name
+db/infra/mc_code.rs#L6587  fn extract_chain_base_instance
+db/infra/mc_code.rs#L6639  fn find_instance_class_name
+db/infra/mc_code.rs#L6664  fn dlog_parser_message
+db/infra/mc_code.rs#L6712  fn extract_dot_pair
+db/infra/mc_code.rs#L6755  mod tests
+db/infra/mc_code.rs#L6773  fn def_mccode__func_entries_mirror_host_funcs_across_reload
+db/infra/mc_code.rs#L6977  fn def_mccode__free_net_first_use_registers_netdef_and_netrefs
+db/infra/mc_code.rs#L7111  fn def_mccode__completion_net_layer_lists_file_nets
+db/infra/mc_code.rs#L7202  fn def_mccode__completion_family_prefix_lists_dotted_components
+db/infra/mc_code.rs#L7296  fn def_mccode__declareb_inline_inst_registers_lsp_declaration
+db/infra/mc_code.rs#L7397  fn def_mccode__module_member_chain_refs_resolve_in_lapper
+db/infra/mc_code.rs#L7494  fn def_mccode__fcall_chain_member_resolves_to_instance_pin
+db/infra/mc_code.rs#L7582  fn def_mccode__position_hover_resolves_same_name_enum_and_component
+db/infra/mc_code.rs#L7589  enum CAP
+db/infra/mc_code.rs#L7653  fn def_mccode__position_goto_def_resolves_same_name_enum_and_component
+db/infra/mc_code.rs#L7660  enum CAP
+db/infra/mc_code.rs#L7709  fn def_mccode__completion_keeps_same_name_enum_and_component_candidates
+db/infra/mc_code.rs#L7716  enum CAP
+db/infra/mc_code.rs#L7777  fn def_mccode__ref_def_map_entries_carry_ast_def_names
+db/infra/mc_code.rs#L7887  fn def_mccode__visibility_table_matches_import_forms
+db/infra/mc_code.rs#L8065  fn def_mccode__refgraph_records_cross_file_resolution_edges
+db/infra/mc_code.rs#L8148  fn def_mccode__refgraph_edges_survive_reparse_without_stale_hits
+db/infra/mc_code.rs#L8202  fn refgraph_two_file_project
+db/infra/mc_code.rs#L8232  fn refgraph_edge_pair
+db/infra/mc_code.rs#L8251  fn def_mccode__refgraph_locked_resolution_records_edges
+db/infra/mc_code.rs#L8285  fn def_mccode__refgraph_declare_class_registration_records_edges
+db/infra/mc_code.rs#L8310  fn def_mccode__refgraph_gotodef_records_edges
+db/infra/mc_code.rs#L8337  fn refgraph_inst_label_project
+db/infra/mc_code.rs#L8374  fn def_mccode__refgraph_whitelisted_def_to_refs_entries_are_edge_backed
+db/infra/mc_code.rs#L8431  fn def_mccode__find_at_graph_prefilter_matches_the_full_scan
+db/infra/mc_code.rs#L8544  fn def_mccode__refgraph_readd_keeps_freshly_recorded_edges
+db/infra/mc_code.rs#L8574  fn def_mccode__export_delta_demotes_the_dependent_sweep
+db/infra/mc_code.rs#L8613  fn def_mccode__use_line_closure_propagates_the_delta_mark_to_transitive_users
+db/infra/mc_code.rs#L8689  fn def_defres__func_local_declaration_shadows_container_name_in_the_index
+db/infra/mc_code.rs#L8766  fn def_mccode__parse_level_reparse_diff_reports_edited_def_only
+db/infra/mc_code.rs#L8845  fn def_mccode__module_port_ledger_stable_across_mid_insert_reparse
+db/infra/mc_code.rs#L8918  fn def_mccode__alias_p4_name_index_and_gotodef_agree_with_phase6
 db/infra/mc_use.rs#L15  enum McUsePrefix
 db/infra/mc_use.rs#L22  impl std::fmt::Display for McUsePrefix
 db/infra/mc_use.rs#L23  fn fmt
@@ -4058,16 +4063,17 @@ lsp/completion.rs#L83  fn scope_hit_at_pos
 lsp/completion.rs#L173  fn scope_at_pos
 lsp/completion.rs#L189  fn container_at_pos
 lsp/completion.rs#L206  fn complete_at_pos
-lsp/completion.rs#L262  struct MemberItem
-lsp/completion.rs#L271  enum MemberSource
-lsp/completion.rs#L282  fn complete_member_at_pos
-lsp/completion.rs#L335  fn resolve_member_source
-lsp/completion.rs#L374  fn enum_source
-lsp/completion.rs#L386  fn enumerate_source
-lsp/completion.rs#L397  fn enumerate_component
-lsp/completion.rs#L442  fn enumerate_module
-lsp/completion.rs#L484  fn enumerate_interface
-lsp/completion.rs#L497  fn enumerate_enum
+lsp/completion.rs#L263  struct MemberItem
+lsp/completion.rs#L272  enum MemberSource
+lsp/completion.rs#L283  fn complete_member_at_pos
+lsp/completion.rs#L341  fn enumerate_family_components
+lsp/completion.rs#L367  fn resolve_member_source
+lsp/completion.rs#L406  fn enum_source
+lsp/completion.rs#L418  fn enumerate_source
+lsp/completion.rs#L429  fn enumerate_component
+lsp/completion.rs#L474  fn enumerate_module
+lsp/completion.rs#L516  fn enumerate_interface
+lsp/completion.rs#L529  fn enumerate_enum
 lsp/diagnostics.rs#L18  fn collect
 lsp/diagnostics.rs#L32  fn diagnostic_to_json
 lsp/diagnostics.rs#L69  fn diagnostic_to_json_full
@@ -4346,32 +4352,33 @@ query/lookup.rs#L19  fn unified_lookup
 query/lookup.rs#L35  fn lookup_with_sub
 query/lookup.rs#L63  fn unified_lookup_all
 query/lookup.rs#L79  fn unified_lookup_all_layered
-query/lookup.rs#L104  const MAX_PER_LAYER
-query/lookup.rs#L107  struct LayerLimiter
-query/lookup.rs#L113  impl LayerLimiter
-query/lookup.rs#L114  fn new
-query/lookup.rs#L123  fn can_add
-query/lookup.rs#L134  fn truncated_layers
-query/lookup.rs#L147  fn collect_func_symbols
-query/lookup.rs#L198  fn collect_from_file
-query/lookup.rs#L270  fn collect_module_symbols
-query/lookup.rs#L319  fn collect_component_symbols
-query/lookup.rs#L379  fn collect_from_project
-query/lookup.rs#L475  fn collect_from_system_lib
-query/lookup.rs#L577  fn add_result
-query/lookup.rs#L591  enum CmieKind
-query/lookup.rs#L611  enum ContainerRef
-query/lookup.rs#L633  fn find_container
-query/lookup.rs#L703  fn sub_kind_to_cmie_kind
-query/lookup.rs#L717  enum SubElementKind
-query/lookup.rs#L732  impl SubElementKind
-query/lookup.rs#L733  fn from_str
-query/lookup.rs#L745  fn as_str
-query/lookup.rs#L769  fn lookup_sub_def
-query/lookup.rs#L845  fn kind_matches_instance
-query/lookup.rs#L858  fn find_in_project_tables
-query/lookup.rs#L892  fn find_by_name_in_project_tables
-query/lookup.rs#L942  fn mcb_get_module_with_diagnostics
+query/lookup.rs#L108  const MAX_PER_LAYER
+query/lookup.rs#L111  struct LayerLimiter
+query/lookup.rs#L117  impl LayerLimiter
+query/lookup.rs#L118  fn new
+query/lookup.rs#L127  fn can_add
+query/lookup.rs#L138  fn truncated_layers
+query/lookup.rs#L151  fn collect_func_symbols
+query/lookup.rs#L202  fn collect_from_file
+query/lookup.rs#L274  fn collect_module_symbols
+query/lookup.rs#L331  fn collect_component_symbols
+query/lookup.rs#L391  fn collect_from_project
+query/lookup.rs#L491  fn collect_nets
+query/lookup.rs#L580  fn collect_from_system_lib
+query/lookup.rs#L682  fn add_result
+query/lookup.rs#L696  enum CmieKind
+query/lookup.rs#L716  enum ContainerRef
+query/lookup.rs#L738  fn find_container
+query/lookup.rs#L808  fn sub_kind_to_cmie_kind
+query/lookup.rs#L822  enum SubElementKind
+query/lookup.rs#L837  impl SubElementKind
+query/lookup.rs#L838  fn from_str
+query/lookup.rs#L850  fn as_str
+query/lookup.rs#L874  fn lookup_sub_def
+query/lookup.rs#L950  fn kind_matches_instance
+query/lookup.rs#L963  fn find_in_project_tables
+query/lookup.rs#L997  fn find_by_name_in_project_tables
+query/lookup.rs#L1047  fn mcb_get_module_with_diagnostics
 query/mod.rs#L2  mod debug
 query/mod.rs#L3  mod iterators
 query/mod.rs#L4  mod lookup
@@ -4597,41 +4604,42 @@ refdef/types.rs#L110  struct SymbolType
 refdef/types.rs#L117  impl SymbolType
 refdef/types.rs#L118  fn new
 refdef/types.rs#L130  enum SymbolKind
-refdef/types.rs#L172  impl SymbolKind
-refdef/types.rs#L173  fn from_lapper_kind
-refdef/types.rs#L212  fn from_raw
-refdef/types.rs#L248  fn is_ref
-refdef/types.rs#L267  fn kind_name
-refdef/types.rs#L308  enum CmieKind
-refdef/types.rs#L315  impl CmieKind
-refdef/types.rs#L316  const UNKNOWN
-refdef/types.rs#L323  struct RefDefEntry
-refdef/types.rs#L347  enum NameLayer
-refdef/types.rs#L356  impl NameLayer
-refdef/types.rs#L358  fn rank
-refdef/types.rs#L374  struct NameIndexCandidate
-refdef/types.rs#L379  impl NameIndexCandidate
-refdef/types.rs#L397  fn policy_key
-refdef/types.rs#L413  fn is_def_at
-refdef/types.rs#L424  struct RefDefMap
-refdef/types.rs#L457  fn is_whitelisted_ref_kind
-refdef/types.rs#L471  impl RefDefMap
-refdef/types.rs#L472  fn new
-refdef/types.rs#L476  fn insert
-refdef/types.rs#L504  fn record_ref_edge
-refdef/types.rs#L535  fn insert_with_name
-refdef/types.rs#L560  fn get
-refdef/types.rs#L571  fn add_name_candidate
-refdef/types.rs#L598  fn name_winner
-refdef/types.rs#L611  fn get_by_name
-refdef/types.rs#L619  fn name_candidates
-refdef/types.rs#L627  fn get_refs_for_def
-refdef/types.rs#L643  fn intern_file
-refdef/types.rs#L648  fn intern_container
-refdef/types.rs#L663  mod tests
-refdef/types.rs#L666  fn entry
-refdef/types.rs#L687  fn uri
-refdef/types.rs#L696  fn svc_types__name_index_keeps_all_candidates_and_winner_is_deterministic
+refdef/types.rs#L181  impl SymbolKind
+refdef/types.rs#L182  fn from_lapper_kind
+refdef/types.rs#L223  fn from_raw
+refdef/types.rs#L261  fn is_ref
+refdef/types.rs#L281  fn kind_name
+refdef/types.rs#L324  enum CmieKind
+refdef/types.rs#L331  impl CmieKind
+refdef/types.rs#L332  const UNKNOWN
+refdef/types.rs#L339  struct RefDefEntry
+refdef/types.rs#L363  enum NameLayer
+refdef/types.rs#L372  impl NameLayer
+refdef/types.rs#L374  fn rank
+refdef/types.rs#L390  struct NameIndexCandidate
+refdef/types.rs#L395  impl NameIndexCandidate
+refdef/types.rs#L413  fn policy_key
+refdef/types.rs#L429  fn is_def_at
+refdef/types.rs#L440  struct RefDefMap
+refdef/types.rs#L473  fn is_whitelisted_ref_kind
+refdef/types.rs#L489  impl RefDefMap
+refdef/types.rs#L490  fn new
+refdef/types.rs#L494  fn insert
+refdef/types.rs#L522  fn record_ref_edge
+refdef/types.rs#L553  fn insert_with_name
+refdef/types.rs#L578  fn get
+refdef/types.rs#L589  fn add_name_candidate
+refdef/types.rs#L616  fn name_winner
+refdef/types.rs#L629  fn get_by_name
+refdef/types.rs#L637  fn name_candidates
+refdef/types.rs#L645  fn get_refs_for_def
+refdef/types.rs#L661  fn intern_file
+refdef/types.rs#L666  fn intern_container
+refdef/types.rs#L681  mod tests
+refdef/types.rs#L684  fn entry
+refdef/types.rs#L705  fn uri
+refdef/types.rs#L714  fn svc_types__net_kinds_roundtrip_with_stable_prefix
+refdef/types.rs#L747  fn svc_types__name_index_keeps_all_candidates_and_winner_is_deterministic
 rpc/handlers/admin.rs#L9  fn handle_project_list
 rpc/handlers/admin.rs#L33  fn handle_project_info
 rpc/handlers/admin.rs#L55  fn handle_library_list
@@ -6100,44 +6108,44 @@ semantic/common.rs#L686  impl SpaceLayer
 semantic/common.rs#L687  fn as_str
 semantic/common.rs#L705  struct LookupResult
 semantic/common.rs#L724  enum LookupSymbolKind
-semantic/common.rs#L741  impl LookupSymbolKind
-semantic/common.rs#L742  fn as_str
-semantic/common.rs#L764  struct ScopeFilter
-semantic/common.rs#L773  impl ScopeFilter
-semantic/common.rs#L774  fn new
-semantic/common.rs#L778  fn with_kind
-semantic/common.rs#L783  fn with_prefix
-semantic/common.rs#L788  fn with_limit
-semantic/common.rs#L795  fn print_backtrace
-semantic/common.rs#L828  struct Shape
-semantic/common.rs#L832  impl Shape
-semantic/common.rs#L833  fn new
-semantic/common.rs#L842  fn node
-semantic/common.rs#L847  fn vvec
-semantic/common.rs#L852  fn unknown
-semantic/common.rs#L856  fn is_unknown
-semantic/common.rs#L862  fn is_row
-semantic/common.rs#L868  fn is_multi_row
-semantic/common.rs#L873  impl std::fmt::Display for Shape
-semantic/common.rs#L874  fn fmt
-semantic/common.rs#L891  enum ConnOp
-semantic/common.rs#L909  fn representative
-semantic/common.rs#L926  fn parallel_anchor
-semantic/common.rs#L946  enum LeadKind
-semantic/common.rs#L958  fn classify_lead
-semantic/common.rs#L978  fn classify_phrase_leads
-semantic/common.rs#L979  fn walk
-semantic/common.rs#L1020  mod shape_tests
-semantic/common.rs#L1027  fn sem_common__shape_classifiers
-semantic/common.rs#L1047  fn sem_common__representative_rule
-semantic/common.rs#L1069  fn sem_common__representative_equal_single_ports
-semantic/common.rs#L1085  fn sem_common__classify_lead_wire_vs_prefix_id
-semantic/common.rs#L1098  fn sem_common__phrase_placeholder_in_vector
-semantic/common.rs#L1105  fn sem_common__phrase_passthrough_operand
-semantic/common.rs#L1116  fn sem_common__phrase_passthrough_in_series
-semantic/common.rs#L1132  fn sem_common__phrase_nested_expression_keeps_passthrough
-semantic/common.rs#L1144  fn sem_common__phrase_passthrough_in_group
-semantic/common.rs#L1160  fn sem_common__phrase_no_lead_empty
+semantic/common.rs#L743  impl LookupSymbolKind
+semantic/common.rs#L744  fn as_str
+semantic/common.rs#L767  struct ScopeFilter
+semantic/common.rs#L776  impl ScopeFilter
+semantic/common.rs#L777  fn new
+semantic/common.rs#L781  fn with_kind
+semantic/common.rs#L786  fn with_prefix
+semantic/common.rs#L791  fn with_limit
+semantic/common.rs#L798  fn print_backtrace
+semantic/common.rs#L831  struct Shape
+semantic/common.rs#L835  impl Shape
+semantic/common.rs#L836  fn new
+semantic/common.rs#L845  fn node
+semantic/common.rs#L850  fn vvec
+semantic/common.rs#L855  fn unknown
+semantic/common.rs#L859  fn is_unknown
+semantic/common.rs#L865  fn is_row
+semantic/common.rs#L871  fn is_multi_row
+semantic/common.rs#L876  impl std::fmt::Display for Shape
+semantic/common.rs#L877  fn fmt
+semantic/common.rs#L894  enum ConnOp
+semantic/common.rs#L912  fn representative
+semantic/common.rs#L929  fn parallel_anchor
+semantic/common.rs#L949  enum LeadKind
+semantic/common.rs#L961  fn classify_lead
+semantic/common.rs#L981  fn classify_phrase_leads
+semantic/common.rs#L982  fn walk
+semantic/common.rs#L1023  mod shape_tests
+semantic/common.rs#L1030  fn sem_common__shape_classifiers
+semantic/common.rs#L1050  fn sem_common__representative_rule
+semantic/common.rs#L1072  fn sem_common__representative_equal_single_ports
+semantic/common.rs#L1088  fn sem_common__classify_lead_wire_vs_prefix_id
+semantic/common.rs#L1101  fn sem_common__phrase_placeholder_in_vector
+semantic/common.rs#L1108  fn sem_common__phrase_passthrough_operand
+semantic/common.rs#L1119  fn sem_common__phrase_passthrough_in_series
+semantic/common.rs#L1135  fn sem_common__phrase_nested_expression_keeps_passthrough
+semantic/common.rs#L1147  fn sem_common__phrase_passthrough_in_group
+semantic/common.rs#L1163  fn sem_common__phrase_no_lead_empty
 semantic/component/mc_attr.rs#L17  struct McAttributes
 semantic/component/mc_attr.rs#L21  impl McAttributes
 semantic/component/mc_attr.rs#L22  fn new
@@ -11374,4 +11382,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-409 files, 11291 declarations.
+409 files, 11299 declarations.

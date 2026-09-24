@@ -4397,6 +4397,11 @@ impl McCode {
 
     fn lapper_module_ports(uri: &McURI, sem: &mut McSemSymbols, symbol_lapper: &mut DedupLapper) {
         let modules = crate::definition_space().workspace_modules_in_uri(uri);
+        // ★ Free named nets (U258): net-line identifiers that resolve to no
+        // declaration, collected while the net-refs loop below runs and
+        // registered once after it (a net's def is its first use, which may
+        // lex after a ref occurrence, so registration cannot be inline).
+        let mut free_net_hits: Vec<(std::ops::Range<usize>, String)> = Vec::new();
         for (sn, m) in modules.iter() {
             tracing::debug!(
                 target: "mcc::lsp",
@@ -4509,9 +4514,20 @@ impl McCode {
                 // second def (a stray LabelDef overlapping the InstRef).
                 let hint = m.insts.declareb_def(name);
                 for span in spans {
+                    // ★ U258: a name created inline by a connection phrase
+                    // (IOType::None label instance) is a free named net, not a
+                    // label — first use is its implicit declaration.
+                    let is_free_net = matches!(
+                        m.insts.insts().get(name),
+                        Some((
+                            crate::IOType::None,
+                            crate::semantic::mc_inst::McInstance::Label(_)
+                        ))
+                    );
                     let def_kind = match &hint {
                         Some((kind, declareb_span)) if declareb_span == span => *kind,
                         Some(_) => continue,
+                        _ if is_free_net => SymbolKind::NetDef,
                         _ => SymbolKind::LabelDef,
                     };
                     let (d, _) = crate::refdef::register::register_def(
@@ -4580,16 +4596,50 @@ impl McCode {
                     }
                 }
                 if let Some(decl_id) = use_decl_id {
+                    // ★ U258: a plain-name use whose def is a free net carries
+                    // the net identity (NetRef, not the PortRef fallthrough).
+                    // At the def span itself the NetDef interval already covers
+                    // the text — no self-resolving NetRef goes beside it.
+                    let mut skip_ref_insert = false;
+                    let resolved_id = u32::from(decl_id);
+                    if ref_kind == SymbolKind::PortRef
+                        && sem.def_map.contains_key(&(SymbolKind::NetDef, resolved_id))
+                    {
+                        let at_def = sem
+                            .def_map
+                            .get(&(SymbolKind::NetDef, resolved_id))
+                            .is_some_and(|loc| {
+                                loc.byte_start == span.start as u32
+                                    && loc.byte_end == span.end as u32
+                            });
+                        if at_def {
+                            skip_ref_insert = true;
+                            tracing::info!(target: "mcc::lsp::audit",
+                                "[AUDIT-FreeNetRef-AT-DEF] name={port_name} span={span:?} — NetDef covers this span");
+                        } else {
+                            ref_kind = SymbolKind::NetRef;
+                        }
+                    }
                     // ★ §4.3 #22-#26: Dispatch inst.member refs to correct type
                     tracing::info!(target: "mcc::lsp::audit",
                         "[AUDIT-NetRef-Kind] name={port_name} ref_kind={ref_kind:?}");
-                    symbol_lapper.insert(Interval {
-                        start: span.start,
-                        stop: span.end,
-                        val: SymbolType::new(ref_kind, u32::from(decl_id)),
-                    });
-                    sem.ref_entries
-                        .push((ref_kind, u32::from(decl_id), span.start, span.end));
+                    if !skip_ref_insert {
+                        symbol_lapper.insert(Interval {
+                            start: span.start,
+                            stop: span.end,
+                            val: SymbolType::new(ref_kind, resolved_id),
+                        });
+                        sem.ref_entries
+                            .push((ref_kind, resolved_id, span.start, span.end));
+                    }
+                } else if Self::is_free_net_candidate(port_name) {
+                    // ★ U258: no P1/P2 declaration, no member chain, no
+                    // instance/class shape — the identifier names a free net.
+                    // Registered as NetDef (first use) / NetRef (the rest) by
+                    // lapper_free_net_defs after the module loop.
+                    free_net_hits.push((span.clone(), port_name.to_string()));
+                    tracing::info!(target: "mcc::lsp::audit",
+                        "[AUDIT-FreeNet-HIT] name={port_name} span={span:?} scope={scope}");
                 }
                 // ★ Base-instance ref: the base identifier of a dotted member
                 // chain gets its own InstRef so hover / F12 on `spk` in
@@ -4706,6 +4756,20 @@ impl McCode {
                 if m.insts.declareb_def(name).is_some() {
                     continue;
                 }
+                // ★ U258: inline-created names (IOType::None label instances)
+                // are free named nets — registered as NetDef by the
+                // port_spans loop above, never as a second LabelDef.
+                if matches!(
+                    m.insts.insts().get(name),
+                    Some((
+                        crate::IOType::None,
+                        crate::semantic::mc_inst::McInstance::Label(_)
+                    ))
+                ) {
+                    tracing::info!(target: "mcc::lsp::audit",
+                        "[AUDIT-LabelDef-SKIP] name={name} (free net, covered by NetDef)");
+                    continue;
+                }
                 let (d, _) = crate::refdef::register::register_def(
                     sem,
                     uri,
@@ -4743,6 +4807,90 @@ impl McCode {
                         }
                     }
                 }
+            }
+        }
+        // ★ Free named nets (U258): runs after every def-registration pass so
+        // the collect guards above saw the final P1/P2 picture.
+        Self::lapper_free_net_defs(uri, sem, symbol_lapper, &free_net_hits);
+    }
+
+    /// A bare identifier that may name a free net: single-segment (no dots —
+    /// dot chains and curly-bus members are resolved by their own passes),
+    /// identifier-shaped (alnum plus `_`, not digit-led — excludes numbers in
+    /// pin position and curly/square group forms), and not a language
+    /// keyword (`this` in `input -> this -> source` is a keyword, not a net).
+    fn is_free_net_candidate(name: &str) -> bool {
+        !name.is_empty()
+            && !name.chars().next().unwrap().is_ascii_digit()
+            && name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_')
+            && !crate::lsp::sem::is_lexer_keyword(name)
+    }
+
+    /// Register the free named nets collected by [`Self::lapper_module_ports`].
+    ///
+    /// A free net is implicitly declared at its first occurrence in the file:
+    /// the min-start span becomes the NetDef (a real def in `def_map` /
+    /// `def_names`, so goto-def and the completion Net layer have an anchor),
+    /// every other occurrence becomes a NetRef resolving to it. The def span
+    /// itself never gets a NetRef — DedupLapper keys on (kind, start, stop),
+    /// so an overlap would not be caught.
+    fn lapper_free_net_defs(
+        uri: &McURI,
+        sem: &mut McSemSymbols,
+        symbol_lapper: &mut DedupLapper,
+        hits: &[(std::ops::Range<usize>, String)],
+    ) {
+        if hits.is_empty() {
+            return;
+        }
+        let mut by_name: std::collections::BTreeMap<&str, Vec<&std::ops::Range<usize>>> =
+            Default::default();
+        for (span, name) in hits {
+            // Class names are covered by lapper_global_classes, which emits the
+            // canonical ClassRef at every class-name span (including bare class
+            // names in net position); a NetDef at the same span would overlap it.
+            if crate::get_def(&McIds::from(name.as_str()), uri).is_some() {
+                tracing::info!(target: "mcc::lsp::audit",
+                    "[AUDIT-FreeNet-SKIP] name={name} (class name, covered by lapper_global_classes)");
+                continue;
+            }
+            by_name.entry(name).or_default().push(span);
+        }
+        for (name, spans) in &by_name {
+            let Some(def_span) = spans.iter().min_by_key(|s| (s.start, s.end)) else {
+                continue;
+            };
+            let (d, _) = crate::refdef::register::register_def(
+                sem,
+                uri,
+                "",
+                None,
+                name,
+                (*def_span).clone(),
+                SymbolKind::NetDef,
+            );
+            symbol_lapper.insert(Interval {
+                start: def_span.start,
+                stop: def_span.end,
+                val: SymbolType::new(SymbolKind::NetDef, u32::from(d)),
+            });
+            tracing::info!(target: "mcc::lsp::audit",
+                "[AUDIT-NetDef] name={name} span={def_span:?} decl_id={d:?}");
+            for span in spans {
+                if span.start == def_span.start && span.end == def_span.end {
+                    continue;
+                }
+                symbol_lapper.insert(Interval {
+                    start: span.start,
+                    stop: span.end,
+                    val: SymbolType::new(SymbolKind::NetRef, u32::from(d)),
+                });
+                sem.ref_entries
+                    .push((SymbolKind::NetRef, u32::from(d), span.start, span.end));
+                tracing::info!(target: "mcc::lsp::audit",
+                    "[AUDIT-FreeNetRef] name={name} span={span:?} decl_id={d:?}");
             }
         }
     }
@@ -6815,6 +6963,316 @@ module main
             cap2_entry.host, cap2_entry2.host,
             "CAP2 keeps its host DefId across the reload"
         );
+    }
+
+    /// U258: a bare identifier in a net-line element position that resolves to
+    /// no declaration names a free net. Its first occurrence in the file is the
+    /// implicit NetDef (def_map + def_names + lapper def interval); every later
+    /// occurrence is a NetRef resolving back to it (end-to-end through
+    /// `gotodef::resolve_at_pos`, which covers the fill_refdef_layer2
+    /// NetRef → NetDef candidate arm). Instances (R1), class names (RES) and
+    /// dot-chain members (the `1` of `R1.1`) must NOT produce Net entries —
+    /// they carry their own kinds.
+    #[test]
+    fn def_mccode__free_net_first_use_registers_netdef_and_netrefs() {
+        let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");
+        crate::mcc_init_no_lib();
+        crate::mcc_set_system_root(std::path::Path::new(""));
+        crate::mcc_clear_workspace();
+
+        let uri: crate::McURI = "/mcc/free-net.mc".to_string();
+        let source = r#"
+component RES
+{
+    pins = [
+        1 = 1, "Term 1"
+        2 = 2, "Term 2"
+    ]
+}
+
+module main
+{
+    R1::RES(1kΩ) -> V5V
+    SENSOR_RAW -> R1.1
+    V5V -> R1.2
+}
+"#;
+        crate::mcc_load_from_string(&uri, source);
+
+        let mcode = workspace::WORKSPACE.mcodes.get(&uri).expect("file loaded");
+        let sem = mcode.symbols.lock().expect("symbols lock");
+
+        let v5v_first = source.find("V5V").unwrap();
+        let v5v_second = source[v5v_first + 3..].find("V5V").unwrap() + v5v_first + 3;
+        let sensor = source.find("SENSOR_RAW").unwrap();
+
+        let kinds_at = |off: usize| -> Vec<SymbolKind> {
+            sem.symbol_lapper
+                .find(off, off + 1)
+                .into_iter()
+                .filter_map(|iv| SymbolKind::from_raw(iv.val.kind))
+                .collect()
+        };
+        let has_net = |off: usize| -> bool {
+            kinds_at(off)
+                .iter()
+                .any(|k| matches!(k, SymbolKind::NetDef | SymbolKind::NetRef))
+        };
+
+        // First use = implicit NetDef; second use = NetRef only.
+        assert!(
+            kinds_at(v5v_first).contains(&SymbolKind::NetDef),
+            "first V5V occurrence must be the NetDef, got {:?}",
+            kinds_at(v5v_first)
+        );
+        let v5v_def = sem
+            .symbol_lapper
+            .iter()
+            .find(|iv| {
+                iv.val.kind == SymbolKind::NetDef as u8
+                    && iv.start == v5v_first
+                    && iv.stop == v5v_first + 3
+            })
+            .expect("NetDef interval at first V5V");
+        assert!(
+            kinds_at(v5v_second).contains(&SymbolKind::NetRef),
+            "second V5V occurrence must be a NetRef, got {:?}",
+            kinds_at(v5v_second)
+        );
+        assert!(
+            !kinds_at(v5v_second).contains(&SymbolKind::NetDef),
+            "a second NetDef at the same-name later use would double-declare"
+        );
+        // Single-use free net: one NetDef, no NetRef anywhere for it.
+        assert!(
+            kinds_at(sensor).contains(&SymbolKind::NetDef),
+            "SENSOR_RAW must be a NetDef at its only occurrence"
+        );
+        let sensor_netrefs = sem
+            .symbol_lapper
+            .iter()
+            .filter(|iv| {
+                iv.val.kind == SymbolKind::NetRef as u8
+                    && iv.start >= sensor
+                    && iv.stop <= sensor + "SENSOR_RAW".len()
+            })
+            .count();
+        assert_eq!(sensor_netrefs, 0, "single-use net must not mint a NetRef");
+
+        // Negative: instance / class / dot-chain member spans carry their own
+        // kinds and no Net kind.
+        let r1_decl = source.find("R1::").unwrap();
+        assert!(kinds_at(r1_decl).contains(&SymbolKind::InstDef));
+        assert!(!has_net(r1_decl), "instance name must not become a net");
+        let res_ref = source.find("R1::RES").unwrap() + 5;
+        assert!(kinds_at(res_ref).contains(&SymbolKind::ClassRef));
+        assert!(!has_net(res_ref), "class name must not become a net");
+        let pin_member = source.find("R1.1").unwrap() + 3;
+        assert!(
+            !has_net(pin_member),
+            "dot-chain member must not become a net, got {:?}",
+            kinds_at(pin_member)
+        );
+
+        // def_map / def_names carry the implicit declaration.
+        let def_id = v5v_def.val.id;
+        let loc = sem
+            .def_map
+            .get(&(SymbolKind::NetDef, def_id))
+            .copied()
+            .expect("NetDef in def_map");
+        assert_eq!(loc.byte_start as usize, v5v_first);
+        assert_eq!(loc.byte_end as usize, v5v_first + 3);
+        assert_eq!(
+            sem.def_names
+                .get(&(SymbolKind::NetDef, def_id))
+                .map(String::as_str),
+            Some("V5V")
+        );
+
+        // End to end: goto-def on the later use jumps to the first use and
+        // reports the NetDef kind (covers the fill_refdef_layer2 arm). The
+        // `sem` guard must be released first — resolve_at_pos re-locks the
+        // same symbols mutex.
+        let uri_str = uri.as_str().to_string();
+        drop(sem);
+        drop(mcode);
+        let gotodef = crate::lsp::gotodef::resolve_at_pos(&uri_str, v5v_second + 1)
+            .expect("NetRef must resolve");
+        assert_eq!(gotodef["kind"], "NetDef");
+        assert_eq!(gotodef["byte_start"], v5v_first as u64);
+    }
+
+    /// The Net completion layer lists free named nets from the refdef def_map:
+    /// the current file's nets carry its uri and the def-span (first use), a
+    /// second file's nets carry their own uri. Same table goto-def resolves
+    /// against — no second net-name table.
+    #[test]
+    fn def_mccode__completion_net_layer_lists_file_nets() {
+        let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");
+        crate::mcc_init_no_lib();
+        crate::mcc_set_system_root(std::path::Path::new(""));
+        crate::mcc_clear_workspace();
+
+        let main_uri: crate::McURI = "/mcc/net-main.mc".to_string();
+        let main_src = r#"
+component RES
+{
+    pins = [
+        1 = 1
+        2 = 2
+    ]
+}
+
+module main
+{
+    R1::RES(1kΩ) -> V5V
+    SENSOR_RAW -> R1.1
+    V5V -> R1.2
+}
+"#;
+        crate::mcc_load_from_string(&main_uri, main_src);
+
+        let other_uri: crate::McURI = "/mcc/net-other.mc".to_string();
+        let other_src = r#"
+component RES
+{
+    pins = [
+        1 = 1
+        2 = 2
+    ]
+}
+
+module other
+{
+    R9::RES(1kΩ) -> VBUS
+}
+"#;
+        crate::mcc_load_from_string(&other_uri, other_src);
+
+        let cursor = main_src.find("V5V -> R1.2").unwrap();
+        let resp = crate::lsp::completion::complete_at_pos(&main_uri.as_str(), cursor, None);
+        let net_items = resp["layers"]["Net"]
+            .as_array()
+            .expect("Net layer must be present");
+        let by_name: std::collections::BTreeMap<&str, &serde_json::Value> = net_items
+            .iter()
+            .map(|it| (it["name"].as_str().expect("item name"), it))
+            .collect();
+        assert!(by_name.contains_key("V5V"), "V5V must be listed: {by_name:?}");
+        assert!(
+            by_name.contains_key("SENSOR_RAW"),
+            "SENSOR_RAW must be listed: {by_name:?}"
+        );
+        assert!(
+            by_name.contains_key("VBUS"),
+            "the other file's net must be listed: {by_name:?}"
+        );
+        for (name, item) in &by_name {
+            assert_eq!(item["kind"].as_str(), Some("net"), "{name} kind");
+        }
+        let v5v = by_name["V5V"];
+        assert_eq!(v5v["uri"].as_str(), Some(main_uri.as_str()), "current-file net uri");
+        let v5v_def = main_src.find("V5V").unwrap();
+        assert_eq!(v5v["span"]["start"].as_u64(), Some(v5v_def as u64), "def span");
+        assert_eq!(
+            by_name["VBUS"]["uri"].as_str(),
+            Some(other_uri.as_str()),
+            "other-file net uri"
+        );
+        // Inner layers must not double-offer the nets (no LabelDef leftover).
+        for (layer, items) in resp["layers"].as_object().expect("layers object") {
+            if layer == "Net" {
+                continue;
+            }
+            for it in items.as_array().expect("layer items") {
+                assert_ne!(
+                    it["name"].as_str(),
+                    Some("V5V"),
+                    "V5V must not leak into layer {layer}"
+                );
+            }
+        }
+    }
+
+    /// Member completion over a dotted-family prefix: `DC.` resolves to no
+    /// class, so the family fallback lists the `DC.*` components. A real
+    /// class root (`CAP`) enumerates its own members and never falls back.
+    #[test]
+    fn def_mccode__completion_family_prefix_lists_dotted_components() {
+        let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");
+        crate::mcc_init_no_lib();
+        crate::mcc_set_system_root(std::path::Path::new(""));
+        crate::mcc_clear_workspace();
+
+        let uri: crate::McURI = "/mcc/family.mc".to_string();
+        let source = r#"
+component DC.DC10
+{
+    pins = [
+        1 = 1
+        2 = 2
+    ]
+}
+
+component DC.DC20
+{
+    pins = [
+        1 = 1
+        2 = 2
+    ]
+}
+
+component CAP
+{
+    pins = [
+        1 = 1
+        2 = 2
+    ]
+}
+
+module main
+{
+}
+"#;
+        crate::mcc_load_from_string(&uri, source);
+
+        let cursor = source.find("module main").unwrap();
+        let resp =
+            crate::lsp::completion::complete_member_at_pos(&uri.as_str(), cursor, "DC", None);
+        let members = resp["layers"]["Member"]
+            .as_array()
+            .expect("Member layer present");
+        let names: Vec<&str> = members
+            .iter()
+            .map(|it| it["name"].as_str().expect("member name"))
+            .collect();
+        assert_eq!(
+            names,
+            vec!["DC.DC10", "DC.DC20"],
+            "family fallback must list both components sorted"
+        );
+        for it in members {
+            assert_eq!(it["kind"].as_str(), Some("component"));
+        }
+
+        // A real class root enumerates its own members — no family fallback.
+        let cap_resp =
+            crate::lsp::completion::complete_member_at_pos(&uri.as_str(), cursor, "CAP", None);
+        let cap_members = cap_resp["layers"]["Member"]
+            .as_array()
+            .expect("CAP members present");
+        assert!(
+            !cap_members.is_empty(),
+            "real class root must enumerate members"
+        );
+        for it in cap_members {
+            let n = it["name"].as_str().expect("member name");
+            assert!(
+                !n.contains('.'),
+                "real class root must not trigger the family fallback, got {n}"
+            );
+        }
     }
 
     /// Regression: declareb instances inside net expressions must be registered

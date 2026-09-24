@@ -167,6 +167,15 @@ pub enum SymbolKind {
     /// ★ §3.4.3 (rev): bus member reference — e.g. the `P` segment of `MIC.P`.
     /// Resolves to the member def (precise span), not the whole bus.
     BusMemberRef = 29,
+    /// ★ Free named net — implicit declaration at its first occurrence in a
+    /// net-line element position. A bare identifier in a net line that
+    /// resolves to no P1/P2 declaration (port, param, label, instance, bus)
+    /// names a net; its first use in the file is the definition site. Feeds
+    /// the completion `Net` layer (NetExpr candidates) and goto-def.
+    NetDef = 30,
+    /// ★ Use of a free named net at any occurrence after the first one in
+    /// the same file (see [SymbolKind::NetDef]).
+    NetRef = 31,
 }
 
 impl SymbolKind {
@@ -201,6 +210,8 @@ impl SymbolKind {
             "bus_ref" => Some(Self::BusRef),
             "bus_member_def" => Some(Self::BusMemberDef),
             "bus_member_ref" => Some(Self::BusMemberRef),
+            "net_def" => Some(Self::NetDef),
+            "net_ref" => Some(Self::NetRef),
             "unknown_def" => Some(Self::UnknownDef),
             _ => None,
         }
@@ -241,6 +252,8 @@ impl SymbolKind {
             27 => Some(Self::UnknownDef),
             28 => Some(Self::BusMemberDef),
             29 => Some(Self::BusMemberRef),
+            30 => Some(Self::NetDef),
+            31 => Some(Self::NetRef),
             _ => None,
         }
     }
@@ -261,6 +274,7 @@ impl SymbolKind {
                 | Self::FuncParamRef
                 | Self::BusRef
                 | Self::BusMemberRef
+                | Self::NetRef
         )
     }
 
@@ -296,6 +310,8 @@ impl SymbolKind {
             Self::UnknownDef => "UnknownDef",
             Self::BusMemberDef => "BusMemberDef",
             Self::BusMemberRef => "BusMemberRef",
+            Self::NetDef => "NetDef",
+            Self::NetRef => "NetRef",
         }
     }
 }
@@ -465,6 +481,8 @@ pub fn is_whitelisted_ref_kind(kind: SymbolKind) -> bool {
             | SymbolKind::EnumRef
             | SymbolKind::LabelDef
             | SymbolKind::LabelRef
+            | SymbolKind::NetDef
+            | SymbolKind::NetRef
     )
 }
 
@@ -686,6 +704,39 @@ mod tests {
 
     fn uri(s: &str) -> McURI {
         McURI::from(s)
+    }
+
+    /// The net kinds extend the SymbolKind byte contract append-only: 0-29
+    /// keep their ordinals (mcext indexes the ref_def_map `kind_names` payload
+    /// by byte), 30/31 round-trip through every mapping surface, and NetRef
+    /// is tagged REF (the F12 dump mis-tags it DEF otherwise).
+    #[test]
+    fn svc_types__net_kinds_roundtrip_with_stable_prefix() {
+        // Prefix stability guard: the last pre-net ordinal is untouched.
+        assert_eq!(SymbolKind::BusMemberRef as u8, 29);
+        assert_eq!(SymbolKind::from_raw(29), Some(SymbolKind::BusMemberRef));
+
+        assert_eq!(SymbolKind::NetDef as u8, 30);
+        assert_eq!(SymbolKind::NetRef as u8, 31);
+        assert_eq!(SymbolKind::from_raw(30), Some(SymbolKind::NetDef));
+        assert_eq!(SymbolKind::from_raw(31), Some(SymbolKind::NetRef));
+        assert_eq!(SymbolKind::from_raw(32), None);
+
+        assert_eq!(
+            SymbolKind::from_lapper_kind("net_def"),
+            Some(SymbolKind::NetDef)
+        );
+        assert_eq!(
+            SymbolKind::from_lapper_kind("net_ref"),
+            Some(SymbolKind::NetRef)
+        );
+        assert_eq!(SymbolKind::from_lapper_kind("net"), None);
+
+        assert!(!SymbolKind::NetDef.is_ref());
+        assert!(SymbolKind::NetRef.is_ref());
+
+        assert_eq!(SymbolKind::NetDef.kind_name(), "NetDef");
+        assert_eq!(SymbolKind::NetRef.kind_name(), "NetRef");
     }
 
     /// T10 (N2): the name_index bucket keeps every same-name candidate — a

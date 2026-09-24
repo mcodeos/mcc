@@ -102,7 +102,7 @@ const LANGUAGE_KEYWORDS: &[&str] = &[
 /// True when `text` is a lexer KEYWORD-class token that should keep the
 /// KEYWORD(13) color. Only the shared keyword list (mirroring the plugin) keeps
 /// it; any other identifier becomes a variable.
-fn is_lexer_keyword(text: &str) -> bool {
+pub(crate) fn is_lexer_keyword(text: &str) -> bool {
     LANGUAGE_KEYWORDS.contains(&text)
 }
 
