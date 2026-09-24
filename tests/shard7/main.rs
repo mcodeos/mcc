@@ -57,6 +57,7 @@ mod stage_trace;
 mod stage_vec_diff;
 mod stage_vec_view;
 mod stage_viz_diff;
+mod stage_viz_intent_clock;
 mod stage_viz_slice;
 mod stage_viz_view;
 mod tablea_dispatch_regression;

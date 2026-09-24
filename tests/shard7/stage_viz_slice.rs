@@ -87,10 +87,22 @@ fn full_view() -> Value {
 #[test]
 fn without_the_flags_the_view_is_byte_identical() {
     // The face must not touch the envelope when it is not used: the golden and
-    // mirror locks upstream read this exact serialization.
+    // mirror locks upstream read this exact serialization. The envelope's one
+    // wall-clock field (`elapsed_ms`) is cut before comparing — it is timing,
+    // not serialization, and jitter there is not a face change.
+    fn sans_timing(s: &str) -> &str {
+        match s.find("\"elapsed_ms\":") {
+            Some(i) => &s[..i],
+            None => s,
+        }
+    }
     let (plain, _, _) = run_stage(&[]);
     let (again, _, _) = run_stage(&[]);
-    assert_eq!(plain, again, "two plain runs must agree byte for byte");
+    assert_eq!(
+        sans_timing(&plain),
+        sans_timing(&again),
+        "two plain runs must agree byte for byte"
+    );
     assert!(plain.contains("\"items\""), "expected the json face");
 }
 

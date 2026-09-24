@@ -162,6 +162,7 @@ pub fn build_viz(
     // The nets this drawing carries that a declared intent claims, in the order
     // the sink handed the layers over — see [`intent_items`] for what claims one.
     let mut claimed: Vec<Value> = Vec::new();
+    let mut clocked: Vec<Value> = Vec::new();
 
     // A sub-layer's canonical path is spelled from its parent's, and the sink
     // hands over the parent's `bid` rather than its path — so resolve them as we
@@ -316,6 +317,18 @@ pub fn build_viz(
                     "domain": net.attr.as_ref().and_then(|a| a.domain.clone()),
                 }));
             }
+            // Same net, clock family: the claim is the flat lane carry's
+            // declared shape (see [`clock_claim_shape`]) — never the name.
+            if let Some(shape) = clock_claim_shape(net, table) {
+                clocked.push(json!({
+                    "net": net_key(&net.name),
+                    "nid": net.nid,
+                    "name": net.name,
+                    "layer": path,
+                    "attr": shape,
+                    "domain": Value::Null,
+                }));
+            }
             for s in net_statements(net, table, &statements) {
                 let slot = drawn.entry(s).or_default();
                 let already = slot.iter().any(|n| {
@@ -334,7 +347,7 @@ pub fn build_viz(
     }
 
     items.extend(group_items(&statements, drawn, &mut sources));
-    items.extend(intent_items(claimed));
+    items.extend(intent_items(claimed, clocked));
     items.extend(metrics_items(quality, layers.len(), audited));
 
     StageView::new(StageSeg::Viz, top, items, diagnostics).carrying_drawing_contract()
@@ -386,12 +399,17 @@ fn group_items(
         .collect()
 }
 
-/// The one intent family this view can name today. `power-intent`, spelled per
-/// `arch/space/intent-canon.md` §1.1 (`<name>-intent`), which is the only family
-/// whose declaration, criterion and verification faces all hold today — its
-/// criterion face is the declaration layer itself, which is why the profile can
-/// be read off the projected graph instead of judged again here.
+/// The intent families this view can name. Both are spelled per
+/// `arch/space/intent-canon.md` §1.1 (`<name>-intent`), and both are here for
+/// the same reason: their criterion faces hold on declarations this view can
+/// read without judging again. `power-intent`'s criterion is the declaration
+/// layer itself, so the profile reads off the projected graph. `clock-intent`'s
+/// criterion is the interface gates (clock-intent-design.md §2.1) — E4122/6054
+/// and 6060 — whose anchors are the flatten-time lane carries this view reads
+/// through the same flat table the join reads. One row per family, power
+/// first: the order is the canon's registration order, not a ranking.
 const POWER_INTENT: &str = "power-intent";
+const CLOCK_INTENT: &str = "clock-intent";
 
 /// The published spelling of a declared supply face, or `None` for a role this
 /// family does not claim.
@@ -412,6 +430,51 @@ fn face_name(role: AttrRole) -> Option<&'static str> {
     }
 }
 
+/// The clock family's structural claim on one drawn net, read through the
+/// flat table the join reads: an endpoint's lane carry is the adoption edge
+/// itself, decoded once at flatten time. What claims is the shape the adopted
+/// role declares — the shapes the criterion gates anchor on
+/// (clock-intent-design.md §2.1) — never a family or role name: an exclusive
+/// pairing lane (the resonator/oscillator face's shape, E4122/6054's anchor)
+/// or a uniform-direction lane (the unidirectional face's shape, 6060's
+/// anchor). A mixed role (out beside in) and a roleless adoption (the
+/// role-anchored gates' own blind face, recorded as such in the inventory)
+/// declare neither shape and never claim. Neither does a role whose members
+/// declare `@class(analog)` (the ADC.DIFF face on the real boards): the
+/// direction shape is a generic serial-link shape and the class declaration
+/// is the role's own word that the face is an analog-signal face — its nets
+/// belong to the analog axis, not this family. First shape seen names the
+/// net; the net is claimed once no matter how many of its endpoints carry
+/// the family.
+fn clock_claim_shape(net: &VizNet, table: &InstTable) -> Option<&'static str> {
+    let mut shape: Option<&'static str> = None;
+    for e in &net.endpoints {
+        let Some(entry) = (e.pin_id >= 0)
+            .then(|| table.get_entry(e.pin_id as u32))
+            .flatten()
+        else {
+            continue;
+        };
+        let Some(lane) = entry.iface_lane.as_ref() else {
+            continue;
+        };
+        if lane.analog {
+            continue;
+        }
+        let found = if lane.exclusive && lane.peer_role.is_some() {
+            Some("pairing")
+        } else if lane.direction.is_some() {
+            Some("unidirectional")
+        } else {
+            None
+        };
+        if found.is_some() {
+            shape = found;
+        }
+    }
+    shape
+}
+
 /// One item per intent family, naming the drawn nets that family claims.
 ///
 /// §3 of `arch/space/intent-canon.md` makes the profile an **axis over these
@@ -426,7 +489,9 @@ fn face_name(role: AttrRole) -> Option<&'static str> {
 /// family, and the domain that declared that face.
 ///
 /// What claims a net is structural, read from the mirror the projection filled
-/// and never from a name: a declared supply face ([`face_name`]). A net with no
+/// and never from a name: a declared supply face for the power family
+/// ([`face_name`]), the flat lane carry's declared shape for the clock family
+/// ([`clock_claim_shape`]). A net with no
 /// mirror is not claimed — the projection's rule for an undeclared net is that it
 /// is never judged and never guessed, and this row does not guess on its behalf.
 ///
@@ -444,26 +509,37 @@ fn face_name(role: AttrRole) -> Option<&'static str> {
 /// renumbered drawing does not read as every claim having changed.
 ///
 /// [`VIZ_LAW`]: crate::stages::stage_diff::VIZ_LAW
-fn intent_items(claimed: Vec<Value>) -> Vec<Value> {
-    if claimed.is_empty() {
-        return Vec::new();
+fn intent_items(claimed: Vec<Value>, clocked: Vec<Value>) -> Vec<Value> {
+    let mut out = Vec::new();
+    if !claimed.is_empty() {
+        out.push(intent_row(POWER_INTENT, claimed));
     }
-    let count = claimed.len();
-    vec![json!({
+    if !clocked.is_empty() {
+        out.push(intent_row(CLOCK_INTENT, clocked));
+    }
+    out
+}
+
+/// One family's attribution row: the profile's unit. No net claimed ⇒ no
+/// item, §5.2 hard constraint 2 — a family that matches nothing is not
+/// published as an empty row.
+fn intent_row(family: &'static str, nets: Vec<Value>) -> Value {
+    let count = nets.len();
+    json!({
         "class": "intent",
-        "key": POWER_INTENT,
+        "key": family,
         "point": Value::Null,
         "path": Value::Null,
         "canon_key": Value::Null,
-        "family": POWER_INTENT,
-        "nets": claimed,
+        "family": family,
+        "nets": nets,
         "count": count,
         // View level, like a `metrics` row: the nets it claims each carry their
         // own layer, so one row covers the whole drawing and a per-layer split
         // would say the same thing once per layer.
         "layer": Value::Null,
         "loc": Value::Null,
-    })]
+    })
 }
 
 /// The statements a drawn net belongs to: for every endpoint, the row the pin
