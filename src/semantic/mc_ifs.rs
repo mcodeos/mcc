@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use crate::semantic::basic::mc_conds::McConds;
+use crate::semantic::basic::mc_conds::{CondParam, McConds};
 use crate::{
     ast::{macros::*, node::AstNode},
     semantic::{
@@ -338,7 +338,7 @@ impl Mc2Interface {
     ) -> Self {
         let param_names = base.params.names();
         let anchor = anchor.filter(|_| Self::args_are_literals(&params, param_names.len()));
-        let param_tuples: Vec<(McIds, String)> = params
+        let param_tuples: Vec<CondParam> = params
             .iter()
             .zip(param_names.iter())
             .filter_map(|(p, param_name)| {
@@ -346,7 +346,11 @@ impl Mc2Interface {
                 if s == "_" || s.is_empty() {
                     None
                 } else {
-                    Some((McIds::from(param_name.as_str()), s))
+                    Some(CondParam {
+                        name: McIds::from(param_name.as_str()),
+                        text: s,
+                        family: p.cond_family(),
+                    })
                 }
             })
             .collect();
@@ -369,7 +373,7 @@ impl Mc2Interface {
                     // here, in declaration order.
                     let values: Vec<(String, String)> = param_tuples
                         .iter()
-                        .map(|(k, v)| (k.to_string(), v.clone()))
+                        .map(|p| (p.name.to_string(), p.text.clone()))
                         .collect();
                     inst.parsed_pins =
                         Self::parse_pins_from_block(&inst.base.uri, &selected_block, &values);
@@ -394,7 +398,7 @@ impl Mc2Interface {
         let param_names = base.params.names();
         let anchor = anchor.filter(|_| Self::args_are_literals(&params, param_names.len()));
 
-        let param_tuples: Vec<(McIds, String)> = params
+        let param_tuples: Vec<CondParam> = params
             .iter()
             .zip(param_names.iter())
             .filter_map(|(p, param_name)| {
@@ -402,7 +406,11 @@ impl Mc2Interface {
                 if s == "_" || s.is_empty() {
                     None
                 } else {
-                    Some((McIds::from(param_name.as_str()), s))
+                    Some(CondParam {
+                        name: McIds::from(param_name.as_str()),
+                        text: s,
+                        family: p.cond_family(),
+                    })
                 }
             })
             .collect();
@@ -429,7 +437,7 @@ impl Mc2Interface {
                             // name in the selected branch materializes here.
                             let values: Vec<(String, String)> = param_tuples
                                 .iter()
-                                .map(|(k, v)| (k.to_string(), v.clone()))
+                                .map(|p| (p.name.to_string(), p.text.clone()))
                                 .collect();
                             inst.parsed_pins = Self::parse_pins_from_block(
                                 &inst.base.uri,

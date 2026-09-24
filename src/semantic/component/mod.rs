@@ -433,7 +433,7 @@ impl McComponent {
         cond_attrs: &mut Vec<CondAttrs>,
         cond_errors: &mut Vec<CondErrors>,
     ) {
-        let default_params = params.get_params_with_defaults();
+        let default_params = params.get_cond_params_with_defaults();
 
         if let Some(body_subnodes) = body_node.get_sub_node() {
             for child in body_subnodes.iter() {
@@ -477,8 +477,8 @@ impl McComponent {
                                     let default_lookup = |name: &str| {
                                         default_params
                                             .iter()
-                                            .find(|(ids, _)| ids.to_string() == name)
-                                            .map(|(_, v)| v.clone())
+                                            .find(|p| p.name.to_string() == name)
+                                            .map(|p| p.text.clone())
                                     };
                                     for (node, err) in &branch_errors {
                                         let msg = err
@@ -1022,7 +1022,7 @@ impl Mc2Component {
             return Some(id.to_string());
         }
 
-        let eval_params = bindings.to_params_for_eval();
+        let eval_params = bindings.to_cond_params();
         for conditional in &self.base.cond_pins {
             let active = conditional
                 .if_blocks

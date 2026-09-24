@@ -22,6 +22,92 @@ pub struct CondDefCtx<'a> {
     pub attrs: &'a McAttributes,
 }
 
+/// The lexical family a condition value was written in (U144 residual 3,
+/// ruled 2026-09-20): `sel = FAST` only ever equals `sel == FAST`, `sel =
+/// "FAST"` only equals `sel == "FAST"`. A judge that meets a bare word with
+/// a quoted string is a family mismatch — reported, not silently decided
+/// by text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CondFamily {
+    /// A bare identifier, a keyword constant, or a name falling back to its
+    /// own text — the identity face.
+    Bare,
+    /// A quoted string literal — the data face a string literal carries.
+    Quoted,
+    /// A numeric or unit literal; the value engine owns these comparisons.
+    Numeric,
+    /// Text read off the enclosing definition (attributes, pin keys) or
+    /// otherwise without a written family. Outside the bare/quoted gate:
+    /// the definition face is the data face (doc §3), and its values are
+    /// not re-judged against the word families.
+    Def,
+}
+
+impl CondFamily {
+    /// Whether this family takes part in the bare/quoted gate.
+    fn is_word_family(self) -> bool {
+        matches!(self, CondFamily::Bare | CondFamily::Quoted)
+    }
+
+    /// The diagnostic label for one side of a family mismatch.
+    fn label(self, text: &str) -> String {
+        match self {
+            CondFamily::Bare => format!("bare word '{text}'"),
+            CondFamily::Quoted => format!("text '{text}'"),
+            CondFamily::Numeric => format!("number '{text}'"),
+            CondFamily::Def => format!("definition text '{text}'"),
+        }
+    }
+}
+
+/// One bound parameter as the condition evaluator sees it: the name, the
+/// value text (never quoted), and the family the value was written in.
+/// Carrying the family is what lets a judge tell `sel = FAST` from
+/// `sel = "FAST"` (U144 residual 3) without changing the text every other
+/// consumer reads.
+#[derive(Debug, Clone)]
+pub struct CondParam {
+    pub name: McIds,
+    pub text: String,
+    pub family: CondFamily,
+}
+
+impl CondParam {
+    /// A parameter whose family is guessed from the text alone — the shape
+    /// for producers that only hold the historical `(name, text)` tuple and
+    /// know nothing about how the text was written.
+    pub fn guessed(name: McIds, text: String) -> Self {
+        Self {
+            name,
+            family: guess_family(&text),
+            text,
+        }
+    }
+}
+
+/// The family a value text was most plausibly written in, for producers
+/// that hold only the text. Quoted text keeps its quotes here; numeric and
+/// unit spellings answer the engine's own readers; anything else is the
+/// bare face.
+pub fn guess_family(text: &str) -> CondFamily {
+    if text.starts_with('"') || text.starts_with('\'') {
+        CondFamily::Quoted
+    } else if Value::from_text(text).unit().is_some() || text.parse::<i64>().is_ok() {
+        CondFamily::Numeric
+    } else {
+        CondFamily::Bare
+    }
+}
+
+/// One member of an `in` list with its lexical family (U146 + U144
+/// residual 3): a member written in another word family than the left side
+/// never matches it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InMember {
+    pub text: String,
+    pub family: CondFamily,
+}
+
 #[derive(Debug, Clone)]
 pub struct McCond {
     pub condition: McCondition,
@@ -71,7 +157,7 @@ pub enum McCondition {
     },
     In {
         left: McCondOperand,
-        values: Vec<String>,
+        values: Vec<InMember>,
     },
     /// Logical composition of two judges (U145): `if (count == 5 && count > 3)`.
     /// The doubled spellings are the logical operators; the single `&`/`|`
@@ -89,7 +175,15 @@ pub enum McCondition {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum McCondOperand {
     Ident(McIds),
+    /// A numeric literal token (`2`, `0x01`, `100mA`) — the value engine
+    /// reads it back through the one suffix table.
     Literal(String),
+    /// A quoted string literal (`"FAST"`), kept with its family: the text
+    /// is stored unquoted, the family marker is the variant itself
+    /// (U144 residual 3).
+    StrLit(String),
+    /// A keyword constant (`HIGH`/`LOW`): raw text on the bare/identity face.
+    Word(String),
     /// Arithmetic expression operand (U147): `count == 2 + 3`. Leaves resolve
     /// through the normal faces, then the value engine folds the operator —
     /// so unit families and normalization behave exactly as at a call site.
@@ -105,6 +199,8 @@ impl std::fmt::Display for McCondOperand {
         match self {
             McCondOperand::Ident(id) => write!(f, "{}", id),
             McCondOperand::Literal(s) => write!(f, "{}", s),
+            McCondOperand::StrLit(s) => write!(f, "\"{}\"", s),
+            McCondOperand::Word(s) => write!(f, "{}", s),
             McCondOperand::Expr { op, left, right } => {
                 write!(f, "({} {} {})", left, op.symbol(), right)
             }
@@ -123,7 +219,19 @@ impl std::fmt::Display for McCondition {
             McCondition::GtEq { left, right } => write!(f, "{} >= {}", left, right),
             McCondition::BitAnd { left, right } => write!(f, "{} & {}", left, right),
             McCondition::BitOr { left, right } => write!(f, "{} | {}", left, right),
-            McCondition::In { left, values } => write!(f, "{} in [{}]", left, values.join(", ")),
+            McCondition::In { left, values } => write!(
+                f,
+                "{} in [{}]",
+                left,
+                values
+                    .iter()
+                    .map(|m| match m.family {
+                        CondFamily::Quoted => format!("\"{}\"", m.text),
+                        _ => m.text.clone(),
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
             McCondition::And { left, right } => write!(f, "({}) && ({})", left, right),
             McCondition::Or { left, right } => write!(f, "({}) || ({})", left, right),
         }
@@ -140,7 +248,7 @@ impl McCondition {
                 let name = ids.to_string();
                 param_names.iter().any(|p| p == &name)
             }
-            McCondOperand::Literal(_) => false,
+            McCondOperand::Literal(_) | McCondOperand::StrLit(_) | McCondOperand::Word(_) => false,
             McCondOperand::Expr { left, right, .. } => {
                 Self::operand_reads_param(left, param_names)
                     || Self::operand_reads_param(right, param_names)
@@ -511,10 +619,12 @@ impl McConds {
     }
 
     /// The member-list side of `param in [A, B, C]` — the `MCAST_OPD_SQUARE_VEC`
-    /// judge child. Members take their text bare or quoted alike (U146):
-    /// `sel = B` matches both `B` and `"B"` members, same-face equality with
-    /// the bare default. `None` when no member yields a value — the caller
-    /// then keeps collecting, and the judge falls through unread.
+    /// judge child. Members carry their written family (U146 + U144
+    /// residual 3): a quoted member reads as [`CondFamily::Quoted`], a bare
+    /// member as [`CondFamily::Bare`], and a member of another word family
+    /// than the left side never matches it. `None` when no member yields a
+    /// value — the caller then keeps collecting, and the judge falls
+    /// through unread.
     fn parse_in_array_operand(
         vec_node: &AstNode,
         left: Option<&McCondOperand>,
@@ -528,13 +638,19 @@ impl McConds {
                 MCAST_STRING => {
                     // Guarded accessor: the C parser can emit a NULL/small .data.
                     if let Some(val) = item.data_as_cstr().and_then(|c| c.to_str().ok()) {
-                        values.push(strip_string_quotes(val).to_string());
+                        values.push(InMember {
+                            text: strip_string_quotes(val).to_string(),
+                            family: CondFamily::Quoted,
+                        });
                     }
                 }
                 // Bare member: the value is the identifier's own text.
                 MCAST_ID | MCAST_IDA | MCAST_IDS | MCAST_OPD | MCAST_EXPRESSION => {
                     if let Some(ids) = Self::bare_member_ids(&item) {
-                        values.push(ids.to_string());
+                        values.push(InMember {
+                            text: ids.to_string(),
+                            family: CondFamily::Bare,
+                        });
                     }
                 }
                 _ => {}
@@ -575,7 +691,10 @@ impl McConds {
             MCAST_STRING => {
                 // Guarded accessor: the C parser can emit a NULL/small .data.
                 let val = node.data_as_cstr()?.to_str().ok()?;
-                Some(McCondOperand::Literal(strip_string_quotes(val).to_string()))
+                // The text is kept unquoted, but as a `StrLit`: the family
+                // the author wrote survives the collector, so the judge can
+                // refuse a bare-word counterpart (U144 residual 3).
+                Some(McCondOperand::StrLit(strip_string_quotes(val).to_string()))
             }
             MCAST_CONST => {
                 // Keyword constants (`HIGH`/`LOW`) carry their raw text as
@@ -585,7 +704,7 @@ impl McConds {
                 // silently dropped and the whole condition parsed as
                 // `None` (if-branch discarded, else always taken).
                 let val = node.data_as_cstr()?.to_str().ok()?;
-                Some(McCondOperand::Literal(val.to_string()))
+                Some(McCondOperand::Word(val.to_string()))
             }
             MCAST_OPD => {
                 // Read the whole `MCAST_IDS` node, not its first child:
@@ -655,7 +774,10 @@ impl McConds {
                         if let Some(str_value) = item.data_as_cstr().and_then(|c| c.to_str().ok()) {
                             let val = str_value.to_string();
                             let clean_val = strip_string_quotes(&val).to_string();
-                            values.push(clean_val);
+                            values.push(InMember {
+                                text: clean_val,
+                                family: CondFamily::Quoted,
+                            });
                         }
                     } else if item.get_type() == MCAST_ID
                         || item.get_type() == MCAST_IDA
@@ -664,10 +786,12 @@ impl McConds {
                         || item.get_type() == MCAST_EXPRESSION
                     {
                         // Bare member (U146): the value is the identifier's own
-                        // text — `sel = B` matches a `B` member, same-face
-                        // equality with the bare default.
+                        // text on the bare/identity face.
                         if let Some(ids) = Self::bare_member_ids(&item) {
-                            values.push(ids.to_string());
+                            values.push(InMember {
+                                text: ids.to_string(),
+                                family: CondFamily::Bare,
+                            });
                         }
                     } else if item.get_type() == MCAST_INT
                         || item.get_type() == MCAST_HEX
@@ -678,7 +802,10 @@ impl McConds {
                         // `n in [3, 4]` collected an empty member list and
                         // read as false for every argument.
                         if let Some(text) = item.to_string() {
-                            values.push(text);
+                            values.push(InMember {
+                                text,
+                                family: CondFamily::Numeric,
+                            });
                         }
                     }
                     current = item.get_next();
@@ -698,7 +825,7 @@ impl McConds {
     /// failure is reported once per call however long the `else if` chain is.
     pub fn evaluate(
         &self,
-        params: &[(McIds, String)],
+        params: &[CondParam],
         def: Option<CondDefCtx<'_>>,
         anchor: Option<&AstNode>,
     ) -> Option<AstNode> {
@@ -723,7 +850,7 @@ impl McConds {
 
     pub fn check_condition(
         cond: &McCondition,
-        params: &[(McIds, String)],
+        params: &[CondParam],
         def: Option<CondDefCtx<'_>>,
     ) -> bool {
         // A condition with no node cannot carry a diagnostic, so the error half
@@ -739,14 +866,31 @@ impl McConds {
     /// same value, which the old suffix-stripping comparison could not see.
     pub fn check_condition_result(
         cond: &McCondition,
-        params: &[(McIds, String)],
+        params: &[CondParam],
         def: Option<CondDefCtx<'_>>,
     ) -> Result<bool, eval::EvalError> {
         // Handle "in" condition separately (different structure)
         if let McCondition::In { left, values } = cond {
-            let left_val = Self::resolve_operand_value(left, params, def)?;
-            for value in values {
-                if eval::satisfies(Compare::Eq, &left_val, &Value::from_text(value))? {
+            let (left_text, left_family) = match left {
+                McCondOperand::Expr { .. } => {
+                    let val = Self::resolve_operand_value(left, params, def)?;
+                    (val.text(), CondFamily::Numeric)
+                }
+                _ => Self::resolve_operand_typed(left, params, def),
+            };
+            let left_val = Value::from_text(&left_text);
+            for member in values {
+                // A member in the other word family than the left side never
+                // matches it (U144 residual 3): the two texts meeting would
+                // be exactly the cross-family equality the 2026-09-20 ruling
+                // abolished. Non-word families keep the engine's own gate.
+                if left_family.is_word_family()
+                    && member.family.is_word_family()
+                    && left_family != member.family
+                {
+                    continue;
+                }
+                if eval::satisfies(Compare::Eq, &left_val, &Value::from_text(&member.text))? {
                     return Ok(true);
                 }
             }
@@ -796,9 +940,43 @@ impl McConds {
             | McCondition::Or { .. } => unreachable!(),
         };
 
-        let left_val = Self::resolve_operand_value(left_op, params, def)?;
-        let right_val = Self::resolve_operand_value(right_op, params, def)?;
-        eval::satisfies(cmp, &left_val, &right_val)
+        let (left_text, left_family) = match left_op {
+            // An arithmetic operand keeps the engine's own reading (U147): it
+            // folds to a value, so its family is the numeric face and the
+            // word gate below cannot apply to it.
+            McCondOperand::Expr { .. } => {
+                let val = Self::resolve_operand_value(left_op, params, def)?;
+                (val.text(), CondFamily::Numeric)
+            }
+            _ => Self::resolve_operand_typed(left_op, params, def),
+        };
+        let (right_text, right_family) = match right_op {
+            McCondOperand::Expr { .. } => {
+                let val = Self::resolve_operand_value(right_op, params, def)?;
+                (val.text(), CondFamily::Numeric)
+            }
+            _ => Self::resolve_operand_typed(right_op, params, def),
+        };
+        // The strict word-family gate (U144 residual 3, ruled 2026-09-20): a
+        // bare word never meets a quoted string. Both sides are text values,
+        // so without this gate the engine would decide the judge by text
+        // alone — the exact transcription the ruling abolished. The judge
+        // reads as unsatisfied wherever the error is swallowed, and is
+        // reported wherever the caller holds an anchor.
+        if left_family.is_word_family()
+            && right_family.is_word_family()
+            && left_family != right_family
+        {
+            return Err(eval::EvalError::FamilyMismatch {
+                lhs: left_family.label(&left_text),
+                rhs: right_family.label(&right_text),
+            });
+        }
+        eval::satisfies(
+            cmp,
+            &Value::from_text(&left_text),
+            &Value::from_text(&right_text),
+        )
     }
 
     /// The value an operand stands for: the plain text face for leaves, and
@@ -807,7 +985,7 @@ impl McConds {
     /// `1200mV`/`1.2V` normalization are the engine's, not the collector's.
     fn resolve_operand_value(
         op: &McCondOperand,
-        params: &[(McIds, String)],
+        params: &[CondParam],
         def: Option<CondDefCtx<'_>>,
     ) -> Result<Value, eval::EvalError> {
         match op {
@@ -816,32 +994,36 @@ impl McConds {
                 let rv = Self::resolve_operand_value(right, params, def)?;
                 eval::apply(*op, &lv, &rv)
             }
-            other => Ok(Value::from_text(&Self::resolve_operand(other, params, def))),
+            other => Ok(Value::from_text(&Self::resolve_operand_typed(other, params, def).0)),
         }
     }
 
-    /// The text an operand stands for: the bound argument when the name is a
-    /// formal param, else the value the enclosing definition declares under
-    /// that name (`<key>` or `<pin>.<key>`, U42), else the name itself.
-    fn resolve_operand(
+    /// The text and lexical family an operand stands for (U144 residual 3):
+    /// the bound argument when the name is a formal param — answering with
+    /// the family that value was written in — else the value the enclosing
+    /// definition declares under that name (`<key>` or `<pin>.<key>`, U42,
+    /// the definition face), else the name itself on the bare face.
+    fn resolve_operand_typed(
         op: &McCondOperand,
-        params: &[(McIds, String)],
+        params: &[CondParam],
         def: Option<CondDefCtx<'_>>,
-    ) -> String {
+    ) -> (String, CondFamily) {
         match op {
             McCondOperand::Ident(ids) => {
                 let name = ids.to_string();
-                for (param_name, param_value) in params {
-                    if param_name.to_string() == name {
-                        return param_value.clone();
+                for param in params {
+                    if param.name.to_string() == name {
+                        return (param.text.clone(), param.family);
                     }
                 }
                 if let Some(text) = def.and_then(|def| Self::read_def_value(def, &name)) {
-                    return text;
+                    return (text, CondFamily::Def);
                 }
-                name
+                (name, CondFamily::Bare)
             }
-            McCondOperand::Literal(val) => val.clone(),
+            McCondOperand::Literal(val) => (val.clone(), CondFamily::Numeric),
+            McCondOperand::StrLit(val) => (val.clone(), CondFamily::Quoted),
+            McCondOperand::Word(val) => (val.clone(), CondFamily::Bare),
             McCondOperand::Expr { .. } => {
                 // An expression is folded by the engine in
                 // `resolve_operand_value`; this text face only sees leaves.
@@ -994,7 +1176,7 @@ impl McFuncConds {
     /// No expansion caller holds the call site's node, so a condition that
     /// cannot be evaluated is dropped here rather than reported; see
     /// [`McConds::check_condition`].
-    pub fn evaluate(&self, params: &[(McIds, String)]) -> (&[McPhrase], &[u32]) {
+    pub fn evaluate(&self, params: &[CondParam]) -> (&[McPhrase], &[u32]) {
         for cond_block in &self.if_blocks {
             if McConds::check_condition(&cond_block.condition, params, None) {
                 return (&cond_block.stmts, &cond_block.stmt_offsets);

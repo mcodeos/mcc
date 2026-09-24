@@ -3,6 +3,7 @@
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
 use crate::db::diagnostic::diagnostic::dlog_error;
+use crate::semantic::basic::mc_conds::{CondFamily, CondParam};
 use crate::semantic::basic::mc_literal::strip_string_quotes;
 use crate::semantic::basic::mc_param_type::McParamType;
 use crate::semantic::basic::mc_uval::McUnitValueDeclare;
@@ -485,6 +486,17 @@ impl McParamDeclares {
             .collect()
     }
 
+    /// The same defaults table as [`Self::get_params_with_defaults`], as
+    /// condition-evaluator input: each default's lexical family travels
+    /// beside its text (U144 residual 3), so a judge can tell `sel = FAST`
+    /// from `sel = "FAST"`.
+    pub fn get_cond_params_with_defaults(&self) -> Vec<CondParam> {
+        self.declares
+            .iter()
+            .filter_map(|d| d.get_cond_default())
+            .collect()
+    }
+
     /// After type inference, filter port_spans: only Category A params are ports.
     pub fn filter_port_spans(&mut self) {
         let port_names: std::collections::HashSet<String> = self
@@ -636,6 +648,12 @@ pub struct McParamDeclare {
     /// `param_type` without touching this field: whether the source wrote a
     /// default is a fact about the syntax, not about the inferred type.
     pub default_val: Option<String>,
+    /// Whether the written default was a quoted string literal (`sel =
+    /// "FAST"`). The text above is stored unquoted — every reader wants the
+    /// value — but the condition evaluator compares lexical families
+    /// strictly (U144 residual 3), so the family the author wrote survives
+    /// here beside the text.
+    pub default_quoted: bool,
 }
 
 /// Enum-class parameter declaration — `diel::CAP` or `diel::CAP = X7R`.
@@ -705,15 +723,22 @@ fn ids_to_dotted_string(node: &AstNode) -> Option<String> {
     }
 }
 
-/// The text of a literal default value. A string literal loses its quotes so
-/// that the recorded default is the value the condition side compares against
-/// — `if (sel == "X")` compares the unquoted text too.
-fn default_from_literal(node: &AstNode) -> Option<String> {
+/// The text of a literal default value, with the lexical family it was
+/// written in. A string literal records the quoted family (`quoted = true`)
+/// while its text loses the quote marks — every consumer wants the value,
+/// and the condition side reads the family separately (U144 residual 3).
+fn default_from_literal(node: &AstNode) -> Option<(String, bool)> {
     if node.get_type() == MCAST_STRING {
         let raw = node.data_as_cstr()?.to_str().ok()?;
-        return Some(strip_string_quotes(raw).to_string());
+        return Some((strip_string_quotes(raw).to_string(), true));
     }
-    node.to_string()
+    node.to_string().map(|text| (text, false))
+}
+
+/// A written default and the family it was written in (U144 residual 3).
+struct WrittenDefault {
+    text: String,
+    quoted: bool,
 }
 
 impl McParamDeclare {
@@ -736,7 +761,7 @@ impl McParamDeclare {
         let mut param_type = McParamType::from_ast(node);
 
         // The written default of a form whose type cannot carry one (CIMP U54).
-        let mut written_default: Option<String> = None;
+        let mut written_default: Option<WrittenDefault> = None;
 
         let kind = match subnode.get_type() {
             MCAST_ROLE => {
@@ -815,11 +840,16 @@ impl McParamDeclare {
                             // The type cannot hold the value, so the
                             // declaration records it (CIMP U54); dropping it
                             // here is what let an author's default vanish.
-                            written_default = Some(default_str);
-                        } else if let Some(text) = default_from_literal(&default_node) {
+                            written_default = Some(WrittenDefault {
+                                text: default_str,
+                                quoted: false,
+                            });
+                        } else if let Some((text, quoted)) = default_from_literal(&default_node) {
                             // A literal default of an untyped formal (CIMP U66):
-                            // no type carries it, so the declaration does.
-                            written_default = Some(text);
+                            // no type carries it, so the declaration does. The
+                            // family the literal was written in survives beside
+                            // the text (U144 residual 3).
+                            written_default = Some(WrittenDefault { text, quoted });
                         }
                     }
                     McParamDeclareKind::Single(name_ids)
@@ -1200,14 +1230,25 @@ impl McParamDeclare {
     fn recorded(
         kind: McParamDeclareKind,
         param_type: McParamType,
-        written: Option<String>,
+        written: Option<WrittenDefault>,
     ) -> Self {
         let mut decl = Self {
             kind,
             param_type,
             default_val: None,
+            default_quoted: false,
         };
-        decl.default_val = decl.name_and_default().map(|(_, dv)| dv).or(written);
+        match decl.name_and_default() {
+            Some((_, dv)) => decl.default_val = Some(dv),
+            // The written default only carries the day when no typed or
+            // kind-level default exists; its family travels with it.
+            None => {
+                if let Some(w) = written {
+                    decl.default_quoted = w.quoted;
+                    decl.default_val = Some(w.text);
+                }
+            }
+        }
         decl
     }
 
@@ -1283,6 +1324,20 @@ impl McParamDeclare {
         Some((name, default))
     }
 
+    /// The name and default as a [`CondParam`] — the condition evaluator's
+    /// reading of the defaults table (U144 residual 3). A quoted string
+    /// literal default carries the quoted family; every other default is
+    /// guessed from the text.
+    pub fn get_cond_default(&self) -> Option<CondParam> {
+        let (name, text) = self.get_name_with_default()?;
+        let family = if self.default_quoted {
+            CondFamily::Quoted
+        } else {
+            crate::semantic::basic::mc_conds::guess_family(&text)
+        };
+        Some(CondParam { name, text, family })
+    }
+
     // ── P2-4: extract port name and members for interface-type params ──
     /// Returns `(port_name, members)` for interface-type parameters.
     ///
@@ -1347,6 +1402,7 @@ mod tests {
         // Simulate: rs=B3 BareNumeric, dc24v=A1 Label
         params.declares.push(McParamDeclare {
             kind: McParamDeclareKind::Single(McIds::from("rs")),
+        default_quoted: false,
             param_type: McParamType {
                 kind: crate::semantic::basic::mc_param_type::McParamTypeKind::BareNumeric,
                 direction: None,
@@ -1355,6 +1411,7 @@ mod tests {
         });
         params.declares.push(McParamDeclare {
             kind: McParamDeclareKind::Single(McIds::from("dc24v")),
+        default_quoted: false,
             param_type: McParamType {
                 kind: crate::semantic::basic::mc_param_type::McParamTypeKind::Label,
                 direction: None,
@@ -1392,6 +1449,7 @@ mod tests {
                 direction: None,
             },
             default_val: None,
+            default_quoted: false,
         });
         params.filter_port_spans();
 

@@ -170,7 +170,8 @@ pub use query::units::{
 
 // ── Semantic params / types ──
 pub use semantic::basic::mc_conds::{
-    McCond, McCondBlock, McCondOperand, McCondition, McConds, McFuncConds,
+    CondFamily, CondParam, InMember, McCond, McCondBlock, McCondOperand, McCondition, McConds,
+    McFuncConds,
 };
 pub use semantic::basic::mc_param::{
     McParamBindings, McParamDeclare, McParamDeclares, McParamValue,

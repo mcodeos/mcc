@@ -335,14 +335,14 @@ impl McComponentInst {
         // An empty binding list is a legitimate environment: a condition over
         // literals alone (`if (1 == 1)`) is still a condition, so a definition
         // with no parameters must not skip its conditional blocks.
-        let eval_params = self.params.to_params_for_eval();
+        let eval_params = self.params.to_cond_params();
         // The same environment the top-level dynamic rows read
         // (`init_dynamic_pins`): integer bindings for the range side, text
         // bindings for computed pin names (U211).
         let dyn_bindings = self.get_param_bindings();
         let dyn_values: Vec<(String, String)> = eval_params
             .iter()
-            .map(|(ids, text)| (ids.to_string(), text.clone()))
+            .map(|p| (p.name.to_string(), p.text.clone()))
             .collect();
         // Param-domain rows of the branches this instance selects (U230),
         // accumulated here and expanded after the def borrow below ends.
@@ -451,7 +451,7 @@ impl McComponentInst {
             return;
         }
 
-        let eval_params = self.params.to_params_for_eval();
+        let eval_params = self.params.to_cond_params();
         let def_ctx = CondDefCtx {
             pins: &self.def.pins,
             attrs: &self.def.attrs,
@@ -520,7 +520,7 @@ impl McComponentInst {
 
         // Same rule as the conditional pins above: no bindings is a legitimate
         // environment, not a reason to skip the block.
-        let eval_params = self.params.to_params_for_eval();
+        let eval_params = self.params.to_cond_params();
 
         for cond_attrs in &self.def.cond_attrs {
             let mut matched = false;

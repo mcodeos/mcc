@@ -17,7 +17,7 @@
 
 use crate::common;
 
-use mcc::{McCondOperand, McCondition, McConds, McIds, McURI};
+use mcc::{CondParam, McCondOperand, McCondition, McConds, McIds, McURI};
 
 const SOURCE: &str = r#"
 component PCA9555T (partno)
@@ -77,8 +77,8 @@ fn sem_bitcond__eval_uses_nonzero_result() {
         left: left.clone(),
         right: McCondOperand::Literal("0x01".to_string()),
     };
-    let params_even = vec![(McIds::from("address"), "0x36".to_string())];
-    let params_odd = vec![(McIds::from("address"), "0x37".to_string())];
+    let params_even = vec![CondParam::guessed(McIds::from("address"), "0x36".to_string())];
+    let params_odd = vec![CondParam::guessed(McIds::from("address"), "0x37".to_string())];
     assert!(!McConds::check_condition(&cond, &params_even, None));
     assert!(McConds::check_condition(&cond, &params_odd, None));
 
@@ -87,8 +87,8 @@ fn sem_bitcond__eval_uses_nonzero_result() {
         left,
         right: McCondOperand::Literal("1".to_string()),
     };
-    let params_4 = vec![(McIds::from("address"), "4".to_string())];
-    let params_5 = vec![(McIds::from("address"), "5".to_string())];
+    let params_4 = vec![CondParam::guessed(McIds::from("address"), "4".to_string())];
+    let params_5 = vec![CondParam::guessed(McIds::from("address"), "5".to_string())];
     assert!(!McConds::check_condition(&cond_dec, &params_4, None));
     assert!(McConds::check_condition(&cond_dec, &params_5, None));
 
@@ -97,8 +97,8 @@ fn sem_bitcond__eval_uses_nonzero_result() {
         left: McCondOperand::Ident(McIds::from("address")),
         right: McCondOperand::Literal("0x00".to_string()),
     };
-    let params_0 = vec![(McIds::from("address"), "0x00".to_string())];
-    let params_1 = vec![(McIds::from("address"), "0x01".to_string())];
+    let params_0 = vec![CondParam::guessed(McIds::from("address"), "0x00".to_string())];
+    let params_1 = vec![CondParam::guessed(McIds::from("address"), "0x01".to_string())];
     assert!(!McConds::check_condition(&cond_or, &params_0, None));
     assert!(McConds::check_condition(&cond_or, &params_1, None));
 }

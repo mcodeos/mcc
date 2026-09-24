@@ -117,6 +117,10 @@ pub enum EvalError {
         lhs: String,
         rhs: String,
     },
+    /// A judge compared a bare word with a quoted string (U144 residual 3):
+    /// under the strict family reading the two never meet, and the mismatch
+    /// is reported rather than silently decided by text.
+    FamilyMismatch { lhs: String, rhs: String },
 }
 
 impl EvalError {
@@ -126,6 +130,7 @@ impl EvalError {
             EvalError::DivideByZero => crate::errcodes::EVAL_DIVIDE_BY_ZERO,
             EvalError::OperandNotNumeric { .. } => crate::errcodes::EVAL_OPERAND_NOT_NUMERIC,
             EvalError::Overflow { .. } => crate::errcodes::EVAL_OVERFLOW,
+            EvalError::FamilyMismatch { .. } => crate::errcodes::COND_FAMILY_MISMATCH,
         }
     }
 
@@ -136,6 +141,9 @@ impl EvalError {
             EvalError::OperandNotNumeric { op, lhs, rhs }
             | EvalError::Overflow { op, lhs, rhs } => {
                 crate::errcodes::format_msg(self.code(), &[op, lhs, rhs])
+            }
+            EvalError::FamilyMismatch { lhs, rhs } => {
+                crate::errcodes::format_msg(self.code(), &[lhs, rhs])
             }
         }
     }

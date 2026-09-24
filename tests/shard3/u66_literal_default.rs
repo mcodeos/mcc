@@ -5,16 +5,18 @@
 // Integration test: a literal default value on an UNTYPED formal (CIMP U66).
 //
 // The declaration side and the read side spell one value in two ways, and they
-// have to agree. A conditional block writes the comparison as a quoted literal
-// (`if (sel == "FAST")`), and the condition evaluator strips the quotes before
-// comparing — so the value IS `FAST`. Before this rule the declaration side
-// could not write that spelling at all: `sel = "FAST"` failed to parse, and the
-// whole file was reported invalid. The rule `mc_ids MCOP_EQUAL mc_literal` is
-// what lets the two sides meet.
+// have to agree on the TEXT face: the recorded default is the bare text, so
+// `get_params_with_defaults` answers `FAST` for both `sel = FAST` and
+// `sel = "FAST"`. Before this rule the declaration side could not write the
+// quoted spelling at all: `sel = "FAST"` failed to parse, and the whole file
+// was reported invalid. The rule `mc_ids MCOP_EQUAL mc_literal` is what lets
+// the two sides meet.
 //
-// The quotes are delimiters, not part of the value: the recorded default is the
-// bare text, so the two spellings of one value select the same branch whichever
-// side each is written on.
+// The quotes are the lexical FAMILY of the value (U144, ruling of 2026-09-20):
+// a default meets only the condition written in its own family — `sel = FAST`
+// with `if (sel == "FAST")` never matches, and the mirror never matches
+// either. The matrix lock in `cond_family_matrix.rs` holds the diagnostic
+// face; this file holds the branch-selection face.
 
 // Family naming `{family}__{essence}` deliberately doubles the underscore to
 // keep the grep-able family token separate (matrix §1 taxonomy).
@@ -56,9 +58,29 @@ component NUM(count = 5)
 }
 "#;
 
+/// The quoted default against the quoted condition — the same-family pair.
+const QQ: &str = r#"
+component QQ(sel = "FAST")
+{
+    pins = [1 = P]
+    if (sel == "FAST") { pins += [2 = Q_FAST] }
+    else { pins += [3 = Q_SLOW] }
+}
+"#;
+
+/// The bare default against the bare condition — the mirror same-family pair.
+const II: &str = r#"
+component II(sel = FAST)
+{
+    pins = [1 = P]
+    if (sel == FAST) { pins += [2 = Q_FAST] }
+    else { pins += [3 = Q_SLOW] }
+}
+"#;
+
 fn source(body: &str) -> String {
     format!(
-        r#"{QS}{QI}{NUM}
+        r#"{QS}{QI}{NUM}{QQ}{II}
 module main
 {{
     io VDD
@@ -173,33 +195,44 @@ fn u66__a_literal_default_is_recorded_without_its_delimiters() {
     );
 }
 
-/// The two spellings of one value agree: the quoted default selects the branch
-/// whose condition writes the bare spelling, and vice versa.
+/// A default meets only the condition written in its own family (U144,
+/// ruling of 2026-09-20): the cross-family pairs fall to the else branch, and
+/// the same-family pairs — either spelling — select the then branch.
 #[test]
-fn u66__the_two_spellings_of_one_value_select_the_same_branch() {
+fn u66__a_default_meets_only_the_condition_in_its_own_family() {
     let n = nets(
         "spellings",
-        "    QS a\n    QI b\n    a.Q_FAST -> VDD\n    b.Q_FAST -> VDD\n",
+        "    QS a\n    QI b\n    QQ q\n    II i\n    a.Q_SLOW -> VDD\n    b.Q_SLOW -> VDD\n    q.Q_FAST -> VDD\n    i.Q_FAST -> VDD\n",
     );
 
     assert!(
-        shares_a_net(&n, "a.2", "VDD"),
-        "`sel = \"FAST\"` selects the `sel == FAST` branch: {}",
+        !shares_a_net(&n, "a.2", "VDD"),
+        "`sel = \"FAST\"` never meets `sel == FAST`: {}",
         dump(&n)
     );
     assert!(
-        !shares_a_net(&n, "a.3", "VDD"),
-        "and not the other branch: {}",
+        shares_a_net(&n, "a.3", "VDD"),
+        "so the else branch is selected: {}",
         dump(&n)
     );
     assert!(
-        shares_a_net(&n, "b.2", "VDD"),
-        "`sel = FAST` selects the `sel == \"FAST\"` branch: {}",
+        !shares_a_net(&n, "b.2", "VDD"),
+        "`sel = FAST` never meets `sel == \"FAST\"`: {}",
         dump(&n)
     );
     assert!(
-        !shares_a_net(&n, "b.3", "VDD"),
-        "and not the other branch: {}",
+        shares_a_net(&n, "b.3", "VDD"),
+        "so the else branch is selected: {}",
+        dump(&n)
+    );
+    assert!(
+        shares_a_net(&n, "q.2", "VDD") && !shares_a_net(&n, "q.3", "VDD"),
+        "the quoted pair agrees on the then branch: {}",
+        dump(&n)
+    );
+    assert!(
+        shares_a_net(&n, "i.2", "VDD") && !shares_a_net(&n, "i.3", "VDD"),
+        "the bare pair agrees on the then branch: {}",
         dump(&n)
     );
 }
