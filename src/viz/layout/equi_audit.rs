@@ -3061,12 +3061,16 @@ mod tests {
         );
     }
 
-    /// M3.4: a 2-pin member whose two nets end up on the SAME row is a
-    /// `Series` — it must be placed HORIZONTALLY (w > h) with Left/Right pins,
-    /// and A4 must stay green. Constructed by two IC nets on opposite sides
-    /// (West IN / East OUT) which the M3.2 RowAllocator puts on one band.
+    /// M3.4 spec, restated by ★ two-pin-signal (★ in `tap_role`): the two nets
+    /// coupled through a 2-pin part do NOT merge onto one band. The M7.1
+    /// coupling reorder keeps the pair on CONSECUTIVE in-side slots, so the
+    /// rows stay adjacent, and `NET_A` carries exactly two device pins
+    /// (`ic.21` ↔ `CAP_1.11`) — a point-to-point signal whose members hang
+    /// VERTICALLY. The part therefore reads `Bridge` with a vertical body
+    /// (h > w), and A4 stays green. A horizontal `Series` needs a same-run
+    /// partner (★ M8.3), which two separate nets never are.
     #[test]
-    fn series_member_is_horizontal() {
+    fn coupled_two_pin_part_reads_bridge() {
         use super::fixture::{mk_box, net, two_pin};
         use crate::vector::graph::netdef::IoDirection;
         use crate::vector::graph::symbol::Symbol;
@@ -3078,12 +3082,10 @@ mod tests {
         // breaks pin-count ties by larger box id, so the IC anchors both nets and
         // CAP_1 stays a member (the thing we want to classify as Series).
         //
-        // ★ M7.1: NET_A and NET_B share CAP_1, so the coupling pass would pull
-        // the weaker net (IN) across to the OUT side and CAP_1 would become a
-        // Bridge. NET_B carries two anchor pins, so the post-move imbalance
-        // stays above `SIDE_IMBALANCE_MAX`, the move is refused, and the two
-        // nets stay on opposite sides on the same band — the one path where a
-        // genuine Series (and its horizontal orientation) is still reachable.
+        // ★ M7.1: NET_A and NET_B share CAP_1, so the coupling reorder keeps
+        // the pair on consecutive in-side slots → adjacent rows. NET_A is a
+        // two-device-pin net (`ic.21` ↔ `CAP_1.11`), so the two-pin-signal
+        // rule in `tap_role` gates every Series branch for the shared part.
         // The long pin labels keep the IC wider than its 2-row height.
         g.boxes
             .push(two_pin(1, "CAP_1", "CAP", Symbol::Capacitor, 11, 12));
@@ -3111,8 +3113,7 @@ mod tests {
         let mut topos = build_topology(&g);
         place_by_topology(&mut g, &mut topos);
 
-        // The coupled IN net stays West and the OUT net stays East on the same
-        // band → the member is a Series.
+        // The pair stays on adjacent rows and the part bridges vertically.
         let tap_role_of = |box_name: &str| -> String {
             let b = g.boxes.iter().find(|b| b.name == box_name).unwrap();
             let (idx, topo) = topos
@@ -3135,19 +3136,29 @@ mod tests {
             .short()
             .to_string()
         };
-        assert_eq!(tap_role_of("CAP_1"), "Series");
-
-        let cap = g.boxes.iter().find(|b| b.id == 2).unwrap();
+        // Rows stay adjacent (the coupling reorder), never merged onto one.
+        let row_a = topos[0].lane.axis;
+        let row_b = topos[1].lane.axis;
         assert!(
-            cap.w > cap.h,
-            "Series member must be horizontal, got w={} h={}",
+            (row_a - row_b).abs() > 1.0,
+            "coupled pair keeps two rows, got {} vs {}",
+            row_a,
+            row_b
+        );
+
+        assert_eq!(tap_role_of("CAP_1"), "Bridge");
+
+        let cap = g.boxes.iter().find(|b| b.id == 1).unwrap();
+        assert!(
+            cap.h > cap.w,
+            "a two-pin point-to-point member hangs vertically, got w={} h={}",
             cap.w,
             cap.h
         );
         let a4 = check_a4_passive_orientation(&g);
         assert!(
             matches!(a4.status, CheckStatus::Pass),
-            "A4 must be structurally green for a Series member:\n{}",
+            "A4 must be structurally green for a vertical Bridge member:\n{}",
             dump_layout_model(&g, &topos)
         );
     }
@@ -3197,10 +3208,12 @@ mod tests {
         );
     }
 
-    /// M3.5 (R3): a multi-pin net's same-side pins must land on ADJACENT row
-    /// slots. IC pins 1=A 2=B 3=A (all West) interleave A's pins with B's; the
-    /// R3 grouping in `assign_pin_order` makes A's two pins consecutive so the
-    /// stray pin's tooth does not span another net's row.
+    /// M3.5 (R3): a multi-pin net's pins on one side must land on ADJACENT
+    /// row slots. IC pins 1=A 2=B 3=A interleave A's pins with B's; the R3
+    /// grouping in `assign_pin_order` makes A's two pins consecutive so the
+    /// stray pin's tooth does not span another net's row. The invariant is
+    /// in-side adjacency, not any particular side — which side the small
+    /// anchor lands on is the side balance's choice.
     #[test]
     fn same_net_pins_are_adjacent() {
         use super::fixture::{mk_box, net, two_pin};
@@ -3237,19 +3250,24 @@ mod tests {
         place_by_topology(&mut g, &mut topos);
 
         let ic = g.boxes.iter().find(|b| b.id == 1).unwrap();
-        let mut west: Vec<(i64, f64)> = ic
+        let net_a_side = ic
             .slots
             .iter()
-            .filter(|s| s.side == EntrySide::Left)
+            .find(|s| s.pin_id == 1)
+            .map(|s| s.side)
+            .unwrap();
+        let mut rows: Vec<(i64, f64)> = ic
+            .slots
+            .iter()
+            .filter(|s| s.side == net_a_side)
             .map(|s| (s.pin_id, slot_point(ic, s).1))
             .collect();
-        west.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
-        let p1 = west.iter().position(|(pid, _)| *pid == 1).unwrap();
-        let p3 = west.iter().position(|(pid, _)| *pid == 3).unwrap();
+        rows.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+        let p1 = rows.iter().position(|(pid, _)| *pid == 1).unwrap();
+        let p3 = rows.iter().position(|(pid, _)| *pid == 3).unwrap();
         assert!(
             (p1 as i64 - p3 as i64).abs() == 1,
-            "NET_A's two West pins must be on adjacent rows, got positions {p1} and {p3} in {:?}",
-            west
+            "NET_A's two pins must be on adjacent rows of one side, got positions {p1} and {p3} in {rows:?}"
         );
     }
 

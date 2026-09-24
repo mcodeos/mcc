@@ -4929,6 +4929,28 @@ fn resolve_columns_for_side(graph: &mut McVecGraph, topos: &[NetTopology], layer
             // reading order.
             let (min_edge, max_edge) =
                 rank_window(graph, topos, group.box_id, topos[ti].nid, &base_placed, layer_anchor);
+            let partner_y = partner.as_ref().and_then(|p| p.row);
+            // ★ U284: the tooth's y-span owns the blocked strips, not just this
+            // row. A member whose tooth descends past a lower row (a shunt hang
+            // reaching the South rail) crosses whatever a Series part owns on
+            // the way down — and an Along part (★ M8.4) skips this allocator,
+            // so it sits in no occupancy table. Mirror the row-level strip for
+            // every foreign body between the two rows.
+            let mut member_blocked = blocked.clone();
+            if let Some(py) = partner_y {
+                let (tylo, tyhi) = (topo.lane.axis.min(py), topo.lane.axis.max(py));
+                for fb in graph.boxes.iter() {
+                    if fb.w <= 0.0 || fb.h <= 0.0 || fb.id == group.box_id {
+                        continue;
+                    }
+                    if own_ids.contains(&fb.id) {
+                        continue;
+                    }
+                    if fb.y < tyhi - 0.5 && fb.y + fb.h > tylo + 0.5 {
+                        member_blocked.push((fb.x - JOG_OFFSET, fb.x + fb.w + JOG_OFFSET));
+                    }
+                }
+            }
             let m = SideMember {
                 idx: Some((ti, gi)),
                 role,
@@ -4943,8 +4965,8 @@ fn resolve_columns_for_side(graph: &mut McVecGraph, topos: &[NetTopology], layer
                 // vertical tooth (a cap's GND hang reaches the rail below, a
                 // bridge's tooth spans both rows). `None` (no partner, or a
                 // vertical partner) ⇒ no tooth strip to reserve.
-                partner_y: partner.as_ref().and_then(|p| p.row),
-                blocked: blocked.clone(),
+                partner_y,
+                blocked: member_blocked,
             };
             if min_edge.is_some() || max_edge.is_some() {
                 let nm = b.designator.clone().unwrap_or_else(|| b.name.clone());
