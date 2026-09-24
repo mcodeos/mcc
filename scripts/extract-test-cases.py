@@ -161,6 +161,8 @@ def is_mc_fragment(text):
         return False
     if JSONISH.match(text) or TOMLISH.match(text):
         return False
+    if RUST_FMT_SPEC.search(text):
+        return False  # an assert!/expect! message, not source
     if "\n" in text:
         return "{" in text and bool(MC_HINT.search(text))
     # Single-line: accept only a leading mc keyword, so English sentences
@@ -270,7 +272,9 @@ def collect():
                         if len(parts) == 2
                         else name[:80]
                     )
-                    assembled = any(FORMAT_PLACEHOLDER.search(f) for f in frags)
+                    assembled = any(
+                        FORMAT_PLACEHOLDER.search(f) for f in frags + fixtures
+                    )
                     cases.append(
                         dict(
                             family=family.lower(),
@@ -284,6 +288,171 @@ def collect():
                         )
                     )
     return cases
+
+
+RUST_FMT_SPEC = re.compile(r"\{:[^{}]*\}|\{[A-Za-z_][A-Za-z0-9_]*:\??\}")
+
+
+def split_docs(frags):
+    """Merge fragments into balanced-brace documents.
+
+    Tests that build one source via push_str have its head literal end with
+    open braces; keep appending until the balance returns to zero. A test
+    that compiles several alternative sources yields several closed docs.
+    """
+    docs, buf, bal = [], [], 0
+    for f in frags:
+        buf.append(f)
+        bal += f.count("{") - f.count("}")
+        if bal <= 0:
+            docs.append("\n".join(buf))
+            buf, bal = [], 0
+    if buf:
+        docs.append("\n".join(buf))
+    return docs
+
+
+def dedupe_overlap(pieces):
+    """Drop pieces embedded in a longer sibling.
+
+    Tests assemble sources as `format!("{}{}", PREFIX, BODY)` where PREFIX is
+    a file-level const; both ends then show up in the fragment list and a
+    naive concatenation doubles the content.
+    """
+    norm = [re.sub(r"\s+", " ", p).strip() for p in pieces]
+    kept = []
+    for i, p in enumerate(pieces):
+        dup = False
+        for j, q in enumerate(norm):
+            if j == i or not norm[i]:
+                continue
+            longer = len(q) > len(norm[i]) or (len(q) == len(norm[i]) and j < i)
+            if longer and norm[i] in q:
+                dup = True
+                break
+        if not dup:
+            kept.append(p)
+    return kept
+
+
+def dedupe_variants(fixtures):
+    """Split file-level fixtures into (kept, variant_alternatives).
+
+    A test fn often loops over several similar const fixtures (variant
+    families). Those are alternative sources, not parts of one document:
+    near-identical fixtures (>0.85 ratio, non-trivial size) collapse to the
+    longest one, the rest come back as commented alternatives.
+    """
+    import difflib
+
+    norm = [re.sub(r"\s+", " ", f).strip() for f in fixtures]
+    dropped = set()
+    for i in range(len(fixtures)):
+        if i in dropped:
+            continue
+        for j in range(len(fixtures)):
+            if j <= i or j in dropped:
+                continue
+            if min(len(norm[i]), len(norm[j])) <= 40:
+                continue
+            if difflib.SequenceMatcher(None, norm[i], norm[j]).ratio() > 0.85:
+                drop = j if len(norm[j]) <= len(norm[i]) else i
+                dropped.add(drop)
+                if drop == i:
+                    break
+    kept = [f for k, f in enumerate(fixtures) if k not in dropped]
+    alts = [f for k, f in enumerate(fixtures) if k in dropped]
+    return kept, alts
+
+
+def build_document(c):
+    """Return (active_lines, inactive_lines) for one case.
+
+    Layout: top-level definition docs (component/use libs) first, then the
+    first module doc as the active source; later module docs and leftover
+    body fragments become commented-out inactive alternatives. A case with
+    no module doc gets its body wrapped in a `module main` shell.
+    """
+    fixtures, fixture_alts = dedupe_variants(c["fixtures"])
+    frags = [
+        f.replace("{{", "{").replace("}}", "}")
+        for f in dedupe_overlap(fixtures + c["frags"])
+    ]
+    docs = split_docs(frags)
+    has_module = lambda d: re.search(r"^\s*module\s+\w", d, re.M) is not None
+    libs = [d for d in docs if not has_module(d)]
+    mains = [d for d in docs if has_module(d)]
+    active, inactive = [], []
+    if mains:
+        active.extend(libs)
+        active.append(mains[0])
+        for k, d in enumerate(mains[1:], 1):
+            inactive.append((f"inactive alternative {k}", d))
+    else:
+        shell = "\n".join(docs).rstrip("\n")
+        active.append("module main {\n" + shell + "\n}")
+    for k, d in enumerate(fixture_alts, 1):
+        inactive.append((f"inactive fixture variant {k}", d))
+    return active, inactive
+
+
+def verify_and_annotate(outdir, index_lines):
+    """Parse every emitted file with mcc and add a Verification header line.
+
+    Statuses: parses clean / fires diagnostics (intended codes or a
+    reconstruction gap — cross-check Source) / not compilable (assembled).
+    """
+    import subprocess
+    from concurrent.futures import ThreadPoolExecutor
+
+    files = []
+    for dirpath, _dirs, filenames in os.walk(outdir):
+        files += [os.path.join(dirpath, f) for f in filenames if f.endswith(".mc")]
+
+    def run(path):
+        txt = open(path, encoding="utf-8").read()
+        mm = re.search(r"^\s*module\s+(\w+)", txt, re.M)
+        top = mm.group(1) if mm else "main"
+        p = subprocess.run(
+            ["mcc", "parse", "-L", "-q", path, "--top", top],
+            capture_output=True, text=True,
+        )
+        s = re.search(r"summary: errors=(\d+)", p.stdout + p.stderr)
+        n = int(s.group(1)) if s else -1
+        codes = sorted(set(re.findall(r"\b[PE]\d{4}\b", p.stdout + p.stderr)))
+        return path, txt, top, n, codes
+
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        for path, txt, top, n, codes in ex.map(run, files):
+            lines = txt.split("\n")
+            if "NOTE: this fn assembles" in txt:
+                v = "NOT COMPILABLE — format! placeholders were runtime interpolations"
+            elif n == 0:
+                v = f"parses clean (mcc, top={top})"
+            else:
+                cs = ", ".join(codes) if codes else "see mcc output"
+                v = (
+                    f"fires diagnostics [{cs}] — could be the case's intended "
+                    "codes or a reconstruction gap; cross-check Source"
+                )
+            out = []
+            for ln in lines:
+                out.append(ln)
+                if ln.startswith("// Source:"):
+                    out.append(f"// Verification: {v}")
+            open(path, "w", encoding="utf-8").write("\n".join(out))
+    index_lines.append("## Verification legend")
+    index_lines.append("")
+    index_lines.append(
+        "- `parses clean (mcc, top=…)` — the file loads with zero errors\n"
+        "- `fires diagnostics […]` — mcc reports codes; negative fixtures "
+        "fire their intended codes, others may be reconstruction gaps\n"
+        "- `NOT COMPILABLE` — the fn assembled its source with format!(); "
+        "the `{placeholders}` were runtime interpolations"
+    )
+    index_lines.append("")
+    with open(os.path.join(outdir, "INDEX.md"), "a", encoding="utf-8") as f:
+        f.write("\n".join(index_lines) + "\n")
 
 
 def write_out(cases, outdir):
@@ -315,18 +484,19 @@ def write_out(cases, outdir):
             if c["assembled"]:
                 header.append(
                     "// NOTE: this fn assembles source with format!(); "
-                    "{placeholders} below were interpolations at runtime."
+                    "{placeholders} below were interpolations at runtime — "
+                    "not directly compilable."
                 )
             body = []
-            pieces = [(f"file-level fixture {i}", f) for i, f in
-                      enumerate(c["fixtures"], 1)]
-            pieces += [(f"fragment {i}", f) for i, f in enumerate(c["frags"], 1)]
-            if len(pieces) == 1:
-                body.append(pieces[0][1].rstrip("\n"))
-            else:
-                for k, (label, frag) in enumerate(pieces, 1):
-                    body.append(f"// ---- {label} ({k}/{len(pieces)}) ----")
-                    body.append(frag.rstrip("\n"))
+            active, inactive = build_document(c)
+            for k, frag in enumerate(active, 1):
+                if len(active) > 1:
+                    body.append(f"// ---- active part {k}/{len(active)} ----")
+                body.append(frag.rstrip("\n"))
+            for label, frag in inactive:
+                body.append(f"// ---- {label} (commented out) ----")
+                for line in frag.rstrip("\n").split("\n"):
+                    body.append("// " + line)
             with open(
                 os.path.join(famdir, fname), "w", encoding="utf-8"
             ) as f:
@@ -344,9 +514,15 @@ def write_out(cases, outdir):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=os.path.join(ROOT, "build", "test-cases"))
+    ap.add_argument(
+        "--verify", action="store_true",
+        help="parse every emitted file with mcc and annotate the result",
+    )
     args = ap.parse_args()
     cases = collect()
     write_out(cases, args.out)
+    if args.verify:
+        verify_and_annotate(args.out, [])
     total_frags = sum(len(c["frags"]) for c in cases)
     assembled = sum(1 for c in cases if c["assembled"])
     print(
