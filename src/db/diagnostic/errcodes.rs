@@ -1368,6 +1368,9 @@ pub const PARAM_STRING_DEFAULT_NUMERIC: u32 = 5203;
 /// Unit-value param default has no unit suffix (e.g. '5V').
 pub const PARAM_UV_DEFAULT_NO_UNIT: u32 = 5204;
 
+/// Unit-value param default is written in another unit family.
+pub const PARAM_UV_DEFAULT_UNIT_MISMATCH: u32 = 5207;
+
 /// Param has an invalid float default.
 pub const PARAM_FLOAT_DEFAULT_INVALID: u32 = 5205;
 
@@ -2712,6 +2715,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(PARAM_INT_DEFAULT_STRING, "Integer param has a string default.", "Integer param has a string default."),
     entry!(PARAM_STRING_DEFAULT_NUMERIC, "String param has a numeric-looking default.", "String param has a numeric-looking default."),
     entry!(PARAM_UV_DEFAULT_NO_UNIT, "Unit-value param default has no unit suffix (e.g. '5V').", "Unit-value param default has no unit suffix (e.g. '5V')."),
+    entry!(PARAM_UV_DEFAULT_UNIT_MISMATCH, "Unit-value param default is written in another unit family.", "Param '{0}' is ::UV.{1} but default '{2}' is written in another unit family."),
     entry!(PARAM_FLOAT_DEFAULT_INVALID, "Param has an invalid float default.", "Param has an invalid float default."),
     entry!(PARAM_NEGATIVE_DEFAULT, "Integer param default is negative.", "Integer param default is negative."),
     // section

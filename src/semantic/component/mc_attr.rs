@@ -569,6 +569,14 @@ impl McAttribute {
                     }
                 }
 
+                MCAST_UVALUE_AT => {
+                    // `1Mbps@0.5m` scalar: the same paired-value form the list
+                    // face already folds; read it as the expression it is.
+                    if let Some(expr) = McExpression::new(&each) {
+                        values.push(McAttrVal::AttrExpr(expr));
+                    }
+                }
+
                 MCAST_EXPRESSION => {
                     // `voltage:3V3` / `volt:[low:0V ~ 0.7V]` is a keyed value.
                     if let Some(kvs) = McKVS::new(&each) {

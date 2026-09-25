@@ -14,6 +14,7 @@
 //! `direction: Option<McIoTy>`, not a separate variant.
 
 use super::mc_uval::McUnit;
+use super::mc_uval::McUnitValue;
 use crate::ast::macros::*;
 use crate::ast::node::AstNode;
 use crate::McIds;
@@ -138,6 +139,10 @@ pub enum McParamTypeKind {
     UnitValueDefault {
         unit: McUnit,
         default_val: Option<String>,
+        /// Unit family the default was written in (None = unitless), decoded
+        /// at declaration so the default-vs-declared judgment reads a value,
+        /// never the written text.
+        default_unit: Option<McUnit>,
     },
     /// B4: compound unit — `id::UV.PPM / UV.TEMP`, `UV.V * UV.A`, etc.
     CompoundUnit {
@@ -265,12 +270,16 @@ impl McParamType {
                     let class_node = sub; // first child is MCAST_CLASS
                     if class_node.get_type() == MCAST_CLASS {
                         if let Some(unit_node) = class_node.get_sub_node() {
-                            let default_val = Self::extract_default_from_declare_uv(&subnode);
+                            let default = Self::extract_default_from_declare_uv(&subnode);
+                            let default_val: Option<String> =
+                                default.as_ref().map(|(t, _)| t.clone());
+                            let default_unit: Option<McUnit> =
+                                default.and_then(|(_, u)| u);
                             // Handle compound units: UV.PPM / UV.TEMP, UV.VOLT * UV.AMP, etc.
                             if let Some(unit_type) = McUnitType::from_ast(&unit_node) {
                                 return match unit_type {
                                     McUnitType::Leaf(unit) => {
-                                        Self::classify_unit_type(&unit, default_val)
+                                        Self::classify_unit_type(&unit, default_val, default_unit)
                                     }
                                     compound => Self::classify_compound_unit(compound, default_val),
                                 };
@@ -294,7 +303,11 @@ impl McParamType {
     }
 
     /// Classify a unit-typed parameter (MCAST_DECLARE_UV)
-    fn classify_unit_type(unit: &McUnit, default_val: Option<String>) -> Self {
+    fn classify_unit_type(
+        unit: &McUnit,
+        default_val: Option<String>,
+        default_unit: Option<McUnit>,
+    ) -> Self {
         match unit {
             // Physical units → Category B
             McUnit::Volt
@@ -330,6 +343,7 @@ impl McParamType {
                         kind: McParamTypeKind::UnitValueDefault {
                             unit: unit.clone(),
                             default_val,
+                            default_unit,
                         },
                         direction: None,
                     }
@@ -475,7 +489,7 @@ impl McParamType {
     }
 
     /// Extract the default value string from MCAST_DECLARE_UV's MCAST_INSTANCE child
-    fn extract_default_from_declare_uv(node: &AstNode) -> Option<String> {
+    fn extract_default_from_declare_uv(node: &AstNode) -> Option<(String, Option<McUnit>)> {
         if let Some(sub) = node.get_sub_node() {
             for child in sub.iter() {
                 if child.get_type() == MCAST_INSTANCE {
@@ -488,7 +502,12 @@ impl McParamType {
                             || c.get_type() == MCAST_HEX
                             || c.get_type() == MCAST_FLOAT
                         {
-                            return c.to_string();
+                            let unit = if c.get_type() == MCAST_UVALUE {
+                                McUnitValue::new(&c).map(|uv| uv.unit().clone())
+                            } else {
+                                None
+                            };
+                            return c.to_string().map(|text| (text, unit));
                         }
                         current = c.get_next();
                     }
@@ -806,6 +825,7 @@ mod tests {
             kind: McParamTypeKind::UnitValueDefault {
                 unit: McUnit::Volt,
                 default_val: Some("5V".into()),
+                default_unit: Some(McUnit::Volt),
             },
             direction: None
         }
