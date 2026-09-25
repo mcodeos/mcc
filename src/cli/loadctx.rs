@@ -135,6 +135,30 @@ pub fn load_all(ctx: &LoadContext) {
     }
 }
 
+/// Walk up from `target` (a file or a directory) to the nearest ancestor
+/// directory holding a project manifest; fall back to the target itself
+/// (or a file's parent) when nothing is found. The CLI's and the MCP
+/// server's project-root discovery converge here (use-design §19.10 D6
+/// phase 2).
+pub fn find_manifest_root(target: &Path) -> Option<PathBuf> {
+    let mut current: Option<&Path> = if target.is_dir() {
+        Some(target)
+    } else {
+        target.parent()
+    };
+    while let Some(dir) = current {
+        if crate::cli::datadir::find_manifest_in(dir).is_some() {
+            return Some(dir.to_path_buf());
+        }
+        current = dir.parent();
+    }
+    if target.is_dir() {
+        Some(target.to_path_buf())
+    } else {
+        target.parent().map(|p| p.to_path_buf())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -186,5 +210,45 @@ mod tests {
             anon.deps.is_empty(),
             "anonymous mode reads no manifest dependencies"
         );
+    }
+
+    #[test]
+    fn cli_loadctx__find_manifest_root_walks_up_and_falls_back() {
+        let base = std::env::temp_dir().join(format!(
+            "mcc-loadctx-root-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.subsec_nanos())
+                .unwrap_or(0)
+        ));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(base.join("proj/deep")).unwrap();
+        std::fs::write(base.join("proj/project.toml"), "[project]\nname = \"p\"\n").unwrap();
+
+        // A nested file walks up to the manifest directory.
+        let file = base.join("proj/deep/main.mc");
+        std::fs::write(&file, "module main {}\n").unwrap();
+        assert_eq!(
+            find_manifest_root(&file),
+            Some(base.join("proj")),
+            "the walk-up stops at the manifest directory"
+        );
+
+        // A directory with no manifest anywhere falls back to itself.
+        let bare = base.join("bare");
+        std::fs::create_dir_all(&bare).unwrap();
+        assert_eq!(
+            find_manifest_root(&bare),
+            Some(bare.clone()),
+            "no manifest anywhere falls back to the target directory"
+        );
+
+        // A bare file falls back to its parent directory.
+        let loose = base.join("loose.mc");
+        std::fs::write(&loose, "module main {}\n").unwrap();
+        assert_eq!(find_manifest_root(&loose), Some(base.clone()));
+
+        let _ = std::fs::remove_dir_all(&base);
     }
 }
