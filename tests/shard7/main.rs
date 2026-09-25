@@ -29,6 +29,7 @@ mod iface_chain;
 mod iface_connect_rule;
 mod iface_exclusive_peer;
 mod iface_param_pin_same_name;
+mod iface_role_peers;
 mod iface_pin_number_binding;
 mod lock_module_expects;
 mod lock_pp_conds;

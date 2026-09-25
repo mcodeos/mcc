@@ -1285,6 +1285,42 @@ impl InstantiationBuilder {
                 // serial, P1-B above). A nested `Series` child (parser invariant:
                 // only appears when its direction differs from `d`) contributes
                 // its own internal gaps through the gapped recursion.
+                // R3 mediator half (replicated-binding-design.md §4 check 3):
+                // judged on the RAW chain phrases, before the flattening —
+                // the Interface → Bus rewrite below drops the role arguments
+                // (the recorded module-body hole), so a flattened member can
+                // no longer answer "did this mediator adopt a role". Role
+                // args are legal only on terminal pins rows; a role-bearing
+                // interface instance in the MIDDLE of a series (>= 2
+                // adjacencies on both sides) is a wiring mediator — a
+                // role-less conductor that forwards the chain and takes no
+                // side. Chain endpoints keep their roles (design §2), a chain
+                // of two has no middle, and `+` junctions are Parallel
+                // phrases, never this arm.
+                if phrases.len() > 2 {
+                    for mid in &phrases[1..phrases.len() - 1] {
+                        let Some((name, role)) = Self::mediator_iface_role(mid) else {
+                            continue;
+                        };
+                        let Some((uri, pos)) = self.global_diag_site(crate::errcodes::MEDIATOR_IFACE_ROLE)
+                        else {
+                            continue;
+                        };
+                        let msg = crate::errcodes::format_msg(
+                            crate::errcodes::MEDIATOR_IFACE_ROLE,
+                            &[&name as &dyn std::fmt::Display, &role],
+                        );
+                        crate::db::diagnostic::diagnostic::diagnostic_log_at(
+                            crate::errcodes::MEDIATOR_IFACE_ROLE,
+                            crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
+                            uri,
+                            pos,
+                            1,
+                            &msg,
+                            &[],
+                        );
+                    }
+                }
                 let mut result = Vec::new();
                 let mut gaps: Vec<ConnDir> = Vec::new();
                 for p in phrases {
@@ -2527,6 +2563,25 @@ impl InstantiationBuilder {
         })
     }
 
+    /// The role a chain-member interface instance binds
+    /// (`BUS1::I2C(Master)`), via the same `role_of` scan the
+    /// connection-time endpoint resolver uses — the raw args are still on
+    /// the phrase here, before `phrase_to_members` downgrades the member to
+    /// a wiring conductor. `None` for a role-less member or a non-interface
+    /// phrase (E4187 judges interface instances only; a role word on a
+    /// func-mediated chain member is that func's own contract).
+    fn mediator_iface_role(e: &McPhrase) -> Option<(String, String)> {
+        if let McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+            base: McInstance::Interface(i),
+            ..
+        })) = e
+        {
+            let role = Self::role_of(&i.base, &i.params)?;
+            return Some((i.name.to_string(), role));
+        }
+        None
+    }
+
     /// Role names named by one `peer` attribute's values (U128 §1.2 step 2).
     /// Mirrors the reader in `validation/hw.rs` so both stay in step.
     /// The declared value set of one attribute occurrence: a `Set` expression
@@ -2674,8 +2729,6 @@ impl InstantiationBuilder {
         elems: &[McPhrase],
         dir: ConnDir,
     ) -> Result<(), InstError> {
-        // 1) In-place instantiate each element (FuncCall registers in auto_inst_map on the original
-        // pointer)
         for e in elems {
             self.process_member_internal(e)?;
         }

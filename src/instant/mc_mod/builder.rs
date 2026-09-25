@@ -1249,14 +1249,9 @@ impl InstantiationBuilder {
         level: crate::db::diagnostic::diagnostic::DiagnosticLevel,
         message: String,
     ) {
-        let (uri, pos) = match (&self.current_func_span, &self.current_stmt_span) {
-            (Some(sp), _) => (sp.uri.clone(), sp.offset),
-            (None, Some(s)) => (s.uri.clone(), s.offset),
-            (None, None) => (self.def_uri.clone(), 0),
-        };
-        if crate::db::diagnostic::diagnostic::has_code_at(code, &uri, pos) {
+        let Some((uri, pos)) = self.global_diag_site(code) else {
             return;
-        }
+        };
         crate::db::diagnostic::diagnostic::diagnostic_log_at(
             code,
             level,
@@ -1266,6 +1261,26 @@ impl InstantiationBuilder {
             &message,
             &[],
         );
+    }
+
+    /// The shared span fallback and `(uri, pos)` dedup guard of
+    /// [`Self::log_global_diag`], readable from a `&self` walk (the series
+    /// flattening runs on a shared borrow): same current-func → current-stmt
+    /// → def fallback, same one-diagnostic-per-site law. Returns `None` when
+    /// this site already carries the code.
+    pub(super) fn global_diag_site(
+        &self,
+        code: u32,
+    ) -> Option<(String, u32)> {
+        let (uri, pos) = match (&self.current_func_span, &self.current_stmt_span) {
+            (Some(sp), _) => (sp.uri.clone(), sp.offset),
+            (None, Some(s)) => (s.uri.clone(), s.offset),
+            (None, None) => (self.def_uri.clone(), 0),
+        };
+        if crate::db::diagnostic::diagnostic::has_code_at(code, &uri, pos) {
+            return None;
+        }
+        Some((uri, pos))
     }
 
     /// Merge diagnostics from a sub-module into the current module

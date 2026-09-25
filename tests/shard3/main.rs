@@ -24,6 +24,7 @@ mod kw_const_condition;
 mod lock_pp_interface;
 mod lock_pp_ratings;
 mod lock_pp_refs;
+mod mediator_iface_role;
 mod module_port_role_free;
 mod netcheck_rules;
 mod pair_constraint_slots;

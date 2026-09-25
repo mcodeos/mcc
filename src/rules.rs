@@ -66,7 +66,7 @@ use crate::semantic::validation::nets::{
     check_exposed_clamp_coverage, check_exposed_clamp_downstream, check_filter_subface_overreach,
     check_ac_face_return, check_ac_nominal_conflict, check_floating_inputs,
     check_floating_outputs, check_iface_chain_source, check_iface_exclusive_peer,
-    check_protective_pin_copper,
+    check_iface_role_peers, check_protective_pin_copper,
     check_isolated_dc_bridge, check_nc_connected,
     check_net_budget, check_bom_key_slot, check_bom_value_descendant,
     check_pin_contract_decode, check_pin_contract_return_member,
@@ -1394,6 +1394,20 @@ pub static FLAT_ERC_RULES: &[FlatErcRule] = &[
         overridable = false,
         owner = check_iface_chain_source,
     },
+    // U289 ⑥ E4 flat-net generic peer sweep (replicated-binding-design.md §4
+    // check 4); table tail, tracking the FLAT_ERC_ORDER append (§5-5).
+    declare_flat_erc_rule! {
+        code = crate::errcodes::IFACE_ROLE_PEER_CONFLICT,
+        name = "iface-role-peers",
+        title = "two role-bearing endpoints of one family on a flat net are not mutual peers per the role table",
+        severity = Error,
+        domain = Connectivity,
+        family = None,
+        doc = "U289 ⑥ (replicated-binding-design.md §4 check 4, the flat-net half): the connection-time peer judge (4121) only sees endpoint pairs meeting inside one statement, so a role conflict hidden behind a role-less wiring mediator (`A - res - B`) or across a module port never fires. This sweep walks the finished net map: role-bearing endpoints of one family are paired (through ports by the shared-entry net union) and judged for mutual `peer` per the role block, the same semantics as the statement-level judge. Role-less sides stay silent — the single-side law the exclusive-peer gate already states. A pair the statement-level judge already reported fires again here by ruling (2026-09-25): both codes own their own walk, no dedup carry.",
+        lock = "tests/shard7/iface_role_peers.rs",
+        overridable = false,
+        owner = check_iface_role_peers,
+    },
 ];
 
 // Declaration scope (pins / declaration semantics)
@@ -1956,7 +1970,8 @@ mod tests {
         CLAMP_REF_NOT_PROTECTIVE, COMBINE_OUTPUT_TOL, CROSS_BARRIER_NET,
         DECOUPLING_RETURN_MISMATCH, DEVICE_RETURN_SPAN_UNDECLARED, EARTH_DC_LEAK,
         EXPOSED_NET_DOWNSTREAM_UNPROTECTED, EXPOSED_NET_NO_CLAMP, FILTER_SUBFACE_OVERREACH,
-        IFACE_CHAIN_SOURCE_UNREACHED, IFACE_EXCLUSIVE_PEER_CONFLICT, ISOLATED_DC_BRIDGE,
+        IFACE_CHAIN_SOURCE_UNREACHED, IFACE_EXCLUSIVE_PEER_CONFLICT, IFACE_ROLE_PEER_CONFLICT,
+        ISOLATED_DC_BRIDGE,
         NET_BACKFEED_RISK,
         NET_BIDIR_UNCONNECTED, NET_BUDGET_EXCEEDED,
         NET_DANGLING_ENDPOINT, NET_INPUT_UNCONNECTED, NET_INSTANCE_UNCONNECTED,
@@ -1978,7 +1993,7 @@ mod tests {
     /// The execution order of the migrated `nets::run_net_checks` call table.
     /// This is the lock that keeps catalog declaration order byte-identical to
     /// the pre-registry runner sequence.
-    const FLAT_ERC_ORDER: [u32; 60] = [
+    const FLAT_ERC_ORDER: [u32; 61] = [
         NET_MULTI_DRIVE,                    // P1
         NET_NO_DRIVER,                      // P2
         NET_INPUT_UNCONNECTED,              // P5
@@ -2039,6 +2054,7 @@ mod tests {
         AC_NOMINAL_CONFLICT,     // U217 AC region-nominal gate (tail append)
         PROTECTIVE_PIN_NO_COPPER, // U217 protective-word gate (tail append)
         IFACE_CHAIN_SOURCE_UNREACHED, // U112 ② chain-level source reach (tail append)
+        IFACE_ROLE_PEER_CONFLICT, // U289 ⑥ flat-net generic peer sweep (tail append)
     ];
 
     /// The report-row tags of the netcheck R-series. This is the lock that

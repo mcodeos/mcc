@@ -33,4 +33,5 @@ mod u291_adopted_func_member;
 mod use_import_codes;
 mod vec_array_fold_equivalence;
 mod vec_per_edge_truth;
+mod width_binding;
 mod world_projection;

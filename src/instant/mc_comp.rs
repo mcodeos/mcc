@@ -338,8 +338,11 @@ impl McComponentInst {
         let eval_params = self.params.to_cond_params();
         // The same environment the top-level dynamic rows read
         // (`init_dynamic_pins`): integer bindings for the range side, text
-        // bindings for computed pin names (U211).
-        let dyn_bindings = self.get_param_bindings();
+        // bindings for computed pin names (U211) — and the same E1 width
+        // binder law: a selected branch's rows bind undeclared range names
+        // exactly as a top-level row does.
+        let mut dyn_bindings = self.get_param_bindings();
+        let declared = self.declared_param_names();
         let dyn_values: Vec<(String, String)> = eval_params
             .iter()
             .map(|p| (p.name.to_string(), p.text.clone()))
@@ -432,8 +435,9 @@ impl McComponentInst {
         // Expand the selected branches' param-domain rows (U230). A row that
         // cannot resolve against this instance's parameters reports through
         // the shared helper — the selected branch must never fall silent.
+        dynamic::augment_with_width_binders(&branch_dyn, &mut dyn_bindings, &declared, 1);
         for line in &branch_dyn {
-            self.expand_dynamic_line(line, &dyn_bindings, &dyn_values);
+            self.expand_dynamic_line(line, &dyn_bindings, &dyn_values, &declared);
         }
     }
 
@@ -830,7 +834,7 @@ impl McComponentInst {
     /// Dynamic pins contain parameter references (e.g., `1:cols`) and need to be resolved
     /// at instantiation time based on actual parameter values
     fn init_dynamic_pins(&mut self) {
-        let bindings = self.get_param_bindings();
+        let mut bindings = self.get_param_bindings();
         // Text bindings for computed pin names (U211): every bound parameter
         // contributes the value as written (`3.3V`, `WIDE`), defaults
         // included (U54) — the same environment the conditional blocks read.
@@ -845,9 +849,23 @@ impl McComponentInst {
         // lines are small (an id expr, a name expr, an Arc of values) and the
         // def is immutable from here on.
         let lines = self.def.pins.dynamic_pins.clone();
+        // E1 (replicated-binding-design.md §4 check 1): a dynamic range name
+        // not declared in the formal table is a width binder. On a component
+        // instance the subscript width is always 1 — a body array
+        // (`TP[1:8]::TP()`) is flattened into per-member instances at parse
+        // (mc_inst.rs), so each materialized instance carries one unit.
+        let declared = self.declared_param_names();
+        dynamic::augment_with_width_binders(&lines, &mut bindings, &declared, 1);
         for line in &lines {
-            self.expand_dynamic_line(line, &bindings, &values);
+            self.expand_dynamic_line(line, &bindings, &values, &declared);
         }
+    }
+
+    /// The formal parameter table's names — the set that separates a
+    /// width binder (undeclared, E1) from a declared parameter left unbound
+    /// here (the caller's missing-argument defect, judged elsewhere).
+    fn declared_param_names(&self) -> std::collections::HashSet<String> {
+        self.def.params.names().into_iter().collect()
     }
 
     /// Expand one dynamic (parameter-range) pin row against this instance's
@@ -864,6 +882,7 @@ impl McComponentInst {
         line: &dynamic::DynamicPinLine,
         bindings: &[(String, i64)],
         values: &[(String, String)],
+        declared: &std::collections::HashSet<String>,
     ) {
         match line.resolve_checked(bindings, values) {
             Ok(resolved) => {
@@ -884,6 +903,24 @@ impl McComponentInst {
                 }
             }
             Err(reason) => {
+                // E1 classification first: an id range that still reads an
+                // unbound name after the width-binder augmentation has that
+                // name *inside arithmetic* (`1:count*2`) — expression widths
+                // never back-solve, the row needs an explicit parameter
+                // (E3186), not the generic unbound word (E3185).
+                if matches!(reason, dynamic::DynPinFail::IdExpr) {
+                    let (_, needs) = line.width_binder_requests(bindings, declared);
+                    if let Some(name) = needs.first() {
+                        self.cond_author_errors.push((
+                            crate::errcodes::DYN_WIDTH_EXPR_NEEDS_PARAM,
+                            crate::errcodes::format_msg(
+                                crate::errcodes::DYN_WIDTH_EXPR_NEEDS_PARAM,
+                                &[line as &dyn std::fmt::Display, name],
+                            ),
+                        ));
+                        return;
+                    }
+                }
                 let what = match reason {
                     dynamic::DynPinFail::IdExpr => "pin id range",
                     dynamic::DynPinFail::NameExpr => "pin name expression",
