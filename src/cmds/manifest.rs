@@ -229,7 +229,8 @@ pub fn load_libs(lib_names: &[String]) {
 /// [`Manifest::find_in`]). Falls back to the target's own directory (or its
 /// parent for a file) when nothing is found. Relative targets are resolved
 /// against the current directory first, so the returned root is always
-/// absolute.
+/// absolute. The walk itself is shared with the MCP server
+/// ([`mcc::cli::loadctx::find_manifest_root`], use-design §19.10 D6 phase 2).
 pub fn find_project_root(target: Option<&str>) -> Option<PathBuf> {
     let t = target?;
     let raw = Path::new(t);
@@ -238,19 +239,7 @@ pub fn find_project_root(target: Option<&str>) -> Option<PathBuf> {
     } else {
         std::env::current_dir().ok()?.join(raw)
     };
-    let mut current: Option<&Path> = if p.is_dir() { Some(&p) } else { p.parent() };
-    while let Some(dir) = current {
-        if Manifest::find_in(dir).is_some() {
-            return Some(dir.to_path_buf());
-        }
-        current = dir.parent();
-    }
-    // Fallback: use the original heuristic (dir or parent of file).
-    if p.is_dir() {
-        Some(p)
-    } else {
-        p.parent().map(|p| p.to_path_buf())
-    }
+    mcc::cli::loadctx::find_manifest_root(&p)
 }
 
 /// Effective target of a command run without one: the current directory when

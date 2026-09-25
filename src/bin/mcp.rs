@@ -346,31 +346,13 @@ impl MccMcpServer {
         Parameters(req): Parameters<LoadProjectRequest>,
     ) -> Result<Json<Value>, McpError> {
         // Derive the project root the same way the CLI does: walk up from the
-        // entry looking for a project manifest (project.toml); fall back to the
-        // entry's parent dir.
+        // entry looking for a project manifest (project.toml); fall back to
+        // the entry's parent dir. The walk is the shared D6 discovery
+        // (use-design §19.10 phase 2) — the same helper the CLI's
+        // find_project_root delegates to.
         let entry_path = std::path::Path::new(&req.entry);
-        let mut current: Option<&std::path::Path> = if entry_path.is_dir() {
-            Some(entry_path)
-        } else {
-            entry_path.parent()
-        };
-        let mut root: Option<std::path::PathBuf> = None;
-        while let Some(dir) = current {
-            if mcc::cli::datadir::find_manifest_in(dir).is_some() {
-                root = Some(dir.to_path_buf());
-                break;
-            }
-            current = dir.parent();
-        }
-        if root.is_none() {
-            root = if entry_path.is_dir() {
-                Some(entry_path.to_path_buf())
-            } else {
-                entry_path.parent().map(|p| p.to_path_buf())
-            };
-        }
-        if let Some(project_root) = root.as_deref() {
-            mcc::mcc_set_project_root(project_root);
+        if let Some(project_root) = mcc::cli::loadctx::find_manifest_root(entry_path) {
+            mcc::mcc_set_project_root(&project_root);
         }
         let params = json!({ "entry": req.entry });
         rpc_to_mcp(

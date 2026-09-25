@@ -2579,69 +2579,19 @@ pub(crate) fn ensure_library_loaded(file_uri: &McURI) {
     let path = Path::new(file_uri.as_str());
     let project_root = find_project_root(path);
 
-    // Try to load project manifest dependencies (3 names, same as CLI)
-    let project_manifest = crate::cli::datadir::find_manifest_in(&project_root);
-    if let Some(manifest_path) = project_manifest {
-        if let Ok(contents) = std::fs::read_to_string(&manifest_path) {
-            if let Some(deps) = extract_lib_dependencies(&contents) {
-                tracing::debug!(target: "mcc::lib", deps = ?deps, "loading dependencies");
-                for lib_name in deps {
-                    match resolve_lib_root(&lib_name) {
-                        Ok(root) => {
-                            tracing::info!(target: "mcc::lib", name = %lib_name, root = %root.display(), "auto-loading lib");
-                            crate::db::infra::libmgr::mcb_load_lib(&lib_name, &root);
-                        }
-                        Err(e) => {
-                            tracing::warn!(target: "mcc::lib", name = %lib_name, error = ?e, "resolve_lib_root failed");
-                        }
-                    }
-                }
-            }
+    // Manifest dependencies load through the shared D6 context (use-design
+    // §19.10 phase 2): `Manifest::load` is the one toml reader and
+    // `load_all` the one loading loop - no hand-rolled section parse here.
+    if let Some(manifest_path) = crate::cli::datadir::find_manifest_in(&project_root) {
+        if let Ok(manifest) = crate::cli::manifest::Manifest::load(&manifest_path) {
+            let ctx = crate::cli::loadctx::LoadContext {
+                deps: manifest.dependencies.keys().cloned().collect(),
+                ..crate::cli::loadctx::LoadContext::default()
+            };
+            tracing::debug!(target: "mcc::lib", deps = ?ctx.deps, "loading dependencies");
+            crate::cli::loadctx::load_all(&ctx);
         }
     }
-}
-
-/// Extract library dependencies from project.toml contents
-pub(crate) fn extract_lib_dependencies(contents: &str) -> Option<Vec<String>> {
-    for line in contents.lines() {
-        let line = line.trim();
-        if line.starts_with("dependencies") || line.starts_with("lib_deps") {
-            // Parse the dependencies section
-            let mut deps = Vec::new();
-            let mut in_deps = false;
-            for dep_line in contents.lines() {
-                let dep_line = dep_line.trim();
-                if dep_line.starts_with("dependencies") || dep_line.starts_with("lib_deps") {
-                    in_deps = true;
-                    continue;
-                }
-                if in_deps {
-                    if dep_line.is_empty() || dep_line.starts_with('#') {
-                        continue;
-                    }
-                    if dep_line.starts_with('[') || dep_line.starts_with("lib_") {
-                        break;
-                    }
-                    // Extract lib name (format: "name" = "version" or just "name")
-                    let name = if let Some(eq_pos) = dep_line.find('=') {
-                        let left = dep_line[..eq_pos].trim();
-                        left.trim_matches('"').trim_matches('\'').to_string()
-                    } else {
-                        dep_line
-                            .trim_matches(',')
-                            .trim_matches('"')
-                            .trim_matches('\'')
-                            .to_string()
-                    };
-                    if !name.is_empty() {
-                        deps.push(name);
-                    }
-                }
-            }
-            return Some(deps);
-        }
-    }
-    None
 }
 
 /// Classify a token using the symbol table.
