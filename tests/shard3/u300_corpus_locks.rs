@@ -434,15 +434,17 @@ fn u300corpus__i4_inner_single_quote_reports_2082() {
     );
 }
 
-// I5 — bare `uv@uv` in a scalar attr slot → E3022. U299② (the AT arm in the
-// attr evaluator) will re-home this lock when it lands.
+// I5 — bare `uv@uv` in a scalar attr slot folds silently since U299② (the AT
+// arm in `new_attr_values` folds it to AttrExpr, b4024). The carried value is
+// locked positively by tests/shard2/u299_amp_ref_and_pair_attr.rs; this lock
+// keeps the old E3022 rejection absent.
 
 #[test]
-fn u300corpus__i5_bare_uv_at_uv_scalar_attr_reports_3022() {
+fn u300corpus__i5_bare_uv_at_uv_scalar_attr_folds_silently() {
     let codes = codes(&build_diags("component C\n{\n    rate = 1Mbps@0.5m\n}\n"));
     assert!(
-        has(&codes, mcc::errcodes::ATTR_TYPE_NOT_SUPPORTED),
-        "bare `uv@uv` in a scalar attr slot must fire E3022; got codes: {codes:?}"
+        !has(&codes, mcc::errcodes::ATTR_TYPE_NOT_SUPPORTED),
+        "bare `uv@uv` in a scalar attr slot folds silently since U299②; got codes: {codes:?}"
     );
 }
 
