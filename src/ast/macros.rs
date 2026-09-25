@@ -180,3 +180,4 @@ pub const MCAST_UNIT_DIV: u16 = 333;
 pub const MCAST_UNIT_MUL: u16 = 334;
 pub const MCAST_UNIT_GROUP: u16 = 335;
 pub const MCAST_BOM: u16 = 336;
+pub const MCAST_ATTRIBUTE_ADD: u16 = 337;

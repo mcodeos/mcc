@@ -13,6 +13,7 @@ use super::{
 use crate::db::context::DB;
 use crate::db::diagnostic::diagnostic::{dlog_error, Position};
 use crate::refdef::types::ChainSegment;
+use crate::semantic::basic::mc_conds::McConds;
 use crate::semantic::basic::mc_param_type::{McParamType, McParamTypeKind};
 use crate::semantic::component::mc_layout::McLayout;
 use crate::semantic::component::Mc2Component;
@@ -366,6 +367,83 @@ impl McModule {
     /// `McPhrase::new`: the failing arm is nested (a series leg inside a series
     /// leg), so a return flag would only carry the innermost verdict to one
     /// caller, while the span query sees every code the statement raised.
+    /// Conditional body clauses (`if (cond) { expects += [ ... ] }`,
+    /// circuit-intent-acceptance-design.md §3). Branches judge against this
+    /// module's formal params with their defaults; the first statically true
+    /// branch wins, exactly like [`McConds::evaluate`]. A branch whose
+    /// condition cannot be judged statically (a runtime quantity, an unknown
+    /// name) defers every row it declares — `deferred` rows reach the engine
+    /// as DEFER verdicts, never diagnostics (§5.1). The else arm is walked
+    /// only when nothing matched.
+    fn read_cond_expects(&mut self, clause: &AstNode) {
+        let params = self.params.get_cond_params_with_defaults();
+        let mut else_block: Option<AstNode> = None;
+        for (condition, block) in McConds::raw_branches(clause) {
+            match condition {
+                Some(cond) => match McConds::check_condition_result(&cond, &params, None) {
+                    Ok(true) => {
+                        self.read_cond_block(&block, false);
+                        return;
+                    }
+                    Ok(false) => {}
+                    Err(_) => {
+                        // Not statically decidable: the whole entry defers.
+                        self.read_cond_block(&block, true);
+                        return;
+                    }
+                },
+                None => else_block = Some(block),
+            }
+        }
+        if let Some(block) = else_block {
+            self.read_cond_block(&block, false);
+        }
+    }
+
+    /// One conditional branch body: the bare clause form or the braced form
+    /// (grammar `mc_cond_block`).
+    fn read_cond_block(&mut self, block: &AstNode, deferred: bool) {
+        if block.is_type(MCAST_BODY) {
+            if let Some(sub) = block.get_sub_node() {
+                for clause in sub.iter() {
+                    self.read_cond_clause(&clause, deferred);
+                }
+            }
+            return;
+        }
+        self.read_cond_clause(block, deferred);
+    }
+
+    /// One clause inside a conditional branch. Only expectation rows carry
+    /// the branch's verdict; every other clause kind keeps the top-level
+    /// unexpected-clause diagnostic — a branch is not a place where module
+    /// bodies accept clauses they otherwise reject.
+    fn read_cond_clause(&mut self, clause: &AstNode, deferred: bool) {
+        match clause.get_type() {
+            MCAST_COND_IF => self.read_cond_expects(clause),
+            MCAST_ATTRIBUTE | MCAST_ATTRIBUTE_ADD => match Ledger::new(clause) {
+                Some(mut ledger) => {
+                    if deferred {
+                        for row in &mut ledger.rows {
+                            row.deferred = true;
+                        }
+                    }
+                    self.expects.rows.extend(ledger.rows);
+                }
+                None => dlog_error(
+                    crate::errcodes::UNEXPECTED_CLAUSE_TYPE,
+                    clause,
+                    &crate::errcodes::format_msg(crate::errcodes::UNEXPECTED_CLAUSE_TYPE, &[]),
+                ),
+            },
+            _ => dlog_error(
+                crate::errcodes::UNEXPECTED_CLAUSE_TYPE,
+                clause,
+                &crate::errcodes::format_msg(crate::errcodes::UNEXPECTED_CLAUSE_TYPE, &[]),
+            ),
+        }
+    }
+
     fn stmt_reports_own_failure(&self, clause: &AstNode) -> bool {
         const PASS1_SHAPE_CODES: [u32; 4] = [
             crate::errcodes::CONN_SERIES_SHAPE_MISMATCH,
@@ -731,7 +809,15 @@ impl McModule {
                             ),
                         );
                     }
-                    MCAST_ATTRIBUTE => {
+                    MCAST_COND_IF => {
+                        // `if (cond) { expects += [ ... ] }` (design §3): only
+                        // expectation rows are read out of a conditional
+                        // branch; every other clause kind inside the branch
+                        // keeps the unexpected-clause diagnostic it gets at
+                        // the top level.
+                        self.read_cond_expects(&clause);
+                    }
+                    MCAST_ATTRIBUTE | MCAST_ATTRIBUTE_ADD => {
                         // `layout = [ ... ]` — boundary-port placement for this
                         // module when it is instantiated as a child box. Any
                         // other attribute in a module body stays an unexpected

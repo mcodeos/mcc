@@ -326,6 +326,62 @@ impl McConds {
             .any(|c| c.condition.references_param(param_names))
     }
 
+    /// One `if` chain as raw branches: `(condition, block)` in source order,
+    /// `None` for the condition of the else arm. Unlike the `block` field of
+    /// [`McCond`] — which keeps only the first attribute of a braced branch,
+    /// a shape the pins/attrs consumers read — the block here is the branch's
+    /// own node (a clause or `MCAST_BODY`), so a consumer that walks clause
+    /// kinds sees every clause the author wrote. A branch whose judge fails
+    /// to parse pairs with `None` in its condition slot: the caller judges
+    /// that as unreadable (a defer, not a silent drop).
+    pub(crate) fn raw_branches(node: &AstNode) -> Vec<(Option<McCondition>, AstNode)> {
+        let mut out = Vec::new();
+        Self::collect_raw_branches(node, &mut out);
+        out
+    }
+
+    fn collect_raw_branches(node: &AstNode, out: &mut Vec<(Option<McCondition>, AstNode)>) {
+        let Some(subnodes) = node.get_sub_node() else {
+            return;
+        };
+        let mut pending_judge: Option<AstNode> = None;
+        for child in subnodes.iter() {
+            match child.get_type() {
+                MCAST_COND_IF | MCAST_COND_ELSE => Self::collect_raw_branches(&child, out),
+                t if Self::is_judge_type(t) => pending_judge = Some(child),
+                t => {
+                    // Any other child is the branch body: the clause that
+                    // follows the judge (grammar `mc_cond_block`), or the
+                    // braced form. `None` in the condition slot means "no
+                    // statically readable condition" — the else arm, or a
+                    // judge that failed to parse; the caller defers those
+                    // rows, it never drops the branch.
+                    let condition =
+                        pending_judge.take().and_then(|j| Self::parse_condition(&j));
+                    let _ = t;
+                    out.push((condition, child.clone()));
+                }
+            }
+        }
+    }
+
+    fn is_judge_type(t: u16) -> bool {
+        matches!(
+            t,
+            MCAST_JUDGE_EQEQ
+                | MCAST_JUDGE_NOTEQ
+                | MCAST_JUDGE_LESSTHAN
+                | MCAST_JUDGE_GREATERTHAN
+                | MCAST_JUDGE_LESSEQTHAN
+                | MCAST_JUDGE_GREATEREQTHAN
+                | MCAST_JUDGE_BITAND
+                | MCAST_JUDGE_BITOR
+                | MCAST_JUDGE_IN
+                | MCAST_JUDGE_AND
+                | MCAST_JUDGE_OR
+        )
+    }
+
     fn collect_nested_branches(
         node: &AstNode,
         if_blocks: &mut Vec<McCond>,

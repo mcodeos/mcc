@@ -28,6 +28,10 @@ pub struct Row {
     pub target: String,
     pub kind: Kind,
     pub span: std::ops::Range<usize>,
+    /// The row sits under a condition the acceptance engine cannot judge
+    /// statically (a runtime quantity, an unknown name) — the engine must
+    /// report DEFER for it, never a diagnostic (§5.1: a defer is a verdict).
+    pub deferred: bool,
 }
 
 /// What a row expects of its target.
@@ -45,12 +49,14 @@ pub enum Kind {
 }
 
 impl Ledger {
-    /// Claim one `MCAST_ATTRIBUTE` clause whose key text is exactly `expects`.
-    /// Any other key (or a shape without a readable key) returns `None` without
-    /// emitting anything — the caller falls back to its own unexpected-clause
-    /// diagnostic. Repeated clauses append rows to the module's ledger.
+    /// Claim one `MCAST_ATTRIBUTE` / `MCAST_ATTRIBUTE_ADD` clause whose key
+    /// text is exactly `expects`. Any other key (or a shape without a readable
+    /// key) returns `None` without emitting anything — the caller falls back to
+    /// its own unexpected-clause diagnostic. Repeated clauses append rows to
+    /// the module's ledger, and so does the `+=` spelling (batch 2): both node
+    /// roots read identically here.
     pub(crate) fn new(node: &AstNode) -> Option<Self> {
-        if !node.is_type(MCAST_ATTRIBUTE) {
+        if !node.is_type(MCAST_ATTRIBUTE) && !node.is_type(MCAST_ATTRIBUTE_ADD) {
             return None;
         }
         // node: MCAST_ATTRIBUTE( MCAST_ATT_ID( ids ), MCAST_ATT_VALUES( ... ) )
@@ -186,7 +192,12 @@ fn read_row(row: &AstNode) -> Option<Row> {
         }
         _ => return None,
     };
-    Some(Row { target, kind, span })
+    Some(Row {
+        target,
+        kind,
+        span,
+        deferred: false,
+    })
 }
 
 /// Read a `[low:..., high:...]` side set into a window. Every member must be a
@@ -344,5 +355,59 @@ mod tests {
             ),
             "empty bracket must not be malformed"
         );
+    }
+
+    #[test]
+    fn append_form_adds_rows() {
+        let module = parse(
+            "module main {\n    io RAW\n    expects += [\n        RAW = driven\n    ]\n}\n",
+            "/mcc/expects-add-form-test.mc",
+        );
+        assert_eq!(module.expects.rows.len(), 1, "rows: {:?}", module.expects.rows);
+        assert_eq!(module.expects.rows[0].target, "RAW");
+        assert!(!module.expects.rows[0].deferred);
+    }
+
+    #[test]
+    fn dotted_row_target_reads_the_whole_chain() {
+        let module = parse(
+            "module main {\n    expects = [\n        u1.1 = [low:3.0V, high:3.5V]\n    ]\n}\n",
+            "/mcc/expects-dotted-test.mc",
+        );
+        assert_eq!(module.expects.rows.len(), 1, "rows: {:?}", module.expects.rows);
+        // The numeric tail is part of the target — not a bare `.1`.
+        assert_eq!(module.expects.rows[0].target, "u1.1");
+    }
+
+    #[test]
+    fn static_true_branch_rows_land_undeferred() {
+        let module = parse(
+            "module main {\n    io RAW\n    if (1 == 1) {\n        expects += [\n            RAW = driven\n        ]\n    }\n}\n",
+            "/mcc/expects-cond-true-test.mc",
+        );
+        assert_eq!(module.expects.rows.len(), 1, "rows: {:?}", module.expects.rows);
+        assert!(!module.expects.rows[0].deferred);
+    }
+
+    #[test]
+    fn static_false_branch_is_skipped() {
+        let module = parse(
+            "module main {\n    io RAW\n    if (1 == 2) {\n        expects += [\n            RAW = driven\n        ]\n    }\n}\n",
+            "/mcc/expects-cond-false-test.mc",
+        );
+        assert!(module.expects.rows.is_empty());
+    }
+
+    #[test]
+    fn runtime_condition_defers_its_rows() {
+        // `partno` names nothing in this module — the judge cannot be decided
+        // statically, so the rows land deferred (the engine reports DEFER for
+        // them, never a diagnostic).
+        let module = parse(
+            "module main {\n    io RAW\n    if (partno == \"X\") {\n        expects += [\n            RAW = driven\n        ]\n    }\n}\n",
+            "/mcc/expects-cond-runtime-test.mc",
+        );
+        assert_eq!(module.expects.rows.len(), 1, "rows: {:?}", module.expects.rows);
+        assert!(module.expects.rows[0].deferred);
     }
 }
