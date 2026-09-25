@@ -9,6 +9,7 @@
 pub mod common;
 
 mod rule_audit_a;
+mod u261_ast_ab;
 mod u151_label_boundary;
 mod u153_anon_port_func_formal;
 mod u152_body_face_decl_order;
