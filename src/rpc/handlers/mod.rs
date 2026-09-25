@@ -1818,7 +1818,10 @@ pub fn find_func_by_path(name: &str) -> Option<crate::semantic::mc_func::McFunct
     let (owner, member) = split_owner_member(name)?;
     let (cmie, _) = find_def_by_name(owner)?;
     match &cmie {
-        crate::McCMIE::Component(c) => c.funcs.find(member).cloned(),
+        // Same declared face as the member-resolution and Pass2 dispatch
+        // faces: own funcs first, then `::`-adopted recipe funcs
+        // (`effective_method`'s fast path is the own-func lookup itself).
+        crate::McCMIE::Component(c) => crate::db::defregistry::effective_method(c, member),
         crate::McCMIE::Module(m) => m.funcs.find(member).cloned(),
         _ => None,
     }
