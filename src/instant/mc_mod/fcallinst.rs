@@ -1331,10 +1331,9 @@ impl InstantiationBuilder {
         })?;
 
         // ★ M0-B-E.1: carry the method name onto FuncCall-origin receiver
-        // instances (unified-twopin-no-builtin §2.6). The network-level D7
-        // check (`check_pullup_degenerate`) identifies Pullup/Pulldown
-        // resistors by this origin marker — a plain series RES has no method
-        // provenance, so origin alone can't tell a pullup apart. Only rewrite
+        // instances (unified-twopin-no-builtin §2.6). The method provenance
+        // distinguishes a dispatched method instance from a declared one
+        // (vector/graph reads `fn_name` off the origin). Only rewrite
         // auto-generated (FuncCall) instances: a declared receiver keeps its
         // Declared origin (verify/golden depend on declaration status), and a
         // sub-module method (dotted inst_name, not in `self.components`) is
@@ -1354,7 +1353,6 @@ impl InstantiationBuilder {
                     expansion_id,
                 };
                 // Phase C S3: the instance store is the sole content store —
-                // the D7 pullup check reads the origin marker post-build, so
                 // the rewritten origin lands back in the store.
                 store
                     .borrow_mut()
