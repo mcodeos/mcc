@@ -2273,6 +2273,23 @@ pub(crate) fn sync_derivation_edges() {
     active().sync_derivation_edges();
 }
 
+/// Whether the host exposes any effective func — own or `::`-adopted (same
+/// declared face as [`effective_method`], membership form). Same fast path:
+/// a def with own funcs or no `adopts` never touches the registry.
+pub(crate) fn has_effective_func(comp: &McComponent) -> bool {
+    if !comp.funcs.is_empty() {
+        return true;
+    }
+    if comp.adopts.is_empty() {
+        return false;
+    }
+    let sn = McSpaceName::new(&comp.name, comp.uri.clone());
+    active()
+        .def_id(&sn, DefKind::Component)
+        .map(|id| !active().effective_funcs_of(id).is_empty())
+        .unwrap_or(false)
+}
+
 /// §5 effective method resolution on a live component def: the host's own
 /// func wins (self-override), otherwise the func comes from an adopted
 /// recipe (declaration order; an ambiguous shared name is excluded by the

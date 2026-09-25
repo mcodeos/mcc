@@ -40,7 +40,7 @@ range (threshold 40KB).
 | `rules.rs` | 186 KB | 83 |
 | `instant/insttab.rs` | 180 KB | 130 |
 | `cmds/show.rs` | 161 KB | 122 |
-| `db/defregistry.rs` | 157 KB | 181 |
+| `db/defregistry.rs` | 157 KB | 182 |
 | `instant/mc_mod/fcallinst.rs` | 147 KB | 26 |
 | `viz/layout/equi_audit.rs` | 137 KB | 100 |
 | `rpc/handlers/mod.rs` | 134 KB | 108 |
@@ -64,7 +64,7 @@ range (threshold 40KB).
 | `builder/` | 1 | 0 KB |
 | `cli/` | 7 | 116 KB |
 | `cmds/` | 28 | 514 KB |
-| `db/` | 28 | 1036 KB |
+| `db/` | 28 | 1037 KB |
 | `eval/` | 2 | 50 KB |
 | `export/` | 7 | 184 KB |
 | `instant/` | 41 | 1629 KB |
@@ -1404,76 +1404,77 @@ db/defregistry.rs#L2248  fn cluster_of
 db/defregistry.rs#L2254  fn adopted_recipes_of
 db/defregistry.rs#L2260  fn adopters_of
 db/defregistry.rs#L2272  fn sync_derivation_edges
-db/defregistry.rs#L2281  fn effective_method
-db/defregistry.rs#L2302  fn def_member_id_of
-db/defregistry.rs#L2309  fn func_of_host
-db/defregistry.rs#L2316  fn funcs_of_host
-db/defregistry.rs#L2324  fn system_name_hits
-db/defregistry.rs#L2330  fn live_entry_by_id
-db/defregistry.rs#L2337  fn cmie_by_identity
-db/defregistry.rs#L2344  fn def_id_by_identity
-db/defregistry.rs#L2350  fn system_contains
-db/defregistry.rs#L2355  fn system_components
-db/defregistry.rs#L2360  fn system_modules
-db/defregistry.rs#L2365  fn system_interfaces
-db/defregistry.rs#L2370  fn system_enums
-db/defregistry.rs#L2376  fn kind_of
-db/defregistry.rs#L2383  fn spacenames_by_uri_prefix
-db/defregistry.rs#L2387  fn peel_components
-db/defregistry.rs#L2399  fn peel_modules
-db/defregistry.rs#L2411  fn peel_interfaces
-db/defregistry.rs#L2423  fn peel_enums
-db/defregistry.rs#L2435  fn peel_recipes
-db/defregistry.rs#L2456  struct RegistryEntrySnapshot
-db/defregistry.rs#L2485  struct Checkpoint
-db/defregistry.rs#L2493  impl Checkpoint
-db/defregistry.rs#L2496  fn to_json
-db/defregistry.rs#L2501  fn from_json
-db/defregistry.rs#L2509  struct DefChange
-db/defregistry.rs#L2519  enum DefChangeKind
-db/defregistry.rs#L2538  fn diff_versions
-db/defregistry.rs#L2608  fn changed_files
-db/defregistry.rs#L2628  struct SystemDefSnapshot
-db/defregistry.rs#L2652  fn write_physical
-db/defregistry.rs#L2689  impl workspace::WorkspaceManager
-db/defregistry.rs#L2699  fn insert_def
-db/defregistry.rs#L2714  fn remove_project_defs_by_uri
-db/defregistry.rs#L2727  fn remove_lib_defs_by_uris
-db/defregistry.rs#L2737  fn insert_one
-db/defregistry.rs#L2750  fn remove_by_uri_from
-db/defregistry.rs#L2761  fn remove_by_uris_from
-db/defregistry.rs#L2773  mod tests
-db/defregistry.rs#L2789  fn sys_enum
-db/defregistry.rs#L2808  fn enum_def_with_values
-db/defregistry.rs#L2833  fn def_registry__registry_holds_exactly_six_def_kinds
-db/defregistry.rs#L2860  fn def_registry__def_id_allocation_is_deterministic_in_registration_order
-db/defregistry.rs#L2865  fn replay
-db/defregistry.rs#L2888  fn sn
-db/defregistry.rs#L2981  fn def_registry__diff_reports_same_id_content_edit_as_modified
-db/defregistry.rs#L2983  const NAME
-db/defregistry.rs#L2984  const URI
-db/defregistry.rs#L3071  fn def_registry__system_name_index_tracks_live_system_entries
-db/defregistry.rs#L3073  const NAME
-db/defregistry.rs#L3074  const URI
-db/defregistry.rs#L3155  fn def_registry__registry_is_the_read_authority_not_the_physical_mirror
-db/defregistry.rs#L3157  const NAME
-db/defregistry.rs#L3158  const URI
-db/defregistry.rs#L3205  fn def_registry__func_members_are_host_anchored_not_text_keyed
-db/defregistry.rs#L3207  const URI
-db/defregistry.rs#L3299  static TEST_FILE_SEQ
-db/defregistry.rs#L3308  fn def_registry__component_pin_ledger_merges_by_name_across_reparse
-db/defregistry.rs#L3310  const URI
-db/defregistry.rs#L3311  const NAME
-db/defregistry.rs#L3437  fn def_registry__checkpoint_diff_reports_add_remove_modify
-db/defregistry.rs#L3439  const NAME
-db/defregistry.rs#L3440  const URI
-db/defregistry.rs#L3533  fn def_registry__checkpoint_serializes_to_json_and_disk
-db/defregistry.rs#L3535  const NAME
-db/defregistry.rs#L3536  const URI
-db/defregistry.rs#L3579  fn def_registry__insert_def_lands_in_the_owning_world_not_the_global
-db/defregistry.rs#L3609  fn def_registry__remove_entries_target_the_owning_world
-db/defregistry.rs#L3649  fn def_registry__enumerate_in_uri_matches_the_full_view_cut_to_one_uri
-db/defregistry.rs#L3710  fn def_registry__enumerate_in_uri_tracks_removal_and_revival
+db/defregistry.rs#L2279  fn has_effective_func
+db/defregistry.rs#L2298  fn effective_method
+db/defregistry.rs#L2319  fn def_member_id_of
+db/defregistry.rs#L2326  fn func_of_host
+db/defregistry.rs#L2333  fn funcs_of_host
+db/defregistry.rs#L2341  fn system_name_hits
+db/defregistry.rs#L2347  fn live_entry_by_id
+db/defregistry.rs#L2354  fn cmie_by_identity
+db/defregistry.rs#L2361  fn def_id_by_identity
+db/defregistry.rs#L2367  fn system_contains
+db/defregistry.rs#L2372  fn system_components
+db/defregistry.rs#L2377  fn system_modules
+db/defregistry.rs#L2382  fn system_interfaces
+db/defregistry.rs#L2387  fn system_enums
+db/defregistry.rs#L2393  fn kind_of
+db/defregistry.rs#L2400  fn spacenames_by_uri_prefix
+db/defregistry.rs#L2404  fn peel_components
+db/defregistry.rs#L2416  fn peel_modules
+db/defregistry.rs#L2428  fn peel_interfaces
+db/defregistry.rs#L2440  fn peel_enums
+db/defregistry.rs#L2452  fn peel_recipes
+db/defregistry.rs#L2473  struct RegistryEntrySnapshot
+db/defregistry.rs#L2502  struct Checkpoint
+db/defregistry.rs#L2510  impl Checkpoint
+db/defregistry.rs#L2513  fn to_json
+db/defregistry.rs#L2518  fn from_json
+db/defregistry.rs#L2526  struct DefChange
+db/defregistry.rs#L2536  enum DefChangeKind
+db/defregistry.rs#L2555  fn diff_versions
+db/defregistry.rs#L2625  fn changed_files
+db/defregistry.rs#L2645  struct SystemDefSnapshot
+db/defregistry.rs#L2669  fn write_physical
+db/defregistry.rs#L2706  impl workspace::WorkspaceManager
+db/defregistry.rs#L2716  fn insert_def
+db/defregistry.rs#L2731  fn remove_project_defs_by_uri
+db/defregistry.rs#L2744  fn remove_lib_defs_by_uris
+db/defregistry.rs#L2754  fn insert_one
+db/defregistry.rs#L2767  fn remove_by_uri_from
+db/defregistry.rs#L2778  fn remove_by_uris_from
+db/defregistry.rs#L2790  mod tests
+db/defregistry.rs#L2806  fn sys_enum
+db/defregistry.rs#L2825  fn enum_def_with_values
+db/defregistry.rs#L2850  fn def_registry__registry_holds_exactly_six_def_kinds
+db/defregistry.rs#L2877  fn def_registry__def_id_allocation_is_deterministic_in_registration_order
+db/defregistry.rs#L2882  fn replay
+db/defregistry.rs#L2905  fn sn
+db/defregistry.rs#L2998  fn def_registry__diff_reports_same_id_content_edit_as_modified
+db/defregistry.rs#L3000  const NAME
+db/defregistry.rs#L3001  const URI
+db/defregistry.rs#L3088  fn def_registry__system_name_index_tracks_live_system_entries
+db/defregistry.rs#L3090  const NAME
+db/defregistry.rs#L3091  const URI
+db/defregistry.rs#L3172  fn def_registry__registry_is_the_read_authority_not_the_physical_mirror
+db/defregistry.rs#L3174  const NAME
+db/defregistry.rs#L3175  const URI
+db/defregistry.rs#L3222  fn def_registry__func_members_are_host_anchored_not_text_keyed
+db/defregistry.rs#L3224  const URI
+db/defregistry.rs#L3316  static TEST_FILE_SEQ
+db/defregistry.rs#L3325  fn def_registry__component_pin_ledger_merges_by_name_across_reparse
+db/defregistry.rs#L3327  const URI
+db/defregistry.rs#L3328  const NAME
+db/defregistry.rs#L3454  fn def_registry__checkpoint_diff_reports_add_remove_modify
+db/defregistry.rs#L3456  const NAME
+db/defregistry.rs#L3457  const URI
+db/defregistry.rs#L3550  fn def_registry__checkpoint_serializes_to_json_and_disk
+db/defregistry.rs#L3552  const NAME
+db/defregistry.rs#L3553  const URI
+db/defregistry.rs#L3596  fn def_registry__insert_def_lands_in_the_owning_world_not_the_global
+db/defregistry.rs#L3626  fn def_registry__remove_entries_target_the_owning_world
+db/defregistry.rs#L3666  fn def_registry__enumerate_in_uri_matches_the_full_view_cut_to_one_uri
+db/defregistry.rs#L3727  fn def_registry__enumerate_in_uri_tracks_removal_and_revival
 db/defspace.rs#L39  enum SourceDomain
 db/defspace.rs#L50  struct LibBoundary
 db/defspace.rs#L68  struct DefinitionSpace
@@ -7361,15 +7362,15 @@ semantic/validation/extra.rs#L18  fn run_post_parse
 semantic/validation/extra.rs#L112  fn check_empty_functions
 semantic/validation/extra.rs#L161  fn check_interface_pin_counts
 semantic/validation/extra.rs#L233  fn check_component_structure
-semantic/validation/extra.rs#L274  fn check_interface_structure
-semantic/validation/extra.rs#L301  fn check_default_type_mismatch
-semantic/validation/extra.rs#L372  fn check_instance_class_found
-semantic/validation/extra.rs#L406  fn check_bus_member_collision
-semantic/validation/extra.rs#L447  fn check_naming_convention
-semantic/validation/extra.rs#L479  fn check_reserved_names
-semantic/validation/extra.rs#L511  fn check_func_name_conflict
-semantic/validation/extra.rs#L547  fn check_default_value_range
-semantic/validation/extra.rs#L602  fn check_duplicate_spec_keys
+semantic/validation/extra.rs#L276  fn check_interface_structure
+semantic/validation/extra.rs#L303  fn check_default_type_mismatch
+semantic/validation/extra.rs#L374  fn check_instance_class_found
+semantic/validation/extra.rs#L408  fn check_bus_member_collision
+semantic/validation/extra.rs#L449  fn check_naming_convention
+semantic/validation/extra.rs#L481  fn check_reserved_names
+semantic/validation/extra.rs#L513  fn check_func_name_conflict
+semantic/validation/extra.rs#L549  fn check_default_value_range
+semantic/validation/extra.rs#L604  fn check_duplicate_spec_keys
 semantic/validation/finding.rs#L40  struct CheckFinding
 semantic/validation/finding.rs#L61  impl From<CheckResult> for CheckFinding
 semantic/validation/finding.rs#L62  fn from
@@ -11577,4 +11578,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-419 files, 11494 declarations.
+419 files, 11495 declarations.
