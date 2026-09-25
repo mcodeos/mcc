@@ -509,6 +509,52 @@ pub fn handle_show_core_erc(_params: Option<Value>) -> RpcResult {
     Ok(serde_json::to_value(payload).unwrap_or(Value::Null))
 }
 
+// === handle_show_expectation (CIMP §1 U298 batch 4) ===
+
+/// `show.expectation`: the acceptance ledger of the loaded workspace's top.
+///
+/// The same rows the `mcc show expectation` CLI face emits, built by the same
+/// one read — one flat pass2 run plus the acceptance engine's own run ([`mcc::
+/// check::expectation::run`], the check gate's engine), so the two faces
+/// cannot spell the verdicts two ways. The result is the projection payload
+/// itself ([`StageViewData`]) with `view` = `expectation`; the CLI
+/// additionally attaches it under the `stage` key of its command envelope. A
+/// readout, never a gate.
+pub fn handle_show_expectation(_params: Option<Value>) -> RpcResult {
+    let entry_mod = crate::mcb_iter_modules().into_iter().next();
+    let Some((name, uri)) = entry_mod else {
+        return Err(JsonRpcError::custom(32107, "no module loaded"));
+    };
+    let entry = crate::McSpaceName {
+        ident: crate::McIds::from(name.as_str()),
+        uri: crate::uri_intern(&uri),
+    };
+    let (_tree, table) = crate::mcb_pass2_flat(&entry, 1).map_err(|e| {
+        JsonRpcError::custom(32107, &format!("expectation: flat pass2 failed: {e}"))
+    })?;
+    let Some((_, module)) = crate::definition_space()
+        .workspace_modules()
+        .into_iter()
+        .find(|(sn, _)| sn.ident.to_string() == name && sn.uri == crate::uri_intern(&uri))
+        .or_else(|| {
+            crate::definition_space()
+                .workspace_modules()
+                .into_iter()
+                .find(|(sn, _)| sn.ident.to_string() == name)
+        })
+    else {
+        return Err(JsonRpcError::custom(
+            32107,
+            &format!("expectation: no module named '{name}'"),
+        ));
+    };
+    let report = crate::check::expectation::run(&table, &module.expects, &module.uri);
+    let view =
+        crate::stages::expectview::expectation_view(&name, &module.expects, &report, &module.uri);
+    let payload = crate::stages::payload::StageViewData::from(&view);
+    Ok(serde_json::to_value(payload).unwrap_or(Value::Null))
+}
+
 // === handle_show_file (lines 2778-2822 in original) ===
 
 pub fn handle_show_file(params: Option<Value>) -> RpcResult {

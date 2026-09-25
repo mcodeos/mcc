@@ -19,6 +19,7 @@ mod diag_view_golden;
 mod det_probe;
 mod diff_saved_readings;
 mod equi_e2e;
+mod expect_view;
 mod erc_single_ruler;
 mod expr_dot_curly;
 mod flatten_net_check_diagnostics;

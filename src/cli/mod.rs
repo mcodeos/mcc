@@ -677,6 +677,16 @@ pub enum ShowTarget {
     // and renders to both faces. A readout, never a gate.
     CoreErc,
 
+    // The acceptance ledger in one read (projection-schema-design.md §2.6;
+    // CIMP §1 U298 batch 4): the whole per-row verdict account for the top's
+    // declared `expects` — PASS and DEFER rows included, where the
+    // diagnostics view carries only the FAIL violations. One acceptance run
+    // (the check gate's own engine) feeds both faces. Emits the projection
+    // envelope with `view` = "expectation" and renders to both faces. A
+    // readout, never a gate: the exit code stays 0 whatever the verdicts
+    // hold.
+    Expectation,
+
     // Entity internals drill-down (<name> = owning entity, required)
     // Pins of a component / interface
     Pins,
@@ -708,8 +718,8 @@ impl ShowTarget {
     /// Shared by clap's value parsing (the variant names are the tokens, with no
     /// `#[value(name = …)]` override anywhere in the enum) and by the emitted
     /// envelope's `command` — `mcc show <token>` — which is the **only**
-    /// discriminator among the 24 sub-faces sharing the `show` projection key:
-    /// 19 of their payloads carry no `type` field of their own. One table, so a
+    /// discriminator among the sub-faces sharing the `show` projection key
+    /// (most payloads carry no `type` field of their own). One table, so a
     /// new sub-face cannot land a token in one place and not the other; the
     /// pairing is asserted by the test below.
     pub fn name(self) -> &'static str {
@@ -733,6 +743,7 @@ impl ShowTarget {
             Self::Netlist => "netlist",
             Self::Project => "project",
             Self::CoreErc => "core-erc",
+            Self::Expectation => "expectation",
             Self::Pins => "pins",
             Self::Ports => "ports",
             Self::Labels => "labels",

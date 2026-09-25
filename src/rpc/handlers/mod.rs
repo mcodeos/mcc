@@ -2843,6 +2843,10 @@ pub static METHODS: &[MethodMeta] = &[
         consumer: "cli",
     },
     MethodMeta {
+        name: "show.expectation",
+        consumer: "cli",
+    },
+    MethodMeta {
         name: "show.nets",
         consumer: "cli",
     },
@@ -3126,6 +3130,7 @@ pub fn register_all(
     builder = builder.register_method("show.netlist", handle_show_netlist);
     builder = builder.register_method("show.project", handle_show_project);
     builder = builder.register_method("show.core-erc", handle_show_core_erc);
+    builder = builder.register_method("show.expectation", handle_show_expectation);
     builder = builder.register_method("show.file", handle_show_file);
     builder = builder.register_method("show.files", handle_show_files);
     builder = builder.register_method("show.enum", handle_show_enum);

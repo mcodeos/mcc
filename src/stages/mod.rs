@@ -34,6 +34,7 @@
 
 pub mod corercview;
 pub mod diagview;
+pub mod expectview;
 pub mod join;
 pub mod netlistview;
 pub mod p2;
@@ -130,8 +131,9 @@ pub const ORG_UNITS_VIEW: &str = "org-units";
 /// `schema/projection.cddl`'s `view-name` the canonical read projections; a
 /// face may publish one only once its serde payload group has landed — the
 /// carried words so far are `diagnostics` ([`diagview`]), `netlist`
-/// ([`netlistview`]), `project-model` ([`projmodel`]) and `core-erc`
-/// ([`corercview`]), the other two are still v1 reservations, and
+/// ([`netlistview`]), `project-model` ([`projmodel`]), `core-erc`
+/// ([`corercview`]) and `expectation` ([`expectview`]), `diff` is the last
+/// v1 reservation, and
 /// publishing one of those would be impersonating a projection that does not
 /// exist. The lock `tests/shard7/view_vocabulary.rs` reads the canonical
 /// words from the CDDL, holds every published word that equals a canonical
@@ -153,6 +155,7 @@ pub fn published_views() -> Vec<&'static str> {
         netlistview::NETLIST_VIEW,
         projmodel::PROJECT_MODEL_VIEW,
         corercview::CORE_ERC_VIEW,
+        expectview::EXPECTATION_VIEW,
         stage_diff::DIFF_P2_VIEW,
         stage_diff::DIFF_VEC_VIEW,
         stage_diff::DIFF_VIZ_VIEW,

@@ -88,6 +88,7 @@ fn run_local(args: &ShowArgs) -> Result<()> {
         ShowTarget::Netlist => show_netlist(loaded.as_deref()),
         ShowTarget::Project => show_project(loaded.as_deref()),
         ShowTarget::CoreErc => show_core_erc(loaded.as_deref()),
+        ShowTarget::Expectation => show_expectation(loaded.as_deref()),
 
         // drill-down
         ShowTarget::Pins => drill_pins(require_name(args), args),
@@ -1770,6 +1771,74 @@ fn show_core_erc(loaded: Option<&str>) -> Result<()> {
         return write_stage_text(&mcc::stages::corercview::render_core_erc_text(&view));
     }
     emit_stage_envelope(&view, "mcc show core-erc")
+}
+
+/// The `expectation` read face (projection-schema-design.md §2.6; CIMP §1
+/// U298 batch 4): the acceptance ledger as one projection envelope.
+///
+/// The read is one flat pass2 run plus the acceptance engine's own run —
+/// the same engine the `check` gate judges with (cli-design §6.3: one
+/// derivation, two faces), so a row cannot PASS here and FAIL there. The
+/// ledger is the top module's own; a top with no `expects` reads as an
+/// empty ledger, which the schema spells "not a violation". law C holds as
+/// on the other views: the exit code stays 0 whatever the verdicts hold.
+fn show_expectation(loaded: Option<&str>) -> Result<()> {
+    let Some(uri) = loaded else {
+        return Ok(());
+    };
+    // The top resolves the way every read face resolves it (`read::load`): an
+    // explicit `--top`, else the workspace's first module — a per-file module
+    // lookup here would pick by intern order and split the faces.
+    let top = mcc::cli::globals()
+        .top
+        .clone()
+        .or_else(mcc::mcb_get_first_module_name)
+        .or_else(|| {
+            loaded.and_then(|uri| mcc::mcb_get_module_name_by_uri(&mcc::McURI::from(uri)))
+        })
+        .unwrap_or_else(|| "main".to_string());
+    let entry = mcc::McSpaceName {
+        ident: mcc::McIds::from(top.as_str()),
+        uri: mcc::uri_intern(uri),
+    };
+    // A flattening that did not happen leaves nothing to judge on — fail
+    // loudly rather than print an empty reading and say nothing (the U93
+    // split).
+    let (_tree, table) = match mcc::mcb_pass2_flat(&entry, 1) {
+        Ok(pair) => pair,
+        Err(e) => die!("mcc::show", 1, "expectation: flat pass2 failed: {e}"),
+    };
+    // The ledger rides the module the top names — the same lookup the check
+    // gate applies (uri match first, the ident alone as fallback), so both
+    // faces judge the same module's rows.
+    let Some((_, module)) = mcc::definition_space()
+        .workspace_modules()
+        .into_iter()
+        .find(|(sn, _)| sn.ident.to_string() == top && sn.uri == mcc::uri_intern(uri))
+        .or_else(|| {
+            mcc::definition_space()
+                .workspace_modules()
+                .into_iter()
+                .find(|(sn, _)| sn.ident.to_string() == top)
+        })
+    else {
+        die!("mcc::show", 1, "expectation: no module named '{top}'");
+    };
+    let report = mcc::check::expectation::run(&table, &module.expects, &module.uri);
+    let view = mcc::stages::expectview::expectation_view(&top, &module.expects, &report, &module.uri);
+
+    if matches!(
+        mcc::cli::globals().format,
+        OutputFormat::Text | OutputFormat::Csv
+    ) {
+        // CSV falls back to the text face for the same reason `show stage`
+        // does: a fixed-width readout is not CSV-safe (a path may contain a
+        // comma), so a real CSV face would be a decision of its own.
+        return write_stage_text(&mcc::stages::expectview::render_expectation_text(
+            &view,
+        ));
+    }
+    emit_stage_envelope(&view, "mcc show expectation")
 }
 
 /// Write the stage text face to `--output` or stdout, the same way
