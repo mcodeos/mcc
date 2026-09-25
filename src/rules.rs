@@ -1953,7 +1953,8 @@ mod tests {
     use super::*;
     use crate::errcodes::{
         ABSTRACT_PART_UNSELECTED, AC_FACE_RETURN_MISSING, AC_NOMINAL_CONFLICT,
-        ANALOG_RETURN_MISMATCH, BRIDGE_LOAD_DECOUPLING_MISSING,
+        ANALOG_RETURN_MISMATCH, BOM_KEY_NOT_SLOT, BOM_VALUE_NOT_DESCENDANT,
+        BRIDGE_LOAD_DECOUPLING_MISSING,
         CLAMP_REF_NOT_PROTECTIVE, COMBINE_OUTPUT_TOL, CROSS_BARRIER_NET,
         DECOUPLING_RETURN_MISMATCH, DEVICE_RETURN_SPAN_UNDECLARED, EARTH_DC_LEAK,
         EXPOSED_NET_DOWNSTREAM_UNPROTECTED, EXPOSED_NET_NO_CLAMP, FILTER_SUBFACE_OVERREACH,
@@ -1980,7 +1981,7 @@ mod tests {
     /// The execution order of the migrated `nets::run_net_checks` call table.
     /// This is the lock that keeps catalog declaration order byte-identical to
     /// the pre-registry runner sequence.
-    const FLAT_ERC_ORDER: [u32; 60] = [
+    const FLAT_ERC_ORDER: [u32; 62] = [
         NET_MULTI_DRIVE,                    // P1
         NET_NO_DRIVER,                      // P2
         NET_INPUT_UNCONNECTED,              // P5
@@ -1995,6 +1996,8 @@ mod tests {
         NET_DANGLING_ENDPOINT,              // self-loop
         NET_PARTIAL_CONNECTION,             // pin count vs definition
         ABSTRACT_PART_UNSELECTED,           // abstract-variant
+        BOM_VALUE_NOT_DESCENDANT,           // bom block value vs slot class (U290)
+        BOM_KEY_NOT_SLOT,                   // bom key vs abstract slot (U290)
         NET_BIDIR_UNCONNECTED,              // floating outputs
         POWER_BRIDGE_LOOP,                  // PWR-2 (power-intent L1)
         CLAMP_REF_NOT_PROTECTIVE,           // PWR-7 (power-intent L1)
@@ -2577,7 +2580,10 @@ mod tests {
         // 166 = +5512/5513 (the @pair group gates, tests/shard3/declared_diff_pair.rs).
         // 167 = +6054 (the exclusive-peer gate, tests/shard7/iface_exclusive_peer.rs).
         // 170 = +6057/6058/6059 (the AC face gates, tests/shard7/ac_face_gates.rs).
-        assert_eq!((strong, doc, note), (170, 0, 3));
+        // 172 = +5067/5068 (the bom gates, tests/shard6/bom_binding.rs)
+        //       -2009 (the mixed-separator lint, retired in U296)
+        //       +5207 (the default-unit mismatch gate, U299).
+        assert_eq!((strong, doc, note), (172, 0, 3));
         assert_eq!(strong + doc + note, rule_count());
     }
 
