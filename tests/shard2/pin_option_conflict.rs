@@ -3,7 +3,7 @@
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
 //! Connection-time pin option conflict detection (§4.2 check 2 / §4.3
-//! `used_options`, U289 C1).
+//! `used_options`, U289 C1; dotted curly-group face U301).
 //!
 //! A `|` option group gives one physical pin several names. When two names
 //! of DIFFERENT options reach the same pin through connections, the pin is
@@ -12,12 +12,11 @@
 //! (`1 = A | B`, a single-pinid row, §2.7) shares one option ordinal, and
 //! two pins of the same option are two pins.
 //!
-//! Known boundary (not locked here as expected-pass): a DOTTED option member
-//! (`u.SPI0.SCLK`, interface or bus option) is silently dropped before it
-//! reaches the resolver, so a cross-option conflict written in dotted form
-//! cannot fire today. That drop is a separate pre-existing gap (zero
-//! diagnostics on a vanished statement); this lock holds the bare-name face,
-//! which is what the resolver actually sees.
+//! The dotted curly-group members (`u.SPI0.SCLK`, `u.SPI0{SCLK}`) resolve
+//! through the bus-port lane expansion (P3-1) — that arm records the option
+//! use under the registration spelling (`SPI0.SCLK`), so the curly face
+//! participates in E5156 exactly like the flat face. A bare leaf segment
+//! (`u.SCLK`) is NOT a registered name for a dotted pin and stays E3179.
 
 use crate::common;
 
@@ -142,5 +141,119 @@ module main
         conflicts_of(src),
         0,
         "a single-option group cannot conflict with itself"
+    );
+}
+
+/// The dotted curly-group face (U301): the dotted member `u.SPI0.SCLK`
+/// resolves through the bus-port lane expansion and records option 0; the
+/// flat `u.PB5` is option 1 — one physical pin asked for both is the
+/// conflict, reported once.
+#[test]
+fn pin_opt__dotted_member_cross_option_reports() {
+    let src = r#"
+component CU
+{
+    pins = [
+        io [1,2] = SPI0{SCLK, MOSI}
+                    | PB[5, 6]
+    ]
+}
+
+module main
+{
+    io VDD
+    CU u
+    u.SPI0.SCLK -> VDD
+    u.PB5 -> VDD
+}
+"#;
+    assert_eq!(
+        conflicts_of(src),
+        1,
+        "pin 1 reached as SPI0.SCLK (dotted) and PB5 (flat) is the option conflict"
+    );
+}
+
+/// The curly-group statement face records too: a one-lane `u.SPI0{SCLK}`
+/// group against the flat `u.PB5` option is the same cross-option conflict.
+#[test]
+fn pin_opt__curly_group_face_cross_option_reports() {
+    let src = r#"
+component CG
+{
+    pins = [
+        io [1,2] = SPI0{SCLK, MOSI}
+                    | PB[5, 6]
+    ]
+}
+
+module main
+{
+    io VDD
+    CG u
+    u.SPI0{SCLK} -> VDD
+    u.PB5 -> VDD
+}
+"#;
+    assert_eq!(
+        conflicts_of(src),
+        1,
+        "the curly group lane records its option like the dotted spelling"
+    );
+}
+
+/// The dotted face repeating the SAME option never reports — the second use
+/// lands on the recorded ordinal, and identical ordinals are not a conflict.
+#[test]
+fn pin_opt__dotted_same_option_repeat_is_quiet() {
+    let src = r#"
+component DR
+{
+    pins = [
+        io [1,2] = SPI0{SCLK, MOSI}
+                    | PB[5, 6]
+    ]
+}
+
+module main
+{
+    io VDD
+    DR u
+    u.SPI0.SCLK -> VDD
+    u.SPI0.SCLK -> VDD
+}
+"#;
+    assert_eq!(
+        conflicts_of(src),
+        0,
+        "the same dotted member twice is one option, not a conflict"
+    );
+}
+
+/// The raw pin id stays option-neutral on the dotted face too: `u.1` and the
+/// dotted `u.SPI0.SCLK` reach the same pin without a conflict report.
+#[test]
+fn pin_opt__dotted_plus_id_is_quiet() {
+    let src = r#"
+component DI
+{
+    pins = [
+        io [1,2] = SPI0{SCLK, MOSI}
+                    | PB[5, 6]
+    ]
+}
+
+module main
+{
+    io VDD
+    DI u
+    u.SPI0.SCLK -> VDD
+    u.1 -> VDD
+}
+"#;
+    assert_eq!(
+        conflicts_of(src),
+        0,
+        "the pin id spelling carries no option and never conflicts"
     );
 }

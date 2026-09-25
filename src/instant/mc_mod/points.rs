@@ -2267,6 +2267,19 @@ impl InstantiationBuilder {
                     if let Some(comp) = self.find_component(owner) {
                         if let Some(pids) = comp.find_bus_port_pin_ids(port_base) {
                             if let Some((_, pin_id)) = pids.iter().find(|(m, _)| m == member) {
+                                // §4.2 check 2: this dotted member just reached
+                                // physical pin `pin_id` — record the option it
+                                // belongs to, spelled the way registration filed
+                                // it (`SPI0.SCLK`; concatenated for numeric
+                                // members, mirroring the Bus arm in
+                                // register_pin), so the curly-group face
+                                // participates in E5156 like every other face.
+                                let registered = if member.parse::<i64>().is_ok() {
+                                    format!("{port_base}{member}")
+                                } else {
+                                    format!("{port_base}.{member}")
+                                };
+                                self.note_pin_option_use(owner, &comp, &registered, pin_id);
                                 let path = format!("{owner}.{pin_id}");
                                 let iotype =
                                     comp.def.pins.get_pin_io(pin_id).unwrap_or(IOType::None);
