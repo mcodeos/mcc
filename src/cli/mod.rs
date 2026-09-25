@@ -11,6 +11,7 @@
 // the declaration together with the module file.
 pub mod config;
 pub mod datadir;
+pub mod loadctx;
 pub mod manifest;
 pub mod outlet;
 pub mod rpcclient;
