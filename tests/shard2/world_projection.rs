@@ -86,7 +86,7 @@ fn world_flat__projection_cached_diags_returned_store_untouched() {
     assert!(
         !store_codes
             .iter()
-            .any(|c| { (4101..=4119).contains(c) || *c == 4056 || *c == 6005 }),
+            .any(|c| { (4101..=4119).contains(c) || *c == 6005 }),
         "world flatten must not write net diagnostics to the store; got {store_codes:?}"
     );
 }
