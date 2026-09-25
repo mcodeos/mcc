@@ -39,13 +39,25 @@ pub enum Verdict {
 }
 
 /// One row's outcome: what was asked, how it landed, and the human sentence.
+///
+/// `kind` is the projection contract's word (`schema/projection.cddl` §2.6),
+/// not a private spelling — the acceptance ledger view carries it verbatim,
+/// and the fifth canonical word `presence` stays reserved until a row form
+/// asks bare existence.
 #[derive(Debug)]
 pub struct RowOutcome {
     pub target: String,
-    /// The row form: `class` | `driven` | `window`.
+    /// The row form: `role-match` | `driven` | `value-bound`.
     pub kind: &'static str,
     pub verdict: Verdict,
     pub detail: String,
+    /// The row's own source span (P1a §3 LHS) — the ledger view's `expect`
+    /// site. The uri is the ledger's, which the caller already holds.
+    pub span: std::ops::Range<usize>,
+    /// A FAIL value-bound row's flattened measured side: the declared values
+    /// that fell outside the window, in the family's verbatim volt spelling.
+    /// `None` on every other verdict.
+    pub measured: Option<String>,
 }
 
 /// The whole ledger's outcome: per-row verdicts plus the FAIL diagnostics.
@@ -73,6 +85,16 @@ enum Finding {
     Violation(u32, Vec<String>),
 }
 
+/// One row's full judgment — the pieces [`run`] folds into the [`RowOutcome`].
+struct Judgment {
+    verdict: Verdict,
+    detail: String,
+    finding: Finding,
+    /// The measured side of a FAIL value-bound row (see
+    /// [`RowOutcome::measured`]); `None` everywhere else.
+    measured: Option<String>,
+}
+
 /// Judge every row of `module`'s expects ledger against the flat world
 /// `table`. `table` is the top module's own frozen world — the caller built it
 /// for exactly one entry, which is the engine-side top gate (§3: a module
@@ -90,6 +112,8 @@ pub fn run(table: &InstTable, ledger: &Ledger, uri: &McURI) -> ExpectationReport
                 kind: kind_label(&row.kind),
                 verdict: Verdict::Defer,
                 detail: "the top built no flat world — nothing to judge on".to_string(),
+                span: row.span.clone(),
+                measured: None,
             });
         }
         return report;
@@ -106,17 +130,21 @@ pub fn run(table: &InstTable, ledger: &Ledger, uri: &McURI) -> ExpectationReport
                 verdict: Verdict::Defer,
                 detail: "the row waits for a condition static checking cannot judge"
                     .to_string(),
+                span: row.span.clone(),
+                measured: None,
             });
             continue;
         }
-        let (kind, verdict, detail, finding) = judge(table, root, row);
+        let judgment = judge(table, root, row);
         report.outcomes.push(RowOutcome {
             target: row.target.clone(),
-            kind,
-            verdict,
-            detail,
+            kind: kind_label(&row.kind),
+            verdict: judgment.verdict,
+            detail: judgment.detail,
+            span: row.span.clone(),
+            measured: judgment.measured,
         });
-        if let Finding::Violation(code, args) = finding {
+        if let Finding::Violation(code, args) = judgment.finding {
             let level = if code == crate::errcodes::EXPECTATION_VALUE_OUT_OF_WINDOW {
                 DiagnosticLevel::Warning
             } else {
@@ -134,15 +162,17 @@ pub fn run(table: &InstTable, ledger: &Ledger, uri: &McURI) -> ExpectationReport
     report
 }
 
+/// The projection contract's word for a row form
+/// (`schema/projection.cddl` §2.6 `kind`).
 fn kind_label(kind: &Kind) -> &'static str {
     match kind {
-        Kind::Class(_) => "class",
+        Kind::Class(_) => "role-match",
         Kind::Driven => "driven",
-        Kind::Window { .. } => "window",
+        Kind::Window { .. } => "value-bound",
     }
 }
 
-fn judge(table: &InstTable, root: u32, row: &Row) -> (&'static str, Verdict, String, Finding) {
+fn judge(table: &InstTable, root: u32, row: &Row) -> Judgment {
     match &row.kind {
         Kind::Class(word) => judge_class(table, root, &row.target, word),
         Kind::Driven => judge_driven(table, root, &row.target),
@@ -163,38 +193,37 @@ fn judge_class(
     root: u32,
     target: &str,
     word: &str,
-) -> (&'static str, Verdict, String, Finding) {
+) -> Judgment {
     let Some(inst) = find_instance(table, root, target) else {
-        return (
-            "class",
-            Verdict::Fail,
-            format!("no instance named '{target}' in the built top"),
-            Finding::Violation(
+        return Judgment {
+            verdict: Verdict::Fail,
+            detail: format!("no instance named '{target}' in the built top"),
+            finding: Finding::Violation(
                 crate::errcodes::EXPECTATION_TARGET_MISSING,
                 vec![target.to_string(), "instance".to_string()],
             ),
-        );
+            measured: None,
+        };
     };
     let faces = class_faces(inst);
     if faces.iter().any(|f| f == word) {
-        (
-            "class",
-            Verdict::Pass,
-            format!(
+        Judgment {
+            verdict: Verdict::Pass,
+            detail: format!(
                 "instance '{target}' instantiates '{}' — matches the expected '{word}'",
                 inst.class_name
             ),
-            Finding::Silent,
-        )
+            finding: Finding::Silent,
+            measured: None,
+        }
     } else {
-        (
-            "class",
-            Verdict::Fail,
-            format!(
+        Judgment {
+            verdict: Verdict::Fail,
+            detail: format!(
                 "instance '{target}' instantiates '{}' — no declared face matches '{word}'",
                 inst.class_name
             ),
-            Finding::Violation(
+            finding: Finding::Violation(
                 crate::errcodes::EXPECTATION_CLASS_MISMATCH,
                 vec![
                     target.to_string(),
@@ -203,7 +232,8 @@ fn judge_class(
                     faces.join(", "),
                 ],
             ),
-        )
+            measured: None,
+        }
     }
 }
 
@@ -255,39 +285,35 @@ fn class_faces(entry: &InstEntry) -> Vec<String> {
 
 // ── driven rows ──
 
-fn judge_driven(
-    table: &InstTable,
-    root: u32,
-    target: &str,
-) -> (&'static str, Verdict, String, Finding) {
+fn judge_driven(table: &InstTable, root: u32, target: &str) -> Judgment {
     let Some(net) = find_net(table, root, target) else {
-        return (
-            "driven",
-            Verdict::Fail,
-            format!("no net named '{target}' in the built top"),
-            Finding::Violation(
+        return Judgment {
+            verdict: Verdict::Fail,
+            detail: format!("no net named '{target}' in the built top"),
+            finding: Finding::Violation(
                 crate::errcodes::EXPECTATION_TARGET_MISSING,
                 vec![target.to_string(), "net".to_string()],
             ),
-        );
+            measured: None,
+        };
     };
     if net_has_driver(table, net) {
-        (
-            "driven",
-            Verdict::Pass,
-            format!("net '{target}' carries a declared driver"),
-            Finding::Silent,
-        )
+        Judgment {
+            verdict: Verdict::Pass,
+            detail: format!("net '{target}' carries a declared driver"),
+            finding: Finding::Silent,
+            measured: None,
+        }
     } else {
-        (
-            "driven",
-            Verdict::Fail,
-            format!("net '{target}' carries no declared driver"),
-            Finding::Violation(
+        Judgment {
+            verdict: Verdict::Fail,
+            detail: format!("net '{target}' carries no declared driver"),
+            finding: Finding::Violation(
                 crate::errcodes::EXPECTATION_NOT_DRIVEN,
                 vec![target.to_string()],
             ),
-        )
+            measured: None,
+        }
     }
 }
 
@@ -333,43 +359,43 @@ fn judge_window(
     target: &str,
     low: Option<&str>,
     high: Option<&str>,
-) -> (&'static str, Verdict, String, Finding) {
+) -> Judgment {
     let Some(net) = find_net(table, root, target) else {
-        return (
-            "window",
-            Verdict::Fail,
-            format!("no net named '{target}' in the built top"),
-            Finding::Violation(
+        return Judgment {
+            verdict: Verdict::Fail,
+            detail: format!("no net named '{target}' in the built top"),
+            finding: Finding::Violation(
                 crate::errcodes::EXPECTATION_TARGET_MISSING,
                 vec![target.to_string(), "net".to_string()],
             ),
-        );
+            measured: None,
+        };
     };
     let declared = declared_voltages(table, net);
     if declared.is_empty() {
         // §5.1: no declared DC fact to compare — the row waits for sim.
-        return (
-            "window",
-            Verdict::Defer,
-            format!(
+        return Judgment {
+            verdict: Verdict::Defer,
+            detail: format!(
                 "net '{target}' declares no DC rail value — the row waits for sim"
             ),
-            Finding::Silent,
-        );
+            finding: Finding::Silent,
+            measured: None,
+        };
     }
     // Both sides must bind as volt quantities through the eval text path; a
     // side that cannot is outside the static gate's reach, not a violation.
     let low_v = low.map(parse_volt);
     let high_v = high.map(parse_volt);
     if low.is_some_and(|_| low_v.is_none()) || high.is_some_and(|_| high_v.is_none()) {
-        return (
-            "window",
-            Verdict::Defer,
-            format!(
+        return Judgment {
+            verdict: Verdict::Defer,
+            detail: format!(
                 "the window of the row on '{target}' is not a volt window — outside the static gate's reach"
             ),
-            Finding::Silent,
-        );
+            finding: Finding::Silent,
+            measured: None,
+        };
     }
     let outside: Vec<f64> = declared
         .iter()
@@ -377,32 +403,30 @@ fn judge_window(
         .filter(|v| !in_window(*v, low_v.flatten(), high_v.flatten()))
         .collect();
     if outside.is_empty() {
-        (
-            "window",
-            Verdict::Pass,
-            format!(
+        Judgment {
+            verdict: Verdict::Pass,
+            detail: format!(
                 "net '{target}' declares {} — inside the window",
                 fmt_volts(&declared)
             ),
-            Finding::Silent,
-        )
+            finding: Finding::Silent,
+            measured: None,
+        }
     } else {
-        (
-            "window",
-            Verdict::Fail,
-            format!(
-                "net '{target}' declares {} — outside the window",
-                fmt_volts(&outside)
-            ),
-            Finding::Violation(
+        let measured = fmt_volts(&outside);
+        Judgment {
+            verdict: Verdict::Fail,
+            detail: format!("net '{target}' declares {measured} — outside the window"),
+            finding: Finding::Violation(
                 crate::errcodes::EXPECTATION_VALUE_OUT_OF_WINDOW,
                 vec![
                     target.to_string(),
-                    fmt_volts(&outside),
+                    measured.clone(),
                     fmt_window(low, high),
                 ],
             ),
-        )
+            measured: Some(measured),
+        }
     }
 }
 

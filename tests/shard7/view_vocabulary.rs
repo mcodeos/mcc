@@ -74,7 +74,13 @@ fn cddl_view_name_rule_is_exactly_the_six_ruled_words() {
 /// — kept honest by the member-set guard below and the golden byte lock in
 /// `diag_view_golden.rs`. Publishing a second canonical word means landing
 /// its group first, then adding it here.
-const CARRIED_CANONICAL_VIEWS: &[&str] = &["core-erc", "diagnostics", "netlist", "project-model"];
+const CARRIED_CANONICAL_VIEWS: &[&str] = &[
+    "core-erc",
+    "diagnostics",
+    "expectation",
+    "netlist",
+    "project-model",
+];
 
 #[test]
 fn no_published_view_impersonates_an_uncarried_canonical_word() {
@@ -108,6 +114,7 @@ fn registry_covers_every_producer_constant() {
     stamped.push(stages::netlistview::NETLIST_VIEW);
     stamped.push(stages::projmodel::PROJECT_MODEL_VIEW);
     stamped.push(stages::corercview::CORE_ERC_VIEW);
+    stamped.push(stages::expectview::EXPECTATION_VIEW);
     stamped.push(stages::stage_diff::DIFF_P2_VIEW);
     stamped.push(stages::stage_diff::DIFF_VEC_VIEW);
     stamped.push(stages::stage_diff::DIFF_VIZ_VIEW);
@@ -416,4 +423,82 @@ fn cddl_core_erc_groups_members_are_exactly_the_serialized_fields() {
         required,
         "v1 serializes no loc side table until a producer exists"
     );
+}
+
+/// The same guard for the fifth carried group: a fully populated
+/// `ExpectationVerdict` (FAIL value-bound row) serializes exactly the CDDL
+/// `expectation-verdict` member set; a PASS row omits every optional member
+/// — `bound`, `code`, `level`, `measured`, `fix_hint` — and nothing else.
+#[test]
+fn cddl_expectation_group_members_are_exactly_the_serialized_fields() {
+    use mcc::stages::diagview::DiagLoc;
+    use mcc::stages::expectview::{Bound, ExpectationVerdict};
+
+    let keys = |v: &serde_json::Value| -> Vec<String> {
+        let mut keys: Vec<String> = v
+            .as_object()
+            .expect("ExpectationVerdict serializes to an object")
+            .keys()
+            .cloned()
+            .collect();
+        keys.sort();
+        keys
+    };
+
+    let full = ExpectationVerdict {
+        expect: DiagLoc {
+            uri: "file://x.mc".to_string(),
+            line: 3,
+            span: Some(12),
+        },
+        target: "RAW".to_string(),
+        kind: "value-bound".to_string(),
+        bound: Some(Bound {
+            low: Some("3.0V".to_string()),
+            high: None,
+        }),
+        verdict: "FAIL".to_string(),
+        code: Some("E9004".to_string()),
+        level: Some("warning".to_string()),
+        measured: Some("3.4V".to_string()),
+        fix_hint: Some("hint".to_string()),
+    };
+    assert_eq!(
+        keys(&serde_json::to_value(&full).expect("full item serializes")),
+        cddl_group_members("expectation-verdict ="),
+        "the serialized `expectation-verdict` and the CDDL group drifted"
+    );
+
+    let pass = ExpectationVerdict {
+        expect: DiagLoc {
+            uri: "file://x.mc".to_string(),
+            line: 1,
+            span: Some(8),
+        },
+        target: "u1".to_string(),
+        kind: "role-match".to_string(),
+        bound: None,
+        verdict: "PASS".to_string(),
+        code: None,
+        level: None,
+        measured: None,
+        fix_hint: None,
+    };
+    let mut required = cddl_group_members("expectation-verdict =");
+    required.retain(|m| m != "bound" && m != "code" && m != "level" && m != "measured" && m != "fix_hint");
+    assert_eq!(
+        keys(&serde_json::to_value(&pass).expect("pass item serializes")),
+        required,
+        "a PASS row must omit exactly the optional members"
+    );
+
+    // A one-sided window serializes the stated side only — absent, not null.
+    let v = serde_json::to_value(full.bound.expect("full has a bound")).expect("bound serializes");
+    let bkeys: Vec<String> = v
+        .as_object()
+        .expect("bound serializes to an object")
+        .keys()
+        .cloned()
+        .collect();
+    assert_eq!(bkeys, vec!["low".to_string()], "absent side must be omitted");
 }

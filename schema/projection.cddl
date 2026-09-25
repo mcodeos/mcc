@@ -183,12 +183,14 @@ expectation-verdict = {
   expect: loc               ; source position of the expects entry (P1a §3)
   target: tstr              ; referenced symbol (instance / net / rail name)
   kind: "presence" / "role-match" / "driven" / "value-bound"
-  ? bound: { low: typed, high: typed }
+  ? bound: { ? low: typed, ? high: typed }   ; a side the row does not state
+                            ; is absent, never null (the ratings-bound rule)
   verdict: verdict
   code: tstr                ; EXPECTATION_* (9xxx family; numbered from the
                             ; errcodes single source at implementation)
-  level: "error" / "warning"    ; structural violation = error, value-bound
-                                ; overrun = warning
+  ? level: "error" / "warning"  ; FAIL items only -- structural violation =
+                                ; error, value-bound overrun = warning; a
+                                ; PASS/DEFER row has no violation to grade
   ? measured: typed         ; FAIL value-bound entries: flattened measured value
   ? fix_hint: tstr
 }
