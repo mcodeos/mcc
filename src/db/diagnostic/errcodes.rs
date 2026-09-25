@@ -231,9 +231,6 @@ pub const USE_IMPORT_SYMBOL_NOT_FOUND: u32 = 2007;
 /// A symbol in pub use import(...) was not found and cannot be re-exported.
 pub const USE_REEXPORT_SYMBOL_NOT_FOUND: u32 = 2008;
 
-/// A use path mixes '.' and '/' separators.
-pub const USE_MIXED_PATH_SEPARATORS: u32 = 2009;
-
 /// Unexpected trailing node in a USE statement; it is ignored.
 pub const USE_TRAILING_NODE: u32 = 2010;
 
@@ -870,9 +867,6 @@ pub const LEAD_PREFIX_ID_AS_WIRE: u32 = 4058;
 /// Registration kept, no producer (live definition-side variant:
 /// HW_FUNC_PARAM_SHADOWS_PIN 5510).
 pub const FUNC_PARAM_SHADOWS_PIN: u32 = 4059;
-
-/// Pullup/pulldown degenerated into a signal-signal bridge.
-pub const PULLUP_DEGENERATE: u32 = 4056;
 
 /// A single-element square bracket expands to an unknown instance; the statement may produce no
 /// nets or constraints.
@@ -2424,7 +2418,6 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(USE_VERSIONED_TARGET_NOT_FOUND, "The versioned use target file was not found.", "The versioned use target file was not found."),
     entry!(USE_IMPORT_SYMBOL_NOT_FOUND, "A symbol listed in use import(...) was not found in the target file.", "A symbol listed in use import(...) was not found in the target file."),
     entry!(USE_REEXPORT_SYMBOL_NOT_FOUND, "A symbol in pub use import(...) was not found and cannot be re-exported.", "A symbol in pub use import(...) was not found and cannot be re-exported."),
-    entry!(USE_MIXED_PATH_SEPARATORS, "A use path mixes '.' and '/' separators.", "A use path mixes '.' and '/' separators."),
     entry!(USE_TRAILING_NODE, "Unexpected trailing node in a USE statement; it is ignored.", "unexpected trailing node {0} in USE statement; it is ignored"),
     // section
     entry!(USE_DEP_NOT_DECLARED, "Use of an undeclared dependency — add it to project.toml [dependencies] or load via --lib.", "use of undeclared dependency '{0}': add it to project.toml [dependencies] or load via --lib"),
@@ -2584,7 +2577,6 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(LEAD_PREFIX_ID_AS_WIRE, "'_X' is a prefix identifier (member name), not the wire '_'.", "PREFIX_ID_AS_WIRE: '{0}' is a prefix identifier (member name) like '_OPEN', not the wire '_'. If you meant pass-through in a connection line, write '_' instead."),
     entry!(FUNC_PARAM_SHADOWS_PIN, "Retired: no producer.", "Retired - no producer. The legacy edge path was removed; binding is name-first and a same-named pin is shadowed by design. The definition-side check lives on as HW_FUNC_PARAM_SHADOWS_PIN (5510)."),
     entry!(GHOST_PORT, "A net endpoint is not mapped to any box — possible unexposed module boundary port.", "GHOST_PORT: net '{0}' endpoint id={1} is not mapped to any box. This pin may cross a module boundary without being properly exposed as a port."),
-    entry!(PULLUP_DEGENERATE, "Pullup/pulldown degenerated into a signal-signal bridge.", "PULLUP_DEGENERATE: '{0}' both ends are non-rail nets ({1} ~ {2}). Pullup/Pulldown may have degenerated into a signal-signal bridge instead of (signal, rail)."),
     entry!(NET_DROPPED_STATEMENT, "A connection statement materialized no physical pins; no nets or constraints were produced.", "DROPPED_STATEMENT: {0} {1}. The statement may produce no nets or constraints."),
     entry!(NET_DUPLICATE_REF, "Same logical net referenced more than once in a connection, always pairing to the same peer net — redundant.", "DUPLICATE_REF: logical net '{0}' is referenced more than once and always pairs to the same net '{1}'. The result is identical to '{0} -> {1}'; simplify the redundant reference."),
     entry!(NET_SHORT_REF, "Same logical net referenced more than once in a connection, pairing to different peer nets — possible short.", "SHORT_REF: logical net '{0}' is referenced more than once and pairs to different nets [{1}]. Those nets are shorted together through the same-name group's pads; review the connection."),

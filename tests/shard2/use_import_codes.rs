@@ -15,7 +15,6 @@
 //! | 2006 USE_VERSIONED_TARGET_NOT_FOUND | `use $::nonexistent.lib@1.0` never loaded | 2003/2052/3157/5256 |
 //! | 2007 USE_IMPORT_SYMBOL_NOT_FOUND | `use ./tgt.mc : NOPE`, tgt exports only BETA | 2007+2071 |
 //! | 2008 USE_REEXPORT_SYMBOL_NOT_FOUND | same but `pub use` | +2007/2071 |
-//! | 2009 USE_MIXED_PATH_SEPARATORS | loaded file under a dot-namespaced dir segment | 5642 |
 //! | 2071 USE_IMPORTED_NOT_FOUND | load-time parse_nsp miss on the colon import | +2007 |
 //!
 //! 2061 USE_SYMBOL_CONFLICT needs a temp `MCC_SYSTEM_ROOT` resolved before the
@@ -160,30 +159,6 @@ fn sem_useimp__imported_not_found_reports_2071() {
     assert!(
         c.contains(&mcc::errcodes::USE_IMPORTED_NOT_FOUND),
         "load-time parse_nsp miss must report 2071; got codes: {c:?}"
-    );
-    let _ = std::fs::remove_dir_all(&dir);
-}
-
-/// 2009 USE_MIXED_PATH_SEPARATORS (body.rs L1): any loaded workspace file
-/// whose URI mixes a '/' path with a dot-namespace directory segment. The
-/// honest shape is a file inside a directory whose name contains a dot.
-#[test]
-fn sem_useimp__dot_namespaced_path_reports_2009() {
-    let _lock = common::lock();
-    common::reset();
-
-    let dir = fresh_dir("2009");
-    let dotted = dir.join("parts.one.lib");
-    let src = "module main {\n    io VDD\n}\n";
-    std::fs::create_dir_all(&dotted).unwrap();
-    let p = dotted.join("leaf.mc");
-    std::fs::write(&p, src).unwrap();
-    let uri = p.canonicalize().unwrap().to_string_lossy().to_string();
-    mcc::mcc_load_from_string(&uri, src);
-    let c = codes();
-    assert!(
-        c.contains(&mcc::errcodes::USE_MIXED_PATH_SEPARATORS),
-        "dot-namespaced dir segment must report 2009; got codes: {c:?}"
     );
     let _ = std::fs::remove_dir_all(&dir);
 }

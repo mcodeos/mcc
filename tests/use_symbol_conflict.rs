@@ -18,7 +18,7 @@
 //! final module name with overlapping export symbol sets → 2061 at parse_nsp
 //! (mc_code.rs §14).
 //!
-//! The other reachable use/import codes (2004/2006/2007/2008/2009/2071) live
+//! The other reachable use/import codes (2004/2006/2007/2008/2071) live
 //! in tests/use_import_codes.rs; 2001/2002/2010 are context-gated (defensive
 //! arms the grammar never routes to), see that file's module doc.
 

@@ -5,7 +5,6 @@
 //! Body-level syntax and expression validation.
 //!
 //! Checks:
-//!   L1 — Mixed `.` and `/` path separators in URIs
 //!   S4 — `this` on LHS of `::` declaration
 //!   T1 — Bitwise operator (`&`/`|`) in condition context
 //!   C4-ext — Module port declared but never connected in any net
@@ -31,96 +30,9 @@ impl ValidationCheck for BodyCheck {
     }
 
     fn run_post_parse(&self, acc: &mut CheckAccumulator) {
-        check_mixed_path_separators(acc); // L1
         check_this_lhs_declaration(acc); // S4
         check_bitwise_in_condition(acc); // T1
         check_unconnected_module_ports(acc); // C4-ext
-    }
-}
-
-// L1: Mixed `.` and `/` path separators in URIs
-
-/// URIs should consistently use either `.` (dot-notation namespace, like
-/// `mcode.SPI`) or `/` (filesystem path notation, like `mcode/SPI`), but
-/// not both styles in the same URI. Mixed separators indicate a typo or
-/// inconsistent path construction.
-///
-/// A `.mc` file extension is excluded from consideration — only dots that
-/// appear as namespace separators (not followed by `mc` or other common
-/// extensions) count toward the "has dot" test.
-fn check_mixed_path_separators(acc: &mut CheckAccumulator) {
-    let mut seen: HashSet<String> = HashSet::new();
-    let mut uri_spans: std::collections::HashMap<String, std::ops::Range<usize>> =
-        std::collections::HashMap::new();
-
-    // Collect all unique URIs from all workspace tables
-    {
-        let comps = crate::definition_space().workspace_components();
-        for (sn, _) in comps.iter() {
-            seen.insert(sn.uri.to_string());
-        }
-        let ifaces = crate::definition_space().workspace_interfaces();
-        for (sn, _) in ifaces.iter() {
-            seen.insert(sn.uri.to_string());
-        }
-        let enums = crate::definition_space().workspace_enums();
-        for (sn, _) in enums.iter() {
-            seen.insert(sn.uri.to_string());
-        }
-        let modules = crate::definition_space().workspace_modules();
-        for (sn, module) in modules.iter() {
-            let uri = sn.uri.to_string();
-            let span = module.span.clone();
-            uri_spans.insert(uri.clone(), span.start..span.end);
-            seen.insert(uri);
-        }
-        let mcodes = &crate::db::cmie::tables::WORKSPACE.mcodes;
-        for e in mcodes.iter() {
-            seen.insert(e.key().clone());
-        }
-    }
-
-    for uri in &seen {
-        if super::is_test_file(uri) {
-            continue;
-        }
-
-        let has_slash = uri.contains('/');
-
-        // Check for dot-as-namespace-separator (not file extension).
-        // A dot that is followed by a known extension is excluded.
-        let has_namespace_dot = {
-            let dots: Vec<usize> = uri.match_indices('.').map(|(i, _)| i).collect();
-            dots.iter().any(|&pos| {
-                let after_dot = &uri[pos + 1..];
-                // Exclude common file extensions
-                !after_dot.starts_with("mc/")
-                    && !after_dot.starts_with("mc")
-                    && !after_dot.starts_with("json/")
-                    && !after_dot.starts_with("json")
-                    && !after_dot.starts_with("yaml/")
-                    && !after_dot.starts_with("yaml")
-                    && !after_dot.starts_with("toml/")
-                    && !after_dot.starts_with("toml")
-                    && after_dot.contains('.')
-            })
-        };
-
-        if has_slash && has_namespace_dot {
-            let span = uri_spans.get(uri).cloned();
-            acc.push(CheckResult {
-                check_name: "body",
-                severity: CheckSeverity::Warning,
-                uri: Some(uri.clone()),
-                span,
-                message: format!(
-                    "URI '{}' mixes '.' (namespace) and '/' (path) separators. \
-                     Use one style consistently.",
-                    uri
-                ),
-                code: crate::errcodes::USE_MIXED_PATH_SEPARATORS,
-            });
-        }
     }
 }
 

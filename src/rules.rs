@@ -73,7 +73,7 @@ use crate::semantic::validation::nets::{
     check_pin_copper_expectation, check_pin_count_mismatch, check_port_bind_role,
     check_port_io_mismatch, check_power_bridge_loop, check_power_nets, check_power_rail_contract,
     check_power_rail_two_roots, check_power_source_contention, check_protect_series_path,
-    check_protect_shunt_reference, check_protective_multi_bridge, check_pullup_degenerate,
+    check_protect_shunt_reference, check_protective_multi_bridge,
     check_rail_nature_consistency, check_reference_island_root, check_return_leg_undeclared,
     check_role_ref_missing_bridge, check_sensitive_return_on_noisy, check_shared_return_bridge,
     check_single_point_nets, check_sink_nominal_mismatch, check_sink_pin_decoupling,
@@ -705,19 +705,6 @@ pub static FLAT_ERC_RULES: &[FlatErcRule] = &[
         lock = "tests/flatten_net_check_diagnostics.rs",
         overridable = false,
         owner = check_floating_outputs,
-    },
-    // D7 (network-level pullup degradation)
-    declare_flat_erc_rule! {
-        code = crate::errcodes::PULLUP_DEGENERATE,
-        name = "pullup-degenerate",
-        title = "pullup degraded to signal bridge",
-        severity = Warning,
-        domain = Connectivity,
-        family = None,
-        doc = "A Pullup/Pulldown instance bridges two signals with neither end on a rail.",
-        lock = "tests/flatten_net_check_diagnostics.rs",
-        overridable = false,
-        owner = check_pullup_degenerate,
     },
     // PWR-2 (intent-design.md §3.4): a DC @bridge subgraph loop (parallel/
     // cyclic legs) with no @star discharge on a hub conduit.
@@ -1984,7 +1971,7 @@ mod tests {
         POWER_RAIL_DECODE, POWER_RAIL_TWO_ROOTS, POWER_SINK_NOMINAL_MISMATCH,
         POWER_SINK_WINDOW_MISMATCH, POWER_SOURCE_CONTENTION, PROTECTIVE_MULTI_BRIDGE,
         PROTECTIVE_PIN_NO_COPPER,
-        PROTECT_SERIES_NOT_IN_PATH, PROTECT_SHUNT_NO_REFERENCE, PULLUP_DEGENERATE,
+        PROTECT_SERIES_NOT_IN_PATH, PROTECT_SHUNT_NO_REFERENCE,
         RAIL_NATURE_MISMATCH, REFERENCE_ISLAND_ROOT, RETURN_LEG_UNDECLARED,
         ROLE_REF_MISSING_BRIDGE, SENSITIVE_RETURN_ON_NOISY, SHARED_RETURN_BRIDGE,
         SHUNT_DISSIPATION_OVER_RATING, SINK_NET_NO_SOURCE, SINK_PIN_NO_DECOUPLING,
@@ -1993,7 +1980,7 @@ mod tests {
     /// The execution order of the migrated `nets::run_net_checks` call table.
     /// This is the lock that keeps catalog declaration order byte-identical to
     /// the pre-registry runner sequence.
-    const FLAT_ERC_ORDER: [u32; 61] = [
+    const FLAT_ERC_ORDER: [u32; 60] = [
         NET_MULTI_DRIVE,                    // P1
         NET_NO_DRIVER,                      // P2
         NET_INPUT_UNCONNECTED,              // P5
@@ -2009,7 +1996,6 @@ mod tests {
         NET_PARTIAL_CONNECTION,             // pin count vs definition
         ABSTRACT_PART_UNSELECTED,           // abstract-variant
         NET_BIDIR_UNCONNECTED,              // floating outputs
-        PULLUP_DEGENERATE,                  // D7
         POWER_BRIDGE_LOOP,                  // PWR-2 (power-intent L1)
         CLAMP_REF_NOT_PROTECTIVE,           // PWR-7 (power-intent L1)
         POWER_RAIL_DECODE,                  // rail Volt-arg decode (L2)
@@ -2075,7 +2061,7 @@ mod tests {
     /// first-emission source order. This is the lock that keeps
     /// `POSTPARSE_RULES` byte-identical to the `validation/*` emission set;
     /// the object hosts stay the executor, so this anchors the catalog copy.
-    const POSTPARSE_ORDER: [u32; 96] = [
+    const POSTPARSE_ORDER: [u32; 95] = [
         // duplicate
         crate::errcodes::DUP_CMIE_CROSS_FILE,
         // dupwithin
@@ -2171,7 +2157,6 @@ mod tests {
         crate::errcodes::INST_ARG_COUNT_MISMATCH,
         crate::errcodes::ROLE_NAME_SHADOWS,
         // body
-        crate::errcodes::USE_MIXED_PATH_SEPARATORS,
         crate::errcodes::INST_THIS_TYPE,
         crate::errcodes::COND_SINGLE_BINARY,
         crate::errcodes::MODULE_PORT_UNUSED,
@@ -3541,18 +3526,8 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         doc = "Role shares its name with a parameter or pin/port.",
         lock = "tests/lock_pp_attrs_insts.rs",
     },
-    // body — BodyCheck: use-path shape, `this :: TYPE`, condition shape, and
+    // body — BodyCheck: `this :: TYPE`, condition shape, and
     // unused module ports.
-    declare_post_parse_rule! {
-        code = crate::errcodes::USE_MIXED_PATH_SEPARATORS,
-        name = "use-mixed-path-separators",
-        title = "use path mixes separators",
-        severity = Warning,
-        domain = RefIntegrity,
-        host = "body",
-        doc = "A use path mixes '.' and '/' separators.",
-        lock = "tests/use_import_codes.rs",
-    },
     declare_post_parse_rule! {
         code = crate::errcodes::INST_THIS_TYPE,
         name = "inst-this-type",
