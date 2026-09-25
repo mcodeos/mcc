@@ -395,6 +395,26 @@ fn check_default_type_mismatch(acc: &mut CheckAccumulator) {
                             });
                         }
                     }
+                    // Unit-typed whose default decodes into another unit
+                    // family (e.g. `3W` on ::UV.VOLT). The family was taken
+                    // from the AST at declaration, never re-guessed from text.
+                    // Must sit above the wildcard default arm below.
+                    McParamTypeKind::UnitValueDefault {
+                        unit,
+                        default_unit: Some(written),
+                        ..
+                    } if written != unit => {
+                        let unit_name = format!("{:?}", unit);
+                        acc.push(CheckResult {
+                            check_name: "extra", severity: CheckSeverity::Warning,
+                            uri: Some(uri.clone()), span: Some(comp.span.start..comp.span.end),
+                            message: format!(
+                                "Param '{}' is ::UV.{} but default '{}' is written in another unit family.",
+                                pname, unit_name, def
+                            ),
+                            code: crate::errcodes::PARAM_UV_DEFAULT_UNIT_MISMATCH,
+                        });
+                    }
                     // Unit-typed with plain number (no unit suffix)
                     McParamTypeKind::UnitValue { unit }
                     | McParamTypeKind::UnitValueDefault { unit, .. } => {
@@ -409,6 +429,23 @@ fn check_default_type_mismatch(acc: &mut CheckAccumulator) {
                                 message: format!(
                                     "Param '{}' is ::UV.{} but default '{}' has no unit suffix. Add e.g. '5V'.",
                                     pname, unit_name, def
+                                ),
+                                code: crate::errcodes::PARAM_UV_DEFAULT_NO_UNIT,
+                            });
+                        }
+                    }
+                    // Compound unit with plain number (no unit suffix)
+                    McParamTypeKind::CompoundUnit { unit_type, .. } => {
+                        if def
+                            .chars()
+                            .all(|c| c.is_ascii_digit() || c == '.' || c == '-')
+                        {
+                            acc.push(CheckResult {
+                                check_name: "extra", severity: CheckSeverity::Warning,
+                                uri: Some(uri.clone()), span: Some(comp.span.start..comp.span.end),
+                                message: format!(
+                                    "Param '{}' is ::UV.{} but default '{}' has no unit suffix. Add e.g. '5V'.",
+                                    pname, unit_type, def
                                 ),
                                 code: crate::errcodes::PARAM_UV_DEFAULT_NO_UNIT,
                             });

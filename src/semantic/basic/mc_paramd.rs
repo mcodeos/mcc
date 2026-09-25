@@ -932,6 +932,25 @@ impl McParamDeclare {
                 }
             }
 
+            MCAST_OPD => {
+                // declare 2' `&id`: the grammar wraps the ids in MCAST_OPD
+                // exactly as `&[a, b]` wraps its members above; mcc models no
+                // ref/copy difference, so the form reads as a plain Single.
+                let inner = subnode
+                    .get_sub_node()
+                    .unwrap_or_else(|| subnode.clone());
+                if let Some(name_ids) = McIds::new(&inner) {
+                    McParamDeclareKind::Single(name_ids)
+                } else {
+                    dlog_error(
+                        crate::errcodes::PARAM_NAME_INVALID,
+                        node,
+                        &crate::errcodes::format_msg(crate::errcodes::PARAM_NAME_INVALID, &[]),
+                    );
+                    return None;
+                }
+            }
+
             MCAST_DECLARE_UV => {
                 if let Some(uval) = McUnitValueDeclare::new(&subnode) {
                     McParamDeclareKind::UValue(uval)

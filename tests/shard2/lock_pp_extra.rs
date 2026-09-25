@@ -13,7 +13,10 @@
 //!   * 5201 ENUM_SINGLE_VALUE            - extra.rs:79  enum with one value
 //!   * 5202 PARAM_INT_DEFAULT_STRING      - extra.rs:318 ::INT/HEX default is a string (Error)
 //!   * 5203 PARAM_STRING_DEFAULT_NUMERIC  - extra.rs:337 ::STRING default looks numeric
-//!   * 5204 PARAM_UV_DEFAULT_NO_UNIT      - extra.rs:356 ::UV.<unit> default has no unit suffix
+//!   * 5204 PARAM_UV_DEFAULT_NO_UNIT      - extra.rs:356 ::UV.<unit> / compound-unit
+//!     default has no unit suffix
+//!   * 5207 PARAM_UV_DEFAULT_UNIT_MISMATCH - extra.rs:349 ::UV.<unit> default is in
+//!     another unit family
 //!   * 5205 PARAM_FLOAT_DEFAULT_INVALID   - extra.rs:623 ::FLOAT default overflows to inf (Error)
 //!   * 5206 PARAM_NEGATIVE_DEFAULT        - extra.rs:607 ::INT default is negative
 //!   * 5251 PARAM_RESERVED_KEYWORD        - extra.rs:539 currently UNREACHABLE (guarded below)
@@ -150,6 +153,57 @@ fn lock_pp_extra__param_uv_default_no_unit_5204_fires() {
 module main { C_UV_NOUNIT u1 }
 "#;
     assert_fires_clean(5204, source);
+}
+
+// E5204 on the compound-unit arm: a compound unit type (`UV.VOLT*UV.AMP`)
+// with a unitless default used to fall past every judged kind.
+#[test]
+fn lock_pp_extra__param_compound_default_no_unit_5204_fires() {
+    let source = r#"component C_CMP_NOUNIT(p::UV.VOLT*UV.AMP = 5)
+{
+    pins = [ 1 = A ]
+}
+module main { C_CMP_NOUNIT u1 }
+"#;
+    assert_fires_clean(5204, source);
+}
+
+// E5207 PARAM_UV_DEFAULT_UNIT_MISMATCH (extra.rs check_default_type_mismatch,
+// guard arm above the wildcard default arm): a ::UV.VOLT parameter whose
+// default decodes into another unit family (`3W`).
+#[test]
+fn lock_pp_extra__param_uv_default_unit_mismatch_5207_fires() {
+    let source = r#"component C_UV_MISMATCH(v::UV.VOLT = 3W)
+{
+    pins = [ 1 = A ]
+}
+module main { C_UV_MISMATCH u1 }
+"#;
+    assert_fires_clean(5207, source);
+}
+
+// Same-family default stays unjudged: `5V` on ::UV.VOLT is the correct
+// spelling and must not trip E5207.
+#[test]
+fn lock_pp_extra__param_uv_default_unit_mismatch_5207_same_family_clean() {
+    let source = r#"component C_UV_MATCH(v::UV.VOLT = 5V)
+{
+    pins = [ 1 = A ]
+}
+module main { C_UV_MATCH u1 }
+"#;
+    let result = parse(source);
+    assert_eq!(
+        result["result"]["summary"]["errors"].as_u64(),
+        Some(0),
+        "same-family snippet must parse without errors; diagnostics: {}",
+        result["result"]["pass0"]["diagnostics"]
+    );
+    assert!(
+        !has_code(&result, 5207),
+        "same-family default must stay unjudged; diagnostics: {}",
+        result["result"]["pass0"]["diagnostics"]
+    );
 }
 
 // E5205 PARAM_FLOAT_DEFAULT_INVALID (extra.rs:623 check_default_value_range,
