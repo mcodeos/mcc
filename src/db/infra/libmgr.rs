@@ -255,6 +255,15 @@ pub fn mcb_load_lib(name: &str, root: &Path) -> bool {
         workspace::WORKSPACE.remove_lib_defs_by_uris(&uris);
         // U234: the unload sweep also drops the libs' resolution edges.
         workspace::WORKSPACE.refgraph.purge_files(&uris);
+        // U303: drop the loader's per-file entries too. They still claim
+        // pass1_complete, so a later project `use` of one of these files is
+        // short-circuited by the mcb_add_recursive fast path (loader.rs) and
+        // the tombstoned defs never come back — the use-only revival stayed
+        // shadowed for any dependency-loaded member, notably the lib's entry
+        // file (the one file the dependency loop always loads).
+        for u in &uris {
+            workspace::WORKSPACE.mcodes.remove(u);
+        }
         info!(
             target: "mcc::lib",
             name = name,
