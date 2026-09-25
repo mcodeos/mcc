@@ -1577,3 +1577,45 @@ component BBuf : ABuf
         "the pin table is unchanged by the base attr edit"
     );
 }
+
+/// U302: `is_system_source` is the single system-vs-project classification
+/// read; every bucketing face reads through it. Three layers, most
+/// authoritative first — the load-time source manifest (`source_of`) wins
+/// over everything, the loaded-roots prefix read (`file_is_system_library`)
+/// falls back second, and the legacy `/mcode/` path marker comes last. The
+/// literal marker alone mis-bucketed a third-party loaded library as
+/// project — the population this read exists for.
+#[test]
+fn def_defspace__u302_source_read_three_layers() {
+    let _lock = common::lock();
+    common::reset();
+
+    // Layer 2: a loaded third-party library's files are system even though
+    // their path carries no `/mcode/` marker.
+    let acme_root = temp_lib_root("u302-acme", "acme", "GOLD_BTN", &["A"]);
+    mcc::mcc_set_system_root(&acme_root);
+    assert!(mcc::mcb_load_lib("acme", &acme_root.join("acme")));
+    let acme_file = acme_root.join("acme").join("acme.mc");
+    assert!(
+        mcc::is_system_source(&acme_file.to_string_lossy()),
+        "a loaded third-party lib file is system (loaded-roots prefix read)"
+    );
+
+    // Layer 1 beats the literal marker: a PROJECT-loaded file whose path
+    // happens to contain `/mcode/` stays project — the manifest is
+    // authoritative over the path heuristic.
+    let p_uri = "/virtual/u302/mcode/planted.mc".to_string();
+    mcc::mcc_load_from_string(&p_uri, &component_src("GOLD_PLANTED", &["A"]));
+    assert!(
+        !mcc::is_system_source(&p_uri),
+        "the manifest's Project domain wins over a `/mcode/` substring"
+    );
+
+    // Layer 3 (legacy marker): a path under no loaded library, containing
+    // `/mcode/`, still classifies system — it covers files loaded before a
+    // manifest existed.
+    assert!(mcc::is_system_source("/legacy/mcode/holder.mc"));
+
+    // Nothing loaded, no marker: plain project paths stay project.
+    assert!(!mcc::is_system_source("/mounted/proj/main.mc"));
+}

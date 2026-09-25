@@ -500,6 +500,28 @@ pub fn definition_space() -> DefinitionSpace<'static> {
     DefinitionSpace::of(&super::cmie::tables::WORKSPACE)
 }
 
+/// The single system-vs-project classification read for one source uri
+/// (CIMP §1 U302): every face that buckets a uri into system-library vs project
+/// must read through here, never re-derive its own judgment.
+///
+/// Three layers, most authoritative first:
+/// 1. the load-time source manifest (`source_of`) — what the loader recorded
+///    when the file entered the definition space;
+/// 2. the loaded-roots prefix read (`file_is_system_library`) — files on disk
+///    under a loaded library's canonical root;
+/// 3. the legacy `/mcode/` path marker — files loaded before a manifest
+///    existed (the pre-U302 heuristic, kept as the last fallback).
+pub fn is_system_source(uri: &str) -> bool {
+    match definition_space().source_of(&McURI::from(uri)) {
+        Some(SourceDomain::SystemLib(_)) => return true,
+        Some(SourceDomain::Project) => return false,
+        None => {}
+    }
+    crate::db::infra::libmgr::file_is_system_library(std::path::Path::new(uri))
+        || uri.contains("/mcode/")
+        || uri.contains("\\mcode\\")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
