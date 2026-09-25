@@ -133,3 +133,48 @@ fn lock_check__unknown_method_still_fires_3071() {
         hits
     );
 }
+
+/// Same declared face, third consumer: `show nets OWNER.FUNC` must find an
+/// adopted func (`find_func_by_path` → `effective_method`), not only own
+/// ones. Before b4002 the show face read only the host's own `funcs`
+/// container and `OWNER.FUNC` fell through to not-applicable.
+#[test]
+fn lock_show__adopted_func_visible_via_owner_func_path() {
+    let seq = PROBE_SEQ.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let dir = std::env::temp_dir().join(format!("u291-{}-show-{seq}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("create temp dir");
+    let file = dir.join("main.mc");
+    std::fs::write(&file, SRC_ADOPTED).expect("write probe");
+    let output = Command::new(env!("CARGO_BIN_EXE_mcc"))
+        .args([
+            "show",
+            "nets",
+            "U291Target.Bypass",
+            "-F",
+            file.to_str().expect("utf8 temp path"),
+            "-f",
+            "json",
+        ])
+        .output()
+        .expect("run mcc show nets");
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(
+        output.status.success(),
+        "mcc show nets exited {:?}; stderr: {}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: Value =
+        serde_json::from_slice(&output.stdout).expect("show nets JSON output");
+    let show = &value["result"]["show"];
+    assert_eq!(
+        show["kind"].as_str(),
+        Some("func"),
+        "U291Target.Bypass must resolve as a func through the adopted method set: {show}"
+    );
+    let nets = show["nets"].as_array().expect("nets array");
+    assert!(
+        !nets.is_empty(),
+        "the adopted func's body connections must project: {show}"
+    );
+}
