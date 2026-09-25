@@ -635,6 +635,80 @@ module main
     );
 }
 
+// 7c. A conditional branch body is one attribute list too (U295): the rows of
+// one branch are parsed through the same `McAttributes::parse` funnel, so a
+// key repeated inside one branch is reported. Branches never see each other —
+// each branch list is its own, and the same key in two arms of one chain is
+// the point of a conditional, not a repetition.
+
+#[test]
+fn sem_attrdup__cond_branch_body() {
+    // Before the fix `McCond.block` kept only the first clause of a braced
+    // branch, so the repetition below was not merely unreported — the second
+    // row did not exist. One report naming the key proves both rows now reach
+    // the list the check reads.
+    assert_reports(
+        r#"
+component CONDDUP(sel::INT = 0)
+{
+    pins = [ in 1 = A ]
+    if sel == 0
+    {
+        Rdson = 80
+        Rdson = 100
+    }
+    if sel == 1 { Rdson = 60 }
+}
+
+module main
+{
+    io VDD
+    CONDDUP c1
+}
+"#,
+        "Rdson",
+        "cond branch: Rdson twice in one branch",
+    );
+    assert_silent(
+        r#"
+component CONDCLEAN(sel::INT = 0)
+{
+    pins = [ in 1 = A ]
+    if sel == 0
+    {
+        Rdson = 80
+        Vgs = -10
+    }
+    if sel == 1 { Rdson = 60 }
+}
+
+module main
+{
+    io VDD
+    CONDCLEAN c2
+}
+"#,
+        "cond branch: Rdson + Vgs in one branch",
+    );
+    assert_silent(
+        r#"
+component CONDARMS(sel::INT = 0)
+{
+    pins = [ in 1 = A ]
+    if sel == 0 { Rdson = 80 }
+    if sel == 1 { Rdson = 60 }
+}
+
+module main
+{
+    io VDD
+    CONDARMS c3
+}
+"#,
+        "cond branch: one Rdson per arm",
+    );
+}
+
 // 8. The projection: `show pins -f json` carries the row attrs
 
 #[test]

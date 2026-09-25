@@ -453,33 +453,14 @@ impl McConds {
                 // Direct NET node as block (e.g., `if address == 0x36 VDD -> RES(100kΩ) -> GPIO.2`)
                 block_node = Some(child.clone());
             } else if node_type == MCAST_BODY {
-                // Braced block. May hold pin attributes (looked up below) OR
-                // connection stmts (MCAST_NET). In the latter case keep the
-                // BODY node itself so parse_block_stmts can iterate its net
-                // stmts; otherwise `if (cond) { net }` silently drops the block.
-                let mut found_attr = false;
-                if let Some(body_sub) = child.get_sub_node() {
-                    for inner in body_sub.iter() {
-                        let inner_type = inner.get_type();
-                        if inner_type == MCAST_ATTRIBUTE_PIN
-                            || inner_type == MCAST_ATTRIBUTE_PINADD
-                            || inner_type == MCAST_ATTRIBUTE
-                        {
-                            block_node = Some(inner.clone());
-                            found_attr = true;
-                            break;
-                        }
-                    }
-                }
-                // U212: an `error(...)` clause in the body is content too —
-                // keep the BODY whole so the error capture sees it; the
-                // pins/attrs consumers pick their nodes from the children.
-                let has_error_clause = child
-                    .get_sub_node()
-                    .is_some_and(|inner| inner.iter().any(|n| n.get_type() == MCAST_ERROR));
-                if !found_attr || has_error_clause {
-                    block_node = Some(child.clone());
-                }
+                // Braced block: keep the BODY whole. The consumers each walk
+                // the children for their own clause kinds (pins/attrs rows,
+                // net stmts, `error(...)` clauses), so every clause the author
+                // wrote survives — keeping only the first attribute here
+                // silently dropped every row after it, and a same-key
+                // duplicate inside one branch never reached the per-list
+                // duplicate check (U295).
+                block_node = Some(child.clone());
             } else if has_condition
                 && block_node.is_none()
                 && (node_type == MCAST_ATTRIBUTE_PIN
@@ -533,31 +514,9 @@ impl McConds {
                 // Direct NET node as block (e.g., `else GPIO.2 - RES(100kΩ) -> GND`)
                 block_node = Some(child.clone());
             } else if child_type == MCAST_BODY {
-                // Braced block: pin attributes OR connection stmts. For net
-                // stmts keep the BODY node itself so parse_block_stmts can
-                // iterate; otherwise `else { net }` silently drops the block.
-                let mut found_attr = false;
-                if let Some(body_sub) = child.get_sub_node() {
-                    for inner in body_sub.iter() {
-                        let inner_type = inner.get_type();
-                        if inner_type == MCAST_ATTRIBUTE_PIN
-                            || inner_type == MCAST_ATTRIBUTE_PINADD
-                            || inner_type == MCAST_ATTRIBUTE
-                        {
-                            else_if_block_node = Some(inner.clone());
-                            found_attr = true;
-                            break;
-                        }
-                    }
-                }
-                // U212: an `error(...)` clause in the body is content — keep
-                // the BODY whole (see parse_cond_if).
-                let has_error_clause = child
-                    .get_sub_node()
-                    .is_some_and(|inner| inner.iter().any(|n| n.get_type() == MCAST_ERROR));
-                if !found_attr || has_error_clause {
-                    else_if_block_node = Some(child.clone());
-                }
+                // Braced block: keep the BODY whole (see parse_cond_if — the
+                // consumers walk the children for their own clause kinds).
+                else_if_block_node = Some(child.clone());
             } else if child_type == MCAST_ATTRIBUTE_PIN
                 || child_type == MCAST_ATTRIBUTE_PINADD
                 || child_type == MCAST_ATTRIBUTE
