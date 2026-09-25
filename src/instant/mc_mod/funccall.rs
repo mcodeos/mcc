@@ -654,6 +654,22 @@ impl InstantiationBuilder {
         }
 
         let key = Self::member_key(member);
+        // ★ U304: a named-ctor curly-face selection (`SW1{COM | NO}` — the
+        // M1 phrase arm stashes the faces as non-synthetic interface buses)
+        // replaces the ctor's own-face split. Resolve the selection after
+        // materialization through the same element expander a declared
+        // instance's curly form uses; own-face would answer with the whole
+        // io-classified pin set instead of the selected faces.
+        if let McPhrase::FuncCall(fc) = member {
+            if fc.named_ctor && fc.left.iter().chain(fc.right.iter()).any(|b| !b.is_synthetic()) {
+                let buses = if side.is_left() {
+                    fc.left.clone()
+                } else {
+                    fc.right.clone()
+                };
+                return self.resolve_face_from_buses(&buses, side);
+            }
+        }
         if let Some(auto) = self.auto_inst_map.get(&key).cloned() {
             match auto {
                 // case ②: return face (both mouths symmetric)

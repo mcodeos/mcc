@@ -107,18 +107,20 @@ fn u300__named_ctor_curly_mn_is_a_legal_inline_instance() {
         !codes.contains(&mcc::errcodes::CONN_STMT_PARSE_FAILED),
         "the curly-mn ctor statement must not be dropped (E3132); got codes: {codes:?}"
     );
-    // The instance materializes with both faces wired: PWR→COM, SIG→NO.
-    // (Locked on the tree connection surface: the InstTable projection cannot
-    // yet resolve an inline curly-mn instance's points — silent zero, filed in
-    // the batch log as a follow-up finding.)
+    // The instance materializes with both faces wired: PWR→COM, SIG→NO. The
+    // faces resolve through the same def-authoritative expander a declared
+    // instance's curly form uses (U304), so the points spell the physical pin
+    // ids (COM = 1, NO = 2) — the same spelling the declared control arm
+    // produces. The flat-projection parity is locked in shard4
+    // u304_flat_curly_pins.rs.
     let pairs = tree_conn_pairs(SRC_I3);
     assert!(
-        pairs.contains(&("PWR".to_string(), "SW1.COM".to_string())),
-        "COM face must connect PWR - SW1.COM; got {pairs:?}"
+        pairs.contains(&("PWR".to_string(), "SW1.1".to_string())),
+        "COM face must connect PWR - SW1.1; got {pairs:?}"
     );
     assert!(
-        pairs.contains(&("SW1.NO".to_string(), "SIG".to_string())),
-        "NO face must connect SW1.NO - SIG; got {pairs:?}"
+        pairs.contains(&("SW1.2".to_string(), "SIG".to_string())),
+        "NO face must connect SW1.2 - SIG; got {pairs:?}"
     );
 }
 

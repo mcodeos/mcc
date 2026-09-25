@@ -319,8 +319,17 @@ impl InstantiationBuilder {
         } else {
             None
         };
-        let is_placeholder =
-            |e: &McBus| e.is_synthetic() || family_seg.as_deref() == Some(e.name.as_str());
+        let is_placeholder = |e: &McBus| {
+            e.is_synthetic()
+                || family_seg.as_deref() == Some(e.name.as_str())
+                // ★ U304: a curly-face selection stash (`SW1{COM | NO}` →
+                // `SW1.COM` / `SW1.NO`) addresses the instance's OWN pins —
+                // it is the face resolver's input, never a positional
+                // external interface. Wiring it here would double-connect the
+                // faces (a phantom label point beside the real pin) on top of
+                // the def-authoritative selection resolution.
+                || e.name.strip_prefix(&format!("{inst_name}.")).is_some()
+        };
         let left_filtered: Vec<McBus> = left
             .iter()
             .filter(|e| !is_placeholder(e))

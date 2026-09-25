@@ -3006,20 +3006,32 @@ impl McPhrase {
                             }
                         };
                         match resolve_cmie(&DB, &fc.func_name, context.uri()) {
-                            Some(McCMIE::Component(comp_def)) => {
-                                let mc2_comp =
-                                    Mc2Component::with_params(&inst_name, comp_def, fc.params);
-                                let phrase = McPhrase::Endpoint(McEndpoint::Single(
-                                    McInstanceRef::new(McInstance::Component(Arc::new(mc2_comp))),
-                                ));
-                                phrase.curly_mn(&right1, &right2)
-                            }
-                            Some(McCMIE::Module(mod_def)) => {
-                                let mc2_mod = Mc2Module::new(&inst_name, mod_def);
-                                let phrase = McPhrase::Endpoint(McEndpoint::Single(
-                                    McInstanceRef::new(McInstance::Module(Arc::new(mc2_mod))),
-                                ));
-                                phrase.curly_mn(&right1, &right2)
+                            Some(McCMIE::Component(_)) | Some(McCMIE::Module(_)) => {
+                                // U304: keep the FuncCall alive with the curly
+                                // faces stashed on its interface buses — the
+                                // named-ctor machinery materializes the instance
+                                // at instantiation and the face resolver expands
+                                // the selection through the same element
+                                // expander a declared instance's curly form
+                                // uses. (The old rewrite to a Node of dotted
+                                // bus spellings bypassed materialization: the
+                                // instance never entered the module's component
+                                // table, the faces fell into the bus-definition
+                                // fallback, and the flat projection silently
+                                // resolved zero nets.)
+                                if right1.is_empty() || right2.is_empty() {
+                                    return None;
+                                }
+                                let mut fc2 = fc.clone();
+                                fc2.left = right1
+                                    .iter()
+                                    .map(|f| McBus::new(&format!("{inst_name}.{f}")))
+                                    .collect();
+                                fc2.right = right2
+                                    .iter()
+                                    .map(|f| McBus::new(&format!("{inst_name}.{f}")))
+                                    .collect();
+                                Some(McPhrase::FuncCall(fc2))
                             }
                             _ => {
                                 dlog_error(
