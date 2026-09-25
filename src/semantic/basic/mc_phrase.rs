@@ -447,12 +447,16 @@ impl McPhrase {
     ///   - `opd1 op1 (s1, .., sN) op2 opd2`   -> `opd1 op1 s1 op2 opd2`, ..,
     ///   - `(s1, .., sN)` (bare)              -> `s1`, .., `sN`
     ///
-    /// Group-inner parentheses do NOT survive the replacement — the group only
-    /// separates statements, so `R101 - (R102 - R103, R104 - R105) + R106`
-    /// becomes the two statements `R101 - R102 - R103 + R106` and
-    /// `R101 - R104 - R105 + R106` (same-direction series flattening matches
-    /// the parser). Returns `None` when no multi-statement group is present,
-    /// i.e. the caller keeps the statement as-is.
+    /// The statement split is the ONLY thing the group contributes — an inner
+    /// parenthesized chain keeps its structure (mcrule.md §10.6 R0 ban: group
+    /// structure is never flattened), so `R101 - (R102 - R103, R104 - R105) +
+    /// R106` becomes the two statements `R101 - R102 - R103 + R106` and
+    /// `R101 - R104 - R105 + R106`, each carrying the written inner chain as a
+    /// nested series member of the outer one. The wiring recurses into it
+    /// (`process_member_internal`), so the nets are the ones the flat spelling
+    /// would produce — the structure, not the netlist, is what R0 protects.
+    /// Returns `None` when no multi-statement group is present, i.e. the
+    /// caller keeps the statement as-is.
     pub fn expand_group_statements(&self) -> Option<Vec<McPhrase>> {
         Self::expand_group(self.clone())
     }
@@ -565,7 +569,11 @@ impl McPhrase {
                 Some(
                     Self::cartesian_product(groups)
                         .into_iter()
-                        .map(|combo| McPhrase::Series(Self::flatten_series_dir(combo, dir), dir))
+                        // R0 (mcrule.md §10.6): the combo is the chain as
+                        // written — an inner same-direction series stays one
+                        // nested member. The old `flatten_series_dir` merge is
+                        // retired (b4034); the wiring recurses instead.
+                        .map(|combo| McPhrase::Series(combo, dir))
                         .collect(),
                 )
             }
@@ -606,20 +614,6 @@ impl McPhrase {
             acc = next;
         }
         acc
-    }
-
-    /// Flatten nested series of the SAME direction only — a differently
-    /// directed inner chain keeps its own direction (mirrors the `-`/`->`
-    /// parser branches, so `R101 -> (R102 - R103)` stays `R101 -> R102 - R103`).
-    fn flatten_series_dir(elems: Vec<McPhrase>, dir: ConnDir) -> Vec<McPhrase> {
-        let mut flat = Vec::new();
-        for p in elems {
-            match p {
-                McPhrase::Series(items, d) if d == dir => flat.extend(items),
-                other => flat.push(other),
-            }
-        }
-        flat
     }
 
     pub(crate) fn new(node: &AstNode, context: &mut dyn HasFindInst) -> Option<Self> {
@@ -5132,6 +5126,12 @@ fn needs_paren_for_series(phrase: &McPhrase) -> bool {
         // self-delimiting as a series item: `a -> b^` re-parses as
         // `a -> (b^)`. Keep the parentheses.
         McPhrase::Reversed(_) => true,
+        // A nested series only exists where the source parenthesized it
+        // (R0, b4034: group expansion preserves the inner chain) — the
+        // parser never builds one directly. Render the parentheses back,
+        // or a differently-directed inner chain would re-parse with the
+        // outer operator.
+        McPhrase::Series(_, _) => true,
         // `Multiple` renders with self-delimiting brackets (`[a, b]`),
         // so extra parentheses are redundant (`([a, b])` -> `[a, b]`).
         _ => false,
@@ -6707,5 +6707,105 @@ mod nested_subscript_tests {
             ],
         };
         assert!(split_curly_on_array(&ids).is_none(), "bare bus form stays on the ordinary path");
+    }
+}
+
+/// R0 structure locks (mcrule.md §10.6, b4034): a `(,)` group's statement
+/// split is all the group contributes — a parenthesized chain inside a branch
+/// survives as a nested series member. The retired `flatten_series_dir` merge
+/// folded it into the outer chain; these cells pin the preserved tree shape
+/// and its round-trip Display.
+#[cfg(test)]
+mod r0_group_structure_tests {
+    use super::*;
+    use McPhrase::{Group, Lead, Series};
+
+    fn group(opds: Vec<McPhrase>) -> McPhrase {
+        Group(McGroup {
+            opds,
+            left_match: false,
+            right_match: false,
+        })
+    }
+
+    /// `R101 - (R102 - R103, R104 - R105) + R106` with `Lead` standing in for
+    /// the endpoints (the expansion is leaf-agnostic). The doc example of
+    /// mcrule.md §10.6.
+    fn spliced_statement() -> McPhrase {
+        Series(
+            vec![
+                Lead(0),
+                group(vec![
+                    Series(vec![Lead(1), Lead(2)], ConnDir::Undirected),
+                    Series(vec![Lead(3), Lead(4)], ConnDir::Undirected),
+                ]),
+                Lead(5),
+            ],
+            ConnDir::Undirected,
+        )
+    }
+
+    #[test]
+    fn r0_group_structure__inner_chain_survives_the_statement_split() {
+        let stmts = spliced_statement()
+            .expand_group_statements()
+            .expect("a multi-statement group expands");
+        assert_eq!(stmts.len(), 2, "one statement per group branch");
+        for stmt in &stmts {
+            let Series(elems, dir) = stmt else {
+                panic!("each expansion is the outer chain, got {stmt:?}");
+            };
+            assert_eq!(*dir, ConnDir::Undirected);
+            assert_eq!(elems.len(), 3, "outer chain keeps its three members");
+            let Series(inner, inner_dir) = &elems[1] else {
+                panic!("the branch chain survives as a nested series, got {:?}", elems[1]);
+            };
+            assert_eq!(*inner_dir, ConnDir::Undirected, "inner direction preserved");
+            assert_eq!(inner.len(), 2, "inner chain keeps its own members");
+        }
+    }
+
+    #[test]
+    fn r0_group_structure__display_renders_the_inner_parentheses() {
+        let stmts = spliced_statement()
+            .expand_group_statements()
+            .expect("a multi-statement group expands");
+        let text = stmts[0].to_string();
+        // The trailing operand rides the outer Undirected sep (a written `+`
+        // becomes a Parallel member at parse time; this fixture's plain leaf
+        // renders with the chain's own separator).
+        assert_eq!(text, "_ - (_ - _) - _", "the inner chain renders as written");
+    }
+
+    #[test]
+    fn r0_group_structure__inner_direction_stays_under_a_different_outer() {
+        // `R101 -> (R102 - R103)`: mixed directions must not blur — a nested
+        // series carries its own direction under an LtoR outer chain. A
+        // one-element group is see-through (authorized boundary), so the
+        // expansion is driven with two branches to observe the nested tree.
+        let phrase = Series(
+            vec![
+                Lead(0),
+                group(vec![
+                    Series(vec![Lead(1), Lead(2)], ConnDir::Undirected),
+                    Series(vec![Lead(3), Lead(4)], ConnDir::RtoL),
+                ]),
+            ],
+            ConnDir::LtoR,
+        );
+        let stmts = phrase.expand_group_statements().expect("expands");
+        let Series(elems, _) = &stmts[0] else {
+            panic!("outer chain shape");
+        };
+        let Series(inner, inner_dir) = &elems[1] else {
+            panic!("nested series survives, got {:?}", elems[1]);
+        };
+        assert_eq!(*inner_dir, ConnDir::Undirected, "branch 1 direction");
+        assert_eq!(inner.len(), 2);
+        let text = stmts[0].to_string();
+        assert!(
+            text.contains("-> (_ - _)"),
+            "mixed directions render both operators: {text}"
+        );
     }
 }

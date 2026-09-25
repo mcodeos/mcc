@@ -75,9 +75,12 @@ impl InstantiationBuilder {
 
         // ── §10.6: a `(,)` group is a STATEMENT LIST, not a shape — expand it
         // into the standalone statements it stands for before anything else
-        // (`R101 - (s1, s2) + R106` ≡ `R101 - s1 + R106` / `R101 - s2 + R106`,
-        // group-inner parentheses do not survive). Expanded branches carry no
-        // group anymore, so the recursion terminates.
+        // (`R101 - (s1, s2) + R106` ≡ `R101 - s1 + R106` / `R101 - s2 + R106`).
+        // The statement split is all the group contributes (mcrule §10.6 R0,
+        // b4034): a parenthesized chain inside a branch survives as a nested
+        // series member, and the wiring recurses into it
+        // (`process_member_internal`). Expanded branches carry no group
+        // anymore, so the recursion terminates.
         if let Some(expanded) = phrase.expand_group_statements() {
             for stmt in expanded {
                 self.process_stmt(&stmt)?;
@@ -3673,7 +3676,22 @@ impl InstantiationBuilder {
                     self.process_member_internal(p)?;
                 }
             }
-            McPhrase::Series(_, _) => {}
+            // R0 (mcrule §10.6, b4034): a series nested as a chain element
+            // keeps its structure — `expand_group` no longer merges the
+            // same-direction inner chain into the outer one. Today the
+            // statement path linearizes chains before they reach here
+            // (`phrase_to_members_gapped`), and the Parallel/Group/
+            // Transposed/Reversed arms intercept their own series branches,
+            // so this arm is defensive — but a bare nested series that does
+            // arrive (a future delivery path) must have its inner chain
+            // instantiated AND its internal adjacency wired, never silently
+            // dropped (the exact disease the Multiple arm above cured). Wire
+            // it in place with original element pointers, so the outer
+            // adjacency's get_left_points / get_right_points read live
+            // auto_inst_map entries instead of falling back to bare labels.
+            McPhrase::Series(elems, d) => {
+                self.process_series_branch_inplace(elems, *d)?;
+            }
             // Iter-12.1c: recursively process Member's inner phrase
             //
             // Original code: `McPhrase::Member(_, _) => {}` (no-op)

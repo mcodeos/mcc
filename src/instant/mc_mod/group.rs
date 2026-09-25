@@ -7,9 +7,11 @@
 //! - `create_connection`            —— Generic connection generation (1:1 / 1:N / N:1 / N:M)
 //!
 //! `Group` as a connection shape needs no strategy of its own: a multi-statement
-//! group is expanded into statements before the wiring runs, and a one-element
-//! group is see-through, so the fold handles the surviving shape directly
-//! (unified-core §7.6 step 0 (3), settled 2026-09-11).
+//! group is expanded into statements before the wiring runs (the split is all
+//! the group contributes — an inner parenthesized chain survives as a nested
+//! series member per R0, b4034, and the wiring recurses into it), and a
+//! one-element group is see-through, so the fold handles the surviving shape
+//! directly (unified-core §7.6 step 0 (3), settled 2026-09-11).
 
 use super::expand::expand_match;
 use super::InstantiationBuilder;

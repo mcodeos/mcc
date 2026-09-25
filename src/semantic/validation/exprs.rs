@@ -152,6 +152,22 @@ fn check_open_lead(acc: &mut CheckAccumulator) {
 fn judge_open_lead(phrase: &McPhrase, uri: &str, acc: &mut CheckAccumulator) {
     match phrase {
         McPhrase::Series(items, _) => {
+            // A `(,)` group riding inside a chain is judged branch by branch
+            // — the split is all the group contributes, so each branch's own
+            // free `_` is judged on its own chain exactly as if it were a
+            // standalone statement. The nested-series arm covers the
+            // preserved sub-chain shape the expansion itself now produces
+            // (R0, b4034).
+            for nested in items.iter().filter(|p| matches!(p, McPhrase::Group(_))) {
+                if let Some(stmts) = nested.expand_group_statements() {
+                    for stmt in &stmts {
+                        judge_open_lead(stmt, uri, acc);
+                    }
+                }
+            }
+            for sub in items.iter().filter(|p| matches!(p, McPhrase::Series(_, _))) {
+                judge_open_lead(sub, uri, acc);
+            }
             let Some(McPhrase::Lead(off)) = items.iter().find(|p| matches!(p, McPhrase::Lead(_)))
             else {
                 return;
