@@ -29,7 +29,7 @@ const CONFLICT_SRC: &str = "module main {\n    BUF b1\n    BUF b2\n    b1.Y -> b
 /// The flat net-check code family (run_net_checks). Nothing outside this set
 /// may be produced by a flatten of the conflict fixture.
 fn is_net_check_code(code: u32) -> bool {
-    (4101..=4119).contains(&code) || code == 4056 || code == 6005
+    (4101..=4119).contains(&code) || code == 6005
 }
 
 fn store_net_codes() -> Vec<u32> {
