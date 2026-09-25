@@ -96,6 +96,19 @@ pub fn run(table: &InstTable, ledger: &Ledger, uri: &McURI) -> ExpectationReport
     };
 
     for row in &ledger.rows {
+        if row.deferred {
+            // The row sits under a condition the static face cannot judge
+            // (runtime quantity, unknown name) — §5.1: the whole entry defers,
+            // a verdict only, never a diagnostic.
+            report.outcomes.push(RowOutcome {
+                target: row.target.clone(),
+                kind: kind_label(&row.kind),
+                verdict: Verdict::Defer,
+                detail: "the row waits for a condition static checking cannot judge"
+                    .to_string(),
+            });
+            continue;
+        }
         let (kind, verdict, detail, finding) = judge(table, root, row);
         report.outcomes.push(RowOutcome {
             target: row.target.clone(),

@@ -258,6 +258,11 @@
 #define MCAST_UNIT_GROUP                335
 //1c. top-level bom sidecar statement (U267): `bom <top> { rows }` (U290 renamed the keyword; the node slot is unchanged)
 #define MCAST_BOM                       336
+//1d. append-form attribute (U298 batch 2): `id += values` — same
+//    MCAST_ATTRIBUTE(MCAST_ATT_ID, MCAST_ATT_VALUES) shape as node 30; the
+//    distinct root tells the semantic layer the rows append — the node split
+//    of the pins precedent (31 `=` vs 32 `+=`), kept for a non-keyword key
+#define MCAST_ATTRIBUTE_ADD             337
 
 
 //---------------------------

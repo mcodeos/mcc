@@ -10,10 +10,9 @@ use crate::db::infra::init::MCC_TEST_PARSE_LOCK;
 use crate::{definition_space, mcb_pass2_flat, mcc_load_from_string, McIds, McSpaceName, McURI};
 
 /// The declared DC fixture: a sink pair carrying 3.3V, wired to a top port.
-/// (A dotted row target `u1.1 = [low:..]` is NOT here: the clause grammar
-/// rejects a dotted row LHS with E2082 and the whole clause dies — a grammar
-/// gap recorded for the `expects +=` batch; the engine's dotted resolution
-/// activates when the grammar catches up.)
+/// The dotted row `u1.1 = [low:..]` names one terminal of `u1`; its window is
+/// judged on that terminal's net (the `::DC` declared value rides the same
+/// `pin_declared_voltages` read the E4105 gate uses).
 const GREEN: &str = r#"
 component B {
     pins = [
@@ -28,6 +27,7 @@ module main {
         u1 = B
         RAW = driven
         RAW = [low:3.0V, high:3.5V]
+        u1.1 = [low:3.0V, high:3.5V]
     ]
 }
 "#;
@@ -129,10 +129,38 @@ fn verdict_of(report: &ExpectationReport, target: &str) -> Verdict {
 #[test]
 fn green_rows_all_pass() {
     let report = judge(GREEN, "/mcc/expects-green-test.mc");
-    assert_eq!(report.counts(), (3, 0, 0), "outcomes: {:?}", report.outcomes);
+    assert_eq!(report.counts(), (4, 0, 0), "outcomes: {:?}", report.outcomes);
     assert_eq!(verdict_of(&report, "u1"), Verdict::Pass);
     assert_eq!(verdict_of(&report, "RAW"), Verdict::Pass);
     assert!(report.diagnostics.is_empty());
+}
+
+#[test]
+fn runtime_condition_rows_defer_without_diagnostics() {
+    // `partno` names nothing here: the branch cannot be judged statically, so
+    // its rows land deferred and the engine reports DEFER for them — never a
+    // diagnostic (§5.1), and never E9001 for the target it cannot see.
+    const CONDITIONAL: &str = r#"
+component B {
+    pins = [
+        psnk [1, 2] = [VDD, VSS]::DC(3.3V)
+    ]
+}
+module main {
+    B u1
+    if (partno == "X") {
+        expects += [
+            u1 = NOT_B
+            ghost = B
+        ]
+    }
+}
+"#;
+    let report = judge(CONDITIONAL, "/mcc/expects-conditional-test.mc");
+    assert_eq!(report.counts(), (0, 0, 2), "outcomes: {:?}", report.outcomes);
+    assert_eq!(verdict_of(&report, "u1"), Verdict::Defer);
+    assert_eq!(verdict_of(&report, "ghost"), Verdict::Defer);
+    assert!(report.diagnostics.is_empty(), "{:?}", report.diagnostics);
 }
 
 #[test]
