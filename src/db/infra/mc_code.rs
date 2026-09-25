@@ -95,7 +95,7 @@ use crate::semantic::common::uri_intern;
 use crate::semantic::mc_enum::McEnumDef;
 use crate::semantic::mc_ifs::McInterface;
 use crate::{ast::macros::*, ast::node::AstNode};
-use crate::{current_uri, mcb_loaded_libs, McComponent, McIds, McModule, McSpaceName, McURI};
+use crate::{current_uri, McComponent, McIds, McModule, McSpaceName, McURI};
 use line_index::LineIndex;
 use rust_lapper::Interval;
 use std::collections::BTreeMap;
@@ -184,10 +184,10 @@ fn check_system_use_lib(uri: &McURI, mcuse: &McUse, current_path: &Path) {
     if lib_name.is_empty() {
         return;
     }
-    if mcb_loaded_libs().contains(&lib_name.to_string()) {
+    if crate::cli::loadctx::is_lib_visible(lib_name) {
         return;
     }
-    if !manifest_reachable_from(current_path) {
+    if !crate::cli::loadctx::manifest_reachable(current_path) {
         // Non-project context: lazy load when the library exists on disk.
         if let Some(root) = crate::db::infra::libmgr::resolve_lib_root(lib_name) {
             if crate::db::infra::libmgr::mcb_load_lib(lib_name, &root) {
@@ -217,24 +217,6 @@ fn check_system_use_lib(uri: &McURI, mcuse: &McUse, current_path: &Path) {
         &crate::errcodes::format_msg(crate::errcodes::USE_DEP_NOT_DECLARED, &[&lib_name]),
         &[],
     );
-}
-
-/// Walk up from `start` looking for a project manifest (`project.toml`, see
-/// [`PROJECT_MANIFEST_NAME`](crate::cli::datadir::PROJECT_MANIFEST_NAME)), so
-/// use validation and project-root resolution agree on what counts as a
-/// project.
-fn manifest_reachable_from(start: &Path) -> bool {
-    let mut current = Some(start);
-    while let Some(dir) = current {
-        if dir
-            .join(crate::cli::datadir::PROJECT_MANIFEST_NAME)
-            .exists()
-        {
-            return true;
-        }
-        current = dir.parent();
-    }
-    false
 }
 
 /// Resolve a byte offset to a 1-based (line, column), falling back to

@@ -149,7 +149,7 @@ fn find_lib_dir(root: &Path, name: &str) -> Option<std::path::PathBuf> {
 /// its entries from the global tables while the re-parse registers them into
 /// the active workspace, so the P5 system lookup loses the class and member
 /// resolution breaks (E3071 for `CAP(...).Cap(_)`).
-pub(crate) fn file_is_system_library(path: &Path) -> bool {
+pub fn file_is_system_library(path: &Path) -> bool {
     let canon = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     for name in mcb_loaded_libs() {
         if let Some(root) = resolve_lib_root(&name) {

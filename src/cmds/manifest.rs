@@ -76,25 +76,15 @@ pub fn build_from_manifest(
         (entry, top)
     };
 
-    // 2. Load unloaded dependency libraries
+    // 2. Load unloaded dependency libraries — through the shared loading
+    //    loop (use-design §19.10 D6; same shape as the RPC
+    //    ensure_library_loaded handler).
     if let Some(ref m) = manifest {
-        let system_root = mcc::mcb_get_system_root();
-        for (lib_name, _version) in &m.dependencies {
-            if !mcc::mcb_loaded_libs().contains(lib_name) {
-                let lib_root = system_root.join(lib_name);
-                if lib_root.exists() {
-                    tracing::info!(target: "mcc::build",
-                        lib = lib_name,
-                        path = ?lib_root,
-                        "loading dependency");
-                    mcc::mcb_load_lib(lib_name, &lib_root);
-                } else {
-                    tracing::warn!(target: "mcc::build",
-                        lib = lib_name,
-                        "dependency not found in system root");
-                }
-            }
-        }
+        let ctx = mcc::cli::loadctx::LoadContext {
+            deps: m.dependencies.keys().cloned().collect(),
+            ..mcc::cli::loadctx::LoadContext::default()
+        };
+        mcc::cli::loadctx::load_all(&ctx);
     }
 
     // 3. Load project

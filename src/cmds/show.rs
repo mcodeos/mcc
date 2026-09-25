@@ -498,12 +498,11 @@ pub(crate) fn classify_def_scope(uri: &str, target: Option<&str>) -> ShowScope {
 }
 
 /// True when `uri` belongs to a loaded system library (mcode or an installed
-/// library resolved under the data root).
+/// library resolved under the data root). The judgment itself is the lib
+/// manager's loaded-roots prefix read (`file_is_system_library`, use-design
+/// §19.10 D6 phase 3).
 fn is_system_uri(uri: &str) -> bool {
-    let path = std::path::Path::new(uri);
-    mcc::mcb_loaded_libs()
-        .iter()
-        .any(|name| mcc::resolve_lib_root(name).is_some_and(|root| path.starts_with(&root)))
+    mcc::file_is_system_library(std::path::Path::new(uri))
 }
 
 // defs: the current definition space, in registry form
