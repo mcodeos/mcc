@@ -1404,9 +1404,11 @@ impl FileEntry {
     }
 }
 
-/// Check if URI is a system library
+/// Check if URI is a system library — the canonical source-domain read
+/// (`crate::is_system_source`, CIMP §1 U302); the former literal `/mcode/` marker
+/// mis-bucketed a third-party loaded library as project.
 pub(crate) fn is_system_uri(uri: &str) -> bool {
-    uri.contains("/mcode/") || uri.contains("\\mcode\\")
+    crate::is_system_source(uri)
 }
 
 /// True when a diagnostic's location lives in a system-library source file.
@@ -1440,17 +1442,9 @@ fn diag_file_in_system_lib(file: &str) -> bool {
 }
 
 fn path_in_system_lib(path: &str) -> bool {
-    // Authoritative domain from the definition-space source manifest first.
-    let uri = crate::McURI::from(path);
-    match crate::definition_space().source_of(&uri) {
-        Some(crate::db::defspace::SourceDomain::SystemLib(_)) => return true,
-        Some(crate::db::defspace::SourceDomain::Project) => return false,
-        None => {}
-    }
-    // Fallback: canonicalized on-disk library roots, then the legacy
-    // `/mcode/` path marker (covers files loaded before the manifest existed).
-    crate::db::infra::libmgr::file_is_system_library(std::path::Path::new(path))
-        || is_system_uri(path)
+    // The canonical three-layer read (manifest → loaded roots → legacy
+    // `/mcode/` marker); this site was its first sketch and now delegates.
+    crate::is_system_source(path)
 }
 
 pub(crate) fn refs_json(items: &[(String, String, [usize; 2])]) -> Vec<Value> {

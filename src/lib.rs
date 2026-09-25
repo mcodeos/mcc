@@ -81,7 +81,9 @@ pub use db::diagnostic::errcodes;
 // through this one store API (design §8-5: a single write face for every entry).
 pub use db::diagnostic::override_store;
 // ── Definition space (§12.1) ──
-pub use db::defspace::{definition_space, DefinitionSpace, LibBoundary, SourceDomain};
+pub use db::defspace::{
+    definition_space, is_system_source, DefinitionSpace, LibBoundary, SourceDomain,
+};
 // Model profile cards (worldmodel-design §7 W3), re-exported out of the
 // private db::infra path for the CLI and RPC faces that read them.
 pub use db::infra::model_profile;

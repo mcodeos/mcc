@@ -654,57 +654,33 @@ fn group_by_uri(defs: &DefinitionsIndex) -> Vec<LoadedFile> {
     use std::collections::BTreeMap;
     let mut by_uri: BTreeMap<String, LoadedFile> = BTreeMap::new();
 
+    // One classification per uri, through the canonical source-domain read
+    // (`mcc::is_system_source`, CIMP §1 U302) — the former per-category literal
+    // `/mcode/` marker mis-bucketed a third-party loaded library as project.
+    fn entry_for<'a>(by_uri: &'a mut BTreeMap<String, LoadedFile>, uri: &str) -> &'a mut LoadedFile {
+        by_uri
+            .entry(uri.to_string())
+            .or_insert_with(|| LoadedFile {
+                uri: uri.to_string(),
+                is_system: mcc::is_system_source(uri),
+                modules: vec![],
+                components: vec![],
+                interfaces: vec![],
+                enums: vec![],
+            })
+    }
+
     for d in &defs.modules {
-        let uri = d.uri.clone();
-        let is_system = uri.contains("/mcode/");
-        let entry = by_uri.entry(uri.clone()).or_insert_with(|| LoadedFile {
-            uri,
-            is_system,
-            modules: vec![],
-            components: vec![],
-            interfaces: vec![],
-            enums: vec![],
-        });
-        entry.modules.push(d.name.clone());
+        entry_for(&mut by_uri, &d.uri).modules.push(d.name.clone());
     }
     for d in &defs.components {
-        let uri = d.uri.clone();
-        let is_system = uri.contains("/mcode/");
-        let entry = by_uri.entry(uri.clone()).or_insert_with(|| LoadedFile {
-            uri,
-            is_system,
-            modules: vec![],
-            components: vec![],
-            interfaces: vec![],
-            enums: vec![],
-        });
-        entry.components.push(d.name.clone());
+        entry_for(&mut by_uri, &d.uri).components.push(d.name.clone());
     }
     for d in &defs.interfaces {
-        let uri = d.uri.clone();
-        let is_system = uri.contains("/mcode/");
-        let entry = by_uri.entry(uri.clone()).or_insert_with(|| LoadedFile {
-            uri,
-            is_system,
-            modules: vec![],
-            components: vec![],
-            interfaces: vec![],
-            enums: vec![],
-        });
-        entry.interfaces.push(d.name.clone());
+        entry_for(&mut by_uri, &d.uri).interfaces.push(d.name.clone());
     }
     for d in &defs.enums {
-        let uri = d.uri.clone();
-        let is_system = uri.contains("/mcode/");
-        let entry = by_uri.entry(uri.clone()).or_insert_with(|| LoadedFile {
-            uri,
-            is_system,
-            modules: vec![],
-            components: vec![],
-            interfaces: vec![],
-            enums: vec![],
-        });
-        entry.enums.push(d.name.clone());
+        entry_for(&mut by_uri, &d.uri).enums.push(d.name.clone());
     }
 
     by_uri.into_values().collect()

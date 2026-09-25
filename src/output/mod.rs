@@ -940,10 +940,11 @@ struct TreeTallies {
     used_component_classes_system: usize,
 }
 
-/// `mcc` convention (mirrors `parse.rs::group_by_uri`): a definition lives in
-/// the system space when its file path contains `/mcode/`.
+/// System-vs-project bucket for one definition uri, through the canonical
+/// source-domain read (`mcc::is_system_source`, CIMP §1 U302) — the former literal
+/// `/mcode/` marker mis-bucketed a third-party loaded library as project.
 fn is_system_uri(uri: &str) -> bool {
-    uri.contains("/mcode/")
+    mcc::is_system_source(uri)
 }
 
 /// Walk the instance tree, collecting per-kind instance counts and the distinct
