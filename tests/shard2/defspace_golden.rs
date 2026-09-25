@@ -282,6 +282,54 @@ fn def_defspace__u303_use_revives_tombstoned_lib_file_defs() {
     );
 }
 
+/// U303 companion lock: the use-only revival survives a library unload. The
+/// unload sweep (`mcb_unload_lib` → `clear_state(ClearScope::Lib)`) removes
+/// defs and refgraph edges but touches no loader entries; that is only safe
+/// because the load-path tombstone (the U303 fix) already dropped them. If a
+/// later change reintroduces a shadowing loader entry on this path, the
+/// post-unload `use` below is short-circuited by the mcb_add_recursive fast
+/// path and the defs never come back.
+#[test]
+fn def_defspace__u303_unload_then_use_still_revives_lib_file_defs() {
+    let _lock = common::lock();
+    common::reset();
+
+    let acme_root = temp_lib_root("u303u-acme", "acme", "GOLD_BTN", &["A"]);
+    assert!(mcc::mcb_load_lib("acme", &acme_root.join("acme")));
+    let ds = mcc::definition_space();
+    assert!(
+        !ds.all_components()
+            .iter()
+            .any(|(k, _)| k.ident.to_string() == "GOLD_BTN"),
+        "tombstone removes the def at load (use-only visibility)"
+    );
+    assert!(mcc::mcb_unload_lib("acme"));
+    let ds = mcc::definition_space();
+    assert!(
+        !ds.all_components()
+            .iter()
+            .any(|(k, _)| k.ident.to_string() == "GOLD_BTN"),
+        "unload leaves the def absent"
+    );
+
+    // A project-side `use` of the entry file after the unload re-parses it
+    // from disk and revives the defs.
+    let entry_uri = acme_root
+        .join("acme")
+        .join("acme.mc")
+        .to_string_lossy()
+        .to_string();
+    let mut loaded = std::collections::HashSet::new();
+    mcc::mcb_add_recursive(&entry_uri, &mut loaded, false);
+    let ds = mcc::definition_space();
+    assert!(
+        ds.all_components()
+            .iter()
+            .any(|(k, _)| k.ident.to_string() == "GOLD_BTN"),
+        "a use-side load after unload revives the defs"
+    );
+}
+
 /// P0.5: the use-line face — the "who uses me" index (design §7.6; U234
 /// tier ③: now the def-ref graph's use-line face, carrying the retired
 /// `reverse_deps` table's domain) is built from the use table and survives
