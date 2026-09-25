@@ -315,16 +315,13 @@ fn dispatch__form4_returnless_implicit_this_per_member() {
         !codes.contains(&mcc::errcodes::COMPONENT_PIN_NOT_FOUND),
         "no E3179; got {codes:?}"
     );
-    // D7 PULLUP_DEGENERATE fires once per dispatched member (each pullup runs
-    // between two host pins that carry no rail role) — two members, two
-    // independent pullups, two diagnostics. Not a defect of this shape.
-    assert_eq!(
-        codes
-            .iter()
-            .filter(|c| **c == mcc::errcodes::PULLUP_DEGENERATE)
-            .count(),
-        2,
-        "one D7 per dispatched member; got {codes:?}"
+    // E4056 PULLUP_DEGENERATE retired (U297, 2026-09-25): the name-based
+    // Pullup/Pulldown lint contradicted the no-hardcoded-method-names
+    // doctrine, and a dispatched member between two host pins carries no rail
+    // role by construction — silence is the designed behaviour here.
+    assert!(
+        !codes.contains(&4056),
+        "no E4056; got {codes:?}"
     );
     let n1 = net_containing(&nets, "main.U1.1").expect("net on U1 pin 1");
     assert!(

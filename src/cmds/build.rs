@@ -747,7 +747,7 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
 
     // ── 6. Emit envelope ──
     let env = finish_build(builder);
-    // ── 6.5. Electrical net checks (Pass2, incl. D7 PULLUP_DEGENERATE) ──
+    // ── 6.5. Electrical net checks (Pass2, the FLAT_ERC catalog) ──
     // Rendered from the envelope, not from a private copy: the same rows the
     // payload carries under `pass2.net_checks` are what the console shows, so
     // a delegated build (whose payload the CLI reads back) prints the identical
@@ -1776,36 +1776,6 @@ module top {
         assert!(
             has_code(&diags, mcc::errcodes::NET_DROPPED_STATEMENT),
             "D6 DROPPED_STATEMENT should fire for indexed alias. Build err: {:?}. Diags: {:?}",
-            build_err,
-            diags.iter().map(|d| (d.code, &d.msg)).collect::<Vec<_>>()
-        );
-    }
-
-    // D7 PULLUP_DEGENERATE
-
-    #[test]
-    fn cli_build__d7_pullup_degenerate_signal_bridge() {
-        let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let fixture = r#"
-component RES(rs::UV.OHM) {
-    pins = [
-        io [1,2] = NODE{P, N}
-    ]
-    func Pullup(net, vcc) {
-        net - this{1}
-        this{2} - vcc
-        return net
-    }
-}
-module top {
-    io SCL, SDA
-    RES(10k).Pullup(SCL, SDA)
-}
-"#;
-        let (diags, build_err) = build_fixture(fixture);
-        assert!(
-            has_code(&diags, mcc::errcodes::PULLUP_DEGENERATE),
-            "D7 PULLUP_DEGENERATE should fire for signal-signal bridge. Build err: {:?}. Diags: {:?}",
             build_err,
             diags.iter().map(|d| (d.code, &d.msg)).collect::<Vec<_>>()
         );

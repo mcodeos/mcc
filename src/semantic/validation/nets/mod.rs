@@ -966,67 +966,6 @@ pub(crate) fn check_backfeed(table: &InstTable, results: &mut Vec<NetCheckResult
     }
 }
 
-// ── D7: PULLUP_DEGENERATE — pullup/pulldown degraded into a signal bridge ──
-// unified-twopin-no-builtin §2.6: after wiring, scan Pullup/Pulldown resistor
-// `this{1}`/`this{2}` nets. A pullup is a component instance produced by a
-// `func Pullup(...)` / `func Pulldown(...)` method dispatch — tagged at
-// instantiation time by the method-name origin marker (M0-B-E.1). A plain
-// series resistor has no method provenance and is not scanned.
-//
-// Rail detection uses network identity (IOType::Power / inferred Ground/Power
-// member role) instead of the old name-prefix heuristic. Both ends non-rail →
-// the pullup degenerated into a signal-signal bridge (E4056), e.g.
-// `Pullup(SCL, SDA)` shorting two signals instead of pulling one up to a rail.
-pub(crate) fn check_pullup_degenerate(table: &InstTable, results: &mut Vec<NetCheckResult>) {
-    let nets: Vec<&NetEntry> = table.get_nets();
-    let net_of = |pin_id: u32| -> Option<&NetEntry> {
-        nets.iter().find(|n| n.points.contains(&pin_id)).copied()
-    };
-    let net_is_rail = |net: &NetEntry| -> bool {
-        net.points.iter().any(|id| {
-            table.get_entry(*id).map_or(false, |e| {
-                matches!(e.io_type, IOType::Power)
-                    || e.member_info.as_ref().map_or(false, |m| {
-                        matches!(m.role, MemberRole::Power | MemberRole::Ground)
-                    })
-            })
-        })
-    };
-    for (_, entry) in table.iter() {
-        let fn_name = match &entry.origin {
-            InstOrigin::FuncCall { fn_name, .. } => fn_name.as_str(),
-            _ => continue,
-        };
-        let is_pull = fn_name == "Pullup" || fn_name == "Pulldown";
-        if !is_pull || !matches!(entry.kind, InstKind::Component) {
-            continue;
-        }
-        let pins = table.get_pins_of(entry.id);
-        if pins.len() < 2 {
-            continue;
-        }
-        let (Some(n1), Some(n2)) = (net_of(pins[0].id), net_of(pins[1].id)) else {
-            continue;
-        };
-        if net_is_rail(n1) || net_is_rail(n2) {
-            continue;
-        }
-        let (pos, uri) = entry_pos(entry);
-        results.push(NetCheckResult {
-            check: "pullup-degenerate",
-            severity: "warning",
-            message: crate::errcodes::format_msg(
-                crate::errcodes::PULLUP_DEGENERATE,
-                &[&fn_name, &n1.name, &n2.name],
-            ),
-            net_name: n1.name.clone(),
-            code: crate::errcodes::PULLUP_DEGENERATE,
-            pos,
-            uri,
-        });
-    }
-}
-
 // ── V1: Module ports with mismatched IO directions on same net ──
 pub(crate) fn check_port_io_mismatch(table: &InstTable, results: &mut Vec<NetCheckResult>) {
     for net in table.get_nets() {
