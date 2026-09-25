@@ -50,9 +50,17 @@ fn member_of(
 ) -> Option<(McURI, std::ops::Range<usize>, SymbolKind)> {
     match cmie {
         McCMIE::Component(comp) => {
-            if let Some(func) = comp.funcs.find(member_name) {
+            // Own funcs first, then the `::`-adopted recipe funcs — the
+            // effective method set (defregistry ledger, abstract-variant-
+            // recipe plan §5). This face must see the same set the Pass2
+            // dispatch (`funccall`) sees, or a legal adopted-func call is
+            // reported E3071 here. The func resolves on its owning def, so
+            // an adopted member reports the recipe file's uri (goto-def
+            // lands on the real declaration, like any cross-file member).
+            if let Some(func) = crate::db::defregistry::effective_method(comp, member_name) {
                 let span = func.span.clone()?;
-                return Some((comp.uri.clone(), span, SymbolKind::FuncRef));
+                let uri = func.source_uri().cloned().unwrap_or_else(|| comp.uri.clone());
+                return Some((uri, span, SymbolKind::FuncRef));
             }
         }
         McCMIE::Module(mod_def) => {

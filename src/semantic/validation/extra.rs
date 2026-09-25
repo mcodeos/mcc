@@ -241,7 +241,9 @@ fn check_component_structure(acc: &mut CheckAccumulator) {
         let has_params = !comp.params.is_empty();
         let has_pins = comp.has_pin_defs();
         let has_attrs = comp.attrs.len() > 0;
-        let has_funcs = !comp.funcs.is_empty();
+        // The effective method set (own funcs + `::`-adopted recipe funcs):
+        // an adopting host with only adopted funcs is not empty.
+        let has_funcs = crate::db::defregistry::has_effective_func(comp);
         // M1: completely empty
         if !has_params && !has_pins && !has_attrs && !has_funcs {
             acc.push(CheckResult {
