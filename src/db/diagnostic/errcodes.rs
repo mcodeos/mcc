@@ -2718,6 +2718,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(IDX_MULTIPLE_SLICE_SPEC, "IDX key has multiple slice specifications.", "IDX key has multiple slice specifications."),
     entry!(EXPR_THIS_TOP_LEVEL, "'this' used in a top-level net statement; it is only valid inside instance/function contexts.", "'this' used in a top-level net statement; it is only valid inside instance/function contexts."),
     entry!(EXPR_PLACEHOLDER_ONLY, "Net connects only to '_' placeholder; the connection has no effect.", "Net connects only to '_' placeholder; the connection has no effect."),
+    entry!(OPEN_LEAD, "Open lead: an anchored end meets a free '_' placeholder.", "Open lead: '{0}' leaves a free '_' placeholder — the anonymous point gathers a single anchor and nothing can reach it."),
     entry!(ATTR_SELF_REFERENTIAL, "Attribute value equals its own key; likely a copy-paste mistake.", "Attribute value equals its own key; likely a copy-paste mistake."),
     entry!(EVAL_DIVIDE_BY_ZERO, "Division by zero while evaluating a value expression.", "Division by zero while evaluating a value expression."),
     entry!(EVAL_OPERAND_NOT_NUMERIC, "Arithmetic operator applied to operands it is not defined for.", "Operator '{0}' is not defined for {1} and {2}."),
