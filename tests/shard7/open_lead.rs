@@ -216,3 +216,18 @@ fn open_lead__pure_placeholder_face_has_no_dropped_statement_error() {
         "E4057 must not fire on the pure placeholder face; got codes: {codes:?}"
     );
 }
+
+#[test]
+fn open_lead__free_end_inside_a_group_sub_chain_still_warns() {
+    let _lock = common::lock();
+
+    // R0 (b4034): a parenthesized chain inside a `(,)` branch survives as a
+    // nested series instead of being flattened into the outer one — the free
+    // `_` of that sub-chain must still be judged on its own chain.
+    let src = "module main(p, q) {\n    p -> (_ - q, q)\n}";
+    let codes = build_codes(src);
+    assert!(
+        codes.contains(&mcc::errcodes::OPEN_LEAD),
+        "a free `_` inside a preserved sub-chain must still warn; got codes: {codes:?}"
+    );
+}
