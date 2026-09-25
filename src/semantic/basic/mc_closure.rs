@@ -33,7 +33,28 @@ impl McClosure {
         for each in subnode.iter() {
             match each.get_type() {
                 MCAST_PARAMS => {
-                    params.parse(&each);
+                    // U300 M2: closure formals (`=> |ports| { ... }`) arrive as
+                    // OPD-wrapped names (the grammar's `mc_opds` chain), not
+                    // module-header param rows. Unwrap one OPD layer per child
+                    // and register each as a closure formal; routing them
+                    // through the shared `parse` walk dies on E3103 because no
+                    // arm classifies a bare MCAST_OPD.
+                    if let Some(mut cur) = each.get_sub_node() {
+                        loop {
+                            match cur.get_type() {
+                                MCAST_OPD => {
+                                    if let Some(inner) = cur.get_sub_node() {
+                                        params.push_closure_formal(&inner);
+                                    }
+                                }
+                                _ => params.push_closure_formal(&cur.clone()),
+                            }
+                            match cur.get_next() {
+                                Some(nx) => cur = nx,
+                                None => break,
+                            }
+                        }
+                    }
                 }
 
                 MCAST_BODY => {

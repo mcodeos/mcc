@@ -137,7 +137,16 @@ fn check_owner_floating_labels<F>(
         return;
     }
 
+    // Closure formals (`=> |ports| { ... }`) bind their names inside the
+    // closure, exactly like a func's params bind inside the func (U300 M2).
+    // A formal spelling showing up in the candidates is a bound face of the
+    // body it scopes, never a dangling label.
+    let bound_formals = collect_closure_formals(funcs, top_stmts);
+
     for (name, (pos, len)) in candidates {
+        if bound_formals.contains(&name) {
+            continue;
+        }
         // A name the **owner itself declares** is an identity — its own
         // `pins.pwr` rows' `::DC` faces for a component, its rail / power-port /
         // `conduit` declarations for a module — so a reference to it is not a
@@ -251,6 +260,48 @@ fn check_owner_floating_labels<F>(
 }
 
 // Reference-count walker over parsed func bodies
+
+/// Gather every closure formal name (`=> |ports| { ... }`) reachable in the
+/// owner's phrase trees — func bodies plus, for modules, the top-level body.
+fn collect_closure_formals(funcs: &McFunctions, top_stmts: &[McPhrase]) -> std::collections::HashSet<String> {
+    let mut out = std::collections::HashSet::new();
+    for func in funcs.iter() {
+        walk_closure_formals(&func.stmts, &mut out);
+    }
+    walk_closure_formals(top_stmts, &mut out);
+    out
+}
+
+fn walk_closure_formals(phrases: &[McPhrase], out: &mut std::collections::HashSet<String>) {
+    for p in phrases {
+        walk_closure_formals_phrase(p, out);
+    }
+}
+
+fn walk_closure_formals_phrase(p: &McPhrase, out: &mut std::collections::HashSet<String>) {
+    match p {
+        McPhrase::Closure(c) => {
+            for d in c.params.iter() {
+                if let Some(name) = d.get_primary_name() {
+                    out.insert(name.to_string());
+                }
+            }
+            walk_closure_formals(&c.body, out);
+        }
+        McPhrase::Series(items, _) | McPhrase::Parallel(items) | McPhrase::Multiple(items) => {
+            walk_closure_formals(items, out)
+        }
+        McPhrase::Group(g) => walk_closure_formals(&g.opds, out),
+        McPhrase::Transposed(i) | McPhrase::Reversed(i) => walk_closure_formals_phrase(i, out),
+        McPhrase::FuncCall(fc) => {
+            if let Some(caller) = &fc.caller {
+                walk_closure_formals_phrase(caller, out);
+            }
+        }
+        McPhrase::Member(i, _) => walk_closure_formals_phrase(i, out),
+        _ => {}
+    }
+}
 
 /// Reference counts for a candidate label name across a component's funcs.
 #[derive(Default)]
