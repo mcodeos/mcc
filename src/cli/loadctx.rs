@@ -141,6 +141,27 @@ pub fn load_all(ctx: &LoadContext) {
 /// server's project-root discovery converge here (use-design §19.10 D6
 /// phase 2).
 pub fn find_manifest_root(target: &Path) -> Option<PathBuf> {
+    if let Some(root) = walk_to_manifest(target) {
+        return Some(root);
+    }
+    if target.is_dir() {
+        Some(target.to_path_buf())
+    } else {
+        target.parent().map(|p| p.to_path_buf())
+    }
+}
+
+/// Whether any ancestor of `start` (inclusive) holds a project manifest —
+/// the project/anonymous axis of the visibility judgment. The use
+/// validator's strict-declaration check shares this one walk
+/// (use-design §19.10 D6 phase 3).
+pub fn manifest_reachable(start: &Path) -> bool {
+    walk_to_manifest(start).is_some()
+}
+
+/// The manifest walk proper: from `target` (a directory itself, or a
+/// file's parent) upward, the nearest directory holding a manifest.
+fn walk_to_manifest(target: &Path) -> Option<PathBuf> {
     let mut current: Option<&Path> = if target.is_dir() {
         Some(target)
     } else {
@@ -152,11 +173,17 @@ pub fn find_manifest_root(target: &Path) -> Option<PathBuf> {
         }
         current = dir.parent();
     }
-    if target.is_dir() {
-        Some(target.to_path_buf())
-    } else {
-        target.parent().map(|p| p.to_path_buf())
-    }
+    None
+}
+
+/// Whether a library is visible to `use` resolution — the name-level
+/// visibility predicate (use-design §19.10 D6 construct 3, as built):
+/// a library is visible exactly when it is loaded. The workspace kind
+/// does not change the verdict, only the diagnostic when this is false
+/// (strict declaration in project mode, lazy-load fallback in anonymous
+/// mode — see `check_system_use_lib`).
+pub fn is_lib_visible(name: &str) -> bool {
+    crate::db::infra::libmgr::mcb_loaded_libs().iter().any(|l| l == name)
 }
 
 #[cfg(test)]
@@ -249,6 +276,20 @@ mod tests {
         std::fs::write(&loose, "module main {}\n").unwrap();
         assert_eq!(find_manifest_root(&loose), Some(base.clone()));
 
+        // The reachability predicate shares the walk: true under the
+        // project, false outside it.
+        assert!(manifest_reachable(&file));
+        assert!(!manifest_reachable(&bare.join("inner.mc")));
+
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn cli_loadctx__is_lib_visible_reads_loaded_set() {
+        // Nothing is loaded in a fresh test process: nothing is visible.
+        assert!(
+            !is_lib_visible("definitely-not-loaded-lib"),
+            "an unloaded library is not visible"
+        );
     }
 }
