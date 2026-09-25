@@ -1748,7 +1748,32 @@ impl McPins {
 
                         // ★ Dynamic pins: resolve parameter-based ranges like 1:count
                         if iface_pins.is_empty() && declare.base.pins.has_dynamic_pins() {
-                            let bindings = Self::build_interface_param_bindings(declare);
+                            let mut bindings = Self::build_interface_param_bindings(declare);
+                            // E1 (replicated-binding-design.md §4 check 1): a
+                            // dynamic range name not declared in the formal
+                            // table is a width binder — it binds the binding
+                            // row's instance subscript width (`GPIO[3,4]` →
+                            // 2; no subscript → 1). A name inside arithmetic
+                            // never back-solves and is reported (E3186).
+                            let declared: std::collections::HashSet<String> =
+                                declare.base.params.names().into_iter().collect();
+                            let width = iface_subscript_width(&declare.name);
+                            let needs = dynamic::augment_with_width_binders(
+                                &declare.base.pins.dynamic_pins,
+                                &mut bindings,
+                                &declared,
+                                width,
+                            );
+                            if let Some(name) = needs.first() {
+                                dlog_error(
+                                    crate::errcodes::DYN_WIDTH_EXPR_NEEDS_PARAM,
+                                    &pnode,
+                                    &crate::errcodes::format_msg(
+                                        crate::errcodes::DYN_WIDTH_EXPR_NEEDS_PARAM,
+                                        &[&declare.name, name as &dyn std::fmt::Display],
+                                    ),
+                                );
+                            }
                             // Text bindings for computed pin names (U211): the
                             // explicit argument as written, else the declared default.
                             let defaults: std::collections::HashMap<String, String> = declare
@@ -1777,6 +1802,10 @@ impl McPins {
                                 .collect();
                             let resolved =
                                 declare.base.pins.resolve_dynamic_pins(&bindings, &values);
+                            // E2 (replicated-binding-design.md §4 check 2, the
+                            // explicit-parameter leg): subscript member count =
+                            // dynamic expansion count.
+                            check_dynamic_subscript_width(declare, resolved.len(), &pnode);
                             iface_pins = resolved.iter().map(|(_, name, _)| name.clone()).collect();
                             member_dirs = resolved
                                 .iter()
@@ -4297,6 +4326,66 @@ impl McPinNames {
 /// One uniform `expanded × iface_pins` Cartesian is wrong for these forms: it
 /// concatenates the bus form to `XTAL.X1.X1 / XTAL.X1.X2 / XTAL.X2.X1 / XTAL.X2.X2`
 /// and the list form to `VDD.VDD / VDD.GND / ...`.
+/// The instance subscript width of a binding-row name — E1
+/// (replicated-binding-design.md §4 check 1): `GPIO[3,4]` → 2 (each member
+/// names one replicated unit), a numeric list `[1:4]` → 4, a plain name → 1
+/// (the design's "no subscript defaults to 1"). A curly bus form
+/// (`XTAL{X1,X2}`) names members, not replications — width 1.
+pub(crate) fn iface_subscript_width(inst_name: &McIds) -> i64 {
+    if let Some(members) = inst_name.embedded_square_members() {
+        if !members.is_empty() {
+            return members.len() as i64;
+        }
+    }
+    if inst_name.is_list() {
+        if let Some(members) = inst_name.list_members() {
+            if !members.is_empty() {
+                return members.len() as i64;
+            }
+        }
+    }
+    1
+}
+
+/// E2 (replicated-binding-design.md §4 check 2, the explicit-parameter leg):
+/// when the binding row gives the interface's width parameter explicitly, the
+/// subscript member count must equal the dynamic range's expansion count. The
+/// third leg of the check — LHS pin IDs vs the member pool — is E3111's face
+/// in the caller; the two legs never double-report (E3111 compares the LHS,
+/// this compares the subscript). Without an explicit integer parameter the
+/// width binder ties the counts by construction and this stays silent.
+fn check_dynamic_subscript_width(
+    declare: &crate::semantic::mc_ifs::Mc2Interface,
+    resolved_len: usize,
+    err_node: &AstNode,
+) {
+    let explicit = declare
+        .params
+        .iter()
+        .any(|v| matches!(v, crate::semantic::basic::mc_param::McParamValue::Int(_)));
+    if !explicit {
+        return;
+    }
+    let Some(members) = declare.name.embedded_square_members() else {
+        return;
+    };
+    if members.is_empty() || members.len() == resolved_len {
+        return;
+    }
+    dlog_error(
+        crate::errcodes::IFACE_DYN_WIDTH_MISMATCH,
+        err_node,
+        &crate::errcodes::format_msg(
+            crate::errcodes::IFACE_DYN_WIDTH_MISMATCH,
+            &[
+                &declare.name,
+                &members.len() as &dyn std::fmt::Display,
+                &resolved_len as &dyn std::fmt::Display,
+            ],
+        ),
+    );
+}
+
 pub(crate) fn derive_interface_subnames(inst_name: &McIds, iface_pins: &[String]) -> Vec<String> {
     // §2.1: a square bracket embedded inside a single IDA segment (e.g.
     // `GPIO[5, 6]` tokenized as one IDA by the C parser) is List form:

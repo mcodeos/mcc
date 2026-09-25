@@ -418,6 +418,12 @@ pub struct IfaceLane {
     pub role: Option<String>,
     /// The selected role's declared `peer` role, if it names one.
     pub peer_role: Option<String>,
+    /// The selected role's declared `peer` value set **in full** — the same
+    /// flattened values `peer_role` takes its first element from. The
+    /// statement-level peer judge reads the full set at connection time
+    /// (stmt.rs); the flat role-peer sweep (6061) reads this carry so the
+    /// net-level walk cannot disagree with it.
+    pub peer_roles: Vec<String>,
     /// The role's `exclusive = true` declaration (U201 ①②): the lane's
     /// terminals pair with exactly **one** peer instance — a resonator body
     /// meets one oscillator body, not two. Roles that declare nothing pair
@@ -557,7 +563,9 @@ pub(crate) fn iface_lane_of_pin(
             })
             .unwrap_or_default()
     };
-    let peer_role = first_values("peer").into_iter().next();
+    let peer_values = first_values("peer");
+    let peer_role = peer_values.first().cloned();
+    let peer_roles = peer_values;
     let exclusive = first_values("exclusive").iter().any(|v| v == "true");
     let direction = role_def.and_then(|r| lane_dir_of_pins(&r.pins));
     let analog = role_def
@@ -580,6 +588,7 @@ pub(crate) fn iface_lane_of_pin(
         family: iface.base.name.to_string(),
         role,
         peer_role,
+        peer_roles,
         exclusive,
         lane: port_name.to_string(),
         direction,

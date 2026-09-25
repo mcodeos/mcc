@@ -382,6 +382,136 @@ impl DynamicPinLine {
                 .map(|e| e.has_param_ref)
                 .unwrap_or(false)
     }
+
+    /// Split this line's id-expression unbound names by position — E1,
+    /// replicated-binding-design.md §4 check 1. A name that IS a whole
+    /// endpoint of the top-level `Slice`/`Range` (or the whole expression) is
+    /// a **width binder**: it binds the instance subscript width. A name found
+    /// anywhere deeper — an operand of `Plus`/`Multiply`/`Call`/… — never
+    /// participates in back-solving and must be given as an explicit
+    /// parameter. `bindings` is the environment as bound so far (already
+    /// augmented binders count as bound), `declared` lists the formal
+    /// parameter table's names — a declared name is never classified here
+    /// even when unbound in this environment (its absence is the caller's
+    /// missing-argument defect, judged elsewhere). Only the id expression is
+    /// read: the name slot keeps its U211/E3185 semantics untouched.
+    pub fn width_binder_requests(
+        &self,
+        bindings: &[(String, i64)],
+        declared: &std::collections::HashSet<String>,
+    ) -> (Vec<String>, Vec<String>) {
+        let Some(expr) = self.pin_id_expr.as_ref() else {
+            return (Vec::new(), Vec::new());
+        };
+        let mut binders = Vec::new();
+        let mut needs_param = Vec::new();
+        match &expr.expr {
+            McExpression::Slice(l, r) | McExpression::Range(l, r) => {
+                for side in [l, r] {
+                    if let McExpression::Variable(opd) = side.as_ref() {
+                        if let Some(name) = unbound_single_name(opd, bindings, declared) {
+                            binders.push(name);
+                            continue;
+                        }
+                    }
+                    // A compound side: every unbound name under it is
+                    // expression-embedded.
+                    collect_unbound_names(side, bindings, declared, &mut needs_param);
+                }
+            }
+            _ => {
+                if let McExpression::Variable(opd) = &expr.expr {
+                    if let Some(name) = unbound_single_name(opd, bindings, declared) {
+                        binders.push(name);
+                    }
+                } else {
+                    collect_unbound_names(&expr.expr, bindings, declared, &mut needs_param);
+                }
+            }
+        }
+        binders.sort();
+        binders.dedup();
+        needs_param.sort();
+        needs_param.dedup();
+        (binders, needs_param)
+    }
+}
+
+/// The single expanded name of a `Variable` operand that is neither bound
+/// here nor declared as a formal parameter — the width-binder candidate.
+fn unbound_single_name(
+    opd: &McOpd,
+    bindings: &[(String, i64)],
+    declared: &std::collections::HashSet<String>,
+) -> Option<String> {
+    let names = opd.expand();
+    if names.len() != 1 {
+        return None;
+    }
+    let name = &names[0];
+    if bindings.iter().any(|(n, _)| n == name) || declared.contains(name) {
+        return None;
+    }
+    Some(name.clone())
+}
+
+/// Every unbound, undeclared single name under the expression — the
+/// needs-explicit-parameter bucket. A sub-`Slice`/`Range` is read as an
+/// ordinary expression: only the TOP-level range's whole endpoints are
+/// binder candidates.
+fn collect_unbound_names(
+    expr: &McExpression,
+    bindings: &[(String, i64)],
+    declared: &std::collections::HashSet<String>,
+    out: &mut Vec<String>,
+) {
+    match expr {
+        McExpression::Variable(opd) => {
+            if let Some(name) = unbound_single_name(opd, bindings, declared) {
+                out.push(name);
+            }
+        }
+        McExpression::Plus(l, r)
+        | McExpression::Minus(l, r)
+        | McExpression::Multiply(l, r)
+        | McExpression::Divide(l, r)
+        | McExpression::Slice(l, r)
+        | McExpression::Range(l, r) => {
+            collect_unbound_names(l, bindings, declared, out);
+            collect_unbound_names(r, bindings, declared, out);
+        }
+        McExpression::Call { args, .. } => {
+            for arg in args {
+                collect_unbound_names(arg, bindings, declared, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Bind every bare width-binder request across `lines` to `width` (E1) and
+/// return the names that must be given explicitly (the E3186 bucket). A
+/// binder already present in `bindings` (bound by an earlier line or a
+/// genuine parameter) is left untouched — the first binding wins.
+pub fn augment_with_width_binders(
+    lines: &[DynamicPinLine],
+    bindings: &mut Vec<(String, i64)>,
+    declared: &std::collections::HashSet<String>,
+    width: i64,
+) -> Vec<String> {
+    let mut needs = Vec::new();
+    for line in lines {
+        let (binders, line_needs) = line.width_binder_requests(bindings, declared);
+        for name in binders {
+            if !bindings.iter().any(|(n, _)| *n == name) {
+                bindings.push((name, width));
+            }
+        }
+        needs.extend(line_needs);
+    }
+    needs.sort();
+    needs.dedup();
+    needs
 }
 
 impl Default for DynamicPinLine {

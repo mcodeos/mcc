@@ -179,6 +179,15 @@ pub(crate) use iface_peer::check_iface_exclusive_peer;
 mod iface_chain;
 pub(crate) use iface_chain::check_iface_chain_source;
 
+// U289 ⑥ E4 flat-net generic peer sweep (replicated-binding-design.md §4
+// check 4). iface_role_peers.rs is a sibling leaf like iface_peer.rs: one
+// owner (6061 check_iface_role_peers) pairs role-bearing endpoints on the
+// flat net map — through role-less mediators and module ports — and judges
+// mutual `peer` per the role block, the statement-level judge's semantics at
+// net scope.
+mod iface_role_peers;
+pub(crate) use iface_role_peers::check_iface_role_peers;
+
 /// Run all electrical net checks and return diagnostics.
 ///
 /// FlatErc rules are declared — and ordered — in `crate::rules`

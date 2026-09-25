@@ -776,6 +776,20 @@ pub const LABEL_NOT_EXPORTABLE: u32 = 3184;
 /// than dropping without a word.
 pub const PIN_NAME_EXPR_UNRESOLVED: u32 = 3185;
 
+/// A width-binder name (replicated-binding-design.md §4 check 1: a dynamic
+/// range name not declared in the formal parameter table) appears *inside an
+/// arithmetic width expression* (`1:count*2`). A bare whole-endpoint name
+/// binds to the instance subscript width; a name inside arithmetic never
+/// participates in back-solving — it must be given as an explicit parameter.
+pub const DYN_WIDTH_EXPR_NEEDS_PARAM: u32 = 3186;
+
+/// The binding row's subscript member count disagrees with the interface's
+/// dynamic pin expansion count (replicated-binding-design.md §4 check 2, the
+/// explicit-parameter leg: subscript members = dynamic expansion = physical
+/// pins). The row-side counting face (subscript vs LHS pool) is E3111; this
+/// code judges the subscript against the resolved dynamic expansion.
+pub const IFACE_DYN_WIDTH_MISMATCH: u32 = 3187;
+
 // Pass2: connection / shape (4000-4049)
 
 /// Transposed connection size mismatch.
@@ -1161,6 +1175,17 @@ pub const IFACE_ROLE_ARG_LITERAL: u32 = 4185;
 /// own `pins` table inherits the view and is never judged here. Error; the
 /// check lives in `validation::interface`.
 pub const IFACE_VIEW_LANE_MISMATCH: u32 = 4186;
+
+/// R3 mediator half (replicated-binding-design.md §4 check 3): a role
+/// argument is legal only on terminal pins rows. An interface instance in the
+/// MIDDLE of a series chain (`A - bus::GPIO(Controller) - B`, two or more
+/// adjacencies on both sides) is a wiring mediator — a role-less conductor
+/// whose identity comes from the chain's terminal pins rows. The module-port
+/// half is E4184 (`check_module_port_role_free`); this code judges the chain
+/// position at instantiation (`process_series_branch_inplace`). Chain
+/// endpoints keep their roles (design §2: a role-bearing bus instance wired
+/// as an endpoint is a legal bus identity).
+pub const MEDIATOR_IFACE_ROLE: u32 = 4187;
 
 // Pass2: AssemblyGate netlist health — R-series report rows (4200-4249)
 //
@@ -2269,6 +2294,17 @@ pub const PROTECTIVE_PIN_NO_COPPER: u32 = 6059;
 /// role's declared pin-direction shape, never a family or role name.
 pub const IFACE_CHAIN_SOURCE_UNREACHED: u32 = 6060;
 
+/// E4 flat-net generic peer sweep (replicated-binding-design.md §4 check 4):
+/// two role-bearing interface endpoints of the same family land on one flat
+/// net (possibly through role-less mediators or module ports — both are
+/// role-less conductors by law) and their roles are not mutual peers per the
+/// interface's role-block `peer` table. The connection-time judge E4121 only
+/// sees pairs meeting in one statement; this sweep walks the finished net
+/// map, so a pair already reported by E4121 is reported again here by ruling
+/// (2026-09-25: both fire, no dedup carry). Pairs with an unknown role on
+/// either side stay silent (the single-side law shared with 6054).
+pub const IFACE_ROLE_PEER_CONFLICT: u32 = 6061;
+
 /// R3 **mixed bridge identity** (intent-reference-layer-design.md §10.4 bridge
 /// identity three-state): a `@bridge(X, Y)` whose two arguments disagree on
 /// kind — one names a whole-referenceable domain of the owning module, the
@@ -2525,6 +2561,8 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(BUS_MEMBER_ON_SCALAR_PORT, "Member/lane access on a module port declared without members (scalar io/out/in).", "Port '{0}' is declared scalar (no members); member/lane access '{1}' is not allowed. Declare its members or an interface type, or reference the whole port."),
     entry!(LABEL_NOT_EXPORTABLE, "Module-internal label accessed from outside its module.", "'{0}' is module-internal in '{1}' (declared without a direction word) and cannot be accessed through an instance path. Declare it with a direction word ('in'/'out'/'io') to put it on the module boundary — 'io' is the neutral choice."),
     entry!(PIN_NAME_EXPR_UNRESOLVED, "A pin name expression did not resolve against the bound parameters.", "Pin name expression '{0}' did not resolve against the parameters bound here; the row registers no name. Bind every parameter the expression reads, or write the name as plain text."),
+    entry!(DYN_WIDTH_EXPR_NEEDS_PARAM, "A width-binder name sits inside an arithmetic width expression; expression widths are never back-solved.", "Dynamic pin range '{0}' reads '{1}' inside an arithmetic expression, but '{1}' is not declared in the parameter table. An undeclared name is a width binder only as a whole range endpoint — it binds the instance subscript width; inside arithmetic it never participates in back-solving (replicated-binding-design.md §4 check 1). Declare '{1}' as a parameter and give it explicitly here, or write the range end as a bare name."),
+    entry!(IFACE_DYN_WIDTH_MISMATCH, "The binding row's subscript member count disagrees with the interface's dynamic pin expansion.", "Interface binding '{0}' names {1} subscript member(s) but the interface's dynamic pin range expands to {2} pin(s). With an explicit width parameter the three counts — subscript members, dynamic expansion, physical pins — must agree (replicated-binding-design.md §4 check 2). Match the subscript to the expansion, or drop the explicit parameter and let the width binder tie the counts."),
     // section
     entry!(CONN_TRANSPOSE_SIZE_MISMATCH, "Transposed connection size mismatch.", "Transposed connection size mismatch"),
     entry!(CONN_LEFT_ARROW_SHAPE_MISMATCH, "Shape mismatch in a <- connection.", "Shape mismatch in a <- connection"),
@@ -2632,6 +2670,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(MODULE_PORT_IFACE_ROLE, "Module port binding carries a role argument; role belongs to endpoint terminal pins only (replicated-binding-design R3).", "Module '{0}': port '{1}' binds interface '{2}' with role '{3}' — role is the link identity of endpoint terminal pins; module ports are role-less conduits. Drop the role argument: '{1}::{2}()'."),
     entry!(IFACE_ROLE_ARG_LITERAL, "Role-position constructor argument is a quoted or numeric literal; the role position takes a bare identifier (ident-vs-literal ruling, U144).", "Interface '{2}' takes a bare identifier in its role position, but '{0}::{1}' carries literal argument(s) [{3}] — the role is never recorded and role validation is silently bypassed. Write the role name bare: '{0}::{1}(Role)'."),
     entry!(IFACE_VIEW_LANE_MISMATCH, "An interface's role table declares a different lane count than the interface's role-less conductor view (conductor-view-design.md R-CV2, the uniformity law).", "Interface '{0}': role '{1}' declares {2} pin lane(s) but the interface's role-less conductor view declares {3} — every role table must match the view's lane count, otherwise role-less bindings and role bindings resolve different shapes from the same interface. Give the role {3} lane(s), or drop its `pins` table to inherit the view."),
+    entry!(MEDIATOR_IFACE_ROLE, "A wiring mediator in the middle of a series chain carries a role argument; roles are legal only on terminal pins rows.", "Interface instance '{0}' sits between two chain members and binds role '{1}'. A mediator is a role-less conductor: it forwards the chain and takes no side, so its role can never become an endpoint identity — the chain's identity is read from the terminal pins rows alone (replicated-binding-design.md §4 check 3, R3; the module-port half of the same law is reported as 4184). Drop the role argument — write '{0}()' — or move this instance to a terminal position of the chain."),
     entry!(COMPONENT_PARAM_FUNC_CONFLICT, "Component-level parameter shares a name with the same-name constructor func parameter.", "Component '{0}' declares parameter '{1}' that also appears in constructor func '{2}' params. Class params define class behavior and constructor params declare the construction arity; they must not reuse the same name. Rename one of them."),
     // section
     entry!(DUP_CMIE_CROSS_FILE, "Same name defined in another file (cross-file duplicate).", "Same name defined in another file (cross-file duplicate)."),
@@ -2827,6 +2866,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(AC_NOMINAL_CONFLICT, "Two AC mains faces state different region nominals on one copper.", "the net '{0}' carries two declared AC region nominals on one copper: '{2}' states {3}, while '{4}' states {5} — different {1}, not one mains, and the copper cannot be both. State the region nominal at the consumer faces and keep the region-neutral empty form on the inlet components (ac-interface-design.md §5/§7, U217)."),
     entry!(PROTECTIVE_PIN_NO_COPPER, "A pin declaring @role(protective) or @role(earth) shares a net with no protective conductor.", "the pin '{0}' declares @role({1}), but its net '{2}' touches no conductor the owning scope declares protective or earth — the role word is a promise about the copper, and a plain net does not keep it. Wire the pin to a `conduit`/port declared `@role(protective)`/`@role(earth)` (the single-point the clamp rules read), or drop the role word if the terminal is not protective (ac-interface-design.md §4/§7, U217; the beta ruling: PE is not an interface member, it lives in the role machinery)."),
     entry!(IFACE_CHAIN_SOURCE_UNREACHED, "A sink-shaped adoption lane reaches no source of its family along the adoption chain.", "interface '{0}' lane '{1}' on '{2}' adopts role '{3}', whose pins all declare `in` — a sink-shaped lane — but no source endpoint of the same family is reachable along the adoption chain: the walk crossed every net the family's lanes lead to from here and found only further sink lanes. A unidirectional lane fed from nowhere is a dangling input — an orphan clock input is a clock that never arrives. Wire a source-role endpoint onto the chain (directly, or through a sink lane whose instance also declares a source pin of the same family), or drop the direction words if the lane is not genuinely a consumer (clock-intent-design.md §2.2, U112 ②)."),
+    entry!(IFACE_ROLE_PEER_CONFLICT, "Two role-bearing endpoints of one family on a flat net are not mutual peers per the interface's role table.", "Net '{0}' joins '{1}' (role {2}) and '{3}' (role {4}) of family '{5}', but the roles are not mutual peers: the role block of '{2}' does not declare '{4}' in its `peer` set (and/or the reverse). The pair met only through role-less conductors — a wiring mediator or a module port — so the statement-level judge (4121) never saw it; the flat net walk did (replicated-binding-design.md §4 check 4). Give one endpoint the matching role, or extend the peer tables so the two roles name each other."),
     entry!(EXPECTATION_TARGET_MISSING, "An `expects` row names a target the built top does not contain.", "the `expects` row '{0}' addresses a {1}, but the built top has no {1} named '{0}' — only what the top instantiates or declares can carry an expectation (circuit-intent-acceptance-design.md §4)"),
     entry!(EXPECTATION_CLASS_MISMATCH, "The instance an `expects` row names instantiates no face matching the row's class word.", "the instance '{0}' instantiates '{1}', and none of its declared faces matches the expected '{2}' — a class row reads the same keys `::` binding reads: the class itself, its variant base chain, and its adopted recipes ({3}) (circuit-intent-acceptance-design.md §3-§4)"),
     entry!(EXPECTATION_NOT_DRIVEN, "The net an `expects = driven` row names carries no declared driver.", "the net '{0}' carries no declared driver — no endpoint on it is an `Out` pin or a declared power source, the same declared-face rule the undriven-net gate reads; wire a source onto it, or drop the `driven` row if the net is a passive branch (circuit-intent-acceptance-design.md §3-§4)"),
