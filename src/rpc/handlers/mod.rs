@@ -1488,11 +1488,14 @@ pub(crate) fn resolve_libs_rpc(libs: &[String]) -> Vec<String> {
 }
 
 pub(crate) fn load_libs_rpc(libs: &[String]) {
-    for name in &resolve_libs_rpc(libs) {
-        // Reuse the shared library loader: it supports absolute paths and .mc
-        // file forms, and skips libraries that are already loaded.
-        crate::mcb_load_lib_by_name(name);
-    }
+    // The loading half is the shared D6 loader (use-design §19.10): one loop,
+    // dedup, and the same skip-if-loaded name loader the CLI uses. The
+    // resolution half stays `resolve_libs_rpc` for now - its "explicit request
+    // list replaces the config list" policy is deliberately not the CLI's
+    // union; converging the two policies is D6 phase 2.
+    crate::cli::loadctx::load_all(&crate::cli::loadctx::LoadContext::from_resolved(
+        resolve_libs_rpc(libs),
+    ));
 }
 
 /// The one virtual URI an inline AI dry-run is loaded under.

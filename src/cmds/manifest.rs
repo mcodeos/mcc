@@ -209,37 +209,19 @@ fn file_declares_module_main(path: &Path) -> bool {
 /// 2. Project project.toml                            → [config.libs].load (legacy)
 /// 3. Project project.toml                            → [dependencies]       (manifest)
 /// 4. CLI --lib
+///
+/// The resolution itself lives in [`mcc::cli::loadctx::resolve_load_context`]
+/// (use-design §19.10 D6 phase 1); this wrapper keeps the CLI call sites
+/// spelled as before.
 pub fn collect_libs(project_root: Option<&Path>, cli_libs: &[String]) -> Vec<String> {
-    let mut libs = mcc::get_libs_load_list(project_root);
-    if let Some(root) = project_root {
-        if let Some(path) = Manifest::find_in(root) {
-            if let Ok(manifest) = Manifest::load(&path) {
-                for dep in manifest.dependencies.keys() {
-                    if !libs.contains(dep) {
-                        libs.push(dep.clone());
-                    }
-                }
-            }
-        }
-    }
-    for l in cli_libs {
-        if !libs.contains(l) {
-            libs.push(l.clone());
-        }
-    }
-    // mcode standard library auto-loads by default unless disabled
-    // (see LibsConfig::should_load_mcode / libs.disable_mcode).
-    if mcc::should_load_mcode(project_root) && !libs.iter().any(|l| l == "mcode") {
-        libs.push("mcode".to_string());
-    }
-    libs
+    mcc::cli::loadctx::resolve_load_context(project_root, cli_libs).lib_names()
 }
 
 /// Load exactly the given library names. No automatic global config loading.
 pub fn load_libs(lib_names: &[String]) {
-    for lib_name in lib_names {
-        mcc::mcb_load_lib_by_name(lib_name);
-    }
+    mcc::cli::loadctx::load_all(&mcc::cli::loadctx::LoadContext::from_resolved(
+        lib_names.to_vec(),
+    ));
 }
 
 /// Walk up from `target` (a file or directory path) to find the project root:
@@ -300,7 +282,10 @@ pub fn init_local(target: Option<&str>, cli_libs: &[String]) -> Option<PathBuf> 
     if let Some(root) = project_root.as_deref() {
         mcc::mcc_set_project_root(root);
     }
-    load_libs(&collect_libs(project_root.as_deref(), cli_libs));
+    // The D6 shape: resolve one context, load it once
+    // (use-design §19.10 convergence table, init_local row).
+    let ctx = mcc::cli::loadctx::resolve_load_context(project_root.as_deref(), cli_libs);
+    mcc::cli::loadctx::load_all(&ctx);
     project_root
 }
 
