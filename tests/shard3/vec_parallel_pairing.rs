@@ -47,9 +47,10 @@
 //! illegal, no broadcast carve-out for parallel (§5.1). The cells are updated
 //! deliberately, as this fence requires, rather than silently.
 //!
-//! The real-board no-regression evidence lives in the `pwrint` / `hbl` netdiff
-//! goldens (design doc §6 item 5); this file covers the grammar forms those
-//! boards do not contain.
+//! The real-board no-regression evidence lives in the `hbl` netdiff golden
+//! (design doc §6 item 5) — the netdiff harness is hbl-only (`mcs/tests/netdiff.rs`);
+//! `pwrint` ships a check golden, not a netdiff one. This file covers the grammar
+//! forms that board does not contain.
 
 // Family naming `fence__{essence}` uses a doubled underscore to separate the
 // grep-able family token from the essence (matrix §1 taxonomy).
