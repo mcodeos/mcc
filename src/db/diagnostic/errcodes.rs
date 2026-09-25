@@ -1631,6 +1631,13 @@ pub const PORT_NEVER_USED: u32 = 5642;
 /// Parameter has no inferred type.
 pub const UNTYPED_PARAM: u32 = 5643;
 
+/// U300 M8: a definition-body attribute row whose root key is `pins` with a
+/// curly member list (`pins{1:2} = "spec"`). The pins root key only takes
+/// effect at call sites — the argument-position binding (U269) carries it to
+/// the instance's pin-name face — while a definition body consumes nothing,
+/// so the row stays a silent orphan without this info hint.
+pub const PINS_ROOT_KEY_BODY_UNUSED: u32 = 5644;
+
 // ERC (electrical rule check) (6000-6099)
 
 /// Placed abstract component with no selected part (partno unset).
@@ -2505,7 +2512,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(MODULE_PARAM_TYPE_UNEXPECTED, "Unexpected type in a module parameter.", "Unexpected type in module param"),
     entry!(MODULE_HEADER_IFACE_NEEDS_DIRECTION, "Module header interface-typed parameter is missing a direction word.", "module header interface-typed parameter (class `{1}`) in `module {0}` carries no direction word — write an explicit power direction `psrc`/`psnk`/`psbi`, e.g. `module {0}(psnk [VDD, GND]::DC(v))`; the no-direction header sugar is removed"),
     entry!(MODULE_METHOD_NOT_FOUND, "Function was not found in the class.", "function '{0}' not found in class '{1}'"),
-    entry!(UNEXPECTED_CLAUSE_TYPE, "Unexpected clause type in a module body.", "Unexpected clause type in module body"),
+    entry!(UNEXPECTED_CLAUSE_TYPE, "Module body: {0}", "module body: {0}"),
     entry!(EXPECTS_ROW_MALFORMED, "A row of this expects clause is not one of the designed forms: a class/role word, `driven`, a [low:/high:] window, or a `~` range.", "A row of this expects clause is not one of the designed forms: a class/role word, `driven`, a [low:/high:] window, or a `~` range."),
     // section
     entry!(FUNC_EMPTY_NET, "Empty net in a function or module body.", "Empty NET"),
@@ -2519,7 +2526,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(PARAM_INST_LOOKUP_FAILED, "Instance::class lookup failed; the binding is treated as a plain pin alias.", "'{0}::{1}' lookup failed; treating '{0}' as plain pin alias. If you intended an interface binding, check that '{1}' is defined (and `use`d, if from a library)."),
     entry!(PARAM_DECLARE_IFACE_PINS, "Interface pin count does not match the number of declared pin IDs.", "Interface '{0}' declares {1} pin(s) (members: {2}) but {3} {4} given; the counts must match. Use a range like `a:b` to declare exactly {1} pin(s)."),
     entry!(FUNC_CALL_MISSING_NAME, "Missing function name in a function call.", "Missing function name in a function call."),
-    entry!(CONN_STMT_PARSE_FAILED, "A connection statement failed to parse.", "connection statement failed to parse"),
+    entry!(CONN_STMT_PARSE_FAILED, "A connection statement was dropped because it failed to evaluate; the statement-specific diagnostic above carries the defect.", "connection statement dropped — failed to evaluate"),
     entry!(FUNC_BODY_INVALID, "Invalid function body node.", "Invalid function body node."),
     entry!(FUNC_STMT_DROPPED, "A connection statement was dropped because McPhrase::new returned None.", "Connection statement dropped (McPhrase::new returned None): `{0}`"),
     entry!(FCALL_PARSE_FAILED, "Function call parse failure.", "Cannot chain `.{0}` after `{1}(...)`: function `{2}` returns a bus/label (endpoint), not `this`. Only functions that return `this` can be chained."),
@@ -2564,7 +2571,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(CONN_OPERATOR_UNSUPPORTED, "The operator is not supported in connection statements; use '+' for parallel, '-' / '->' for series.", "Operator '{1}' is not supported in connection statements; use '+' for parallel, '-' / '->' for series"),
     entry!(PHRASE_AST_TYPE_UNEXPECTED, "Unexpected AST node type in a phrase.", "Unexpected AST node type {1} in McPhrase::new"),
     entry!(PHRASE_IFACE_MEMBER_NOT_FOUND, "Member not found in the interface.", "Member '{0}' not found in interface"),
-    entry!(PORT_ROW_WITH_CONNECTION, "An iotype-prefixed port row carries a connection.", "port row carries a connection ('{0}'); a port row only declares ports — write the connection on a line of its own"),
+    entry!(PORT_ROW_WITH_CONNECTION, "An iotype-prefixed port row carries a phrase that is not a port declaration.", "port row carries {0} — not a port declaration shape; a port row only declares ports, so write the connection on a line of its own"),
     entry!(PHRASE_RESERVED_WORD_SUBSCRIBED, "A subscript is glued onto a reserved word, which addresses nothing.", "name carries a subscript in the reserved word '{0}', where a subscript selects nothing: write '{0}{...}' or '{0}.N'"),
     entry!(ATTR_VALUE_NOT_A_TERMINAL, "An attribute used as a connection endpoint.", "'{0}' is an attribute key: it holds a value, not a terminal, so it cannot be a connection endpoint; connect a pin, a port, or a net instead"),
     entry!(PIN_VALUE_KEY_NOT_FOUND, "A pin value key was not found.", "'{0}' has no value key '{1}'; declared keys: [{2}]"),
@@ -2788,6 +2795,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(UNUSED_PARAM_OR_PORT, "Parameter or port is declared but never used.", "Parameter or port is declared but never used."),
     entry!(PORT_NEVER_USED, "Port is declared but never used in any net connection.", "Port '{0}' in '{1}' is declared but never used in any net connection."),
     entry!(UNTYPED_PARAM, "Parameter has no inferred type.", "Parameter has no inferred type."),
+    entry!(PINS_ROOT_KEY_BODY_UNUSED, "A definition-body pins-rooted key is not consumed here.", "pins root key '{0}' only takes effect at call sites (the argument position); a definition body consumes nothing"),
     // section
     entry!(ABSTRACT_PART_UNSELECTED, "Placed abstract component has no selected part (partno unset).", "abstract component instance '{0}' is unselected (no partno); BOM must pick a variant"),
     entry!(VARIANT_SPEC_UNSET, "Variant still carries an unset inherited spec item.", "variant '{0}' leaves spec item '{1}' unset (±0/empty)"),

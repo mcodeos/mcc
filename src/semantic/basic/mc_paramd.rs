@@ -224,6 +224,23 @@ impl McParamDeclares {
         // else: empty parameter list is legal, no need to error
     }
 
+    /// Register one closure formal (`=> |ports| { ... }`, U300 M2).
+    ///
+    /// Closure formals are plain operand names, not module-header param rows,
+    /// so the shared [`Self::parse`] walk cannot classify them; this entry
+    /// point records the name (with its span) so the closure body and the
+    /// floating-label pass see it as a declared face.
+    pub fn push_closure_formal(&mut self, node: &AstNode) {
+        if let Some(paramd) = McParamDeclare::new(node, self.enclosing_component_name.as_ref()) {
+            if let Some(name) = paramd.get_primary_name() {
+                let span = (node.get_pos() as usize)
+                    ..((node.get_pos() + node.get_len()) as usize);
+                self.store_def_span(&name, span);
+            }
+            self.declares.push(paramd);
+        }
+    }
+
     /// Register a `name::Class(args)` parameter declaration: the name text
     /// precedes the DECLARE node, square-vec members get their own spans.
     fn register_declare_param(&mut self, inner: &AstNode) {

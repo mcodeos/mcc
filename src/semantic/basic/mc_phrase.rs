@@ -2980,6 +2980,60 @@ impl McPhrase {
                         base: McInstance::Module(_),
                         ..
                     })) => left_opd.curly_mn(&right1, &right2),
+                    McPhrase::FuncCall(fc) if fc.named_ctor => {
+                        // U300 M1: `FAMILY INST{a | b}` — an inline instance wearing a
+                        // curly-mn port selection. The base phrase parses as the named
+                        // ctor call (caller = the instance name), so neither
+                        // Component/Module arm above can fire and the instance is not
+                        // in the symbol table yet (it is born in this very statement).
+                        // Resolve the ctor family here, materialize the instance under
+                        // its caller name, and apply the two-face selection to it.
+                        let inst_name = match fc.caller.as_deref() {
+                            Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+                                base: McInstance::Label(label),
+                                ..
+                            }))) if !label.is_empty() => label.clone(),
+                            _ => {
+                                dlog_error(
+                                    crate::errcodes::CURLY_MN_WRONG_BASE,
+                                    node,
+                                    &crate::errcodes::format_msg(
+                                        crate::errcodes::CURLY_MN_WRONG_BASE,
+                                        &[],
+                                    ),
+                                );
+                                return None;
+                            }
+                        };
+                        match resolve_cmie(&DB, &fc.func_name, context.uri()) {
+                            Some(McCMIE::Component(comp_def)) => {
+                                let mc2_comp =
+                                    Mc2Component::with_params(&inst_name, comp_def, fc.params);
+                                let phrase = McPhrase::Endpoint(McEndpoint::Single(
+                                    McInstanceRef::new(McInstance::Component(Arc::new(mc2_comp))),
+                                ));
+                                phrase.curly_mn(&right1, &right2)
+                            }
+                            Some(McCMIE::Module(mod_def)) => {
+                                let mc2_mod = Mc2Module::new(&inst_name, mod_def);
+                                let phrase = McPhrase::Endpoint(McEndpoint::Single(
+                                    McInstanceRef::new(McInstance::Module(Arc::new(mc2_mod))),
+                                ));
+                                phrase.curly_mn(&right1, &right2)
+                            }
+                            _ => {
+                                dlog_error(
+                                    crate::errcodes::CURLY_MN_WRONG_BASE,
+                                    node,
+                                    &crate::errcodes::format_msg(
+                                        crate::errcodes::CURLY_MN_WRONG_BASE,
+                                        &[],
+                                    ),
+                                );
+                                None
+                            }
+                        }
+                    }
                     _ => {
                         // ★ Fix: When left_opd is Bus or Label, try to resolve it as a
                         // Component or Module. This happens when the instance was not yet
@@ -3817,7 +3871,7 @@ impl McPhrase {
                         ],
                     ),
                 );
-                None
+                Self::salvage_inline_ctors(node, context)
             }
 
             // P1-1: arithmetic / range operators on connection stmts
@@ -3844,7 +3898,7 @@ impl McPhrase {
                         ],
                     ),
                 );
-                None
+                Self::salvage_inline_ctors(node, context)
             }
 
             _ => {
@@ -3861,6 +3915,47 @@ impl McPhrase {
                 );
                 None
             }
+        }
+    }
+
+    /// U300 M5: an unsupported-operator connection statement (`/ ~ : *`)
+    /// reports E4008 and drops the *connection*, but per the global principle
+    /// that error diagnostics do not block instantiation, the statement's
+    /// inline constructor calls stay alive:
+    /// every `FAMILY(args) name` / `FAMILY(args)` subtree is re-parsed as a
+    /// standalone phrase so the instances still materialize in the tree
+    /// (searchable, inspectable) even though nothing they were meant to
+    /// connect survives. The walk stops at each fcall boundary — arguments
+    /// below it belong to the call's own parse.
+    fn salvage_inline_ctors(
+        node: &AstNode,
+        context: &mut dyn HasFindInst,
+    ) -> Option<McPhrase> {
+        fn collect_fcalls(n: &AstNode, out: &mut Vec<AstNode>) {
+            if n.get_type() == MCAST_OPD_FCALL {
+                out.push(n.clone());
+                return;
+            }
+            if let Some(s) = n.get_sub_node() {
+                let mut cur = Some(s);
+                while let Some(c) = cur {
+                    collect_fcalls(&c, out);
+                    cur = c.get_next();
+                }
+            }
+        }
+        let mut fcall_nodes = Vec::new();
+        collect_fcalls(node, &mut fcall_nodes);
+        if fcall_nodes.is_empty() {
+            return None;
+        }
+        let phrases: Option<Vec<McPhrase>> = fcall_nodes
+            .iter()
+            .map(|n| McPhrase::new(n, context))
+            .collect();
+        match phrases {
+            Some(p) if !p.is_empty() => Some(McPhrase::Multiple(p)),
+            _ => None,
         }
     }
 }

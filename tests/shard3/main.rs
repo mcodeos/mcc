@@ -14,6 +14,7 @@ mod cond_family_matrix;
 mod cond_in_bare_members;
 mod cond_logical_composition;
 mod curly_dc_face_rows;
+mod u300_grammar_alignment;
 mod dc_binding_arrow_dir;
 mod declared_diff_pair;
 mod failure_ledger;

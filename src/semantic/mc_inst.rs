@@ -836,13 +836,37 @@ impl McInstances {
                                 // entering the symbol table). The grammar accepts these
                                 // rows, so the silence was a missing consumer, not a
                                 // missing production — report it here instead.
-                                _ => {
+                                other => {
+                                    // U300 M8b/M10: the message must name the actual
+                                    // shape. A parenthesized group (`io (A, B)`) is a
+                                    // group spelling, not a connection — saying
+                                    // "carries a connection" sends the author looking
+                                    // for an arrow that is not there.
+                                    let shape: String = if other == MCAST_OPD_GROUP {
+                                        // `to_string()` renders only the chain head;
+                                        // list every member so the message shows the
+                                        // whole group.
+                                        let mut members: Vec<String> = Vec::new();
+                                        if let Some(mut cur) = child.get_sub_node() {
+                                            loop {
+                                                members
+                                                    .push(cur.to_string().unwrap_or_default());
+                                                match cur.get_next() {
+                                                    Some(nx) => cur = nx,
+                                                    None => break,
+                                                }
+                                            }
+                                        }
+                                        format!("group ({})", members.join(", "))
+                                    } else {
+                                        format!("'{}'", child.to_string().unwrap_or_default())
+                                    };
                                     dlog_error(
                                         crate::errcodes::PORT_ROW_WITH_CONNECTION,
                                         &child,
                                         &crate::errcodes::format_msg(
                                             crate::errcodes::PORT_ROW_WITH_CONNECTION,
-                                            &[&child.to_string().unwrap_or_default()],
+                                            &[&shape],
                                         ),
                                     );
                                 }

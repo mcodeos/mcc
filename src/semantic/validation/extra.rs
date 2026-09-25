@@ -105,6 +105,49 @@ impl ValidationCheck for ExtraCheck {
         check_reserved_names(acc, &lib_names); // F1
         check_default_value_range(acc); // B7
         check_duplicate_spec_keys(acc); // spec sub-key uniqueness
+        // U300 M8: body-level `pins{...} = value` rows are silent orphans
+        check_pins_root_body_keys(acc);
+    }
+}
+
+/// U300 M8: a definition-body attribute row whose root key is `pins` with a
+/// curly member list (`pins{1:2} = "spec"`). The pins root key only takes
+/// effect at call sites — the argument-position binding (U269) carries it to
+/// the instance's pin-name face — while a definition body consumes nothing.
+/// Emit an info so the row is not a silent orphan.
+fn check_pins_root_body_keys(acc: &mut CheckAccumulator) {
+    let comps = crate::definition_space().workspace_components();
+    for (sn, comp) in comps.iter() {
+        let uri = sn.uri.to_string();
+        if super::is_test_file(&uri) {
+            continue;
+        }
+        for attr in comp.attrs.iter() {
+            // pins_ids is Some exactly for the curly-member spelling;
+            // a plain `pins = [ ... ]` row has none and is the real
+            // declaration, not an orphan.
+            if attr.pins_ids.is_none() {
+                continue;
+            }
+            if attr.id.root_name().as_deref() != Some("pins") {
+                continue;
+            }
+            let key = attr.id.to_string();
+            let span = attr
+                .key_span
+                .clone()
+                .unwrap_or(comp.span.start..comp.span.end);
+            acc.push(CheckResult {
+                check_name: "extra",
+                severity: CheckSeverity::Info,
+                uri: Some(uri.clone()),
+                span: Some(span),
+                message: format!(
+                    "Body-level pins root key '{key}' is not consumed here: it only takes effect at call sites (the argument position)."
+                ),
+                code: crate::errcodes::PINS_ROOT_KEY_BODY_UNUSED,
+            });
+        }
     }
 }
 
@@ -118,7 +161,12 @@ fn check_empty_functions(acc: &mut CheckAccumulator) {
             continue;
         }
         for func in m.funcs.iter() {
-            if func.stmts.is_empty() && func.insts.is_empty() {
+            // U300 M9b: a bare `return <expr>` body is not empty — the return
+            // clause never lands in `stmts`, so judge the parsed return kind.
+            if func.stmts.is_empty()
+                && func.insts.is_empty()
+                && matches!(func.returns, crate::semantic::mc_func::McFuncReturn::Implicit)
+            {
                 let func_span = func.span.clone().unwrap_or(m.span.start..m.span.end);
                 acc.push(CheckResult {
                     check_name: "extra",
@@ -139,7 +187,10 @@ fn check_empty_functions(acc: &mut CheckAccumulator) {
             continue;
         }
         for func in comp.funcs.iter() {
-            if func.stmts.is_empty() && func.insts.is_empty() {
+            if func.stmts.is_empty()
+                && func.insts.is_empty()
+                && matches!(func.returns, crate::semantic::mc_func::McFuncReturn::Implicit)
+            {
                 let func_span = func.span.clone().unwrap_or(comp.span.start..comp.span.end);
                 acc.push(CheckResult {
                     check_name: "extra",

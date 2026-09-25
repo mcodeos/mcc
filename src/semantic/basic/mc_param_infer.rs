@@ -141,6 +141,22 @@ fn collect_usages_recursive(param_name: &str, node: &AstNode, usages: &mut Vec<U
                         });
                     }
                 }
+                // U300 M9b: `return <expr>` — the returned expression uses
+                // every param it names. The expression rides as the return
+                // marker's next sibling (NET → IOTYPE_RETURN → expr), so the
+                // marker arm reads its next link (connection/attribute shapes
+                // alone leave a func whose body is a bare `return x` looking
+                // empty and `x` unused).
+                MCAST_IOTYPE_RETURN => {
+                    if let Some(expr) = n.get_next() {
+                        if node_contains_name(&expr, param_name) {
+                            usages.push(UsageSite {
+                                kind: UsageKind::ReturnValue,
+                                pos,
+                            });
+                        }
+                    }
+                }
                 // Role keyword: `role Source { ... }` in body marks the `role`
                 // parameter as used.
                 MCAST_ROLE => {

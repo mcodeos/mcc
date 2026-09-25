@@ -433,14 +433,25 @@ impl McModule {
                 None => dlog_error(
                     crate::errcodes::UNEXPECTED_CLAUSE_TYPE,
                     clause,
-                    &crate::errcodes::format_msg(crate::errcodes::UNEXPECTED_CLAUSE_TYPE, &[]),
+                    &crate::errcodes::format_msg(
+                        crate::errcodes::UNEXPECTED_CLAUSE_TYPE,
+                        &[&"an attribute row inside a conditional branch is not accepted here"],
+                    ),
                 ),
             },
-            _ => dlog_error(
-                crate::errcodes::UNEXPECTED_CLAUSE_TYPE,
-                clause,
-                &crate::errcodes::format_msg(crate::errcodes::UNEXPECTED_CLAUSE_TYPE, &[]),
-            ),
+            _ => {
+                // U300 M9a: name the actual rule so the author can self-check —
+                // a conditional branch in a module body reads expectation rows
+                // only; connections and other clause kinds are not read from it.
+                dlog_error(
+                    crate::errcodes::UNEXPECTED_CLAUSE_TYPE,
+                    clause,
+                    &crate::errcodes::format_msg(
+                        crate::errcodes::UNEXPECTED_CLAUSE_TYPE,
+                        &[&"a clause inside a conditional branch is not accepted here — branches only carry expectation rows (`expects = [ ... ]`)"],
+                    ),
+                )
+            }
         }
     }
 
@@ -834,7 +845,7 @@ impl McModule {
                                 &clause,
                                 &crate::errcodes::format_msg(
                                     crate::errcodes::UNEXPECTED_CLAUSE_TYPE,
-                                    &[],
+                                    &[&"this attribute row is not accepted in a module body"],
                                 ),
                             );
                         }
@@ -855,7 +866,7 @@ impl McModule {
                             &clause,
                             &crate::errcodes::format_msg(
                                 crate::errcodes::UNEXPECTED_CLAUSE_TYPE,
-                                &[],
+                                &[&"this clause type is not accepted in a module body"],
                             ),
                         );
                     }
