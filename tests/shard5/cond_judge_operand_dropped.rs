@@ -40,8 +40,11 @@ fn sem_cond_drop__call_operand_reports_5461() {
     );
 }
 
+// U300 audit (2026-09-25): the two no-drop locks below are the valid side —
+// recognized operands must NOT be mistaken for a drop — so they carry their
+// own `sem_cond_operand_valid__` family instead of the drop-side token.
 #[test]
-fn sem_cond_drop__valid_operands_stay_clean() {
+fn sem_cond_operand_valid__recognized_operands_stay_clean() {
     let _lock = common::lock();
 
     // Parameter vs literal on both comparison arms — the fixed form.
@@ -54,7 +57,7 @@ fn sem_cond_drop__valid_operands_stay_clean() {
 }
 
 #[test]
-fn sem_cond_drop__keyword_constant_operand_stays_clean() {
+fn sem_cond_operand_valid__keyword_constant_operand_stays_clean() {
     let _lock = common::lock();
 
     // A keyword constant (MCAST_CONST) is a recognized operand — the CONST
