@@ -5,7 +5,7 @@
 use crate::ast::bindings;
 use crate::ast::macros::*;
 use crate::db::diagnostic::diagnostic::{dlog_error, Position};
-use crate::McIds;
+use crate::{McIda, McIds};
 use std::ffi::{c_char, c_void, CStr};
 use std::ptr::NonNull;
 use std::str::FromStr;
@@ -677,7 +677,16 @@ impl AstNode {
                 let Ok(rust_str) = cstr.to_str() else {
                     return Vec::<String>::new();
                 };
-                extract_ida(rust_str)
+                // U292 step-1: one IDA bracket parser. This used to run
+                // `extract_ida`, a parallel parser whose whole-literal range
+                // segments (`[1:4]` kept as one string), PriorMult double
+                // brackets and `[a:b:c]` debug assert are all either
+                // grammar-illegal or asserted-never-to-leak. The canonical
+                // semantics is McIda's (§11.1 declaration-order range
+                // expansion, §2.12 escapes, param refs carried literally),
+                // the same parser the pins/net/instantiation layers are
+                // built on.
+                McIda::from(rust_str).expand()
             }
             MCAST_IDS => {
                 let mut result = Vec::new();
@@ -731,202 +740,6 @@ impl Drop for AstNode {
 unsafe impl Send for AstNode {}
 unsafe impl Sync for AstNode {}
 
-fn extract_ida(ida: &str) -> Vec<String> {
-    #[derive(Debug)]
-    enum Segment {
-        Single(String),
-        Multiple(Vec<String>),
-        PriorMult(Vec<String>),
-    }
-
-    impl Segment {
-        fn size(&self) -> usize {
-            match self {
-                Segment::Single(_) => 1,
-                Segment::Multiple(vec) | Segment::PriorMult(vec) => vec.len(),
-            }
-        }
-    }
-
-    let mut segments: Vec<Segment> = Vec::<Segment>::new();
-    let mut priority: Vec<usize> = Vec::new();
-    let mut indices_without_priority: Vec<usize> = Vec::new();
-
-    let mut start: usize = 0; // Current segment start (id / slice)
-    let mut tmp_segment = Vec::<String>::new(); // [] internal parsed part
-    let mut parsing_separator = false; // Whether current character is a separator or space
-    let mut in_slice = false; // Whether current character is a slice colon
-    let _slice_left: usize = 0; // Left value of slice when parsing slice colon part
-    let mut end: usize = 0; // Current character end position + 1
-    let mut in_prior_mult = false;
-    let mut waiting_double_lsquare = false;
-    let mut waiting_double_rsquare = false;
-
-    let mut _in_bracket = false; // Whether current character is in a bracket
-    let mut bracket_start = 0; // Bracket start position
-
-    for (index, ch) in ida.char_indices() {
-        match ch {
-            '[' => {
-                assert!(!waiting_double_rsquare);
-                if waiting_double_lsquare {
-                    waiting_double_lsquare = false;
-                    in_prior_mult = true;
-                } else {
-                    if start < index {
-                        indices_without_priority.push(segments.len());
-                        segments.push(Segment::Single(ida[start..index].to_string()));
-                    }
-                    // Record bracket start position
-                    bracket_start = index;
-                    _in_bracket = true;
-                    // start;
-                    assert!(tmp_segment.is_empty());
-                    parsing_separator = true;
-                    assert!(!in_slice);
-                    // slice_left;
-                    // end;
-                    waiting_double_lsquare = true;
-                }
-            }
-            ']' => {
-                if waiting_double_rsquare {
-                    waiting_double_rsquare = false;
-                    in_prior_mult = false;
-                    start = index + 1;
-                    _in_bracket = false;
-                } else {
-                    if !parsing_separator {
-                        parsing_separator = true;
-                        end = index;
-                    }
-                    if in_slice {
-                        // Range expression: save the entire expression (including brackets) as a
-                        // single segment
-                        // Example: [1:rows] and [1:cols]
-                        let full_range = &ida[bracket_start..index + 1];
-                        segments.push(Segment::Single(full_range.to_string()));
-                        in_slice = false;
-                    } else {
-                        tmp_segment.push(ida[start..end].to_string());
-                        // For non-range expressions, still use Multiple type
-                        if in_prior_mult {
-                            priority.push(segments.len());
-                            segments.push(Segment::PriorMult(tmp_segment));
-                        } else {
-                            indices_without_priority.push(segments.len());
-                            segments.push(Segment::Multiple(tmp_segment));
-                        }
-                    }
-
-                    start = index + 1;
-                    tmp_segment = Vec::new();
-                    waiting_double_rsquare = false;
-                    _in_bracket = false;
-                }
-            }
-            ',' => {
-                assert!(!waiting_double_rsquare);
-                if !parsing_separator {
-                    parsing_separator = true;
-                    end = index;
-                }
-                if in_slice {
-                    // Add right boundary to range expression
-                    tmp_segment.push(ida[start..end].to_string());
-                    in_slice = false;
-                } else {
-                    tmp_segment.push(ida[start..end].to_string());
-                }
-            }
-            ':' => {
-                assert!(!waiting_double_rsquare);
-                assert!(!in_slice);
-                if !parsing_separator {
-                    parsing_separator = true;
-                    end = index;
-                }
-                // Range expression
-                // Example: [1:rows] and [1:cols]
-                // Save left boundary as string
-                tmp_segment.push(ida[start..end].to_string());
-                tmp_segment.push(":".to_string());
-                in_slice = true;
-            }
-            ' ' | '\t' => {
-                assert!(!waiting_double_rsquare);
-                if waiting_double_lsquare {
-                    waiting_double_lsquare = false;
-                }
-                if !parsing_separator {
-                    parsing_separator = true;
-                    end = index;
-                }
-            }
-            _ => {
-                assert!(!waiting_double_rsquare);
-                if waiting_double_lsquare {
-                    waiting_double_lsquare = false;
-                }
-                if parsing_separator {
-                    parsing_separator = false;
-                    start = index;
-                } else {
-                    // do nothing
-                }
-            }
-        }
-    }
-
-    // Process remaining part of string
-    if start < ida.len() {
-        indices_without_priority.push(segments.len());
-        segments.push(Segment::Single(ida[start..].to_string()));
-    }
-
-    priority.extend(indices_without_priority);
-
-    // eprintln!("IDA segments = {:?}", segments);
-
-    let mut result = Vec::new();
-    let mut seg_indices = vec![0; segments.len()];
-
-    loop {
-        let mut current = String::new();
-
-        for (i, seg) in segments.iter().enumerate() {
-            match seg {
-                Segment::Single(id) => current.push_str(id),
-                Segment::Multiple(vec) | Segment::PriorMult(vec) => {
-                    current.push_str(&vec[seg_indices[i]])
-                }
-            }
-        }
-        result.push(current);
-
-        // Increment indices
-        let mut carry = true;
-        for i in priority.iter().rev() {
-            if carry {
-                seg_indices[*i] += 1;
-                if seg_indices[*i] >= segments[*i].size() {
-                    seg_indices[*i] = 0;
-                    carry = true;
-                } else {
-                    carry = false;
-                    break;
-                }
-            }
-        }
-
-        // If all indices roll over to 0, we have exhausted all combinations of segments
-        if carry {
-            break;
-        }
-    }
-
-    result
-}
 
 impl Iterator for AstNodeIter {
     type Item = AstNode;
@@ -970,5 +783,100 @@ impl Iterator for AstNodeIter {
         };
 
         AstNode::from_ptr(current_ptr)
+    }
+}
+
+/// One IDA bracket parser (U292 step-1): `to_id_or_ida`'s MCAST_IDA arm and
+/// the `McIda` text parser must read the same string the same way. These
+/// locks parse real source and assert the reads at the AST face, so a
+/// re-introduced parallel parser cannot silently fork the semantics again.
+#[cfg(test)]
+mod ida_unify_tests {
+    use super::*;
+    use crate::ast::bindings::{self, Frontend};
+    use crate::ast::macros::*;
+    use crate::db::infra::init::MCC_TEST_PARSE_LOCK;
+
+    /// Parse `src`, walk the whole tree, and return `(text, to_id_or_ida)`
+    /// for every MCAST_IDA node, in walk order.
+    fn ida_reads(src: &str) -> Vec<(String, Vec<String>)> {
+        let csrc = std::ffi::CString::new(src).expect("source has no NUL byte");
+        let _guard = MCC_TEST_PARSE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let fe = Frontend::acquire();
+        let mut out = Vec::new();
+        unsafe {
+            // Same reset-load-reset line as `McCode::parse_ast_from_string`:
+            // the load leaves parser state behind, so reset once more.
+            fe.reset(0);
+            let buf = bindings::mcc_load_from_string(csrc.as_ptr(), src.len());
+            assert!(!buf.is_null(), "the frontend could not load the source");
+            fe.reset(0);
+            fe.lex(buf);
+            let root = AstNode::new(fe.parse());
+            collect_ida(&root, &mut out);
+            // The load buffer is a plain malloc'd C string (mirrors fmt.rs),
+            // not an AST node: freeing it through `mcc_free` walks it as a
+            // mc_value and corrupts the heap.
+            libc::free(buf.cast::<libc::c_void>());
+        }
+        out
+    }
+
+    /// Plain recursion over the tree: every child is visited once, through
+    /// exactly one of its parent links (sub = first child, next = sibling).
+    unsafe fn collect_ida(node: &AstNode, out: &mut Vec<(String, Vec<String>)>) {
+        if node.is_null() {
+            return;
+        }
+        if node.is_type(MCAST_IDA) {
+            let text = node
+                .data_as_cstr()
+                .and_then(|c| c.to_str().ok())
+                .unwrap_or_default()
+                .to_string();
+            out.push((text, node.to_id_or_ida()));
+        }
+        if let Some(sub) = node.get_sub_node() {
+            collect_ida(&sub, out);
+        }
+        if let Some(next) = node.get_next() {
+            collect_ida(&next, out);
+        }
+    }
+
+    fn read_of(src: &str, text: &str) -> Vec<String> {
+        ida_reads(src)
+            .into_iter()
+            .find(|(t, _)| t == text)
+            .unwrap_or_else(|| panic!("no MCAST_IDA node with text `{text}` in {src:?}"))
+            .1
+    }
+
+    #[test]
+    fn ida_unify__numeric_ranges_expand_declaration_order() {
+        // §11.1: the glued fat token expands at the AST face the same way it
+        // expands everywhere else (R1C1..R2C3). The retired parallel parser
+        // kept the whole bracket text and returned one name.
+        let src = "component CU() {\n    pins = [ 1:6 = R[1:2]C[1:3] ]\n}\nmodule main {\n}\n";
+        assert_eq!(
+            read_of(src, "R[1:2]C[1:3]"),
+            vec!["R1C1", "R1C2", "R1C3", "R2C1", "R2C2", "R2C3"]
+        );
+    }
+
+    #[test]
+    fn ida_unify__param_ref_stays_one_literal_name() {
+        // An unresolvable range stays one name (bracket-free, the McIda
+        // spelling): no fabricated members and no bracket text leak.
+        let src =
+            "component CU(rows::INT) {\n    pins = [ 1 : rows = R[1:rows] ]\n}\nmodule main {\n}\n";
+        assert_eq!(read_of(src, "R[1:rows]"), vec!["R1:rows"]);
+    }
+
+    #[test]
+    fn ida_unify__letter_range_expands_declaration_order() {
+        // §11.1 letter ranges (declared order: a:c -> a, b, c).
+        let src = "component CU() {\n    pins = [ 1:3 = P[a:c] ]\n}\nmodule main {\n}\n";
+        assert_eq!(read_of(src, "P[a:c]"), vec!["Pa", "Pb", "Pc"]);
     }
 }

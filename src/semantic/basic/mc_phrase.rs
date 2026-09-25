@@ -1899,10 +1899,10 @@ impl McPhrase {
                     // Structural path (no flatten-to-text round trip): an
                     // MCAST_IDS whose segment tree ends in a Curly tail yields
                     // base + members from `McIds::as_bus` directly. Curly
-                    // groups never reach `extract_ida` (it has no `{}`
-                    // handling), so this route is the only one that sees the
-                    // member grouping; dotted-leaf chains keep the text
-                    // fallback below.
+                    // groups never reach the text fallback (`to_id_or_ida`,
+                    // whose IDA arm has no `{}` handling), so this route is
+                    // the only one that sees the member grouping; dotted-leaf
+                    // chains keep the text fallback below.
                     if node.get_type() == MCAST_IDS {
                         if let Some(ids) = crate::McIds::new(&node) {
                             if ids.is_curly_bracket() {
