@@ -31,6 +31,7 @@ mod resolve_policy;
 mod u249_curly_dot_chain;
 mod u291_adopted_func_member;
 mod u289_component_pin_tables;
+mod u306_system_lib_pin_locks;
 mod u299_amp_ref_and_pair_attr;
 mod use_import_codes;
 mod vec_array_fold_equivalence;
