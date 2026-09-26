@@ -59,6 +59,65 @@ pub fn mcb_get_modules_in_file(uri: &McURI) -> Vec<String> {
         .collect()
 }
 
+// === pub enum TopPick { ===
+/// The outcome of the implicit-top pick for an entry file ([`mcb_pick_top_module_by_uri`]).
+pub enum TopPick {
+    /// The file defines no module at all.
+    NoModule,
+    /// Exactly one candidate — use it.
+    One(String),
+    /// Several candidates survive the helper filter — the caller must resolve
+    /// loudly (`--top`), never silently by sort order.
+    Ambiguous(Vec<String>),
+}
+
+// === pub fn mcb_pick_top_module_by_uri(uri: &McURI) -> TopPick { ===
+/// Pick the top module of an entry file for faces that need one but were not
+/// told which (`mcc check`; build/vinst reads the same file in source order
+/// and stays the sibling face).
+///
+/// Rule (U305④): among the modules defined in `uri`, a module that another
+/// module of the same file instantiates (`SUB s1;`) is a helper, not a top
+/// candidate. The old first-row pick read the registry's `(uri, ident)`
+/// lexicographically sorted view, so a helper whose name sorted first was
+/// deterministically built as the top — silently, with the real top's
+/// instances never registering and its diagnostics never generated.
+pub fn mcb_pick_top_module_by_uri(uri: &McURI) -> TopPick {
+    let canonical = mcb_canonicalize_uri(uri);
+    let in_file: Vec<_> = crate::definition_space()
+        .workspace_modules()
+        .into_iter()
+        .filter(|(sn, _)| uri_equivalent(&sn.uri.as_uri(), uri.as_str(), &canonical))
+        .collect();
+    if in_file.is_empty() {
+        return TopPick::NoModule;
+    }
+    if in_file.len() == 1 {
+        return TopPick::One(in_file[0].0.ident.to_string());
+    }
+    // Names instantiated as a module child anywhere in this file. Note the
+    // two name slots on a module instance: `Mc2Module.name` is the *instance*
+    // name (`s1`), `Mc2Module.base.name` is the *class* name (`SUB`) — the
+    // helper set is over class names.
+    let helpers: Vec<String> = in_file
+        .iter()
+        .flat_map(|(_, module)| module.insts.iter_in_decl_order())
+        .filter_map(|(_, inst)| match inst {
+            crate::McInstance::Module(target) => Some(target.base.name.to_string()),
+            _ => None,
+        })
+        .collect();
+    let candidates: Vec<String> = in_file
+        .iter()
+        .map(|(sn, _)| sn.ident.to_string())
+        .filter(|n| !helpers.contains(n))
+        .collect();
+    match candidates.len() {
+        1 => TopPick::One(candidates.into_iter().next().unwrap()),
+        _ => TopPick::Ambiguous(candidates),
+    }
+}
+
 // === pub fn mcb_interface_count() -> usize { ===
 /// Number of distinct interface definitions across workspace and system lib
 /// (deduplicated by identity — a def in both tables counts once).

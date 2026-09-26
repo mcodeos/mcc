@@ -11,6 +11,7 @@ pub mod common;
 mod attr_dotted_name_n2;
 mod barrier_isolation;
 mod bom_binding;
+mod check_top_pick;
 mod dianlu_core;
 mod enum_component_same_name;
 mod error_does_not_block_instantiation;
