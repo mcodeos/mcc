@@ -369,10 +369,13 @@ fn entry_pos(entry: &InstEntry) -> (u32, String) {
 /// §2.19: an entry is NC when its iotype is `NonCon` — the `nc` direction word,
 /// the only definition-site spelling — or, since U48, when an instance-site
 /// `@ncpin(…)` marker names it. A pin *named* `NC` is an ordinary pin
-/// (`erc/nc-design.md` §4.1: names carry no NC semantics).
+/// (`nc-design.md` §3.1: names carry no NC semantics).
 ///
-/// The instance-level arm is a suppression marker, not a prohibition: a marked
-/// pin that is *also* wired is legal (E4109 stays untouched).
+/// On the exemption side (the unconnected family) the instance-level arm is a
+/// pure suppression marker. The *connection* side is symmetric since U305
+/// (`nc-design.md` §4.3): a marked terminal that gets wired is a violation,
+/// and `check_nc_connected` reports it — the suppression here never reaches
+/// that rule.
 fn is_nc_entry(entry: &InstEntry) -> bool {
     matches!(entry.io_type, IOType::NonCon) || entry.nc_marked
 }
@@ -581,19 +584,29 @@ pub(crate) fn check_floating_inputs(table: &InstTable, results: &mut Vec<NetChec
 }
 
 // ── P6: NC port connected to a net ──
+// Both NC carriers report here (U305, `nc-design.md` §4.3: the single-instance
+// constraint is enforced symmetrically on both faces): the class-level `nc`
+// direction word and the instance-site `@ncpin(…)` marker. The message names
+// the carrier so the two faces stay tellable apart at the same code.
 pub(crate) fn check_nc_connected(table: &InstTable, results: &mut Vec<NetCheckResult>) {
     for net in table.get_nets() {
         for id in &net.points {
             if let Some(entry) = table.get_entry(*id) {
-                if matches!(entry.io_type, IOType::NonCon) {
+                let class_level = matches!(entry.io_type, IOType::NonCon);
+                if class_level || entry.nc_marked {
                     let (pos, uri) = entry_pos(entry);
+                    let subject = if class_level {
+                        format!("NC port '{}'", entry.path)
+                    } else {
+                        format!(
+                            "NC-marked terminal '{}' (marked with @ncpin on the instance)",
+                            entry.path
+                        )
+                    };
                     results.push(NetCheckResult {
                         check: "nc-connected",
                         severity: "warning",
-                        message: format!(
-                            "NC port '{}' is connected to net '{}'.",
-                            entry.path, net.name
-                        ),
+                        message: format!("{} is connected to net '{}'.", subject, net.name),
                         net_name: net.name.clone(),
                         code: crate::errcodes::NET_NC_CONNECTED,
                         pos,
