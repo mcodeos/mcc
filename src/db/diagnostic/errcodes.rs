@@ -792,6 +792,14 @@ pub const IFACE_DYN_WIDTH_MISMATCH: u32 = 3187;
 /// lines read `@bridge`/`@couple`/`@clamp`/`@star`).
 pub const STMT_MARKER_UNKNOWN: u32 = 3188;
 
+/// A statement-line marker that *is* in the line's vocabulary but has no
+/// target on this line (U305⑤ inline carrier): `@dnp` on a connection line
+/// marks every part the statement puts on the board, so a connection line
+/// that constructs none leaves the flag claimed by nobody. Same doctrine as
+/// [`STMT_MARKER_UNKNOWN`] — a marker nothing applies must not pass
+/// silently — but the word is legal here, so it is a separate code.
+pub const STMT_MARKER_NO_TARGET: u32 = 3189;
+
 // Pass2: connection / shape (4000-4049)
 
 /// Transposed connection size mismatch.
@@ -2571,7 +2579,8 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(PIN_NAME_EXPR_UNRESOLVED, "A pin name expression did not resolve against the bound parameters.", "Pin name expression '{0}' did not resolve against the parameters bound here; the row registers no name. Bind every parameter the expression reads, or write the name as plain text."),
     entry!(DYN_WIDTH_EXPR_NEEDS_PARAM, "A width-binder name sits inside an arithmetic width expression; expression widths are never back-solved.", "Dynamic pin range '{0}' reads '{1}' inside an arithmetic expression, but '{1}' is not declared in the parameter table. An undeclared name is a width binder only as a whole range endpoint — it binds the instance subscript width; inside arithmetic it never participates in back-solving (replicated-binding-design.md §4 check 1). Declare '{1}' as a parameter and give it explicitly here, or write the range end as a bare name."),
     entry!(IFACE_DYN_WIDTH_MISMATCH, "The binding row's subscript member count disagrees with the interface's dynamic pin expansion.", "Interface binding '{0}' names {1} subscript member(s) but the interface's dynamic pin range expands to {2} pin(s). With an explicit width parameter the three counts — subscript members, dynamic expansion, physical pins — must agree (replicated-binding-design.md §4 check 2). Match the subscript to the expansion, or drop the explicit parameter and let the width binder tie the counts."),
-    entry!(STMT_MARKER_UNKNOWN, "Unknown statement tail marker.", "`@{0}` is not a marker this statement line reads. Instance lines read `@ncpin(...)` / `@dnp`; connection lines read `@bridge(a, b)` / `@couple(a, b)` / `@clamp(a)` / `@star`. A marker the line does not read is never applied — remove it or correct its spelling."),
+    entry!(STMT_MARKER_UNKNOWN, "Unknown statement tail marker.", "`@{0}` is not a marker this statement line reads. Instance lines read `@ncpin(...)` / `@dnp`; connection lines read `@dnp` / `@bridge(a, b)` / `@couple(a, b)` / `@clamp(a)` / `@star`. A marker the line does not read is never applied — remove it or correct its spelling."),
+    entry!(STMT_MARKER_NO_TARGET, "A statement tail marker has nothing to apply to on this line.", "`@{0}` on a connection line marks every part the line puts on the board, and this line constructs none — a marker nothing applies is never applied. Write it on the line that declares the part (`PART name @{0}`), or on a line that constructs one."),
     // section
     entry!(CONN_TRANSPOSE_SIZE_MISMATCH, "Transposed connection size mismatch.", "Transposed connection size mismatch"),
     entry!(CONN_LEFT_ARROW_SHAPE_MISMATCH, "Shape mismatch in a <- connection.", "Shape mismatch in a <- connection"),

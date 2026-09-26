@@ -564,6 +564,7 @@ mod inst_scope_tests {
             resolved_attrs: Vec::new(),
             nc_pins: Default::default(),
             nc: false,
+            dnp: false,
             degraded: false,
             origin: Default::default(),
             expansion_id: None,

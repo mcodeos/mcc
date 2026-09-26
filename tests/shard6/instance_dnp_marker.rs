@@ -15,6 +15,13 @@
 // A module entry's `not_fitted` therefore covers descendants: the forward
 // pass in `InstTable::propagate_not_fitted` runs after the flatten, and a
 // parent always registers before its children.
+//
+// The same marker also reads on a **connection line**, where it means "every
+// part this statement puts on the board is not fitted" (U305⑤ inline carrier,
+// b4063). A connection line declares no instance to flag, so the flag is
+// applied statement-wide at the build's product funnels — the place that
+// knows what the statement actually built — and a flagged line that built
+// nothing reports 3189 instead of letting the marker apply to nothing.
 #![allow(non_snake_case)]
 
 use crate::common;
@@ -23,6 +30,8 @@ use mcc::McIds;
 
 // ── codes under test ──
 const ATTR_VALUE_NOT_IN_VOCABULARY: u32 = 5360;
+/// The flagged connection line built no part — the marker reached nothing.
+const STMT_MARKER_NO_TARGET: u32 = 3189;
 // ── the "unconnected" family that keeps reporting on a DNP part ──
 const NET_BIDIR_UNCONNECTED: u32 = 4117;
 const NET_MODULE_PORT_UNCONNECTED: u32 = 4114;
@@ -140,4 +149,87 @@ fn sem_dnp__flag_with_value_reports_5360_and_still_marks() {
         b.diags
     );
     assert_eq!(b.fitted_paths(), ["main.d1"]);
+}
+
+// ── the inline carrier: `@dnp` on a connection line ──
+
+/// A connection line declares no instance, so its `@dnp` flags the part the
+/// line **builds** — here an anonymous inline construction. The part reaches
+/// the same flat-table flag as the declaration face, so the BOM bucket and
+/// every other `not_fitted` consumer see it with no new reader.
+#[test]
+fn sem_dnp__inline_construction_on_a_connection_line_marks_the_part() {
+    let b = build(CHIP, "    io N1\n    io N2\n    N1 - CHIP() - N2 @dnp");
+    assert_eq!(
+        b.fitted_paths().len(),
+        1,
+        "the line builds exactly one part; diags: {:?}",
+        b.diags
+    );
+    assert!(
+        b.fitted_paths()[0].starts_with("main._"),
+        "the built part is the statement's own anonymous instance: {:?}",
+        b.fitted_paths()
+    );
+    assert_eq!(b.count(STMT_MARKER_NO_TARGET), 0);
+}
+
+/// The unmarked twin of the line above. Without it a blanket "everything is
+/// not fitted" default would pass the marked case.
+#[test]
+fn sem_dnp__inline_twin_on_a_connection_line_stays_fitted() {
+    let b = build(CHIP, "    io N1\n    io N2\n    N1 - CHIP() - N2");
+    assert!(b.not_fitted.is_empty(), "{:?}", b.not_fitted);
+}
+
+/// A line that builds **two** parts flags both: the marker is the statement's,
+/// not the construction's, so a bracket vector's every expansion member is
+/// covered without the flag being readable off any one of them.
+#[test]
+fn sem_dnp__inline_carrier_covers_every_part_the_statement_builds() {
+    let b = build(
+        CHIP,
+        "    io N1\n    io N2\n    io N3\n    N1 - [a[1:2]::CHIP()] - [N2, N3] @dnp",
+    );
+    assert_eq!(
+        b.fitted_paths().len(),
+        2,
+        "both replica members are the statement's products; diags: {:?}",
+        b.diags
+    );
+}
+
+/// The marker with nothing to mark: a connection line that builds no part
+/// leaves `@dnp` claimed by nobody, which reports (the U305③ rule) instead of
+/// vanishing. The spelling is legal here — a mistyped word is 3188 — so this
+/// is its own code.
+#[test]
+fn sem_dnp__connection_line_marker_without_a_construction_reports() {
+    let b = build(
+        CHIP,
+        "    io N1\n    io N2\n    CHIP d1\n    d1.1 -> d1.2 @dnp",
+    );
+    assert_eq!(
+        b.count(STMT_MARKER_NO_TARGET),
+        1,
+        "a flagged connection line that builds nothing must report; diags: {:?}",
+        b.diags
+    );
+    // And the reference line's own `@dnp` is *not* borrowed by the marker: the
+    // declared part keeps its own status.
+    assert!(b.not_fitted.is_empty(), "{:?}", b.not_fitted);
+}
+
+/// The flag's arity rule reads the same on a connection line: `@dnp(yes)`
+/// reports 5360 and the line's part is marked anyway.
+#[test]
+fn sem_dnp__inline_flag_with_value_reports_5360_and_still_marks() {
+    let b = build(CHIP, "    io N1\n    io N2\n    N1 - CHIP() - N2 @dnp(yes)");
+    assert_eq!(
+        b.count(ATTR_VALUE_NOT_IN_VOCABULARY),
+        1,
+        "diags: {:?}",
+        b.diags
+    );
+    assert_eq!(b.fitted_paths().len(), 1, "diags: {:?}", b.diags);
 }
