@@ -18,7 +18,7 @@ use super::{
     basic::mc_expr::McExpression,
     basic::mc_param::McParamDeclares,
     basic::mc_phrase::McPhrase,
-    mc_func::HasFindInst,
+    mc_func::{HasFindInst, ShapeCtx},
     mc_func::McFunctions,
 };
 use crate::{
@@ -745,11 +745,17 @@ impl McComponent {
     }
 }
 
-impl HasFindInst for McComponent {
+impl ShapeCtx for McComponent {
     fn find_inst(&self, id: &str) -> Option<McInstance> {
         self.find_inst_with_span(id).map(|(inst, _)| inst)
     }
 
+    fn uri(&self) -> &McURI {
+        &self.uri
+    }
+}
+
+impl HasFindInst for McComponent {
     fn find_inst_mut(&mut self, _id: &str) -> Option<&mut crate::McInstance> {
         None
     }
@@ -818,10 +824,6 @@ impl HasFindInst for McComponent {
 
     fn is_component_bus(&self, _base: &str, _member: &str) -> bool {
         false
-    }
-
-    fn uri(&self) -> &McURI {
-        &self.uri
     }
 
     fn parse_declare(&mut self, node: &AstNode) -> Vec<McInstance> {

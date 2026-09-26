@@ -3,7 +3,7 @@
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
 use crate::db::diagnostic::diagnostic::dlog_error;
-use crate::semantic::{basic::mc_phrase::McPhrase, mc_func::HasFindInst};
+use crate::semantic::{basic::mc_phrase::McPhrase, mc_func::{HasFindInst, ShapeCtx}};
 use crate::{
     ast::{macros::*, node::AstNode},
     McIds, McInstance, McURI,
@@ -122,11 +122,17 @@ impl McEnumDef {
 
 // HasFindInst for McEnumDef — namespace lookup (Phase 4.5)
 
-impl HasFindInst for McEnumDef {
+impl ShapeCtx for McEnumDef {
     fn find_inst(&self, id: &str) -> Option<McInstance> {
         self.find_inst_with_span(id).map(|(inst, _)| inst)
     }
 
+    fn uri(&self) -> &crate::McURI {
+        &self.uri
+    }
+}
+
+impl HasFindInst for McEnumDef {
     fn find_inst_mut(&mut self, _id: &str) -> Option<&mut crate::McInstance> {
         None // Enum has no mutable instances at Pass1
     }
@@ -196,10 +202,6 @@ impl HasFindInst for McEnumDef {
 
     fn upgrade_label_to_bus(&mut self, _name: &str) -> bool {
         false
-    }
-
-    fn uri(&self) -> &crate::McURI {
-        &self.uri
     }
 
     fn parse_declare(&mut self, _node: &AstNode) -> Vec<McInstance> {

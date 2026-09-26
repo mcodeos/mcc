@@ -7,7 +7,7 @@ use super::{
     basic::mc_endpoint::{McEndpoint, McInstanceRef},
     basic::mc_fcall::McFuncCall,
     basic::mc_phrase::McPhrase,
-    mc_func::{GateCandidate, HasFindInst, McFunctions},
+    mc_func::{GateCandidate, HasFindInst, McFunctions, ShapeCtx},
     mc_inst::{McInst, McInstance, McInstances},
 };
 use crate::db::context::DB;
@@ -1330,11 +1330,51 @@ impl McModule {
     }
 }
 
-impl HasFindInst for McModule {
+impl ShapeCtx for McModule {
     fn find_inst(&self, id: &str) -> Option<McInstance> {
         self.find_inst_with_span(id).map(|(inst, _)| inst)
     }
 
+    fn uri(&self) -> &McURI {
+        &self.uri
+    }
+
+    fn is_declared_port(&self, name: &str) -> bool {
+        // A declared port carries a concrete IOType (`io` / `in` / `out`);
+        // internal labels and params are registered with IOType::None.
+        self.insts
+            .get_with_iotype(name)
+            .is_some_and(|(io, _)| !matches!(io, IOType::None))
+    }
+
+    fn interface_param_members(&self, name: &str) -> Option<Vec<String>> {
+        // Interface-class module params (e.g. `psnk dc{VDD_3V3, GND}::DC(3.3V)`)
+        // are routed by parse_params into the param table only — never into
+        // insts — so a bare reference falls to the 1*1 label fallback in the
+        // Pass1 opcheck. Present the declared member width instead, matching
+        // Pass2's expand_port_lanes upgrade for the same bare reference.
+        self.params.iter().find_map(|d| {
+            if !d.param_type.is_port() {
+                return None;
+            }
+            match &d.kind {
+                crate::semantic::basic::mc_param::McParamDeclareKind::Single(ids) => {
+                    let (base, members) = ids.as_bus()?;
+                    (base == name && members.len() >= 2).then_some(members)
+                }
+                _ => None,
+            }
+        })
+    }
+
+    fn get_vector_members(&self, base: &str) -> Option<Vec<String>> {
+        self.insts
+            .get_vector_members(base)
+            .map(|members| members.to_vec())
+    }
+}
+
+impl HasFindInst for McModule {
     // ── resolve-gate §1.3 entry gate: module-level discriminator ──
     fn is_declared_instance_name(&self, base: &str) -> bool {
         if self.seen_callers.iter().any(|s| s == base) {
@@ -1374,11 +1414,6 @@ impl HasFindInst for McModule {
         self.insts.get_mut(id)
     }
 
-    fn get_vector_members(&self, base: &str) -> Option<Vec<String>> {
-        self.insts
-            .get_vector_members(base)
-            .map(|members| members.to_vec())
-    }
 
     fn find_inst_with_span(
         &self,
@@ -1394,13 +1429,6 @@ impl HasFindInst for McModule {
             .map(|r| (r.inst, r.span))
     }
 
-    fn is_declared_port(&self, name: &str) -> bool {
-        // A declared port carries a concrete IOType (`io` / `in` / `out`);
-        // internal labels and params are registered with IOType::None.
-        self.insts
-            .get_with_iotype(name)
-            .is_some_and(|(io, _)| !matches!(io, IOType::None))
-    }
 
     fn declared_port_members(&self, base: &str) -> Option<Vec<String>> {
         // The declaration is authoritative: the module port's member set is
@@ -1421,25 +1449,6 @@ impl HasFindInst for McModule {
         }
     }
 
-    fn interface_param_members(&self, name: &str) -> Option<Vec<String>> {
-        // Interface-class module params (e.g. `psnk dc{VDD_3V3, GND}::DC(3.3V)`)
-        // are routed by parse_params into the param table only — never into
-        // insts — so a bare reference falls to the 1*1 label fallback in the
-        // Pass1 opcheck. Present the declared member width instead, matching
-        // Pass2's expand_port_lanes upgrade for the same bare reference.
-        self.params.iter().find_map(|d| {
-            if !d.param_type.is_port() {
-                return None;
-            }
-            match &d.kind {
-                crate::semantic::basic::mc_param::McParamDeclareKind::Single(ids) => {
-                    let (base, members) = ids.as_bus()?;
-                    (base == name && members.len() >= 2).then_some(members)
-                }
-                _ => None,
-            }
-        })
-    }
 
     fn add_label_at(
         &mut self,
@@ -1616,9 +1625,6 @@ impl HasFindInst for McModule {
         false
     }
 
-    fn uri(&self) -> &McURI {
-        &self.uri
-    }
 
     fn parse_declare(&mut self, node: &AstNode) -> Vec<McInstance> {
         let before: Vec<String> = self.insts.get_all_names();

@@ -48,7 +48,7 @@ range (threshold 40KB).
 | `export/kicad_sch.rs` | 127 KB | 106 |
 | `instant/mc_mod/points.rs` | 123 KB | 20 |
 | `semantic/mc_inst.rs` | 123 KB | 89 |
-| `semantic/module/mod.rs` | 122 KB | 84 |
+| `semantic/module/mod.rs` | 122 KB | 85 |
 | `semantic/basic/mc_fcall.rs` | 113 KB | 22 |
 | `vector/graph/fromblock.rs` | 103 KB | 35 |
 | `viz/metrics/mod.rs` | 100 KB | 156 |
@@ -67,13 +67,13 @@ range (threshold 40KB).
 | `db/` | 28 | 1045 KB |
 | `eval/` | 2 | 50 KB |
 | `export/` | 7 | 185 KB |
-| `instant/` | 41 | 1652 KB |
+| `instant/` | 41 | 1654 KB |
 | `lsp/` | 7 | 70 KB |
 | `output/` | 7 | 107 KB |
 | `query/` | 9 | 170 KB |
 | `refdef/` | 7 | 126 KB |
 | `rpc/` | 16 | 312 KB |
-| `semantic/` | 98 | 2877 KB |
+| `semantic/` | 98 | 2878 KB |
 | `stages/` | 18 | 396 KB |
 | `vector/` | 26 | 496 KB |
 | `viz/` | 98 | 2476 KB |
@@ -3210,72 +3210,78 @@ instant/mc_comp.rs#L1532  fn natural_cmp
 instant/mc_comp.rs#L1573  fn numeric_str_cmp
 instant/mc_comp.rs#L1582  impl std::fmt::Display for McComponentInst
 instant/mc_comp.rs#L1583  fn fmt
-instant/mc_mod/builder.rs#L71  struct InstantiationBuilder
-instant/mc_mod/builder.rs#L239  impl Deref for InstantiationBuilder
-instant/mc_mod/builder.rs#L240  type Target
-instant/mc_mod/builder.rs#L242  fn deref
-instant/mc_mod/builder.rs#L247  impl DerefMut for InstantiationBuilder
-instant/mc_mod/builder.rs#L248  fn deref_mut
-instant/mc_mod/builder.rs#L253  impl InstantiationBuilder
-instant/mc_mod/builder.rs#L264  fn new
-instant/mc_mod/builder.rs#L281  fn with_registry
-instant/mc_mod/builder.rs#L330  fn with_identity
-instant/mc_mod/builder.rs#L344  fn assemble
-instant/mc_mod/builder.rs#L448  fn finish
-instant/mc_mod/builder.rs#L462  fn into_parts
-instant/mc_mod/builder.rs#L471  fn net_store
-instant/mc_mod/builder.rs#L482  fn freeze_fragment
-instant/mc_mod/builder.rs#L494  fn components_of
-instant/mc_mod/builder.rs#L512  fn modules_of
-instant/mc_mod/builder.rs#L534  fn find_component
-instant/mc_mod/builder.rs#L548  fn note_pin_option_use
-instant/mc_mod/builder.rs#L586  fn find_submodule
-instant/mc_mod/builder.rs#L597  fn component_in
-instant/mc_mod/builder.rs#L609  fn submodule_in
-instant/mc_mod/builder.rs#L624  fn components_view
-instant/mc_mod/builder.rs#L636  fn submodules_view
-instant/mc_mod/builder.rs#L650  fn component_port_members
-instant/mc_mod/builder.rs#L671  fn submodule_port_members
-instant/mc_mod/builder.rs#L687  fn instance_port_members
-instant/mc_mod/builder.rs#L724  fn peer_port_members
-instant/mc_mod/builder.rs#L746  fn port_declares_anonymous_members
-instant/mc_mod/builder.rs#L763  fn add_component
-instant/mc_mod/builder.rs#L815  fn add_submodule
-instant/mc_mod/builder.rs#L874  fn append_port_arena
-instant/mc_mod/builder.rs#L900  fn append_vector_arena
-instant/mc_mod/builder.rs#L924  fn child_path
-instant/mc_mod/builder.rs#L930  fn identity_mut
-instant/mc_mod/builder.rs#L936  fn take_identity
-instant/mc_mod/builder.rs#L941  fn restore_identity
-instant/mc_mod/builder.rs#L946  fn add_connection
-instant/mc_mod/builder.rs#L979  fn current_call_site
-instant/mc_mod/builder.rs#L994  fn construction_site
-instant/mc_mod/builder.rs#L1018  fn func_def_site
-instant/mc_mod/builder.rs#L1043  fn instantiate
-instant/mc_mod/builder.rs#L1110  fn auto_invoke_module_funcs
-instant/mc_mod/builder.rs#L1201  fn record_error
-instant/mc_mod/builder.rs#L1220  fn has_error_at_current_site
-instant/mc_mod/builder.rs#L1243  fn record_error_at
-instant/mc_mod/builder.rs#L1271  fn record_warning
-instant/mc_mod/builder.rs#L1295  fn log_global_diag
-instant/mc_mod/builder.rs#L1320  fn global_diag_site
-instant/mc_mod/builder.rs#L1336  fn merge_diagnostics_from
-instant/mc_mod/builder.rs#L1346  fn ref_designator_prefix
-instant/mc_mod/builder.rs#L1371  fn auto_name
-instant/mc_mod/builder.rs#L1452  fn enter_func_stmt
-instant/mc_mod/builder.rs#L1482  fn with_func_stmt
-instant/mc_mod/builder.rs#L1500  fn with_func_site
-instant/mc_mod/builder.rs#L1528  fn with_func_scope
-instant/mc_mod/builder.rs#L1546  fn is_passthrough_formal
-instant/mc_mod/builder.rs#L1562  fn with_trunk
-instant/mc_mod/builder.rs#L1586  fn current_offset
-instant/mc_mod/builder.rs#L1595  fn next_conn_id
-instant/mc_mod/builder.rs#L1603  fn build_net_table
-instant/mc_mod/builder.rs#L1752  fn is_registered_class_name
-instant/mc_mod/builder.rs#L1789  fn resume_auto_inst_counter
-instant/mc_mod/builder.rs#L1819  fn resume_tree
-instant/mc_mod/builder.rs#L1867  fn boundary_return
-instant/mc_mod/builder.rs#L1892  fn is_anon_member
+instant/mc_mod/builder.rs#L72  struct InstantiationBuilder
+instant/mc_mod/builder.rs#L240  impl Deref for InstantiationBuilder
+instant/mc_mod/builder.rs#L241  type Target
+instant/mc_mod/builder.rs#L243  fn deref
+instant/mc_mod/builder.rs#L248  impl DerefMut for InstantiationBuilder
+instant/mc_mod/builder.rs#L249  fn deref_mut
+instant/mc_mod/builder.rs#L264  impl ShapeCtx for InstantiationBuilder
+instant/mc_mod/builder.rs#L265  fn find_inst
+instant/mc_mod/builder.rs#L269  fn uri
+instant/mc_mod/builder.rs#L273  fn is_declared_port
+instant/mc_mod/builder.rs#L277  fn interface_param_members
+instant/mc_mod/builder.rs#L281  fn get_vector_members
+instant/mc_mod/builder.rs#L286  impl InstantiationBuilder
+instant/mc_mod/builder.rs#L297  fn new
+instant/mc_mod/builder.rs#L314  fn with_registry
+instant/mc_mod/builder.rs#L363  fn with_identity
+instant/mc_mod/builder.rs#L377  fn assemble
+instant/mc_mod/builder.rs#L481  fn finish
+instant/mc_mod/builder.rs#L495  fn into_parts
+instant/mc_mod/builder.rs#L504  fn net_store
+instant/mc_mod/builder.rs#L515  fn freeze_fragment
+instant/mc_mod/builder.rs#L527  fn components_of
+instant/mc_mod/builder.rs#L545  fn modules_of
+instant/mc_mod/builder.rs#L567  fn find_component
+instant/mc_mod/builder.rs#L581  fn note_pin_option_use
+instant/mc_mod/builder.rs#L619  fn find_submodule
+instant/mc_mod/builder.rs#L630  fn component_in
+instant/mc_mod/builder.rs#L642  fn submodule_in
+instant/mc_mod/builder.rs#L657  fn components_view
+instant/mc_mod/builder.rs#L669  fn submodules_view
+instant/mc_mod/builder.rs#L683  fn component_port_members
+instant/mc_mod/builder.rs#L704  fn submodule_port_members
+instant/mc_mod/builder.rs#L720  fn instance_port_members
+instant/mc_mod/builder.rs#L757  fn peer_port_members
+instant/mc_mod/builder.rs#L779  fn port_declares_anonymous_members
+instant/mc_mod/builder.rs#L796  fn add_component
+instant/mc_mod/builder.rs#L848  fn add_submodule
+instant/mc_mod/builder.rs#L907  fn append_port_arena
+instant/mc_mod/builder.rs#L933  fn append_vector_arena
+instant/mc_mod/builder.rs#L957  fn child_path
+instant/mc_mod/builder.rs#L963  fn identity_mut
+instant/mc_mod/builder.rs#L969  fn take_identity
+instant/mc_mod/builder.rs#L974  fn restore_identity
+instant/mc_mod/builder.rs#L979  fn add_connection
+instant/mc_mod/builder.rs#L1012  fn current_call_site
+instant/mc_mod/builder.rs#L1027  fn construction_site
+instant/mc_mod/builder.rs#L1051  fn func_def_site
+instant/mc_mod/builder.rs#L1076  fn instantiate
+instant/mc_mod/builder.rs#L1143  fn auto_invoke_module_funcs
+instant/mc_mod/builder.rs#L1234  fn record_error
+instant/mc_mod/builder.rs#L1253  fn has_error_at_current_site
+instant/mc_mod/builder.rs#L1276  fn record_error_at
+instant/mc_mod/builder.rs#L1304  fn record_warning
+instant/mc_mod/builder.rs#L1328  fn log_global_diag
+instant/mc_mod/builder.rs#L1353  fn global_diag_site
+instant/mc_mod/builder.rs#L1369  fn merge_diagnostics_from
+instant/mc_mod/builder.rs#L1379  fn ref_designator_prefix
+instant/mc_mod/builder.rs#L1404  fn auto_name
+instant/mc_mod/builder.rs#L1485  fn enter_func_stmt
+instant/mc_mod/builder.rs#L1515  fn with_func_stmt
+instant/mc_mod/builder.rs#L1533  fn with_func_site
+instant/mc_mod/builder.rs#L1561  fn with_func_scope
+instant/mc_mod/builder.rs#L1579  fn is_passthrough_formal
+instant/mc_mod/builder.rs#L1595  fn with_trunk
+instant/mc_mod/builder.rs#L1619  fn current_offset
+instant/mc_mod/builder.rs#L1628  fn next_conn_id
+instant/mc_mod/builder.rs#L1636  fn build_net_table
+instant/mc_mod/builder.rs#L1785  fn is_registered_class_name
+instant/mc_mod/builder.rs#L1822  fn resume_auto_inst_counter
+instant/mc_mod/builder.rs#L1852  fn resume_tree
+instant/mc_mod/builder.rs#L1900  fn boundary_return
+instant/mc_mod/builder.rs#L1925  fn is_anon_member
 instant/mc_mod/bus.rs#L19  impl InstantiationBuilder
 instant/mc_mod/bus.rs#L47  fn ensure_bus
 instant/mc_mod/bus.rs#L69  fn find_bus
@@ -3506,20 +3512,20 @@ instant/mc_mod/points.rs#L95  fn resolve_bare_member_pid
 instant/mc_mod/points.rs#L153  fn declared_pin_id
 instant/mc_mod/points.rs#L177  impl InstantiationBuilder
 instant/mc_mod/points.rs#L178  fn get_left_points
-instant/mc_mod/points.rs#L954  fn get_right_points
-instant/mc_mod/points.rs#L1581  fn get_left_points_from_phrase
-instant/mc_mod/points.rs#L1627  fn get_right_points_from_phrase
-instant/mc_mod/points.rs#L1672  fn deepest_component_owner
-instant/mc_mod/points.rs#L1686  fn node_to_netpoint
-instant/mc_mod/points.rs#L1957  fn expand_port_lanes
-instant/mc_mod/points.rs#L1960  fn parse_brace_members
-instant/mc_mod/points.rs#L1980  fn strip_brace_suffix
-instant/mc_mod/points.rs#L2005  fn iotype_allowed
-instant/mc_mod/points.rs#L2331  fn normalize_one_inst_pin_path
-instant/mc_mod/points.rs#L2363  fn note_internal_member_ref
-instant/mc_mod/points.rs#L2405  fn resolve_child_points
-instant/mc_mod/points.rs#L2460  fn is_port
-instant/mc_mod/points.rs#L2464  fn ensure_label
+instant/mc_mod/points.rs#L956  fn get_right_points
+instant/mc_mod/points.rs#L1583  fn get_left_points_from_phrase
+instant/mc_mod/points.rs#L1629  fn get_right_points_from_phrase
+instant/mc_mod/points.rs#L1674  fn deepest_component_owner
+instant/mc_mod/points.rs#L1688  fn node_to_netpoint
+instant/mc_mod/points.rs#L1959  fn expand_port_lanes
+instant/mc_mod/points.rs#L1962  fn parse_brace_members
+instant/mc_mod/points.rs#L1982  fn strip_brace_suffix
+instant/mc_mod/points.rs#L2007  fn iotype_allowed
+instant/mc_mod/points.rs#L2333  fn normalize_one_inst_pin_path
+instant/mc_mod/points.rs#L2365  fn note_internal_member_ref
+instant/mc_mod/points.rs#L2407  fn resolve_child_points
+instant/mc_mod/points.rs#L2462  fn is_port
+instant/mc_mod/points.rs#L2466  fn ensure_label
 instant/mc_mod/stmt.rs#L29  struct IfaceEndpoint
 instant/mc_mod/stmt.rs#L36  enum LaneItem
 instant/mc_mod/stmt.rs#L53  enum DirExpect
@@ -6460,44 +6466,45 @@ semantic/component/mod.rs#L239  fn new
 semantic/component/mod.rs#L427  fn parse_cond_blocks
 semantic/component/mod.rs#L694  fn collect_param_refs_in_body
 semantic/component/mod.rs#L702  fn collect_param_refs_in_node
-semantic/component/mod.rs#L748  impl HasFindInst for McComponent
+semantic/component/mod.rs#L748  impl ShapeCtx for McComponent
 semantic/component/mod.rs#L749  fn find_inst
-semantic/component/mod.rs#L753  fn find_inst_mut
-semantic/component/mod.rs#L757  fn find_inst_with_span
-semantic/component/mod.rs#L771  fn find_terminal
-semantic/component/mod.rs#L777  fn add_label_at
-semantic/component/mod.rs#L787  fn add_bus
-semantic/component/mod.rs#L793  fn add_list
-semantic/component/mod.rs#L799  fn add_bus_member
-semantic/component/mod.rs#L803  fn add_interface_member
-semantic/component/mod.rs#L812  fn check_bus_member
-semantic/component/mod.rs#L819  fn is_component_bus
-semantic/component/mod.rs#L823  fn uri
-semantic/component/mod.rs#L827  fn parse_declare
-semantic/component/mod.rs#L847  fn add_component
-semantic/component/mod.rs#L862  fn add_module
-semantic/component/mod.rs#L870  fn gen_anon_name
-semantic/component/mod.rs#L881  fn upgrade_label_to_bus
-semantic/component/mod.rs#L885  fn record_declareb_def
-semantic/component/mod.rs#L894  fn scope_name
-semantic/component/mod.rs#L900  struct Mc2Component
-semantic/component/mod.rs#L921  impl std::fmt::Display for McComponent
-semantic/component/mod.rs#L922  fn fmt
-semantic/component/mod.rs#L928  impl Mc2Component
-semantic/component/mod.rs#L933  fn not_fitted
-semantic/component/mod.rs#L937  fn new
-semantic/component/mod.rs#L949  fn with_nc
-semantic/component/mod.rs#L961  fn with_params
-semantic/component/mod.rs#L977  fn integer_param_bindings
-semantic/component/mod.rs#L1001  fn pins_contain
-semantic/component/mod.rs#L1016  fn find_pin
-semantic/component/mod.rs#L1081  fn resolved_pin_count
-semantic/component/mod.rs#L1095  fn find_port
-semantic/component/mod.rs#L1109  fn port_to_instance
-semantic/component/mod.rs#L1145  fn find_scoped_enum_value
-semantic/component/mod.rs#L1180  fn lookup_enum_class_id
-semantic/component/mod.rs#L1187  impl std::fmt::Display for Mc2Component
-semantic/component/mod.rs#L1188  fn fmt
+semantic/component/mod.rs#L753  fn uri
+semantic/component/mod.rs#L758  impl HasFindInst for McComponent
+semantic/component/mod.rs#L759  fn find_inst_mut
+semantic/component/mod.rs#L763  fn find_inst_with_span
+semantic/component/mod.rs#L777  fn find_terminal
+semantic/component/mod.rs#L783  fn add_label_at
+semantic/component/mod.rs#L793  fn add_bus
+semantic/component/mod.rs#L799  fn add_list
+semantic/component/mod.rs#L805  fn add_bus_member
+semantic/component/mod.rs#L809  fn add_interface_member
+semantic/component/mod.rs#L818  fn check_bus_member
+semantic/component/mod.rs#L825  fn is_component_bus
+semantic/component/mod.rs#L829  fn parse_declare
+semantic/component/mod.rs#L849  fn add_component
+semantic/component/mod.rs#L864  fn add_module
+semantic/component/mod.rs#L872  fn gen_anon_name
+semantic/component/mod.rs#L883  fn upgrade_label_to_bus
+semantic/component/mod.rs#L887  fn record_declareb_def
+semantic/component/mod.rs#L896  fn scope_name
+semantic/component/mod.rs#L902  struct Mc2Component
+semantic/component/mod.rs#L923  impl std::fmt::Display for McComponent
+semantic/component/mod.rs#L924  fn fmt
+semantic/component/mod.rs#L930  impl Mc2Component
+semantic/component/mod.rs#L935  fn not_fitted
+semantic/component/mod.rs#L939  fn new
+semantic/component/mod.rs#L951  fn with_nc
+semantic/component/mod.rs#L963  fn with_params
+semantic/component/mod.rs#L979  fn integer_param_bindings
+semantic/component/mod.rs#L1003  fn pins_contain
+semantic/component/mod.rs#L1018  fn find_pin
+semantic/component/mod.rs#L1083  fn resolved_pin_count
+semantic/component/mod.rs#L1097  fn find_port
+semantic/component/mod.rs#L1111  fn port_to_instance
+semantic/component/mod.rs#L1147  fn find_scoped_enum_value
+semantic/component/mod.rs#L1182  fn lookup_enum_class_id
+semantic/component/mod.rs#L1189  impl std::fmt::Display for Mc2Component
+semantic/component/mod.rs#L1190  fn fmt
 semantic/context.rs#L26  fn resolve_cmie
 semantic/context.rs#L39  trait NameResolver
 semantic/context.rs#L42  fn resolve
@@ -6518,182 +6525,187 @@ semantic/mc_enum.rs#L13  struct McEnumValue
 semantic/mc_enum.rs#L20  struct McEnumDef
 semantic/mc_enum.rs#L31  impl McEnumDef
 semantic/mc_enum.rs#L32  fn new
-semantic/mc_enum.rs#L125  impl HasFindInst for McEnumDef
+semantic/mc_enum.rs#L125  impl ShapeCtx for McEnumDef
 semantic/mc_enum.rs#L126  fn find_inst
-semantic/mc_enum.rs#L130  fn find_inst_mut
-semantic/mc_enum.rs#L134  fn find_inst_with_span
-semantic/mc_enum.rs#L144  fn add_label_at
-semantic/mc_enum.rs#L152  fn add_component
-semantic/mc_enum.rs#L160  fn add_module
-semantic/mc_enum.rs#L168  fn add_bus
-semantic/mc_enum.rs#L172  fn add_list
-semantic/mc_enum.rs#L176  fn add_bus_member
-semantic/mc_enum.rs#L180  fn add_interface_member
-semantic/mc_enum.rs#L189  fn check_bus_member
-semantic/mc_enum.rs#L193  fn is_component_bus
-semantic/mc_enum.rs#L197  fn upgrade_label_to_bus
-semantic/mc_enum.rs#L201  fn uri
-semantic/mc_enum.rs#L205  fn parse_declare
-semantic/mc_enum.rs#L209  fn gen_anon_name
-semantic/mc_enum.rs#L216  impl std::fmt::Display for McEnumDef
-semantic/mc_enum.rs#L217  fn fmt
+semantic/mc_enum.rs#L130  fn uri
+semantic/mc_enum.rs#L135  impl HasFindInst for McEnumDef
+semantic/mc_enum.rs#L136  fn find_inst_mut
+semantic/mc_enum.rs#L140  fn find_inst_with_span
+semantic/mc_enum.rs#L150  fn add_label_at
+semantic/mc_enum.rs#L158  fn add_component
+semantic/mc_enum.rs#L166  fn add_module
+semantic/mc_enum.rs#L174  fn add_bus
+semantic/mc_enum.rs#L178  fn add_list
+semantic/mc_enum.rs#L182  fn add_bus_member
+semantic/mc_enum.rs#L186  fn add_interface_member
+semantic/mc_enum.rs#L195  fn check_bus_member
+semantic/mc_enum.rs#L199  fn is_component_bus
+semantic/mc_enum.rs#L203  fn upgrade_label_to_bus
+semantic/mc_enum.rs#L207  fn parse_declare
+semantic/mc_enum.rs#L211  fn gen_anon_name
+semantic/mc_enum.rs#L218  impl std::fmt::Display for McEnumDef
+semantic/mc_enum.rs#L219  fn fmt
 semantic/mc_func.rs#L39  enum McFuncReturn
 semantic/mc_func.rs#L53  impl McFuncReturn
 semantic/mc_func.rs#L55  fn is_chainable
 semantic/mc_func.rs#L60  fn kind_str
 semantic/mc_func.rs#L77  struct GateCandidate
-semantic/mc_func.rs#L88  trait HasFindInst
-semantic/mc_func.rs#L89  fn find_inst
-semantic/mc_func.rs#L90  fn find_inst_mut
-semantic/mc_func.rs#L97  fn get_vector_members
-semantic/mc_func.rs#L107  fn has_local_decl
-semantic/mc_func.rs#L117  fn find_inst_with_span
-semantic/mc_func.rs#L129  fn find_terminal
-semantic/mc_func.rs#L135  fn add_label
-semantic/mc_func.rs#L139  fn add_label_at
-semantic/mc_func.rs#L144  fn add_component
-semantic/mc_func.rs#L149  fn add_module
-semantic/mc_func.rs#L154  fn add_bus
-semantic/mc_func.rs#L155  fn add_list
-semantic/mc_func.rs#L156  fn add_bus_member
-semantic/mc_func.rs#L157  fn add_interface_member
-semantic/mc_func.rs#L163  fn check_bus_member
-semantic/mc_func.rs#L164  fn is_component_bus
-semantic/mc_func.rs#L165  fn upgrade_label_to_bus
-semantic/mc_func.rs#L166  fn uri
-semantic/mc_func.rs#L167  fn parse_declare
-semantic/mc_func.rs#L168  fn gen_anon_name
-semantic/mc_func.rs#L183  fn report_floating_label
-semantic/mc_func.rs#L197  fn is_declared_instance_name
-semantic/mc_func.rs#L207  fn note_func_call_caller
-semantic/mc_func.rs#L215  fn register_gate_candidate
-semantic/mc_func.rs#L234  fn resolve_reference
-semantic/mc_func.rs#L291  fn is_declared_port
-semantic/mc_func.rs#L311  fn declared_port_members
-semantic/mc_func.rs#L321  fn enforce_declared_port_shape
-semantic/mc_func.rs#L371  fn interface_param_members
-semantic/mc_func.rs#L379  fn store_inst_span
-semantic/mc_func.rs#L388  fn record_declareb_def
-semantic/mc_func.rs#L407  fn find_func_return
-semantic/mc_func.rs#L427  fn domain_pair_named
-semantic/mc_func.rs#L440  fn declared_endpoint_named
-semantic/mc_func.rs#L455  fn licensed_domain_member_at
-semantic/mc_func.rs#L461  fn scope_name
-semantic/mc_func.rs#L468  struct FuncBodyContext
-semantic/mc_func.rs#L493  impl <'a> HasFindInst for FuncBodyContext<'a>
-semantic/mc_func.rs#L494  fn has_local_decl
+semantic/mc_func.rs#L89  trait ShapeCtx
+semantic/mc_func.rs#L90  fn find_inst
+semantic/mc_func.rs#L91  fn uri
+semantic/mc_func.rs#L93  fn is_declared_port
+semantic/mc_func.rs#L104  fn interface_param_members
+semantic/mc_func.rs#L113  fn get_vector_members
+semantic/mc_func.rs#L120  trait HasFindInst
+semantic/mc_func.rs#L121  fn find_inst_mut
+semantic/mc_func.rs#L128  fn has_local_decl
+semantic/mc_func.rs#L138  fn find_inst_with_span
+semantic/mc_func.rs#L150  fn find_terminal
+semantic/mc_func.rs#L156  fn add_label
+semantic/mc_func.rs#L160  fn add_label_at
+semantic/mc_func.rs#L165  fn add_component
+semantic/mc_func.rs#L170  fn add_module
+semantic/mc_func.rs#L175  fn add_bus
+semantic/mc_func.rs#L176  fn add_list
+semantic/mc_func.rs#L177  fn add_bus_member
+semantic/mc_func.rs#L178  fn add_interface_member
+semantic/mc_func.rs#L184  fn check_bus_member
+semantic/mc_func.rs#L185  fn is_component_bus
+semantic/mc_func.rs#L186  fn upgrade_label_to_bus
+semantic/mc_func.rs#L187  fn parse_declare
+semantic/mc_func.rs#L188  fn gen_anon_name
+semantic/mc_func.rs#L203  fn report_floating_label
+semantic/mc_func.rs#L217  fn is_declared_instance_name
+semantic/mc_func.rs#L227  fn note_func_call_caller
+semantic/mc_func.rs#L235  fn register_gate_candidate
+semantic/mc_func.rs#L254  fn resolve_reference
+semantic/mc_func.rs#L326  fn declared_port_members
+semantic/mc_func.rs#L336  fn enforce_declared_port_shape
+semantic/mc_func.rs#L383  fn store_inst_span
+semantic/mc_func.rs#L392  fn record_declareb_def
+semantic/mc_func.rs#L411  fn find_func_return
+semantic/mc_func.rs#L431  fn domain_pair_named
+semantic/mc_func.rs#L444  fn declared_endpoint_named
+semantic/mc_func.rs#L459  fn licensed_domain_member_at
+semantic/mc_func.rs#L465  fn scope_name
+semantic/mc_func.rs#L472  struct FuncBodyContext
+semantic/mc_func.rs#L497  impl <'a> ShapeCtx for FuncBodyContext<'a>
 semantic/mc_func.rs#L498  fn find_inst
-semantic/mc_func.rs#L502  fn find_inst_mut
-semantic/mc_func.rs#L506  fn find_inst_with_span
-semantic/mc_func.rs#L517  fn find_terminal
-semantic/mc_func.rs#L521  fn get_vector_members
-semantic/mc_func.rs#L527  fn add_label_at
-semantic/mc_func.rs#L535  fn add_component
-semantic/mc_func.rs#L543  fn add_module
-semantic/mc_func.rs#L551  fn add_bus
-semantic/mc_func.rs#L555  fn add_list
-semantic/mc_func.rs#L559  fn add_bus_member
-semantic/mc_func.rs#L563  fn add_interface_member
-semantic/mc_func.rs#L573  fn check_bus_member
-semantic/mc_func.rs#L577  fn is_component_bus
-semantic/mc_func.rs#L581  fn upgrade_label_to_bus
-semantic/mc_func.rs#L585  fn is_declared_port
-semantic/mc_func.rs#L593  fn declared_port_members
-semantic/mc_func.rs#L601  fn uri
-semantic/mc_func.rs#L605  fn parse_declare
-semantic/mc_func.rs#L609  fn gen_anon_name
-semantic/mc_func.rs#L613  fn store_inst_span
-semantic/mc_func.rs#L617  fn record_declareb_def
-semantic/mc_func.rs#L626  fn find_func_return
-semantic/mc_func.rs#L637  fn domain_pair_named
-semantic/mc_func.rs#L641  fn declared_endpoint_named
-semantic/mc_func.rs#L645  fn scope_name
-semantic/mc_func.rs#L649  fn report_floating_label
-semantic/mc_func.rs#L660  fn is_declared_instance_name
-semantic/mc_func.rs#L675  fn note_func_call_caller
-semantic/mc_func.rs#L682  fn register_gate_candidate
-semantic/mc_func.rs#L693  struct McFunctions
-semantic/mc_func.rs#L697  impl McFunctions
-semantic/mc_func.rs#L698  fn new
-semantic/mc_func.rs#L705  fn parse
-semantic/mc_func.rs#L718  fn find
-semantic/mc_func.rs#L725  fn find_mut
-semantic/mc_func.rs#L732  impl std::ops::Deref for McFunctions
-semantic/mc_func.rs#L733  type Target
-semantic/mc_func.rs#L735  fn deref
-semantic/mc_func.rs#L740  impl std::ops::DerefMut for McFunctions
-semantic/mc_func.rs#L741  fn deref_mut
-semantic/mc_func.rs#L747  struct McFunction
-semantic/mc_func.rs#L786  impl McFunction
-semantic/mc_func.rs#L789  fn source_uri
-semantic/mc_func.rs#L793  fn new
-semantic/mc_func.rs#L838  fn call_count_incr
-semantic/mc_func.rs#L856  fn parse_body
-semantic/mc_func.rs#L1142  fn find_nested_declare
-semantic/mc_func.rs#L1156  fn parse_declare_note
-semantic/mc_func.rs#L1182  fn body_stmts_display
-semantic/mc_func.rs#L1208  fn find_return_marker
-semantic/mc_func.rs#L1224  fn handle_return
-semantic/mc_func.rs#L1319  fn is_this_expr
-semantic/mc_func.rs#L1335  impl HasFindInst for McFunction
-semantic/mc_func.rs#L1336  fn find_inst
-semantic/mc_func.rs#L1340  fn find_inst_mut
-semantic/mc_func.rs#L1344  fn get_vector_members
-semantic/mc_func.rs#L1350  fn add_label_at
-semantic/mc_func.rs#L1361  fn add_label
-semantic/mc_func.rs#L1409  fn add_component
-semantic/mc_func.rs#L1417  fn add_module
-semantic/mc_func.rs#L1425  fn add_bus
-semantic/mc_func.rs#L1437  fn add_list
-semantic/mc_func.rs#L1445  fn add_bus_member
-semantic/mc_func.rs#L1449  fn add_interface_member
-semantic/mc_func.rs#L1458  fn check_bus_member
-semantic/mc_func.rs#L1462  fn is_component_bus
-semantic/mc_func.rs#L1466  fn uri
-semantic/mc_func.rs#L1508  fn parse_declare
-semantic/mc_func.rs#L1533  fn upgrade_label_to_bus
-semantic/mc_func.rs#L1537  fn gen_anon_name
-semantic/mc_func.rs#L1549  fn store_inst_span
-semantic/mc_func.rs#L1553  fn record_declareb_def
-semantic/mc_func.rs#L1562  fn scope_name
+semantic/mc_func.rs#L502  fn uri
+semantic/mc_func.rs#L506  fn is_declared_port
+semantic/mc_func.rs#L514  fn get_vector_members
+semantic/mc_func.rs#L521  impl <'a> HasFindInst for FuncBodyContext<'a>
+semantic/mc_func.rs#L522  fn has_local_decl
+semantic/mc_func.rs#L526  fn find_inst_mut
+semantic/mc_func.rs#L530  fn find_inst_with_span
+semantic/mc_func.rs#L541  fn find_terminal
+semantic/mc_func.rs#L545  fn add_label_at
+semantic/mc_func.rs#L553  fn add_component
+semantic/mc_func.rs#L561  fn add_module
+semantic/mc_func.rs#L569  fn add_bus
+semantic/mc_func.rs#L573  fn add_list
+semantic/mc_func.rs#L577  fn add_bus_member
+semantic/mc_func.rs#L581  fn add_interface_member
+semantic/mc_func.rs#L591  fn check_bus_member
+semantic/mc_func.rs#L595  fn is_component_bus
+semantic/mc_func.rs#L599  fn upgrade_label_to_bus
+semantic/mc_func.rs#L603  fn declared_port_members
+semantic/mc_func.rs#L611  fn parse_declare
+semantic/mc_func.rs#L615  fn gen_anon_name
+semantic/mc_func.rs#L619  fn store_inst_span
+semantic/mc_func.rs#L623  fn record_declareb_def
+semantic/mc_func.rs#L632  fn find_func_return
+semantic/mc_func.rs#L643  fn domain_pair_named
+semantic/mc_func.rs#L647  fn declared_endpoint_named
+semantic/mc_func.rs#L651  fn scope_name
+semantic/mc_func.rs#L655  fn report_floating_label
+semantic/mc_func.rs#L666  fn is_declared_instance_name
+semantic/mc_func.rs#L681  fn note_func_call_caller
+semantic/mc_func.rs#L688  fn register_gate_candidate
+semantic/mc_func.rs#L699  struct McFunctions
+semantic/mc_func.rs#L703  impl McFunctions
+semantic/mc_func.rs#L704  fn new
+semantic/mc_func.rs#L711  fn parse
+semantic/mc_func.rs#L724  fn find
+semantic/mc_func.rs#L731  fn find_mut
+semantic/mc_func.rs#L738  impl std::ops::Deref for McFunctions
+semantic/mc_func.rs#L739  type Target
+semantic/mc_func.rs#L741  fn deref
+semantic/mc_func.rs#L746  impl std::ops::DerefMut for McFunctions
+semantic/mc_func.rs#L747  fn deref_mut
+semantic/mc_func.rs#L753  struct McFunction
+semantic/mc_func.rs#L792  impl McFunction
+semantic/mc_func.rs#L795  fn source_uri
+semantic/mc_func.rs#L799  fn new
+semantic/mc_func.rs#L844  fn call_count_incr
+semantic/mc_func.rs#L862  fn parse_body
+semantic/mc_func.rs#L1148  fn find_nested_declare
+semantic/mc_func.rs#L1162  fn parse_declare_note
+semantic/mc_func.rs#L1188  fn body_stmts_display
+semantic/mc_func.rs#L1214  fn find_return_marker
+semantic/mc_func.rs#L1230  fn handle_return
+semantic/mc_func.rs#L1325  fn is_this_expr
+semantic/mc_func.rs#L1341  impl ShapeCtx for McFunction
+semantic/mc_func.rs#L1342  fn find_inst
+semantic/mc_func.rs#L1346  fn uri
+semantic/mc_func.rs#L1352  fn get_vector_members
+semantic/mc_func.rs#L1359  impl HasFindInst for McFunction
+semantic/mc_func.rs#L1360  fn find_inst_mut
+semantic/mc_func.rs#L1364  fn add_label_at
+semantic/mc_func.rs#L1375  fn add_label
+semantic/mc_func.rs#L1423  fn add_component
+semantic/mc_func.rs#L1431  fn add_module
+semantic/mc_func.rs#L1439  fn add_bus
+semantic/mc_func.rs#L1451  fn add_list
+semantic/mc_func.rs#L1459  fn add_bus_member
+semantic/mc_func.rs#L1463  fn add_interface_member
+semantic/mc_func.rs#L1472  fn check_bus_member
+semantic/mc_func.rs#L1476  fn is_component_bus
+semantic/mc_func.rs#L1516  fn parse_declare
+semantic/mc_func.rs#L1541  fn upgrade_label_to_bus
+semantic/mc_func.rs#L1545  fn gen_anon_name
+semantic/mc_func.rs#L1557  fn store_inst_span
+semantic/mc_func.rs#L1561  fn record_declareb_def
+semantic/mc_func.rs#L1570  fn scope_name
 semantic/mc_ifs.rs#L18  struct McInterface
 semantic/mc_ifs.rs#L29  impl McInterface
 semantic/mc_ifs.rs#L30  fn new
 semantic/mc_ifs.rs#L104  fn parse_first_cond_pins
-semantic/mc_ifs.rs#L156  impl HasFindInst for McInterface
+semantic/mc_ifs.rs#L156  impl ShapeCtx for McInterface
 semantic/mc_ifs.rs#L157  fn find_inst
-semantic/mc_ifs.rs#L161  fn find_inst_mut
-semantic/mc_ifs.rs#L165  fn find_inst_with_span
-semantic/mc_ifs.rs#L175  fn add_label_at
-semantic/mc_ifs.rs#L183  fn add_component
-semantic/mc_ifs.rs#L191  fn add_module
-semantic/mc_ifs.rs#L199  fn add_bus
-semantic/mc_ifs.rs#L203  fn add_list
-semantic/mc_ifs.rs#L207  fn add_bus_member
-semantic/mc_ifs.rs#L211  fn add_interface_member
-semantic/mc_ifs.rs#L220  fn check_bus_member
-semantic/mc_ifs.rs#L224  fn is_component_bus
-semantic/mc_ifs.rs#L228  fn upgrade_label_to_bus
-semantic/mc_ifs.rs#L232  fn uri
-semantic/mc_ifs.rs#L236  fn parse_declare
-semantic/mc_ifs.rs#L240  fn gen_anon_name
-semantic/mc_ifs.rs#L247  impl std::fmt::Display for McInterface
-semantic/mc_ifs.rs#L248  fn fmt
-semantic/mc_ifs.rs#L271  struct Mc2Interface
-semantic/mc_ifs.rs#L281  impl Mc2Interface
-semantic/mc_ifs.rs#L282  fn new
-semantic/mc_ifs.rs#L294  fn new_with_str
-semantic/mc_ifs.rs#L314  fn ordinal_member_names
-semantic/mc_ifs.rs#L333  fn with_params
-semantic/mc_ifs.rs#L392  fn with_ids_and_params
-semantic/mc_ifs.rs#L472  fn args_are_literals
-semantic/mc_ifs.rs#L485  fn parse_pins_from_block
-semantic/mc_ifs.rs#L511  fn pin_count
-semantic/mc_ifs.rs#L516  fn base_name
-semantic/mc_ifs.rs#L522  fn merge_with
-semantic/mc_ifs.rs#L575  fn merge_pins_with
-semantic/mc_ifs.rs#L601  impl std::fmt::Debug for Mc2Interface
-semantic/mc_ifs.rs#L602  fn fmt
+semantic/mc_ifs.rs#L161  fn uri
+semantic/mc_ifs.rs#L166  impl HasFindInst for McInterface
+semantic/mc_ifs.rs#L167  fn find_inst_mut
+semantic/mc_ifs.rs#L171  fn find_inst_with_span
+semantic/mc_ifs.rs#L181  fn add_label_at
+semantic/mc_ifs.rs#L189  fn add_component
+semantic/mc_ifs.rs#L197  fn add_module
+semantic/mc_ifs.rs#L205  fn add_bus
+semantic/mc_ifs.rs#L209  fn add_list
+semantic/mc_ifs.rs#L213  fn add_bus_member
+semantic/mc_ifs.rs#L217  fn add_interface_member
+semantic/mc_ifs.rs#L226  fn check_bus_member
+semantic/mc_ifs.rs#L230  fn is_component_bus
+semantic/mc_ifs.rs#L234  fn upgrade_label_to_bus
+semantic/mc_ifs.rs#L238  fn parse_declare
+semantic/mc_ifs.rs#L242  fn gen_anon_name
+semantic/mc_ifs.rs#L249  impl std::fmt::Display for McInterface
+semantic/mc_ifs.rs#L250  fn fmt
+semantic/mc_ifs.rs#L273  struct Mc2Interface
+semantic/mc_ifs.rs#L283  impl Mc2Interface
+semantic/mc_ifs.rs#L284  fn new
+semantic/mc_ifs.rs#L296  fn new_with_str
+semantic/mc_ifs.rs#L316  fn ordinal_member_names
+semantic/mc_ifs.rs#L335  fn with_params
+semantic/mc_ifs.rs#L394  fn with_ids_and_params
+semantic/mc_ifs.rs#L474  fn args_are_literals
+semantic/mc_ifs.rs#L487  fn parse_pins_from_block
+semantic/mc_ifs.rs#L513  fn pin_count
+semantic/mc_ifs.rs#L518  fn base_name
+semantic/mc_ifs.rs#L524  fn merge_with
+semantic/mc_ifs.rs#L577  fn merge_pins_with
+semantic/mc_ifs.rs#L603  impl std::fmt::Debug for Mc2Interface
+semantic/mc_ifs.rs#L604  fn fmt
 semantic/mc_inst.rs#L40  fn collect_ctor_params
 semantic/mc_inst.rs#L65  struct McInst
 semantic/mc_inst.rs#L72  enum LabelKind
@@ -6848,64 +6860,65 @@ semantic/module/mod.rs#L1296  fn add_module
 semantic/module/mod.rs#L1303  fn get_input_elements
 semantic/module/mod.rs#L1312  fn get_output_elements
 semantic/module/mod.rs#L1326  fn port_decl_span
-semantic/module/mod.rs#L1333  impl HasFindInst for McModule
+semantic/module/mod.rs#L1333  impl ShapeCtx for McModule
 semantic/module/mod.rs#L1334  fn find_inst
-semantic/module/mod.rs#L1339  fn is_declared_instance_name
-semantic/module/mod.rs#L1346  fn note_func_call_caller
-semantic/module/mod.rs#L1356  fn report_floating_label
-semantic/module/mod.rs#L1364  fn register_gate_candidate
-semantic/module/mod.rs#L1373  fn find_inst_mut
-semantic/module/mod.rs#L1377  fn get_vector_members
-semantic/module/mod.rs#L1383  fn find_inst_with_span
-semantic/module/mod.rs#L1397  fn is_declared_port
-semantic/module/mod.rs#L1405  fn declared_port_members
-semantic/module/mod.rs#L1424  fn interface_param_members
-semantic/module/mod.rs#L1444  fn add_label_at
-semantic/module/mod.rs#L1455  fn add_bus
-semantic/module/mod.rs#L1468  fn add_list
-semantic/module/mod.rs#L1477  fn add_bus_member
-semantic/module/mod.rs#L1562  fn add_interface_member
-semantic/module/mod.rs#L1599  fn check_bus_member
-semantic/module/mod.rs#L1610  fn is_component_bus
-semantic/module/mod.rs#L1619  fn uri
-semantic/module/mod.rs#L1623  fn parse_declare
-semantic/module/mod.rs#L1635  fn add_component
-semantic/module/mod.rs#L1643  fn add_module
-semantic/module/mod.rs#L1661  fn gen_anon_name
-semantic/module/mod.rs#L1667  fn store_inst_span
-semantic/module/mod.rs#L1671  fn record_declareb_def
-semantic/module/mod.rs#L1680  fn upgrade_label_to_bus
-semantic/module/mod.rs#L1701  fn find_func_return
-semantic/module/mod.rs#L1705  fn domain_pair_named
-semantic/module/mod.rs#L1715  fn declared_endpoint_named
-semantic/module/mod.rs#L1727  fn scope_name
-semantic/module/mod.rs#L1731  fn licensed_domain_member_at
-semantic/module/mod.rs#L1743  struct DomainBridgeWord
-semantic/module/mod.rs#L1755  fn collect_domain_bridge_words
-semantic/module/mod.rs#L1784  fn report_domain_bridge_code
-semantic/module/mod.rs#L1793  impl McModule
-semantic/module/mod.rs#L1799  fn collect_net_def_spans
-semantic/module/mod.rs#L1869  fn collect_net_refs_in_node
-semantic/module/mod.rs#L2002  fn has_dot_chain
-semantic/module/mod.rs#L2040  fn try_record_chain_ref
-semantic/module/mod.rs#L2136  fn collect_instance_segments
-semantic/module/mod.rs#L2154  fn collect_fcall_segments
-semantic/module/mod.rs#L2183  fn walk_chain_children
-semantic/module/mod.rs#L2235  fn collect_ident_segments
-semantic/module/mod.rs#L2295  fn collect_curly_members
-semantic/module/mod.rs#L2322  fn curly_range
-semantic/module/mod.rs#L2329  fn record_scoped_net_ref
-semantic/module/mod.rs#L2438  struct Mc2Module
-semantic/module/mod.rs#L2455  impl Mc2Module
-semantic/module/mod.rs#L2456  fn new
-semantic/module/mod.rs#L2467  fn with_params
-semantic/module/mod.rs#L2479  fn find_port
-semantic/module/mod.rs#L2514  fn get_input_ports
-semantic/module/mod.rs#L2524  fn get_output_ports
-semantic/module/mod.rs#L2534  fn get_all_ports
-semantic/module/mod.rs#L2546  impl std::fmt::Display for McModule
-semantic/module/mod.rs#L2547  fn fmt
-semantic/module/mod.rs#L2553  struct InstRow
+semantic/module/mod.rs#L1338  fn uri
+semantic/module/mod.rs#L1342  fn is_declared_port
+semantic/module/mod.rs#L1350  fn interface_param_members
+semantic/module/mod.rs#L1370  fn get_vector_members
+semantic/module/mod.rs#L1377  impl HasFindInst for McModule
+semantic/module/mod.rs#L1379  fn is_declared_instance_name
+semantic/module/mod.rs#L1386  fn note_func_call_caller
+semantic/module/mod.rs#L1396  fn report_floating_label
+semantic/module/mod.rs#L1404  fn register_gate_candidate
+semantic/module/mod.rs#L1413  fn find_inst_mut
+semantic/module/mod.rs#L1418  fn find_inst_with_span
+semantic/module/mod.rs#L1433  fn declared_port_members
+semantic/module/mod.rs#L1453  fn add_label_at
+semantic/module/mod.rs#L1464  fn add_bus
+semantic/module/mod.rs#L1477  fn add_list
+semantic/module/mod.rs#L1486  fn add_bus_member
+semantic/module/mod.rs#L1571  fn add_interface_member
+semantic/module/mod.rs#L1608  fn check_bus_member
+semantic/module/mod.rs#L1619  fn is_component_bus
+semantic/module/mod.rs#L1629  fn parse_declare
+semantic/module/mod.rs#L1641  fn add_component
+semantic/module/mod.rs#L1649  fn add_module
+semantic/module/mod.rs#L1667  fn gen_anon_name
+semantic/module/mod.rs#L1673  fn store_inst_span
+semantic/module/mod.rs#L1677  fn record_declareb_def
+semantic/module/mod.rs#L1686  fn upgrade_label_to_bus
+semantic/module/mod.rs#L1707  fn find_func_return
+semantic/module/mod.rs#L1711  fn domain_pair_named
+semantic/module/mod.rs#L1721  fn declared_endpoint_named
+semantic/module/mod.rs#L1733  fn scope_name
+semantic/module/mod.rs#L1737  fn licensed_domain_member_at
+semantic/module/mod.rs#L1749  struct DomainBridgeWord
+semantic/module/mod.rs#L1761  fn collect_domain_bridge_words
+semantic/module/mod.rs#L1790  fn report_domain_bridge_code
+semantic/module/mod.rs#L1799  impl McModule
+semantic/module/mod.rs#L1805  fn collect_net_def_spans
+semantic/module/mod.rs#L1875  fn collect_net_refs_in_node
+semantic/module/mod.rs#L2008  fn has_dot_chain
+semantic/module/mod.rs#L2046  fn try_record_chain_ref
+semantic/module/mod.rs#L2142  fn collect_instance_segments
+semantic/module/mod.rs#L2160  fn collect_fcall_segments
+semantic/module/mod.rs#L2189  fn walk_chain_children
+semantic/module/mod.rs#L2241  fn collect_ident_segments
+semantic/module/mod.rs#L2301  fn collect_curly_members
+semantic/module/mod.rs#L2328  fn curly_range
+semantic/module/mod.rs#L2335  fn record_scoped_net_ref
+semantic/module/mod.rs#L2444  struct Mc2Module
+semantic/module/mod.rs#L2461  impl Mc2Module
+semantic/module/mod.rs#L2462  fn new
+semantic/module/mod.rs#L2473  fn with_params
+semantic/module/mod.rs#L2485  fn find_port
+semantic/module/mod.rs#L2520  fn get_input_ports
+semantic/module/mod.rs#L2530  fn get_output_ports
+semantic/module/mod.rs#L2540  fn get_all_ports
+semantic/module/mod.rs#L2552  impl std::fmt::Display for McModule
+semantic/module/mod.rs#L2553  fn fmt
+semantic/module/mod.rs#L2559  struct InstRow
 semantic/module/pi.rs#L57  struct McPowerDecls
 semantic/module/pi.rs#L90  impl McPowerDecls
 semantic/module/pi.rs#L91  fn new
@@ -7113,27 +7126,28 @@ semantic/pwrid.rs#L289  fn identity_is_the_contract_plus_the_written_spelling
 semantic/recipe.rs#L38  struct McRecipe
 semantic/recipe.rs#L56  impl McRecipe
 semantic/recipe.rs#L57  fn new
-semantic/recipe.rs#L178  impl HasFindInst for McRecipe
+semantic/recipe.rs#L178  impl ShapeCtx for McRecipe
 semantic/recipe.rs#L179  fn find_inst
-semantic/recipe.rs#L183  fn find_inst_mut
-semantic/recipe.rs#L187  fn find_inst_with_span
-semantic/recipe.rs#L196  fn add_label_at
-semantic/recipe.rs#L206  fn add_bus
-semantic/recipe.rs#L212  fn add_list
-semantic/recipe.rs#L218  fn add_bus_member
-semantic/recipe.rs#L222  fn add_interface_member
-semantic/recipe.rs#L231  fn check_bus_member
-semantic/recipe.rs#L235  fn is_component_bus
-semantic/recipe.rs#L239  fn upgrade_label_to_bus
-semantic/recipe.rs#L243  fn uri
-semantic/recipe.rs#L247  fn parse_declare
-semantic/recipe.rs#L263  fn add_component
-semantic/recipe.rs#L275  fn add_module
-semantic/recipe.rs#L283  fn gen_anon_name
-semantic/recipe.rs#L291  fn record_declareb_def
-semantic/recipe.rs#L300  fn scope_name
-semantic/recipe.rs#L307  impl std::fmt::Display for McRecipe
-semantic/recipe.rs#L308  fn fmt
+semantic/recipe.rs#L183  fn uri
+semantic/recipe.rs#L188  impl HasFindInst for McRecipe
+semantic/recipe.rs#L189  fn find_inst_mut
+semantic/recipe.rs#L193  fn find_inst_with_span
+semantic/recipe.rs#L202  fn add_label_at
+semantic/recipe.rs#L212  fn add_bus
+semantic/recipe.rs#L218  fn add_list
+semantic/recipe.rs#L224  fn add_bus_member
+semantic/recipe.rs#L228  fn add_interface_member
+semantic/recipe.rs#L237  fn check_bus_member
+semantic/recipe.rs#L241  fn is_component_bus
+semantic/recipe.rs#L245  fn upgrade_label_to_bus
+semantic/recipe.rs#L249  fn parse_declare
+semantic/recipe.rs#L265  fn add_component
+semantic/recipe.rs#L277  fn add_module
+semantic/recipe.rs#L285  fn gen_anon_name
+semantic/recipe.rs#L293  fn record_declareb_def
+semantic/recipe.rs#L302  fn scope_name
+semantic/recipe.rs#L309  impl std::fmt::Display for McRecipe
+semantic/recipe.rs#L310  fn fmt
 semantic/scope.rs#L57  struct Resolved
 semantic/scope.rs#L66  trait ResolveScope
 semantic/scope.rs#L68  fn resolve
@@ -11676,4 +11690,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-423 files, 11593 declarations.
+423 files, 11607 declarations.

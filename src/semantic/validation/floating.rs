@@ -34,7 +34,7 @@ use crate::semantic::basic::mc_endpoint::{McEndpoint, McInstanceRef};
 use crate::semantic::basic::mc_opd::McOpd;
 use crate::semantic::basic::mc_param::McParamValue;
 use crate::semantic::basic::mc_phrase::McPhrase;
-use crate::semantic::mc_func::{HasFindInst, McFunctions};
+use crate::semantic::mc_func::{HasFindInst, McFunctions, ShapeCtx};
 use crate::semantic::mc_inst::McInstance;
 use crate::semantic::pwrid::DeclaredFaces;
 

@@ -9,7 +9,7 @@ use crate::{
     ast::{macros::*, node::AstNode},
     semantic::{
         basic::mc_param::McParamDeclares, basic::mc_phrase::McPhrase, basic::mc_role::McRole,
-        component::mc_attr::McAttributes, component::mc_pins::McPins, mc_func::HasFindInst,
+        component::mc_attr::McAttributes, component::mc_pins::McPins, mc_func::{HasFindInst, ShapeCtx},
     },
     McIds, McInstance, McURI,
 };
@@ -153,11 +153,17 @@ impl McInterface {
 
 // HasFindInst for McInterface — namespace lookup (Phase 4.5)
 
-impl HasFindInst for McInterface {
+impl ShapeCtx for McInterface {
     fn find_inst(&self, id: &str) -> Option<McInstance> {
         self.find_inst_with_span(id).map(|(inst, _)| inst)
     }
 
+    fn uri(&self) -> &crate::McURI {
+        &self.uri
+    }
+}
+
+impl HasFindInst for McInterface {
     fn find_inst_mut(&mut self, _id: &str) -> Option<&mut crate::McInstance> {
         None // Interface body has no mutable net statements at Pass1
     }
@@ -227,10 +233,6 @@ impl HasFindInst for McInterface {
 
     fn upgrade_label_to_bus(&mut self, _name: &str) -> bool {
         false
-    }
-
-    fn uri(&self) -> &crate::McURI {
-        &self.uri
     }
 
     fn parse_declare(&mut self, _node: &AstNode) -> Vec<McInstance> {

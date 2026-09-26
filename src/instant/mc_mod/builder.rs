@@ -56,7 +56,8 @@ use crate::instant::overlays::ModuleOverlay;
 use crate::instant::provenance::ExpansionKind;
 use crate::semantic::basic::mc_param::McParamBindings;
 use crate::semantic::common::{McCMIE, SourcePos};
-use crate::semantic::mc_func::McFunction;
+use crate::semantic::mc_func::{McFunction, ShapeCtx};
+use crate::semantic::module::McModule;
 use crate::semantic::pwrid::DeclaredFaces;
 use crate::semantic::validation::ledger::{self, LedgerAction, LedgerEntry, LedgerKind};
 use crate::vector::model::trunk::TrunkKind;
@@ -247,6 +248,38 @@ impl Deref for InstantiationBuilder {
 impl DerefMut for InstantiationBuilder {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.tree
+    }
+}
+
+/// Bridge for the port/value face (U308): the construction phase reads the
+/// operand shape through the narrow read-only trait, and the definition it
+/// consults is the module definition the tree was built from —
+/// [`McModuleInst::def`](crate::instant::mc_mod::McModuleInst), the existing
+/// boundary between the two spaces (no second mapping table).
+///
+/// The five answers go to `<McModule as ShapeCtx>` explicitly: the calls are
+/// resolved by trait, not by the same-named inherent `find_inst` on `McModule`
+/// (`insts.get`), because the value face must read through the same scope
+/// chain the Pass1 sites read (`find_inst_with_span`).
+impl ShapeCtx for InstantiationBuilder {
+    fn find_inst(&self, id: &str) -> Option<crate::McInstance> {
+        <McModule as ShapeCtx>::find_inst(&self.tree.def, id)
+    }
+
+    fn uri(&self) -> &crate::McURI {
+        <McModule as ShapeCtx>::uri(&self.tree.def)
+    }
+
+    fn is_declared_port(&self, name: &str) -> bool {
+        <McModule as ShapeCtx>::is_declared_port(&self.tree.def, name)
+    }
+
+    fn interface_param_members(&self, name: &str) -> Option<Vec<String>> {
+        <McModule as ShapeCtx>::interface_param_members(&self.tree.def, name)
+    }
+
+    fn get_vector_members(&self, base: &str) -> Option<Vec<String>> {
+        <McModule as ShapeCtx>::get_vector_members(&self.tree.def, base)
     }
 }
 

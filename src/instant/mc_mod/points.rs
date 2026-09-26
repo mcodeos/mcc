@@ -465,12 +465,14 @@ impl InstantiationBuilder {
 
                 // non-FuncCall Transposed: strict math transpose (vec-arch.md
                 // §5.2 / §6.2) — the transposed shape's left side is expanded.
-                let shape = OpdShape::from_sides(inner_line.get_left(), inner_line.get_right());
-                // §6.1 drift guard: Pass1 (`check_transpose_allowed`) already
-                // rejects operands whose strict transpose has no connectable
-                // expression, so a representable shape must reach Pass2. A
-                // failure here means Pass1's aligned shape view and Pass2's raw
-                // `get_left`/`get_right` view disagree about the operand width.
+                //
+                // U308: the shape is read from the value face ([`OpdShape::of`])
+                // through the narrow read-only [`ShapeCtx`] bridge, i.e. the same
+                // law Pass1's `check_transpose_allowed` applies. The previous
+                // context-free `get_left`/`get_right` view disagreed with it
+                // about the operand width (§6.1 drift), which is why the guard
+                // below had to exist.
+                let shape = OpdShape::of(inner_line, &*self);
                 debug_assert!(
                     shape.transpose().is_ok(),
                     "unrepresentable transpose reached Pass2: {shape:?}"
@@ -479,9 +481,9 @@ impl InstantiationBuilder {
                     Ok(t) => t.port_left(),
                     Err(_) => {
                         // Unreachable for a validated operand; fall back to the
-                        // previous full-width column merge for robustness.
-                        let mut all = inner_line.get_left();
-                        all.extend(inner_line.get_right());
+                        // full-width column merge of both faces for robustness.
+                        let mut all = shape.port_left();
+                        all.extend(shape.port_right());
                         all
                     }
                 };

@@ -11,7 +11,7 @@ use super::super::{
     basic::mc_group::McGroup,
     common::{ConnDir, ConnOp, IOType, McCMIE},
     component::Mc2Component,
-    mc_func::HasFindInst,
+    mc_func::{HasFindInst, ShapeCtx},
     mc_inst::McInstance,
     module::Mc2Module,
 };
@@ -5607,7 +5607,7 @@ fn interface_elems(iface: &Mc2Interface) -> Vec<McBus> {
 /// points. Returns None when the reference is not a multi-member component
 /// port (the caller falls back to its default single-point width).
 fn component_port_elems(
-    context: &mut dyn HasFindInst,
+    context: &dyn ShapeCtx,
     base: &str,
     member: &str,
 ) -> Option<Vec<McBus>> {
@@ -5688,7 +5688,7 @@ fn base_instance_name(phrase: &McPhrase) -> Option<String> {
 /// the same width. Returns None when the reference is not a multi-member module
 /// port (the caller falls back to its default single-point width).
 fn module_port_elems(
-    context: &mut dyn HasFindInst,
+    context: &dyn ShapeCtx,
     base: &str,
     member: &str,
 ) -> Option<Vec<McBus>> {
@@ -5854,7 +5854,7 @@ fn group_display_form(g: &McGroup) -> String {
     format!("({})", inner.join(", "))
 }
 
-fn eval_port_elems(phrase: &McPhrase, right: bool, context: &mut dyn HasFindInst) -> Vec<McBus> {
+fn eval_port_elems(phrase: &McPhrase, right: bool, context: &dyn ShapeCtx) -> Vec<McBus> {
     match phrase {
         // A transposed operand is first transposed via strict math transpose
         // (vec-arch.md §5.2 / §6.2): the inner shape is transposed, then the
@@ -6422,7 +6422,7 @@ impl OpdShape {
     /// as [`eval_port_elems`] (interface members, component/module port refs,
     /// shape-by-use, bus member bypass, chained members) and then classified
     /// into a single `OpdShape` via [`OpdShape::from_sides`].
-    pub(crate) fn of(phrase: &McPhrase, context: &mut dyn HasFindInst) -> OpdShape {
+    pub(crate) fn of(phrase: &McPhrase, context: &dyn ShapeCtx) -> OpdShape {
         let left = eval_port_elems(phrase, false, context);
         let right = eval_port_elems(phrase, true, context);
         Self::from_sides(left, right)
@@ -6536,7 +6536,7 @@ fn check_list_column_width_mixed(
 /// its declaration pinned down. `column_kind` already reads it that way for
 /// the width gate; this is the single predicate both views share, so the
 /// row-count view can never drift from the gate again.
-fn declared_scalar_element(e: &McPhrase, context: &mut dyn HasFindInst) -> Option<McBus> {
+fn declared_scalar_element(e: &McPhrase, context: &dyn ShapeCtx) -> Option<McBus> {
     if let McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
         base: McInstance::Label(name),
         ..
@@ -6559,7 +6559,7 @@ fn declared_scalar_element(e: &McPhrase, context: &mut dyn HasFindInst) -> Optio
 /// `label V5V` alone would turn the legal `[V5V, GND] -> LDO{vin | vout}`
 /// into a 1-row-vs-2-row `SeriesRowsMismatch` (E4007 + E3132), while the same
 /// statement with an undeclared `V5V` passes.
-fn list_element_elems(e: &McPhrase, right: bool, context: &mut dyn HasFindInst) -> Vec<McBus> {
+fn list_element_elems(e: &McPhrase, right: bool, context: &dyn ShapeCtx) -> Vec<McBus> {
     let elems = eval_port_elems(e, right, context);
     if elems.is_empty() {
         if let Some(bus) = declared_scalar_element(e, context) {
@@ -6575,7 +6575,7 @@ fn list_element_elems(e: &McPhrase, right: bool, context: &mut dyn HasFindInst) 
 /// (shape-by-use §8.9.6.3) but is single-column by declaration. Everything
 /// else (unresolved / func-call) is unclassifiable and ignored, so we never
 /// guess at a shape we cannot see.
-fn column_kind(e: &McPhrase, context: &mut dyn HasFindInst) -> ColumnKind {
+fn column_kind(e: &McPhrase, context: &dyn ShapeCtx) -> ColumnKind {
     if matches!(e, McPhrase::Lead(_)) {
         return ColumnKind::Lead;
     }
