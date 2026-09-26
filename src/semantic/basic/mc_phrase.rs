@@ -5154,7 +5154,7 @@ impl std::fmt::Display for McPhrase {
                 base: McInstance::Component(c),
                 ..
             })) => {
-                if c.nc {
+                if c.not_fitted() {
                     write!(f, "{}(NC)", c.name)
                 } else {
                     write!(f, "{}", c.name)

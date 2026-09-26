@@ -693,6 +693,10 @@ impl InstantiationBuilder {
                     let mut inst = if c.params.is_empty() {
                         // No arguments: plain instance. An NC-marked declaration
                         // with no parameter list keeps the not-connected flag.
+                        // `dnp` stays out of this test on purpose: it is read
+                        // off a marker, never off the argument list, so an
+                        // empty list below is a real one and takes the
+                        // default-binding path.
                         if c.nc {
                             McComponentInst::with_nc(&c.name.to_string(), bound.clone(), &c.params)
                         } else {

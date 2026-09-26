@@ -233,3 +233,27 @@ fn sem_dnp__inline_flag_with_value_reports_5360_and_still_marks() {
     );
     assert_eq!(b.fitted_paths().len(), 1, "diags: {:?}", b.diags);
 }
+
+/// The two spellings are **one verdict on every reader**, not just on the flat
+/// table. A reader that picks the instance's `nc` field sees only the
+/// constructor face, which is how `export kicad`'s DNP property went missing
+/// for a `@dnp` part — this lock is written after that probe. Both parts below
+/// are not fitted, and one reader must say so about both.
+#[test]
+fn sem_dnp__every_reader_sees_both_spellings() {
+    let _lock = common::lock();
+    common::reset();
+    let uri = "/mcc/instance-dnp-readers.mc".to_string();
+    let source = format!("{CHIP}\nmodule main\n{{\n    CHIP a(NC)\n    CHIP b @dnp\n}}\n");
+    mcc::mcc_load_from_string(&uri, &source);
+    let (tree, table, arena, store) =
+        mcc::mcc_build_flat_with_arena(&McIds::from("main"), &uri, 1000).expect("flat build");
+    let (kicad, _, _) =
+        mcc::export::kicad::build_kicad_netlist(&tree, &table, &arena, &store, "main");
+    assert_eq!(
+        kicad.matches("(name \"DNP\") (value \"yes\")").count(),
+        2,
+        "the constructor face and the marker face must both reach the DNP \
+         property — a reader that picks one field loses the other:\n{kicad}"
+    );
+}
