@@ -347,6 +347,11 @@ pub struct McInstances {
     /// onto every instance record the clause builds. Always emptied by that
     /// take, so a declaration without a marker never inherits a stale one.
     nc_pins: Vec<crate::semantic::nc_pin::NcPinSpec>,
+    /// ★ U305⑤: the `@dnp` flag of the declaration clause about to be parsed,
+    /// staged by the caller in the same shape as `nc_pins` and moved onto
+    /// every instance record `parse_declare` builds. Always reset by that
+    /// take, so a declaration without the flag never inherits a stale one.
+    dnp: bool,
 }
 
 impl McInstances {
@@ -363,6 +368,7 @@ impl McInstances {
             bus_defs: BTreeMap::new(),
             declareb_defs: HashMap::new(),
             nc_pins: Vec::new(),
+            dnp: false,
         }
     }
 
@@ -373,6 +379,14 @@ impl McInstances {
     /// only caller is `parse_body`'s `MCAST_DECLARE` arm).
     pub(crate) fn set_nc_pins(&mut self, specs: Vec<crate::semantic::nc_pin::NcPinSpec>) {
         self.nc_pins = specs;
+    }
+
+    /// ★ U305⑤: stage the declaration clause's `@dnp` flag for the `parse`
+    /// call that follows — the same staging contract as [`Self::set_nc_pins`]
+    /// (the marker is a sibling of the `MCAST_DECLARE` node, unclaimable from
+    /// inside `parse_declare`).
+    pub(crate) fn set_dnp(&mut self, dnp: bool) {
+        self.dnp = dnp;
     }
 
     /// Read the ordered member set of a declared vector group, if any.
@@ -1486,6 +1500,8 @@ impl McInstances {
         // the two declaration forms below — and every instance a vector
         // declaration expands into — carry the same marker.
         let nc_pins = std::mem::take(&mut self.nc_pins);
+        // ★ U305⑤: the clause's `@dnp` flag, claimed alongside it.
+        let dnp = std::mem::take(&mut self.dnp);
         // MCAST_DECLARE structure:
         // |- MCAST_CLASS (class_id, class_params)
         // |- MCAST_INSTANCE (instance_id, instance_params)
@@ -1821,6 +1837,7 @@ impl McInstances {
                             instance_params,
                         );
                         mc2_comp.nc_pins = nc_pins.clone();
+                        mc2_comp.dnp = dnp;
                         (McInstance::Component(Arc::new(mc2_comp)), inst_name)
                     }
                     Some(McCMIE::Module(mod_def)) => {
@@ -1837,6 +1854,7 @@ impl McInstances {
                                     ctor_args.clone(),
                                 );
                                 m.nc_pins = nc_pins.clone();
+                                m.dnp = dnp;
                                 m
                             })),
                             inst_name,

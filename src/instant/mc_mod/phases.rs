@@ -851,6 +851,9 @@ impl InstantiationBuilder {
                     // see the instance without its marker).
                     let nc_pins = self.resolve_component_nc_pins(&inst, &c.nc_pins);
                     inst.set_nc_pins(nc_pins);
+                    // ★ U305⑤: the declaration's `@dnp` flag rides to the
+                    // instance (the table marks it not-fitted from here).
+                    inst.dnp = c.dnp;
                     self.add_component(inst);
 
                     // ── P1-C5: Execute same-name constructor func ──
@@ -890,6 +893,10 @@ impl InstantiationBuilder {
                     );
                     let inst_name = m.name.to_string();
                     let mut inst = McModuleInst::new(&inst_name, m.base.clone());
+                    // ★ U305⑤: the declaration's `@dnp` flag rides to the
+                    // sub-module instance (flatten marks it and its whole
+                    // subtree not-fitted).
+                    inst.dnp = m.dnp;
                     // ★ Sub-module instantiation failure → record diagnostics, but keep instance
                     // Phase C1: intern into the circuit registry under the full path
                     // (`{parent}.{inst_name}`), so this sub-module and its products

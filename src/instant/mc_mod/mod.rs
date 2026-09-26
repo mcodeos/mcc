@@ -202,6 +202,12 @@ pub struct McModuleInst {
     /// covers that member only. Empty for an unmarked instance.
     pub nc_ports: BTreeSet<String>,
 
+    /// ★ U305⑤: the declaration line's `@dnp` flag — this assembly is not
+    /// fitted. Marks the module's flat entry `not_fitted` at flatten time,
+    /// and (forward-propagated) every entry inside it: a DNP sub-board takes
+    /// its whole subtree off the BOM / viz with it.
+    pub dnp: bool,
+
     /// Phase G (plan §9 G item 5): the "source span + role" identity anchor
     /// of an auto-named module instance. `Some` → the registry interns the
     /// instance by the anchor key instead of its counter name, so inserting a
@@ -336,6 +342,7 @@ impl McModuleInst {
             expansion_id: None,
             vectors: Vec::new(),
             nc_ports: BTreeSet::new(),
+            dnp: false,
             node_id: None,
             anchor: None,
         }
@@ -368,6 +375,7 @@ impl McModuleInst {
             expansion_id: None,
             vectors: Vec::new(),
             nc_ports: BTreeSet::new(),
+            dnp: false,
             node_id: None,
             anchor: None,
         })

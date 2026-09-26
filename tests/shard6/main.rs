@@ -20,6 +20,7 @@ mod flat_driver_conflict_vantage;
 mod golden_ledger;
 mod goto_def_connection_refs;
 mod iface_mixed_group_binding;
+mod instance_dnp_marker;
 mod instance_nc_pin_marker;
 mod lock_pp_exprs;
 mod lock_pp_hw;

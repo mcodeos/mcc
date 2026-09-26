@@ -689,6 +689,11 @@ impl McModule {
                                 // inside the declare node.
                                 self.insts
                                     .set_nc_pins(crate::semantic::nc_pin::read_nc_pins(&subnode));
+                                // ★ U305⑤: same staging shape for the `@dnp`
+                                // flag — a sibling of this node, claimed by
+                                // `parse_declare` onto the instances it builds.
+                                self.insts
+                                    .set_dnp(crate::semantic::stmt_marker::read_dnp(&subnode));
                                 // U305③: the instance line's tail-marker slot is
                                 // closed — `@ncpin`/`@dnp` only; an unknown word
                                 // reports instead of passing silently.
@@ -2410,6 +2415,12 @@ pub struct Mc2Module {
     /// form (see [`crate::semantic::nc_pin`]) — the module-instance sibling of
     /// [`Mc2Component::nc_pins`].
     pub(crate) nc_pins: Vec<crate::semantic::nc_pin::NcPinSpec>,
+    /// ★ U305⑤: the declaration line's `@dnp` flag — the assembly is not
+    /// fitted. Consumed at instantiation time onto
+    /// [`crate::instant::McModuleInst::dnp`], which marks the module's flat
+    /// entry **and its whole subtree** `not_fitted` (BOM / viz read the flag;
+    /// the ruling keeps the export and analysis faces normal).
+    pub dnp: bool,
 }
 
 impl Mc2Module {
@@ -2420,6 +2431,7 @@ impl Mc2Module {
             args: Vec::new(),
             insts: Vec::new(),
             nc_pins: Vec::new(),
+            dnp: false,
         }
     }
 
@@ -2430,6 +2442,7 @@ impl Mc2Module {
             args,
             insts: Vec::new(),
             nc_pins: Vec::new(),
+            dnp: false,
         }
     }
 
