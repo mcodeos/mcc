@@ -270,8 +270,17 @@ impl ShapeCtx for InstantiationBuilder {
         <McModule as ShapeCtx>::uri(&self.tree.def)
     }
 
-    fn is_declared_port(&self, name: &str) -> bool {
-        <McModule as ShapeCtx>::is_declared_port(&self.tree.def, name)
+    /// Pass2 answers `false` on purpose (U308 probe).
+    ///
+    /// The declared-port answer exists for the **Pass1 opcheck**: a port whose
+    /// width is inferred from the connection context must present an empty shape
+    /// there, or the strict s.5 opcheck rejects the statement before Pass2 can
+    /// upgrade the port (`mc_phrase.rs`, s.8.9.6.3 shape by use). Pass2 is the
+    /// phase that *does* the upgrading, so a construction-time shape question is
+    /// asking for the width, not for the check tolerance — the empty answer is
+    /// the wrong answer here, and reading it drops the name.
+    fn is_declared_port(&self, _name: &str) -> bool {
+        false
     }
 
     fn interface_param_members(&self, name: &str) -> Option<Vec<String>> {
@@ -1924,4 +1933,37 @@ fn boundary_return(
 /// `iface_member_pin_id` — one spelling, two readers, neither re-deriving it.
 fn is_anon_member(member: &str) -> bool {
     member.len() > 3 && member.starts_with("_(") && member.ends_with(')')
+}
+
+// Tests
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// U308 phase lock: the Pass2 shape context must **not** inherit the Pass1
+    /// opcheck's declared-port tolerance.
+    ///
+    /// `is_declared_port` exists so the strict §5 opcheck blanks out the width
+    /// of a port whose shape is inferred from the connection context
+    /// (`mc_phrase.rs`, §8.9.6.3 shape by use) — without it the check rejects
+    /// the statement before Pass2 can upgrade the port. Pass2 *is* the phase
+    /// that decides that width, so a construction-time shape question asks for
+    /// the width, not for the tolerance. Answering `true` here hands every
+    /// Pass2 shape read of a declared port an empty shape, and a consumer that
+    /// reads the empty list as "zero points" drops the name — measured at the
+    /// func return face, where `return V5` published no net at all
+    /// (`u130__bare_call_bridges_return_endpoint_through_engine`).
+    #[test]
+    fn inst_shape__pass2_context_keeps_the_declared_port_width() {
+        let inst = InstantiationBuilder::new(McModuleInst::new(
+            "main",
+            std::sync::Arc::new(McModule::test_stub("main")),
+        ));
+        assert!(
+            !<InstantiationBuilder as ShapeCtx>::is_declared_port(&inst, "V5"),
+            "the Pass2 context must answer the declared-port shape question \
+             with the width, not with the Pass1 opcheck's tolerance"
+        );
+    }
 }

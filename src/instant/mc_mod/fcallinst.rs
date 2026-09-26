@@ -864,23 +864,26 @@ impl InstantiationBuilder {
                 } else {
                     Self::substitute_stmt(endpoint_phrase, &bindings, None, &*self)
                 };
-                // U308 ruling B: the returned net face is the **value** face's
-                // right port list. The old read took the spelling side's last
-                // element (`get_right`), a second copy of the width-aligned
-                // view that dropped every earlier member.
-                let shape = OpdShape::of(&substituted, &*self);
-                let new: Vec<String> = shape.port_right().iter().map(|b| b.name.clone()).collect();
-                let names: Vec<String> = substituted
-                    .get_right()
+                // U308: the returned face is the **value** operand's own right
+                // port — the returned operand replaces the call site and then
+                // takes part in the surrounding connection laws, so its width
+                // must be the operand's width and nothing may be extracted from
+                // it early. A return is always in Pass2, which is the phase that
+                // decides a declared port's width, so the width question is
+                // answered, not deferred (`InstantiationBuilder`'s `ShapeCtx`
+                // keeps that answer; `builder.rs` locks it).
+                //
+                // The reader this replaced took the spelling side's last element
+                // (`get_right`), a second copy of the width-aligned view that
+                // dropped every earlier member: `return c[1:2]` published one
+                // lane against a two-lane call and the engine judged the bridge
+                // a shape mismatch (E4007). Locked by
+                // `u308__multi_lane_return_face_publishes_every_lane`.
+                let names: Vec<String> = OpdShape::of(&substituted, &*self)
+                    .port_right()
                     .iter()
                     .map(|b| b.name.clone())
                     .collect();
-                if names != new {
-                    eprintln!(
-                        "[U308-TRACE] fcallinst return face DIVERGE {names:?} -> {new:?} \
-                         phrase={substituted}"
-                    );
-                }
                 if names.is_empty() {
                     LAST_RETURN_ENDPOINT.with(|cell| cell.replace(None));
                 } else {

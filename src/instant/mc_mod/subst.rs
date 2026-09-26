@@ -117,25 +117,12 @@ impl InstantiationBuilder {
                 .iter()
                 .flat_map(|p| Self::phrase_to_node_elements(p, cx))
                 .collect(),
-            // U308 ruling B: what an operand presents on its **left** is a
-            // shape question — asked of the value face's canonical
-            // width-aligned view, not of the spelling side.
-            _ => {
-                let new = OpdShape::of(phrase, cx).port_left();
-                let old = phrase.get_left();
-                let names = |bs: &[McBus]| -> Vec<String> {
-                    bs.iter().map(|b| b.name.clone()).collect()
-                };
-                if names(&old) != names(&new) {
-                    eprintln!(
-                        "[U308-TRACE] subst phrase_to_node_elements DIVERGE {:?} -> {:?} \
-                         phrase={phrase}",
-                        names(&old),
-                        names(&new)
-                    );
-                }
-                old
-            }
+            // U308: what an operand presents on its **left** is a shape
+            // question, and this is substitution — a Pass2 site, where the
+            // construction context answers the declared-port width instead of
+            // blanking it for the Pass1 opcheck (`builder.rs`). The reader this
+            // replaced walked the spelling side, a second copy of the same law.
+            _ => OpdShape::of(phrase, cx).port_left(),
         }
     }
 
