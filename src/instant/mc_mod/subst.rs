@@ -18,6 +18,8 @@
 use super::expand::ExpansionContext;
 use super::InstantiationBuilder;
 use crate::semantic::basic::mc_bus::McBus;
+use crate::semantic::basic::opd_shape::OpdShape;
+use crate::semantic::mc_func::ShapeCtx;
 use crate::semantic::basic::mc_closure::McClosure;
 use crate::semantic::basic::mc_ref::{McRef, McInstanceRef};
 use crate::semantic::basic::mc_fcall::McFuncCall;
@@ -35,7 +37,10 @@ impl InstantiationBuilder {
     ///
     /// Transforms function actual-parameter values into node elements
     /// usable in connection stmts.
-    pub(super) fn param_value_to_node_elements(value: &McParamValue) -> Vec<McBus> {
+    pub(super) fn param_value_to_node_elements(
+        value: &McParamValue,
+        cx: &dyn ShapeCtx,
+    ) -> Vec<McBus> {
         match value {
             McParamValue::Ids(ids) => {
                 if ids.is_empty() {
@@ -61,9 +66,9 @@ impl InstantiationBuilder {
             }
             McParamValue::Set(values) => values
                 .iter()
-                .flat_map(Self::param_value_to_node_elements)
+                .flat_map(|v| Self::param_value_to_node_elements(v, cx))
                 .collect(),
-            McParamValue::Phrase(phrase) => Self::phrase_to_node_elements(phrase),
+            McParamValue::Phrase(phrase) => Self::phrase_to_node_elements(phrase, cx),
             McParamValue::InlineAttrs(attrs) => {
                 // P1-6: Attribute blocks (`key = value`) are NOT net elements.
                 // The previous `_ =>` fallback degraded them into a fabricated
@@ -105,14 +110,32 @@ impl InstantiationBuilder {
     /// leaf per member, exactly like `X{a, b}` or `X[1:2]`. Taking the group's
     /// own face would report only `opds[0]` and drop the remaining members
     /// before the leaf count is made — a silent member loss.
-    fn phrase_to_node_elements(phrase: &McPhrase) -> Vec<McBus> {
+    fn phrase_to_node_elements(phrase: &McPhrase, cx: &dyn ShapeCtx) -> Vec<McBus> {
         match phrase {
             McPhrase::Group(g) => g
                 .opds
                 .iter()
-                .flat_map(Self::phrase_to_node_elements)
+                .flat_map(|p| Self::phrase_to_node_elements(p, cx))
                 .collect(),
-            _ => phrase.get_left(),
+            // U308 ruling B: what an operand presents on its **left** is a
+            // shape question — asked of the value face's canonical
+            // width-aligned view, not of the spelling side.
+            _ => {
+                let new = OpdShape::of(phrase, cx).port_left();
+                let old = phrase.get_left();
+                let names = |bs: &[McBus]| -> Vec<String> {
+                    bs.iter().map(|b| b.name.clone()).collect()
+                };
+                if names(&old) != names(&new) {
+                    eprintln!(
+                        "[U308-TRACE] subst phrase_to_node_elements DIVERGE {:?} -> {:?} \
+                         phrase={phrase}",
+                        names(&old),
+                        names(&new)
+                    );
+                }
+                old
+            }
         }
     }
 
@@ -165,7 +188,11 @@ impl InstantiationBuilder {
     ///    -> McBus{name:"my_dc",member:["V1"]}
     ///
     /// Flattened version: elem.member is Vec<String>
-    fn substitute_node_element(elem: &McBus, bindings: &McParamBindings) -> Vec<McBus> {
+    fn substitute_node_element(
+        elem: &McBus,
+        bindings: &McParamBindings,
+        cx: &dyn ShapeCtx,
+    ) -> Vec<McBus> {
         // Check if node name matches a formal parameter
         if let Some(binding) = bindings.find(&elem.name) {
             if let Some(value) = binding.get_value() {
@@ -177,11 +204,11 @@ impl InstantiationBuilder {
                         }) {
                             if let McParamValue::Set(vals) = value {
                                 if let Some(v) = vals.get(idx) {
-                                    return Self::param_value_to_node_elements(v);
+                                    return Self::param_value_to_node_elements(v, cx);
                                 }
                             }
                             if idx == 0 {
-                                return Self::param_value_to_node_elements(value);
+                                return Self::param_value_to_node_elements(value, cx);
                             }
                             return vec![McBus {
                                 name: elem.name.clone(),
@@ -191,18 +218,19 @@ impl InstantiationBuilder {
                             }];
                         }
                     }
-                    return Self::param_value_to_node_elements(value);
+                    return Self::param_value_to_node_elements(value, cx);
                 } else {
                     // Parameter with members: dc24v.VCC -> my_dc.V1
                     // elem.member is now Vec<String>
-                    let mut new_elems = Self::param_value_to_node_elements(value);
+                    let mut new_elems = Self::param_value_to_node_elements(value, cx);
                     if new_elems.len() == 1 {
                         let new_base = &mut new_elems[0];
                         let mut new_members: Vec<String> = Vec::new();
                         for child_name in &elem.member {
                             if let Some(member_val) = binding.get_member_value(child_name) {
                                 // Substitute member value
-                                let substituted = Self::param_value_to_node_elements(&member_val);
+                                let substituted =
+                                    Self::param_value_to_node_elements(&member_val, cx);
                                 for sub_elem in substituted {
                                     // If substituted element has members, use them; otherwise use
                                     // the name
@@ -236,10 +264,14 @@ impl InstantiationBuilder {
     }
 
     /// Substitute parameters in a list of NodeElements
-    fn substitute_node_elements(elements: &[McBus], bindings: &McParamBindings) -> Vec<McBus> {
+    fn substitute_node_elements(
+        elements: &[McBus],
+        bindings: &McParamBindings,
+        cx: &dyn ShapeCtx,
+    ) -> Vec<McBus> {
         elements
             .iter()
-            .flat_map(|elem| Self::substitute_node_element(elem, bindings))
+            .flat_map(|elem| Self::substitute_node_element(elem, bindings, cx))
             .collect()
     }
 
@@ -475,68 +507,67 @@ impl InstantiationBuilder {
         phrase: &McPhrase,
         bindings: &McParamBindings,
         expansion_ctx: Option<&ExpansionContext>,
+        cx: &dyn ShapeCtx,
     ) -> McPhrase {
         match phrase {
             McPhrase::Series(phrases, d) => McPhrase::Series(
                 phrases
                     .iter()
-                    .map(|p| Self::substitute_phrase(p, bindings, expansion_ctx))
+                    .map(|p| Self::substitute_phrase(p, bindings, expansion_ctx, cx))
                     .collect(),
                 *d,
             ),
             McPhrase::Parallel(phrases) => McPhrase::Parallel(
                 phrases
                     .iter()
-                    .map(|p| Self::substitute_phrase(p, bindings, expansion_ctx))
+                    .map(|p| Self::substitute_phrase(p, bindings, expansion_ctx, cx))
                     .collect(),
             ),
             McPhrase::Closure(c) => McPhrase::Closure(McClosure {
                 params: c.params.clone(),
-                right: Self::substitute_node_elements(&c.right, bindings),
+                right: Self::substitute_node_elements(&c.right, bindings, cx),
                 body: c
                     .body
                     .iter()
-                    .map(|p| Self::substitute_phrase(p, bindings, expansion_ctx))
+                    .map(|p| Self::substitute_phrase(p, bindings, expansion_ctx, cx))
                     .collect(),
             }),
             McPhrase::Group(g) => McPhrase::Group(McGroup {
                 opds: g
                     .opds
                     .iter()
-                    .map(|p| Self::substitute_phrase(p, bindings, expansion_ctx))
+                    .map(|p| Self::substitute_phrase(p, bindings, expansion_ctx, cx))
                     .collect(),
                 left_match: g.left_match,
                 right_match: g.right_match,
             }),
             McPhrase::FuncCall(f) => McPhrase::FuncCall(McFuncCall {
                 id: 0,
-                caller: f
-                    .caller
-                    .as_ref()
-                    .map(|c| Box::new(Self::substitute_phrase(c, bindings, expansion_ctx))),
+                caller: f.caller.as_ref().map(|c| {
+                    Box::new(Self::substitute_phrase(c, bindings, expansion_ctx, cx))
+                }),
                 func_name: f.func_name.clone(),
                 params: f
                     .params
                     .iter()
                     .map(|p| Self::substitute_param_value(p, bindings))
                     .collect(),
-                left: Self::substitute_node_elements(&f.left, bindings),
-                right: Self::substitute_node_elements(&f.right, bindings),
+                left: Self::substitute_node_elements(&f.left, bindings, cx),
+                right: Self::substitute_node_elements(&f.right, bindings, cx),
                 dot_member: f.dot_member.clone(),
                 resolved_return_shape: f.resolved_return_shape.clone(),
                 pre_closure: f.pre_closure,
                 named_ctor: f.named_ctor,
                 receiver_is_ctor: f.receiver_is_ctor,
             }),
-            McPhrase::Transposed(inner) => McPhrase::Transposed(Box::new(Self::substitute_phrase(
-                inner,
-                bindings,
-                expansion_ctx,
-            ))),
+            McPhrase::Transposed(inner) => McPhrase::Transposed(Box::new(
+                Self::substitute_phrase(inner, bindings, expansion_ctx, cx),
+            )),
             McPhrase::Reversed(inner) => McPhrase::Reversed(Box::new(Self::substitute_phrase(
                 inner,
                 bindings,
                 expansion_ctx,
+                cx,
             ))),
             McPhrase::Lead(_) => phrase.clone(),
             // Iter-2.3
@@ -587,7 +618,7 @@ impl InstantiationBuilder {
                     }
                 }
 
-                let substituted = Self::substitute_node_element(&elem, bindings);
+                let substituted = Self::substitute_node_element(&elem, bindings, cx);
                 if substituted.is_empty() {
                     phrase.clone()
                 } else if substituted.len() == 1
@@ -624,7 +655,7 @@ impl InstantiationBuilder {
                     &bus_name,
                     self_members.unwrap_or_else(|| b.member.clone()),
                 );
-                let substituted = Self::substitute_node_element(&elem, bindings);
+                let substituted = Self::substitute_node_element(&elem, bindings, cx);
                 if substituted.is_empty() {
                     phrase.clone()
                 } else if substituted.len() == 1
@@ -645,7 +676,7 @@ impl InstantiationBuilder {
             })) => {
                 // List does not process this substitution (List form e.g. GPIO[1,2])
                 let elem = McBus::new_with_members(&l.name, l.member.clone());
-                let substituted = Self::substitute_node_element(&elem, bindings);
+                let substituted = Self::substitute_node_element(&elem, bindings, cx);
                 if substituted.len() == 1
                     && substituted[0].name == l.name
                     && substituted[0].member == l.member
@@ -673,7 +704,7 @@ impl InstantiationBuilder {
             McPhrase::Multiple(phrases) => McPhrase::Multiple(
                 phrases
                     .iter()
-                    .map(|p| Self::substitute_phrase(p, bindings, expansion_ctx))
+                    .map(|p| Self::substitute_phrase(p, bindings, expansion_ctx, cx))
                     .collect(),
             ),
             McPhrase::Endpoint(McRef::Ports {
@@ -681,12 +712,33 @@ impl InstantiationBuilder {
                 ref right,
                 ..
             }) => {
+                // U308 ruling B: `{a | b}`'s two sides are the **value** face's
+                // port lists, not a per-member walk of the spelling side. The
+                // old read drove every member through the cascade law
+                // (`get_left`/`get_right`), a second, divergent copy of the
+                // width-aligned view the shape layer already owns.
+                let shape = OpdShape::of(phrase, cx);
+                let new_l: Vec<McBus> = shape.port_left();
+                let new_r: Vec<McBus> = shape.port_right();
                 let left_elems: Vec<McBus> = left.iter().flat_map(|e| e.get_left()).collect();
                 let right_elems: Vec<McBus> = right.iter().flat_map(|e| e.get_right()).collect();
+                let names = |bs: &[McBus]| -> Vec<String> {
+                    bs.iter().map(|b| b.name.clone()).collect()
+                };
+                if names(&left_elems) != names(&new_l) || names(&right_elems) != names(&new_r) {
+                    eprintln!(
+                        "[U308-TRACE] subst Ports DIVERGE L {:?} -> {:?} R {:?} -> {:?} \
+                         phrase={phrase}",
+                        names(&left_elems),
+                        names(&new_l),
+                        names(&right_elems),
+                        names(&new_r)
+                    );
+                }
                 // Iter-2.3
                 // Also perform formal-parameter substitution on the Ports' left/right McBus
-                let left_subst = Self::substitute_node_elements(&left_elems, bindings);
-                let right_subst = Self::substitute_node_elements(&right_elems, bindings);
+                let left_subst = Self::substitute_node_elements(&left_elems, bindings, cx);
+                let right_subst = Self::substitute_node_elements(&right_elems, bindings, cx);
                 if left_subst.is_empty() && right_subst.is_empty() {
                     McPhrase::Endpoint(McRef::Ports {
                         left: vec![],
@@ -723,7 +775,7 @@ impl InstantiationBuilder {
             }
             McPhrase::Endpoint(ref ep) => McPhrase::Endpoint(ep.clone()),
             McPhrase::Member(phrase, ep) => McPhrase::Member(
-                Box::new(Self::substitute_phrase(phrase, bindings, expansion_ctx)),
+                Box::new(Self::substitute_phrase(phrase, bindings, expansion_ctx, cx)),
                 ep.clone(),
             ),
         }
@@ -734,8 +786,9 @@ impl InstantiationBuilder {
         phrase: &McPhrase,
         bindings: &McParamBindings,
         expansion_ctx: Option<&ExpansionContext>,
+        cx: &dyn ShapeCtx,
     ) -> McPhrase {
-        Self::substitute_phrase(phrase, bindings, expansion_ctx)
+        Self::substitute_phrase(phrase, bindings, expansion_ctx, cx)
     }
 }
 
@@ -744,6 +797,23 @@ mod tests {
     use super::*;
     use crate::semantic::basic::mc_literal::{McLiteral, McString};
     use crate::semantic::component::mc_attr::{McAttrVal, McAttribute};
+
+    /// An empty shape scope. The `InlineAttrs` arm answers before any shape
+    /// question is asked, so the context under test holds no instance — the
+    /// cell would fail loudly if the conversion ever started reading one.
+    #[derive(Default)]
+    struct NoScope {
+        uri: crate::McURI,
+    }
+
+    impl ShapeCtx for NoScope {
+        fn find_inst(&self, _id: &str) -> Option<McInstance> {
+            None
+        }
+        fn uri(&self) -> &crate::McURI {
+            &self.uri
+        }
+    }
 
     /// P1-6 regression: an InlineAttrs argument (attribute block, e.g.
     /// `foo { key = value }`) must NOT be fabricated into a bogus text node
@@ -761,7 +831,7 @@ mod tests {
             pins_ids: None,
         };
         let value = McParamValue::InlineAttrs(vec![attr]);
-        let elems = InstantiationBuilder::param_value_to_node_elements(&value);
+        let elems = InstantiationBuilder::param_value_to_node_elements(&value, &NoScope::default());
         assert!(
             elems.is_empty(),
             "InlineAttrs must not become a net node, got {elems:?}"

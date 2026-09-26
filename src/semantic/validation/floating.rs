@@ -30,7 +30,7 @@
 use super::ledger::{self, LedgerAction, LedgerEntry, LedgerKind};
 use super::{CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, ValidationCheck};
 
-use crate::semantic::basic::mc_ref::{McRef, McInstanceRef};
+use crate::semantic::basic::mc_ref::McRef;
 use crate::semantic::basic::mc_opd::McOpd;
 use crate::semantic::basic::mc_param::McParamValue;
 use crate::semantic::basic::mc_phrase::McPhrase;
@@ -372,14 +372,16 @@ pub(crate) fn count_refs(phrase: &McPhrase, name: &str, c: &mut RefCounts, net_c
     }
 }
 
-/// Count name matches inside an endpoint tree (flatten handles list / node
-/// junctions, so each syntactic reference is counted once).
+/// Count name matches inside an endpoint tree (`leaves` walks every branch of a
+/// list / node junction, so each syntactic reference is counted once).
+///
+/// Reference face only (U308 ruling B): the question is how often a name is
+/// **written**, not what the spelling evaluates to, so this site answers from
+/// `McRef` and needs no `ShapeCtx`.
 fn count_endpoint_refs(ep: &McRef, name: &str, count: &mut u32) {
-    for single in ep.flatten() {
-        if let McRef::Name(McInstanceRef { base, .. }) = single {
-            if inst_name_matches(&base, name) {
-                *count += 1;
-            }
+    for r in ep.leaves() {
+        if inst_name_matches(&r.base, name) {
+            *count += 1;
         }
     }
 }
