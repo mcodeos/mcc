@@ -787,6 +787,11 @@ pub const DYN_WIDTH_EXPR_NEEDS_PARAM: u32 = 3186;
 /// code judges the subscript against the resolved dynamic expansion.
 pub const IFACE_DYN_WIDTH_MISMATCH: u32 = 3187;
 
+/// A trailing `@word(…)` marker on a statement line is not in the line's
+/// marker vocabulary (U305③: instance lines read `@ncpin`/`@dnp`, connection
+/// lines read `@bridge`/`@couple`/`@clamp`/`@star`).
+pub const STMT_MARKER_UNKNOWN: u32 = 3188;
+
 // Pass2: connection / shape (4000-4049)
 
 /// Transposed connection size mismatch.
@@ -2566,6 +2571,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(PIN_NAME_EXPR_UNRESOLVED, "A pin name expression did not resolve against the bound parameters.", "Pin name expression '{0}' did not resolve against the parameters bound here; the row registers no name. Bind every parameter the expression reads, or write the name as plain text."),
     entry!(DYN_WIDTH_EXPR_NEEDS_PARAM, "A width-binder name sits inside an arithmetic width expression; expression widths are never back-solved.", "Dynamic pin range '{0}' reads '{1}' inside an arithmetic expression, but '{1}' is not declared in the parameter table. An undeclared name is a width binder only as a whole range endpoint — it binds the instance subscript width; inside arithmetic it never participates in back-solving (replicated-binding-design.md §4 check 1). Declare '{1}' as a parameter and give it explicitly here, or write the range end as a bare name."),
     entry!(IFACE_DYN_WIDTH_MISMATCH, "The binding row's subscript member count disagrees with the interface's dynamic pin expansion.", "Interface binding '{0}' names {1} subscript member(s) but the interface's dynamic pin range expands to {2} pin(s). With an explicit width parameter the three counts — subscript members, dynamic expansion, physical pins — must agree (replicated-binding-design.md §4 check 2). Match the subscript to the expansion, or drop the explicit parameter and let the width binder tie the counts."),
+    entry!(STMT_MARKER_UNKNOWN, "Unknown statement tail marker.", "`@{0}` is not a marker this statement line reads. Instance lines read `@ncpin(...)` / `@dnp`; connection lines read `@bridge(a, b)` / `@couple(a, b)` / `@clamp(a)` / `@star`. A marker the line does not read is never applied — remove it or correct its spelling."),
     // section
     entry!(CONN_TRANSPOSE_SIZE_MISMATCH, "Transposed connection size mismatch.", "Transposed connection size mismatch"),
     entry!(CONN_LEFT_ARROW_SHAPE_MISMATCH, "Shape mismatch in a <- connection.", "Shape mismatch in a <- connection"),
