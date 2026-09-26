@@ -274,6 +274,12 @@ pub(crate) fn check_net_budget(table: &InstTable, results: &mut Vec<NetCheckResu
             let Some(comp_id) = entry.parent_id else {
                 continue;
             };
+            // ★ U305⑤: a not-fitted part draws nothing — its pins stay out
+            // of the demand sum (the derive half skips not-fitted devices
+            // the same way, `index_devices`).
+            if table.get_entry(comp_id).is_some_and(|c| c.not_fitted) {
+                continue;
+            }
             let Some(def) = eng.scan.def_of(comp_id) else {
                 continue;
             };

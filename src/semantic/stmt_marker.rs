@@ -74,6 +74,39 @@ pub(crate) fn attribute_key(att: &AstNode) -> Option<String> {
     McIds::new(&ids_node).and_then(|ids| ids.get_primary_name())
 }
 
+/// The declaration line's `@dnp` flag, if written (U305⑤). A bare flag is the
+/// only legal shape — `@dnp` means "this part is not fitted", declared by
+/// being written — so a value list reports 5360 (the flag-arity shape, same
+/// code the attribute registry's `AttrVocab::Flag` enforcement uses) and the
+/// flag still counts as written.
+///
+/// Same sibling position as [`crate::semantic::nc_pin::read_nc_pins`] reads:
+/// the marker rides as a next sibling of the `MCAST_DECLARE` node.
+pub(crate) fn read_dnp(declare: &AstNode) -> bool {
+    let mut cur = declare.get_next();
+    while let Some(node) = cur {
+        if node.is_type(MCAST_ATTRIBUTE) && attribute_key(&node).as_deref() == Some(DNP_KEY) {
+            let has_values = node
+                .get_sub_node()
+                .and_then(|id| id.get_next())
+                .is_some_and(|v| v.is_type(MCAST_ATT_VALUES));
+            if has_values {
+                dlog_error(
+                    errcodes::ATTR_VALUE_NOT_IN_VOCABULARY,
+                    &node,
+                    &format!(
+                        "Attribute '{DNP_KEY}' is a flag: it is declared by being written, and \
+                         takes no value."
+                    ),
+                );
+            }
+            return true;
+        }
+        cur = node.get_next();
+    }
+    false
+}
+
 /// Report every trailing attribute of the clause whose key is outside the
 /// line's vocabulary.
 ///

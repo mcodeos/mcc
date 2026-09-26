@@ -115,7 +115,7 @@ fn collect_part_instances(
     let view = TreeView::new(arena, inst_store);
     let mut out: BTreeSet<(String, bool, String)> = BTreeSet::new();
     let root = inst.name.clone();
-    collect_parts_impl(inst, &view, &root, &mut out);
+    collect_parts_impl(inst, &view, &root, &mut out, false);
     out.into_iter().collect()
 }
 
@@ -124,6 +124,9 @@ fn collect_parts_impl(
     view: &TreeView,
     path: &str,
     out: &mut BTreeSet<(String, bool, String)>,
+    // ★ U305⑤: a `@dnp` ancestor scope — every part inside a not-fitted
+    // assembly is not fitted with it.
+    inherited_dnp: bool,
 ) {
     // The parts this module puts on the board: its own component and
     // sub-module children, each under the name its own scope gives it. A
@@ -162,7 +165,7 @@ fn collect_parts_impl(
             };
             out.insert((
                 class_of(owner),
-                nc_status(owner, &by_name, recs),
+                nc_status(owner, &by_name, recs) || inherited_dnp,
                 full.clone(),
             ));
         }
@@ -173,14 +176,21 @@ fn collect_parts_impl(
     // fitted part with no connection stays out, as before.
     for c in &comps {
         let name = c.name.as_str();
-        if !name.starts_with("__") && nc_status(name, &by_name, recs) {
+        if !name.starts_with("__") && (nc_status(name, &by_name, recs) || inherited_dnp) {
             out.insert((class_of(name), true, format!("{path}.{}", name)));
         }
     }
 
     for sub in &subs {
         if !sub.name.starts_with("__") {
-            collect_parts_impl(sub, view, &format!("{path}.{}", sub.name), out);
+            let sub_path = format!("{path}.{}", sub.name);
+            // ★ U305⑤: a `@dnp` sub-module is itself a row — "designed in,
+            // not placed" is exactly what a downstream reader has to see —
+            // and its whole subtree inherits the status.
+            if sub.dnp {
+                out.insert((class_of(sub.name.as_str()), true, sub_path.clone()));
+            }
+            collect_parts_impl(sub, view, &sub_path, out, inherited_dnp || sub.dnp);
         }
     }
 }
@@ -229,7 +239,9 @@ fn nc_status<'a>(
         let Some(&c) = by_name.get(cur) else {
             return false;
         };
-        if c.nc {
+        // ★ U305⑤: the constructor `NC` argument and the statement-line
+        // `@dnp` flag say the same thing here — the part is not fitted.
+        if c.nc || c.dnp {
             return true;
         }
         match owning_instance(c, recs) {

@@ -1414,11 +1414,41 @@ impl InstTable {
         let mut table = InstTable::new(start_id);
         table.net_table = net_store;
         table.flatten_module(inst, "", None, view);
+        // ★ U305⑤: a not-fitted module marks its whole subtree — everything
+        // mounted inside a DNP assembly is DNP with it. Parents register
+        // before children, so one forward pass in id order is enough.
+        table.propagate_not_fitted();
         // NOTE: no global ground merge here (strict DC rail identity). Ground
         // nets stay exactly as wired: each DC rail keeps its own ground
         // (`V5V.GND` != `V3V3.GND`) and grounds merge only through real wiring
         // ties (shared component ground pins, explicit `X.GND -> GND`).
         table
+    }
+
+    /// ★ U305⑤: pull `not_fitted` down the parent chains — a structural entry
+    /// (module / component) whose parent is not fitted is not fitted either
+    /// (a `@dnp` sub-module takes every part mounted inside it off the board
+    /// with it). Pin / port entries stay where the flat table has always held
+    /// them — the constructor-`NC` face never marked them either, and their
+    /// readers (the unconnected family, denominators) have never seen the
+    /// flag. Entries are held in a `BTreeMap` keyed by allocation order and a
+    /// parent always registers before its children, so a single forward pass
+    /// in id order reaches every ancestor's verdict before the child reads it.
+    fn propagate_not_fitted(&mut self) {
+        let mut fitted: std::collections::HashMap<u32, bool> = std::collections::HashMap::new();
+        for (id, entry) in self.entries.iter_mut() {
+            let structural = matches!(entry.kind, InstKind::Module | InstKind::Component);
+            let inherited = structural
+                && entry
+                    .parent_id
+                    .and_then(|p| fitted.get(&p).copied())
+                    .unwrap_or(false);
+            let own = entry.not_fitted;
+            if inherited && !own {
+                entry.not_fitted = true;
+            }
+            fitted.insert(*id, structural && (own || inherited));
+        }
     }
 
     /// Recursively generate flattened instance table, with the Phase C arena
@@ -2149,6 +2179,15 @@ impl InstTable {
             inst.node_id,
             Some(McSpaceName::new(&inst.def.name, inst.def.uri.clone())),
         );
+        // ★ U305⑤: a `@dnp` module instance is not fitted — and neither is
+        // anything mounted inside it. The subtree propagation runs once after
+        // the whole flatten (`from_module_inst`); here only the module's own
+        // entry is marked.
+        if inst.dnp {
+            if let Some(entry) = self.entries.get_mut(&my_id) {
+                entry.not_fitted = true;
+            }
+        }
         // ★ Root header anchor: record the built module's own `module <name>`
         // declaration span so design-scope net-check summaries (4118 power-net
         // count) can anchor at the module header instead of file:1:1. Only the
@@ -2571,8 +2610,9 @@ impl InstTable {
                 }
             }
 
-            // ★ M0-B-D: pass through the nc marker
-            if comp.nc {
+            // ★ M0-B-D: pass through the nc marker; ★ U305⑤: `@dnp` lands
+            // the same flag — the part is not fitted either way.
+            if comp.nc || comp.dnp {
                 if let Some(entry) = self.entries.get_mut(&comp_id) {
                     entry.not_fitted = true;
                 }
@@ -2849,7 +2889,8 @@ impl InstTable {
                 }
             }
 
-            if comp.nc {
+            // ★ M0-B-D nc marker / ★ U305⑤ `@dnp` (same as pass-1)
+            if comp.nc || comp.dnp {
                 if let Some(entry) = self.entries.get_mut(&comp_id) {
                     entry.not_fitted = true;
                 }

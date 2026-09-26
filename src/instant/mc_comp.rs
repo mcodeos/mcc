@@ -75,6 +75,13 @@ pub struct McComponentInst {
     /// NC (Not Connected) instance
     pub nc: bool,
 
+    /// ★ U305⑤: the declaration line's `@dnp` flag — the part is not fitted
+    /// (a real part left off the board). Same flat-table effect as `nc`
+    /// (`InstEntry.not_fitted`), separate provenance: `nc` comes from the
+    /// constructor `NC` argument (the transitional spelling), `dnp` from the
+    /// `@dnp` statement-line marker.
+    pub dnp: bool,
+
     /// ★ M0-B-E: instance origin (declaration vs funcall)
     pub origin: InstOrigin,
 
@@ -136,6 +143,7 @@ impl McComponentInst {
             resolved_attrs: Vec::new(),
             nc_pins: BTreeSet::new(),
             nc: false,
+            dnp: false,
             origin: InstOrigin::Declared,
             degraded: false,
             expansion_id: None,
@@ -163,6 +171,7 @@ impl McComponentInst {
             resolved_attrs: Vec::new(),
             nc_pins: BTreeSet::new(),
             nc: false,
+            dnp: false,
             origin: InstOrigin::Declared,
             degraded: true,
             expansion_id: None,
@@ -220,6 +229,7 @@ impl McComponentInst {
             resolved_attrs: Vec::new(),
             nc_pins: BTreeSet::new(),
             nc,
+            dnp: false,
             origin: InstOrigin::Declared,
             degraded: false,
             expansion_id: None,
@@ -248,6 +258,7 @@ impl McComponentInst {
             resolved_attrs: Vec::new(),
             nc_pins: BTreeSet::new(),
             nc: true,
+            dnp: false,
             origin: InstOrigin::Declared,
             degraded: false,
             expansion_id: None,

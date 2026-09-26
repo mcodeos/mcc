@@ -1,0 +1,143 @@
+// Copyright (c) 2026 MCode
+//
+// Licensed under either of Apache License, Version 2.0 or MIT License at your option.
+
+// Lock for the instance-line `@dnp` flag (U305⑤) — "this part is not fitted".
+//
+// The flag is the statement-line sibling of the constructor `NC` argument: it
+// lands the same flat-table flag (`InstEntry.not_fitted`), so every consumer
+// that already reads the flag — BOM, viz, export — treats the part as
+// mounted-but-absent without any new reader. Two rulings pin the semantics
+// (2026-09-26): the unconnected-pin diagnostics keep reporting on a DNP part
+// (no ERC exemption — the pins really are unconnected), and a module instance
+// may be `@dnp`, which takes its whole subtree off the board with it.
+//
+// A module entry's `not_fitted` therefore covers descendants: the forward
+// pass in `InstTable::propagate_not_fitted` runs after the flatten, and a
+// parent always registers before its children.
+#![allow(non_snake_case)]
+
+use crate::common;
+
+use mcc::McIds;
+
+// ── codes under test ──
+const ATTR_VALUE_NOT_IN_VOCABULARY: u32 = 5360;
+// ── the "unconnected" family that keeps reporting on a DNP part ──
+const NET_BIDIR_UNCONNECTED: u32 = 4117;
+const NET_MODULE_PORT_UNCONNECTED: u32 = 4114;
+
+/// A two-pin passive, both pins bidirectional.
+const CHIP: &str =
+    "component CHIP\n{\n    pins = [\n        io 1 = A\n        io 2 = B\n    ]\n}\n";
+
+/// A sub-module instantiating `CHIP` and exposing one port to the parent.
+const SUB: &str = "module SUB\n{\n    io A\n    CHIP u1\n    A -> u1.1\n}\n";
+
+struct Built {
+    /// Paths of the entries flagged not-fitted — the structural fact, read
+    /// straight off the flat table.
+    not_fitted: Vec<String>,
+    /// `(code, message)`, sorted, so assertions do not depend on report order.
+    diags: Vec<(u32, String)>,
+}
+
+fn build(defs: &str, body: &str) -> Built {
+    let _lock = common::lock();
+    common::reset();
+    let uri = "/mcc/instance-dnp-marker.mc".to_string();
+    let source = format!("{defs}\nmodule main\n{{\n{body}\n}}\n");
+    mcc::mcc_load_from_string(&uri, &source);
+    let (_, table) = mcc::mcc_build_flat(&McIds::from("main"), &uri, 1000).expect("flat build");
+
+    let mut not_fitted: Vec<String> = table
+        .iter()
+        .filter(|(_, e)| e.not_fitted)
+        .map(|(_, e)| e.path.clone())
+        .collect();
+    not_fitted.sort();
+
+    let mut diags: Vec<(u32, String)> = mcc::mcc_diagnose_all()
+        .iter()
+        .map(|d| (d.code, d.msg.clone()))
+        .collect();
+    diags.sort();
+
+    Built { not_fitted, diags }
+}
+
+impl Built {
+    fn fitted_paths(&self) -> Vec<&str> {
+        self.not_fitted.iter().map(String::as_str).collect()
+    }
+
+    fn count(&self, code: u32) -> usize {
+        self.diags.iter().filter(|(c, _)| *c == code).count()
+    }
+
+    /// Does any diagnostic carrying `code` name `needle`?
+    fn reports(&self, code: u32, needle: &str) -> bool {
+        self.diags
+            .iter()
+            .any(|(c, m)| *c == code && m.contains(needle))
+    }
+}
+
+/// `@dnp` on a component instance marks exactly that instance not-fitted —
+/// and its pins keep reporting unconnected (the ruling keeps ERC
+/// unexempted: the pins really are unconnected).
+#[test]
+fn sem_dnp__component_flag_marks_not_fitted_and_keeps_reports() {
+    let b = build(CHIP, "    CHIP d1 @dnp");
+    assert_eq!(b.fitted_paths(), ["main.d1"]);
+    assert!(b.reports(NET_BIDIR_UNCONNECTED, "main.d1.1"));
+    assert!(b.reports(NET_BIDIR_UNCONNECTED, "main.d1.2"));
+    assert_eq!(
+        b.count(NET_BIDIR_UNCONNECTED),
+        2,
+        "a DNP part's unconnected pins must keep reporting; diags: {:?}",
+        b.diags
+    );
+}
+
+/// The unmarked twin: nothing is not-fitted. Locking only the marked case
+/// would pass even if the flag were a blanket table-wide default.
+#[test]
+fn sem_dnp__unmarked_twin_stays_fitted() {
+    let b = build(CHIP, "    CHIP d1");
+    assert!(b.not_fitted.is_empty(), "{:?}", b.not_fitted);
+}
+
+/// `@dnp` on a module instance marks the module **and its whole subtree** —
+/// the part mounted inside a DNP assembly is off the board with it.
+#[test]
+fn sem_dnp__module_flag_marks_the_whole_subtree() {
+    let b = build(&format!("{CHIP}{SUB}"), "    SUB s1 @dnp");
+    assert_eq!(
+        b.fitted_paths(),
+        ["main.s1", "main.s1.u1"],
+        "a DNP module takes its subtree with it; diags: {:?}",
+        b.diags
+    );
+    // The subtree's own diagnostics keep reporting too (no exemption).
+    assert!(
+        b.reports(NET_MODULE_PORT_UNCONNECTED, "main.s1.A")
+            || b.reports(NET_BIDIR_UNCONNECTED, "main.s1.u1.2"),
+        "the DNP assembly's unconnected faces must keep reporting; diags: {:?}",
+        b.diags
+    );
+}
+
+/// The bare flag is the only legal shape: `@dnp(yes)` reports the flag-arity
+/// code (5360) and still counts as written — the part is marked either way.
+#[test]
+fn sem_dnp__flag_with_value_reports_5360_and_still_marks() {
+    let b = build(CHIP, "    CHIP d1 @dnp(yes)");
+    assert_eq!(
+        b.count(ATTR_VALUE_NOT_IN_VOCABULARY),
+        1,
+        "diags: {:?}",
+        b.diags
+    );
+    assert_eq!(b.fitted_paths(), ["main.d1"]);
+}
