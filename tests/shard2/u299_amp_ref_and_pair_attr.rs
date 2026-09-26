@@ -2,21 +2,20 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! CIMP U299 locks, both grammar-alive / semantics-dead halves.
+//! CIMP U299 lock ② and the U310 retirement lock.
 //!
-//! ① `&ID` single-reference formal — the grammar's declare 2' arm wraps the
-//!    ids in MCAST_OPD exactly as `&[a, b]` wraps its members, and mcc models
-//!    no ref/copy difference, so the declare face reads it as a plain Single
-//!    formal. Locked A/B against the bare-ids control: both spellings must
-//!    register the formal (the never-used warning names it) and stay free
-//!    of E3103.
+//! ① (U310) `&ID` / `&[a, b]` param prefix — retired at the grammar level:
+//!    the mc_pard amp productions are gone (U299 had already collapsed every
+//!    ref/copy distinction), so both spellings are syntax errors that
+//!    register no formal. Locked A/B against the bare-ids control, which
+//!    must still parse clean and register the formal.
 //!
 //! ② `uv@uv` scalar attribute — `rate = 1Mbps@0.5m` folds to
 //!    AttrExpr::UnitValueAt, the shape the list form already carries.
 //!    E3022 (node_type=118) is retired at this site; the lock reads the
 //!    parse view, where the attribute must carry its written value, not an
-//!    empty slot. This re-homes the U300 corpus lock I5 (formerly
-//!    shard3/u300_corpus_locks.rs), which asserted the old E3022 firing
+//!    empty slot. This re-homes the U300 corpus lock I5 that lived in
+//!    shard3/u300_corpus_locks.rs, which asserted the old E3022 firing
 //!    here and flips to absence under U299②.
 
 #![allow(non_snake_case)]
@@ -47,21 +46,54 @@ fn pass0_codes(value: &Value) -> Vec<u64> {
         .collect()
 }
 
-// ① `&sense` must land as the same formal as bare `sense`: identical parse
-// view params, no E3103, no errors.
+// ① `&sense` / `&[a, b]` must be syntax errors that register no formal;
+// the bare spellings stay the alive control.
 #[test]
-fn lock_u299__amp_ref_formal_matches_bare_control() {
+fn lock_u310__amp_param_prefix_is_a_syntax_error() {
     let bare = r#"component CUT(sense)
 {
     p = 1
 }
 "#;
-    let amp = r#"component CUT(&sense)
+    let amp_id = r#"component CUT(&sense)
 {
     p = 1
 }
 "#;
-    for (tag, src) in [("bare", bare), ("amp", amp)] {
+    let amp_vec = r#"component CUT(&[a, b])
+{
+    p = 1
+}
+"#;
+    let result = parse_args(&[
+        "parse",
+        "--code",
+        bare,
+        "--local",
+        "--pass1",
+        "--pass2",
+        "--top",
+        "main",
+        "-f",
+        "json",
+    ]);
+    let codes = pass0_codes(&result);
+    assert!(
+        !codes.contains(&3103),
+        "bare control: E3103 must stay retired at the declare site; codes: {codes:?}"
+    );
+    assert_eq!(
+        result["result"]["summary"]["errors"].as_u64(),
+        Some(0),
+        "bare control: snippet must parse without errors; diagnostics: {}",
+        result["result"]["pass0"]["diagnostics"]
+    );
+    assert!(
+        codes.contains(&5641),
+        "bare control: the formal must register (never-used names `sense`); codes: {codes:?}"
+    );
+
+    for (tag, src) in [("amp-id", amp_id), ("amp-vec", amp_vec)] {
         let result = parse_args(&[
             "parse",
             "--code",
@@ -76,18 +108,12 @@ fn lock_u299__amp_ref_formal_matches_bare_control() {
         ]);
         let codes = pass0_codes(&result);
         assert!(
-            !codes.contains(&3103),
-            "{tag}: E3103 must stay retired at the declare site; codes: {codes:?}"
-        );
-        assert_eq!(
-            result["result"]["summary"]["errors"].as_u64(),
-            Some(0),
-            "{tag}: snippet must parse without errors; diagnostics: {}",
-            result["result"]["pass0"]["diagnostics"]
+            result["result"]["summary"]["errors"].as_u64().unwrap_or(0) >= 1,
+            "{tag}: the retired `&` param prefix must be a syntax error; codes: {codes:?}"
         );
         assert!(
-            codes.contains(&5641),
-            "{tag}: the formal must register (never-used names `sense`); codes: {codes:?}"
+            !codes.contains(&5641),
+            "{tag}: no formal may register for the retired spelling; codes: {codes:?}"
         );
     }
 }

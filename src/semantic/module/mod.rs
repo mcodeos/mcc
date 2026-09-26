@@ -225,8 +225,6 @@ impl McModule {
         //      |- MCAST_SQUARE_VEC         : parse as params: McParamDeclares
         //      |- MCAST_DECLARE_UV         : parse as params: McParamDeclares
 
-        //      |- MCAST_OPD                : parse as insts: McInstances
-        //      |- MCAST_OPD_SQUARE_VEC     : parse as insts: McInstances
         //      |- MCAST_DECLARE            : parse as insts: McInstances
 
         if let Some(subnodes) = decl_node.get_sub_node() {
@@ -240,10 +238,6 @@ impl McModule {
                     // Data parameter -> params
                     MCAST_ROLE | MCAST_IDS | MCAST_SQUARE_VEC | MCAST_DECLARE_UV => {
                         self.params.parse(&param_node);
-                    }
-                    // Reference parameter -> insts (treated as port)
-                    MCAST_OPD | MCAST_OPD_SQUARE_VEC => {
-                        self.insts.parse(&subnode, &self.uri);
                     }
                     // Instance parameter -> insts, or enum-class/interface data param
                     MCAST_DECLARE => {
