@@ -32,11 +32,11 @@ range (threshold 40KB).
 |---|---|---|
 | `viz/layout/equipotential_tree.rs` | 417 KB | 203 |
 | `db/infra/mc_code.rs` | 404 KB | 121 |
-| `semantic/basic/mc_phrase.rs` | 350 KB | 88 |
+| `semantic/basic/mc_phrase.rs` | 348 KB | 88 |
 | `semantic/component/mc_pins/mod.rs` | 242 KB | 112 |
 | `db/diagnostic/errcodes.rs` | 205 KB | 464 |
 | `semantic/validation/nets/mod.rs` | 205 KB | 135 |
-| `instant/mc_mod/stmt.rs` | 203 KB | 80 |
+| `instant/mc_mod/stmt.rs` | 202 KB | 80 |
 | `rules.rs` | 188 KB | 83 |
 | `instant/insttab.rs` | 183 KB | 131 |
 | `cmds/show.rs` | 164 KB | 123 |
@@ -67,13 +67,13 @@ range (threshold 40KB).
 | `db/` | 28 | 1045 KB |
 | `eval/` | 2 | 50 KB |
 | `export/` | 7 | 185 KB |
-| `instant/` | 41 | 1654 KB |
+| `instant/` | 41 | 1653 KB |
 | `lsp/` | 7 | 70 KB |
 | `output/` | 7 | 107 KB |
 | `query/` | 9 | 170 KB |
 | `refdef/` | 7 | 126 KB |
 | `rpc/` | 16 | 312 KB |
-| `semantic/` | 98 | 2878 KB |
+| `semantic/` | 98 | 2877 KB |
 | `stages/` | 18 | 396 KB |
 | `vector/` | 26 | 496 KB |
 | `viz/` | 98 | 2476 KB |
@@ -1040,13 +1040,13 @@ cmds/parse.rs#L992  fn escape_xml_viz
 cmds/parse.rs#L1010  fn viz_default_path
 cmds/parse.rs#L1023  fn run_viz
 cmds/parse.rs#L1129  fn phrase_to_tree_json
-cmds/parse.rs#L1240  fn endpoints_json
-cmds/parse.rs#L1251  fn param_to_tree_json
-cmds/parse.rs#L1273  fn endpoint_label
-cmds/parse.rs#L1295  fn emit_error
-cmds/parse.rs#L1320  fn param_cls
-cmds/parse.rs#L1338  fn param_default
-cmds/parse.rs#L1348  fn cmie_to_tree_json
+cmds/parse.rs#L1242  fn endpoints_json
+cmds/parse.rs#L1253  fn param_to_tree_json
+cmds/parse.rs#L1275  fn endpoint_label
+cmds/parse.rs#L1297  fn emit_error
+cmds/parse.rs#L1322  fn param_cls
+cmds/parse.rs#L1340  fn param_default
+cmds/parse.rs#L1350  fn cmie_to_tree_json
 cmds/print.rs#L31  fn print_phrase_members
 cmds/print.rs#L154  fn print_module_inst
 cmds/print.rs#L322  fn print_connections
@@ -5329,54 +5329,6 @@ semantic/basic/mc_conds.rs#L1089  impl McFuncConds
 semantic/basic/mc_conds.rs#L1091  fn from_conds
 semantic/basic/mc_conds.rs#L1123  fn parse_block_stmts
 semantic/basic/mc_conds.rs#L1194  fn evaluate
-semantic/basic/mc_endpoint.rs#L13  enum McMember
-semantic/basic/mc_endpoint.rs#L18  impl McMember
-semantic/basic/mc_endpoint.rs#L19  fn expand
-semantic/basic/mc_endpoint.rs#L27  impl fmt::Display for McMember
-semantic/basic/mc_endpoint.rs#L28  fn fmt
-semantic/basic/mc_endpoint.rs#L39  struct McMemberList
-semantic/basic/mc_endpoint.rs#L43  impl McMemberList
-semantic/basic/mc_endpoint.rs#L44  fn new
-semantic/basic/mc_endpoint.rs#L48  fn expand
-semantic/basic/mc_endpoint.rs#L52  fn count
-semantic/basic/mc_endpoint.rs#L57  impl fmt::Display for McMemberList
-semantic/basic/mc_endpoint.rs#L58  fn fmt
-semantic/basic/mc_endpoint.rs#L67  struct McInstanceRef
-semantic/basic/mc_endpoint.rs#L72  impl McInstanceRef
-semantic/basic/mc_endpoint.rs#L73  fn new
-semantic/basic/mc_endpoint.rs#L80  fn with_members
-semantic/basic/mc_endpoint.rs#L85  fn add_member
-semantic/basic/mc_endpoint.rs#L89  fn full_name
-semantic/basic/mc_endpoint.rs#L140  fn expand_members
-semantic/basic/mc_endpoint.rs#L144  fn from_label
-semantic/basic/mc_endpoint.rs#L148  fn from_bus
-semantic/basic/mc_endpoint.rs#L162  fn to_bus
-semantic/basic/mc_endpoint.rs#L172  impl fmt::Display for McInstanceRef
-semantic/basic/mc_endpoint.rs#L173  fn fmt
-semantic/basic/mc_endpoint.rs#L181  enum McEndpoint
-semantic/basic/mc_endpoint.rs#L190  impl McEndpoint
-semantic/basic/mc_endpoint.rs#L191  fn single
-semantic/basic/mc_endpoint.rs#L195  fn list
-semantic/basic/mc_endpoint.rs#L199  fn node
-semantic/basic/mc_endpoint.rs#L203  fn flatten
-semantic/basic/mc_endpoint.rs#L217  fn count
-semantic/basic/mc_endpoint.rs#L228  fn from_label
-semantic/basic/mc_endpoint.rs#L232  fn from_labels
-semantic/basic/mc_endpoint.rs#L242  fn series
-semantic/basic/mc_endpoint.rs#L263  fn get_left
-semantic/basic/mc_endpoint.rs#L284  fn get_right
-semantic/basic/mc_endpoint.rs#L306  impl fmt::Display for McEndpoint
-semantic/basic/mc_endpoint.rs#L307  fn fmt
-semantic/basic/mc_endpoint.rs#L342  impl From<McInstanceRef> for McEndpoint
-semantic/basic/mc_endpoint.rs#L343  fn from
-semantic/basic/mc_endpoint.rs#L348  impl From<McInstance> for McInstanceRef
-semantic/basic/mc_endpoint.rs#L349  fn from
-semantic/basic/mc_endpoint.rs#L354  impl From<McInstance> for McEndpoint
-semantic/basic/mc_endpoint.rs#L355  fn from
-semantic/basic/mc_endpoint.rs#L360  impl From<McBus> for McEndpoint
-semantic/basic/mc_endpoint.rs#L361  fn from
-semantic/basic/mc_endpoint.rs#L376  impl From<crate::semantic::basic::mc_bus::McNode> for McEndpoint
-semantic/basic/mc_endpoint.rs#L377  fn from
 semantic/basic/mc_expr.rs#L14  struct McUnitValueAt
 semantic/basic/mc_expr.rs#L19  impl McUnitValueAt
 semantic/basic/mc_expr.rs#L22  fn new
@@ -5944,6 +5896,55 @@ semantic/basic/mc_phrase.rs#L6734  fn spliced_statement
 semantic/basic/mc_phrase.rs#L6749  fn r0_group_structure__inner_chain_survives_the_statement_split
 semantic/basic/mc_phrase.rs#L6769  fn r0_group_structure__display_renders_the_inner_parentheses
 semantic/basic/mc_phrase.rs#L6781  fn r0_group_structure__inner_direction_stays_under_a_different_outer
+semantic/basic/mc_ref.rs#L13  enum McMember
+semantic/basic/mc_ref.rs#L18  impl McMember
+semantic/basic/mc_ref.rs#L19  fn expand
+semantic/basic/mc_ref.rs#L27  impl fmt::Display for McMember
+semantic/basic/mc_ref.rs#L28  fn fmt
+semantic/basic/mc_ref.rs#L39  struct McMemberList
+semantic/basic/mc_ref.rs#L43  impl McMemberList
+semantic/basic/mc_ref.rs#L44  fn new
+semantic/basic/mc_ref.rs#L48  fn expand
+semantic/basic/mc_ref.rs#L52  fn count
+semantic/basic/mc_ref.rs#L57  impl fmt::Display for McMemberList
+semantic/basic/mc_ref.rs#L58  fn fmt
+semantic/basic/mc_ref.rs#L67  struct McInstanceRef
+semantic/basic/mc_ref.rs#L72  impl McInstanceRef
+semantic/basic/mc_ref.rs#L73  fn new
+semantic/basic/mc_ref.rs#L80  fn with_members
+semantic/basic/mc_ref.rs#L85  fn add_member
+semantic/basic/mc_ref.rs#L89  fn full_name
+semantic/basic/mc_ref.rs#L140  fn expand_members
+semantic/basic/mc_ref.rs#L144  fn from_label
+semantic/basic/mc_ref.rs#L148  fn from_bus
+semantic/basic/mc_ref.rs#L162  fn to_bus
+semantic/basic/mc_ref.rs#L172  impl fmt::Display for McInstanceRef
+semantic/basic/mc_ref.rs#L173  fn fmt
+semantic/basic/mc_ref.rs#L182  enum McRef
+semantic/basic/mc_ref.rs#L197  impl McRef
+semantic/basic/mc_ref.rs#L198  fn name
+semantic/basic/mc_ref.rs#L202  fn group
+semantic/basic/mc_ref.rs#L206  fn ports
+semantic/basic/mc_ref.rs#L214  fn leaves
+semantic/basic/mc_ref.rs#L226  fn flatten
+semantic/basic/mc_ref.rs#L240  fn count
+semantic/basic/mc_ref.rs#L251  fn from_label
+semantic/basic/mc_ref.rs#L255  fn from_labels
+semantic/basic/mc_ref.rs#L265  fn series
+semantic/basic/mc_ref.rs#L286  fn get_left
+semantic/basic/mc_ref.rs#L307  fn get_right
+semantic/basic/mc_ref.rs#L329  impl fmt::Display for McRef
+semantic/basic/mc_ref.rs#L330  fn fmt
+semantic/basic/mc_ref.rs#L365  impl From<McInstanceRef> for McRef
+semantic/basic/mc_ref.rs#L366  fn from
+semantic/basic/mc_ref.rs#L371  impl From<McInstance> for McInstanceRef
+semantic/basic/mc_ref.rs#L372  fn from
+semantic/basic/mc_ref.rs#L377  impl From<McInstance> for McRef
+semantic/basic/mc_ref.rs#L378  fn from
+semantic/basic/mc_ref.rs#L383  impl From<McBus> for McRef
+semantic/basic/mc_ref.rs#L384  fn from
+semantic/basic/mc_ref.rs#L399  impl From<crate::semantic::basic::mc_bus::McNode> for McRef
+semantic/basic/mc_ref.rs#L400  fn from
 semantic/basic/mc_role.rs#L12  struct McRole
 semantic/basic/mc_role.rs#L19  impl McRole
 semantic/basic/mc_role.rs#L20  fn new
@@ -6023,20 +6024,20 @@ semantic/basic/mod.rs#L7  mod form
 semantic/basic/mod.rs#L8  mod mc_bus
 semantic/basic/mod.rs#L9  mod mc_closure
 semantic/basic/mod.rs#L10  mod mc_conds
-semantic/basic/mod.rs#L11  mod mc_endpoint
-semantic/basic/mod.rs#L12  mod mc_expr
-semantic/basic/mod.rs#L13  mod mc_fcall
-semantic/basic/mod.rs#L14  mod mc_group
-semantic/basic/mod.rs#L15  mod mc_ida
-semantic/basic/mod.rs#L16  mod mc_ids
-semantic/basic/mod.rs#L17  mod mc_kvs
-semantic/basic/mod.rs#L18  mod mc_literal
-semantic/basic/mod.rs#L19  mod mc_opd
-semantic/basic/mod.rs#L20  mod mc_param
-semantic/basic/mod.rs#L21  mod mc_param_infer
-semantic/basic/mod.rs#L22  mod mc_param_type
-semantic/basic/mod.rs#L23  mod mc_paramd
-semantic/basic/mod.rs#L24  mod mc_phrase
+semantic/basic/mod.rs#L11  mod mc_expr
+semantic/basic/mod.rs#L12  mod mc_fcall
+semantic/basic/mod.rs#L13  mod mc_group
+semantic/basic/mod.rs#L14  mod mc_ida
+semantic/basic/mod.rs#L15  mod mc_ids
+semantic/basic/mod.rs#L16  mod mc_kvs
+semantic/basic/mod.rs#L17  mod mc_literal
+semantic/basic/mod.rs#L18  mod mc_opd
+semantic/basic/mod.rs#L19  mod mc_param
+semantic/basic/mod.rs#L20  mod mc_param_infer
+semantic/basic/mod.rs#L21  mod mc_param_type
+semantic/basic/mod.rs#L22  mod mc_paramd
+semantic/basic/mod.rs#L23  mod mc_phrase
+semantic/basic/mod.rs#L24  mod mc_ref
 semantic/basic/mod.rs#L25  mod mc_role
 semantic/basic/mod.rs#L26  mod mc_uval
 semantic/basic/mod.rs#L27  mod opd_shape
@@ -11690,4 +11691,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-423 files, 11607 declarations.
+423 files, 11608 declarations.

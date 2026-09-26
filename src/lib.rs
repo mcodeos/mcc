@@ -61,7 +61,7 @@ pub use crate::semantic::common::{
 pub use crate::semantic::validation::ledger;
 pub use crate::semantic::{
     basic::{
-        mc_endpoint::{McEndpoint, McInstanceRef},
+        mc_ref::{McRef, McInstanceRef},
         mc_fcall::{McFuncCall, ReturnShape},
         mc_phrase::McPhrase,
     },
@@ -1312,18 +1312,18 @@ fn phrase_to_info(phrase: &McPhrase) -> StmtInfo {
                 .flat_map(|p| phrase_to_info(p).members)
                 .collect(),
         },
-        McPhrase::Endpoint(McEndpoint::Node {
-            ref input,
-            ref output,
+        McPhrase::Endpoint(McRef::Ports {
+            ref left,
+            ref right,
             ..
         }) => StmtInfo {
             members: vec![StmtMemberInfo::Node {
-                left: input
+                left: left
                     .iter()
                     .flat_map(|e| e.get_left())
                     .map(|b| node_element_to_info(&b))
                     .collect::<Vec<_>>(),
-                right: output
+                right: right
                     .iter()
                     .flat_map(|e| e.get_right())
                     .map(|b| node_element_to_info(&b))

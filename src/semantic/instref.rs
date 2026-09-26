@@ -7,7 +7,7 @@ use crate::{
     ast::node::AstNode,
     semantic::{
         basic::mc_bus::McBus,
-        basic::mc_endpoint::{McEndpoint, McInstanceRef},
+        basic::mc_ref::{McRef, McInstanceRef},
         basic::mc_ids::McIds,
         basic::mc_phrase::McPhrase,
         mc_func::HasFindInst,
@@ -59,7 +59,7 @@ fn validate_inst_member_ref(
                     base: McInstance::Bus(McBus::new_with_members(base_name, members.to_vec())),
                     members: Vec::new(),
                 };
-                return Some(McPhrase::Endpoint(McEndpoint::Single(inst_ref)));
+                return Some(McPhrase::Endpoint(McRef::Name(inst_ref)));
             }
             McInstance::Interface(iface) => {
                 return validate_interface_member_ref(base_name, members, iface, context, node);
@@ -287,7 +287,7 @@ fn validate_component_pin_ref(
 
         if let Some(existing_inst) = context.find_inst(&full_name) {
             if matches!(existing_inst, McInstance::Bus(_)) {
-                return Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                return Some(McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
                     existing_inst.clone(),
                 ))));
             }
@@ -298,7 +298,7 @@ fn validate_component_pin_ref(
             members: Vec::new(),
         };
 
-        return Some(McPhrase::Endpoint(McEndpoint::Single(inst_ref)));
+        return Some(McPhrase::Endpoint(McRef::Name(inst_ref)));
     }
 
     let inst_ref = McInstanceRef {
@@ -306,7 +306,7 @@ fn validate_component_pin_ref(
         members: Vec::new(),
     };
 
-    Some(McPhrase::Endpoint(McEndpoint::Single(inst_ref)))
+    Some(McPhrase::Endpoint(McRef::Name(inst_ref)))
 }
 
 fn validate_module_port_ref(
@@ -399,7 +399,7 @@ fn validate_module_port_ref(
             members: Vec::new(),
         };
 
-        return Some(McPhrase::Endpoint(McEndpoint::Single(inst_ref)));
+        return Some(McPhrase::Endpoint(McRef::Name(inst_ref)));
     }
 
     let inst_ref = McInstanceRef {
@@ -407,7 +407,7 @@ fn validate_module_port_ref(
         members: Vec::new(),
     };
 
-    Some(McPhrase::Endpoint(McEndpoint::Single(inst_ref)))
+    Some(McPhrase::Endpoint(McRef::Name(inst_ref)))
 }
 
 fn validate_interface_member_ref(
@@ -485,7 +485,7 @@ fn validate_interface_member_ref(
             members: Vec::new(),
         };
 
-        return Some(McPhrase::Endpoint(McEndpoint::Single(inst_ref)));
+        return Some(McPhrase::Endpoint(McRef::Name(inst_ref)));
     }
 
     let inst_ref = McInstanceRef {
@@ -493,7 +493,7 @@ fn validate_interface_member_ref(
         members: Vec::new(),
     };
 
-    Some(McPhrase::Endpoint(McEndpoint::Single(inst_ref)))
+    Some(McPhrase::Endpoint(McRef::Name(inst_ref)))
 }
 
 pub fn validate_inst_reference(
@@ -667,7 +667,7 @@ fn validate_component_interface_ref(
         .iter()
         .map(|m| {
             let full_path = format!("{component}.{interface}.{m}");
-            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+            McPhrase::Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::Bus(McBus::new(&full_path)),
                 members: Vec::new(),
             }))

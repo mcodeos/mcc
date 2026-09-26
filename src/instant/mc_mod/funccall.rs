@@ -23,7 +23,7 @@ use crate::db::cmie::cmie::mcb_get_cmie;
 use crate::instant::mc_comp::McComponentInst;
 use crate::instant::mc_net::{ConnectionInst, InstError, NetPoint, PortInst};
 use crate::semantic::basic::mc_bus::McBus;
-use crate::semantic::basic::mc_endpoint::McEndpoint;
+use crate::semantic::basic::mc_ref::McRef;
 use crate::semantic::basic::mc_param::McParamValue;
 use crate::semantic::basic::mc_phrase::McPhrase;
 use crate::semantic::common::{IOType, McCMIE};
@@ -277,7 +277,7 @@ impl InstantiationBuilder {
             match cmie {
                 McCMIE::Component(comp_def) => {
                     let caller_label = caller.and_then(|c| match c {
-                        McPhrase::Endpoint(McEndpoint::Single(iref)) => match &iref.base {
+                        McPhrase::Endpoint(McRef::Name(iref)) => match &iref.base {
                             McInstance::Label(s) => {
                                 let s = s.as_str();
                                 // P2-7: check if this Label is part of a dotted class name.

@@ -128,7 +128,7 @@ pub(crate) fn print_phrase_internal(
     phrase: &crate::semantic::basic::mc_phrase::McPhrase,
     prefix: &str,
 ) {
-    use crate::semantic::basic::mc_endpoint::McEndpoint;
+    use crate::semantic::basic::mc_ref::McRef;
     use crate::semantic::basic::mc_phrase::McPhrase;
     match phrase {
         McPhrase::Series(phrases, _) => {
@@ -192,14 +192,14 @@ pub(crate) fn print_phrase_internal(
             print_phrase_internal(inner, prefix);
             println!("{prefix}    .{endpoint}");
         }
-        McPhrase::Endpoint(McEndpoint::Node { input, output }) => {
-            let input_str: Vec<String> = input.iter().map(|e| format!("{e}")).collect();
-            let output_str: Vec<String> = output.iter().map(|e| format!("{e}")).collect();
+        McPhrase::Endpoint(McRef::Ports { left, right }) => {
+            let left_str: Vec<String> = left.iter().map(|e| format!("{e}")).collect();
+            let right_str: Vec<String> = right.iter().map(|e| format!("{e}")).collect();
             println!(
                 "{}(node: {{{} | {}}})",
                 prefix,
-                input_str.join(", "),
-                output_str.join(", ")
+                left_str.join(", "),
+                right_str.join(", ")
             );
         }
         McPhrase::Endpoint(ep) => {

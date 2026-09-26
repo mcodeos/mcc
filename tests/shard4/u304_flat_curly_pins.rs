@@ -6,7 +6,7 @@
 //!
 //! The M1 ruling (CIMP §1 U300, b4006) legalized `FAMILY INST{COM | NO}` as a
 //! named-ctor inline instance, but its phrase arm rewrote the statement into a
-//! Node of dotted bus spellings: the instance never entered the module's
+//! Ports of dotted bus spellings: the instance never entered the module's
 //! component table, the faces fell into the bus-definition fallback, and the
 //! flat projection silently resolved zero nets (CIMP §1 U304). The fix keeps
 //! the FuncCall alive with the faces stashed on its interface buses, so the

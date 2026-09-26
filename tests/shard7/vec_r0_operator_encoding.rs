@@ -28,7 +28,7 @@
 
 use crate::common;
 
-use mcc::{McEndpoint, McIds, McPhrase, McURI};
+use mcc::{McRef, McIds, McPhrase, McURI};
 
 /// Plain two-pin resistor, pins `1 = 1` / `2 = 2`.
 const RES2: &str = "component RES2 {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n}\n";
@@ -59,17 +59,17 @@ fn shapes(v: &[McPhrase]) -> String {
     v.iter().map(shape).collect::<Vec<_>>().join(", ")
 }
 
-fn ep_shape(ep: &McEndpoint) -> String {
+fn ep_shape(ep: &McRef) -> String {
     match ep {
-        McEndpoint::Single(r) => r.base.get_name(),
-        McEndpoint::List(l) => format!(
-            "List[{}]",
+        McRef::Name(r) => r.base.get_name(),
+        McRef::Group(l) => format!(
+            "Group[{}]",
             l.iter().map(ep_shape).collect::<Vec<_>>().join(", ")
         ),
-        McEndpoint::Node { input, output } => format!(
-            "Node(in[{}], out[{}])",
-            input.iter().map(ep_shape).collect::<Vec<_>>().join(", "),
-            output.iter().map(ep_shape).collect::<Vec<_>>().join(", ")
+        McRef::Ports { left, right } => format!(
+            "Ports(in[{}], out[{}])",
+            left.iter().map(ep_shape).collect::<Vec<_>>().join(", "),
+            right.iter().map(ep_shape).collect::<Vec<_>>().join(", ")
         ),
     }
 }
@@ -264,8 +264,8 @@ fn apost__wraps_without_rewriting() {
 /// expression is *evaluated* (§2.4.5) — the parse tree only records the wrap.
 ///
 /// The cell guards that no such rewrite happens: a branch that reversed
-/// members, swapped `Node` input/output or rewrote a two-pin component into a
-/// swapped `Node` would show up here. A parenthesized chain is the sharp case —
+/// members, swapped `Ports` left/right or rewrote a two-pin component into a
+/// swapped `Ports` would show up here. A parenthesized chain is the sharp case —
 /// the rewrite would leave a **vestigial one-element** `Series(Undirected)`,
 /// because `phrases.reverse()` runs on a single element, so the members are
 /// never reversed and the operator survives as a mislabelled wrapper.

@@ -8,7 +8,7 @@
 //! member references** — never a literal `c[1:2]` label (invariant B). The
 //! lane structure contract (§11.3 ③ / the per-member dispatch driver for
 //! iterated.rs, §7.6):
-//! - receiver `c[1:2]` → `Endpoint(List([Single(c1), Single(c2)]))` — one lane
+//! - receiver `c[1:2]` → `Endpoint(Group([Name(c1), Name(c2)]))` — one lane
 //!   per ordered member (dispatch receiver for iterated.rs)
 //! - `[VDD, GND]` arg list → `Set([Opd(Id(VDD)), Opd(Id(GND))])` — 2 scalar lanes
 //! - the vector member set is carried in structure, never re-parsed from a
@@ -59,9 +59,9 @@ fn find_funccall<'a>(stmts: &'a [mcc::McPhrase], name: &str) -> Option<&'a mcc::
     stmts.iter().find_map(|s| walk(s, name))
 }
 
-/// ── §11.3 ③ (a): declared vector receiver → lane-structured member List ───
+/// ── §11.3 ③ (a): declared vector receiver → lane-structured member Group ───
 /// `CAP c[1:2](1)` then `c[1:2].Cap([VDD, GND])` — the receiver is
-/// `Endpoint(List([Single(c1), Single(c2)]))`, never `Label("c[1:2]")`.
+/// `Endpoint(Group([Name(c1), Name(c2)]))`, never `Label("c[1:2]")`.
 #[test]
 fn vector_receiver_is_lane_structured_list() {
     let src = format!(
@@ -70,21 +70,21 @@ fn vector_receiver_is_lane_structured_list() {
     let stmts = func_m_stmts(&src, "/mcc/lane-vec-receiver.mc");
     let fc = find_funccall(&stmts, "Cap").expect("Cap fcall in M stmts");
     let caller = fc.caller.as_ref().expect("caller");
-    // Receiver is a lane-structured List, not a literal label.
+    // Receiver is a lane-structured Group, not a literal label.
     let lanes = match caller.as_ref() {
-        mcc::McPhrase::Endpoint(mcc::McEndpoint::List(lanes)) => lanes,
-        other => panic!("caller must be Endpoint(List(..)), got {other:?}"),
+        mcc::McPhrase::Endpoint(mcc::McRef::Group(lanes)) => lanes,
+        other => panic!("caller must be Endpoint(Group(..)), got {other:?}"),
     };
     assert_eq!(lanes.len(), 2, "two lanes for c[1:2]; got {lanes:?}");
     for (i, lane) in lanes.iter().enumerate() {
         match lane {
-            mcc::McEndpoint::Single(iref) => match &iref.base {
+            mcc::McRef::Name(iref) => match &iref.base {
                 mcc::McInstance::Label(s) => {
                     assert_eq!(s, &format!("c{}", i + 1), "lane {i} member name");
                 }
                 other => panic!("lane {i} base must be Label, got {other:?}"),
             },
-            other => panic!("lane {i} must be Single, got {other:?}"),
+            other => panic!("lane {i} must be Name, got {other:?}"),
         }
     }
     // Invariant B: no literal `c[1:2]` reference anywhere in the phrase tree.
@@ -133,19 +133,19 @@ fn func_local_vector_receiver_is_lane_structured_list() {
     let fc = find_funccall(&stmts, "Pullup").expect("Pullup fcall in M stmts");
     let caller = fc.caller.as_ref().expect("caller");
     let lanes = match caller.as_ref() {
-        mcc::McPhrase::Endpoint(mcc::McEndpoint::List(lanes)) => lanes,
-        other => panic!("caller must be Endpoint(List(..)), got {other:?}"),
+        mcc::McPhrase::Endpoint(mcc::McRef::Group(lanes)) => lanes,
+        other => panic!("caller must be Endpoint(Group(..)), got {other:?}"),
     };
     assert_eq!(lanes.len(), 2, "two lanes for r[1:2]; got {lanes:?}");
     for (i, lane) in lanes.iter().enumerate() {
         match lane {
-            mcc::McEndpoint::Single(iref) => match &iref.base {
+            mcc::McRef::Name(iref) => match &iref.base {
                 mcc::McInstance::Label(s) => {
                     assert_eq!(s, &format!("r{}", i + 1), "lane {i} member name");
                 }
                 other => panic!("lane {i} base must be Label, got {other:?}"),
             },
-            other => panic!("lane {i} must be Single, got {other:?}"),
+            other => panic!("lane {i} must be Name, got {other:?}"),
         }
     }
 }

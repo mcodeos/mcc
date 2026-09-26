@@ -13,7 +13,7 @@ use crate::McURI;
 use crate::query::refs::mcb_register_declare_class;
 use crate::refdef::types::{ChainSegment, SymbolKind};
 use crate::semantic::basic::mc_bus::{McBus, McList};
-use crate::semantic::basic::mc_endpoint::{McEndpoint, McInstanceRef};
+use crate::semantic::basic::mc_ref::{McRef, McInstanceRef};
 use crate::semantic::basic::mc_ida::McIda;
 use crate::semantic::basic::mc_ids::{IdsSegment, McIds};
 use crate::semantic::basic::mc_param::{McParamBindings, McParamValue, ParamBindError};
@@ -2484,7 +2484,7 @@ impl McInstances {
 
 impl From<McInstance> for McPhrase {
     fn from(value: McInstance) -> Self {
-        McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(value)))
+        McPhrase::Endpoint(McRef::Name(McInstanceRef::new(value)))
     }
 }
 

@@ -250,9 +250,9 @@ impl InstantiationBuilder {
         elements.iter().map(|e| e.name.clone()).collect()
     }
 
-    /// resolve curly-mn points (left/right endpoints of Node)
+    /// resolve curly-mn points (left/right endpoints of Ports)
     ///
-    /// Node's left/right McBus (e.g. R1.1, sub1.clk)
+    /// Ports' left/right McBus (e.g. R1.1, sub1.clk)
     /// but need to look up components/sub_modules/buses to determine correct owner
     ///
     /// `is_left`: true for left endpoint, false for right endpoint

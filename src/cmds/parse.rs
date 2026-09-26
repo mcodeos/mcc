@@ -37,7 +37,7 @@ use crate::output::{
 };
 use anyhow::{Context, Result};
 use mcc::cli::ParseArgs;
-use mcc::{IOType, McCMIE, McEndpoint, McIds, McInstance, McInstanceRef, McPhrase, McURI};
+use mcc::{IOType, McCMIE, McRef, McIds, McInstance, McInstanceRef, McPhrase, McURI};
 use mcc::{McParamDeclare, McParamTypeKind, McParamValue};
 use serde_json::json;
 use std::collections::HashMap;
@@ -1220,12 +1220,14 @@ fn phrase_to_tree_json(p: &McPhrase, max_depth: usize, cur: usize) -> serde_json
             "offset": offset,
             "children": [],
         }),
-        McPhrase::Endpoint(McEndpoint::Node { input, output }) => json!({
+        McPhrase::Endpoint(McRef::Ports { left, right }) => json!({
+            // The JSON vocabulary keeps the historical `input`/`output` key
+            // spellings; the reference face's own fields are `left`/`right`.
             "kind": "Node",
-            "input": endpoints_json(input),
-            "output": endpoints_json(output),
+            "input": endpoints_json(left),
+            "output": endpoints_json(right),
         }),
-        McPhrase::Endpoint(McEndpoint::List(nodes)) => json!({
+        McPhrase::Endpoint(McRef::Group(nodes)) => json!({
             "kind": "EndpointList",
             "children": endpoints_json(nodes),
         }),
@@ -1237,7 +1239,7 @@ fn phrase_to_tree_json(p: &McPhrase, max_depth: usize, cur: usize) -> serde_json
     }
 }
 
-fn endpoints_json(eps: &[McEndpoint]) -> Vec<serde_json::Value> {
+fn endpoints_json(eps: &[McRef]) -> Vec<serde_json::Value> {
     eps.iter()
         .map(|ep| {
             json!({
@@ -1270,23 +1272,23 @@ fn param_to_tree_json(p: &McParamValue, max_depth: usize, cur: usize) -> serde_j
     }
 }
 
-fn endpoint_label(ep: &McEndpoint) -> String {
+fn endpoint_label(ep: &McRef) -> String {
     match ep {
-        McEndpoint::Single(McInstanceRef {
+        McRef::Name(McInstanceRef {
             base: McInstance::Component(c),
             ..
         }) => format!("component:{}", c.name),
-        McEndpoint::Single(McInstanceRef {
+        McRef::Name(McInstanceRef {
             base: McInstance::Module(m),
             ..
         }) => format!("module:{}", m.name),
-        McEndpoint::Single(McInstanceRef {
+        McRef::Name(McInstanceRef {
             base: McInstance::Label(l),
             ..
         }) => format!("label:{}", l),
-        McEndpoint::Single(McInstanceRef { base: p, .. }) => format!("port:{}", p),
-        McEndpoint::Node { .. } => "node".to_string(),
-        McEndpoint::List(_) => "list".to_string(),
+        McRef::Name(McInstanceRef { base: p, .. }) => format!("port:{}", p),
+        McRef::Ports { .. } => "node".to_string(),
+        McRef::Group(_) => "list".to_string(),
     }
 }
 

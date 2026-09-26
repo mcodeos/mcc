@@ -24,7 +24,7 @@
 //! used for electrical network reporting.
 
 use mcc::cli::PinSortMode;
-use mcc::{IOType, McEndpoint, McInstance, McInstanceRef, McPhrase, MccProjectTree, TreeView};
+use mcc::{IOType, McRef, McInstance, McInstanceRef, McPhrase, MccProjectTree, TreeView};
 
 // Print Line members (McPhrase detailed structure) — same as old version
 
@@ -86,38 +86,38 @@ pub fn print_phrase_members(phrase: &McPhrase, prefix: &str) {
             print_phrase_members(inner, prefix);
             println!("{}    .{}", prefix, endpoint);
         }
-        McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+        McPhrase::Endpoint(McRef::Name(McInstanceRef {
             base: McInstance::Component(c),
             ..
         })) => {
             println!("{}(component: {})", prefix, c.name);
         }
-        McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+        McPhrase::Endpoint(McRef::Name(McInstanceRef {
             base: McInstance::Module(m),
             ..
         })) => {
             println!("{}(module: {})", prefix, m.name);
         }
-        McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+        McPhrase::Endpoint(McRef::Name(McInstanceRef {
             base: McInstance::Label(label),
             ..
         })) => {
             println!("{}(label: {})", prefix, label);
         }
-        McPhrase::Endpoint(McEndpoint::Single(McInstanceRef { base: p, .. })) => {
+        McPhrase::Endpoint(McRef::Name(McInstanceRef { base: p, .. })) => {
             println!("{}(port: {})", prefix, p);
         }
-        McPhrase::Endpoint(McEndpoint::Node { input, output }) => {
-            let input_str: Vec<String> = input.iter().map(|e| format!("{}", e)).collect();
-            let output_str: Vec<String> = output.iter().map(|e| format!("{}", e)).collect();
+        McPhrase::Endpoint(McRef::Ports { left, right }) => {
+            let left_str: Vec<String> = left.iter().map(|e| format!("{}", e)).collect();
+            let right_str: Vec<String> = right.iter().map(|e| format!("{}", e)).collect();
             println!(
                 "{}(node: {{{} | {}}})",
                 prefix,
-                input_str.join(", "),
-                output_str.join(", ")
+                left_str.join(", "),
+                right_str.join(", ")
             );
         }
-        McPhrase::Endpoint(McEndpoint::List(nodes)) => {
+        McPhrase::Endpoint(McRef::Group(nodes)) => {
             let items: Vec<String> = nodes.iter().map(|n| format!("{}", n)).collect();
             println!("{}(list: [{}])", prefix, items.join(", "));
         }

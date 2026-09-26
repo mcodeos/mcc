@@ -3,16 +3,17 @@
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
 //! U308 Step 0 — pre-surgery locks for the reference-face convergence
-//! (`McEndpoint` → `McRef`) and the port-face unification onto `OpdShape`.
+//! (`McRef` → `McRef`) and the port-face unification onto `OpdShape`.
 //!
 //! Three locks, landed **before** the change (the `defspace_golden.rs`
 //! "first lock, then change" discipline):
 //!
 //! 1. [`reference_face`] — the three reference forms as the parser actually
 //!    produces them, read structurally rather than through a display string.
-//!    The batch renames the variants (`Single`/`List`/`Node` →
-//!    `Name`/`Group`/`Ports`); **the structure below must not move**, only the
-//!    spelling of the enum arms in this file.
+//!    The batch renamed the variants (`Single`/`List`/`Node` →
+//!    `Name`/`Group`/`Ports`); **the structure below did not move**, only the
+//!    spelling of the enum arms in this file. The `ep_shape` labels below were
+//!    renamed with the arms, so they read `Name`/`Group`/`Ports`.
 //! 2. [`value_face`] — the end-to-end wiring of the collected and two-sided
 //!    forms, read through `mcb_pass2_flat`. This is the batch's main
 //!    acceptance face: the same corpus must wire the same nets after the
@@ -87,17 +88,17 @@ fn shapes(v: &[McPhrase]) -> String {
 /// deliberately: it is the only rendering that shows whether a leaf still
 /// carries its member selection (`modldo{vin}`) or has decayed to a bare base
 /// name (`modldo`).
-fn ep_shape(ep: &mcc::McEndpoint) -> String {
+fn ep_shape(ep: &mcc::McRef) -> String {
     match ep {
-        mcc::McEndpoint::Single(r) => format!("Single({r})"),
-        mcc::McEndpoint::List(l) => format!(
-            "List[{}]",
+        mcc::McRef::Name(r) => format!("Name({r})"),
+        mcc::McRef::Group(l) => format!(
+            "Group[{}]",
             l.iter().map(ep_shape).collect::<Vec<_>>().join(", ")
         ),
-        mcc::McEndpoint::Node { input, output } => format!(
-            "Node(in[{}], out[{}])",
-            input.iter().map(ep_shape).collect::<Vec<_>>().join(", "),
-            output.iter().map(ep_shape).collect::<Vec<_>>().join(", ")
+        mcc::McRef::Ports { left, right } => format!(
+            "Ports(in[{}], out[{}])",
+            left.iter().map(ep_shape).collect::<Vec<_>>().join(", "),
+            right.iter().map(ep_shape).collect::<Vec<_>>().join(", ")
         ),
     }
 }
@@ -183,7 +184,7 @@ fn receiver(body: &str) -> String {
 fn reference_face__bare_name_is_a_single_reference() {
     assert_eq!(
         only("    RES2 R101\n    RES2 R102\n    R101 - R102"),
-        "Series(Undirected)[Single(R101), Single(R102)]"
+        "Series(Undirected)[Name(R101), Name(R102)]"
     );
 }
 
@@ -194,7 +195,7 @@ fn reference_face__bare_name_is_a_single_reference() {
 fn reference_face__bracket_list_of_one_is_not_folded() {
     assert_eq!(
         only("    RES2 R101\n    RES2 R102\n    R101 - [R102]"),
-        "Series(Undirected)[Single(R101), Multiple[Single(R102)]]"
+        "Series(Undirected)[Name(R101), Multiple[Name(R102)]]"
     );
 }
 
@@ -205,7 +206,7 @@ fn reference_face__bracket_list_of_one_is_not_folded() {
 fn reference_face__groups_nest_as_references() {
     assert_eq!(
         only("    RES2 R101\n    RES2 R102\n    RES2 R103\n    [R101, [R102, R103]]"),
-        "Multiple[Single(R101), Multiple[Single(R102), Single(R103)]]"
+        "Multiple[Name(R101), Multiple[Name(R102), Name(R103)]]"
     );
 }
 
@@ -219,9 +220,9 @@ fn reference_face__two_sided_spelling_keeps_member_selection() {
         only(
             "    io V5V\n    io V3V3\n    POWER_LDO modldo\n    V5V -> modldo{vin|vout} -> V3V3"
         ),
-        "Series(LtoR)[Single(V5V), \
-         Node(in[Single(modldo{vin})], out[Single(modldo{vout})]), \
-         Single(V3V3)]"
+        "Series(LtoR)[Name(V5V), \
+         Ports(in[Name(modldo{vin})], out[Name(modldo{vout})]), \
+         Name(V3V3)]"
     );
 }
 
@@ -234,7 +235,7 @@ fn reference_face__dotted_member_reads_as_the_same_reference() {
         only(
             "    io V5V\n    io V3V3\n    POWER_LDO modldo\n    modldo.vin - modldo.vout"
         ),
-        "Series(Undirected)[Single(modldo{vin}), Single(modldo{vout})]"
+        "Series(Undirected)[Name(modldo{vin}), Name(modldo{vout})]"
     );
 }
 
@@ -245,7 +246,7 @@ fn reference_face__dotted_member_reads_as_the_same_reference() {
 fn reference_face__declared_vector_receiver_is_lane_structured() {
     assert_eq!(
         receiver("    io VDD\n    io GND\n    CAP c[1:2](1)\n    c[1:2].Cap([VDD, GND])"),
-        "List[Single(c1), Single(c2)]"
+        "Group[Name(c1), Name(c2)]"
     );
 }
 
@@ -344,7 +345,7 @@ fn entry_paths(table: &mcc::InstTable) -> Vec<String> {
 // Lock 3: the user-visible JSON vocabulary.
 
 /// The `kind` vocabulary of the `mcc parse --tree -f json` view, which the
-/// rename must **not** leak into: `McEndpoint::Single`/`List`/`Node` are
+/// rename must **not** leak into: `McRef::Name`/`Group`/`Ports` are
 /// internal arm names, while the reader sees `Endpoint`/`EndpointList`/`Node`.
 /// Renaming the Rust enum (`Name`/`Group`/`Ports`) must leave this output
 /// byte-identical — this cell is the reason the renderer at

@@ -13,7 +13,7 @@ use super::funccall::FuncCallInst;
 use super::{AutoInst, InstantiationBuilder};
 use crate::instant::mc_net::{InstError, NetPoint};
 use crate::semantic::basic::mc_bus::McBus;
-use crate::semantic::basic::mc_endpoint::{McEndpoint, McInstanceRef};
+use crate::semantic::basic::mc_ref::{McRef, McInstanceRef};
 use crate::semantic::basic::mc_opd::McOpd;
 use crate::semantic::basic::mc_param::McParamValue;
 use crate::semantic::basic::mc_phrase::McPhrase;
@@ -257,7 +257,7 @@ impl InstantiationBuilder {
     /// instance reference (a func call, a `_` lead, a multi-member access).
     fn ref_path_of(phrase: &McPhrase) -> Option<String> {
         match phrase {
-            McPhrase::Endpoint(McEndpoint::Single(iref)) => {
+            McPhrase::Endpoint(McRef::Name(iref)) => {
                 if !iref.members.is_empty() {
                     return None;
                 }
@@ -276,7 +276,7 @@ impl InstantiationBuilder {
             }
             // `p.SPI` written as a member access on another phrase: append the
             // access to whatever the inner phrase names.
-            McPhrase::Member(inner, McEndpoint::Single(iref)) => {
+            McPhrase::Member(inner, McRef::Name(iref)) => {
                 if !iref.members.is_empty() {
                     return None;
                 }
@@ -348,20 +348,20 @@ impl InstantiationBuilder {
                 (false, true) => gaps[i] == ConnDir::RtoL,
                 (false, false) => continue,
             };
-            let McPhrase::Endpoint(McEndpoint::Node { input, output }) = &members[i] else {
+            let McPhrase::Endpoint(McRef::Ports { left, right }) = &members[i] else {
                 continue;
             };
             let (upstream, downstream, up_pos, down_pos) = if upstream_is_left {
                 (
-                    input,
-                    output,
+                    left,
+                    right,
                     "the input (left) face of a {L|R} through",
                     "the output (right) face of a {L|R} through",
                 )
             } else {
                 (
-                    output,
-                    input,
+                    right,
+                    left,
                     "the output (right) face of a {L|R} through",
                     "the input (left) face of a {L|R} through",
                 )
@@ -398,9 +398,9 @@ impl InstantiationBuilder {
     }
 
     /// Judge one face of an interior `{L|R}` through.
-    fn judge_dc_face(&mut self, face: &[McEndpoint], expect: DirExpect, position: &str) {
+    fn judge_dc_face(&mut self, face: &[McRef], expect: DirExpect, position: &str) {
         for ep in face {
-            let McEndpoint::Single(iref) = ep else {
+            let McRef::Name(iref) = ep else {
                 continue;
             };
             let Some((owner, tokens)) = Self::iref_tokens(iref) else {
@@ -408,7 +408,7 @@ impl InstantiationBuilder {
             };
             // Only a *written* through face (member tokens present) is a
             // direction claim. A bare module reference the net builder split
-            // into a Node (P1-A2) has member-less, path-dotted buses and no
+            // into a Ports (P1-A2) has member-less, path-dotted buses and no
             // direction contract of its own — stay silent there.
             if tokens.is_empty() {
                 continue;
@@ -514,19 +514,19 @@ impl InstantiationBuilder {
         }
     }
 
-    fn endpoint_refs<'x>(ep: &'x McEndpoint, out: &mut Vec<(String, Vec<String>)>) {
+    fn endpoint_refs<'x>(ep: &'x McRef, out: &mut Vec<(String, Vec<String>)>) {
         match ep {
-            McEndpoint::Single(iref) => {
+            McRef::Name(iref) => {
                 if let Some(t) = Self::iref_tokens(iref) {
                     out.push(t);
                 }
             }
-            McEndpoint::List(items) => {
+            McRef::Group(items) => {
                 for e in items {
                     Self::endpoint_refs(e, out);
                 }
             }
-            McEndpoint::Node { .. } => {} // two-face members judged at the face level
+            McRef::Ports { .. } => {} // two-face members judged at the face level
         }
     }
 
@@ -946,7 +946,7 @@ impl InstantiationBuilder {
             .unwrap_or_default()
             .iter()
             .map(|m| {
-                McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(McInstance::Bus(
+                McPhrase::Endpoint(McRef::Name(McInstanceRef::new(McInstance::Bus(
                     McBus::new(&format!("{base_bus}.{m}")),
                 ))))
             })
@@ -975,7 +975,7 @@ impl InstantiationBuilder {
     /// `("uC.I2C0", "SCL")`). Returns None for anything that is not such a
     /// dotted bus lane.
     fn bus_lane_of(phrase: &McPhrase) -> Option<(String, String)> {
-        if let McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+        if let McPhrase::Endpoint(McRef::Name(McInstanceRef {
             base: McInstance::Bus(bus),
             ..
         })) = phrase
@@ -1143,7 +1143,7 @@ impl InstantiationBuilder {
             // a multi-pin bus endpoint (P2-7), or a plain scalar — occupies
             // exactly the lanes its own points span, which `width` already
             // holds. Counting a member separately from that width lets the two
-            // disagree (a Node sized by its input face while the loop took the
+            // disagree (a Ports sized by its left face while the loop took the
             // max of both faces; a parser selection left as a bare base
             // counting 1). One member, one width.
             _ => {
@@ -1170,7 +1170,7 @@ impl InstantiationBuilder {
         // For Endpoint(Component(c)), the component was instantiated during Pass1
         // and c.name is already the instance name (e.g. "@CAP_2"). Use it directly
         // instead of auto_inst_map (which is only populated for FuncCall paths).
-        if let McPhrase::Endpoint(McEndpoint::Single(iref)) = inner {
+        if let McPhrase::Endpoint(McRef::Name(iref)) = inner {
             if let McInstance::Component(c) = &iref.base {
                 let inst_name = c.name.to_string();
                 self.bridge_passive_names.insert(inst_name);
@@ -1256,8 +1256,8 @@ impl InstantiationBuilder {
                 //
                 // Iter-6.S5.2 P0-2 (B + C)
                 // But **just keeping Multiple shell isn't enough** — inner phrase is still
-                // parser raw AST form (`Single(Component)` / `Single(Label)`
-                // / `Single(Interface)` …). These forms in points.rs
+                // parser raw AST form (`Name(Component)` / `Name(Label)`
+                // / `Name(Interface)` …). These forms in points.rs
                 // `get_left_points` directly fall to line 286-290 fallback:
                 //
                 //     | McInstance::Label / List / Interface / Component
@@ -1276,7 +1276,7 @@ impl InstantiationBuilder {
                 //     → similar, only reaches first inner
                 //
                 // Fix: after entering Multiple, recursively call `self.phrase_to_members`
-                // to standardize each inner item (Component → Node form,
+                // to standardize each inner item (Component → Ports form,
                 // Label → Bus form, Interface → Bus form…), then **still wrap whole
                 // back into Multiple**, preserving P1-B wide-vs-narrow chain semantics.
                 //
@@ -1417,7 +1417,7 @@ impl InstantiationBuilder {
                 let gaps: Vec<ConnDir> = gaps.into_iter().rev().map(ConnDir::flipped).collect();
                 (members, gaps)
             }
-            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+            McPhrase::Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::Component(c),
                 members,
             })) => {
@@ -1431,13 +1431,13 @@ impl InstantiationBuilder {
                 // Otherwise (bare component reference like `R1` / `C1`), still use pin count
                 // heuristic:
                 //   0/1 pin → single-point Bus
-                //   2 pin   → 2-pin Node (left=.1, right=.2)
+                //   2 pin   → 2-pin Ports (left=.1, right=.2)
                 // multi-pin → single-point Bus (fallback, pin handling delegated to
                 // FuncCall/declaration)
                 let expanded: Vec<String> = members.iter().flat_map(|ml| ml.expand()).collect();
                 if !expanded.is_empty() {
                     return (
-                        vec![McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                        vec![McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
                             McInstance::Bus(McBus::new_with_members(&inst_name, expanded)),
                         )))],
                         Vec::new(),
@@ -1451,7 +1451,7 @@ impl InstantiationBuilder {
                 // Static count 2 is authoritative; a dynamic-pin class is
                 // two-pin only when it really resolves to 2 (this also stops
                 // forcing every @-anonymous dynamic instance into a 2-pin
-                // Node); a dynamic count that can't be bound here is *not*
+                // Ports); a dynamic count that can't be bound here is *not*
                 // guessed as two-pin by name — it falls to the single-point
                 // Bus, where the component's real pins are wired later.
                 let static_count = c.base.pins.count();
@@ -1463,11 +1463,11 @@ impl InstantiationBuilder {
 
                 match (static_count, two_pin) {
                     (2, _) | (_, true) => (
-                        vec![McPhrase::Endpoint(McEndpoint::Node {
-                            input: vec![McEndpoint::Single(McInstanceRef::new(McInstance::Bus(
+                        vec![McPhrase::Endpoint(McRef::Ports {
+                            left: vec![McRef::Name(McInstanceRef::new(McInstance::Bus(
                                 McBus::new(&format!("{inst_name}.1")),
                             )))],
-                            output: vec![McEndpoint::Single(McInstanceRef::new(McInstance::Bus(
+                            right: vec![McRef::Name(McInstanceRef::new(McInstance::Bus(
                                 McBus::new(&format!("{inst_name}.2")),
                             )))],
                         })],
@@ -1479,7 +1479,7 @@ impl InstantiationBuilder {
                     ),
                 }
             }
-            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+            McPhrase::Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::Module(m),
                 members,
             })) => {
@@ -1492,24 +1492,24 @@ impl InstantiationBuilder {
                 // would clear `member` field, resulting in `speaker{DAC_IN, US_SPEAKER_MUTE}`
                 // collapsed back to scalar `speaker` sharing the chain's other-side net.
                 //
-                // Changed to return `Endpoint::Node`, which in `get_left_points` goes through
+                // Changed to return `McRef::Ports`, which in `get_left_points` goes through
                 // resolve_curly_mn_points, that path stably returns `speaker.DAC_IN` /
                 // `speaker.US_SPEAKER_MUTE` as independent NetPoints with owner.
                 //
                 // Port iotype looked up from declared submodule instance `self.sub_modules`:
-                //   - In / InOut  → input  side
-                //   - Out / InOut → output side
+                //   - In / InOut  → left  side
+                //   - Out / InOut → right side
                 // Members not found (e.g., module not declared or pass2 not yet instantiated), put
                 // on
-                // input side as fallback.
+                // left side as fallback.
                 let expanded: Vec<String> = members.iter().flat_map(|ml| ml.expand()).collect();
                 if !expanded.is_empty() {
                     let sub_opt = self.find_submodule(&inst_name);
-                    let mut input: Vec<McEndpoint> = Vec::new();
-                    let mut output: Vec<McEndpoint> = Vec::new();
+                    let mut left: Vec<McRef> = Vec::new();
+                    let mut right: Vec<McRef> = Vec::new();
                     for m_name in &expanded {
                         let path = format!("{inst_name}.{m_name}");
-                        let ep = McEndpoint::Single(McInstanceRef::new(McInstance::Bus(
+                        let ep = McRef::Name(McInstanceRef::new(McInstance::Bus(
                             McBus::new(&path),
                         )));
                         let iotype = sub_opt
@@ -1518,24 +1518,24 @@ impl InstantiationBuilder {
                             .map(|p| p.iotype.clone())
                             .unwrap_or(IOType::None);
                         match iotype {
-                            IOType::In => input.push(ep),
-                            IOType::Out => output.push(ep),
+                            IOType::In => left.push(ep),
+                            IOType::Out => right.push(ep),
                             IOType::InOut => {
-                                input.push(ep.clone());
-                                output.push(ep);
+                                left.push(ep.clone());
+                                right.push(ep);
                             }
-                            _ => input.push(ep),
+                            _ => left.push(ep),
                         }
                     }
                     return (
-                        vec![McPhrase::Endpoint(McEndpoint::Node { input, output })],
+                        vec![McPhrase::Endpoint(McRef::Ports { left, right })],
                         Vec::new(),
                     );
                 }
 
                 // P1-A2
                 // Bare module reference `V3V3 -> dcdc -> V1V2`: need to split module into
-                // Node (in side / out side), so `dcdc` two sides don't get
+                // Ports (in side / out side), so `dcdc` two sides don't get
                 // union-find merged into one big net.
                 //
                 // Prefer declared submodule instance ports (pass2 reliable data),
@@ -1575,26 +1575,26 @@ impl InstantiationBuilder {
 
                 if left.is_empty() && right.is_empty() {
                     (
-                        vec![McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                        vec![McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
                             McInstance::Bus(McBus::new(&inst_name)),
                         )))],
                         Vec::new(),
                     )
                 } else {
                     (
-                        vec![McPhrase::Endpoint(McEndpoint::Node {
-                            input: left
+                        vec![McPhrase::Endpoint(McRef::Ports {
+                            left: left
                                 .iter()
                                 .map(|bus| {
-                                    McEndpoint::Single(McInstanceRef::new(McInstance::Bus(
+                                    McRef::Name(McInstanceRef::new(McInstance::Bus(
                                         bus.clone(),
                                     )))
                                 })
                                 .collect(),
-                            output: right
+                            right: right
                                 .iter()
                                 .map(|bus| {
-                                    McEndpoint::Single(McInstanceRef::new(McInstance::Bus(
+                                    McRef::Name(McInstanceRef::new(McInstance::Bus(
                                         bus.clone(),
                                     )))
                                 })
@@ -1604,7 +1604,7 @@ impl InstantiationBuilder {
                     )
                 }
             }
-            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+            McPhrase::Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::Interface(i),
                 members,
             })) => {
@@ -1621,7 +1621,7 @@ impl InstantiationBuilder {
                 let expanded: Vec<String> = members.iter().flat_map(|ml| ml.expand()).collect();
                 if !expanded.is_empty() {
                     return (
-                        vec![McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                        vec![McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
                             McInstance::Bus(McBus::new_with_members(&inst_name, expanded)),
                         )))],
                         Vec::new(),
@@ -1634,7 +1634,7 @@ impl InstantiationBuilder {
                 )
             }
             McPhrase::Lead(src_off) => (vec![McPhrase::Lead(*src_off)], Vec::new()),
-            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+            McPhrase::Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::Bus(ref data),
                 ..
             })) => {
@@ -1683,7 +1683,7 @@ impl InstantiationBuilder {
                     // group to a single logical point carrying the pads.
                     if self.is_same_name_component_group(&data.name) {
                         return (
-                            vec![McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                            vec![McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
                                 McInstance::Bus(McBus::new(&data.name)),
                             )))],
                             Vec::new(),
@@ -1707,7 +1707,7 @@ impl InstantiationBuilder {
                             } else {
                                 format!("{}.{}", data.name, m)
                             };
-                            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                            McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
                                 McInstance::Bus(McBus::new(&path)),
                             )))
                         })
@@ -1715,14 +1715,14 @@ impl InstantiationBuilder {
                     (vec![McPhrase::Multiple(inner)], Vec::new())
                 } else {
                     (
-                        vec![McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                        vec![McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
                             McInstance::Bus(data.clone()),
                         )))],
                         Vec::new(),
                     )
                 }
             }
-            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+            McPhrase::Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::Label(label),
                 ..
             })) => {
@@ -1747,7 +1747,7 @@ impl InstantiationBuilder {
                                 .iter()
                                 .map(|m| {
                                     let path = format!("{}.{}", base, m);
-                                    McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                                    McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
                                         McInstance::Bus(McBus::new(&path)),
                                     )))
                                 })
@@ -1771,7 +1771,7 @@ impl InstantiationBuilder {
                         .iter()
                         .map(|m| {
                             let path = format!("{}.{}", label, m);
-                            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                            McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
                                 McInstance::Bus(McBus::new(&path)),
                             )))
                         })
@@ -1779,18 +1779,18 @@ impl InstantiationBuilder {
                     (vec![McPhrase::Multiple(inner)], Vec::new())
                 } else {
                     (
-                        vec![McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                        vec![McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
                             McInstance::Bus(McBus::new(label)),
                         )))],
                         Vec::new(),
                     )
                 }
             }
-            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+            McPhrase::Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::List(list),
                 ..
             })) => (
-                vec![McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                vec![McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
                     McInstance::Bus(McBus::new_with_members(&list.name, list.member.clone())),
                 )))],
                 Vec::new(),
@@ -1806,17 +1806,17 @@ impl InstantiationBuilder {
                 (result, gaps)
             }
             McPhrase::Endpoint(ref ep) => {
-                // §11.3 lane-structured List: N independent member lanes
+                // §11.3 lane-structured Group: N independent member lanes
                 // `cap[4:5]` resolves at pass1 to
-                // `Endpoint(List([Single(cap4), Single(cap5), ...]))`. Do NOT
+                // `Endpoint(Group([Name(cap4), Name(cap5), ...]))`. Do NOT
                 // collapse through get_left/get_right — those take only the
                 // first/last lane and turn the parallel lane group into a serial
-                // `cap4 → cap5` Node (the flatten-before-zip pitfall). Pass
-                // the List through so the
+                // `cap4 → cap5` Ports (the flatten-before-zip pitfall). Pass
+                // the Group through so the
                 // array-form re-link (resolve_array_caller_to_existing) and the
-                // get_left/get_right_points List handlers consume the lanes
+                // get_left/get_right_points Group handlers consume the lanes
                 // structurally.
-                if matches!(ep, McEndpoint::List(_)) {
+                if matches!(ep, McRef::Group(_)) {
                     return (vec![McPhrase::Endpoint(ep.clone())], Vec::new());
                 }
                 mcc_dbg!("inst::mod",
@@ -1829,11 +1829,11 @@ impl InstantiationBuilder {
                     (vec![McPhrase::Endpoint(ep.clone())], Vec::new())
                 } else if left.len() == 1 && right.len() == 1 {
                     (
-                        vec![McPhrase::Endpoint(McEndpoint::Node {
-                            input: vec![McEndpoint::Single(McInstanceRef::new(McInstance::Bus(
+                        vec![McPhrase::Endpoint(McRef::Ports {
+                            left: vec![McRef::Name(McInstanceRef::new(McInstance::Bus(
                                 left[0].clone(),
                             )))],
-                            output: vec![McEndpoint::Single(McInstanceRef::new(McInstance::Bus(
+                            right: vec![McRef::Name(McInstanceRef::new(McInstance::Bus(
                                 right[0].clone(),
                             )))],
                         })],
@@ -1893,7 +1893,7 @@ impl InstantiationBuilder {
         let mut i = 0;
         while i < members.len() {
             let should_expand = match &members[i] {
-                McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+                McPhrase::Endpoint(McRef::Name(McInstanceRef {
                     base: McInstance::Bus(bus),
                     members,
                 })) => {
@@ -1904,7 +1904,7 @@ impl InstantiationBuilder {
             };
             if should_expand {
                 let old = members.remove(i);
-                if let McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+                if let McPhrase::Endpoint(McRef::Name(McInstanceRef {
                     base: McInstance::Bus(bus),
                     ..
                 })) = old
@@ -1917,7 +1917,7 @@ impl InstantiationBuilder {
                     let inner: Vec<McPhrase> = names
                         .iter()
                         .map(|m| {
-                            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                            McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
                                 McInstance::Bus(McBus::member_ref(&bus.name, m.clone())),
                             )))
                         })
@@ -1947,7 +1947,7 @@ impl InstantiationBuilder {
 
     fn extract_trunk_group_inner(phrase: &McPhrase) -> Option<String> {
         match phrase {
-            McPhrase::Endpoint(McEndpoint::Single(ref ir)) => {
+            McPhrase::Endpoint(McRef::Name(ref ir)) => {
                 // For Endpoint, only use Interface/Bus base name or member name.
                 // Do NOT use Label fallback — Label just means the instance name
                 // (e.g. "speaker"), not a trunk group.
@@ -1956,7 +1956,7 @@ impl InstantiationBuilder {
             // ★ P9-A2: McPhrase::Member(base, member) — e.g. mcu513.DAC_OUT
             // The member endpoint carries the trunk group name. Use Label fallback
             // because the member is stored as Label("DAC_OUT").
-            McPhrase::Member(_base, McEndpoint::Single(ref ir)) => {
+            McPhrase::Member(_base, McRef::Name(ref ir)) => {
                 Self::extract_pg_from_iref(ir, true)
             }
             // §8.9.6.7: `MIC{P,N}` expands (M11.5 expand_multi_member_buses or
@@ -1972,7 +1972,7 @@ impl InstantiationBuilder {
                 let groups: Vec<String> = items
                     .iter()
                     .filter_map(|it| match it {
-                        McPhrase::Endpoint(McEndpoint::Single(ir)) => {
+                        McPhrase::Endpoint(McRef::Name(ir)) => {
                             Self::extract_pg_from_multiple_endpoint(ir)
                         }
                         _ => None,
@@ -1995,7 +1995,7 @@ impl InstantiationBuilder {
     /// dotted member path (form B). Labels, funcalls and bare scalar buses
     /// contribute nothing.
     fn extract_pg_from_multiple_endpoint(
-        ir: &crate::semantic::basic::mc_endpoint::McInstanceRef,
+        ir: &crate::semantic::basic::mc_ref::McInstanceRef,
     ) -> Option<String> {
         match &ir.base {
             McInstance::Interface(_) => Self::extract_pg_from_iref(ir, false),
@@ -2015,7 +2015,7 @@ impl InstantiationBuilder {
     /// Extract trunk group name from an McInstanceRef.
     /// `use_label_fallback`: if true, fall back to Label name when no Interface/Bus/member.
     fn extract_pg_from_iref(
-        ir: &crate::semantic::basic::mc_endpoint::McInstanceRef,
+        ir: &crate::semantic::basic::mc_ref::McInstanceRef,
         use_label_fallback: bool,
     ) -> Option<String> {
         // First check if the base is an Interface or Bus
@@ -2042,7 +2042,7 @@ impl InstantiationBuilder {
         // use the first member name as the trunk group.
         if let Some(ml) = ir.members.first() {
             if let Some(m) = ml.items.first() {
-                if let crate::semantic::basic::mc_endpoint::McMember::Single(s) = m {
+                if let crate::semantic::basic::mc_ref::McMember::Single(s) = m {
                     return Some(s.clone());
                 }
             }
@@ -2072,7 +2072,7 @@ impl InstantiationBuilder {
         }
         let mut names: Vec<String> = Vec::with_capacity(items.len());
         for it in items {
-            let McPhrase::Endpoint(McEndpoint::Single(ir)) = it else {
+            let McPhrase::Endpoint(McRef::Name(ir)) = it else {
                 return None;
             };
             // Bare scalar only: a member-carrying bus (`MIC{P,N}`) or a dotted
@@ -2115,7 +2115,7 @@ impl InstantiationBuilder {
 
     /// Does this end member reach an authoritative power terminal — a module
     /// power port or a leaf component power pin in *this* module's scope? Used
-    /// to tell a DC supply pair from an arbitrary net list. Two-face `Node`
+    /// to tell a DC supply pair from an arbitrary net list. Two-face `Ports`
     /// members are descended: `LDO{vin | vout}` names its terminals on the
     /// faces, not on the member itself.
     fn has_power_terminal(&self, member: &McPhrase) -> bool {
@@ -2128,7 +2128,7 @@ impl InstantiationBuilder {
         })
     }
 
-    /// `member_refs` plus two-face `Node` descent — `member_refs` stops at
+    /// `member_refs` plus two-face `Ports` descent — `member_refs` stops at
     /// nodes because the 6028 audit judges those faces separately.
     fn member_refs_deep<'x>(member: &'x McPhrase, out: &mut Vec<(String, Vec<String>)>) {
         match member {
@@ -2142,20 +2142,20 @@ impl InstantiationBuilder {
         }
     }
 
-    fn endpoint_refs_deep<'x>(ep: &'x McEndpoint, out: &mut Vec<(String, Vec<String>)>) {
+    fn endpoint_refs_deep<'x>(ep: &'x McRef, out: &mut Vec<(String, Vec<String>)>) {
         match ep {
-            McEndpoint::Single(iref) => {
+            McRef::Name(iref) => {
                 if let Some(t) = Self::iref_tokens(iref) {
                     out.push(t);
                 }
             }
-            McEndpoint::List(items) => {
+            McRef::Group(items) => {
                 for e in items {
                     Self::endpoint_refs_deep(e, out);
                 }
             }
-            McEndpoint::Node { input, output } => {
-                for e in input.iter().chain(output.iter()) {
+            McRef::Ports { left, right } => {
+                for e in left.iter().chain(right.iter()) {
                     Self::endpoint_refs_deep(e, out);
                 }
             }
@@ -2172,7 +2172,7 @@ impl InstantiationBuilder {
         // (the same member-carrying rule as the group extractor).
         if let McPhrase::Multiple(items) = phrase {
             return items.iter().find_map(|it| match it {
-                McPhrase::Endpoint(McEndpoint::Single(ir)) => match &ir.base {
+                McPhrase::Endpoint(McRef::Name(ir)) => match &ir.base {
                     McInstance::Interface(_) => Some(TrunkKind::Interface),
                     McInstance::Bus(b) => {
                         if !b.member.is_empty()
@@ -2190,8 +2190,8 @@ impl InstantiationBuilder {
             });
         }
         let ir = match phrase {
-            McPhrase::Endpoint(McEndpoint::Single(ir)) => ir,
-            McPhrase::Member(_base, McEndpoint::Single(ir)) => ir,
+            McPhrase::Endpoint(McRef::Name(ir)) => ir,
+            McPhrase::Member(_base, McRef::Name(ir)) => ir,
             _ => return None,
         };
         match &ir.base {
@@ -2221,13 +2221,13 @@ impl InstantiationBuilder {
     fn extract_trunk_iface(&self, phrase: &McPhrase) -> Option<String> {
         if let McPhrase::Multiple(items) = phrase {
             return items.iter().find_map(|it| match it {
-                McPhrase::Endpoint(McEndpoint::Single(ir)) => self.iface_class_of(ir),
+                McPhrase::Endpoint(McRef::Name(ir)) => self.iface_class_of(ir),
                 _ => None,
             });
         }
         let ir = match phrase {
-            McPhrase::Endpoint(McEndpoint::Single(ir)) => ir,
-            McPhrase::Member(_base, McEndpoint::Single(ir)) => ir,
+            McPhrase::Endpoint(McRef::Name(ir)) => ir,
+            McPhrase::Member(_base, McRef::Name(ir)) => ir,
             _ => return None,
         };
         self.iface_class_of(ir)
@@ -2595,7 +2595,7 @@ impl InstantiationBuilder {
     /// phrase (E4187 judges interface instances only; a role word on a
     /// func-mediated chain member is that func's own contract).
     fn mediator_iface_role(e: &McPhrase) -> Option<(String, String)> {
-        if let McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+        if let McPhrase::Endpoint(McRef::Name(McInstanceRef {
             base: McInstance::Interface(i),
             ..
         })) = e
@@ -2648,9 +2648,9 @@ impl InstantiationBuilder {
         }
     }
 
-    fn record_chain_iface_endpoint_ep(&mut self, ep: &McEndpoint, chain_end: bool) {
+    fn record_chain_iface_endpoint_ep(&mut self, ep: &McRef, chain_end: bool) {
         match ep {
-            McEndpoint::Single(McInstanceRef {
+            McRef::Name(McInstanceRef {
                 base: McInstance::Interface(i),
                 ..
             }) => {
@@ -2659,14 +2659,14 @@ impl InstantiationBuilder {
                         .insert(i.name.to_string(), i.clone());
                 }
             }
-            McEndpoint::Single(_) => {}
-            McEndpoint::List(eps) => {
+            McRef::Name(_) => {}
+            McRef::Group(eps) => {
                 for e in eps {
                     self.record_chain_iface_endpoint_ep(e, chain_end);
                 }
             }
-            McEndpoint::Node { input, output } => {
-                for e in input.iter().chain(output.iter()) {
+            McRef::Ports { left, right } => {
+                for e in left.iter().chain(right.iter()) {
                     self.record_chain_iface_endpoint_ep(e, chain_end);
                 }
             }
@@ -2794,20 +2794,20 @@ impl InstantiationBuilder {
     ///
     /// Key: cannot do whole-segment phrase_to_members (would clone FuncCall
     /// and change pointer). Here we judge element by element: FuncCall/
-    /// Parallel/Group/Node use the **original reference**; Label/List/
+    /// Parallel/Group/Ports use the **original reference**; Label/List/
     /// Interface use the upgraded **owned copy** (they resolve by name, not
     /// dependent on pointer).
     fn normalize_branch_elem(&self, e: &McPhrase) -> Option<McPhrase> {
         match e {
-            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+            McPhrase::Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::Label(_),
                 ..
             }))
-            | McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+            | McPhrase::Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::List(_),
                 ..
             }))
-            | McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+            | McPhrase::Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::Interface(_),
                 ..
             })) => self.phrase_to_members(e).into_iter().next(),
@@ -3178,7 +3178,7 @@ impl InstantiationBuilder {
                 // never expand.
                 //
                 // Here we do explicit dispatch before entering instantiate_funccall:
-                //   1. Extract instance name from fc.caller (Endpoint::Single's base name)
+                //   1. Extract instance name from fc.caller (Endpoint::Name's base name)
                 //   2. If hit self.components, look up the component def's funcs table
                 //   3. If hit self.sub_modules, look up the module def's funcs table
                 //   4. If corresponding func def found, call instantiate_instance_method
@@ -3567,7 +3567,7 @@ impl InstantiationBuilder {
                             let caller_name = match &fc.caller {
                                 None => String::new(),
                                 Some(caller_box) => match caller_box.as_ref() {
-                                    McPhrase::Endpoint(McEndpoint::Single(iref)) => {
+                                    McPhrase::Endpoint(McRef::Name(iref)) => {
                                         match &iref.base {
                                             McInstance::Label(s) => s.clone(),
                                             McInstance::Bus(b) => b.name.clone(),
@@ -3718,31 +3718,31 @@ impl InstantiationBuilder {
             }
             // Basic types need no special handling
             McPhrase::Lead(_)
-            | McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+            | McPhrase::Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::Bus(_),
                 ..
             }))
-            | McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+            | McPhrase::Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::Label(_),
                 ..
             }))
-            | McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+            | McPhrase::Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::List(_),
                 ..
             }))
-            | McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+            | McPhrase::Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::Interface(_),
                 ..
             }))
-            | McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+            | McPhrase::Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::Component(_),
                 ..
             }))
-            | McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+            | McPhrase::Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::Module(_),
                 ..
             }))
-            | McPhrase::Endpoint(McEndpoint::Node { .. })
+            | McPhrase::Endpoint(McRef::Ports { .. })
             | McPhrase::Endpoint(_) => {}
             McPhrase::Multiple(inner) => {
                 // P1-B2
@@ -3901,16 +3901,16 @@ impl InstantiationBuilder {
     /// the caller side in syntax like `uC.power(...)` / `flash.init(...)`.
     ///
     /// Supports the following forms:
-    ///   - `Endpoint::Single(Bus("uC"))`        → "uC"
-    ///   - `Endpoint::Single(Label("flash"))`   → "flash"
-    ///   - `Endpoint::Single(Component(c))`     → c.name
-    ///   - `Endpoint::Single(Module(m))`        → m.name
+    ///   - `Endpoint::Name(Bus("uC"))`          → "uC"
+    ///   - `Endpoint::Name(Label("flash"))`     → "flash"
+    ///   - `Endpoint::Name(Component(c))`       → c.name
+    ///   - `Endpoint::Name(Module(m))`          → m.name
     ///   - `FuncCall(...)` (Iter-6.S2)          → recursively inward along caller chain
     ///
     /// Returns None to indicate the caller is not a single instance reference.
     pub(super) fn extract_caller_inst_name(phrase: &McPhrase) -> Option<String> {
         match phrase {
-            McPhrase::Endpoint(McEndpoint::Single(iref)) => match &iref.base {
+            McPhrase::Endpoint(McRef::Name(iref)) => match &iref.base {
                 McInstance::Label(s) => Some(s.clone()),
                 McInstance::Bus(b) => {
                     // Bare Bus (member empty) is treated as instance reference
@@ -3975,10 +3975,10 @@ impl InstantiationBuilder {
     /// instances" form.
     ///
     /// Two structural arms, no bracket-string re-parse (AST-driven guideline):
-    ///   1. `Endpoint(List([...]))` — pass1's vector arm (§11.3 ③) resolves a
+    ///   1. `Endpoint(Group([...]))` — pass1's vector arm (§11.3 ③) resolves a
     ///      declared array to one lane per ordered member; extract the member
     ///      instance names structurally.
-    ///   2. `Endpoint(Single(Component(res1)))` — pass1 resolving a bracket to
+    ///   2. `Endpoint(Name(Component(res1)))` — pass1 resolving a bracket to
     ///      a single member (contract E scalar); matched against the declared
     ///      vector group's physical member id list.
     ///
@@ -3987,25 +3987,25 @@ impl InstantiationBuilder {
     /// The old arms are gone: the bare-bracket `McIds::from(&name).expand()`
     /// synthesis (fires for `Bus("cap[4:5]")` / `Label("cap[4:5]")` callers)
     /// and the digit-suffix sibling-probing fallback (Iter-3.D). Declared
-    /// arrays reach here as `Endpoint::List` (arm 1); an undeclared array base
+    /// arrays reach here as `Endpoint::Group` (arm 1); an undeclared array base
     /// falls to the scalar-miss decision like any other undeclared name, never
     /// re-assembled from name patterns.
     pub(super) fn resolve_array_caller_to_existing(
         &self,
         phrase: &McPhrase,
     ) -> Option<Vec<String>> {
-        // §11.3 lane-structured List (Phase 1.3)
+        // §11.3 lane-structured Group (Phase 1.3)
         // `cap[4:5]` in a connection operand resolves at pass1 to
-        // `Endpoint(List([Single(Component cap4), Single(Component cap5)]))`
+        // `Endpoint(Group([Name(Component cap4), Name(Component cap5)]))`
         // (module scope → find_inst hits → Component). Extract the member
         // instance names **structurally** from the lanes — no bracket-string
         // re-parse (AST-driven guideline). Guarded by the all_exist check, so
         // phantom/auto-named lanes never re-link.
-        if let McPhrase::Endpoint(McEndpoint::List(eps)) = phrase {
+        if let McPhrase::Endpoint(McRef::Group(eps)) = phrase {
             let mut names = Vec::new();
             for ep in eps {
                 match ep {
-                    McEndpoint::Single(iref) => match &iref.base {
+                    McRef::Name(iref) => match &iref.base {
                         McInstance::Component(c) => names.push(c.name.to_string()),
                         McInstance::Module(m) => names.push(m.name.to_string()),
                         McInstance::Label(s) => names.push(s.clone()),
@@ -4041,7 +4041,7 @@ impl InstantiationBuilder {
         // the connection form (`res[2] -> GND`), never the caller form.
         //
         // Arm 1 above already owns the legal array caller: pass1 resolves a
-        // declared bracket to a lane-structured `Endpoint(List)` (§11.3 ③,
+        // declared bracket to a lane-structured `Endpoint(Group)` (§11.3 ③,
         // `vector_lane_pass1.rs`), so the whole-group re-link is reachable only
         // through the single-`Component` form — which contract E defines as a
         // **scalar member reference**, never an array. No legal trigger
