@@ -2,12 +2,11 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! Implicit top-module picking for `mcc check` (U305④). The old pick read
-//! the registry's `(uri, ident)`-sorted first row, so a helper module whose
-//! name sorted first (`SUB` < `main`) was deterministically built as the top
-//! — silently, with the real top's instances never registering. The pick now
-//! excludes modules instantiated in-file; ties error loudly and `--top` is
-//! honored (it used to be silently ignored by check).
+//! Implicit top-module picking for `mcc check` (U305④). A first-row pick
+//! over the `(uri, ident)`-sorted registry view hands the top to whichever
+//! module sorts first — for a helper named `SUB` that is the helper, built
+//! silently while the real top's instances never register. The pick excludes
+//! modules instantiated in-file; ties error loudly and `--top` overrides.
 //!
 //! Binary-level harness (`CARGO_BIN_EXE_mcc`): the check face reads process
 //! globals (`cli::globals()`), so an in-process call would need
@@ -19,15 +18,18 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
-const CHIP: &str = "component CHIP\n{\n    pins = [\n        io 1 = A\n        io 2 = B\n    ]\n}\n";
+const CHIP: &str =
+    "component CHIP\n{\n    pins = [\n        io 1 = A\n        io 2 = B\n    ]\n}\n";
 
 /// `SUB` instantiates `CHIP`; `main` instantiates `SUB`. `SUB` sorts before
 /// `main`, which is exactly the shape the old first-row pick hijacked.
-const HIERARCHY: &str = "module SUB\n{\n    CHIP u1\n    io A\n    A -> u1.1\n}\n\nmodule main\n{\n    SUB s1\n}\n";
+const HIERARCHY: &str =
+    "module SUB\n{\n    CHIP u1\n    io A\n    A -> u1.1\n}\n\nmodule main\n{\n    SUB s1\n}\n";
 
 /// `SUB` and `main` are both roots — nothing is instantiated anywhere, so
 /// the helper filter cannot break the tie.
-const TWO_ROOTS: &str = "module SUB\n{\n    CHIP u1\n    io A\n    A -> u1.1\n}\n\nmodule main\n{\n    CHIP u2\n}\n";
+const TWO_ROOTS: &str =
+    "module SUB\n{\n    CHIP u1\n    io A\n    A -> u1.1\n}\n\nmodule main\n{\n    CHIP u2\n}\n";
 
 /// Write `body` into a fresh temp dir and return the file path. A per-test
 /// directory: two tests sharing one fixture path race under parallel runs.
@@ -62,11 +64,7 @@ fn check_toppick__helper_instantiated_infile_is_excluded() {
     let path = fixture("hierarchy", HIERARCHY);
     let (rc, out, err) = check(&path, &[]);
     assert_eq!(rc, 0, "out: {}\nerr: {}", out, err);
-    assert!(
-        !out.contains("cannot pick the top module"),
-        "out: {}",
-        out
-    );
+    assert!(!out.contains("cannot pick the top module"), "out: {}", out);
     assert!(
         out.contains("'main.s1.u1' has 1 of 2 pins connected"),
         "main was not the built top:\n{}",
@@ -81,17 +79,13 @@ fn check_toppick__ambiguous_roots_error_loudly() {
     let path = fixture("two_roots", TWO_ROOTS);
     let (rc, out, err) = check(&path, &[]);
     assert_ne!(rc, 0, "out: {}", out);
-    assert!(
-        err.contains("cannot pick the top module"),
-        "err: {}",
-        err
-    );
+    assert!(err.contains("cannot pick the top module"), "err: {}", err);
     assert!(err.contains("candidates (SUB, main)"), "err: {}", err);
     assert!(err.contains("pass --top"), "err: {}", err);
 }
 
-/// `--top` resolves the ambiguity — and reaches check at all (the flag used
-/// to be a no-op on this face: CheckArgs never carried it).
+/// `--top` resolves the ambiguity — check reads the global flag and builds
+/// the named module.
 #[test]
 fn check_toppick__top_flag_overrides() {
     let path = fixture("two_roots_flag", TWO_ROOTS);

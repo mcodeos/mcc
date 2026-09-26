@@ -17,4 +17,5 @@ pub(crate) mod nc_pin;
 pub(crate) mod opcheck;
 pub mod pwrid;
 pub(crate) mod scope;
+pub(crate) mod stmt_marker;
 pub mod validation;

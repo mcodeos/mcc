@@ -266,10 +266,17 @@ component CUT(&[a, b])
 }
 "#;
 
+/// Retirement lock (flipped from the b4023 error-free lock): U310 (b4051)
+/// retired the `&` param-formal prefix entirely — form 13 is gone from the
+/// grammar, so the header is a syntax error (E2081) now.
 #[test]
-fn u300corpus__t8_reference_vector_formal_is_error_free() {
+fn u300corpus__t8_reference_vector_formal_is_retired() {
     let diags = build_diags(SRC_T8);
-    assert_clean(&diags, "`component CUT(&[a, b])`");
+    assert!(
+        codes(&diags).contains(&2081),
+        "the retired `&` formal must be a syntax error (E2081); got codes: {:?}",
+        codes(&diags)
+    );
 }
 
 // T9 — type/unit family: FLOAT, compound units, charge units, parenless

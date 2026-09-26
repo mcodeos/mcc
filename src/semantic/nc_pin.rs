@@ -22,7 +22,7 @@ use crate::ast::macros::*;
 use crate::ast::node::AstNode;
 use crate::db::diagnostic::diagnostic::dlog_error;
 use crate::semantic::basic::mc_expr::McExpression;
-use crate::{errcodes, McIds, McOpd};
+use crate::{errcodes, McOpd};
 
 /// The marker key. One spelling, one home: this reader and the lapper's
 /// enum-reference walk (`db::infra::mc_code::lapper_enum_refs`) both key off
@@ -78,16 +78,7 @@ pub(crate) fn is_nc_pin_marker(att: &AstNode) -> bool {
 
 /// True when the attribute node's key identifier is `want`.
 fn key_is(att: &AstNode, want: &str) -> bool {
-    let Some(id_node) = att.get_sub_node() else {
-        return false;
-    };
-    if !id_node.is_type(MCAST_ATT_ID) {
-        return false;
-    }
-    let Some(ids_node) = id_node.get_sub_node() else {
-        return false;
-    };
-    McIds::new(&ids_node).is_some_and(|ids| ids.get_primary_name().as_deref() == Some(want))
+    crate::semantic::stmt_marker::attribute_key(att).as_deref() == Some(want)
 }
 
 /// Decode the marker's value list. `MCAST_ATTRIBUTE` children are the pair

@@ -39,6 +39,7 @@ use mcc::McIds;
 // ── codes under test ──
 const NC_PIN_LIST_MISSING: u32 = 3158;
 const NC_PIN_VALUE_INVALID: u32 = 3159;
+const STMT_MARKER_UNKNOWN: u32 = 3188;
 const MODULE_PORT_NOT_FOUND: u32 = 3175;
 const COMPONENT_PIN_NOT_FOUND: u32 = 3179;
 // ── the "unconnected" family the marker suppresses ──
@@ -178,10 +179,14 @@ fn sem_instncpin__component_pin_ids() {
 
 /// The unmarked twin of the case above — without the marker all four pins
 /// report and the denominator is whole. Locking only the marked case would pass
-/// even if the suppression were a blanket "never report".
+/// even if the suppression were a blanket "never report". The unknown marker
+/// now also reports E3188 (U305③: the tail-marker slot is closed) — and the
+/// instance still builds, which is the error-does-not-block-instantiation
+/// principle holding on this line.
 #[test]
 fn sem_instncpin__component_pin_ids_unmarked_twin() {
     let b = build(CHIP, "    CHIP d1 @zzz(1,3)");
+    assert_eq!(b.count(STMT_MARKER_UNKNOWN), 1, "{:?}", b.diags);
     assert!(b.marked.is_empty());
     assert!(b.reports(NET_BIDIR_UNCONNECTED, "main.d1.1"));
     assert!(b.reports(NET_BIDIR_UNCONNECTED, "main.d1.3"));
@@ -564,7 +569,10 @@ fn sem_instncpin__marker_stays_with_its_own_declaration() {
 #[test]
 fn sem_instncpin__class_nc_pin_is_not_double_counted() {
     let marked = build(NCP, "    NCP d1 @ncpin(1)");
-    let plain = build(NCP, "    NCP d1 @zzz(1)");
+    // The unmarked twin is a bare declaration line: since U305③ an unknown
+    // tail marker reports (E3188), so `@zzz(1)` is no longer a legal
+    // "marks nothing" control.
+    let plain = build(NCP, "    NCP d1");
     assert!(
         !marked.marked_paths().contains(&"main.d1.1"),
         "a class-level NC pin must not carry the instance marker as well"
@@ -705,4 +713,77 @@ fn sem_instncpin__marker_still_closes_a_name_nc_pin() {
     assert_eq!(b.marked_paths(), ["main.d1.1"]);
     assert!(!b.reports(NET_BIDIR_UNCONNECTED, "main.d1.1"));
     assert!(b.reports(NET_BIDIR_UNCONNECTED, "main.d1.2"));
+}
+
+// ── U305③: the statement-line tail-marker slot is closed ──
+//
+// A trailing `@word(…)` on an instance line or a connection line is a closed
+// vocabulary: instance lines read `@ncpin`/`@dnp`, connection lines read the
+// relation words `@bridge`/`@couple`/`@clamp`/`@star`. Anything else reports
+// E3188 instead of parsing through and vanishing — before U305③ `@nc_pin`
+// was a silent no-op, indistinguishable from a working marker.
+
+/// A misspelled marker reports by exact name — `@nc_pin` is not `@ncpin`,
+/// and the line marks nothing.
+#[test]
+fn sem_stmtmarker__spelling_is_exact_no_folding() {
+    let b = build(CHIP, "    CHIP d1 @nc_pin(1)");
+    assert_eq!(b.count(STMT_MARKER_UNKNOWN), 1, "{:?}", b.diags);
+    assert!(b.marked.is_empty(), "{:?}", b.marked);
+    // The instance still builds — the error does not block instantiation.
+    assert_eq!(b.count(NET_INSTANCE_UNCONNECTED), 1, "{:?}", b.diags);
+}
+
+/// An unknown word on an instance line reports once and suppresses nothing.
+#[test]
+fn sem_stmtmarker__unknown_instance_marker_reports() {
+    let b = build(CHIP, "    CHIP d1 @zzz(1)");
+    assert_eq!(b.count(STMT_MARKER_UNKNOWN), 1, "{:?}", b.diags);
+    assert!(b.reports(NET_BIDIR_UNCONNECTED, "main.d1.1"));
+}
+
+/// The known vocabulary stays silent: `@ncpin` and `@dnp` are both admitted
+/// on the instance line (`@dnp`'s semantics land with U305⑤; the vocabulary
+/// gate already admits the key).
+#[test]
+fn sem_stmtmarker__instance_vocabulary_admitted() {
+    let b = build(CHIP, "    CHIP d1 @ncpin(1)\n    CHIP d2 @dnp");
+    assert_eq!(b.count(STMT_MARKER_UNKNOWN), 0, "{:?}", b.diags);
+    assert_eq!(b.marked_paths(), ["main.d1.1"]);
+}
+
+/// An unknown word on a connection line reports; a misspelled relation word
+/// is exactly the trap the closure exists for.
+#[test]
+fn sem_stmtmarker__unknown_connection_marker_reports() {
+    let b = build(
+        CHIP,
+        "    CHIP d1\n    io p1\n    p1 -> d1.A @cuple(p1, p1)",
+    );
+    assert_eq!(b.count(STMT_MARKER_UNKNOWN), 1, "{:?}", b.diags);
+    assert!(
+        b.diags
+            .iter()
+            .any(|(c, m)| *c == STMT_MARKER_UNKNOWN && m.contains("`@cuple`")),
+        "{:?}",
+        b.diags
+    );
+}
+
+/// The relation words stay silent on a connection line.
+#[test]
+fn sem_stmtmarker__connection_vocabulary_admitted() {
+    let b = build(
+        CHIP,
+        "    CHIP d1\n    io p1\n    io p2\n    p1 -> d1.A @bridge(p1, p2)\n    p2 -> d1.B @star",
+    );
+    assert_eq!(b.count(STMT_MARKER_UNKNOWN), 0, "{:?}", b.diags);
+}
+
+/// The same word means different things per line: `@star` is admitted on a
+/// connection line but is not an instance marker.
+#[test]
+fn sem_stmtmarker__vocabularies_do_not_leak_across_lines() {
+    let b = build(CHIP, "    CHIP d1 @star");
+    assert_eq!(b.count(STMT_MARKER_UNKNOWN), 1, "{:?}", b.diags);
 }

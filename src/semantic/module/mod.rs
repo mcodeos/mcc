@@ -689,6 +689,13 @@ impl McModule {
                                 // inside the declare node.
                                 self.insts
                                     .set_nc_pins(crate::semantic::nc_pin::read_nc_pins(&subnode));
+                                // U305③: the instance line's tail-marker slot is
+                                // closed — `@ncpin`/`@dnp` only; an unknown word
+                                // reports instead of passing silently.
+                                crate::semantic::stmt_marker::check_stmt_markers(
+                                    &clause,
+                                    crate::semantic::stmt_marker::StmtLine::Instance,
+                                );
                                 self.insts.parse(&subnode, &self.uri);
                                 continue;
                             }
@@ -711,6 +718,13 @@ impl McModule {
                             // only the phrase head, so capture the edges here
                             // (design §13 landing 1 groundwork).
                             self.pi.parse_net(&clause);
+                            // U305③: the connection line's tail-marker slot is
+                            // closed — the relation words only; an unknown word
+                            // reports instead of passing silently.
+                            crate::semantic::stmt_marker::check_stmt_markers(
+                                &clause,
+                                crate::semantic::stmt_marker::StmtLine::Connection,
+                            );
 
                             // Collect port reference spans before parsing the net
                             let scope = self.name.to_string();
