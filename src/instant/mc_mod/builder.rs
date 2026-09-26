@@ -100,6 +100,27 @@ pub(crate) struct InstantiationBuilder {
     /// stmt, where only the exact anchor applies.
     pub(super) current_stmt_end: Option<u32>,
 
+    /// ★ U305⑤ inline carrier: the statement being processed carries a
+    /// trailing `@dnp`, so every part this statement puts on the board is not
+    /// fitted. Set per statement by `instantiate_stmts_resilient` and read by
+    /// the two product funnels ([`Self::add_component`] /
+    /// [`Self::add_submodule`]) — every product of the statement passes
+    /// through one of them, whichever expansion path created it, so the flag
+    /// needs no per-construction plumbing.
+    ///
+    /// Saved and restored around the statement exactly like
+    /// [`Self::current_stmt_span`], and for the same reason: a nested
+    /// expansion (func body, child module) runs on this same builder and
+    /// rewrites the field.
+    pub(super) current_stmt_dnp: bool,
+
+    /// Whether that flag reached a product in the statement being processed.
+    /// A `@dnp` connection line that builds nothing leaves the marker claimed
+    /// by nobody, which reports (`STMT_MARKER_NO_TARGET`) — the "a marker
+    /// nothing applies must not pass silently" rule of U305③, answered where
+    /// the products of a statement are actually known.
+    pub(super) stmt_dnp_used: bool,
+
     /// Func-body expansion provenance. Read by the construction impl modules
     /// (bus / group / fcallinst); set by [`Self::with_func_stmt`].
     pub(super) current_func_span: Option<SourcePos>,
@@ -395,6 +416,8 @@ impl InstantiationBuilder {
             next_phrase_id,
             current_stmt_span: None,
             current_stmt_end: None,
+            current_stmt_dnp: false,
+            stmt_dnp_used: false,
             current_func_span: None,
             last_func_stmt: None,
             current_trunk: None,
@@ -739,6 +762,13 @@ impl InstantiationBuilder {
     /// them to be pushed later) keep their tag.
     pub(super) fn add_component(&mut self, inst: McComponentInst) {
         let mut inst = inst;
+        // ★ U305⑤ inline carrier: a part built by a statement that carries the
+        // trailing `@dnp` is not fitted. Applied here rather than at each
+        // construction site so the flag covers every path a product can take.
+        if self.current_stmt_dnp {
+            inst.dnp = true;
+            self.stmt_dnp_used = true;
+        }
         if inst.expansion_id.is_none() {
             inst.expansion_id = self.expansion.current_id();
         }
@@ -784,6 +814,14 @@ impl InstantiationBuilder {
     /// and interning its canonical path (Phase C1).
     pub(super) fn add_submodule(&mut self, inst: McModuleInst) {
         let mut inst = inst;
+        // ★ U305⑤ inline carrier: same statement-wide flag as
+        // [`Self::add_component`] — a sub-assembly the statement builds is not
+        // fitted either, and `McModuleInst.dnp` already takes its subtree with
+        // it (`InstTable::propagate_not_fitted`).
+        if self.current_stmt_dnp {
+            inst.dnp = true;
+            self.stmt_dnp_used = true;
+        }
         if inst.expansion_id.is_none() {
             inst.expansion_id = self.expansion.current_id();
         }

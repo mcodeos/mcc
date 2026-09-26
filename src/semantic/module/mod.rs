@@ -50,6 +50,16 @@ pub struct McModule {
     /// Source span for each connection stmt in `stmts` (parallel array).
     /// Used for diagnostic position reporting during instantiation.
     pub stmt_spans: Vec<crate::ast::sem::Span>,
+    /// ★ U305⑤ inline carrier: the statement's trailing `@dnp` flag, per
+    /// `stmts` (parallel array). A connection line declares no instance to
+    /// flag, so the marker means "every part this statement puts on the
+    /// board is not fitted" — a fact only the build knows, since it is the
+    /// build that creates those parts. Read once per statement by
+    /// `InstantiationBuilder::instantiate_stmts_resilient`, applied at the
+    /// product-registration funnel, and reported as
+    /// [`crate::errcodes::STMT_MARKER_NO_TARGET`] when the statement built
+    /// nothing.
+    pub stmt_dnp: Vec<bool>,
     pub funcs: McFunctions,
     /// Power-intent declarations declared in this module body
     /// (`ref` identities + `domain`/`rail` sources; intent-design.md §5).
@@ -144,6 +154,7 @@ impl McModule {
                 insts: McInstances::new(),
                 stmts: Vec::new(),
                 stmt_spans: Vec::new(),
+                stmt_dnp: Vec::new(),
                 uri: uri.clone(),
                 span: crate::ast::sem::Span { start, end },
                 anon_counter: 1,
@@ -198,6 +209,7 @@ impl McModule {
             insts: McInstances::new(),
             stmts: Vec::new(),
             stmt_spans: Vec::new(),
+            stmt_dnp: Vec::new(),
             funcs: McFunctions::new(),
             pi: McPowerDecls::new(),
             blocks: BlockPartitions::default(),
@@ -730,6 +742,18 @@ impl McModule {
                                 &clause,
                                 crate::semantic::stmt_marker::StmtLine::Connection,
                             );
+                            // ★ U305⑤ inline carrier: a connection line has no
+                            // declared instance to flag, so its trailing `@dnp`
+                            // flags the parts the line *builds*. Which parts
+                            // those are is the build's knowledge (it is what
+                            // creates them), so the flag rides beside the parsed
+                            // statement into the build, which applies it at its
+                            // product-registration funnel and reports
+                            // `STMT_MARKER_NO_TARGET` when there were none —
+                            // that is the only place the "nothing to mark" fact
+                            // is known exactly.
+                            let line_dnp =
+                                crate::semantic::stmt_marker::read_dnp(&subnode);
 
                             // Collect port reference spans before parsing the net
                             let scope = self.name.to_string();
@@ -755,6 +779,11 @@ impl McModule {
                                         start: stmt_start,
                                         end: stmt_end,
                                     });
+                                    // Kept index-aligned with `stmts` /
+                                    // `stmt_spans`: pushed where they are, so
+                                    // the build reads `stmt_dnp[idx]` for the
+                                    // statement it is processing.
+                                    self.stmt_dnp.push(line_dnp);
                                     self.stmts.push(net);
                                 }
                                 None => {

@@ -1146,6 +1146,12 @@ impl InstantiationBuilder {
     pub(super) fn instantiate_stmts_resilient(&mut self) {
         let stmts = self.def.stmts.clone();
         let stmt_spans = self.def.stmt_spans.clone();
+        // ★ U305⑤ inline carrier: the incoming statement scope's `@dnp` — a
+        // child module instantiated inside an outer statement runs this same
+        // method on the same builder, and the outer statement's flag must
+        // survive that (every product of the outer statement is its product).
+        // Restored on the way out, beside the per-stmt restore in the loop.
+        let outer_dnp = self.current_stmt_dnp;
         for (_i, _l) in stmts.iter().enumerate() {}
         for (idx, stmt) in stmts.iter().enumerate() {
             // Iter-6.S4.3
@@ -1205,6 +1211,14 @@ impl InstantiationBuilder {
             let stmt_end = stmt_spans.get(idx + 1).map_or(u32::MAX, |s| s.start as u32);
             self.current_stmt_end = Some(stmt_end);
 
+            // ★ U305⑤ inline carrier: this statement's trailing `@dnp`, applied
+            // by the two product funnels (`add_component` / `add_submodule`) to
+            // every part the statement puts on the board. `stmt_dnp_used` is the
+            // "did the marker reach anything" witness for the report below.
+            let line_dnp = self.def.stmt_dnp.get(idx).copied().unwrap_or(false);
+            self.current_stmt_dnp = line_dnp;
+            self.stmt_dnp_used = false;
+
             if let Err(e) = self.process_stmt(stmt) {
                 // ★ Single connection stmt failure doesn't interrupt, record diagnostics then
                 // continue processing subsequent stmts
@@ -1220,13 +1234,44 @@ impl InstantiationBuilder {
             // funcs / instance methods) overwrite it, so without this restore
             // connections created after the recursion (e.g. a transposed
             // declareb) are attributed to the callee's stmt instead.
-            self.current_stmt_span = stmt_span;
+            self.current_stmt_span = stmt_span.clone();
+            // ── U305⑤: the `@dnp` flag gets the same treatment, and one job
+            // more. A nested expansion (func body, child module) rewrites it, so
+            // restoring it here keeps the rest of *this* statement's products
+            // flagged. Then the report: a connection line's marker that reached
+            // no product is a marker nothing applies — the U305③ rule that a
+            // claimed-by-nobody marker must not pass silently. Only a line that
+            // actually carried the flag can report, so this can never fire on
+            // an ordinary statement.
+            self.current_stmt_dnp = line_dnp;
+            if line_dnp && !self.stmt_dnp_used {
+                // Anchored at the statement's own span (`record_error` would
+                // prefer a stale `current_func_span` over it when one is in
+                // force).
+                if let Some(sp) = stmt_span.clone() {
+                    self.record_error_at(
+                        crate::errcodes::STMT_MARKER_NO_TARGET,
+                        crate::errcodes::format_msg(
+                            crate::errcodes::STMT_MARKER_NO_TARGET,
+                            &[&crate::semantic::stmt_marker::DNP_KEY],
+                        ),
+                        sp.uri.clone(),
+                        sp.offset,
+                    );
+                }
+            }
         }
         // Clear after loop to avoid stale span leaking into post-stmt checks.
         // `current_trunk` needs no reset here: every producer is RAII
         // guarded (§7.11(2)) and restores it on exit.
         self.current_stmt_span = None;
         self.current_stmt_end = None;
+        // The `@dnp` scope is the *caller's* statement, not this module's body:
+        // restore what was in force when the loop was entered rather than
+        // clearing, so an outer statement that built this module keeps its flag
+        // for the products it builds after the recursion returns.
+        self.current_stmt_dnp = outer_dnp;
+        self.stmt_dnp_used = false;
 
         // ── P2-C2: After all body stmts processed, project accumulated bus members to bare ports
         // ──

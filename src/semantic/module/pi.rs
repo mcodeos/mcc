@@ -1878,7 +1878,10 @@ mod tests {
     fn l1_domain_natures_carry_the_word_and_every_rail_row() {
         let pi = parse_pi(SRC_AC);
         let doms = pi.l1_domain_natures();
-        assert_eq!(doms.len(), 4, "domains: {doms:?}");
+        // Five rows: the fixture gained `MAINS3W` (`::AC.3P3W`) in b3881
+        // without this count following it — the `--lib` target stopped
+        // compiling at b4058, so nothing ran it in between.
+        assert_eq!(doms.len(), 5, "domains: {doms:?}");
         let mains = doms.iter().find(|d| d.name == "MAINS").expect("MAINS");
         assert_eq!(mains.nature.as_deref(), Some("ac"));
         assert_eq!(mains.rails.len(), 1);

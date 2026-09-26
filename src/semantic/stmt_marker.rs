@@ -6,11 +6,18 @@
 //!
 //! A trailing `@word(…)` on a statement line is a **closed** vocabulary, by
 //! ruling 2026-09-26: an instance declaration line reads `@ncpin`/`@dnp`, a
-//! connection line reads the relation words `@bridge`/`@couple`/`@clamp`/
-//! `@star`. Any other word on those two lines reports
+//! connection line reads `@dnp` plus the relation words `@bridge`/`@couple`/
+//! `@clamp`/`@star`. Any other word on those two lines reports
 //! ([`errcodes::STMT_MARKER_UNKNOWN`]) instead of passing silently — before
 //! U305③ an unknown word parsed, was claimed by nobody, and vanished with
 //! zero diagnostics (`@nc_pin`, `@zzz`).
+//!
+//! `@dnp` reads on both kinds of line (U305⑤) because the two faces carry it
+//! differently: an instance line names the part it flags, a connection line
+//! flags whatever part it **builds**. The `@dnp` half of the vocabulary gate
+//! is therefore not the whole rule — a connection line whose marker reaches no
+//! construction reports [`errcodes::STMT_MARKER_NO_TARGET`] at build time,
+//! where the products of a statement are actually known.
 //!
 //! Deliberately narrower than the attribute registry's open-vocabulary
 //! doctrine (`semantic/basic/attr_keys.rs`): that doctrine governs the
@@ -23,7 +30,7 @@ use crate::ast::node::AstNode;
 use crate::db::diagnostic::diagnostic::dlog_error;
 use crate::{errcodes, McIds};
 
-/// The `@dnp` key (U305⑤) — the instance-line not-fitted marker. Declared
+/// The `@dnp` key (U305⑤) — the statement-line not-fitted marker. Declared
 /// here because the vocabulary gate must admit it before its own reader
 /// lands; the reader lives beside `nc_pin`'s.
 pub(crate) const DNP_KEY: &str = "dnp";
@@ -31,9 +38,18 @@ pub(crate) const DNP_KEY: &str = "dnp";
 /// Markers an instance declaration line reads.
 const INSTANCE_KEYS: &[&str] = &[crate::semantic::nc_pin::NC_PIN_KEY, DNP_KEY];
 
-/// Markers a connection line reads (the relation words — `pi::l1_edges`
-/// plus the `@star` router hint).
-const CONNECTION_KEYS: &[&str] = &["bridge", "couple", "clamp", "star"];
+/// Markers a connection line reads: the relation words (`pi::l1_edges` plus
+/// the `@star` router hint) and the `@dnp` not-fitted flag.
+///
+/// `@dnp` reads the same on both statement kinds but means the same thing
+/// from a different side: an instance line flags the instance it declares,
+/// while a connection line has no declared instance to flag — it flags the
+/// parts the line *builds* (the inline constructions `MIC.N - RES(0R) - GND`
+/// writes, and whatever their func-body expansions materialize). The build
+/// applies it statement-wide, at the point every product of a statement is
+/// registered, so the flag reaches a part no matter which expansion path
+/// created it.
+const CONNECTION_KEYS: &[&str] = &[DNP_KEY, "bridge", "couple", "clamp", "star"];
 
 /// Which kind of statement line a marker check runs on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -74,14 +90,18 @@ pub(crate) fn attribute_key(att: &AstNode) -> Option<String> {
     McIds::new(&ids_node).and_then(|ids| ids.get_primary_name())
 }
 
-/// The declaration line's `@dnp` flag, if written (U305⑤). A bare flag is the
+/// The statement line's `@dnp` flag, if written (U305⑤). A bare flag is the
 /// only legal shape — `@dnp` means "this part is not fitted", declared by
 /// being written — so a value list reports 5360 (the flag-arity shape, same
 /// code the attribute registry's `AttrVocab::Flag` enforcement uses) and the
 /// flag still counts as written.
 ///
-/// Same sibling position as [`crate::semantic::nc_pin::read_nc_pins`] reads:
-/// the marker rides as a next sibling of the `MCAST_DECLARE` node.
+/// Read on both statement kinds. On an instance line the head is the
+/// `MCAST_DECLARE` node and the marker rides as its next sibling (same
+/// position as [`crate::semantic::nc_pin::read_nc_pins`]); on a connection
+/// line the head is the phrase and the marker rides as *its* next sibling
+/// (the position [`check_stmt_markers`] walks). Both are "the first child of
+/// the `MCAST_NET` clause", so the one walk serves both.
 pub(crate) fn read_dnp(declare: &AstNode) -> bool {
     let mut cur = declare.get_next();
     while let Some(node) = cur {
