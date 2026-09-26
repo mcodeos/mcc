@@ -5599,6 +5599,30 @@ fn interface_elems(iface: &Mc2Interface) -> Vec<McBus> {
     vec![McBus::new(&iface.name.to_string())]
 }
 
+/// Name a declared port's lanes in the owning instance's frame.
+///
+/// `interface_elems` answers **port-relative** — `vin.VCC` for a named port,
+/// a bare `VCC` for an anonymous `[VDD_3V3, GND]` one — because a port on its
+/// own has no owner. Pass2's `expand_port_lanes` prefixes that owner in both
+/// cases (`points.rs:2089` names a named port's lane `owner.port.member`,
+/// `points.rs:2045` names an anonymous port's lane `owner.member`), so the
+/// same prefix is exactly what the value face was missing. The owner prefix
+/// is part of the identity, not decoration: a bare `VCC` is not a reference
+/// to anything, and every consumer that resolves lanes by name (the curly
+/// `resolve_curly_mn_points` among them) matches on the qualified path.
+fn with_owner(elems: Vec<McBus>, owner: &str) -> Vec<McBus> {
+    let prefix = format!("{owner}.");
+    elems
+        .into_iter()
+        .map(|mut e| {
+            if !e.name.starts_with(&prefix) {
+                e.name = format!("{prefix}{}", e.name);
+            }
+            e
+        })
+        .collect()
+}
+
 /// Expand a dotted component pin reference (`uC.UART0`, `ldo.VIN`) to its
 /// member elements when the referenced pin is a registered multi-member port.
 /// Pass2 expands such a port to one real point per member, so the Pass1
@@ -5648,7 +5672,7 @@ fn component_port_elems(
             .map(|m| McBus::new(&format!("{base}.{member}.{m}")))
             .collect(),
         McPinPort::Interface(iface) => {
-            let elems = interface_elems(iface);
+            let elems = with_owner(interface_elems(iface), base);
             if elems.len() >= 2 {
                 elems
             } else {
@@ -5700,6 +5724,14 @@ fn module_port_elems(
     // (`[VDD_3V3, GND]`) while the reference uses the plain name (`vin`) or
     // the whole group. Take the port with the most effective members.
     let base_member = crate::semantic::basic::mc_ids::display_base_members(member).0;
+    // The lane prefix Pass2 uses for this reference spelling: `owner.port`
+    // for a named port, `owner` alone for an anonymous `[A, B]` one (whose
+    // base reads as empty), mirroring expand_port_lanes above.
+    let prefix = if base_member.is_empty() {
+        base.to_string()
+    } else {
+        format!("{base}.{base_member}")
+    };
     let mut best: Option<Vec<McBus>> = None;
     let mut best_len = 0usize;
     for (name, port) in m.base.insts.iter() {
@@ -5709,18 +5741,29 @@ fn module_port_elems(
             continue;
         }
         let elems: Vec<McBus> = match port {
-            McInstance::Interface(iface) => interface_elems(iface),
+            McInstance::Interface(iface) => with_owner(interface_elems(iface), base),
             // Members are structured fields registered from the AST at
             // declaration time — never recovered from the key text. A bus/list
             // port contributes one lane per member (a `1:2` slice was stored
             // as a raw single member, matching the Pass2 expand_port_lanes
             // width); scalar ports have none.
-            McInstance::Bus(b) if b.member.len() >= 2 => {
-                b.member.iter().map(|m| McBus::new(m)).collect()
-            }
-            McInstance::List(l) if l.member.len() >= 2 => {
-                l.member.iter().map(|m| McBus::new(m)).collect()
-            }
+            // U308: the owner path is part of the identity, exactly as in
+            // component_port_elems above — a bare member ("Vin") is not a
+            // reference to anything, and the Pass2 face this view must
+            // mirror names the lanes `owner.port.member`. Dropping the
+            // prefix here made the same reference answer two ways
+            // depending only on whether the base was a module or a
+            // component.
+            McInstance::Bus(b) if b.member.len() >= 2 => b
+                .member
+                .iter()
+                .map(|mem| McBus::new(&format!("{prefix}.{mem}")))
+                .collect(),
+            McInstance::List(l) if l.member.len() >= 2 => l
+                .member
+                .iter()
+                .map(|mem| McBus::new(&format!("{prefix}.{mem}")))
+                .collect(),
             _ => Vec::new(),
         };
         if elems.len() >= 2 && elems.len() > best_len {
