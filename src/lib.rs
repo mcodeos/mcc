@@ -59,6 +59,9 @@ pub use crate::semantic::common::{
     ScopeFilter, ScopePath, SourcePos, SpaceLayer, UriId,
 };
 pub use crate::semantic::validation::ledger;
+// U308 ruling B: the statement-info faces read the value face's port lists.
+use crate::semantic::basic::opd_shape::OpdShape;
+use crate::semantic::mc_func::ShapeCtx;
 pub use crate::semantic::{
     basic::{
         mc_ref::{McRef, McInstanceRef},
@@ -1183,7 +1186,11 @@ pub fn get_module_with_diagnostics(
 
 /// Extract structured info for all McPhrases in McModule
 pub fn get_stmts_info(module: &McModule) -> Vec<StmtInfo> {
-    module.stmts.iter().map(phrase_to_info).collect()
+    module
+        .stmts
+        .iter()
+        .map(|p| phrase_to_info(p, module))
+        .collect()
 }
 
 /// Structured info for single McPhrase
@@ -1246,13 +1253,13 @@ pub struct NodeElementInfo {
 }
 
 /// Convert McPhrase to StmtInfo
-fn phrase_to_info(phrase: &McPhrase) -> StmtInfo {
+fn phrase_to_info(phrase: &McPhrase, cx: &dyn ShapeCtx) -> StmtInfo {
     match phrase {
         McPhrase::Series(phrases, _) => {
             // Combine all phrases' members into one StmtInfo
             let mut all_members = Vec::new();
             for p in phrases {
-                let info = phrase_to_info(p);
+                let info = phrase_to_info(p, cx);
                 all_members.extend(info.members);
             }
             StmtInfo {
@@ -1261,7 +1268,7 @@ fn phrase_to_info(phrase: &McPhrase) -> StmtInfo {
         }
         McPhrase::Parallel(phrases) => StmtInfo {
             members: vec![StmtMemberInfo::Parallel {
-                stmts: phrases.iter().map(phrase_to_info).collect(),
+                stmts: phrases.iter().map(|p| phrase_to_info(p, cx)).collect(),
             }],
         },
         McPhrase::Closure(c) => StmtInfo {
@@ -1272,19 +1279,22 @@ fn phrase_to_info(phrase: &McPhrase) -> StmtInfo {
                     .map(|d: &McParamDeclare| d.to_string())
                     .collect(),
                 right: c.right.iter().map(node_element_to_info).collect(),
-                body: c.body.iter().map(phrase_to_info).collect(),
+                body: c.body.iter().map(|p| phrase_to_info(p, cx)).collect(),
             }],
         },
         McPhrase::Group(g) => StmtInfo {
             members: vec![StmtMemberInfo::Group {
-                stmts: g.opds.iter().map(phrase_to_info).collect(),
+                stmts: g.opds.iter().map(|p| phrase_to_info(p, cx)).collect(),
                 left_match: g.left_match,
                 right_match: g.right_match,
             }],
         },
         McPhrase::FuncCall(f) => StmtInfo {
             members: vec![StmtMemberInfo::FuncCall {
-                caller: f.caller.as_ref().map(|c| Box::new(phrase_to_info(c))),
+                caller: f
+                    .caller
+                    .as_ref()
+                    .map(|c| Box::new(phrase_to_info(c, cx))),
                 func_name: f.func_name.to_string(),
                 params: f
                     .params
@@ -1297,46 +1307,56 @@ fn phrase_to_info(phrase: &McPhrase) -> StmtInfo {
         },
         McPhrase::Transposed(phrase) => StmtInfo {
             members: vec![StmtMemberInfo::Transposed {
-                inner: Box::new(phrase_to_info(phrase)),
+                inner: Box::new(phrase_to_info(phrase, cx)),
             }],
         },
         McPhrase::Reversed(phrase) => StmtInfo {
             members: vec![StmtMemberInfo::Reversed {
-                inner: Box::new(phrase_to_info(phrase)),
+                inner: Box::new(phrase_to_info(phrase, cx)),
             }],
         },
         McPhrase::Lead(_) => StmtInfo { members: vec![] },
         McPhrase::Multiple(phrases) => StmtInfo {
             members: phrases
                 .iter()
-                .flat_map(|p| phrase_to_info(p).members)
+                .flat_map(|p| phrase_to_info(p, cx).members)
                 .collect(),
         },
-        McPhrase::Endpoint(McRef::Ports {
-            ref left,
-            ref right,
-            ..
-        }) => StmtInfo {
-            members: vec![StmtMemberInfo::Node {
-                left: left
-                    .iter()
-                    .flat_map(|e| e.get_left())
-                    .map(|b| node_element_to_info(&b))
-                    .collect::<Vec<_>>(),
-                right: right
-                    .iter()
-                    .flat_map(|e| e.get_right())
-                    .map(|b| node_element_to_info(&b))
-                    .collect::<Vec<_>>(),
-            }],
-        },
+        // U308 ruling B: a `{a | b}` node's two faces are the **value**
+        // face's port lists. The old read walked the spelling side
+        // (`get_left`/`get_right` per member) — a second, divergent copy of a
+        // law the shape layer already owns.
+        McPhrase::Endpoint(McRef::Ports { left, right }) => {
+            let shape = OpdShape::of(phrase, cx);
+            let names = |bs: &[McBus]| -> Vec<String> {
+                bs.iter().map(|b| b.name.clone()).collect()
+            };
+            let old_l: Vec<McBus> = left.iter().flat_map(|e| e.get_left()).collect();
+            let old_r: Vec<McBus> = right.iter().flat_map(|e| e.get_right()).collect();
+            let new_l = names(&shape.port_left());
+            let new_r = names(&shape.port_right());
+            if names(&old_l) != new_l || names(&old_r) != new_r {
+                eprintln!(
+                    "[U308-TRACE] lib phrase_to_info DIVERGE L {:?} -> {new_l:?} \
+                     R {:?} -> {new_r:?}",
+                    names(&old_l),
+                    names(&old_r)
+                );
+            }
+            StmtInfo {
+                members: vec![StmtMemberInfo::Node {
+                    left: old_l.iter().map(node_element_to_info).collect::<Vec<_>>(),
+                    right: old_r.iter().map(node_element_to_info).collect::<Vec<_>>(),
+                }],
+            }
+        }
         McPhrase::Endpoint(ep) => StmtInfo {
             members: vec![StmtMemberInfo::Endpoint {
                 info: ep.to_string(),
             }],
         },
         McPhrase::Member(phrase, ep) => {
-            let mut members = phrase_to_info(phrase).members;
+            let mut members = phrase_to_info(phrase, cx).members;
             members.push(StmtMemberInfo::Endpoint {
                 info: ep.to_string(),
             });
@@ -1365,7 +1385,7 @@ pub fn print_module_stmts(module: &McModule) {
         module.stmts.len()
     );
     for (i, stmt) in module.stmts.iter().enumerate() {
-        let info = phrase_to_info(stmt);
+        let info = phrase_to_info(stmt, module);
         mcc_dbg!(
             "parse::phrase",
             "  Stmt[{}]: {} members",

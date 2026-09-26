@@ -31,6 +31,7 @@ use crate::semantic::basic::mc_fcall::McFuncCall;
 use crate::semantic::basic::mc_group::McGroup;
 use crate::semantic::basic::mc_opd::McOpd;
 use crate::semantic::basic::mc_param::{McParamBinding, McParamBindings, McParamValue};
+use crate::semantic::basic::opd_shape::OpdShape;
 use crate::semantic::basic::mc_phrase::McPhrase;
 use crate::semantic::common::{ConnDir, IOType};
 use crate::semantic::component::McComponent;
@@ -767,7 +768,7 @@ impl InstantiationBuilder {
                         let substituted = if bindings.is_empty() && caller_inst_name.is_none() {
                             stmt.clone()
                         } else {
-                            Self::substitute_stmt(stmt, &bindings, None)
+                            Self::substitute_stmt(stmt, &bindings, None, &*this)
                         };
                         if let Err(e) = this.process_stmt(&substituted) {
                             this.expansion.end(eidx);
@@ -807,7 +808,7 @@ impl InstantiationBuilder {
                                     if bindings.is_empty() && caller_inst_name.is_none() {
                                         stmt.clone()
                                     } else {
-                                        Self::substitute_stmt(stmt, &bindings, None)
+                                        Self::substitute_stmt(stmt, &bindings, None, &*this)
                                     };
                                 if let Err(e) = this.process_stmt(&substituted) {
                                     this.expansion.end(eidx);
@@ -861,13 +862,25 @@ impl InstantiationBuilder {
                 let substituted = if bindings.is_empty() && caller_inst_name.is_none() {
                     endpoint_phrase.clone()
                 } else {
-                    Self::substitute_stmt(endpoint_phrase, &bindings, None)
+                    Self::substitute_stmt(endpoint_phrase, &bindings, None, &*self)
                 };
+                // U308 ruling B: the returned net face is the **value** face's
+                // right port list. The old read took the spelling side's last
+                // element (`get_right`), a second copy of the width-aligned
+                // view that dropped every earlier member.
+                let shape = OpdShape::of(&substituted, &*self);
+                let new: Vec<String> = shape.port_right().iter().map(|b| b.name.clone()).collect();
                 let names: Vec<String> = substituted
                     .get_right()
                     .iter()
                     .map(|b| b.name.clone())
                     .collect();
+                if names != new {
+                    eprintln!(
+                        "[U308-TRACE] fcallinst return face DIVERGE {names:?} -> {new:?} \
+                         phrase={substituted}"
+                    );
+                }
                 if names.is_empty() {
                     LAST_RETURN_ENDPOINT.with(|cell| cell.replace(None));
                 } else {
@@ -925,7 +938,7 @@ impl InstantiationBuilder {
                 out.push(b.clone());
                 continue;
             };
-            let mut elems = Self::param_value_to_node_elements(value);
+            let mut elems = Self::param_value_to_node_elements(value, &*self);
             // ── R1 whole-reference (intent-reference-layer-design.md §10.2 D1,
             // ruling "uniform rewrite" §10.10.1): a single bare name that is a
             // *whole-referenceable* domain of the module owning this call
@@ -946,7 +959,7 @@ impl InstantiationBuilder {
                             McParamValue::Ids(McIds::from(pair.hot.as_str())),
                             McParamValue::Ids(McIds::from(pair.ret.as_str())),
                         ]);
-                        elems = Self::param_value_to_node_elements(&widened);
+                        elems = Self::param_value_to_node_elements(&widened, &*self);
                     }
                 }
             }
@@ -1433,7 +1446,7 @@ impl InstantiationBuilder {
             };
             let comp_opt = self.find_component(inst_name);
             let expansion_ctx = comp_opt.as_ref().map(|c| ExpansionContext::new(c));
-            Self::substitute_stmt(phrase, &subst_bindings, expansion_ctx.as_ref())
+            Self::substitute_stmt(phrase, &subst_bindings, expansion_ctx.as_ref(), &*self)
         };
 
         match &func_def.returns {
@@ -1706,7 +1719,7 @@ impl InstantiationBuilder {
                     let substituted = if value_bindings.is_empty() {
                         stmt.clone()
                     } else {
-                        Self::substitute_stmt(stmt, &value_bindings, None)
+                        Self::substitute_stmt(stmt, &value_bindings, None, &*this)
                     };
                     if let Err(_e) = this.process_stmt(&substituted) {
                         // Sub-module's own diagnostics surface with flattening;
@@ -1789,7 +1802,7 @@ impl InstantiationBuilder {
                         let substituted = if value_bindings.is_empty() {
                             stmt.clone()
                         } else {
-                            Self::substitute_stmt(stmt, &value_bindings, None)
+                            Self::substitute_stmt(stmt, &value_bindings, None, &*this)
                         };
                         if let Err(_e) = this.process_stmt(&substituted) {}
                     });
@@ -1896,7 +1909,7 @@ impl InstantiationBuilder {
                 );
                 continue;
             }
-            let actual_elems = Self::param_value_to_node_elements(&actual);
+            let actual_elems = Self::param_value_to_node_elements(&actual, &*self);
             let mut left: Vec<NetPoint> = Vec::new();
             for e in &actual_elems {
                 let expanded = self.expand_node_element(e);
@@ -2023,7 +2036,7 @@ impl InstantiationBuilder {
                 skip.insert(n);
             }
             if let Some(v) = b.get_value() {
-                for e in Self::param_value_to_node_elements(v) {
+                for e in Self::param_value_to_node_elements(v, &*self) {
                     if !e.name.is_empty() {
                         skip.insert(e.name.clone());
                     }
@@ -2257,7 +2270,7 @@ impl InstantiationBuilder {
                 let mut substituted = if bindings.is_empty() {
                     stmt.clone()
                 } else {
-                    Self::substitute_stmt(stmt, bindings, expansion_ctx.as_ref())
+                    Self::substitute_stmt(stmt, bindings, expansion_ctx.as_ref(), &*this)
                 };
                 // Drop expansion_ctx before mutable self borrows below
                 drop(expansion_ctx);
@@ -2327,7 +2340,7 @@ impl InstantiationBuilder {
                         let mut substituted = if bindings.is_empty() {
                             stmt.clone()
                         } else {
-                            Self::substitute_stmt(stmt, bindings, expansion_ctx.as_ref())
+                            Self::substitute_stmt(stmt, bindings, expansion_ctx.as_ref(), &*this)
                         };
                         drop(expansion_ctx);
                         // ── §3.3: materialize deferred constructions in cond-block stmts too ──
@@ -2491,7 +2504,7 @@ impl InstantiationBuilder {
     /// references (e.g. `flash.SPI`); literals (Const/Int/Hex/NC) do not hit
     /// → value formal, substitute normally into body.
     fn actual_is_parent_ref(&self, value: &McParamValue) -> bool {
-        let elems = Self::param_value_to_node_elements(value);
+        let elems = Self::param_value_to_node_elements(value, self);
         elems.iter().any(|e| {
             if e.name.is_empty() {
                 return false;

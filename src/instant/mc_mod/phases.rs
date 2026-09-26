@@ -1604,7 +1604,7 @@ impl InstantiationBuilder {
 
         for (ai, arg) in args.iter().enumerate() {
             // Expand arg into lane + get name (for voltage matching)
-            let arg_elems = Self::param_value_to_node_elements(arg);
+            let arg_elems = Self::param_value_to_node_elements(arg, &*self);
             let arg_name = arg_elems
                 .first()
                 .map(|e| e.name.clone())
@@ -1840,7 +1840,7 @@ impl InstantiationBuilder {
 
         for arg in args.iter() {
             // Expand arg into lane + get name (for voltage matching)
-            let arg_elems = Self::param_value_to_node_elements(arg);
+            let arg_elems = Self::param_value_to_node_elements(arg, &*self);
             let arg_name = arg_elems
                 .first()
                 .map(|e| e.name.clone())
@@ -2162,7 +2162,7 @@ impl InstantiationBuilder {
         let mut skip: HashSet<String> = HashSet::new();
         for b in bindings.iter() {
             if let Some(value) = b.get_value() {
-                for e in Self::param_value_to_node_elements(value) {
+                for e in Self::param_value_to_node_elements(value, &*self) {
                     if !e.name.is_empty() {
                         skip.insert(e.name.clone());
                     }
@@ -2211,7 +2211,7 @@ impl InstantiationBuilder {
                 &func,
                 Some(_li),
                 |this| -> Result<(), crate::instant::mc_net::InstError> {
-                    let mut substituted = Self::substitute_stmt(stmt, &bindings, None);
+                    let mut substituted = Self::substitute_stmt(stmt, &bindings, None, &*this);
                     // ── §3.3: materialize deferred constructions in ctor body stmts ──
                     if let Err(e) =
                         this.materialize_deferred_subinstances(&mut substituted, inst_name)
