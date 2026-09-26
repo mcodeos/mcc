@@ -435,3 +435,51 @@ module main
         comp.pins.pins.keys().collect::<Vec<_>>()
     );
 }
+
+// §2.13 numeric / plain pin names (`1 = 1`, `1 = TP`), locked on its own:
+// until now only ghost_port_boundary.rs's CAP2 crossed the numeric-name form
+// incidentally. A numeric name registers under the id's own spelling, a
+// plain identifier under itself; both stay reachable by id and by name.
+#[test]
+fn mat_dynpin__numeric_and_plain_pin_names() {
+    let _lock = common::lock();
+    common::reset();
+
+    let uri: McURI = "/mcc/numeric-pin-names.mc".to_string();
+    mcc::mcc_load_from_string(
+        &uri,
+        r#"
+component TP_BOARD
+{
+    pins = [
+        1 = 1
+        2 = TP
+    ]
+}
+
+module main
+{
+    TP_BOARD u1
+}
+"#,
+    );
+    mcc::mcc_build(&McIds::from("main"), &uri).expect("build failed");
+
+    let cmie = mcc::get_def(&McIds::from("TP_BOARD"), &uri).expect("TP_BOARD not found");
+    let mcc::McCMIE::Component(comp) = cmie else {
+        panic!("TP_BOARD is not a Component");
+    };
+    assert_eq!(comp.pins.count(), 2, "expected 2 pins");
+    let pin1 = comp.pins.pins.get("1").expect("pin 1 registered");
+    assert_eq!(
+        pin1.names,
+        vec!["1"],
+        "numeric name registers under the id's own spelling"
+    );
+    let pin2 = comp.pins.pins.get("2").expect("pin 2 registered");
+    assert_eq!(
+        pin2.names,
+        vec!["TP"],
+        "plain identifier registers under itself"
+    );
+}
