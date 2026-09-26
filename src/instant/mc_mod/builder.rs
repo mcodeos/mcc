@@ -146,6 +146,16 @@ pub(crate) struct InstantiationBuilder {
     /// `UART.TTL`) when the port is an interface binding.
     pub(super) current_trunk_iface: Option<String>,
 
+    /// Module-body interface chain endpoints (`n1::LNKB(Mh) -> ...`),
+    /// recorded from the raw statement phrase before `phrase_to_members`
+    /// downgrades the member to a wiring conductor: instance name → the
+    /// phrase's own definition + params. Owner-less member points keep only
+    /// that name in their path, so the connect-rule reader
+    /// ([`Self::iface_endpoint_of_point`] in stmt.rs) falls back to this
+    /// table for the family and role. Series middles are excluded — a role
+    /// there is the E4187 category error, judged roleless (design §2).
+    pub(super) chain_iface_endpoints: HashMap<String, std::sync::Arc<crate::semantic::mc_ifs::Mc2Interface>>,
+
     /// P6 passthrough scope: stack of enclosing function formal-name sets.
     /// Private to the builder: consumed only through [`Self::with_func_scope`]
     /// / [`Self::is_passthrough_formal`].
@@ -392,6 +402,7 @@ impl InstantiationBuilder {
             internal_member_reported: HashSet::new(),
             pin_option_use: HashMap::new(),
             current_trunk_iface: None,
+            chain_iface_endpoints: HashMap::new(),
             func_scope: Vec::new(),
             identity,
             current_path,

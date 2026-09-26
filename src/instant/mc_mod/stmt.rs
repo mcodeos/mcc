@@ -122,6 +122,11 @@ impl InstantiationBuilder {
         // from the statement and not from a name scan over the body.
         self.complete_bare_ports_from_stmt(&phrase);
 
+        // U307: capture the roles module-body interface chain endpoints
+        // declare before the flatten strips them; the connect rule reads
+        // them back off the downgraded points.
+        self.record_chain_iface_endpoints(&phrase, true);
+
         // ── P0.4 follow-up: the phrase_to_members clones below reuse the ids the
         // entry above assigned.
         // ★ M-1'-A (edge-level): `members` + `gaps` come from one gapped flatten.
@@ -2515,6 +2520,22 @@ impl InstantiationBuilder {
     /// comes from the port's interface params — the same source `mc_pins`
     /// reads for role member tables.
     fn iface_endpoint_of_point(&self, pt: &NetPoint) -> Option<IfaceEndpoint> {
+        // A module-body interface chain endpoint (`n1::LNKB(Mh) -> ...`)
+        // downgrades to an owner-less member point whose path keeps only the
+        // instance name — no component pin exists on this side. Family and
+        // role come from the phrase recorded before the downgrade
+        // ([`Self::record_chain_iface_endpoints`]); the member carries no
+        // direction word, so `dir` stays None and the direction cells stay
+        // quiet (the D9 discipline).
+        if pt.owner.is_none() {
+            let inst = pt.path.split('.').next()?;
+            let iface = self.chain_iface_endpoints.get(inst)?;
+            return Some(IfaceEndpoint {
+                base: iface.base.clone(),
+                role: Self::role_of(&iface.base, &iface.params),
+                dir: IOType::None,
+            });
+        }
         let owner = pt.owner.as_ref()?;
         let comp = self.find_component(owner)?;
         // A point names either a pin (`a.IF.1`) or, for a single-pin-id
@@ -2583,6 +2604,73 @@ impl InstantiationBuilder {
             return Some((i.name.to_string(), role));
         }
         None
+    }
+
+    /// Record module-body interface chain endpoints (`n1::LNKB(Mh) -> ...`)
+    /// from the raw statement phrase, before the flatten downgrades each
+    /// member to a name-only conductor: instance name → the phrase's own
+    /// definition + params ([`InstantiationBuilder::chain_iface_endpoints`]).
+    /// The connect-rule reader resolves the downgraded owner-less points
+    /// through that table. `chain_end` carries the positional cut: a Series
+    /// middle is a wiring mediator — a role there is the E4187 category
+    /// error, so it judges roleless (design §2); a nested series applies its
+    /// own cut one level down.
+    fn record_chain_iface_endpoints(&mut self, phrase: &McPhrase, chain_end: bool) {
+        match phrase {
+            McPhrase::Series(children, _) => {
+                for (i, c) in children.iter().enumerate() {
+                    self.record_chain_iface_endpoints(c, i == 0 || i + 1 == children.len());
+                }
+            }
+            // Junction operands and lanes have no middle — every child is an
+            // endpoint position.
+            McPhrase::Parallel(children) | McPhrase::Multiple(children) => {
+                for c in children {
+                    self.record_chain_iface_endpoints(c, true);
+                }
+            }
+            McPhrase::Group(g) => {
+                for c in &g.opds {
+                    self.record_chain_iface_endpoints(c, true);
+                }
+            }
+            McPhrase::Transposed(inner) | McPhrase::Reversed(inner) => {
+                self.record_chain_iface_endpoints(inner, chain_end);
+            }
+            McPhrase::Member(inner, ep) => {
+                self.record_chain_iface_endpoints(inner, chain_end);
+                self.record_chain_iface_endpoint_ep(ep, chain_end);
+            }
+            McPhrase::Endpoint(ep) => self.record_chain_iface_endpoint_ep(ep, chain_end),
+            // A func-mediated member's role word is that func's own
+            // contract; its internals are not this walk's concern.
+            _ => {}
+        }
+    }
+
+    fn record_chain_iface_endpoint_ep(&mut self, ep: &McEndpoint, chain_end: bool) {
+        match ep {
+            McEndpoint::Single(McInstanceRef {
+                base: McInstance::Interface(i),
+                ..
+            }) => {
+                if chain_end {
+                    self.chain_iface_endpoints
+                        .insert(i.name.to_string(), i.clone());
+                }
+            }
+            McEndpoint::Single(_) => {}
+            McEndpoint::List(eps) => {
+                for e in eps {
+                    self.record_chain_iface_endpoint_ep(e, chain_end);
+                }
+            }
+            McEndpoint::Node { input, output } => {
+                for e in input.iter().chain(output.iter()) {
+                    self.record_chain_iface_endpoint_ep(e, chain_end);
+                }
+            }
+        }
     }
 
     /// Role names named by one `peer` attribute's values (U128 §1.2 step 2).
