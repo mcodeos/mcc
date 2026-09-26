@@ -16,8 +16,6 @@
 use super::body::collect_referenced_names;
 use super::{CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, ValidationCheck};
 use crate::semantic::basic::mc_phrase::McPhrase;
-use crate::semantic::basic::opd_shape::OpdShape;
-use crate::semantic::mc_func::ShapeCtx;
 use std::collections::{HashMap, HashSet};
 
 pub struct ExprsCheck;
@@ -141,17 +139,17 @@ fn check_open_lead(acc: &mut CheckAccumulator) {
                 McPhrase::Group(_) => {
                     if let Some(stmts) = phrase.expand_group_statements() {
                         for stmt in &stmts {
-                            judge_open_lead(stmt, &uri, &**module, acc);
+                            judge_open_lead(stmt, &uri, acc);
                         }
                     }
                 }
-                other => judge_open_lead(other, &uri, &**module, acc),
+                other => judge_open_lead(other, &uri, acc),
             }
         }
     }
 }
 
-fn judge_open_lead(phrase: &McPhrase, uri: &str, cx: &dyn ShapeCtx, acc: &mut CheckAccumulator) {
+fn judge_open_lead(phrase: &McPhrase, uri: &str, acc: &mut CheckAccumulator) {
     match phrase {
         McPhrase::Series(items, _) => {
             // A `(,)` group riding inside a chain is judged branch by branch
@@ -163,12 +161,12 @@ fn judge_open_lead(phrase: &McPhrase, uri: &str, cx: &dyn ShapeCtx, acc: &mut Ch
             for nested in items.iter().filter(|p| matches!(p, McPhrase::Group(_))) {
                 if let Some(stmts) = nested.expand_group_statements() {
                     for stmt in &stmts {
-                        judge_open_lead(stmt, uri, cx, acc);
+                        judge_open_lead(stmt, uri, acc);
                     }
                 }
             }
             for sub in items.iter().filter(|p| matches!(p, McPhrase::Series(_, _))) {
-                judge_open_lead(sub, uri, cx, acc);
+                judge_open_lead(sub, uri, acc);
             }
             let Some(McPhrase::Lead(off)) = items.iter().find(|p| matches!(p, McPhrase::Lead(_)))
             else {
@@ -178,7 +176,7 @@ fn judge_open_lead(phrase: &McPhrase, uri: &str, cx: &dyn ShapeCtx, acc: &mut Ch
             let anchors: usize = items
                 .iter()
                 .filter(|p| !matches!(p, McPhrase::Lead(_)))
-                .map(|p| anchor_leaves(p, cx))
+                .map(anchor_leaves)
                 .sum();
             if anchors != 1 {
                 // 0 = floating wire (Q3's face); >=2 = interior splice, silent.
@@ -202,7 +200,7 @@ fn judge_open_lead(phrase: &McPhrase, uri: &str, cx: &dyn ShapeCtx, acc: &mut Ch
         }
         McPhrase::Parallel(items) => {
             for branch in items {
-                judge_open_lead(branch, uri, cx, acc);
+                judge_open_lead(branch, uri, acc);
             }
         }
         _ => {}
@@ -214,36 +212,31 @@ fn judge_open_lead(phrase: &McPhrase, uri: &str, cx: &dyn ShapeCtx, acc: &mut Ch
 /// declared member; groups fan out into their branches; `_` contributes
 /// none.
 ///
-/// The endpoint's own leaf count is the **value face's** left port (U308
-/// ruling B): how wide an operand presents on its left is a shape question,
-/// so it is answered by `OpdShape::of` — the canonical width-aligned view —
-/// rather than by a second, divergent copy of that law.
-fn anchor_leaves(phrase: &McPhrase, cx: &dyn ShapeCtx) -> usize {
+/// The count is a **reference** question (U308): it asks how many endpoints
+/// are *written*, not how wide any of them evaluates. `McRef::leaves()` walks
+/// every branch of a list / node junction in source order, so `[A, B]` counts
+/// two — the width-shaped view answers an empty list for a declared port whose
+/// shape the Pass1 opcheck deliberately blanks (`mc_phrase.rs` §8.9.6.3 shape
+/// by use), and reading that empty list as a count of zero silently drops the
+/// free-end warning (measured in
+/// `lock_pp_exprs__open_lead_4065_fires_on_a_declared_port_anchor`).
+fn anchor_leaves(phrase: &McPhrase) -> usize {
     match phrase {
         McPhrase::Lead(_) => 0,
-        McPhrase::Endpoint(_) => {
-            let leaves = |bs: &[crate::semantic::basic::mc_bus::McBus]| -> usize {
-                bs.iter().map(|b| b.member.len().max(1)).sum()
-            };
-            let old = leaves(&phrase.get_left());
-            let new = leaves(&OpdShape::of(phrase, cx).port_left());
-            if old != new {
-                eprintln!(
-                    "[U308-TRACE] exprs anchor_leaves DIVERGE old={old} new={new} \
-                     phrase={phrase}"
-                );
-            }
-            old
-        }
+        McPhrase::Endpoint(ep) => ep
+            .leaves()
+            .iter()
+            .map(|r| r.to_bus().member.len().max(1))
+            .sum(),
         McPhrase::Multiple(v) | McPhrase::Parallel(v) | McPhrase::Series(v, _) => {
-            v.iter().map(|p| anchor_leaves(p, cx)).sum()
+            v.iter().map(anchor_leaves).sum()
         }
         McPhrase::Reversed(inner) | McPhrase::Transposed(inner) | McPhrase::Member(inner, _) => {
-            anchor_leaves(inner, cx)
+            anchor_leaves(inner)
         }
         McPhrase::Group(_) => phrase
             .expand_group_statements()
-            .map(|stmts| stmts.iter().map(|p| anchor_leaves(p, cx)).sum())
+            .map(|stmts| stmts.iter().map(anchor_leaves).sum())
             .unwrap_or(0),
         McPhrase::Closure(_) | McPhrase::FuncCall(_) => 1,
     }

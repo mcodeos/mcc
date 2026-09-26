@@ -121,6 +121,25 @@ fn lock_pp_exprs__open_lead_4065_fires() {
     assert_fires_clean(4065, source);
 }
 
+// E4065 with a **declared io port** as the anchor. The census counts written
+// endpoints, so an `io` port anchors exactly as a module parameter does — the
+// anchor count is a reference question, not a width question. This is the
+// analysis-phase half of the U308 phase split (its construction-phase twin is
+// `u130_func_dispatch_engine.rs`): `exprs.rs` asks the **module's** context,
+// where a declared port's shape is deliberately blanked for the Pass1 opcheck
+// (`mc_phrase.rs` §8.9.6.3), so a reader that takes the width answers zero
+// here and the free end goes unreported. The census must read what is written.
+#[test]
+fn lock_pp_exprs__open_lead_4065_fires_on_a_declared_port_anchor() {
+    let source = r#"module main
+{
+    io V5
+    V5 -> _
+}
+"#;
+    assert_fires_clean(4065, source);
+}
+
 // E4065 per-statement counting (identity law): two statements are two
 // distinct anonymous wires — exactly two warnings, no cross-statement dedup.
 #[test]
