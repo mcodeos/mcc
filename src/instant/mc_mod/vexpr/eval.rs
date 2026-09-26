@@ -49,7 +49,7 @@ use super::{BodyConn, ConcreteOpd, Ep};
 use crate::instant::mc_mod::builder::InstantiationBuilder;
 use crate::instant::mc_net::{InstError, NetPoint};
 use crate::semantic::basic::mc_bus::McBus;
-use crate::semantic::basic::mc_endpoint::{McEndpoint, McInstanceRef};
+use crate::semantic::basic::mc_ref::{McRef, McInstanceRef};
 use crate::semantic::basic::mc_phrase::McPhrase;
 use crate::semantic::basic::opd_shape::OpdShape;
 use crate::semantic::common::{ConnDir, ConnOp, IOType};
@@ -233,7 +233,7 @@ impl InstantiationBuilder {
             McPhrase::Group(g) if g.opds.len() == 1 => &g.opds[0],
             other => other,
         };
-        let McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+        let McPhrase::Endpoint(McRef::Name(McInstanceRef {
             base: McInstance::Component(c),
             ..
         })) = opd
@@ -299,7 +299,7 @@ impl InstantiationBuilder {
     /// silently swallows the next series leg: `VDD + R1 -> GND` dropped
     /// `R1.2↔GND`, `(VDD) -> R1` dropped `VDD`. The member view resolves the
     /// name instead (the clone is harmless — these forms resolve by name, not
-    /// by pointer), while `FuncCall` / `Parallel` / `Group` / `Node` keep their
+    /// by pointer), while `FuncCall` / `Parallel` / `Group` / `Ports` keep their
     /// original reference.
     ///
     /// A face that is still empty afterwards is kept: a name that resolves to
@@ -314,7 +314,7 @@ impl InstantiationBuilder {
         }
         if !matches!(
             opd,
-            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+            McPhrase::Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::Label(_) | McInstance::List(_) | McInstance::Interface(_),
                 ..
             }))
@@ -342,7 +342,7 @@ impl InstantiationBuilder {
     ///
     /// A `FuncCall` must be resolved on the **original phrase pointer** — that
     /// is the `auto_inst_map` key — while every other form is normalized to its
-    /// `Bus` / `Node` member view first (a bare `Label` yields no face through
+    /// `Bus` / `Ports` member view first (a bare `Label` yields no face through
     /// the raw accessors).
     fn vexpr_fold_parallel_operand(&mut self, opd: &McPhrase) -> Result<ConcreteOpd, InstError> {
         if let Some((left, right)) = self.vexpr_body_face(opd) {
@@ -376,7 +376,7 @@ impl InstantiationBuilder {
 
     /// One written form's two faces, for the internal wiring. Raw accessors
     /// first; a form whose raw phrase carries no side (a bare `Label`, a
-    /// `Component` endpoint) normalizes to its `Bus` / `Node` member view and
+    /// `Component` endpoint) normalizes to its `Bus` / `Ports` member view and
     /// resolves by name, so the clone is harmless there.
     fn vexpr_fold_parallel_form(&mut self, form: &McPhrase) -> (Vec<NetPoint>, Vec<NetPoint>) {
         if let Some(face) = self.vexpr_body_face(form) {

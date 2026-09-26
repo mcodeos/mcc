@@ -25,7 +25,7 @@
 use crate::ast::macros::*;
 use crate::ast::node::AstNode;
 use crate::semantic::basic::mc_bus::{McBus, McList};
-use crate::semantic::basic::mc_endpoint::{McEndpoint, McInstanceRef};
+use crate::semantic::basic::mc_ref::{McRef, McInstanceRef};
 use crate::semantic::basic::mc_ids::McIds;
 use crate::semantic::basic::mc_phrase::McPhrase;
 use crate::semantic::component::Mc2Component;
@@ -204,19 +204,19 @@ impl HasFindInst for McRecipe {
         name: String,
         _span: Option<std::ops::Range<usize>>,
     ) -> Option<McPhrase> {
-        Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+        Some(McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
             McInstance::Label(name),
         ))))
     }
 
     fn add_bus(&mut self, name: String, members: Vec<String>) -> Option<McPhrase> {
-        Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+        Some(McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
             McInstance::Bus(McBus::new_with_members(&name, members)),
         ))))
     }
 
     fn add_list(&mut self, name: String, members: Vec<String>) -> Option<McPhrase> {
-        Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+        Some(McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
             McInstance::List(McList::new_with_members(&name, members)),
         ))))
     }
@@ -269,7 +269,7 @@ impl HasFindInst for McRecipe {
         if !name.starts_with('@') {
             self.signals.create_inst(&name, inst.clone());
         }
-        Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+        Some(McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
             inst,
         ))))
     }

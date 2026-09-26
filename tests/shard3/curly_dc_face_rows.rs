@@ -380,11 +380,11 @@ fn curly_dc__sink_whole_hang_wires_both_members() {
 /// Regression 6 — a whole-pair curly face followed by a *lane-series* element
 /// vector (`- [el, _] ->`, golden main.mc buck12 spelling) must keep the
 /// through-device's return members wired. The chain contains a `_` lead, so it
-/// is routed lane by lane. Placing the curly Node on lane 0 only wires the hot
+/// is routed lane by lane. Placing the curly Ports on lane 0 only wires the hot
 /// lane (the VIN/LX hot members through the element) and silently drops the
 /// device's shared GND return — zero explicit error, just NET_PARTIAL_CONNECTION
 /// and a missing current path. `stmt.rs` places
-/// the Node on every face lane, so the shared return pin (pin 2) lands on the
+/// the Ports on every face lane, so the shared return pin (pin 2) lands on the
 /// return net.
 const SRC_LANE: &str = r#"
 component BUCK2

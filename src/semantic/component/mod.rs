@@ -14,7 +14,7 @@ use self::mc_pins::McPinPort;
 use self::mc_pins::McPins;
 use super::{
     basic::mc_conds::{CondDefCtx, McCondition, McConds},
-    basic::mc_endpoint::{McEndpoint, McInstanceRef},
+    basic::mc_ref::{McRef, McInstanceRef},
     basic::mc_expr::McExpression,
     basic::mc_param::McParamDeclares,
     basic::mc_phrase::McPhrase,
@@ -785,19 +785,19 @@ impl HasFindInst for McComponent {
         name: String,
         _span: Option<std::ops::Range<usize>>,
     ) -> Option<McPhrase> {
-        Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+        Some(McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
             McInstance::Label(name),
         ))))
     }
 
     fn add_bus(&mut self, name: String, members: Vec<String>) -> Option<McPhrase> {
-        Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+        Some(McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
             McInstance::Bus(McBus::new_with_members(&name, members)),
         ))))
     }
 
     fn add_list(&mut self, name: String, members: Vec<String>) -> Option<McPhrase> {
-        Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+        Some(McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
             McInstance::List(McList::new_with_members(&name, members)),
         ))))
     }
@@ -856,7 +856,7 @@ impl HasFindInst for McComponent {
         if !name.starts_with('@') {
             self.insts.create_inst(&name, inst.clone());
         }
-        Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+        Some(McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
             inst,
         ))))
     }
@@ -1097,7 +1097,7 @@ impl Mc2Component {
     pub fn find_port(&self, id: &str) -> Option<McPhrase> {
         if let Some(found) = self.find_pin(id) {
             let full_name = format!("{}.{}", self.name, found);
-            return Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+            return Some(McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
                 McInstance::Bus(McBus::new(&full_name)),
             ))));
         }

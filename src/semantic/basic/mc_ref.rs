@@ -175,38 +175,61 @@ impl fmt::Display for McInstanceRef {
     }
 }
 
-// McEndpoint - connection endpoint
+// McRef - connection reference (the **reference face**: the spelling the user
+// wrote, closed over syntax and carrying no port semantics).
 
 #[derive(Debug, Clone)]
-pub enum McEndpoint {
-    Single(McInstanceRef),
-    List(Vec<McEndpoint>),
-    Node {
-        input: Vec<McEndpoint>,
-        output: Vec<McEndpoint>,
+pub enum McRef {
+    /// A single reference: a bare name, an instance path, a bus, or a named
+    /// list.
+    Name(McInstanceRef),
+    /// A bracketed group `[a, b, ...]` — a pure reference container. Its
+    /// members are references, so the value face's node shape cannot be
+    /// expressed here at all.
+    Group(Vec<McRef>),
+    /// An explicit two-sided port spelling `{a, b | c}`.
+    Ports {
+        left: Vec<McRef>,
+        right: Vec<McRef>,
     },
 }
 
-impl McEndpoint {
-    pub fn single(ref_: McInstanceRef) -> Self {
-        McEndpoint::Single(ref_)
+impl McRef {
+    pub fn name(ref_: McInstanceRef) -> Self {
+        McRef::Name(ref_)
     }
 
-    pub fn list(nodes: Vec<McEndpoint>) -> Self {
-        McEndpoint::List(nodes)
+    pub fn group(refs: Vec<McRef>) -> Self {
+        McRef::Group(refs)
     }
 
-    pub fn node(input: Vec<McEndpoint>, output: Vec<McEndpoint>) -> Self {
-        McEndpoint::Node { input, output }
+    pub fn ports(left: Vec<McRef>, right: Vec<McRef>) -> Self {
+        McRef::Ports { left, right }
     }
 
-    pub fn flatten(&self) -> Vec<McEndpoint> {
+    /// The references this spelling names, in source order: `Ports` yields its
+    /// `left` list then its `right` list, the same order and repetition the old
+    /// `flatten` produced. Zero port semantics — it answers only "which
+    /// references does this spelling point at", so it invents no law.
+    pub fn leaves(&self) -> Vec<&McInstanceRef> {
         match self {
-            McEndpoint::Single(node) => vec![McEndpoint::Single(node.clone())],
-            McEndpoint::List(nodes) => nodes.iter().flat_map(|n| n.flatten()).collect(),
-            McEndpoint::Node { input, output } => {
+            McRef::Name(r) => vec![r],
+            McRef::Group(refs) => refs.iter().flat_map(|r| r.leaves()).collect(),
+            McRef::Ports { left, right } => left
+                .iter()
+                .chain(right.iter())
+                .flat_map(|r| r.leaves())
+                .collect(),
+        }
+    }
+
+    pub fn flatten(&self) -> Vec<McRef> {
+        match self {
+            McRef::Name(node) => vec![McRef::Name(node.clone())],
+            McRef::Group(nodes) => nodes.iter().flat_map(|n| n.flatten()).collect(),
+            McRef::Ports { left, right } => {
                 let mut result = Vec::new();
-                for n in input.iter().chain(output.iter()) {
+                for n in left.iter().chain(right.iter()) {
                     result.extend(n.flatten());
                 }
                 result
@@ -216,66 +239,66 @@ impl McEndpoint {
 
     pub fn count(&self) -> usize {
         match self {
-            McEndpoint::Single(_) => 1,
-            McEndpoint::List(nodes) => nodes.iter().map(|n| n.count()).sum(),
-            McEndpoint::Node { input, output } => {
-                input.iter().map(|n| n.count()).sum::<usize>()
-                    + output.iter().map(|n| n.count()).sum::<usize>()
+            McRef::Name(_) => 1,
+            McRef::Group(nodes) => nodes.iter().map(|n| n.count()).sum(),
+            McRef::Ports { left, right } => {
+                left.iter().map(|n| n.count()).sum::<usize>()
+                    + right.iter().map(|n| n.count()).sum::<usize>()
             }
         }
     }
 
     pub fn from_label(name: &str) -> Self {
-        McEndpoint::Single(McInstanceRef::from_label(name))
+        McRef::Name(McInstanceRef::from_label(name))
     }
 
     pub fn from_labels(names: Vec<&str>) -> Self {
         if names.len() == 1 {
-            McEndpoint::from_label(names[0])
+            McRef::from_label(names[0])
         } else {
-            let endpoints: Vec<McEndpoint> =
-                names.into_iter().map(McEndpoint::from_label).collect();
-            McEndpoint::list(endpoints)
+            let endpoints: Vec<McRef> =
+                names.into_iter().map(McRef::from_label).collect();
+            McRef::group(endpoints)
         }
     }
 
-    pub fn series(&self, other: &McEndpoint) -> McEndpoint {
+    pub fn series(&self, other: &McRef) -> McRef {
         match (self, other) {
-            (McEndpoint::List(a), McEndpoint::List(b)) => {
+            (McRef::Group(a), McRef::Group(b)) => {
                 let mut combined = a.clone();
                 combined.extend(b.clone());
-                McEndpoint::list(combined)
+                McRef::group(combined)
             }
-            (McEndpoint::List(a), other) => {
+            (McRef::Group(a), other) => {
                 let mut combined = a.clone();
                 combined.push(other.clone());
-                McEndpoint::list(combined)
+                McRef::group(combined)
             }
-            (self_, McEndpoint::List(b)) => {
+            (self_, McRef::Group(b)) => {
                 let mut combined = vec![self_.clone()];
                 combined.extend(b.clone());
-                McEndpoint::list(combined)
+                McRef::group(combined)
             }
-            _ => McEndpoint::list(vec![self.clone(), other.clone()]),
+            _ => McRef::group(vec![self.clone(), other.clone()]),
         }
     }
 
     pub fn get_left(&self) -> Vec<crate::semantic::basic::mc_bus::McBus> {
         use crate::semantic::basic::mc_bus::McBus;
         match self {
-            McEndpoint::Single(ref_) => vec![ref_.to_bus()],
-            McEndpoint::List(nodes) => {
+            McRef::Name(ref_) => vec![ref_.to_bus()],
+            McRef::Group(nodes) => {
                 if nodes.is_empty() {
                     vec![McBus::new("<error:empty_list>")]
                 } else {
                     nodes[0].get_left()
                 }
             }
-            McEndpoint::Node { input, .. } => {
-                if input.is_empty() {
+            McRef::Ports { left, .. } => {
+                if left.is_empty() {
                     vec![McBus::new("<error:empty_input>")]
                 } else {
-                    input.iter().flat_map(|n| n.get_left()).collect()
+                    left.iter().flat_map(|n| n.get_left()).collect()
                 }
             }
         }
@@ -284,37 +307,37 @@ impl McEndpoint {
     pub fn get_right(&self) -> Vec<crate::semantic::basic::mc_bus::McBus> {
         use crate::semantic::basic::mc_bus::McBus;
         match self {
-            McEndpoint::Single(ref_) => vec![ref_.to_bus()],
-            McEndpoint::List(nodes) => {
+            McRef::Name(ref_) => vec![ref_.to_bus()],
+            McRef::Group(nodes) => {
                 if nodes.is_empty() {
                     vec![McBus::new("<error:empty_list>")]
                 } else {
                     nodes.last().unwrap().get_right()
                 }
             }
-            McEndpoint::Node { output, .. } => {
-                if output.is_empty() {
+            McRef::Ports { right, .. } => {
+                if right.is_empty() {
                     vec![McBus::new("<error:empty_output>")]
                 } else {
-                    output.iter().flat_map(|n| n.get_right()).collect()
+                    right.iter().flat_map(|n| n.get_right()).collect()
                 }
             }
         }
     }
 }
 
-impl fmt::Display for McEndpoint {
+impl fmt::Display for McRef {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            McEndpoint::Single(ref_) => write!(f, "{ref_}"),
-            McEndpoint::List(nodes) => {
+            McRef::Name(ref_) => write!(f, "{ref_}"),
+            McRef::Group(nodes) => {
                 let items: Vec<String> = nodes.iter().map(|n| n.to_string()).collect();
                 write!(f, "[{}]", items.join(", "))
             }
-            McEndpoint::Node { input, output } => {
-                let input_str: Vec<String> = input.iter().map(|n| n.to_string()).collect();
-                let output_str: Vec<String> = output.iter().map(|n| n.to_string()).collect();
-                write!(f, "{{{}|{}}}", input_str.join(", "), output_str.join(", "))
+            McRef::Ports { left, right } => {
+                let left_str: Vec<String> = left.iter().map(|n| n.to_string()).collect();
+                let right_str: Vec<String> = right.iter().map(|n| n.to_string()).collect();
+                write!(f, "{{{}|{}}}", left_str.join(", "), right_str.join(", "))
             }
         }
     }
@@ -325,23 +348,23 @@ impl fmt::Display for McEndpoint {
 #[macro_export]
 macro_rules! ep {
     ($name:expr) => {
-        $crate::semantic::basic::mc_endpoint::McEndpoint::from_label($name)
+        $crate::semantic::basic::mc_ref::McRef::from_label($name)
     };
     ($($name:expr),+ $(,)?) => {
-        $crate::semantic::basic::mc_endpoint::McEndpoint::from_labels(vec![$($name),+])
+        $crate::semantic::basic::mc_ref::McRef::from_labels(vec![$($name),+])
     };
 }
 
 #[macro_export]
 macro_rules! ep_node {
     ($input:expr => $output:expr) => {
-        $crate::semantic::basic::mc_endpoint::McEndpoint::node(vec![$input], vec![$output])
+        $crate::semantic::basic::mc_ref::McRef::ports(vec![$input], vec![$output])
     };
 }
 
-impl From<McInstanceRef> for McEndpoint {
+impl From<McInstanceRef> for McRef {
     fn from(ref_: McInstanceRef) -> Self {
-        McEndpoint::Single(ref_)
+        McRef::Name(ref_)
     }
 }
 
@@ -351,13 +374,13 @@ impl From<McInstance> for McInstanceRef {
     }
 }
 
-impl From<McInstance> for McEndpoint {
+impl From<McInstance> for McRef {
     fn from(inst: McInstance) -> Self {
-        McEndpoint::Single(McInstanceRef::new(inst))
+        McRef::Name(McInstanceRef::new(inst))
     }
 }
 
-impl From<McBus> for McEndpoint {
+impl From<McBus> for McRef {
     fn from(bus: McBus) -> Self {
         let members = if bus.member.is_empty() {
             vec![]
@@ -366,17 +389,17 @@ impl From<McBus> for McEndpoint {
                 items: bus.member.into_iter().map(McMember::Single).collect(),
             }]
         };
-        McEndpoint::Single(McInstanceRef {
+        McRef::Name(McInstanceRef {
             base: McInstance::Label(bus.name),
             members,
         })
     }
 }
 
-impl From<crate::semantic::basic::mc_bus::McNode> for McEndpoint {
+impl From<crate::semantic::basic::mc_bus::McNode> for McRef {
     fn from(node: crate::semantic::basic::mc_bus::McNode) -> Self {
-        let left_ep = McEndpoint::from(node.0);
-        let right_ep = McEndpoint::from(node.1);
-        McEndpoint::node(vec![left_ep], vec![right_ep])
+        let left_ep = McRef::from(node.0);
+        let right_ep = McRef::from(node.1);
+        McRef::ports(vec![left_ep], vec![right_ep])
     }
 }

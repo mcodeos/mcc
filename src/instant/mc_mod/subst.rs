@@ -19,7 +19,7 @@ use super::expand::ExpansionContext;
 use super::InstantiationBuilder;
 use crate::semantic::basic::mc_bus::McBus;
 use crate::semantic::basic::mc_closure::McClosure;
-use crate::semantic::basic::mc_endpoint::{McEndpoint, McInstanceRef};
+use crate::semantic::basic::mc_ref::{McRef, McInstanceRef};
 use crate::semantic::basic::mc_fcall::McFuncCall;
 use crate::semantic::basic::mc_group::McGroup;
 use crate::semantic::basic::mc_opd::McOpd;
@@ -540,7 +540,7 @@ impl InstantiationBuilder {
             ))),
             McPhrase::Lead(_) => phrase.clone(),
             // Iter-2.3
-            // Returning Endpoint::Single(Label/Bus/List) as-is would leave the
+            // Returning Endpoint::Name(Label/Bus/List) as-is would leave the
             // V1V2 formal parameter in `V1V2 => CAP(...)` unsubstituted: the func
             // body could
             // connected to power".
@@ -553,7 +553,7 @@ impl InstantiationBuilder {
             // Replace "this" / "pins" (and their `.xxx` / `{a, b}` tails) with the
             // caller instance bus ("caller_inst_name" / "caller_inst_name.xxx" /
             // "caller_inst_name{a, b}").
-            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+            McPhrase::Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::Label(s),
                 ..
             })) => {
@@ -576,7 +576,7 @@ impl InstantiationBuilder {
                                 ctx.instance.def.clone(),
                             ),
                         ));
-                        return McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(comp)));
+                        return McPhrase::Endpoint(McRef::Name(McInstanceRef::new(comp)));
                     }
                 }
 
@@ -601,10 +601,10 @@ impl InstantiationBuilder {
                     // Substitution hit (or a self-face reference resolved to the
                     // caller instance bus): merge into a Bus endpoint.
                     let bus = Self::node_elements_to_bus(&substituted);
-                    McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(McInstance::Bus(bus))))
+                    McPhrase::Endpoint(McRef::Name(McInstanceRef::new(McInstance::Bus(bus))))
                 }
             }
-            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+            McPhrase::Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::Bus(ref b),
                 ..
             })) => {
@@ -636,10 +636,10 @@ impl InstantiationBuilder {
                     phrase.clone()
                 } else {
                     let bus = Self::node_elements_to_bus(&substituted);
-                    McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(McInstance::Bus(bus))))
+                    McPhrase::Endpoint(McRef::Name(McInstanceRef::new(McInstance::Bus(bus))))
                 }
             }
-            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+            McPhrase::Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::List(ref l),
                 ..
             })) => {
@@ -655,18 +655,18 @@ impl InstantiationBuilder {
                     phrase.clone()
                 } else {
                     let bus = Self::node_elements_to_bus(&substituted);
-                    McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(McInstance::Bus(bus))))
+                    McPhrase::Endpoint(McRef::Name(McInstanceRef::new(McInstance::Bus(bus))))
                 }
             }
-            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+            McPhrase::Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::Component(_),
                 ..
             }))
-            | McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+            | McPhrase::Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::Module(_),
                 ..
             }))
-            | McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+            | McPhrase::Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::Interface(_),
                 ..
             })) => phrase.clone(),
@@ -676,46 +676,46 @@ impl InstantiationBuilder {
                     .map(|p| Self::substitute_phrase(p, bindings, expansion_ctx))
                     .collect(),
             ),
-            McPhrase::Endpoint(McEndpoint::Node {
-                ref input,
-                ref output,
+            McPhrase::Endpoint(McRef::Ports {
+                ref left,
+                ref right,
                 ..
             }) => {
-                let left_elems: Vec<McBus> = input.iter().flat_map(|e| e.get_left()).collect();
-                let right_elems: Vec<McBus> = output.iter().flat_map(|e| e.get_right()).collect();
+                let left_elems: Vec<McBus> = left.iter().flat_map(|e| e.get_left()).collect();
+                let right_elems: Vec<McBus> = right.iter().flat_map(|e| e.get_right()).collect();
                 // Iter-2.3
-                // Also perform formal-parameter substitution on the Node's left/right McBus
+                // Also perform formal-parameter substitution on the Ports' left/right McBus
                 let left_subst = Self::substitute_node_elements(&left_elems, bindings);
                 let right_subst = Self::substitute_node_elements(&right_elems, bindings);
                 if left_subst.is_empty() && right_subst.is_empty() {
-                    McPhrase::Endpoint(McEndpoint::Node {
-                        input: vec![],
-                        output: vec![],
+                    McPhrase::Endpoint(McRef::Ports {
+                        left: vec![],
+                        right: vec![],
                     })
                 } else if left_subst.is_empty() {
                     let right_bus = Self::node_elements_to_bus(&right_subst);
-                    McPhrase::Endpoint(McEndpoint::Node {
-                        input: vec![],
-                        output: vec![McEndpoint::Single(McInstanceRef::new(McInstance::Bus(
+                    McPhrase::Endpoint(McRef::Ports {
+                        left: vec![],
+                        right: vec![McRef::Name(McInstanceRef::new(McInstance::Bus(
                             right_bus.clone(),
                         )))],
                     })
                 } else if right_subst.is_empty() {
                     let left_bus = Self::node_elements_to_bus(&left_subst);
-                    McPhrase::Endpoint(McEndpoint::Node {
-                        input: vec![McEndpoint::Single(McInstanceRef::new(McInstance::Bus(
+                    McPhrase::Endpoint(McRef::Ports {
+                        left: vec![McRef::Name(McInstanceRef::new(McInstance::Bus(
                             left_bus.clone(),
                         )))],
-                        output: vec![],
+                        right: vec![],
                     })
                 } else {
                     let left_bus = Self::node_elements_to_bus(&left_subst);
                     let right_bus = Self::node_elements_to_bus(&right_subst);
-                    McPhrase::Endpoint(McEndpoint::Node {
-                        input: vec![McEndpoint::Single(McInstanceRef::new(McInstance::Bus(
+                    McPhrase::Endpoint(McRef::Ports {
+                        left: vec![McRef::Name(McInstanceRef::new(McInstance::Bus(
                             left_bus,
                         )))],
-                        output: vec![McEndpoint::Single(McInstanceRef::new(McInstance::Bus(
+                        right: vec![McRef::Name(McInstanceRef::new(McInstance::Bus(
                             right_bus,
                         )))],
                     })

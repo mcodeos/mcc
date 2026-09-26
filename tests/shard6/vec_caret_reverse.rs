@@ -4,8 +4,8 @@
 
 // Integration test: reverse `^` on a curly-mn node (`X{A, B | C, D}`) swaps the
 // node's left/right port groups (vec-dianlu.md §6.3). `McPhrase::reverse()` and
-// the MCAST_OPD_CARET parse handler route `Endpoint(Node)` through
-// `std::mem::swap(input, output)`, so the netlist must re-wire the members:
+// the MCAST_OPD_CARET parse handler route `Endpoint(Ports)` through
+// `std::mem::swap(left, right)`, so the netlist must re-wire the members:
 //
 //   [VA, VB] -> mcu{A, B | C, D}  -> [VC, VD]     // A->VA B->VB C->VC D->VD
 //   [VA, VB] -> mcu{A, B | C, D}^ -> [VC, VD]     // A->VC B->VD C->VA D->VB
@@ -136,7 +136,7 @@ fn caret_swaps_node_input_output() {
     let mcd = net_of(&table, "mcu513.D").unwrap();
     assert!(
         mca == vc && mcb == vd && mccnet == va && mcd == vb,
-        "`^` must swap node input/output: expected A->VC B->VD C->VA D->VB; \
+        "`^` must swap node left/right: expected A->VC B->VD C->VA D->VB; \
          got A->{mca} B->{mcb} C->{mccnet} D->{mcd}"
     );
 }

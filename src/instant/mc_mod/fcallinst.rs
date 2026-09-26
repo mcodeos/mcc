@@ -26,7 +26,7 @@ use crate::instant::provenance::ExpansionKind;
 use crate::semantic::basic::mc_conds::{CondFamily, CondParam};
 use crate::semantic::basic::mc_bus::McBus;
 use crate::semantic::basic::mc_closure::McClosure;
-use crate::semantic::basic::mc_endpoint::{McEndpoint, McInstanceRef};
+use crate::semantic::basic::mc_ref::{McRef, McInstanceRef};
 use crate::semantic::basic::mc_fcall::McFuncCall;
 use crate::semantic::basic::mc_group::McGroup;
 use crate::semantic::basic::mc_opd::McOpd;
@@ -1015,7 +1015,7 @@ impl InstantiationBuilder {
     //     E3179 literal re-creation (§2.6 Table A rows 2/3).
     //
     //   - Deferred named constructions (`XTAL2 y(...)` — the class-first
-    //     named form) — parsed with `y` as an `Endpoint(Single(Component))`.
+    //     named form) — parsed with `y` as an `Endpoint(Name(Component))`.
     //     The name must survive pass2 as `U1.y` (not `@XTAL2{n}` anonymous)
     //     so trailing methods dispatch onto the named instance and sibling
     //     funcs can reference `y.XTAL.X1`.
@@ -1144,7 +1144,7 @@ impl InstantiationBuilder {
     ///
     /// Recursively walk the phrase tree (Series / Parallel / Multiple /
     /// Group / Transposed / Closure / Member / `FuncCall.caller`). For each
-    /// `Endpoint(Single(Component(c)))` with a non-empty name:
+    /// `Endpoint(Name(Component(c)))` with a non-empty name:
     ///
     /// 1. materialize `{inst_name}.{cname}` (deduped against `self.components`);
     /// 2. **rewrite the endpoint in place** to `Bus("{inst_name}.{cname}")` —
@@ -1188,7 +1188,7 @@ impl InstantiationBuilder {
                 }
             }
             McPhrase::Endpoint(ep) => {
-                if let McEndpoint::Single(iref) = ep {
+                if let McRef::Name(iref) = ep {
                     if let McInstance::Component(comp) = &iref.base {
                         let cname = comp.name.to_string();
                         if cname.is_empty() {
@@ -1464,10 +1464,10 @@ impl InstantiationBuilder {
                 // shape one: substitution rewrites formals into their actuals,
                 // so a net return (`return net` with `net := SPI.SCLK`) and an
                 // instance-port return (`return XTAL{X1,X2}`) both arrive here
-                // as `Endpoint(Single(Bus(_)))`. Only a name the receiver
+                // as `Endpoint(Name(Bus(_)))`. Only a name the receiver
                 // actually declares as a port is an instance-port face.
                 let port_name: Option<String> = match &substituted {
-                    McPhrase::Endpoint(McEndpoint::Single(iref)) => match &iref.base {
+                    McPhrase::Endpoint(McRef::Name(iref)) => match &iref.base {
                         McInstance::Bus(b) => Some(b.name.clone()),
                         // U138: an interface port's reference spells its
                         // adoption (`IF::P2P(Rx)`); the port registers on the
@@ -2391,15 +2391,15 @@ impl InstantiationBuilder {
     /// ── P2-7-XTAL: Convert Labels that are known bus names to Bus representations ──
     ///
     /// When `prefix_instance_stmt_with_skip` creates prefixed Labels like
-    /// "X6.XTAL", they are stored as `Endpoint(Single(Label("X6.XTAL")))`.
+    /// "X6.XTAL", they are stored as `Endpoint(Name(Label("X6.XTAL")))`.
     /// However, `get_left_points`/`get_right_points` return empty for Labels
     /// (see points.rs lines 468-475), and `collect_one_lane_item` only adds
     /// Labels for lane 0. This means multi-pin component interfaces referenced
     /// in function bodies are not expanded to individual pins.
     ///
     /// This function walks the McPhrase tree and converts any
-    /// `Endpoint(Single(Label(name)))` where `name` is a known bus to
-    /// `Endpoint(Single(Bus(name, members)))`, enabling proper multi-lane
+    /// `Endpoint(Name(Label(name)))` where `name` is a known bus to
+    /// `Endpoint(Name(Bus(name, members)))`, enabling proper multi-lane
     /// expansion.
     fn expand_bus_labels(&self, phrase: &McPhrase) -> McPhrase {
         match phrase {
@@ -2445,7 +2445,7 @@ impl InstantiationBuilder {
             // (e.g. Bus("X6.XTAL") created by prefixing an Interface variant).
             // Also handles single-member buses (e.g. GND → ["21"]) so that
             // get_left_points can expand them to physical pin IDs.
-            McPhrase::Endpoint(McEndpoint::Single(ref iref)) => {
+            McPhrase::Endpoint(McRef::Name(ref iref)) => {
                 let name_opt: Option<&str> = match &iref.base {
                     McInstance::Label(s) => Some(s.as_str()),
                     McInstance::Bus(b) if b.member.is_empty() => Some(b.name.as_str()),
@@ -2460,7 +2460,7 @@ impl InstantiationBuilder {
                                 full_members: Vec::new(),
                                 synthetic: None,
                             };
-                            return McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                            return McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
                                 McInstance::Bus(new_bus),
                             )));
                         }
@@ -2638,7 +2638,7 @@ impl InstantiationBuilder {
             // Cloning the Label directly would produce ghosts like
             // ".1 : Vin.Vin ~ .1" (Vin stays a Label, and get_points
             // resolves it as the anonymous owner's pin).
-            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+            McPhrase::Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::Label(ref s),
                 ..
             })) => {
@@ -2648,14 +2648,14 @@ impl InstantiationBuilder {
                 if skip.contains(s) || s.starts_with(&inst_prefix) || s.is_empty() {
                     phrase.clone()
                 } else {
-                    McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(McInstance::Label(
+                    McPhrase::Endpoint(McRef::Name(McInstanceRef::new(McInstance::Label(
                         format!("{inst_name}.{s}"),
                     ))))
                 }
             }
 
             // Bare Bus (member empty): same as Label handling
-            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+            McPhrase::Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::Bus(ref b),
                 ..
             })) if b.member.is_empty() => {
@@ -2663,7 +2663,7 @@ impl InstantiationBuilder {
                     phrase.clone()
                 } else {
                     let new_bus = McBus::new(&format!("{}.{}", inst_name, b.name));
-                    McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(McInstance::Bus(
+                    McPhrase::Endpoint(McRef::Name(McInstanceRef::new(McInstance::Bus(
                         new_bus,
                     ))))
                 }
@@ -2674,7 +2674,7 @@ impl InstantiationBuilder {
             // others stay as-is — members are usually internal pin names /
             // aliases and do not need extra prefix; the full path is assembled
             // when points.rs expands them).
-            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+            McPhrase::Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::Bus(ref b),
                 ..
             })) => {
@@ -2692,7 +2692,7 @@ impl InstantiationBuilder {
                     full_members: b.full_members.clone(),
                     synthetic: b.synthetic,
                 };
-                McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(McInstance::Bus(
+                McPhrase::Endpoint(McRef::Name(McInstanceRef::new(McInstance::Bus(
                     new_bus,
                 ))))
             }
@@ -2706,7 +2706,7 @@ impl InstantiationBuilder {
             //
             // But if the component name is in the skip set (referenced from an
             // actual) or is already a dotted path, do not prefix.
-            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+            McPhrase::Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::Component(ref c),
                 ..
             })) => {
@@ -2715,12 +2715,12 @@ impl InstantiationBuilder {
                     phrase.clone()
                 } else {
                     let prefixed = format!("{inst_name}.{cname}");
-                    McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(McInstance::Bus(
+                    McPhrase::Endpoint(McRef::Name(McInstanceRef::new(McInstance::Bus(
                         McBus::new(&prefixed),
                     ))))
                 }
             }
-            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+            McPhrase::Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::Module(ref m),
                 ..
             })) => {
@@ -2729,7 +2729,7 @@ impl InstantiationBuilder {
                     phrase.clone()
                 } else {
                     let prefixed = format!("{inst_name}.{mname}");
-                    McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(McInstance::Bus(
+                    McPhrase::Endpoint(McRef::Name(McInstanceRef::new(McInstance::Bus(
                         McBus::new(&prefixed),
                     ))))
                 }
@@ -2739,7 +2739,7 @@ impl InstantiationBuilder {
             // representing a pin shared by multiple ports. Members are bare
             // pin IDs; prefix with instance name so downstream resolution
             // can map to physical pin paths (e.g. multi[21,21] → uC.21).
-            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+            McPhrase::Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::List(ref l),
                 ..
             })) => {
@@ -2747,7 +2747,7 @@ impl InstantiationBuilder {
                     phrase.clone()
                 } else {
                     let new_bus = McBus::new_with_members(inst_name, l.member.clone());
-                    McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(McInstance::Bus(
+                    McPhrase::Endpoint(McRef::Name(McInstanceRef::new(McInstance::Bus(
                         new_bus,
                     ))))
                 }
@@ -2758,7 +2758,7 @@ impl InstantiationBuilder {
             // needs to be prefixed with the instance name (e.g. X6.XTAL) so
             // that downstream expand_port_lanes can find the component and
             // resolve physical pin IDs.
-            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+            McPhrase::Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::Interface(ref i),
                 ..
             })) => {
@@ -2767,7 +2767,7 @@ impl InstantiationBuilder {
                     phrase.clone()
                 } else {
                     let prefixed = format!("{inst_name}.{iname}");
-                    McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(McInstance::Bus(
+                    McPhrase::Endpoint(McRef::Name(McInstanceRef::new(McInstance::Bus(
                         McBus::new(&prefixed),
                     ))))
                 }
@@ -2778,13 +2778,13 @@ impl InstantiationBuilder {
                     .map(|p| Self::prefix_instance_phrase_with_skip(p, inst_name, skip))
                     .collect(),
             ),
-            McPhrase::Endpoint(McEndpoint::Node {
-                ref input,
-                ref output,
+            McPhrase::Endpoint(McRef::Ports {
+                ref left,
+                ref right,
                 ..
             }) => {
-                let left_elems: Vec<McBus> = input.iter().flat_map(|e| e.get_left()).collect();
-                let right_elems: Vec<McBus> = output.iter().flat_map(|e| e.get_right()).collect();
+                let left_elems: Vec<McBus> = left.iter().flat_map(|e| e.get_left()).collect();
+                let right_elems: Vec<McBus> = right.iter().flat_map(|e| e.get_right()).collect();
                 let prefixed_left: Vec<McBus> = left_elems
                     .iter()
                     .map(|e| Self::prefix_instance_node_element_with_skip(e, inst_name, skip))
@@ -2795,21 +2795,21 @@ impl InstantiationBuilder {
                     .collect();
                 let left_bus = Self::node_elements_to_bus(&prefixed_left);
                 let right_bus = Self::node_elements_to_bus(&prefixed_right);
-                McPhrase::Endpoint(McEndpoint::Node {
-                    input: vec![McEndpoint::Single(McInstanceRef::new(McInstance::Bus(
+                McPhrase::Endpoint(McRef::Ports {
+                    left: vec![McRef::Name(McInstanceRef::new(McInstance::Bus(
                         left_bus,
                     )))],
-                    output: vec![McEndpoint::Single(McInstanceRef::new(McInstance::Bus(
+                    right: vec![McRef::Name(McInstanceRef::new(McInstance::Bus(
                         right_bus,
                     )))],
                 })
             }
-            // ── P3-1: recursively prefix each item in a McEndpoint::List ──
+            // ── P3-1: recursively prefix each item in a McRef::Group ──
             // [VDD, GND] on the right side of -> in a component method body
             // must be prefixed to [uC.VDD, uC.GND] so downstream resolution
             // can map to physical pin IDs.
-            McPhrase::Endpoint(McEndpoint::List(ref items)) => {
-                let prefixed_items: Vec<McEndpoint> = items
+            McPhrase::Endpoint(McRef::Group(ref items)) => {
+                let prefixed_items: Vec<McRef> = items
                     .iter()
                     .map(|item| {
                         let phrase = McPhrase::Endpoint(item.clone());
@@ -2822,7 +2822,7 @@ impl InstantiationBuilder {
                         }
                     })
                     .collect();
-                McPhrase::Endpoint(McEndpoint::list(prefixed_items))
+                McPhrase::Endpoint(McRef::group(prefixed_items))
             }
             McPhrase::Endpoint(ref ep) => McPhrase::Endpoint(ep.clone()),
             McPhrase::Member(phrase, ep) => McPhrase::Member(

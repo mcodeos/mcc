@@ -171,7 +171,7 @@ fn replication__shape_column_stacks_to_MNx1_in_block_order() {
 fn shape(p: &mcc::McPhrase) -> String {
     match p {
         mcc::McPhrase::Endpoint(ep) => match ep {
-            mcc::McEndpoint::Single(r) => r.base.get_name().to_string(),
+            mcc::McRef::Name(r) => r.base.get_name().to_string(),
             other => format!("{other:?}"),
         },
         mcc::McPhrase::Multiple(v) => {

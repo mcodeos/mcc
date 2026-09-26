@@ -30,7 +30,7 @@
 use super::ledger::{self, LedgerAction, LedgerEntry, LedgerKind};
 use super::{CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, ValidationCheck};
 
-use crate::semantic::basic::mc_endpoint::{McEndpoint, McInstanceRef};
+use crate::semantic::basic::mc_ref::{McRef, McInstanceRef};
 use crate::semantic::basic::mc_opd::McOpd;
 use crate::semantic::basic::mc_param::McParamValue;
 use crate::semantic::basic::mc_phrase::McPhrase;
@@ -374,9 +374,9 @@ pub(crate) fn count_refs(phrase: &McPhrase, name: &str, c: &mut RefCounts, net_c
 
 /// Count name matches inside an endpoint tree (flatten handles list / node
 /// junctions, so each syntactic reference is counted once).
-fn count_endpoint_refs(ep: &McEndpoint, name: &str, count: &mut u32) {
+fn count_endpoint_refs(ep: &McRef, name: &str, count: &mut u32) {
     for single in ep.flatten() {
-        if let McEndpoint::Single(McInstanceRef { base, .. }) = single {
+        if let McRef::Name(McInstanceRef { base, .. }) = single {
             if inst_name_matches(&base, name) {
                 *count += 1;
             }

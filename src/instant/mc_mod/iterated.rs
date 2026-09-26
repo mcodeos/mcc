@@ -13,7 +13,7 @@ use super::InstantiationBuilder;
 use crate::instant::mc_net::InstError;
 use crate::instant::provenance::ExpansionKind;
 use crate::semantic::basic::mc_bus::McBus;
-use crate::semantic::basic::mc_endpoint::McEndpoint;
+use crate::semantic::basic::mc_ref::McRef;
 use crate::semantic::basic::mc_opd::McOpd;
 use crate::semantic::basic::mc_param::McParamValue;
 use crate::semantic::basic::mc_phrase::McPhrase;
@@ -60,13 +60,13 @@ impl InstantiationBuilder {
             }
         };
 
-        // Iter-11.4: lane-structured List receiver (§11.3 ③)
+        // Iter-11.4: lane-structured Group receiver (§11.3 ③)
         // Phase 1.3 pass1 vector resolution turns `c[1:2]` into
-        // `Endpoint(List([Single(c1), Single(c2), ...]))` — one lane per ordered
+        // `Endpoint(Group([Name(c1), Name(c2), ...]))` — one lane per ordered
         // member. Iterate the lanes directly; no `McIds::from(name).expand()`
         // string re-parse (the producer already carried the member set).
         let lanes_owned: Vec<McPhrase>;
-        if let McPhrase::Endpoint(McEndpoint::List(eps)) = caller_phrase {
+        if let McPhrase::Endpoint(McRef::Group(eps)) = caller_phrase {
             lanes_owned = eps
                 .iter()
                 .map(|ep| McPhrase::Endpoint(ep.clone()))
@@ -79,10 +79,10 @@ impl InstantiationBuilder {
         }
 
         // Caller must be McPhrase::Series whose first element is Parallel —
-        // or a lane-structured List receiver (taken above). The bare-bracket
+        // or a lane-structured Group receiver (taken above). The bare-bracket
         // `McIds::from(name).expand()` synthesis (Iter-1.3) is gone: pass1's
         // vector arm (§11.3 ③) resolves declared arrays to
-        // `Endpoint::List`, so no single-Endpoint caller reaches here with a
+        // `Endpoint::Group`, so no single-Endpoint caller reaches here with a
         // bracket name; an undeclared array base falls to the scalar-miss
         // decision (E3136/Wire twin) like any other undeclared name.
         let items: &Vec<McPhrase> = if !lanes_owned.is_empty() {
@@ -429,13 +429,13 @@ impl InstantiationBuilder {
     /// §3.3: extract the materialized instance name from an iterated item.
     ///
     /// A bare array caller (`r[1:2]`) is synthesized into per-member items as
-    /// `Endpoint(Single(Label("U1.r1")))` (or a plain `Label`/`Bus`) — the
+    /// `Endpoint(Name(Label("U1.r1")))` (or a plain `Label`/`Bus`) — the
     /// full dotted name of the already-declared member instance, which the
     /// `#[...]` expansion preserved. Returns `None` for anything that isn't a
     /// plain named instance reference (construction callers etc.).
     fn iterated_item_inst_name(item: &McPhrase) -> Option<String> {
         match item {
-            McPhrase::Endpoint(McEndpoint::Single(iref)) => match &iref.base {
+            McPhrase::Endpoint(McRef::Name(iref)) => match &iref.base {
                 McInstance::Label(s) => Some(s.clone()),
                 McInstance::Bus(b) if b.member.is_empty() => Some(b.name.clone()),
                 // §11.3: a resolved member endpoint (find_inst hit at pass1
@@ -445,8 +445,8 @@ impl InstantiationBuilder {
                 McInstance::Module(m) => Some(m.name.to_string()),
                 _ => None,
             },
-            McPhrase::Endpoint(McEndpoint::List(refs)) => refs.first().and_then(|ep| match ep {
-                McEndpoint::Single(iref) => match &iref.base {
+            McPhrase::Endpoint(McRef::Group(refs)) => refs.first().and_then(|ep| match ep {
+                McRef::Name(iref) => match &iref.base {
                     McInstance::Label(s) => Some(s.clone()),
                     McInstance::Bus(b) if b.member.is_empty() => Some(b.name.clone()),
                     McInstance::Component(c) => Some(c.name.to_string()),

@@ -4,7 +4,7 @@
 
 use super::{
     basic::mc_bus::{McBus, McList},
-    basic::mc_endpoint::{McEndpoint, McInstanceRef},
+    basic::mc_ref::{McRef, McInstanceRef},
     basic::mc_fcall::McFuncCall,
     basic::mc_phrase::McPhrase,
     mc_func::{GateCandidate, HasFindInst, McFunctions, ShapeCtx},
@@ -1220,7 +1220,7 @@ impl McModule {
     /// If not found, check members in anonymous List/Bus
     pub(crate) fn add_label(&mut self, name: String) -> McPhrase {
         if let Some(existing_inst) = self.insts.get(&name) {
-            return McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+            return McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
                 existing_inst.clone(),
             )));
         }
@@ -1231,7 +1231,7 @@ impl McModule {
             .create_inst(&name, McInstance::Label(name.clone()));
         self.insts
             .set_label_kind(&name, crate::semantic::mc_inst::LabelKind::Inline);
-        McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(McInstance::Label(
+        McPhrase::Endpoint(McRef::Name(McInstanceRef::new(McInstance::Label(
             name,
         ))))
     }
@@ -1248,27 +1248,27 @@ impl McModule {
             match inst {
                 McInstance::List(list) => {
                     if list.member.contains(&member_name.to_string()) {
-                        return Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                        return Some(McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
                             McInstance::Label(member_name.to_string()),
                         ))));
                     }
                 }
                 McInstance::Bus(bus) => {
                     if bus.full_members.contains(&member_name.to_string()) {
-                        return Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                        return Some(McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
                             McInstance::Label(member_name.to_string()),
                         ))));
                     }
                 }
                 McInstance::Interface(iface) => {
                     if iface.base.pins.names_to_id.contains_key(member_name) {
-                        return Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                        return Some(McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
                             McInstance::Label(member_name.to_string()),
                         ))));
                     }
                     let iface_members = iface.name.expand();
                     if iface_members.len() > 1 && iface_members.contains(&member_name.to_string()) {
-                        return Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                        return Some(McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
                             McInstance::Label(member_name.to_string()),
                         ))));
                     }
@@ -1289,14 +1289,14 @@ impl McModule {
         if !name.starts_with('@') {
             self.insts.create_inst(&name, inst.clone());
         }
-        McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(inst)))
+        McPhrase::Endpoint(McRef::Name(McInstanceRef::new(inst)))
     }
 
     /// Add module instance to symbol table
     pub(crate) fn add_module(&mut self, name: String, module: Mc2Module) -> McPhrase {
         let inst = McInstance::Module(Arc::new(module));
         self.insts.create_inst(&name, inst.clone());
-        McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(inst)))
+        McPhrase::Endpoint(McRef::Name(McInstanceRef::new(inst)))
     }
 
     /// Get all input ports' McBus
@@ -1469,7 +1469,7 @@ impl HasFindInst for McModule {
         // pass2 is driven by the bus name in the statement tree.
         let bus = McBus::new_with_members(&name, members);
         let inst = McInstance::Bus(bus);
-        Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+        Some(McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
             inst,
         ))))
     }
@@ -1478,7 +1478,7 @@ impl HasFindInst for McModule {
         let list = McList::new_with_members(&name, members);
         let inst = McInstance::List(list);
         self.insts.create_inst(&name, inst.clone());
-        Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+        Some(McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
             inst,
         ))))
     }
@@ -1497,7 +1497,7 @@ impl HasFindInst for McModule {
                 )
         }) {
             let member_ref = McBus::member_ref(base, member);
-            return Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+            return Some(McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
                 McInstance::Bus(member_ref),
             ))));
         }
@@ -1537,7 +1537,7 @@ impl HasFindInst for McModule {
                 }
             }
             let member_ref = McBus::member_ref(&full_name, member);
-            return Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+            return Some(McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
                 McInstance::Bus(member_ref),
             ))));
         }
@@ -1553,7 +1553,7 @@ impl HasFindInst for McModule {
                         .create_inst(&fn_base, McInstance::Bus(bus_to_add));
                 }
                 let member_ref = McBus::member_ref(&fn_base, member);
-                return Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                return Some(McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
                     McInstance::Bus(member_ref),
                 ))));
             }
@@ -1563,7 +1563,7 @@ impl HasFindInst for McModule {
         let inst = McInstance::Bus(bus);
         self.insts.create_inst(base, inst.clone());
         let member_ref = McBus::member_ref(base, member);
-        Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+        Some(McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
             McInstance::Bus(member_ref),
         ))))
     }
@@ -1579,7 +1579,7 @@ impl HasFindInst for McModule {
             if let McInstance::Component(comp) = comp_inst {
                 if comp.base.pins.is_interface(interface) {
                     let iface_ref = McBus::new_with_members(&full_name, members);
-                    return Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                    return Some(McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
                         McInstance::Bus(iface_ref),
                     ))));
                 }
@@ -1588,7 +1588,7 @@ impl HasFindInst for McModule {
         if let Some(McCMIE::Interface(_)) = resolve_cmie(&DB, &McIds::from("ADC.DIFF"), self.uri())
         {
             let iface_ref = McBus::new_with_members(&full_name, members);
-            return Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+            return Some(McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
                 McInstance::Bus(iface_ref),
             ))));
         }
@@ -1598,7 +1598,7 @@ impl HasFindInst for McModule {
             self.uri(),
         ) {
             let iface_ref = McBus::new_with_members(&full_name, members);
-            return Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+            return Some(McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
                 McInstance::Bus(iface_ref),
             ))));
         }
@@ -2485,7 +2485,7 @@ impl Mc2Module {
     pub fn find_port(&self, id: &str) -> Option<McPhrase> {
         // 1. Find in interface definitions
         if let Some(_port) = self.base.insts.find_port(id) {
-            return Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+            return Some(McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
                 McInstance::Bus(McBus::new_with_members(
                     &self.name.to_string(),
                     vec![id.to_string()],
@@ -2499,7 +2499,7 @@ impl Mc2Module {
                 // Find in port's sub-members
                 for member_name in port.members() {
                     if member_name == rest {
-                        return Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                        return Some(McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
                             McInstance::Bus(McBus::new(&format!(
                                 "{}.{}.{}",
                                 self.name, first, rest

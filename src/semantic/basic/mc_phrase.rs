@@ -6,7 +6,7 @@ use super::super::{
     basic::form::RefVerdict,
     basic::mc_bus::{IoSide, McBus},
     basic::mc_closure::McClosure,
-    basic::mc_endpoint::{McEndpoint, McInstanceRef},
+    basic::mc_ref::{McRef, McInstanceRef},
     basic::mc_fcall::{check_ctor_bind, McFuncCall, ReturnShape},
     basic::mc_group::McGroup,
     common::{ConnDir, ConnOp, IOType, McCMIE},
@@ -410,7 +410,7 @@ pub enum McPhrase {
     /// back to the phrase's heap address and re-shuffled every surfaced label
     /// on every run (CIMP §1 U129).
     Lead(u32),
-    Endpoint(McEndpoint),
+    Endpoint(McRef),
     Series(Vec<McPhrase>, ConnDir),
     Parallel(Vec<McPhrase>),
     Multiple(Vec<McPhrase>),
@@ -425,13 +425,13 @@ pub enum McPhrase {
     Reversed(Box<McPhrase>),
     Closure(McClosure),
     FuncCall(McFuncCall),
-    Member(Box<McPhrase>, McEndpoint),
+    Member(Box<McPhrase>, McRef),
 }
 
 impl McPhrase {
     /// Create endpoint
     pub fn ep(ref_: McInstanceRef) -> Self {
-        McPhrase::Endpoint(McEndpoint::single(ref_))
+        McPhrase::Endpoint(McRef::name(ref_))
     }
 
     /// Create label endpoint
@@ -638,7 +638,7 @@ impl McPhrase {
                         report_subscribed_reserved_word(&member, node);
                         let member_str = member.to_string();
                         if let Some(inst) = context.find_inst(&member_str) {
-                            return Some(McPhrase::Endpoint(McEndpoint::Single(
+                            return Some(McPhrase::Endpoint(McRef::Name(
                                 McInstanceRef::new(inst),
                             )));
                         }
@@ -715,11 +715,11 @@ impl McPhrase {
                             {
                                 if let Some(McInstance::Component(_)) = context.find_inst(&base) {
                                     let ep = if members.len() == 1 {
-                                        McEndpoint::Single(McInstanceRef::new(McInstance::Bus(
+                                        McRef::Name(McInstanceRef::new(McInstance::Bus(
                                             McBus::member_ref(&base, members[0].clone()),
                                         )))
                                     } else {
-                                        McEndpoint::Single(McInstanceRef::new(McInstance::Bus(
+                                        McRef::Name(McInstanceRef::new(McInstance::Bus(
                                             McBus::new_with_members(&base, members),
                                         )))
                                     };
@@ -770,7 +770,7 @@ impl McPhrase {
                                         // receiver — the array name resolves through the
                                         // vector arm to its ordered member set,
                                         // producing a lane-structured
-                                        // `McEndpoint::List` of per-member endpoints
+                                        // `McRef::Group` of per-member endpoints
                                         // (never a literal `c[1:2]` label; invariant
                                         // B). Members that are declared instances
                                         // become Component endpoints; func-local
@@ -783,20 +783,20 @@ impl McPhrase {
                                             node.get_len(),
                                         ) {
                                             RefVerdict::ResolvedMany(resolved) => {
-                                                let lanes: Vec<McEndpoint> = resolved
+                                                let lanes: Vec<McRef> = resolved
                                                     .iter()
                                                     .map(|m| match context.find_inst(m) {
-                                                        Some(inst) => McEndpoint::Single(
+                                                        Some(inst) => McRef::Name(
                                                             McInstanceRef::new(inst),
                                                         ),
                                                         None => {
-                                                            McEndpoint::Single(McInstanceRef::new(
+                                                            McRef::Name(McInstanceRef::new(
                                                                 McInstance::Label(m.clone()),
                                                             ))
                                                         }
                                                     })
                                                     .collect();
-                                                return Some(McPhrase::Endpoint(McEndpoint::List(
+                                                return Some(McPhrase::Endpoint(McRef::Group(
                                                     lanes,
                                                 )));
                                             }
@@ -811,7 +811,7 @@ impl McPhrase {
                                         // segment tree (no display-text re-split),
                                         // resolve the array prefix alone, and wrap the
                                         // shared member back on as a
-                                        // `Member(Endpoint(List), member)` so Pass2 expands
+                                        // `Member(Endpoint(Group), member)` so Pass2 expands
                                         // member-by-member (GAP1 alignment).
                                         if let Some((array_ids, member)) = split_vector_member(&ids)
                                         {
@@ -821,24 +821,24 @@ impl McPhrase {
                                                 node.get_len(),
                                             );
                                             if let RefVerdict::ResolvedMany(resolved) = verdict {
-                                                let lanes: Vec<McEndpoint> = resolved
+                                                let lanes: Vec<McRef> = resolved
                                                     .iter()
                                                     .map(|m| match context.find_inst(m) {
-                                                        Some(inst) => McEndpoint::Single(
+                                                        Some(inst) => McRef::Name(
                                                             McInstanceRef::new(inst),
                                                         ),
                                                         None => {
-                                                            McEndpoint::Single(McInstanceRef::new(
+                                                            McRef::Name(McInstanceRef::new(
                                                                 McInstance::Label(m.clone()),
                                                             ))
                                                         }
                                                     })
                                                     .collect();
-                                                let member_ep = McEndpoint::Single(
+                                                let member_ep = McRef::Name(
                                                     McInstanceRef::new(McInstance::Label(member)),
                                                 );
                                                 return Some(McPhrase::Member(
-                                                    Box::new(McPhrase::Endpoint(McEndpoint::List(
+                                                    Box::new(McPhrase::Endpoint(McRef::Group(
                                                         lanes,
                                                     ))),
                                                     member_ep,
@@ -853,7 +853,7 @@ impl McPhrase {
                                         // E4057). Split the inner group off the segment
                                         // tree, resolve the array prefix alone, and wrap
                                         // the member group per instance as
-                                        // `Member(Endpoint(List), member-group)` (U237
+                                        // `Member(Endpoint(Group), member-group)` (U237
                                         // case B: the inner group reads as a per-instance
                                         // member face — node `N*2` for a pair, a point
                                         // `N*1` for a single member).
@@ -879,29 +879,29 @@ impl McPhrase {
                                                 node.get_len(),
                                             );
                                             if let RefVerdict::ResolvedMany(resolved) = verdict {
-                                                let lanes: Vec<McEndpoint> = resolved
+                                                let lanes: Vec<McRef> = resolved
                                                     .iter()
                                                     .map(|m| match context.find_inst(m) {
-                                                        Some(inst) => McEndpoint::Single(
+                                                        Some(inst) => McRef::Name(
                                                             McInstanceRef::new(inst),
                                                         ),
                                                         None => {
-                                                            McEndpoint::Single(McInstanceRef::new(
+                                                            McRef::Name(McInstanceRef::new(
                                                                 McInstance::Label(m.clone()),
                                                             ))
                                                         }
                                                     })
                                                     .collect();
                                                 let member_ep = if members.len() == 1 {
-                                                    McEndpoint::Single(McInstanceRef::new(
+                                                    McRef::Name(McInstanceRef::new(
                                                         McInstance::Label(members.remove(0)),
                                                     ))
                                                 } else {
-                                                    McEndpoint::List(
+                                                    McRef::Group(
                                                         members
                                                             .into_iter()
                                                             .map(|m| {
-                                                                McEndpoint::Single(
+                                                                McRef::Name(
                                                                     McInstanceRef::new(
                                                                         McInstance::Label(m),
                                                                     ),
@@ -911,7 +911,7 @@ impl McPhrase {
                                                     )
                                                 };
                                                 return Some(McPhrase::Member(
-                                                    Box::new(McPhrase::Endpoint(McEndpoint::List(
+                                                    Box::new(McPhrase::Endpoint(McRef::Group(
                                                         lanes,
                                                     ))),
                                                     member_ep,
@@ -995,7 +995,7 @@ impl McPhrase {
                                 // ── Array base with curly member group (`S[1:4]{1,2}`) ──
                                 // R3 element-wise sub on a set: resolve the array prefix
                                 // alone, then each lane carries the curly member group
-                                // (`Member(Endpoint(List), member-group)`). Without this
+                                // (`Member(Endpoint(Group), member-group)`). Without this
                                 // arm the spelling collapsed to a bus named after the
                                 // first expanded member (`as_bus` takes `expand()[0]` =
                                 // `S1`), silently wiring only the first instance — the
@@ -1008,13 +1008,13 @@ impl McPhrase {
                                             node.get_len(),
                                         );
                                         if let RefVerdict::ResolvedMany(resolved) = verdict {
-                                            let lanes: Vec<McEndpoint> = resolved
+                                            let lanes: Vec<McRef> = resolved
                                                 .iter()
                                                 .map(|m| match context.find_inst(m) {
-                                                    Some(inst) => McEndpoint::Single(
+                                                    Some(inst) => McRef::Name(
                                                         McInstanceRef::new(inst),
                                                     ),
-                                                    None => McEndpoint::Single(
+                                                    None => McRef::Name(
                                                         McInstanceRef::new(McInstance::Label(
                                                             m.clone(),
                                                         )),
@@ -1022,15 +1022,15 @@ impl McPhrase {
                                                 })
                                                 .collect();
                                             let member_ep = if members.len() == 1 {
-                                                McEndpoint::Single(McInstanceRef::new(
+                                                McRef::Name(McInstanceRef::new(
                                                     McInstance::Label(members.remove(0)),
                                                 ))
                                             } else {
-                                                McEndpoint::List(
+                                                McRef::Group(
                                                     members
                                                         .into_iter()
                                                         .map(|m| {
-                                                            McEndpoint::Single(McInstanceRef::new(
+                                                            McRef::Name(McInstanceRef::new(
                                                                 McInstance::Label(m),
                                                             ))
                                                         })
@@ -1038,7 +1038,7 @@ impl McPhrase {
                                                 )
                                             };
                                             return Some(McPhrase::Member(
-                                                Box::new(McPhrase::Endpoint(McEndpoint::List(
+                                                Box::new(McPhrase::Endpoint(McRef::Group(
                                                     lanes,
                                                 ))),
                                                 member_ep,
@@ -1331,7 +1331,7 @@ impl McPhrase {
                                 // nested-DOT path's transparent `return left_opd`.
                                 if dropped_pins && chain.len() == 1 {
                                     if let Some(inst) = context.find_inst(&chain[0]) {
-                                        return Some(McPhrase::Endpoint(McEndpoint::Single(
+                                        return Some(McPhrase::Endpoint(McRef::Name(
                                             McInstanceRef::new(inst),
                                         )));
                                     }
@@ -1344,7 +1344,7 @@ impl McPhrase {
                                         let pin_name = chain[2..].join(".");
                                         let full_name = format!("{base}.{bus_name}");
                                         let member_ref = McBus::member_ref(&full_name, pin_name);
-                                        return Some(McPhrase::Endpoint(McEndpoint::Single(
+                                        return Some(McPhrase::Endpoint(McRef::Name(
                                             McInstanceRef::new(McInstance::Bus(member_ref)),
                                         )));
                                     }
@@ -1601,7 +1601,7 @@ impl McPhrase {
                                             {
                                                 let pair_bus = McBus::new_with_members(base, pair);
                                                 return Some(McPhrase::Endpoint(
-                                                    McEndpoint::Single(McInstanceRef::new(
+                                                    McRef::Name(McInstanceRef::new(
                                                         McInstance::Bus(pair_bus),
                                                     )),
                                                 ));
@@ -1620,19 +1620,19 @@ impl McPhrase {
                                             &subnode,
                                         ) {
                                             let member_ref = McBus::member_ref(base, rest);
-                                            return Some(McPhrase::Endpoint(McEndpoint::Single(
+                                            return Some(McPhrase::Endpoint(McRef::Name(
                                                 McInstanceRef::new(McInstance::Bus(member_ref)),
                                             )));
                                         }
                                         context.upgrade_label_to_bus(base);
-                                        if let Some(McPhrase::Endpoint(McEndpoint::Single(
+                                        if let Some(McPhrase::Endpoint(McRef::Name(
                                             McInstanceRef {
                                                 base: McInstance::Bus(bus),
                                                 ..
                                             },
                                         ))) = context.add_bus_member(base, rest.clone())
                                         {
-                                            return Some(McPhrase::Endpoint(McEndpoint::Single(
+                                            return Some(McPhrase::Endpoint(McRef::Name(
                                                 McInstanceRef::new(McInstance::Bus(bus)),
                                             )));
                                         }
@@ -1660,7 +1660,7 @@ impl McPhrase {
                                     );
                                 }
                                 let member_ref = McBus::member_ref(base, rest);
-                                Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                                Some(McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
                                     McInstance::Bus(member_ref),
                                 ))))
                             } else {
@@ -1673,7 +1673,7 @@ impl McPhrase {
                             if let Some((base, member)) = ids.as_dot_access() {
                                 if base == "this" {
                                     if let Some(inst) = context.find_inst(&member) {
-                                        return Some(McPhrase::Endpoint(McEndpoint::Single(
+                                        return Some(McPhrase::Endpoint(McRef::Name(
                                             McInstanceRef::new(inst),
                                         )));
                                     }
@@ -1826,19 +1826,19 @@ impl McPhrase {
                                     ) {
                                         let member_ref =
                                             McBus::member_ref(base, member.to_string());
-                                        return Some(McPhrase::Endpoint(McEndpoint::Single(
+                                        return Some(McPhrase::Endpoint(McRef::Name(
                                             McInstanceRef::new(McInstance::Bus(member_ref)),
                                         )));
                                     }
                                     context.upgrade_label_to_bus(base);
-                                    if let Some(McPhrase::Endpoint(McEndpoint::Single(
+                                    if let Some(McPhrase::Endpoint(McRef::Name(
                                         McInstanceRef {
                                             base: McInstance::Bus(bus),
                                             ..
                                         },
                                     ))) = context.add_bus_member(base, member.to_string())
                                     {
-                                        return Some(McPhrase::Endpoint(McEndpoint::Single(
+                                        return Some(McPhrase::Endpoint(McRef::Name(
                                             McInstanceRef::new(McInstance::Bus(bus)),
                                         )));
                                     }
@@ -1860,7 +1860,7 @@ impl McPhrase {
                                 );
                             }
                             let member_ref = McBus::member_ref(base, member.to_string());
-                            Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                            Some(McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
                                 McInstance::Bus(member_ref),
                             ))))
                         } else {
@@ -1920,7 +1920,7 @@ impl McPhrase {
                                             &format!("{{{}}}", clean.join(", ")),
                                             node,
                                         );
-                                        return Some(McPhrase::Endpoint(McEndpoint::Single(
+                                        return Some(McPhrase::Endpoint(McRef::Name(
                                             McInstanceRef::new(McInstance::Bus(
                                                 McBus::new_with_members(&base_name, clean),
                                             )),
@@ -1980,7 +1980,7 @@ impl McPhrase {
                             &format!(".{}", members.join(", .")),
                             node,
                         );
-                        return Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                        return Some(McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
                             McInstance::Bus(McBus::new_with_members(&base_name, members)),
                         ))));
                     }
@@ -1992,7 +1992,7 @@ impl McPhrase {
                             .enumerate()
                             .filter_map(|(idx, ident)| {
                                 if let Some(ident) = ident {
-                                    Some(McPhrase::Endpoint(McEndpoint::Single(
+                                    Some(McPhrase::Endpoint(McRef::Name(
                                         McInstanceRef::new(ident),
                                     )))
                                 } else {
@@ -2039,14 +2039,14 @@ impl McPhrase {
                                                     let member_ref =
                                                         McBus::member_ref(base, member.to_string());
                                                     return Some(McPhrase::Endpoint(
-                                                        McEndpoint::Single(McInstanceRef::new(
+                                                        McRef::Name(McInstanceRef::new(
                                                             McInstance::Bus(member_ref),
                                                         )),
                                                     ));
                                                 }
                                                 context.upgrade_label_to_bus(base);
                                                 if let Some(McPhrase::Endpoint(
-                                                    McEndpoint::Single(McInstanceRef {
+                                                    McRef::Name(McInstanceRef {
                                                         base: McInstance::Bus(bus),
                                                         ..
                                                     }),
@@ -2054,7 +2054,7 @@ impl McPhrase {
                                                     context.add_bus_member(base, member.to_string())
                                                 {
                                                     return Some(McPhrase::Endpoint(
-                                                        McEndpoint::Single(McInstanceRef::new(
+                                                        McRef::Name(McInstanceRef::new(
                                                             McInstance::Bus(bus),
                                                         )),
                                                     ));
@@ -2085,7 +2085,7 @@ impl McPhrase {
                                         }
                                         let member_ref =
                                             McBus::member_ref(base, member.to_string());
-                                        Some(McPhrase::Endpoint(McEndpoint::Single(
+                                        Some(McPhrase::Endpoint(McRef::Name(
                                             McInstanceRef::new(McInstance::Bus(member_ref)),
                                         )))
                                     } else {
@@ -2298,7 +2298,7 @@ impl McPhrase {
                                     let caller = if name.is_empty() {
                                         None
                                     } else {
-                                        Some(Box::new(McPhrase::Endpoint(McEndpoint::Single(
+                                        Some(Box::new(McPhrase::Endpoint(McRef::Name(
                                             McInstanceRef::new(McInstance::Label(name.clone())),
                                         ))))
                                     };
@@ -2395,34 +2395,34 @@ impl McPhrase {
                     None
                 } else if result.len() == 1 {
                     match result.remove(0) {
-                        McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+                        McPhrase::Endpoint(McRef::Name(McInstanceRef {
                             base: McInstance::Component(c),
                             ..
-                        })) => Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                        })) => Some(McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
                             McInstance::Component(c.clone()),
                         )))),
-                        McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+                        McPhrase::Endpoint(McRef::Name(McInstanceRef {
                             base: McInstance::Module(m),
                             ..
-                        })) => Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                        })) => Some(McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
                             McInstance::Module(m.clone()),
                         )))),
-                        McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+                        McPhrase::Endpoint(McRef::Name(McInstanceRef {
                             base: McInstance::Bus(ne),
                             ..
-                        })) => Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                        })) => Some(McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
                             McInstance::Bus(ne.clone()),
                         )))),
-                        McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+                        McPhrase::Endpoint(McRef::Name(McInstanceRef {
                             base: McInstance::Label(label),
                             ..
-                        })) => Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                        })) => Some(McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
                             McInstance::Label(label.clone()),
                         )))),
-                        McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+                        McPhrase::Endpoint(McRef::Name(McInstanceRef {
                             base: McInstance::Interface(declare),
                             ..
-                        })) => Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                        })) => Some(McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
                             McInstance::Interface(declare.clone()),
                         )))),
                         other => Some(other),
@@ -2440,7 +2440,7 @@ impl McPhrase {
                 let right = subnode2.to_id_or_ida_or_num();
 
                 let _left_kind = match &left_opd {
-                    McPhrase::Endpoint(McEndpoint::Single(ir)) => match &ir.base {
+                    McPhrase::Endpoint(McRef::Name(ir)) => match &ir.base {
                         McInstance::Label(s) => format!("Label('{s}')"),
                         McInstance::Bus(b) => format!("Bus('{}', mem={:?})", b.name, b.member),
                         McInstance::Component(c) => format!("Component('{}')", c.name),
@@ -2471,7 +2471,7 @@ impl McPhrase {
 
                 // Special case: if left is Label and right has one element,
                 // combine them into a single label (e.g., usbsock.VBUS -> "usbsock.VBUS")
-                if let McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+                if let McPhrase::Endpoint(McRef::Name(McInstanceRef {
                     base: McInstance::Label(ref data),
                     ..
                 })) = &left_opd
@@ -2479,7 +2479,7 @@ impl McPhrase {
                     if right.len() == 1 && !right[0].is_empty() {
                         // Create combined label: "left_name.right_name"
                         let combined_name = format!("{}.{}", data, right[0]);
-                        return Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                        return Some(McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
                             McInstance::Bus(McBus::new(&combined_name)),
                         ))));
                     }
@@ -2489,7 +2489,7 @@ impl McPhrase {
                 // Multiple
                 // In that case, we should combine them into a single qualified name
                 if right.len() == 1 && !right[0].is_empty() {
-                    if let McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+                    if let McPhrase::Endpoint(McRef::Name(McInstanceRef {
                         base: McInstance::Component(ref c),
                         ..
                     })) = &left_opd
@@ -2587,7 +2587,7 @@ impl McPhrase {
                                 return None;
                             }
                         }
-                    } else if let McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+                    } else if let McPhrase::Endpoint(McRef::Name(McInstanceRef {
                         base: McInstance::Module(ref m),
                         ..
                     })) = &left_opd
@@ -2773,7 +2773,7 @@ impl McPhrase {
                         }
                     }
                     let member_ep =
-                        McEndpoint::Single(McInstanceRef::new(McInstance::Label(right[0].clone())));
+                        McRef::Name(McInstanceRef::new(McInstance::Label(right[0].clone())));
                     return Some(McPhrase::Member(Box::new(left_opd), member_ep));
                 }
 
@@ -2791,7 +2791,7 @@ impl McPhrase {
                 let right: Vec<String> = subnode2.to_id_or_ida_or_num();
 
                 let _left_kind = match &left_opd {
-                    McPhrase::Endpoint(McEndpoint::Single(ir)) => match &ir.base {
+                    McPhrase::Endpoint(McRef::Name(ir)) => match &ir.base {
                         McInstance::Label(s) => format!("Label('{s}')"),
                         McInstance::Bus(b) => format!("Bus('{}', mem={:?})", b.name, b.member),
                         McInstance::Component(c) => format!("Component('{}')", c.name),
@@ -2814,7 +2814,7 @@ impl McPhrase {
                 // dot_or_curly success (hits find_pin) use directly; extract instance qualified
                 // name first
                 let base_name: Option<String> = match &left_opd {
-                    McPhrase::Endpoint(McEndpoint::Single(ir)) => match &ir.base {
+                    McPhrase::Endpoint(McRef::Name(ir)) => match &ir.base {
                         McInstance::Component(c) => Some(c.name.to_string()),
                         McInstance::Module(m) => Some(m.name.to_string()),
                         McInstance::Interface(i) => Some(i.name.to_string()),
@@ -2851,7 +2851,7 @@ impl McPhrase {
                         .with_uri(context.uri().to_string())
                         .with_span(node.get_pos(), node.get_len()),
                     );
-                    return Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                    return Some(McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
                         McInstance::Bus(McBus::new_with_members(&name, members)),
                     ))));
                 }
@@ -2966,11 +2966,11 @@ impl McPhrase {
                 }
 
                 match left_opd {
-                    left_opd @ McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+                    left_opd @ McPhrase::Endpoint(McRef::Name(McInstanceRef {
                         base: McInstance::Component(_),
                         ..
                     }))
-                    | left_opd @ McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+                    | left_opd @ McPhrase::Endpoint(McRef::Name(McInstanceRef {
                         base: McInstance::Module(_),
                         ..
                     })) => left_opd.curly_mn(&right1, &right2),
@@ -2983,7 +2983,7 @@ impl McPhrase {
                         // Resolve the ctor family here, materialize the instance under
                         // its caller name, and apply the two-face selection to it.
                         let inst_name = match fc.caller.as_deref() {
-                            Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+                            Some(McPhrase::Endpoint(McRef::Name(McInstanceRef {
                                 base: McInstance::Label(label),
                                 ..
                             }))) if !label.is_empty() => label.clone(),
@@ -3007,7 +3007,7 @@ impl McPhrase {
                                 // at instantiation and the face resolver expands
                                 // the selection through the same element
                                 // expander a declared instance's curly form
-                                // uses. (The old rewrite to a Node of dotted
+                                // uses. (The old rewrite to a Ports of dotted
                                 // bus spellings bypassed materialization: the
                                 // instance never entered the module's component
                                 // table, the faces fell into the bus-definition
@@ -3045,11 +3045,11 @@ impl McPhrase {
                         // Component or Module. This happens when the instance was not yet
                         // registered in the symbol table (e.g., due to parse order issues).
                         let name = match &left_opd {
-                            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+                            McPhrase::Endpoint(McRef::Name(McInstanceRef {
                                 base: McInstance::Bus(ref ne),
                                 ..
                             })) if !ne.name.is_empty() => Some(ne.name.clone()),
-                            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+                            McPhrase::Endpoint(McRef::Name(McInstanceRef {
                                 base: McInstance::Label(label),
                                 ..
                             })) => Some(label.clone()),
@@ -3059,7 +3059,7 @@ impl McPhrase {
                         if let Some(ref name) = name {
                             // "this"/"pins" in a func body refer to the enclosing
                             // instance and only bind to a real component at
-                            // instantiation time. Build the two-sided Node from
+                            // instantiation time. Build the two-sided Ports from
                             // `this.<pin>` labels directly (mirrors how `this.1` /
                             // `this{1,3}` resolve later), without the not-found error.
                             if name == "this" || name == "pins" {
@@ -3072,19 +3072,19 @@ impl McPhrase {
                                     .map(|r| McBus::new(&format!("{name}.{r}")))
                                     .collect();
                                 if !left_members.is_empty() || !right_members.is_empty() {
-                                    return Some(McPhrase::Endpoint(McEndpoint::Node {
-                                        input: left_members
+                                    return Some(McPhrase::Endpoint(McRef::Ports {
+                                        left: left_members
                                             .iter()
                                             .map(|bus| {
-                                                McEndpoint::Single(McInstanceRef::new(
+                                                McRef::Name(McInstanceRef::new(
                                                     McInstance::Bus(bus.clone()),
                                                 ))
                                             })
                                             .collect(),
-                                        output: right_members
+                                        right: right_members
                                             .iter()
                                             .map(|bus| {
-                                                McEndpoint::Single(McInstanceRef::new(
+                                                McRef::Name(McInstanceRef::new(
                                                     McInstance::Bus(bus.clone()),
                                                 ))
                                             })
@@ -3097,13 +3097,13 @@ impl McPhrase {
                                 let resolved: McPhrase = ident.into();
                                 if matches!(
                                     resolved,
-                                    McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+                                    McPhrase::Endpoint(McRef::Name(McInstanceRef {
                                         base: McInstance::Component(_),
                                         ..
                                     }))
                                 ) || matches!(
                                     resolved,
-                                    McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+                                    McPhrase::Endpoint(McRef::Name(McInstanceRef {
                                         base: McInstance::Module(_),
                                         ..
                                     }))
@@ -3117,7 +3117,7 @@ impl McPhrase {
                                 match cmie {
                                     McCMIE::Component(comp_def) => {
                                         let mc2_comp = Mc2Component::new(name, comp_def);
-                                        let phrase = McPhrase::Endpoint(McEndpoint::Single(
+                                        let phrase = McPhrase::Endpoint(McRef::Name(
                                             McInstanceRef::new(McInstance::Component(Arc::new(
                                                 mc2_comp,
                                             ))),
@@ -3126,7 +3126,7 @@ impl McPhrase {
                                     }
                                     McCMIE::Module(mod_def) => {
                                         let mc2_mod = Mc2Module::new(name, mod_def);
-                                        let phrase = McPhrase::Endpoint(McEndpoint::Single(
+                                        let phrase = McPhrase::Endpoint(McRef::Name(
                                             McInstanceRef::new(McInstance::Module(Arc::new(
                                                 mc2_mod,
                                             ))),
@@ -3137,7 +3137,7 @@ impl McPhrase {
                                 }
                             }
 
-                            // ★ Fix: Graceful fallback - create Node from label names
+                            // ★ Fix: Graceful fallback - create Ports from label names
                             // When the definition is not found (e.g., due to missing file),
                             // treat it as label-based port selection rather than hard error.
                             // This allows downstream processing to continue with partial info.
@@ -3159,19 +3159,19 @@ impl McPhrase {
                                         &[&name],
                                     ),
                                 );
-                                return Some(McPhrase::Endpoint(McEndpoint::Node {
-                                    input: left_members
+                                return Some(McPhrase::Endpoint(McRef::Ports {
+                                    left: left_members
                                         .iter()
                                         .map(|bus| {
-                                            McEndpoint::Single(McInstanceRef::new(McInstance::Bus(
+                                            McRef::Name(McInstanceRef::new(McInstance::Bus(
                                                 bus.clone(),
                                             )))
                                         })
                                         .collect(),
-                                    output: right_members
+                                    right: right_members
                                         .iter()
                                         .map(|bus| {
-                                            McEndpoint::Single(McInstanceRef::new(McInstance::Bus(
+                                            McRef::Name(McInstanceRef::new(McInstance::Bus(
                                                 bus.clone(),
                                             )))
                                         })
@@ -3695,20 +3695,20 @@ impl McPhrase {
                             // Parse the DECLARE (the phrase may hold DOT expressions)
                             return Self::new(&inner, context);
                         }
-                        // Lane-structured `Endpoint(List)` of per-member endpoints
+                        // Lane-structured `Endpoint(Group)` of per-member endpoints
                         // (§11.3 invariant B) — the receiver shape the vector arm
                         // produces; func-local members invisible to `find_inst`
                         // stay as labels, unified with the instances in pass2.
-                        let lanes: Vec<McEndpoint> = declared
+                        let lanes: Vec<McRef> = declared
                             .iter()
                             .map(|name| match context.find_inst(name) {
-                                Some(inst) => McEndpoint::Single(McInstanceRef::new(inst)),
-                                None => McEndpoint::Single(McInstanceRef::new(
+                                Some(inst) => McRef::Name(McInstanceRef::new(inst)),
+                                None => McRef::Name(McInstanceRef::new(
                                     McInstance::Label(name.clone()),
                                 )),
                             })
                             .collect();
-                        return Some(McPhrase::Endpoint(McEndpoint::List(lanes)));
+                        return Some(McPhrase::Endpoint(McRef::Group(lanes)));
                     }
                     let names = inner.to_id_or_ida();
                     if names.len() == 1 {
@@ -3725,7 +3725,7 @@ impl McPhrase {
                             .iter()
                             .filter_map(|name| {
                                 if let Some(inst) = context.find_inst(name) {
-                                    Some(McPhrase::Endpoint(McEndpoint::Single(
+                                    Some(McPhrase::Endpoint(McRef::Name(
                                         McInstanceRef::new(inst),
                                     )))
                                 } else {
@@ -4082,7 +4082,7 @@ fn is_reverse_noop_operand(p: &McPhrase) -> bool {
 /// shape layer rather than being unwrapped here.
 fn as_bare_component(opd: &McPhrase) -> Option<(&Mc2Component, CompPinShape)> {
     match opd {
-        McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+        McPhrase::Endpoint(McRef::Name(McInstanceRef {
             base: McInstance::Component(ref c),
             ..
         })) => Some((c, shape_defaults(c))),
@@ -4157,11 +4157,11 @@ fn check_body_pair_plusminus(
 /// layer's business -- and deliberately does not resolve here.
 fn as_bare_net(opd: &McPhrase, context: &mut dyn HasFindInst) -> Option<String> {
     let name = match opd {
-        McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+        McPhrase::Endpoint(McRef::Name(McInstanceRef {
             base: McInstance::Label(ref label),
             ..
         })) => label.to_string(),
-        McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+        McPhrase::Endpoint(McRef::Name(McInstanceRef {
             base: McInstance::Bus(ref bus),
             ..
         })) if bus.member.is_empty() && !bus.name.is_empty() => bus.name.clone(),
@@ -4236,7 +4236,7 @@ impl McPhrase {
     pub(crate) fn get_left(&self) -> Vec<McBus> {
         use IOType;
         match self {
-            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+            McPhrase::Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::Component(ref c),
                 ..
             })) => {
@@ -4270,7 +4270,7 @@ impl McPhrase {
                     }
                 }
             }
-            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+            McPhrase::Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::Module(ref m),
                 ..
             })) => {
@@ -4282,7 +4282,7 @@ impl McPhrase {
                     .map(|p| p.to_node_element_with_prefix(&inst_name))
                     .collect()
             }
-            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+            McPhrase::Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::Bus(ref data),
                 ..
             })) => {
@@ -4301,19 +4301,19 @@ impl McPhrase {
                     Vec::from(data.clone())
                 }
             }
-            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+            McPhrase::Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::Label(ref label),
                 ..
             })) => {
                 vec![McBus::new(label)]
             }
-            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+            McPhrase::Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::Interface(ref iface),
                 ..
             })) => {
                 vec![McBus::new(&iface.name.to_string())]
             }
-            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+            McPhrase::Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::List(ref list),
                 ..
             })) => {
@@ -4350,8 +4350,8 @@ impl McPhrase {
                 }
             }
             McPhrase::Multiple(mc_opds) => mc_opds.iter().flat_map(|x| x.get_left()).collect(),
-            McPhrase::Endpoint(McEndpoint::Node { ref input, .. }) => {
-                input.iter().flat_map(|e| e.get_left()).collect()
+            McPhrase::Endpoint(McRef::Ports { ref left, .. }) => {
+                left.iter().flat_map(|e| e.get_left()).collect()
             }
             McPhrase::Transposed(mc_line) => mc_line.get_right(),
             // §2.4.5: `^` is applied to the *evaluated* operand, so the
@@ -4385,7 +4385,7 @@ impl McPhrase {
     pub(crate) fn get_right(&self) -> Vec<McBus> {
         use IOType;
         match self {
-            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+            McPhrase::Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::Component(ref c),
                 ..
             })) => {
@@ -4416,7 +4416,7 @@ impl McPhrase {
                     }
                 }
             }
-            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+            McPhrase::Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::Module(ref m),
                 ..
             })) => {
@@ -4428,7 +4428,7 @@ impl McPhrase {
                     .map(|p| p.to_node_element_with_prefix(&inst_name))
                     .collect()
             }
-            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+            McPhrase::Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::Bus(ref data),
                 ..
             })) => {
@@ -4445,19 +4445,19 @@ impl McPhrase {
                     Vec::from(data.clone())
                 }
             }
-            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+            McPhrase::Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::Label(ref label),
                 ..
             })) => {
                 vec![McBus::new(label)]
             }
-            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+            McPhrase::Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::Interface(ref iface),
                 ..
             })) => {
                 vec![McBus::new(&iface.name.to_string())]
             }
-            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+            McPhrase::Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::List(ref list),
                 ..
             })) => {
@@ -4487,8 +4487,8 @@ impl McPhrase {
                 }
             }
             McPhrase::Multiple(mc_opds) => mc_opds.iter().flat_map(|x| x.get_right()).collect(),
-            McPhrase::Endpoint(McEndpoint::Node { ref output, .. }) => {
-                output.iter().flat_map(|e| e.get_right()).collect()
+            McPhrase::Endpoint(McRef::Ports { ref right, .. }) => {
+                right.iter().flat_map(|e| e.get_right()).collect()
             }
             McPhrase::Transposed(mc_line) => mc_line.get_left(),
             // §2.4.5: mirror of `get_left` — the reversed view's right face is
@@ -4524,7 +4524,7 @@ impl McPhrase {
             McPhrase::Reversed(inner) => (*inner)
                 .dot_or_curly(member_names)
                 .map(|p| McPhrase::Reversed(Box::new(p))),
-            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+            McPhrase::Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::Component(c),
                 ..
             })) => {
@@ -4534,7 +4534,7 @@ impl McPhrase {
                 if member_names.len() > 1 {
                     let combined = member_names.join(".");
                     if let Some(found) = c.find_pin(&combined) {
-                        return Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                        return Some(McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
                             McInstance::Bus(McBus::new(&format!("{inst_name}.{found}"))),
                         ))));
                     }
@@ -4552,7 +4552,7 @@ impl McPhrase {
                 if member_names.len() >= 2 {
                     let all_hit = member_names.iter().all(|id| c.find_pin(id).is_some());
                     if all_hit {
-                        return Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                        return Some(McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
                             McInstance::Bus(McBus::new_with_members(
                                 &inst_name,
                                 member_names.to_vec(),
@@ -4566,7 +4566,7 @@ impl McPhrase {
                     .iter()
                     .filter_map(|id| {
                         c.find_pin(id).map(|found| {
-                            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                            McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
                                 McInstance::Bus(McBus::new(&format!("{inst_name}.{found}"))),
                             )))
                         })
@@ -4588,7 +4588,7 @@ impl McPhrase {
                     Some(McPhrase::Multiple(result))
                 }
             }
-            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+            McPhrase::Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::Module(m),
                 ..
             })) => {
@@ -4610,7 +4610,7 @@ impl McPhrase {
                     let combined = member_names.join(".");
                     if m.base.insts.find_port(&combined).is_some() {
                         // Module port lookup found - create McPhrase from it
-                        return Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                        return Some(McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
                             McInstance::Bus(McBus::new_with_members(&inst_name, vec![combined])),
                         ))));
                     }
@@ -4630,13 +4630,13 @@ impl McPhrase {
                 let mut final_results: Vec<McPhrase> = Vec::new();
                 // Create single Bus with all found members
                 if !found_members.is_empty() {
-                    final_results.push(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                    final_results.push(McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
                         McInstance::Bus(McBus::new_with_members(&inst_name, found_members)),
                     ))));
                 }
                 // Add not found references as separate Buses with the member
                 for (base, member) in not_found_refs {
-                    final_results.push(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                    final_results.push(McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
                         McInstance::Bus(McBus::new_with_members(&base, vec![member])),
                     ))));
                 }
@@ -4656,7 +4656,7 @@ impl McPhrase {
                     Some(McPhrase::Multiple(final_results))
                 }
             }
-            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+            McPhrase::Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::Interface(i),
                 ..
             })) => {
@@ -4665,7 +4665,7 @@ impl McPhrase {
                 if member_names.len() > 1 {
                     let combined = member_names.join(".");
                     if i.base.pins.find_pin(&combined).is_some() {
-                        return Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                        return Some(McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
                             McInstance::Bus(McBus::new_with_members(&inst_name, vec![combined])),
                         ))));
                     }
@@ -4677,7 +4677,7 @@ impl McPhrase {
                         .iter()
                         .all(|id| i.base.pins.find_pin(id).is_some());
                     if all_hit {
-                        return Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                        return Some(McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
                             McInstance::Bus(McBus::new_with_members(
                                 &inst_name,
                                 member_names.to_vec(),
@@ -4690,14 +4690,14 @@ impl McPhrase {
                 let mut final_results: Vec<McPhrase> = Vec::new();
                 for (idx, id) in member_names.iter().enumerate() {
                     if let Some(found) = i.base.pins.find_pin(id) {
-                        final_results.push(McPhrase::Endpoint(McEndpoint::Single(
+                        final_results.push(McPhrase::Endpoint(McRef::Name(
                             McInstanceRef::new(McInstance::Bus(McBus::new_with_members(
                                 &inst_name,
                                 vec![found],
                             ))),
                         )));
                     } else {
-                        final_results.push(McPhrase::Endpoint(McEndpoint::Single(
+                        final_results.push(McPhrase::Endpoint(McRef::Name(
                             McInstanceRef::new(McInstance::Bus(McBus::new(&format!(
                                 "{}.{}",
                                 inst_name, member_names[idx]
@@ -4722,7 +4722,7 @@ impl McPhrase {
                 }
             }
             // Inst<Component/Module> delegates to the unwrapped handlers
-            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+            McPhrase::Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::Bus(ref data),
                 ..
             })) => match member_names.len() {
@@ -4742,7 +4742,7 @@ impl McPhrase {
                     if results.is_empty() {
                         None
                     } else {
-                        Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                        Some(McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
                             McInstance::Bus(McBus::new_with_members(
                                 &data.name,
                                 member_names[0..1].to_vec(),
@@ -4768,7 +4768,7 @@ impl McPhrase {
                             if found.is_empty() {
                                 None
                             } else {
-                                Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                                Some(McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
                                     McInstance::Bus(McBus::new_with_members(
                                         &data.name,
                                         found
@@ -4782,25 +4782,25 @@ impl McPhrase {
                         .collect(),
                 )),
             },
-            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+            McPhrase::Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::Label(ref data),
                 ..
             })) => {
                 if member_names.is_empty() {
-                    return Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                    return Some(McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
                         McInstance::Label(data.clone()),
                     ))));
                 }
-                Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                Some(McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
                     McInstance::Bus(McBus::new_with_members(data, member_names.to_vec())),
                 ))))
             }
-            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+            McPhrase::Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::List(mut list),
                 ..
             })) => {
                 member_names.iter().for_each(|x| list.add_member(x));
-                Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                Some(McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
                     McInstance::List(list),
                 ))))
             }
@@ -4823,7 +4823,7 @@ impl McPhrase {
                 );
                 None
             }
-            McPhrase::Endpoint(McEndpoint::Node { .. }) => {
+            McPhrase::Endpoint(McRef::Ports { .. }) => {
                 dlog_trace(
                     crate::errcodes::PHRASE_MEMBER_ON_NODE,
                     &crate::errcodes::format_msg(crate::errcodes::PHRASE_MEMBER_ON_NODE, &[]),
@@ -4917,7 +4917,7 @@ impl McPhrase {
             for elem in interface {
                 // Direct name match (e.g. "vin" matches McBus { name: "ModLDO.vin" })
                 if elem.name == *member_name || elem.name.ends_with(&format!(".{member_name}")) {
-                    results.push(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                    results.push(McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
                         McInstance::Bus(McBus::new_with_members(&elem.name, elem.member.clone())),
                     ))));
                     found = true;
@@ -4932,7 +4932,7 @@ impl McPhrase {
                     } else {
                         format!("{}.{}", elem.name, member_name)
                     };
-                    results.push(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                    results.push(McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
                         McInstance::Bus(McBus::new(&combined_name)),
                     ))));
                     found = true;
@@ -4945,7 +4945,7 @@ impl McPhrase {
                 if let Some(first) = interface.first() {
                     let base = first.name.split('.').next().unwrap_or(&first.name);
                     let derived_name = format!("{base}.{member_name}");
-                    results.push(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                    results.push(McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
                         McInstance::Bus(McBus::new(&derived_name)),
                     ))));
                 } else {
@@ -4991,15 +4991,15 @@ impl McPhrase {
                         mc_opds.into_iter().map(opd_to_node_element_vec).collect();
                     results.map(|v| v.into_iter().flatten().collect())
                 }
-                McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+                McPhrase::Endpoint(McRef::Name(McInstanceRef {
                     base: McInstance::Bus(ref node_elements),
                     ..
                 })) => Some(Vec::from(node_elements)),
-                McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+                McPhrase::Endpoint(McRef::Name(McInstanceRef {
                     base: McInstance::Label(ref name),
                     ..
                 })) => Some(vec![McBus::new(name)]),
-                McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+                McPhrase::Endpoint(McRef::Name(McInstanceRef {
                     base: McInstance::Module(m),
                     members,
                 })) => {
@@ -5045,7 +5045,7 @@ impl McPhrase {
                 // that is a leaf member or unknown stays verbatim.
                 let mut r1 = right1.to_vec();
                 let mut r2 = right2.to_vec();
-                if let McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+                if let McPhrase::Endpoint(McRef::Name(McInstanceRef {
                     base: McInstance::Component(c),
                     ..
                 })) = &self
@@ -5065,17 +5065,17 @@ impl McPhrase {
                 }
                 let left = opd_to_node_element_vec(self.clone().dot_or_curly(&r1)?)?;
                 let right = opd_to_node_element_vec(self.dot_or_curly(&r2)?)?;
-                Some(McPhrase::Endpoint(McEndpoint::Node {
-                    input: left
+                Some(McPhrase::Endpoint(McRef::Ports {
+                    left: left
                         .iter()
                         .map(|bus| {
-                            McEndpoint::Single(McInstanceRef::new(McInstance::Bus(bus.clone())))
+                            McRef::Name(McInstanceRef::new(McInstance::Bus(bus.clone())))
                         })
                         .collect(),
-                    output: right
+                    right: right
                         .iter()
                         .map(|bus| {
-                            McEndpoint::Single(McInstanceRef::new(McInstance::Bus(bus.clone())))
+                            McRef::Name(McInstanceRef::new(McInstance::Bus(bus.clone())))
                         })
                         .collect(),
                 }))
@@ -5085,7 +5085,7 @@ impl McPhrase {
 
     fn upgrade_new_label_or_bus(self, context: &mut dyn HasFindInst) -> McPhrase {
         match self {
-            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+            McPhrase::Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::Label(ref data),
                 ..
             })) => context.add_label(data.clone()).unwrap_or(self),
@@ -5150,7 +5150,7 @@ impl std::fmt::Display for McPhrase {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             McPhrase::Lead(_) => write!(f, "_"),
-            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+            McPhrase::Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::Component(c),
                 ..
             })) => {
@@ -5160,11 +5160,11 @@ impl std::fmt::Display for McPhrase {
                     write!(f, "{}", c.name)
                 }
             }
-            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+            McPhrase::Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::Module(m),
                 ..
             })) => write!(f, "{}", m.name),
-            McPhrase::Endpoint(McEndpoint::Single(ref_)) => write!(f, "{ref_}"),
+            McPhrase::Endpoint(McRef::Name(ref_)) => write!(f, "{ref_}"),
             McPhrase::Series(phrases, dir) => {
                 let sep = match dir {
                     ConnDir::LtoR => " -> ",
@@ -5490,31 +5490,31 @@ fn infer_shape_and_upgrade(
         }
 
         (
-            Endpoint(McEndpoint::Single(McInstanceRef {
+            Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::Label(data1),
                 ..
             })),
-            Endpoint(McEndpoint::Single(McInstanceRef {
+            Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::Label(data2),
                 ..
             })),
         ) => (
-            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(McInstance::Label(
+            McPhrase::Endpoint(McRef::Name(McInstanceRef::new(McInstance::Label(
                 data1,
             )))),
-            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(McInstance::Label(
+            McPhrase::Endpoint(McRef::Name(McInstanceRef::new(McInstance::Label(
                 data2,
             )))),
         ),
 
         (
-            Endpoint(McEndpoint::Single(McInstanceRef {
+            Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::Label(data1),
                 ..
             })),
             rhs,
         ) => (
-            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(McInstance::Label(
+            McPhrase::Endpoint(McRef::Name(McInstanceRef::new(McInstance::Label(
                 data1,
             )))),
             rhs,
@@ -5522,13 +5522,13 @@ fn infer_shape_and_upgrade(
 
         (
             lhs,
-            Endpoint(McEndpoint::Single(McInstanceRef {
+            Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::Label(data2),
                 ..
             })),
         ) => (
             lhs,
-            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(McInstance::Label(
+            McPhrase::Endpoint(McRef::Name(McInstanceRef::new(McInstance::Label(
                 data2,
             )))),
         ),
@@ -5670,7 +5670,7 @@ fn component_port_elems(
 /// (`.XTAL`, `.I2C0`) against the port set of the base instance.
 fn base_instance_name(phrase: &McPhrase) -> Option<String> {
     match phrase {
-        McPhrase::Endpoint(McEndpoint::Single(McInstanceRef { base, .. })) => match base {
+        McPhrase::Endpoint(McRef::Name(McInstanceRef { base, .. })) => match base {
             McInstance::Component(c) => Some(c.name.base_name()),
             McInstance::Label(l) => Some(l.clone()),
             McInstance::Module(m) => Some(m.name.base_name()),
@@ -5745,12 +5745,12 @@ fn module_port_elems(
 /// operators), which are not instance member accesses.
 fn operand_base_member(opd: &McPhrase) -> Option<(String, String)> {
     let (name, members): (&str, &[String]) = match opd {
-        McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+        McPhrase::Endpoint(McRef::Name(McInstanceRef {
             base: McInstance::Label(l),
             ..
         })) => (l.as_str(), &[],
         ),
-        McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+        McPhrase::Endpoint(McRef::Name(McInstanceRef {
             base: McInstance::Bus(b),
             ..
         })) if b.member.len() <= 1 => (b.name.as_str(), &b.member),
@@ -5952,7 +5952,7 @@ fn eval_port_elems(phrase: &McPhrase, right: bool, context: &dyn ShapeCtx) -> Ve
         // point per member (mc_mod/points.rs P2-4), so the Pass1 opcheck view must
         // present the same width — otherwise a strict §5 row-count check rejects a
         // legal chain whose interface side Pass2 will expand to N points.
-        McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+        McPhrase::Endpoint(McRef::Name(McInstanceRef {
             base: McInstance::Interface(ref iface),
             ..
         })) => interface_elems(iface),
@@ -5963,7 +5963,7 @@ fn eval_port_elems(phrase: &McPhrase, right: bool, context: &dyn ShapeCtx) -> Ve
         // member (mc_mod/points.rs expand_port_lanes) — while scalar ports keep
         // the single-point width that get_left/get_right expose. This keeps the
         // Pass1 opcheck view aligned with the Pass2 expansion count.
-        McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+        McPhrase::Endpoint(McRef::Name(McInstanceRef {
             base: McInstance::Module(ref m),
             ..
         })) => {
@@ -6007,7 +6007,7 @@ fn eval_port_elems(phrase: &McPhrase, right: bool, context: &dyn ShapeCtx) -> Ve
         // port, present the port's full member count — Pass2 expands the port to
         // one point per member — so the strict §5 check does not reject a legal
         // chain whose component side Pass2 will expand to N points.
-        McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+        McPhrase::Endpoint(McRef::Name(McInstanceRef {
             base: McInstance::Label(ref label),
             ..
         })) => {
@@ -6056,7 +6056,7 @@ fn eval_port_elems(phrase: &McPhrase, right: bool, context: &dyn ShapeCtx) -> Ve
         // the member_ref form `Bus("uC", ["UART0"])` or the combined-name form
         // `Bus("uC.UART0", [])` — and must present the port's full member count
         // the same way the Label branch does.
-        McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+        McPhrase::Endpoint(McRef::Name(McInstanceRef {
             base: McInstance::Bus(ref bus),
             ..
         })) => {
@@ -6114,14 +6114,14 @@ fn eval_port_elems(phrase: &McPhrase, right: bool, context: &dyn ShapeCtx) -> Ve
         // Pass1 opcheck view must present the same width.
         McPhrase::Member(inner, ep) => {
             let member = match ep {
-                McEndpoint::Single(McInstanceRef {
+                McRef::Name(McInstanceRef {
                     base: McInstance::Label(l),
                     ..
                 }) => Some(l.clone()),
                 _ => None,
             };
             // ── Member group on an array (`S[1:4][1,2]` / `S[1:4]{1,2}`) ──
-            // The member face is a GROUP (`List` of labels) over an array
+            // The member face is a GROUP (`Group` of labels) over an array
             // base: each instance contributes one row vector over the group
             // members (vec-arch.md §4.1.1 R2, U237 case B), so the operand is
             // a `lanes × members` node, instance-major — left face = first
@@ -6129,13 +6129,13 @@ fn eval_port_elems(phrase: &McPhrase, right: bool, context: &dyn ShapeCtx) -> Ve
             // member stays a degenerate `N*1` column). Without this the shape
             // degrades through the generic fallback below and the strict §5
             // row check drops the whole statement (E4007).
-            if let (McEndpoint::List(member_items), McPhrase::Endpoint(McEndpoint::List(lane_items))) =
+            if let (McRef::Group(member_items), McPhrase::Endpoint(McRef::Group(lane_items))) =
                 (ep, inner.as_ref())
             {
                 let members: Vec<String> = member_items
                     .iter()
                     .filter_map(|m| match m {
-                        McEndpoint::Single(iref) => match &iref.base {
+                        McRef::Name(iref) => match &iref.base {
                             McInstance::Label(s) => Some(s.clone()),
                             _ => None,
                         },
@@ -6145,7 +6145,7 @@ fn eval_port_elems(phrase: &McPhrase, right: bool, context: &dyn ShapeCtx) -> Ve
                 let lanes: Vec<String> = lane_items
                     .iter()
                     .filter_map(|it| match it {
-                        McEndpoint::Single(iref) => match &iref.base {
+                        McRef::Name(iref) => match &iref.base {
                             McInstance::Component(c) => Some(c.name.to_string()),
                             McInstance::Label(s) => Some(s.clone()),
                             _ => None,
@@ -6169,14 +6169,14 @@ fn eval_port_elems(phrase: &McPhrase, right: bool, context: &dyn ShapeCtx) -> Ve
             // shape would be `Node([c1.1, c2.1], ["1"])` and a pair of slices
             // (`c[1:2].1 -> d[1:2].1`) would opcheck as 2-vs-1 and drop the
             // whole statement at parse time.
-            if let (Some(m), McPhrase::Endpoint(McEndpoint::List(items))) =
+            if let (Some(m), McPhrase::Endpoint(McRef::Group(items))) =
                 (member.as_deref(), inner.as_ref())
             {
                 let buses: Vec<McBus> = items
                     .iter()
                     .filter_map(|it| {
                         let name = match it {
-                            McEndpoint::Single(iref) => match &iref.base {
+                            McRef::Name(iref) => match &iref.base {
                                 McInstance::Component(c) => Some(c.name.to_string()),
                                 McInstance::Label(s) => Some(s.clone()),
                                 _ => None,
@@ -6223,9 +6223,9 @@ fn eval_port_elems(phrase: &McPhrase, right: bool, context: &dyn ShapeCtx) -> Ve
                 eval_port_elems(inner, false, context)
             }
         }
-        McPhrase::Endpoint(McEndpoint::Node {
-            ref input,
-            ref output,
+        McPhrase::Endpoint(McRef::Ports {
+            left: ref left_side,
+            right: ref right_side,
         }) => {
             // Curly-mn port selection `m{vin|vout}` (MCAST_OPD_CURLY_MN) — the
             // input elements connect on the left, the output elements on the
@@ -6235,11 +6235,11 @@ fn eval_port_elems(phrase: &McPhrase, right: bool, context: &dyn ShapeCtx) -> Ve
             // per member (Pass2 expands it to one point per member), otherwise
             // the strict §5 row-count check rejects a legal chain whose port
             // Pass2 will expand to N points.
-            let side = if right { output } else { input };
+            let side = if right { right_side } else { left_side };
             let mut elems: Vec<McBus> = Vec::new();
             for ep in side {
                 match ep {
-                    McEndpoint::Single(McInstanceRef {
+                    McRef::Name(McInstanceRef {
                         base: McInstance::Bus(ref bus),
                         ..
                     }) => {
@@ -6289,7 +6289,7 @@ fn eval_port_elems(phrase: &McPhrase, right: bool, context: &dyn ShapeCtx) -> Ve
         // a MultiPort component its in/out/power pin contacts. This is the
         // declaration-derived width Pass2's expand_port_lanes produces, so the
         // Pass1 view matches.
-        McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+        McPhrase::Endpoint(McRef::Name(McInstanceRef {
             base: McInstance::Component(ref c),
             ..
         })) => {
@@ -6336,7 +6336,7 @@ fn eval_port_elems(phrase: &McPhrase, right: bool, context: &dyn ShapeCtx) -> Ve
         // A named list `Label[1,2]` is a column vector of its members
         // (vec-arch.md §4.2), not a single point named after the list. Only a
         // member-less list stays the bare name.
-        McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+        McPhrase::Endpoint(McRef::Name(McInstanceRef {
             base: McInstance::List(ref list),
             ..
         })) => {
@@ -6349,7 +6349,7 @@ fn eval_port_elems(phrase: &McPhrase, right: bool, context: &dyn ShapeCtx) -> Ve
         // An endpoint list `[A, B]` exposes every element's port in order —
         // the Pass2 view (points.rs P2-1 flat-maps all items), not just the
         // first element's like the symbol-level get_left.
-        McPhrase::Endpoint(McEndpoint::List(ref items)) => items
+        McPhrase::Endpoint(McRef::Group(ref items)) => items
             .iter()
             .flat_map(|e| list_element_elems(&McPhrase::Endpoint(e.clone()), right, context))
             .collect(),
@@ -6411,7 +6411,7 @@ fn eval_port_elems(phrase: &McPhrase, right: bool, context: &dyn ShapeCtx) -> Ve
         // Any other single instance reference (BusRef / Unresolved / Pins /
         // PinId / Attr / Func / EnumVal): a single 1*1 point from its bus
         // identity — these carry no multi-member expansion.
-        McPhrase::Endpoint(McEndpoint::Single(ref iref)) => vec![iref.to_bus()],
+        McPhrase::Endpoint(McRef::Name(ref iref)) => vec![iref.to_bus()],
     }
 }
 
@@ -6499,7 +6499,7 @@ fn check_list_column_width_mixed(
                     }
                 }
             }
-            McPhrase::Endpoint(McEndpoint::List(items)) => {
+            McPhrase::Endpoint(McRef::Group(items)) => {
                 for it in items {
                     let wrapped = McPhrase::Endpoint(it.clone());
                     match column_kind(&wrapped, context) {
@@ -6537,7 +6537,7 @@ fn check_list_column_width_mixed(
 /// the width gate; this is the single predicate both views share, so the
 /// row-count view can never drift from the gate again.
 fn declared_scalar_element(e: &McPhrase, context: &dyn ShapeCtx) -> Option<McBus> {
-    if let McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+    if let McPhrase::Endpoint(McRef::Name(McInstanceRef {
         base: McInstance::Label(name),
         ..
     })) = e
@@ -6551,7 +6551,7 @@ fn declared_scalar_element(e: &McPhrase, context: &dyn ShapeCtx) -> Option<McBus
 }
 
 /// One element of an R4 column stack, for the two list arms of
-/// `eval_port_elems` (`Multiple` and `Endpoint(List)`).
+/// `eval_port_elems` (`Multiple` and `Endpoint(Group)`).
 ///
 /// The whole operand keeps the unknown width that shape-by-use needs, but a
 /// list element must still count as one row: dropping it would make the row

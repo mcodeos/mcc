@@ -4,7 +4,7 @@
 
 use crate::db::diagnostic::diagnostic::{dlog_error, dlog_warning};
 use crate::semantic::basic::mc_bus::{McBus, McList};
-use crate::semantic::basic::mc_endpoint::{McEndpoint, McInstanceRef};
+use crate::semantic::basic::mc_ref::{McRef, McInstanceRef};
 use crate::semantic::basic::mc_group::McGroup;
 use crate::semantic::basic::mc_phrase::McPhrase;
 use crate::semantic::component::Mc2Component;
@@ -1374,7 +1374,7 @@ impl HasFindInst for McFunction {
 
     fn add_label(&mut self, name: String) -> Option<McPhrase> {
         if let Some(existing_inst) = self.insts.get(&name) {
-            return Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+            return Some(McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
                 existing_inst.clone(),
             ))));
         }
@@ -1387,27 +1387,27 @@ impl HasFindInst for McFunction {
             match inst {
                 McInstance::List(list) => {
                     if list.member.contains(&name) {
-                        return Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                        return Some(McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
                             McInstance::Label(name.clone()),
                         ))));
                     }
                 }
                 McInstance::Bus(bus) => {
                     if bus.full_members.contains(&name) {
-                        return Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                        return Some(McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
                             McInstance::Label(name.clone()),
                         ))));
                     }
                 }
                 McInstance::Interface(iface) => {
                     if iface.base.pins.names_to_id.contains_key(&name) {
-                        return Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                        return Some(McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
                             McInstance::Label(name.clone()),
                         ))));
                     }
                     let iface_members = iface.name.expand();
                     if iface_members.len() > 1 && iface_members.contains(&name) {
-                        return Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                        return Some(McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
                             McInstance::Label(name.clone()),
                         ))));
                     }
@@ -1415,7 +1415,7 @@ impl HasFindInst for McFunction {
                 _ => {}
             }
         }
-        Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+        Some(McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
             McInstance::Label(name),
         ))))
     }
@@ -1423,7 +1423,7 @@ impl HasFindInst for McFunction {
     fn add_component(&mut self, name: String, comp: Mc2Component) -> Option<McPhrase> {
         let inst = McInstance::Component(std::sync::Arc::new(comp));
         self.insts.create_inst(&name, inst.clone());
-        Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+        Some(McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
             inst,
         ))))
     }
@@ -1431,7 +1431,7 @@ impl HasFindInst for McFunction {
     fn add_module(&mut self, name: String, module: Mc2Module) -> Option<McPhrase> {
         let inst = McInstance::Module(std::sync::Arc::new(module));
         self.insts.create_inst(&name, inst.clone());
-        Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+        Some(McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
             inst,
         ))))
     }
@@ -1443,7 +1443,7 @@ impl HasFindInst for McFunction {
         // base for a late-declared instance and skip E3137. Net joining in
         // pass2 is driven by the bus name in the statement tree.
         let inst = McInstance::Bus(McBus::new_with_members(&name, members));
-        Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+        Some(McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
             inst,
         ))))
     }
@@ -1451,7 +1451,7 @@ impl HasFindInst for McFunction {
     fn add_list(&mut self, name: String, members: Vec<String>) -> Option<McPhrase> {
         let inst = McInstance::List(McList::new_with_members(&name, members));
         self.insts.create_inst(&name, inst.clone());
-        Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+        Some(McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
             inst,
         ))))
     }

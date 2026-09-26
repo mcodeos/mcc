@@ -5,7 +5,7 @@
 use super::mc_phrase::McPhrase;
 use crate::ast::node::AstNode;
 use crate::semantic::basic::mc_bus::McBus;
-use crate::semantic::basic::mc_endpoint::{McEndpoint, McInstanceRef};
+use crate::semantic::basic::mc_ref::{McRef, McInstanceRef};
 use crate::semantic::mc_func::HasFindInst;
 use crate::semantic::mc_inst::McInstance;
 use crate::semantic::validation::ledger::{self, LedgerAction, LedgerEntry, LedgerKind};
@@ -122,7 +122,7 @@ fn group_shape_match_and_upgrade(opds: &mut Vec<McPhrase>) -> (bool, bool) {
     if let Some(first_determined) = opds.iter().find(|phrase| {
         !matches!(
             phrase,
-            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+            McPhrase::Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::Label(_),
                 ..
             }))
@@ -132,14 +132,14 @@ fn group_shape_match_and_upgrade(opds: &mut Vec<McPhrase>) -> (bool, bool) {
         let right_size = get_size(&first_determined.get_right());
         (
             opds.iter().all(|each| match each {
-                McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+                McPhrase::Endpoint(McRef::Name(McInstanceRef {
                     base: McInstance::Label(_),
                     ..
                 })) => true,
                 _ => get_size(&each.get_left()) == left_size,
             }),
             opds.iter().all(|each| match each {
-                McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+                McPhrase::Endpoint(McRef::Name(McInstanceRef {
                     base: McInstance::Label(_),
                     ..
                 })) => true,

@@ -3,7 +3,7 @@
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
 use super::mc_bus::{IoSide, McBus};
-use super::mc_endpoint::{McEndpoint, McInstanceRef};
+use super::mc_ref::{McRef, McInstanceRef};
 use super::mc_ids::McIds;
 use super::mc_opd::McOpd;
 use super::mc_param::{McParamBindings, McParamValue, ParamBindError};
@@ -80,7 +80,7 @@ pub(crate) fn get_right_bus_from_phrase(phrase: &McPhrase) -> Vec<McBus> {
         McPhrase::Endpoint(ep) => {
             // For endpoint return: derive bus from the endpoint type
             match ep {
-                McEndpoint::Single(ir) => {
+                McRef::Name(ir) => {
                     // A multi-member bus return (`return XTAL{X1, X2}`) is a
                     // vector of N lanes — one per member (Pass2 emits one
                     // `@@RETURN_EP` per member pin). Expand to per-member buses
@@ -97,11 +97,11 @@ pub(crate) fn get_right_bus_from_phrase(phrase: &McPhrase) -> Vec<McBus> {
                     let name = ir.to_string();
                     vec![McBus::new(&name)]
                 }
-                McEndpoint::List(eps) => eps
+                McRef::Group(eps) => eps
                     .iter()
                     .flat_map(|ep| get_right_bus_from_phrase(&McPhrase::Endpoint(ep.clone())))
                     .collect(),
-                McEndpoint::Node { input: _, output } => output
+                McRef::Ports { left: _, right } => right
                     .iter()
                     .flat_map(|ep| get_right_bus_from_phrase(&McPhrase::Endpoint(ep.clone())))
                     .collect(),
@@ -848,25 +848,25 @@ impl McFuncCall {
                             )
                             && declared.iter().all(|n| context.has_local_decl(n));
                         if registered {
-                            // Lane-structured `Endpoint(List)` of per-member
+                            // Lane-structured `Endpoint(Group)` of per-member
                             // callers — the same receiver shape the canonical
                             // split form's array caller produces (§11.3
                             // invariant B). Members invisible to in-body
                             // `find_inst` (func.insts is not on the body scope
                             // chain) stay as labels; pass2 unifies them with
                             // the §3.4-materialized instances.
-                            let lanes: Vec<McEndpoint> = declared
+                            let lanes: Vec<McRef> = declared
                                 .iter()
                                 .map(|n| match context.find_inst(n) {
                                     Some(inst) => {
-                                        McEndpoint::Single(McInstanceRef::new(inst))
+                                        McRef::Name(McInstanceRef::new(inst))
                                     }
-                                    None => McEndpoint::Single(McInstanceRef::new(
+                                    None => McRef::Name(McInstanceRef::new(
                                         McInstance::Label(n.clone()),
                                     )),
                                 })
                                 .collect();
-                            caller = Some(Box::new(McPhrase::Endpoint(McEndpoint::List(
+                            caller = Some(Box::new(McPhrase::Endpoint(McRef::Group(
                                 lanes,
                             ))));
                         } else if let Some(sub) = inner.get_sub_node() {
@@ -957,7 +957,7 @@ impl McFuncCall {
                                                 None
                                             } else {
                                                 Some(Box::new(McPhrase::Endpoint(
-                                                    McEndpoint::Single(McInstanceRef::new(
+                                                    McRef::Name(McInstanceRef::new(
                                                         McInstance::Label(name.to_string()),
                                                     )),
                                                 )))
@@ -1506,36 +1506,36 @@ impl McFuncCall {
                     }
                     if let Some(ref caller_opd) = caller {
                         match caller_opd.as_ref() {
-                            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+                            McPhrase::Endpoint(McRef::Name(McInstanceRef {
                                 base: McInstance::Component(c),
                                 members: _,
                             })) => McIds::from(c.name.to_string().as_str()),
-                            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+                            McPhrase::Endpoint(McRef::Name(McInstanceRef {
                                 base: McInstance::Module(m),
                                 members: _,
                             })) => McIds::from(m.name.to_string().as_str()),
-                            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+                            McPhrase::Endpoint(McRef::Name(McInstanceRef {
                                 base: McInstance::Bus(ne),
                                 members: _,
                             })) => McIds::from(ne.name.as_str()),
-                            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+                            McPhrase::Endpoint(McRef::Name(McInstanceRef {
                                 base: McInstance::Label(label),
                                 members: _,
                             })) => McIds::from(label.as_str()),
                             McPhrase::Multiple(opds) if !opds.is_empty() => match &opds[0] {
-                                McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+                                McPhrase::Endpoint(McRef::Name(McInstanceRef {
                                     base: McInstance::Bus(ne),
                                     members: _,
                                 })) => McIds::from(ne.name.as_str()),
-                                McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+                                McPhrase::Endpoint(McRef::Name(McInstanceRef {
                                     base: McInstance::Label(label),
                                     members: _,
                                 })) => McIds::from(label.as_str()),
-                                McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+                                McPhrase::Endpoint(McRef::Name(McInstanceRef {
                                     base: McInstance::Component(c),
                                     members: _,
                                 })) => McIds::from(c.name.to_string().as_str()),
-                                McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+                                McPhrase::Endpoint(McRef::Name(McInstanceRef {
                                     base: McInstance::Module(m),
                                     members: _,
                                 })) => McIds::from(m.name.to_string().as_str()),
@@ -1603,36 +1603,36 @@ impl McFuncCall {
                     }
                 } else if let Some(ref caller_opd) = caller {
                     match caller_opd.as_ref() {
-                        McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+                        McPhrase::Endpoint(McRef::Name(McInstanceRef {
                             base: McInstance::Component(c),
                             members: _,
                         })) => McIds::from(c.name.to_string().as_str()),
-                        McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+                        McPhrase::Endpoint(McRef::Name(McInstanceRef {
                             base: McInstance::Module(m),
                             members: _,
                         })) => McIds::from(m.name.to_string().as_str()),
-                        McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+                        McPhrase::Endpoint(McRef::Name(McInstanceRef {
                             base: McInstance::Bus(ne),
                             members: _,
                         })) => McIds::from(ne.name.as_str()),
-                        McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+                        McPhrase::Endpoint(McRef::Name(McInstanceRef {
                             base: McInstance::Label(label),
                             members: _,
                         })) => McIds::from(label.as_str()),
                         McPhrase::Multiple(opds) if !opds.is_empty() => match &opds[0] {
-                            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+                            McPhrase::Endpoint(McRef::Name(McInstanceRef {
                                 base: McInstance::Bus(ne),
                                 members: _,
                             })) => McIds::from(ne.name.as_str()),
-                            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+                            McPhrase::Endpoint(McRef::Name(McInstanceRef {
                                 base: McInstance::Label(label),
                                 members: _,
                             })) => McIds::from(label.as_str()),
-                            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+                            McPhrase::Endpoint(McRef::Name(McInstanceRef {
                                 base: McInstance::Component(c),
                                 members: _,
                             })) => McIds::from(c.name.to_string().as_str()),
-                            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+                            McPhrase::Endpoint(McRef::Name(McInstanceRef {
                                 base: McInstance::Module(m),
                                 members: _,
                             })) => McIds::from(m.name.to_string().as_str()),
@@ -1792,7 +1792,7 @@ impl McFuncCall {
         //     `C4.Cap(a, b)`) never resolve to a component class — both are
         //     skipped by the resolution below.
         let head_label = caller.as_deref().and_then(|c| match c {
-            McPhrase::Endpoint(McEndpoint::Single(iref)) => match &iref.base {
+            McPhrase::Endpoint(McRef::Name(iref)) => match &iref.base {
                 McInstance::Label(s) => Some(s.clone()),
                 _ => None,
             },
@@ -2106,7 +2106,7 @@ impl McFuncCall {
                 .caller
                 .as_ref()
                 .and_then(|c| Self::root_receiver(c.as_ref())),
-            McPhrase::Endpoint(McEndpoint::Single(iref)) => Some(&iref.base),
+            McPhrase::Endpoint(McRef::Name(iref)) => Some(&iref.base),
             _ => None,
         }
     }

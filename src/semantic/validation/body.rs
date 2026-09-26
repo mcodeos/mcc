@@ -11,7 +11,7 @@
 
 use super::{CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, ValidationCheck};
 use crate::semantic::basic::mc_conds::McCondition;
-use crate::semantic::basic::mc_endpoint::McEndpoint;
+use crate::semantic::basic::mc_ref::McRef;
 use crate::semantic::basic::mc_param::McParamValue;
 use crate::semantic::basic::mc_phrase::McPhrase;
 use std::collections::HashSet;
@@ -321,19 +321,19 @@ pub(crate) fn collect_net_label_names(phrase: &McPhrase, names: &mut HashSet<Str
     }
 }
 
-/// Collect base names from an `McEndpoint`.
-fn collect_endpoint_names(ep: &McEndpoint, names: &mut HashSet<String>) {
+/// Collect base names from an `McRef`.
+fn collect_endpoint_names(ep: &McRef, names: &mut HashSet<String>) {
     match ep {
-        McEndpoint::Single(ref_) => {
+        McRef::Name(ref_) => {
             names.insert(ref_.base.get_name());
         }
-        McEndpoint::List(nodes) => {
+        McRef::Group(nodes) => {
             for node in nodes {
                 collect_endpoint_names(node, names);
             }
         }
-        McEndpoint::Node { input, output } => {
-            for node in input.iter().chain(output.iter()) {
+        McRef::Ports { left, right } => {
+            for node in left.iter().chain(right.iter()) {
                 collect_endpoint_names(node, names);
             }
         }
