@@ -109,18 +109,18 @@ fn lock_pp_interface__role_inheriting_view_no_4186() {
         1 = _
         2 = _
     ]
-    role Master
+    role MASTER
     {
         name = "Master role"
-        peer = Slave
+        peer = SLAVE
     }
-    role Slave
+    role SLAVE
     {
         name = "Slave role"
-        peer = Master
+        peer = MASTER
     }
 }
-component C(w::CVI(Master))
+component C(w::CVI(MASTER))
 {
     name = "C"
     pins = [
@@ -148,26 +148,26 @@ module main
 fn lock_pp_interface__role_only_no_view_no_4186() {
     let src = r#"interface RVO(role)
 {
-    role Master
+    role MASTER
     {
         name = "Master role"
         pins = [
             1 = A, "a"
             2 = B, "b"
         ]
-        peer = Slave
+        peer = SLAVE
     }
-    role Slave
+    role SLAVE
     {
         name = "Slave role"
         pins = [
             1 = A, "a"
             2 = B, "b"
         ]
-        peer = Master
+        peer = MASTER
     }
 }
-component C(w::RVO(Master))
+component C(w::RVO(MASTER))
 {
     name = "C"
     pins = [

@@ -157,7 +157,7 @@ fn collect_usages_recursive(param_name: &str, node: &AstNode, usages: &mut Vec<U
                         }
                     }
                 }
-                // Role keyword: `role Source { ... }` in body marks the `role`
+                // Role keyword: `role SOURCE { ... }` in body marks the `role`
                 // parameter as used.
                 MCAST_ROLE => {
                     if param_name == "role" {

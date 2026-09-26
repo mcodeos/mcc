@@ -33,19 +33,19 @@ interface ADC.DIFF(role)
         1 = P
         2 = N
     ]
-    role Receiver {
+    role RECEIVER {
         pins = [
             in 1 = P
             in 2 = N
         ]
-        peer = Transmitter
+        peer = TRANSMITTER
     }
-    role Transmitter {
+    role TRANSMITTER {
         pins = [
             out 1 = P
             out 2 = N
         ]
-        peer = Receiver
+        peer = RECEIVER
     }
 }
 
@@ -54,7 +54,7 @@ component Probe.UC
     partno = "P1"
 
     pins = [
-        io [6, 7] = ADC{P, N}::ADC.DIFF(Receiver)
+        io [6, 7] = ADC{P, N}::ADC.DIFF(RECEIVER)
     ]
 }
 "#;

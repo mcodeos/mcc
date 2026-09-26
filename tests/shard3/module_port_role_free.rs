@@ -6,7 +6,7 @@
 //! binding may not carry a role argument. Role (Controller / Peripheral /
 //! Master / …) is the link identity of an endpoint terminal pin; a module port
 //! is a role-less conductor whose identity is decided by whatever terminal it
-//! is wired to on each side. `io bus[1:2]::TAG(Master)` fires; the same port
+//! is wired to on each side. `io bus[1:2]::TAG(MASTER)` fires; the same port
 //! written `io bus[1:2]::TAG()` does not, and a component param with a valid
 //! role (the 4104 family) stays clean.
 //!
@@ -54,15 +54,15 @@ const IFACE: &str = r#"interface TAG(role)
     pins = [
         1 = P, "signal"
     ]
-    role Master
+    role MASTER
     {
         name = "Master role"
-        peer = Slave
+        peer = SLAVE
     }
-    role Slave
+    role SLAVE
     {
         name = "Slave role"
-        peer = Master
+        peer = MASTER
     }
 }
 "#;
@@ -73,7 +73,7 @@ const IFACE: &str = r#"interface TAG(role)
 #[test]
 fn lock_pp_interface__module_port_role_4184_fires() {
     let source = format!(
-        "{IFACE}\nmodule main(io bus[1:2]::TAG(Master))\n{{\n    bus.1 - bus.2\n}}\n"
+        "{IFACE}\nmodule main(io bus[1:2]::TAG(MASTER))\n{{\n    bus.1 - bus.2\n}}\n"
     );
     let result = parse(&source);
     let hits = codes_with(&result, 4184);
@@ -108,7 +108,7 @@ fn lock_pp_interface__module_port_role_free_no_4184() {
 #[test]
 fn lock_pp_interface__component_param_role_no_4184() {
     let source = format!(
-        "{IFACE}\ncomponent C(u::TAG(Master))\n{{\n    name = \"C\"\n    pins = [\n        1 = X, \"x\"\n    ]\n}}\n\nmodule main\n{{\n    io VDD\n}}\n"
+        "{IFACE}\ncomponent C(u::TAG(MASTER))\n{{\n    name = \"C\"\n    pins = [\n        1 = X, \"x\"\n    ]\n}}\n\nmodule main\n{{\n    io VDD\n}}\n"
     );
     let result = parse(&source);
     let hits = codes_with(&result, 4184);

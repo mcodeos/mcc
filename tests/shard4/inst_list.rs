@@ -498,7 +498,7 @@ fn frozen_hbl() -> mcc::InstTable {
 // physical point). The point-carrying count, 189, is unchanged.
 //
 // Re-measured for the replicated-binding batch (b3638): the fixture's
-// `GPIO[n,n]::GPIO(Controller)` rows now expand into real named members
+// `GPIO[n,n]::GPIO(CONTROLLER)` rows now expand into real named members
 // (GPIO3, GPIO4, …) under the R2 member-pool binding, so four aggregate
 // bus-member spellings fold onto declared points (point-carrying 189 → 193,
 // point-less 38 → 34; total rows and point-class rows unchanged).

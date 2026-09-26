@@ -31,7 +31,7 @@ component OPT
 {
     pins = [
         io [1,2] = PA[1, 2]
-                    | PB[5, 6]::GPIO(Provider)
+                    | PB[5, 6]::GPIO(PROVIDER)
     ]
 }
 

@@ -343,8 +343,8 @@ fn audit_s5_pins_index_single() {
         r#"
 component MCU {
     pins = [
-        io [6,7] = UART0::UART.TTL(DCE) | I2C1::I2C(Master)
-        io [8:11] = SPI::SPI(Master)
+        io [6,7] = UART0::UART.TTL(DCE) | I2C1::I2C(MASTER)
+        io [8:11] = SPI::SPI(MASTER)
     ]
 }
 module main {
@@ -363,7 +363,7 @@ module main {
 
 // [AUDIT u150-lane-order] A bare-name interface adoption list is a VECTOR:
 // its written element order is the lane order (position k binds lane k+1),
-// whatever the numeric order of the pin ids. `[1, 6, 2, 5] = SPI::SPI(Slave)`
+// whatever the numeric order of the pin ids. `[1, 6, 2, 5] = SPI::SPI(SLAVE)`
 // must put pin 6 on lane 2 (SCLK) so the Master side lane 2 (SCLK) pairs with
 // pin 6, not pin 2. The pre-U150 scan sorted by numeric pid and mis-paired.
 #[test]
@@ -376,12 +376,12 @@ component F {
         6 = SCLK
         2 = SO
         5 = SI
-        [1, 6, 2, 5] = SPI::SPI(Slave)
+        [1, 6, 2, 5] = SPI::SPI(SLAVE)
     ]
 }
 component M {
     pins = [
-        io [1, 2, 3, 4] = SPI::SPI(Master)
+        io [1, 2, 3, 4] = SPI::SPI(MASTER)
     ]
 }
 module main {
@@ -418,7 +418,7 @@ module main {
 }
 
 // [AUDIT u150-respell-merge] The re-spelled form
-// `[1, 2, 5, 6] = SPI{CS, SO, SI, SCLK}::SPI(Slave)` must survive the pass0
+// `[1, 2, 5, 6] = SPI{CS, SO, SI, SCLK}::SPI(SLAVE)` must survive the pass0
 // width check when merged with a plain role-table adoption: BOTH sides present
 // an honest 4-member width (the interface's ordinal tables — declared role
 // table, else the base pin table in declaration order), not a 1-element
@@ -436,12 +436,12 @@ component F {
         6 = SCLK
         2 = SO
         5 = SI
-        [1, 2, 5, 6] = SPI{CS, SO, SI, SCLK}::SPI(Slave)
+        [1, 2, 5, 6] = SPI{CS, SO, SI, SCLK}::SPI(SLAVE)
     ]
 }
 component M {
     pins = [
-        io [1, 2, 3, 4] = SPI::SPI(Master)
+        io [1, 2, 3, 4] = SPI::SPI(MASTER)
     ]
 }
 module main {
@@ -490,12 +490,12 @@ fn audit_u150_respell_member_access() {
 component F {
     pins = [
         // b3804 Slave face: written order [SCLK, SI, SO, CS]; pin 1 = _CS
-        [6, 5, 2, 1] = SPI{SCLK, SI, SO, CS}::SPI(Slave)
+        [6, 5, 2, 1] = SPI{SCLK, SI, SO, CS}::SPI(SLAVE)
     ]
 }
 component M {
     pins = [
-        io [1, 2, 3, 4] = SPI::SPI(Master)
+        io [1, 2, 3, 4] = SPI::SPI(MASTER)
     ]
 }
 module main {
@@ -524,8 +524,8 @@ fn audit_s5_pins_index_range() {
         r#"
 component MCU {
     pins = [
-        io [6,7] = UART0::UART.TTL(DCE) | I2C1::I2C(Master)
-        io [8:11] = SPI::SPI(Master)
+        io [6,7] = UART0::UART.TTL(DCE) | I2C1::I2C(MASTER)
+        io [8:11] = SPI::SPI(MASTER)
     ]
 }
 module main {
@@ -551,8 +551,8 @@ fn audit_s5_member_brace_access() {
         r#"
 component MCU {
     pins = [
-        io [6,7] = UART0::UART.TTL(DCE) | I2C1::I2C(Master)
-        io [16,17] = ADC::ADC.DIFF(Receiver)
+        io [6,7] = UART0::UART.TTL(DCE) | I2C1::I2C(MASTER)
+        io [16,17] = ADC::ADC.DIFF(RECEIVER)
     ]
 }
 module main {
@@ -575,7 +575,7 @@ fn audit_s5_submember_access() {
         r#"
 component MCU {
     pins = [
-        io [8:11] = SPI::SPI(Master)
+        io [8:11] = SPI::SPI(MASTER)
     ]
 }
 module main {
@@ -633,7 +633,7 @@ fn audit_s5_interface_pin_count_mismatch() {
     let p = probe(
         r#"
 component BAD {
-    pins = [ io [1,2,3] = I2C0::I2C(Master) ]
+    pins = [ io [1,2,3] = I2C0::I2C(MASTER) ]
 }
 module main { BAD b1 }
 "#,
@@ -1231,12 +1231,12 @@ fn audit_e14_bus_direct_connect_mismatched_order() {
         r#"
 component A1 {
     pins = [
-        io [1:4] = SPI::SPI(Master)
+        io [1:4] = SPI::SPI(MASTER)
     ]
 }
 component A2 {
     pins = [
-        io [1:4] = SPI{MOSI, SCLK, CS, MISO}::SPI(Master)
+        io [1:4] = SPI{MOSI, SCLK, CS, MISO}::SPI(MASTER)
     ]
 }
 module main {
@@ -1291,7 +1291,7 @@ fn audit_e14_bare_number_on_multifunction_pin() {
         r#"
 component MCU {
     pins = [
-        io [6,7] = UART0::UART.TTL(DCE) | I2C1::I2C(Master)
+        io [6,7] = UART0::UART.TTL(DCE) | I2C1::I2C(MASTER)
     ]
 }
 module main {
@@ -1420,7 +1420,7 @@ fn audit_e14_pin_group_reassigned() {
         r#"
 component BAD {
     pins = [
-        io [8:11] = SPI::SPI(Master)
+        io [8:11] = SPI::SPI(MASTER)
         io [8,9] = GPIO[2]
     ]
 }

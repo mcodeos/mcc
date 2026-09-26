@@ -71,15 +71,15 @@ fn iface10() -> String {
     for i in 1..=10 {
         s.push_str(&format!("        {i} = _\n"));
     }
-    s.push_str("    ]\n    role Master {\n        pins = [\n");
+    s.push_str("    ]\n    role MASTER {\n        pins = [\n");
     for i in 1..=10 {
         s.push_str(&format!("            {i} = M{i:02}\n"));
     }
-    s.push_str("        ]\n        peer = Slave\n    }\n    role Slave {\n        pins = [\n");
+    s.push_str("        ]\n        peer = SLAVE\n    }\n    role SLAVE {\n        pins = [\n");
     for i in 1..=10 {
         s.push_str(&format!("            {i} = S{i:02}\n"));
     }
-    s.push_str("        ]\n        peer = Master\n    }\n}\n");
+    s.push_str("        ]\n        peer = MASTER\n    }\n}\n");
     s
 }
 
@@ -91,7 +91,7 @@ const S_PINS: [usize; 10] = [2, 9, 4, 6, 1, 8, 3, 10, 5, 7];
 
 fn components() -> String {
     format!(
-        "{}\ncomponent UCM\n{{\n    name = \"UCM\"\n    pins = [\n        [{}] = SPI10::SPI10(Master)\n    ]\n}}\n\ncomponent FLH\n{{\n    name = \"FLH\"\n    pins = [\n        [{}] = SPI10::SPI10(Slave)\n    ]\n}}\n",
+        "{}\ncomponent UCM\n{{\n    name = \"UCM\"\n    pins = [\n        [{}] = SPI10::SPI10(MASTER)\n    ]\n}}\n\ncomponent FLH\n{{\n    name = \"FLH\"\n    pins = [\n        [{}] = SPI10::SPI10(SLAVE)\n    ]\n}}\n",
         iface10(),
         M_PINS.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(", "),
         S_PINS.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(", "),

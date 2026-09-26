@@ -140,7 +140,7 @@ module main
 
 /// Regression: LSP goto-definition span for `label::Class(...)` pin declarations.
 ///
-/// `io [16,17,21] = ADC::ADC.DIFF(Receiver)` must record the span of the io
+/// `io [16,17,21] = ADC::ADC.DIFF(RECEIVER)` must record the span of the io
 /// label `ADC` (the instance name, `label_pos..label_pos+3`), not the whole
 /// binding expression or the class name `ADC.DIFF`. The class/instance AST nodes
 /// are linked in reverse source order by mc_declare_b, so the span must come
@@ -159,8 +159,8 @@ interface ADC.DIFF(role)
         2 = N, "Negative Input"
         3 = GND, "Ground"
     ]
-    role Receiver { name = "ADC.DIFF Receiver" }
-    role Transmitter { name = "ADC.DIFF Transmitter" }
+    role RECEIVER { name = "ADC.DIFF RECEIVER" }
+    role TRANSMITTER { name = "ADC.DIFF TRANSMITTER" }
 }
 
 interface UART.TTL(role)
@@ -190,7 +190,7 @@ interface UART.TTL(role)
 component MCU
 {
     pins = [
-        io [16, 17, 21] = ADC::ADC.DIFF(Receiver)
+        io [16, 17, 21] = ADC::ADC.DIFF(RECEIVER)
         io [6, 7] = UART0::UART.TTL(DCE) | UART2::UART.TTL(DTE)
     ]
 }
@@ -216,7 +216,7 @@ module main
         .find(|component| component.name == "uC")
         .expect("uC instance");
 
-    // `ADC::ADC.DIFF(Receiver)` — span must be the io label `ADC`, not the class
+    // `ADC::ADC.DIFF(RECEIVER)` — span must be the io label `ADC`, not the class
     // or the whole binding expression.
     let adc_label_pos = source
         .find("ADC::ADC.DIFF")
@@ -309,7 +309,7 @@ module main
 }
 
 /// Regression: E4102 (IFACE_PINS_NOT_ALL_BOUND) must be reported at the
-/// interface binding label (`ADC` in `io [16, 17] = ADC::ADC.DIFF(Receiver)`),
+/// interface binding label (`ADC` in `io [16, 17] = ADC::ADC.DIFF(RECEIVER)`),
 /// not at the component class name. The precise binding span is available via
 /// `McPins::pin_name_spans` (same key as `names_to_id`).
 #[test]
@@ -326,13 +326,13 @@ interface ADC.DIFF(role)
         2 = N, "Negative Input"
         3 = GND, "Ground"
     ]
-    role Receiver { name = "ADC.DIFF Receiver" }
+    role RECEIVER { name = "ADC.DIFF RECEIVER" }
 }
 
 component MCU
 {
     pins = [
-        io [16, 17] = ADC::ADC.DIFF(Receiver)
+        io [16, 17] = ADC::ADC.DIFF(RECEIVER)
     ]
 }
 
@@ -380,7 +380,7 @@ fn svc_dynpin__module_body_chain_span_includes_closing_brace() {
 component MCU
 {
     pins = [
-        io [16, 17, 21] = ADC::ADC.DIFF(Receiver)
+        io [16, 17, 21] = ADC::ADC.DIFF(RECEIVER)
         io [6, 7] = UART0::UART.TTL(DCE) | UART2::UART.TTL(DTE)
     ]
 }

@@ -174,14 +174,14 @@ fn u306__i2c_family_pin_tables() {
         ],
         &[
             (
-                "Master",
+                "MASTER",
                 &[
                     ("1", IOType::Out, &["SCL"]),
                     ("2", IOType::InOut, &["SDA"]),
                 ],
             ),
             (
-                "Slave",
+                "SLAVE",
                 &[
                     ("1", IOType::In, &["SCL"]),
                     ("2", IOType::InOut, &["SDA"]),
@@ -200,7 +200,7 @@ fn u306__i2c_family_pin_tables() {
         ],
         &[
             (
-                "Host",
+                "HOST",
                 &[
                     ("1", IOType::Out, &["SCL"]),
                     ("2", IOType::InOut, &["SDA"]),
@@ -208,7 +208,7 @@ fn u306__i2c_family_pin_tables() {
                 ],
             ),
             (
-                "Slave",
+                "SLAVE",
                 &[
                     ("1", IOType::In, &["SCL"]),
                     ("2", IOType::InOut, &["SDA"]),
@@ -234,7 +234,7 @@ fn u306__spi_family_pin_tables() {
         ],
         &[
             (
-                "Master",
+                "MASTER",
                 &[
                     ("1", IOType::Out, &["SCLK"]),
                     ("2", IOType::Out, &["MOSI"]),
@@ -243,7 +243,7 @@ fn u306__spi_family_pin_tables() {
                 ],
             ),
             (
-                "Slave",
+                "SLAVE",
                 &[
                     ("1", IOType::In, &["SCLK"]),
                     ("2", IOType::In, &["SI"]),
@@ -264,7 +264,7 @@ fn u306__spi_family_pin_tables() {
         ],
         &[
             (
-                "Master",
+                "MASTER",
                 &[
                     ("1", IOType::Out, &["CS"]),
                     ("2", IOType::Out, &["SCLK"]),
@@ -272,7 +272,7 @@ fn u306__spi_family_pin_tables() {
                 ],
             ),
             (
-                "Slave",
+                "SLAVE",
                 &[
                     ("1", IOType::In, &["CS"]),
                     ("2", IOType::In, &["SCLK"]),
@@ -295,7 +295,7 @@ fn u306__spi_family_pin_tables() {
         ],
         &[
             (
-                "Master",
+                "MASTER",
                 &[
                     ("1", IOType::Out, &["CS"]),
                     ("2", IOType::Out, &["SCLK"]),
@@ -306,7 +306,7 @@ fn u306__spi_family_pin_tables() {
                 ],
             ),
             (
-                "Slave",
+                "SLAVE",
                 &[
                     ("1", IOType::In, &["CS"]),
                     ("2", IOType::In, &["SCLK"]),
@@ -332,11 +332,11 @@ fn u306__gpio_xtal_dc_pin_tables() {
         ],
         &[
             (
-                "Provider",
+                "PROVIDER",
                 &[]
             ),
             (
-                "Consumer",
+                "CONSUMER",
                 &[]
             ),
         ],
@@ -351,11 +351,11 @@ fn u306__gpio_xtal_dc_pin_tables() {
         ],
         &[
             (
-                "Oscillator",
+                "OSCILLATOR",
                 &[]
             ),
             (
-                "Resonator",
+                "RESONATOR",
                 &[]
             ),
         ],
@@ -573,7 +573,7 @@ fn u306__uart_rs422_rs423_rs449_pin_tables() {
         ],
         &[
             (
-                "Transmitter",
+                "TRANSMITTER",
                 &[
                     ("1", IOType::Out, &["A"]),
                     ("2", IOType::Out, &["B"]),
@@ -581,7 +581,7 @@ fn u306__uart_rs422_rs423_rs449_pin_tables() {
                 ],
             ),
             (
-                "Receiver",
+                "RECEIVER",
                 &[
                     ("1", IOType::In, &["A"]),
                     ("2", IOType::In, &["B"]),
@@ -600,14 +600,14 @@ fn u306__uart_rs422_rs423_rs449_pin_tables() {
         ],
         &[
             (
-                "Transmitter",
+                "TRANSMITTER",
                 &[
                     ("1", IOType::Out, &["A"]),
                     ("2", IOType::Out, &["B"]),
                 ],
             ),
             (
-                "Receiver",
+                "RECEIVER",
                 &[
                     ("1", IOType::In, &["A"]),
                     ("2", IOType::In, &["B"]),
@@ -732,7 +732,7 @@ fn u306__uart_rs485_pin_tables() {
         ],
         &[
             (
-                "Master",
+                "MASTER",
                 &[
                     ("1", IOType::InOut, &["A"]),
                     ("2", IOType::InOut, &["B"]),
@@ -740,7 +740,7 @@ fn u306__uart_rs485_pin_tables() {
                 ],
             ),
             (
-                "Slave",
+                "SLAVE",
                 &[
                     ("1", IOType::InOut, &["A"]),
                     ("2", IOType::InOut, &["B"]),
@@ -759,14 +759,14 @@ fn u306__uart_rs485_pin_tables() {
         ],
         &[
             (
-                "Master",
+                "MASTER",
                 &[
                     ("1", IOType::InOut, &["A"]),
                     ("2", IOType::InOut, &["B"]),
                 ],
             ),
             (
-                "Slave",
+                "SLAVE",
                 &[
                     ("1", IOType::InOut, &["A"]),
                     ("2", IOType::InOut, &["B"]),

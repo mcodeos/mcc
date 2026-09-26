@@ -10,39 +10,39 @@ component MCU.US513_20_F
     package = PKG.QFN20
 
     pins = [
-        io [1,2] =  I2C0::I2C(Master)
-                    | GPIO[3, 4]::GPIO(Controller)
+        io [1,2] =  I2C0::I2C(MASTER)
+                    | GPIO[3, 4]::GPIO(CONTROLLER)
 
         in [3,4] =  XTAL::XTAL(32kHz)
 
         psnk [5,21] = [VDD, GND]::DC(3.3V)
 
         io [6,7] =  UART0::UART.TTL(DCE)
-                    | I2C1::I2C(Master)
-                    | GPIO[5, 6]::GPIO(Controller)
+                    | I2C1::I2C(MASTER)
+                    | GPIO[5, 6]::GPIO(CONTROLLER)
 
         io [8,9] =  PDM[CLK, DATA] 
                     | PBus{CLK, DATA} 
-                    | GPIO[7, 8]::GPIO(Controller)
+                    | GPIO[7, 8]::GPIO(CONTROLLER)
         
-        io [10,11] = I2C1::I2C(Master) | GPIO[9, 10]::GPIO(Controller),
+        io [10,11] = I2C1::I2C(MASTER) | GPIO[9, 10]::GPIO(CONTROLLER),
                     ["I2C", "GPIO"], volt:1.2V, amp:100mA
 
         // Master wire order [SCLK, MOSI, MISO, CS] (b3804 face): pins
         // 8=SCLK, 9=MOSI, 11=MISO, 10=CSN
-        io [8, 9, 11, 10] = SPI{SCLK, MOSI, MISO, CSN}::SPI(Master)
+        io [8, 9, 11, 10] = SPI{SCLK, MOSI, MISO, CSN}::SPI(MASTER)
 
         io [12,13] = UART1::UART.TTL(DCE)
-                    | GPIO[5, 6]::GPIO(Controller)
+                    | GPIO[5, 6]::GPIO(CONTROLLER)
 
         psnk [14,21] = [VDD_CORE,GND]::DC(1.2V)
 
         in 15 = AVDD09_CAP
 
-        io [16, 17] = ADC::ADC.DIFF(Receiver)
+        io [16, 17] = ADC::ADC.DIFF(RECEIVER)
 
         io [18,19] = JTAG::DBG.JTAG.2WIRE(TAP)
-                    | GPIO[0,1]::GPIO(Controller)
+                    | GPIO[0,1]::GPIO(CONTROLLER)
 
         io 20 = GPIO[2] | EXT_CLK_IN
     ]
@@ -104,7 +104,7 @@ component FLASH.GD25Q32E
         
         // Slave wire order [SCLK, SI, SO, CS] (b3804 face): pins
         // 6=SCLK, 5=SI, 2=SO, 1=_CS
-        [6, 5, 2, 1] = SPI::SPI(Slave)
+        [6, 5, 2, 1] = SPI::SPI(SLAVE)
     ]
         
     func GD25Q32E([V3V3, GND]::DC(3.3V))

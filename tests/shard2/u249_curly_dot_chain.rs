@@ -37,7 +37,7 @@ interface SPI4(role)
         3 = MISO
         4 = MOSI
     ]
-    role Slave { name = "Slave" }
+    role SLAVE { name = "Slave" }
 }
 
 component FLASH
@@ -47,7 +47,7 @@ component FLASH
         2 = SO
         5 = SI
         6 = SCLK
-        [1,2,5,6] = SP::SPI4(Slave)
+        [1,2,5,6] = SP::SPI4(SLAVE)
     ]
 }
 

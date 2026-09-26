@@ -378,23 +378,23 @@ module main
 
 #[test]
 fn sem_falsediag__role_peer_multi_role_list_matches_defined_roles() {
-    // `peer = [Master, Slave]` refers to multiple roles, each defined earlier
+    // `peer = [MASTER, SLAVE]` refers to multiple roles, each defined earlier
     // in the same interface. The check must compare each member individually,
     // not the whole bracket-list text (which never equals a single role name).
     let source = r#"interface UART.RS485
 {
-    role Master
+    role MASTER
     {
         name = "RS485 Master"
     }
-    role Slave
+    role SLAVE
     {
         name = "RS485 Slave"
     }
-    role Repeater
+    role REPEATER
     {
         name = "RS485 Repeater"
-        peer = [Master, Slave]
+        peer = [MASTER, SLAVE]
     }
 }
 
@@ -411,14 +411,14 @@ fn sem_falsediag__role_peer_list_missing_member_still_reports() {
     // A peer list with a genuinely undefined member must still be flagged.
     let source = r#"interface UART.RS485
 {
-    role Master
+    role MASTER
     {
         name = "RS485 Master"
     }
-    role Repeater
+    role REPEATER
     {
         name = "RS485 Repeater"
-        peer = [Master, Slave]
+        peer = [MASTER, SLAVE]
     }
 }
 

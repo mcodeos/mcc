@@ -64,8 +64,8 @@ const FAMILY: &str = r#"interface UART.RS485(role)
         1 = _
         2 = _
     ]
-    role Master { pins = [1 = A, 2 = B] peer = Slave }
-    role Slave { pins = [1 = A, 2 = B] peer = Master }
+    role MASTER { pins = [1 = A, 2 = B] peer = SLAVE }
+    role SLAVE { pins = [1 = A, 2 = B] peer = MASTER }
 }
 
 interface UART.RS485.3(role)
@@ -75,8 +75,8 @@ interface UART.RS485.3(role)
         2 = _
         3 = _
     ]
-    role Master { pins = [1 = A, 2 = B, 3 = GND] peer = Slave }
-    role Slave { pins = [1 = A, 2 = B, 3 = GND] peer = Master }
+    role MASTER { pins = [1 = A, 2 = B, 3 = GND] peer = SLAVE }
+    role SLAVE { pins = [1 = A, 2 = B, 3 = GND] peer = MASTER }
 }
 
 "#;
@@ -84,7 +84,7 @@ interface UART.RS485.3(role)
 /// Adoption body with the given pin-id list against the `.3` spelling.
 fn adopt(ids: &str) -> String {
     format!(
-        "{FAMILY}component FLASH\n{{\n    name = \"FLASH\"\n    pins = [\n        [{ids}] = U3::UART.RS485.3(Master)\n    ]\n}}\n\nmodule main\n{{\n    FLASH f\n}}\n"
+        "{FAMILY}component FLASH\n{{\n    name = \"FLASH\"\n    pins = [\n        [{ids}] = U3::UART.RS485.3(MASTER)\n    ]\n}}\n\nmodule main\n{{\n    FLASH f\n}}\n"
     )
 }
 

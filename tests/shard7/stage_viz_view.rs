@@ -1621,7 +1621,7 @@ const SHAPE_SRC: &str = r#"
 interface DIFF(role) {
     diff_pair = [P, N]
     pins = [ 1 = P; 2 = N ]
-    role Receiver {
+    role RECEIVER {
         name = "Differential receiver"
     }
 }
@@ -1648,7 +1648,7 @@ module main {
     RCV u10
     RCV u11
     RCV u12
-    io d{P, N}::DIFF(Receiver)
+    io d{P, N}::DIFF(RECEIVER)
 
     u1.1 -> VDD
     u2.1 -> VDD

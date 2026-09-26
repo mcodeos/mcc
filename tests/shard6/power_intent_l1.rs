@@ -773,12 +773,12 @@ fn power_dc_rows_do_not_degrade_through_interface_lookup() {
 /// power-row gate must not silence genuine interface-binding errors.
 #[test]
 fn interface_misuse_still_warns_while_power_rows_are_silent() {
-    // A golden interface-binding row `io [8,9] = I2C0::I2C(Master)` with no
+    // A golden interface-binding row `io [8,9] = I2C0::I2C(MASTER)` with no
     // `I2C` interface defined is a real (mis)use of `::` on a *non-power* pin
     // — it must still degrade with one 3110 warning. The power rows beside it
     // contribute none.
     let src = format!(
-        "{SRC5}{SNK5}\ncomponent BADIF {{\n    pins = [\n        io [8,9] = I2C0::I2C(Master)\n    ]\n}}\n\
+        "{SRC5}{SNK5}\ncomponent BADIF {{\n    pins = [\n        io [8,9] = I2C0::I2C(MASTER)\n    ]\n}}\n\
          module main {{\n    conduit GND @role(main)\n    io V5\n    \
          SRC5 s\n    SNK5 k\n    \
          s.OUT -> V5\n    s.GND -> GND\n    k.VDD -> V5\n    k.GND -> GND\n}}\n"
@@ -6657,12 +6657,12 @@ fn class_expectation_on_bare_net_fires_6052_not_6051() {
 /// adopts I2C. Branch-local rows only.
 const VARIANT: &str = "\
 interface ADC.SINGLE(role) {\n    pins = [ 1 = IN @class(analog) ]\n    \
-    role Transmitter { peer = Receiver }\n    role Receiver { peer = Transmitter }\n}\n\
+    role TRANSMITTER { peer = RECEIVER }\n    role RECEIVER { peer = TRANSMITTER }\n}\n\
 interface I2C(role) {\n    pins = [ 1 = SDA @class(digital) ]\n    \
-    role Master { peer = Slave }\n    role Slave { peer = Master }\n}\n\
+    role MASTER { peer = SLAVE }\n    role SLAVE { peer = MASTER }\n}\n\
 component SENS(mode::STRING) {\n    \
-    if mode == \"i2c\"\n        pins = [ 1 = BUS::I2C(Slave) ]\n    \
-    else\n        pins = [ 1 = AOUT::ADC.SINGLE(Transmitter) ]\n}\n";
+    if mode == \"i2c\"\n        pins = [ 1 = BUS::I2C(SLAVE) ]\n    \
+    else\n        pins = [ 1 = AOUT::ADC.SINGLE(TRANSMITTER) ]\n}\n";
 
 /// The adopted interface's member default rides the adoption row through the
 /// conditional branch: the analog variant's pin expects analog, and landing
@@ -6708,10 +6708,10 @@ fn adoption_default_through_conditional_branch_digital_side_fires_6051() {
 fn branch_row_override_wins_over_adopted_default() {
     let src = "\
 interface ADC.SINGLE(role) {\n    pins = [ 1 = IN @class(analog) ]\n    \
-    role Transmitter { peer = Receiver }\n    role Receiver { peer = Transmitter }\n}\n\
+    role TRANSMITTER { peer = RECEIVER }\n    role RECEIVER { peer = TRANSMITTER }\n}\n\
 component SENS(mode::STRING) {\n    \
-    if mode == \"ovr\"\n        pins = [ 1 = AOUT::ADC.SINGLE(Transmitter) @class(digital) ]\n    \
-    else\n        pins = [ 1 = AOUT::ADC.SINGLE(Transmitter) ]\n}\n";
+    if mode == \"ovr\"\n        pins = [ 1 = AOUT::ADC.SINGLE(TRANSMITTER) @class(digital) ]\n    \
+    else\n        pins = [ 1 = AOUT::ADC.SINGLE(TRANSMITTER) ]\n}\n";
     let src = format!(
         "{src}\nmodule main {{\n    \
          domain AV @class(analog) {{ rail [VDDA, GNDA]::DC(3.3V) }}\n    \

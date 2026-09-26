@@ -47,7 +47,7 @@ const CAP2: &str = "component CAP2 {\n    pins = [\n        1 = 1\n        2 = 2
 /// Local two-lane interface: no dependence on the installed system library's
 /// SPI; the port row adopts it role-less (conductor view), so its members
 /// read as the anonymous `_(1)` / `_(2)`.
-const IFX: &str = "interface IFX(role) {\n    pins = [\n        1 = A\n        2 = B\n    ]\n    role Master {}\n    role Slave {}\n}\n";
+const IFX: &str = "interface IFX(role) {\n    pins = [\n        1 = A\n        2 = B\n    ]\n    role MASTER {}\n    role SLAVE {}\n}\n";
 
 /// Build the vec graph of module `top` and return every diagnostic code the
 /// graph build left in the store.

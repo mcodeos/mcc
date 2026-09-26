@@ -35,7 +35,7 @@ use mcc::{McIds, McURI};
 const DECLARED: &str = r#"
 interface DIFF(role) {
     pins = [ 1 = P @pair(p); 2 = N @pair(p) ]
-    role Receiver {
+    role RECEIVER {
         name = "Differential receiver"
     }
 }
@@ -45,7 +45,7 @@ component RCV {
 }
 
 module main {
-    io d{P, N}::DIFF(Receiver)
+    io d{P, N}::DIFF(RECEIVER)
     RCV u1
     RCV u2
     d.P -> u1.1
@@ -55,13 +55,13 @@ module main {
 "#;
 
 /// The corpus spelling: the port writes no member names of its own, so its
-/// members come from the interface body (`io [16, 17] = ADC::ADC.DIFF(Receiver)`,
+/// members come from the interface body (`io [16, 17] = ADC::ADC.DIFF(RECEIVER)`,
 /// `tests/fixtures/hbl/src/us513.mc`). The declaration tags its rows by those
 /// same names, so the pair still lands.
 const MEMBERS_FROM_INTERFACE: &str = r#"
 interface DIFF(role) {
     pins = [ 1 = P @pair(p); 2 = N @pair(p) ]
-    role Receiver {
+    role RECEIVER {
         name = "Differential receiver"
     }
 }
@@ -71,7 +71,7 @@ component RCV {
 }
 
 module main {
-    io adc::DIFF(Receiver)
+    io adc::DIFF(RECEIVER)
     RCV u1
     RCV u2
     adc.P -> u1.1
@@ -97,7 +97,7 @@ module main {
 const ONE_LEG: &str = r#"
 interface DIFF(role) {
     pins = [ 1 = P @pair(p); 2 = N ]
-    role Receiver {
+    role RECEIVER {
         name = "Differential receiver"
     }
 }
@@ -107,7 +107,7 @@ component RCV {
 }
 
 module main {
-    io d{P, N}::DIFF(Receiver)
+    io d{P, N}::DIFF(RECEIVER)
     RCV u1
     RCV u2
     d.P -> u1.1
@@ -120,7 +120,7 @@ module main {
 const THREE_LEGS: &str = r#"
 interface DIFF(role) {
     pins = [ 1 = P @pair(p); 2 = N @pair(p); 3 = M @pair(p) ]
-    role Receiver {
+    role RECEIVER {
         name = "Differential receiver"
     }
 }
@@ -130,7 +130,7 @@ component RCV {
 }
 
 module main {
-    io d{P, N}::DIFF(Receiver)
+    io d{P, N}::DIFF(RECEIVER)
     RCV u1
     RCV u2
     d.P -> u1.1
@@ -145,7 +145,7 @@ const RETIRED_KEY: &str = r#"
 interface DIFF(role) {
     diff_pair = [P, N]
     pins = [ 1 = P @pair(p); 2 = N @pair(p) ]
-    role Receiver {
+    role RECEIVER {
         name = "Differential receiver"
     }
 }
@@ -155,7 +155,7 @@ component RCV {
 }
 
 module main {
-    io d{P, N}::DIFF(Receiver)
+    io d{P, N}::DIFF(RECEIVER)
     RCV u1
     RCV u2
     d.P -> u1.1
@@ -170,7 +170,7 @@ module main {
 const ESCAPED_NAMES: &str = r#"
 interface DIFF(role) {
     pins = [ 1 = D\+ @pair(d); 2 = D\- @pair(d) ]
-    role Receiver {
+    role RECEIVER {
         name = "Differential receiver"
     }
 }
@@ -180,7 +180,7 @@ component RCV {
 }
 
 module main {
-    io d{D\+, D\-}::DIFF(Receiver)
+    io d{D\+, D\-}::DIFF(RECEIVER)
     RCV u1
     RCV u2
     d.D\+ -> u1.1
@@ -199,13 +199,13 @@ const ROLE_ROW_DECLARED: &str = r#"
 interface ANON2(role)
 {
     pins = [ 1 = _; 2 = _ ]
-    role Receiver {
+    role RECEIVER {
         pins = [ in 1 = A @pair(ab); in 2 = B @pair(ab) ]
-        peer = Transmitter
+        peer = TRANSMITTER
     }
-    role Transmitter {
+    role TRANSMITTER {
         pins = [ out 1 = A @pair(ab); out 2 = B @pair(ab) ]
-        peer = Receiver
+        peer = RECEIVER
     }
 }
 
@@ -214,7 +214,7 @@ component RCV {
 }
 
 module main {
-    io link::ANON2(Receiver)
+    io link::ANON2(RECEIVER)
     RCV u1
     RCV u2
     link.A -> u1.1
@@ -234,7 +234,7 @@ interface USBCD(role)
         A6 = USB2_D\+ @pair(dA); A7 = USB2_D\- @pair(dA);
         B6 = USB2_D\+ @pair(dB); B7 = USB2_D\- @pair(dB)
     ]
-    role Device {
+    role DEVICE {
         name = "dual-side device"
     }
 }
@@ -244,7 +244,7 @@ component RCV {
 }
 
 module main {
-    io dev::USBCD(Device)
+    io dev::USBCD(DEVICE)
     RCV u1
     RCV u2
     dev.USB2_D\+ -> u1.1
@@ -259,9 +259,9 @@ const ROLE_ROW_ONE_LEG: &str = r#"
 interface ANON3(role)
 {
     pins = [ 1 = _; 2 = _ ]
-    role Receiver {
+    role RECEIVER {
         pins = [ in 1 = A @pair(ab); in 2 = B @pair(ab); in 3 = C @pair(ab) ]
-        peer = Transmitter
+        peer = TRANSMITTER
     }
 }
 
@@ -270,7 +270,7 @@ component RCV {
 }
 
 module main {
-    io link::ANON3(Receiver)
+    io link::ANON3(RECEIVER)
     RCV u1
     link.A -> u1.1
 }

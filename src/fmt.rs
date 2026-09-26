@@ -1434,8 +1434,8 @@ mod tests {
     /// first column, so a wrapped definition reads as one right hand side.
     #[test]
     fn fmt__continuation_lines_hang_at_the_rhs_column() {
-        let src = "component A {\n    pins = [\n        io [1, 2] = I2C0::I2C(Master) // one\n        | GPIO[3, 4]::GPIO(2, Controller) // two\n    ]\n}\n";
-        let want = "component A {\n    pins = [\n        io [1, 2] = I2C0::I2C(Master)                  // one\n                    | GPIO[3, 4]::GPIO(2, Controller)  // two\n    ]\n}\n";
+        let src = "component A {\n    pins = [\n        io [1, 2] = I2C0::I2C(MASTER) // one\n        | GPIO[3, 4]::GPIO(2, Controller) // two\n    ]\n}\n";
+        let want = "component A {\n    pins = [\n        io [1, 2] = I2C0::I2C(MASTER)                  // one\n                    | GPIO[3, 4]::GPIO(2, Controller)  // two\n    ]\n}\n";
         assert_eq!(fmt(src), want);
     }
 
@@ -1462,8 +1462,8 @@ mod tests {
     /// the line has not finished, so the entry folds back.
     #[test]
     fn fmt__folds_a_break_inside_an_open_bracket() {
-        let src = "component A {\n    pins = [\n        io [1,\n           2] = I2C0::I2C(Master)\n    ]\n}\n";
-        let want = "component A {\n    pins = [\n        io [1, 2] = I2C0::I2C(Master)\n    ]\n}\n";
+        let src = "component A {\n    pins = [\n        io [1,\n           2] = I2C0::I2C(MASTER)\n    ]\n}\n";
+        let want = "component A {\n    pins = [\n        io [1, 2] = I2C0::I2C(MASTER)\n    ]\n}\n";
         assert_eq!(fmt(src), want);
     }
 
@@ -1489,8 +1489,8 @@ mod tests {
     /// operand open just as a leading one continues the line above.
     #[test]
     fn fmt__folds_a_break_after_a_trailing_operator() {
-        let src = "component A {\n    pins = [\n        io [1, 2] = I2C0::I2C(Master) |\n            GPIO[3, 4]::GPIO(2, Controller)\n    ]\n}\n";
-        let want = "component A {\n    pins = [\n        io [1, 2] = I2C0::I2C(Master) | GPIO[3, 4]::GPIO(2, Controller)\n    ]\n}\n";
+        let src = "component A {\n    pins = [\n        io [1, 2] = I2C0::I2C(MASTER) |\n            GPIO[3, 4]::GPIO(2, Controller)\n    ]\n}\n";
+        let want = "component A {\n    pins = [\n        io [1, 2] = I2C0::I2C(MASTER) | GPIO[3, 4]::GPIO(2, Controller)\n    ]\n}\n";
         assert_eq!(fmt(src), want);
     }
 
@@ -1590,8 +1590,8 @@ mod tests {
     /// line alike -- are dropped. The blank before the first statement stays.
     #[test]
     fn fmt__folds_the_blank_lines_between_leading_declarations() {
-        let src = "module m {\n    conduit GNDA @role(quiet)\n\n    domain AVAUD @class(analog) { rail [VMIC, GNDA]::DC(3.3V) }\n\n    out MIC{P, N}::ADC.DIFF(Transmitter)\n\n    MICROPHONE.SIP2 mic\n\n    mic{1, 2} -> C1::CAP(470pF)' -> MIC{P, N}\n}\n";
-        let want = "module m {\n    conduit GNDA @role(quiet)\n    domain AVAUD @class(analog) { rail [VMIC, GNDA]::DC(3.3V) }\n    out MIC{P, N}::ADC.DIFF(Transmitter)\n    MICROPHONE.SIP2 mic\n\n    mic{1, 2} -> C1::CAP(470pF)' -> MIC{P, N}\n}\n";
+        let src = "module m {\n    conduit GNDA @role(quiet)\n\n    domain AVAUD @class(analog) { rail [VMIC, GNDA]::DC(3.3V) }\n\n    out MIC{P, N}::ADC.DIFF(TRANSMITTER)\n\n    MICROPHONE.SIP2 mic\n\n    mic{1, 2} -> C1::CAP(470pF)' -> MIC{P, N}\n}\n";
+        let want = "module m {\n    conduit GNDA @role(quiet)\n    domain AVAUD @class(analog) { rail [VMIC, GNDA]::DC(3.3V) }\n    out MIC{P, N}::ADC.DIFF(TRANSMITTER)\n    MICROPHONE.SIP2 mic\n\n    mic{1, 2} -> C1::CAP(470pF)' -> MIC{P, N}\n}\n";
         assert_eq!(fmt(src), want);
     }
 

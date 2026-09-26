@@ -27,8 +27,8 @@ interface LYNX(role)
     pins = [
         [1,2] = [A, B]
     ]
-    role Host { peer = Dev }
-    role Dev { peer = Host }
+    role HOST { peer = Dev }
+    role Dev { peer = HOST }
 }
 
 component HUBT { pins = [ [1,2] = IF::P2P(Tx) ]

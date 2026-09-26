@@ -31,7 +31,7 @@ component MICROPHONE.WM7121P
 
 module MIC_SIP(psnk dc{VDD_3V3, GND}::DC(3.3V))
 {
-    out MIC{P, N}::ADC.DIFF(Transmitter)
+    out MIC{P, N}::ADC.DIFF(TRANSMITTER)
 
     MICROPHONE.SIP2 mic
 

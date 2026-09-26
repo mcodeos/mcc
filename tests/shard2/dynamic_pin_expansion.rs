@@ -379,20 +379,20 @@ fn mat_dynpin__interface_default_param_resolves() {
     mcc::mcc_load_from_string(
         &uri,
         r#"
-interface IF_GPIO(count::INT = 1, role = Controller)
+interface IF_GPIO(count::INT = 1, role = CONTROLLER)
 {
     pins = [
         1:count = 1:count
     ]
 
-    role Controller {
+    role CONTROLLER {
         name = "GPIO Controller"
-        peer = Peripheral
+        peer = PERIPHERAL
     }
 
-    role Peripheral {
+    role PERIPHERAL {
         name = "GPIO Peripheral"
-        peer = Controller
+        peer = CONTROLLER
     }
 }
 

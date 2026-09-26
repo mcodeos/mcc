@@ -76,13 +76,13 @@ fn lock_pp_interface__iface_role_not_found_4104_fires() {
     pins = [
         1 = D, "Data"
     ]
-    role Host
+    role HOST
     {
         name = "Host role"
     }
 }
 
-component C(u::WIDGET.BUS(Slave))
+component C(u::WIDGET.BUS(SLAVE))
 {
     name = "C"
     pins = [

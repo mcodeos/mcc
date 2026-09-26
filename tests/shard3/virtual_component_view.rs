@@ -173,7 +173,7 @@ interface I2C(role)
         1 = SCL
         2 = SDA
     ]
-    role Master { name = "Master" }
+    role MASTER { name = "Master" }
 }
 "#;
 

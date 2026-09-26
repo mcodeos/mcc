@@ -36,14 +36,14 @@ interface LINK(role)
     pins = [
         [1,2] = [A, B]
     ]
-    role Host { peer = Dev }
-    role Dev  { peer = Host }
+    role HOST { peer = Dev }
+    role Dev  { peer = HOST }
 }
 
 component HOSTDEV
 {
     pins = [
-        [1,2] = IF::LINK(Host)
+        [1,2] = IF::LINK(HOST)
     ]
     func j(S) { S + IF }
 }
@@ -66,8 +66,8 @@ interface LYNX(role)
     pins = [
         [1,2] = [A, B]
     ]
-    role Host { peer = Dev }
-    role Dev  { peer = Host }
+    role HOST { peer = Dev }
+    role Dev  { peer = HOST }
 }
 
 component LYNXDEV
@@ -158,7 +158,7 @@ fn iface_conn__mutual_peer_roles_are_quiet() {
     assert_eq!(
         rule_codes(&codes),
         Vec::<u32>::new(),
-        "mutual peers (Host peer=Dev, Dev peer=Host) must be quiet; got {codes:?}"
+        "mutual peers (HOST peer=Dev, Dev peer=HOST) must be quiet; got {codes:?}"
     );
 }
 
@@ -183,7 +183,7 @@ fn iface_conn__same_role_is_e4121_and_still_connects() {
     assert_eq!(
         rule_codes(&codes),
         vec![4121],
-        "Host<->Host (peer=Dev on both) is not a mutual pair: E4121; got {codes:?}"
+        "HOST<->HOST (peer=Dev on both) is not a mutual pair: E4121; got {codes:?}"
     );
     assert!(
         nets.contains(&vec!["ha.1".to_string(), "hb.1".to_string()]),
@@ -254,7 +254,7 @@ fn iface_conn__func_body_mutual_pair_is_quiet() {
 /// U128 step ④ — definition-side self-check cells. The fixture below
 /// replicates the *former* library shape (D8: `UART.RS485`'s Repeater
 /// role, deleted from mcode/ifs/uart.mc 2026-09-21): the repeater names
-/// its peers (`peer = [Master,
+/// its peers (`peer = [MASTER,
 /// Slave]`) but neither peer names it back, and its member table is 6
 /// members against the peers' 3. D8 (ruled 2026-09-20) settled this shape as
 /// **legal one-to-many relay semantics**, so the definition-side self-check
@@ -264,23 +264,23 @@ fn iface_conn__func_body_mutual_pair_is_quiet() {
 const D8_RS485: &str = r#"
 interface RS485D8(role)
 {
-    role Master {
+    role MASTER {
         pins = [
             1 = A
             2 = B
             3 = GND
         ]
-        peer = Slave
+        peer = SLAVE
     }
-    role Slave {
+    role SLAVE {
         pins = [
             1 = A
             2 = B
             3 = GND
         ]
-        peer = Master
+        peer = MASTER
     }
-    role Repeater {
+    role REPEATER {
         pins = [
             1 = A_IN
             2 = B_IN
@@ -289,28 +289,28 @@ interface RS485D8(role)
             5 = B_OUT
             6 = GND_OUT
         ]
-        peer = [Master, Slave]
+        peer = [MASTER, SLAVE]
     }
 }
 
 component D8TERM
 {
     pins = [
-        [1,2,3] = IF::RS485D8(Master)
+        [1,2,3] = IF::RS485D8(MASTER)
     ]
 }
 
 component D8TRM
 {
     pins = [
-        [1,2,3] = IF::RS485D8(Slave)
+        [1,2,3] = IF::RS485D8(SLAVE)
     ]
 }
 
 component D8REP
 {
     pins = [
-        [1,2,3,4,5,6] = IF::RS485D8(Repeater)
+        [1,2,3,4,5,6] = IF::RS485D8(REPEATER)
     ]
 }
 "#;
@@ -359,7 +359,7 @@ fn build_d8(body: &str, uri: &str) -> (Vec<u32>, Vec<Vec<String>>) {
 }
 
 /// Definition-side self-check, D8 cell (ruled 2026-09-20): the Repeater
-/// shape is **legal one-to-many relay semantics** — `peer = [Master, Slave]`
+/// shape is **legal one-to-many relay semantics** — `peer = [MASTER, SLAVE]`
 /// is a multi-peer set, so the pair is exempt from both the mutuality
 /// (E5508) and the width (E5509) sub-check, and the definition loads quiet.
 /// Before the ruling this same fixture raised both codes as a "peer
@@ -439,27 +439,27 @@ fn iface_conn__d8_whole_port_statement_is_rejected_by_width_not_silently() {
 }
 
 /// An equal-width variant isolates the join-site role axis: `Tap` names
-/// `Master` but Master only names `Slave` back, all tables 3 members wide.
+/// `MASTER` but MASTER only names `SLAVE` back, all tables 3 members wide.
 /// The join is shape-legal, so it reaches the engine and the mutual-pair
 /// test fires E4121 — the connect-side half of the D8 disease, on its own.
 const D8_EQUAL: &str = r#"
 interface RS485EQ(role)
 {
-    role Master {
+    role MASTER {
         pins = [
             1 = A
             2 = B
             3 = GND
         ]
-        peer = Slave
+        peer = SLAVE
     }
-    role Slave {
+    role SLAVE {
         pins = [
             1 = A
             2 = B
             3 = GND
         ]
-        peer = Master
+        peer = MASTER
     }
     role Tap {
         pins = [
@@ -467,14 +467,14 @@ interface RS485EQ(role)
             2 = B
             3 = GND
         ]
-        peer = [Master]
+        peer = [MASTER]
     }
 }
 
 component EQDEV
 {
     pins = [
-        [1,2,3] = IF::RS485EQ(Master)
+        [1,2,3] = IF::RS485EQ(MASTER)
     ]
 }
 
@@ -519,8 +519,8 @@ fn build_d8_equal(body: &str, uri: &str) -> (Vec<u32>, Vec<Vec<String>>) {
 }
 
 /// The connect-side half of the D8 disease, isolated from the width axis:
-/// equal widths, shape-legal join, `Tap` names `Master` but Master names only
-/// `Slave` back — the mutual-pair test fails at the engine join, E4121, and
+/// equal widths, shape-legal join, `TAP` names `MASTER` but MASTER names only
+/// `SLAVE` back — the mutual-pair test fails at the engine join, E4121, and
 /// the connection is still made (check-only).
 #[test]
 fn iface_conn__d8_equal_width_not_named_back_is_e4121() {
@@ -536,7 +536,7 @@ fn iface_conn__d8_equal_width_not_named_back_is_e4121() {
     );
 }
 
-/// The control: Master against Slave is the one wired pairing in the D8
+/// The control: MASTER against SLAVE is the one wired pairing in the D8
 /// family — both sides name each other, so the same fixture must stay quiet.
 /// Guards against a check that fires on any multi-role family.
 #[test]
@@ -545,7 +545,7 @@ fn iface_conn__d8_master_slave_mutual_pair_is_quiet() {
     assert_eq!(
         rule_codes(&codes),
         Vec::<u32>::new(),
-        "Master<->Slave (each names the other) must stay quiet on the D8 fixture; got {codes:?}"
+        "MASTER<->SLAVE (each names the other) must stay quiet on the D8 fixture; got {codes:?}"
     );
     assert!(
         nets.contains(&vec!["dm.1".to_string(), "ds.1".to_string()]),
@@ -763,35 +763,35 @@ interface ALGN(role)
         1 = A, "Bus line A"
         2 = B, "Bus line B"
     ]
-    role Master {
+    role MASTER {
         name = "ALGN Master"
         pins = [
             1 = A, "Bus line A"
             2 = B, "Bus line B"
         ]
-        peer = Slave
+        peer = SLAVE
     }
-    role Slave {
+    role SLAVE {
         name = "ALGN Slave"
         pins = [
             1 = A, "Bus line A"
             2 = B, "Bus line B"
         ]
-        peer = Master
+        peer = MASTER
     }
 }
 
 component ALGA
 {
     pins = [
-        [1,2] = IF::ALGN(Master)
+        [1,2] = IF::ALGN(MASTER)
     ]
 }
 
 component ALGB
 {
     pins = [
-        [1,2] = IF::ALGN(Slave)
+        [1,2] = IF::ALGN(SLAVE)
     ]
 }
 "#;
@@ -855,7 +855,7 @@ interface PART(role)
         3 = MISO, "Master In Slave Out"
         4 = MOSI, "Master Out Slave In"
     ]
-    role Master {
+    role MASTER {
         name = "PART Master"
         pins = [
             1 = CS, "Chip Select"
@@ -863,9 +863,9 @@ interface PART(role)
             3 = MISO, "Master In Slave Out"
             4 = MOSI, "Master Out Slave In"
         ]
-        peer = Slave
+        peer = SLAVE
     }
-    role Slave {
+    role SLAVE {
         name = "PART Slave"
         pins = [
             1 = CS, "Chip Select"
@@ -873,21 +873,21 @@ interface PART(role)
             3 = SO, "Slave Out"
             4 = SI, "Slave In"
         ]
-        peer = Master
+        peer = MASTER
     }
 }
 
 component PM
 {
     pins = [
-        [1,2,3,4] = IF::PART(Master)
+        [1,2,3,4] = IF::PART(MASTER)
     ]
 }
 
 component PS
 {
     pins = [
-        [1,2,3,4] = IF::PART(Slave)
+        [1,2,3,4] = IF::PART(SLAVE)
     ]
 }
 "#;

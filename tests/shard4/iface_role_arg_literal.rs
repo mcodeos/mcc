@@ -53,15 +53,15 @@ const IFACE: &str = r#"interface TAG(role)
     pins = [
         1 = P, "signal"
     ]
-    role Master
+    role MASTER
     {
         name = "Master role"
-        peer = Slave
+        peer = SLAVE
     }
-    role Slave
+    role SLAVE
     {
         name = "Slave role"
-        peer = Master
+        peer = MASTER
     }
 }
 "#;
@@ -105,7 +105,7 @@ fn lock_pp_interface__component_role_arg_number_4185_fires() {
 #[test]
 fn lock_pp_interface__component_role_arg_bare_no_4185() {
     let source = format!(
-        "{IFACE}\ncomponent C(u::TAG(Master))\n{{\n    name = \"C\"\n    pins = [\n        1 = X, \"x\"\n    ]\n}}\n\nmodule main\n{{\n    io VDD\n}}\n"
+        "{IFACE}\ncomponent C(u::TAG(MASTER))\n{{\n    name = \"C\"\n    pins = [\n        1 = X, \"x\"\n    ]\n}}\n\nmodule main\n{{\n    io VDD\n}}\n"
     );
     let result = parse(&source);
     let hits = codes_with(&result, 4185);
@@ -232,7 +232,7 @@ fn lock_pp_interface__pins_row_misspelled_role_4104_fires() {
 #[test]
 fn lock_pp_interface__pins_row_bare_valid_role_clean() {
     let source = format!(
-        "{IFACE}\ncomponent C\n{{\n    name = \"C\"\n    pins = [\n        io p = TAG::TAG(Master)\n    ]\n}}\n\nmodule main\n{{\n    io VDD\n}}\n"
+        "{IFACE}\ncomponent C\n{{\n    name = \"C\"\n    pins = [\n        io p = TAG::TAG(MASTER)\n    ]\n}}\n\nmodule main\n{{\n    io VDD\n}}\n"
     );
     let result = parse(&source);
     for code in [4185, 4104] {
@@ -337,7 +337,7 @@ fn lock_pp_interface__module_inst_misspelled_role_4104_fires() {
 // The bare spelling with a valid role is the fixed form: clean on both codes.
 #[test]
 fn lock_pp_interface__module_inst_bare_valid_role_clean() {
-    let source = format!("{IFACE}\nmodule main\n{{\n    io T0::TAG(Master)\n}}\n");
+    let source = format!("{IFACE}\nmodule main\n{{\n    io T0::TAG(MASTER)\n}}\n");
     let result = parse(&source);
     for code in [4185, 4104] {
         assert!(
@@ -383,7 +383,7 @@ fn lock_pp_interface__module_inst_anon_bracket_clean() {
 #[test]
 fn lock_pp_interface__component_mixed_arg_literal_first_4185_fires() {
     let source = format!(
-        "{IFACE}\ncomponent C(u::TAG(123, Master))\n{{\n    name = \"C\"\n    pins = [\n        1 = X, \"x\"\n    ]\n}}\n\nmodule main\n{{\n    io VDD\n}}\n"
+        "{IFACE}\ncomponent C(u::TAG(123, MASTER))\n{{\n    name = \"C\"\n    pins = [\n        1 = X, \"x\"\n    ]\n}}\n\nmodule main\n{{\n    io VDD\n}}\n"
     );
     let result = parse(&source);
     let hits = codes_with(&result, 4185);
@@ -397,7 +397,7 @@ fn lock_pp_interface__component_mixed_arg_literal_first_4185_fires() {
 #[test]
 fn lock_pp_interface__component_mixed_arg_literal_last_4185_fires() {
     let source = format!(
-        "{IFACE}\ncomponent C(u::TAG(Master, 123))\n{{\n    name = \"C\"\n    pins = [\n        1 = X, \"x\"\n    ]\n}}\n\nmodule main\n{{\n    io VDD\n}}\n"
+        "{IFACE}\ncomponent C(u::TAG(MASTER, 123))\n{{\n    name = \"C\"\n    pins = [\n        1 = X, \"x\"\n    ]\n}}\n\nmodule main\n{{\n    io VDD\n}}\n"
     );
     let result = parse(&source);
     let hits = codes_with(&result, 4185);
@@ -412,7 +412,7 @@ fn lock_pp_interface__component_mixed_arg_literal_last_4185_fires() {
 #[test]
 fn lock_pp_interface__module_port_mixed_arg_4185_fires() {
     let source = format!(
-        "{IFACE}\nmodule main(io bus::TAG(Master, 123))\n{{\n    bus - bus\n}}\n"
+        "{IFACE}\nmodule main(io bus::TAG(MASTER, 123))\n{{\n    bus - bus\n}}\n"
     );
     let result = parse(&source);
     let hits = codes_with(&result, 4185);
@@ -427,7 +427,7 @@ fn lock_pp_interface__module_port_mixed_arg_4185_fires() {
 #[test]
 fn lock_pp_interface__component_mixed_arg_bare_only_clean() {
     let source = format!(
-        "{IFACE}\ncomponent C(u::TAG(Master))\n{{\n    name = \"C\"\n    pins = [\n        1 = X, \"x\"\n    ]\n}}\n\nmodule main\n{{\n    io VDD\n}}\n"
+        "{IFACE}\ncomponent C(u::TAG(MASTER))\n{{\n    name = \"C\"\n    pins = [\n        1 = X, \"x\"\n    ]\n}}\n\nmodule main\n{{\n    io VDD\n}}\n"
     );
     let result = parse(&source);
     assert!(

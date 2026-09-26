@@ -56,7 +56,7 @@ fn board(arg_members: &[&str]) -> String {
     format!(
         r#"interface SPI(role)
 {{
-    role Master
+    role MASTER
     {{
         pins = [
             1 = CS
@@ -64,9 +64,9 @@ fn board(arg_members: &[&str]) -> String {
             3 = MISO
             4 = MOSI
         ]
-        peer = Slave
+        peer = SLAVE
     }}
-    role Slave
+    role SLAVE
     {{
         pins = [
             1 = CS
@@ -74,14 +74,14 @@ fn board(arg_members: &[&str]) -> String {
             3 = SO
             4 = SI
         ]
-        peer = Master
+        peer = MASTER
     }}
 }}
 
 component CHIP
 {{
     pins = [
-        io [8:11] = SPI{{{members}}}::SPI(Master)
+        io [8:11] = SPI{{{members}}}::SPI(MASTER)
     ]
 }}
 

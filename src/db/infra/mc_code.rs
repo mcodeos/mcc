@@ -7361,7 +7361,7 @@ component MCU.X
 {
     pins = [
         io [6,7] = UART0::UART.TTL(DCE)
-        io [16,17] = ADC::ADC.DIFF(Receiver)
+        io [16,17] = ADC::ADC.DIFF(RECEIVER)
         io [18,19] = GPIO[0,1]
     ]
 }
@@ -7460,14 +7460,14 @@ interface I2C.SMBus(role)
         1 = SDA
         2 = SCL
     ]
-    role Target { name = "I2C.SMBus Target" }
+    role TARGET { name = "I2C.SMBus Target" }
     role Controller { name = "I2C.SMBus Controller" }
 }
 
 component MCU.X
 {
     pins = [
-        io [1,2] = I2C0::I2C.SMBus(Target)
+        io [1,2] = I2C0::I2C.SMBus(TARGET)
         io [3,4] = XTAL
     ]
 }

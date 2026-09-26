@@ -23,13 +23,13 @@ interface MINI(role)
         [2,3] = [DP, DM]
         4 = ID
     ]
-    role Peripheral { name = "Peripheral" }
+    role PERIPHERAL { name = "PERIPHERAL" }
 }
 
 component CONN
 {
     pins = [
-        [1:5] = IF::MINI(Peripheral)
+        [1:5] = IF::MINI(PERIPHERAL)
     ]
 }
 
@@ -55,7 +55,7 @@ interface SPI4(role)
         3 = MISO
         4 = MOSI
     ]
-    role Slave { name = "Slave" }
+    role SLAVE { name = "SLAVE" }
 }
 
 component FLASH
@@ -65,7 +65,7 @@ component FLASH
         2 = SO
         5 = SI
         6 = SCLK
-        [1,2,5,6] = SP::SPI4(Slave)
+        [1,2,5,6] = SP::SPI4(SLAVE)
     ]
 }
 
@@ -138,23 +138,23 @@ fn mat_ifacebind__device_pin_names_do_not_win__interface_pin_number_governs() {
 const ROLE_PIN_TABLE_SOURCE: &str = r#"
 interface SPX(role)
 {
-    role Master { name = "Master"
+    role MASTER { name = "MASTER"
         pins = [
             1 = CS
             2 = SCLK
             3 = COPI
             4 = CIPO
         ]
-        peer = Slave
+        peer = SLAVE
     }
-    role Slave { name = "Slave"
+    role SLAVE { name = "SLAVE"
         pins = [
             1 = CS
             2 = SCLK
             3 = SO
             4 = SI
         ]
-        peer = Master
+        peer = MASTER
     }
 }
 
@@ -165,7 +165,7 @@ component DEV
         2 = SI
         5 = SO
         6 = CS
-        [1, 2, 5, 6] = SPX::SPX(Slave)
+        [1, 2, 5, 6] = SPX::SPX(SLAVE)
     ]
 }
 
@@ -182,23 +182,23 @@ module main(psnk GND)
 const ROLE_PIN_TABLE_SCRAMBLED_SOURCE: &str = r#"
 interface SPX(role)
 {
-    role Master { name = "Master"
+    role MASTER { name = "MASTER"
         pins = [
             1 = CS
             2 = SCLK
             3 = COPI
             4 = CIPO
         ]
-        peer = Slave
+        peer = SLAVE
     }
-    role Slave { name = "Slave"
+    role SLAVE { name = "SLAVE"
         pins = [
             1 = CS
             2 = SCLK
             3 = SO
             4 = SI
         ]
-        peer = Master
+        peer = MASTER
     }
 }
 
@@ -209,7 +209,7 @@ component DEV
         2 = SI
         5 = SO
         6 = CS
-        [6, 5, 2, 1] = SPX::SPX(Slave)
+        [6, 5, 2, 1] = SPX::SPX(SLAVE)
     ]
 }
 

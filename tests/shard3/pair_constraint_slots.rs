@@ -19,7 +19,7 @@ interface USB3TX(role) {
         1 = SSTX\+ @pair(sstx, match: 0.2mm), "SuperSpeed TX Positive"
         2 = SSTX\- @pair(sstx, match: 0.2mm), "SuperSpeed TX Negative"
     ]
-    role Driver { name = "Differential driver" }
+    role DRIVER { name = "Differential driver" }
 }
 
 component RCV {
@@ -27,7 +27,7 @@ component RCV {
 }
 
 module main {
-    io tx{SSTX\+, SSTX\-}::USB3TX(Driver)
+    io tx{SSTX\+, SSTX\-}::USB3TX(DRIVER)
     RCV u1
     RCV u2
     tx.SSTX\+ -> u1.1
@@ -44,7 +44,7 @@ interface DIFF(role) {
         1 = P @pair(p, match: 0.2mm)
         2 = N @pair(p, match: 200um)
     ]
-    role Receiver { name = "Differential receiver" }
+    role RECEIVER { name = "Differential receiver" }
 }
 
 component RCV {
@@ -52,7 +52,7 @@ component RCV {
 }
 
 module main {
-    io d{P, N}::DIFF(Receiver)
+    io d{P, N}::DIFF(RECEIVER)
     RCV u1
     RCV u2
     d.P -> u1.1
@@ -69,7 +69,7 @@ interface DIFF(role) {
         1 = P @pair(p, match: 0.2mm)
         2 = N @pair(p, match: 0.5mm)
     ]
-    role Receiver { name = "Differential receiver" }
+    role RECEIVER { name = "Differential receiver" }
 }
 
 component RCV {
@@ -77,7 +77,7 @@ component RCV {
 }
 
 module main {
-    io d{P, N}::DIFF(Receiver)
+    io d{P, N}::DIFF(RECEIVER)
     RCV u1
     RCV u2
     d.P -> u1.1
@@ -94,7 +94,7 @@ interface DIFF(role) {
         1 = P @pair(p, match: 0.2mm)
         2 = N @pair(p)
     ]
-    role Receiver { name = "Differential receiver" }
+    role RECEIVER { name = "Differential receiver" }
 }
 
 component RCV {
@@ -102,7 +102,7 @@ component RCV {
 }
 
 module main {
-    io d{P, N}::DIFF(Receiver)
+    io d{P, N}::DIFF(RECEIVER)
     RCV u1
     RCV u2
     d.P -> u1.1
@@ -118,7 +118,7 @@ interface DIFF(role) {
         1 = P @pair(p, match: 3.3V)
         2 = N @pair(p, match: 3.3V)
     ]
-    role Receiver { name = "Differential receiver" }
+    role RECEIVER { name = "Differential receiver" }
 }
 
 component RCV {
@@ -126,7 +126,7 @@ component RCV {
 }
 
 module main {
-    io d{P, N}::DIFF(Receiver)
+    io d{P, N}::DIFF(RECEIVER)
     RCV u1
     RCV u2
     d.P -> u1.1
@@ -143,7 +143,7 @@ interface DIFF(role) {
         1 = P @pair(p, match: 5)
         2 = N @pair(p, match: 5)
     ]
-    role Receiver { name = "Differential receiver" }
+    role RECEIVER { name = "Differential receiver" }
 }
 
 component RCV {
@@ -151,7 +151,7 @@ component RCV {
 }
 
 module main {
-    io d{P, N}::DIFF(Receiver)
+    io d{P, N}::DIFF(RECEIVER)
     RCV u1
     RCV u2
     d.P -> u1.1
@@ -168,7 +168,7 @@ interface DIFF(role) {
         1 = P @pair(match: 0.2mm)
         2 = N @pair(match: 0.2mm)
     ]
-    role Receiver { name = "Differential receiver" }
+    role RECEIVER { name = "Differential receiver" }
 }
 
 component RCV {
@@ -176,7 +176,7 @@ component RCV {
 }
 
 module main {
-    io d{P, N}::DIFF(Receiver)
+    io d{P, N}::DIFF(RECEIVER)
     RCV u1
     RCV u2
     d.P -> u1.1
