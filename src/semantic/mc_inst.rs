@@ -884,22 +884,6 @@ impl McInstances {
             return;
         }
 
-        // Handle MCAST_OPD directly (reference parameters like &dc24v, &GPIO[1:2])
-        // when called from parse_params without IOType prefix
-        if node.get_type() == MCAST_OPD {
-            self.parse_opd(node, IOType::Power);
-            return;
-        }
-
-        // Handle MCAST_OPD_SQUARE_VEC directly (reference set like &[VDD1, GND1])
-        if node.get_type() == MCAST_OPD_SQUARE_VEC {
-            let span = (node.get_pos() as usize)..((node.get_pos() + node.get_len()) as usize);
-            let port_key = format!("@{}", self.insts.len());
-            self.parse_opd_square_vec(node, IOType::Power);
-            self.store_port_span(&port_key, span);
-            return;
-        }
-
         let Some(subnode) = node.get_sub_node() else {
             dlog_error(
                 crate::errcodes::INST_MISSING_SUBNODE,
@@ -2083,7 +2067,7 @@ impl McInstances {
         None
     }
 
-    /// Parse a single MCAST_OPD node (reference parameter like &dc24v, &GPIO[1:2])
+    /// Parse a single MCAST_OPD node (a bare port-row operand like `dc24v`)
     pub(crate) fn parse_opd(&mut self, node: &AstNode, iotype: IOType) {
         let Some(opd_node) = node.get_sub_node() else {
             return;
@@ -2238,7 +2222,7 @@ impl McInstances {
         }
     }
 
-    /// Parse MCAST_OPD_SQUARE_VEC node (reference set like &[VDD1, GND1])
+    /// Parse MCAST_OPD_SQUARE_VEC node (a port-row set like `[VDD1, GND1]`)
     pub(crate) fn parse_opd_square_vec(&mut self, node: &AstNode, iotype: IOType) {
         let mut children: Vec<AstNode> = Vec::new();
         let mut child = node.get_sub_node();

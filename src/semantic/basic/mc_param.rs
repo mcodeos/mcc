@@ -130,7 +130,7 @@ impl McParamValue {
                 None
             }
 
-            // & square bracket vector: &[a b] is parsed as MCAST_OPD_SQUARE_VEC
+            // bracket-vector actual: `[a b]` parses as MCAST_OPD_SQUARE_VEC
             MCAST_OPD_SQUARE_VEC => {
                 if let Some(subnodes) = node.get_sub_node() {
                     let values: Vec<McParamValue> = subnodes

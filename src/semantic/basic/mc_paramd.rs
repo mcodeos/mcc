@@ -933,9 +933,9 @@ impl McParamDeclare {
             }
 
             MCAST_OPD => {
-                // declare 2' `&id`: the grammar wraps the ids in MCAST_OPD
-                // exactly as `&[a, b]` wraps its members above; mcc models no
-                // ref/copy difference, so the form reads as a plain Single.
+                // an operand-shaped child wraps the ids exactly as the
+                // bracket-vector form wraps its members above; the declare
+                // face reads it as a plain Single.
                 let inner = subnode
                     .get_sub_node()
                     .unwrap_or_else(|| subnode.clone());
