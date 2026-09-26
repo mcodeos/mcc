@@ -70,6 +70,7 @@ mod u138_iface_return_face;
 mod u141_parsed_pins_boundary;
 mod u216_canon_names;
 mod u249_curly_chain_member;
+mod u308_ref_convergence;
 mod u54_parameter_default;
 mod vec_group_expansion_equivalence;
 mod vec_lane_chain_width;
