@@ -1009,9 +1009,11 @@ pub struct InstEntry {
     /// the instance site (`CHIP d1 @ncpin(1,3)`) — the instance-level
     /// counterpart of the class-level `nc` direction word.
     ///
-    /// Pure suppression marker: it never touches the netlist, the connections,
-    /// the BOM or the viz. Its only consumers are the "unconnected" diagnostic
-    /// family (`is_nc_entry`, `check_unused_pins`, the E4116 denominator).
+    /// It never touches the netlist, the connections, the BOM or the viz. Its
+    /// consumers are the "unconnected" diagnostic family (`is_nc_entry`,
+    /// `check_unused_pins`, the E4116 denominator) and — since U305 enforces
+    /// the single-instance constraint on both faces (`nc-design.md` §4.3) —
+    /// `check_nc_connected`, which reports a marked terminal that got wired.
     /// A pin that is already class-level NC never carries it, so a marked entry
     /// and a `NonCon` entry never overlap and no count subtracts twice.
     pub nc_marked: bool,

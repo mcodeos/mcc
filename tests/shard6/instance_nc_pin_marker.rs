@@ -8,10 +8,12 @@
 //
 // The marker is written as the declaration line's trailing attribute
 // (`CHIP d1 @ncpin(1,3)`) and means "this pin, of *this* instance, is
-// intentionally not connected". It is a **pure suppression marker**: the
-// netlist, the connections, the BOM and the viz are untouched — only the
-// "unconnected" diagnostic family reads it. That is why the net-face lock below
-// compares the nets of a marked design against its unmarked twin.
+// intentionally not connected". The netlist, the connections, the BOM and the
+// viz are untouched — the "unconnected" diagnostic family reads it as a
+// suppression, and since U305 (`nc-design.md` §4.3) `check_nc_connected` reads
+// it as a prohibition: a marked terminal that gets wired reports E4109. That
+// is why the net-face lock below compares the nets of a marked design against
+// its unmarked twin.
 //
 // The measurement this file encodes (2026-09-15, `mcc show ast` + probes):
 //   * The grammar reaches the trailer only through `mc_net: mc_phrase
@@ -252,6 +254,23 @@ fn sem_instncpin__module_scalar_port() {
     assert!(b.reports(NET_MODULE_PORT_UNCONNECTED, "main.m1.MIC.P"));
 }
 
+/// U305 ① on the module face: the ports join the same equipotential
+/// partition as component pins, so the new law reads them through the same
+/// rule — wiring a marked port reports E4109, the wire survives, and the
+/// unmarked neighbours keep their own verdicts.
+#[test]
+fn sem_instncpin__module_marked_and_connected_is_a_violation() {
+    let b = build(LEAF, "    Leaf m1 @ncpin(VIN)\n    in p1\n    p1 -> m1.VIN");
+    assert_eq!(b.count(NET_NC_CONNECTED), 1, "{:?}", b.diags);
+    assert!(b
+        .diags
+        .iter()
+        .any(|(_, m)| m.contains("NC-marked terminal 'main.m1.VIN'")));
+    // The wire survives; the unmarked neighbours keep reporting.
+    assert_eq!(b.nets.len(), 1, "{:?}", b.nets);
+    assert!(b.reports(NET_MODULE_PORT_UNCONNECTED, "main.m1.VOUT"));
+}
+
 /// Naming a grouping header covers the whole port. The header itself is
 /// de-electrified and never reported on its own, so a marker that stopped at
 /// the header would suppress nothing at all — a silent no-op.
@@ -413,17 +432,26 @@ fn sem_instncpin__clause_expansion_reports_once() {
     assert_eq!(b.count(COMPONENT_PIN_NOT_FOUND), 1, "{:?}", b.diags);
 }
 
-// ── 4. the reverse lock: marking a connected pin stays legal ──
+// ── 4. the connection-side verdict: a marked pin that is wired is a violation ──
 
-/// Ruling ②: a pin that is marked *and* wired is not a contradiction. E4109
-/// (an NC pin that is connected) must stay silent, the wire must survive, and
+/// U305 ① (`nc-design.md` §4.3, overturning U48 ruling ②): the single-instance
+/// constraint is enforced symmetrically — a pin that is marked *and* wired is
+/// reported (E4109 per wired marked terminal), the wire itself survives, and
 /// because both marked pins are wired the denominator must **not** shrink.
 #[test]
-fn sem_instncpin__marked_and_connected_is_legal() {
+fn sem_instncpin__marked_and_connected_is_a_violation() {
     let body = "    CHIP d1 @ncpin(1,3)\n    in p1\n    in p2\n    p1 -> d1.1\n    p2 -> d1.3";
     let b = build(CHIP, body);
     assert_eq!(b.marked_paths(), ["main.d1.1", "main.d1.3"]);
-    assert_eq!(b.count(NET_NC_CONNECTED), 0, "{:?}", b.diags);
+    assert_eq!(b.count(NET_NC_CONNECTED), 2, "{:?}", b.diags);
+    assert!(b
+        .diags
+        .iter()
+        .any(|(_, m)| m.contains("NC-marked terminal 'main.d1.1'")));
+    assert!(b
+        .diags
+        .iter()
+        .any(|(_, m)| m.contains("NC-marked terminal 'main.d1.3'")));
     // Wired pins keep their nets …
     assert_eq!(b.nets.len(), 2, "{:?}", b.nets);
     // … and the two marked-but-wired pins stay in the denominator.
@@ -433,12 +461,12 @@ fn sem_instncpin__marked_and_connected_is_legal() {
     );
 }
 
-/// Mixed: one marked pin is wired, one is not. The wired one stays in the
-/// denominator, the unwired one leaves it.
+/// Mixed: one marked pin is wired, one is not. The wired one is the violation
+/// and stays in the denominator, the unwired one leaves it.
 #[test]
 fn sem_instncpin__denominator_counts_only_marked_and_unwired() {
     let b = build(CHIP, "    CHIP d1 @ncpin(1,3)\n    in p1\n    p1 -> d1.1");
-    assert_eq!(b.count(NET_NC_CONNECTED), 0);
+    assert_eq!(b.count(NET_NC_CONNECTED), 1);
     assert_eq!(
         b.only(NET_PARTIAL_CONNECTION),
         "'main.d1' has 1 of 3 pins connected."
