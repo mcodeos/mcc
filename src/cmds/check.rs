@@ -38,6 +38,9 @@ struct CheckBatch {
     /// Aggregated acceptance verdict counts (pass, fail, defer) over every
     /// world whose top declared an `expects` ledger; `None` when none did.
     expect: Option<(usize, usize, usize)>,
+    /// A world that could not even pick its top module stops the run — its
+    /// message is the report (U305④: never fall back to a silent guess).
+    fatal: Option<String>,
 }
 
 /// Ask one definition space everything `check` asks, and keep the answer.
@@ -45,9 +48,33 @@ struct CheckBatch {
 /// Called once for a file target and once per entry for a directory target —
 /// while that entry's world is active, which is the only time it can be asked.
 fn check_one_world(uri: &McURI, args: &CheckArgs, batch: &mut CheckBatch) {
-    let mod_name = mcc::mcb_get_module_name_by_uri(uri)
-        .or_else(|| mcc::mcb_get_first_module_name())
-        .unwrap_or_else(|| "main".to_string());
+    // ── Top selection. An explicit `--top` wins (U305④: the global flag
+    //    existed but check never read it — it was a no-op here). Then the
+    //    in-file pick ([`mcc::mcb_pick_top_module_by_uri`]): a module that
+    //    another module of the same file instantiates is a helper, not a
+    //    top candidate. The old first-row pick read the registry's
+    //    `(uri, ident)`-sorted view, so a helper whose name sorted first
+    //    (`SUB` < `main`) was deterministically built as the top — silently,
+    //    with the real top's instances never registering and its Pass2
+    //    diagnostics (E4116/E4117/E4119 …) never generated.
+    let mod_name = if let Some(top) = mcc::cli::globals().top.clone() {
+        top
+    } else {
+        match mcc::mcb_pick_top_module_by_uri(uri) {
+            mcc::TopPick::One(name) => name,
+            mcc::TopPick::NoModule => mcc::mcb_get_module_name_by_uri(uri)
+                .or_else(|| mcc::mcb_get_first_module_name())
+                .unwrap_or_else(|| "main".to_string()),
+            mcc::TopPick::Ambiguous(cands) => {
+                batch.fatal = Some(format!(
+                    "check: cannot pick the top module of {}: candidates ({}); pass --top",
+                    uri,
+                    cands.join(", ")
+                ));
+                return;
+            }
+        }
+    };
     let entry = mcc::McSpaceName {
         ident: mcc::McIds::from(mod_name.as_str()),
         uri: mcc::uri_intern(uri),
@@ -257,6 +284,18 @@ pub fn run(args: &CheckArgs) -> Result<CheckOutcome> {
             );
         }
         None => check_one_world(&_uri, args, &mut batch),
+    }
+
+    // ── A world that could not even pick its top module stops the run
+    //    (U305④): the message is the report, and guessing silently is what
+    //    produced the swallowed-top bug in the first place. ──
+    if let Some(msg) = batch.fatal {
+        if mcc::cli::globals().format.is_structured() {
+            let env = Envelope::err(RpcError::invalid_params(msg));
+            output::emit_envelope(&env, mcc::cli::globals().format, None, false)?;
+            return Ok(CheckOutcome { exit_code: 2 });
+        }
+        anyhow::bail!("{}", msg);
     }
 
     // ── Nets flag: pass2 already ran per entry; report the aggregate. ──
