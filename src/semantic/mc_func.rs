@@ -84,10 +84,26 @@ pub struct GateCandidate {
     pub len: u32,
 }
 
-/// Trait for types that can provide instance lookup for symbol resolution
-pub trait HasFindInst {
+/// The read-only half of [`HasFindInst`] — exactly the queries the port/value
+/// face needs to evaluate a phrase's shape. See `mc_phrase.rs::eval_port_elems`.
+pub trait ShapeCtx {
     fn find_inst(&self, id: &str) -> Option<McInstance>;
-    fn find_inst_mut(&mut self, id: &str) -> Option<&mut crate::McInstance>;
+    fn uri(&self) -> &crate::McURI;
+    /// Default implementation returns `false` (not a port).
+    fn is_declared_port(&self, _name: &str) -> bool {
+        false
+    }
+
+    /// Member names of an interface-class module parameter whose base name
+    /// matches `name` (e.g. `dc{VDD_3V3, GND}::DC(3.3V)` → `["VDD_3V3", "GND"]`
+    /// for `name = "dc"`). Interface-class params are registered in the module
+    /// param table only (not `insts`), so `find_inst` cannot see them; the
+    /// Pass1 opcheck uses this to present the declared bus width of a bare
+    /// param reference, mirroring Pass2's `expand_port_lanes` upgrade. Returns
+    /// `None` when `name` is not such a param (or has fewer than 2 members).
+    fn interface_param_members(&self, _name: &str) -> Option<Vec<String>> {
+        None
+    }
 
     /// Read the ordered member set of a declared vector group
     /// (`c[1:2]` → `["c1","c2"]`), §11.2/§11.3 ③. The scope chain is the same
@@ -98,6 +114,11 @@ pub trait HasFindInst {
         let _ = base;
         None
     }
+}
+
+/// Trait for types that can provide instance lookup for symbol resolution
+pub trait HasFindInst: ShapeCtx {
+    fn find_inst_mut(&mut self, id: &str) -> Option<&mut crate::McInstance>;
 
     /// U282: true when `name` is a func-local declare already registered into
     /// the body's `func.insts` during this body loop (the `seen_callers` set
@@ -163,7 +184,6 @@ pub trait HasFindInst {
     fn check_bus_member(&mut self, base: &str, member: &str) -> Option<(String, String)>;
     fn is_component_bus(&self, base: &str, member: &str) -> bool;
     fn upgrade_label_to_bus(&mut self, name: &str) -> bool;
-    fn uri(&self) -> &crate::McURI;
     fn parse_declare(&mut self, node: &AstNode) -> Vec<McInstance>;
     fn gen_anon_name(&mut self, classname: &str) -> String;
 
@@ -287,11 +307,6 @@ pub trait HasFindInst {
         RefVerdict::UnresolvedRef { base, member }
     }
 
-    /// Default implementation returns `false` (not a port).
-    fn is_declared_port(&self, _name: &str) -> bool {
-        false
-    }
-
     /// Authoritative declared member set of a module io/out/in port named
     /// `base`, or `None` when `base` is not such a port.
     ///
@@ -359,17 +374,6 @@ pub trait HasFindInst {
             }
         }
         true
-    }
-
-    /// Member names of an interface-class module parameter whose base name
-    /// matches `name` (e.g. `dc{VDD_3V3, GND}::DC(3.3V)` → `["VDD_3V3", "GND"]`
-    /// for `name = "dc"`). Interface-class params are registered in the module
-    /// param table only (not `insts`), so `find_inst` cannot see them; the
-    /// Pass1 opcheck uses this to present the declared bus width of a bare
-    /// param reference, mirroring Pass2's `expand_port_lanes` upgrade. Returns
-    /// `None` when `name` is not such a param (or has fewer than 2 members).
-    fn interface_param_members(&self, _name: &str) -> Option<Vec<String>> {
-        None
     }
 
     /// Record the source span for an already-created instance.
@@ -490,13 +494,33 @@ struct FuncBodyContext<'a> {
     parent: &'a mut dyn HasFindInst,
 }
 
+impl<'a> ShapeCtx for FuncBodyContext<'a> {
+    fn find_inst(&self, id: &str) -> Option<McInstance> {
+        self.find_inst_with_span(id).map(|(inst, _)| inst)
+    }
+
+    fn uri(&self) -> &crate::McURI {
+        self.parent.uri()
+    }
+
+    fn is_declared_port(&self, name: &str) -> bool {
+        // Func params are bound at the call site — their net width is not
+        // fixed at the definition site, so they follow the shape-by-use rule
+        // the same way scalar module ports do (the Pass2 param binding
+        // resolves the actual member width).
+        self.param_names.iter().any(|p| p == name) || self.parent.is_declared_port(name)
+    }
+
+    fn get_vector_members(&self, base: &str) -> Option<Vec<String>> {
+        // Same scope chain as `find_inst`: the parent (module/function) holds
+        // the vector groups; func-local declares live in the parent's `insts`.
+        self.parent.get_vector_members(base)
+    }
+}
+
 impl<'a> HasFindInst for FuncBodyContext<'a> {
     fn has_local_decl(&self, name: &str) -> bool {
         self.seen_callers.borrow().iter().any(|s| s == name)
-    }
-
-    fn find_inst(&self, id: &str) -> Option<McInstance> {
-        self.find_inst_with_span(id).map(|(inst, _)| inst)
     }
 
     fn find_inst_mut(&mut self, id: &str) -> Option<&mut crate::McInstance> {
@@ -516,12 +540,6 @@ impl<'a> HasFindInst for FuncBodyContext<'a> {
 
     fn find_terminal(&self, id: &str) -> Option<McInstance> {
         self.parent.find_terminal(id)
-    }
-
-    fn get_vector_members(&self, base: &str) -> Option<Vec<String>> {
-        // Same scope chain as `find_inst`: the parent (module/function) holds
-        // the vector groups; func-local declares live in the parent's `insts`.
-        self.parent.get_vector_members(base)
     }
 
     fn add_label_at(
@@ -582,24 +600,12 @@ impl<'a> HasFindInst for FuncBodyContext<'a> {
         self.parent.upgrade_label_to_bus(name)
     }
 
-    fn is_declared_port(&self, name: &str) -> bool {
-        // Func params are bound at the call site — their net width is not
-        // fixed at the definition site, so they follow the shape-by-use rule
-        // the same way scalar module ports do (the Pass2 param binding
-        // resolves the actual member width).
-        self.param_names.iter().any(|p| p == name) || self.parent.is_declared_port(name)
-    }
-
     fn declared_port_members(&self, base: &str) -> Option<Vec<String>> {
         // Deliberately NOT including func params: a param is bound at the call
         // site and stays shape-by-use (member width resolved at instantiation),
         // so it is never an authoritative declared port. Only a real module
         // io/out/in port on the parent chain is gated.
         self.parent.declared_port_members(base)
-    }
-
-    fn uri(&self) -> &crate::McURI {
-        self.parent.uri()
     }
 
     fn parse_declare(&mut self, node: &AstNode) -> Vec<McInstance> {
@@ -1332,19 +1338,27 @@ impl McFunction {
     }
 }
 
-impl HasFindInst for McFunction {
+impl ShapeCtx for McFunction {
     fn find_inst(&self, id: &str) -> Option<McInstance> {
         self.insts.get(id).cloned()
     }
 
-    fn find_inst_mut(&mut self, id: &str) -> Option<&mut McInstance> {
-        self.insts.get_mut(id)
+    fn uri(&self) -> &crate::McURI {
+        self.uri
+            .as_ref()
+            .expect("McFunction.uri not set, call parse_body first")
     }
 
     fn get_vector_members(&self, base: &str) -> Option<Vec<String>> {
         self.insts
             .get_vector_members(base)
             .map(|members| members.to_vec())
+    }
+}
+
+impl HasFindInst for McFunction {
+    fn find_inst_mut(&mut self, id: &str) -> Option<&mut McInstance> {
+        self.insts.get_mut(id)
     }
 
     fn add_label_at(
@@ -1461,12 +1475,6 @@ impl HasFindInst for McFunction {
 
     fn is_component_bus(&self, _base: &str, _member: &str) -> bool {
         false
-    }
-
-    fn uri(&self) -> &crate::McURI {
-        self.uri
-            .as_ref()
-            .expect("McFunction.uri not set, call parse_body first")
     }
 
     /// Iter-7.4 (parser fix)

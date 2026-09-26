@@ -29,7 +29,7 @@ use crate::semantic::basic::mc_endpoint::{McEndpoint, McInstanceRef};
 use crate::semantic::basic::mc_ids::McIds;
 use crate::semantic::basic::mc_phrase::McPhrase;
 use crate::semantic::component::Mc2Component;
-use crate::semantic::mc_func::{HasFindInst, McFunctions};
+use crate::semantic::mc_func::{HasFindInst, McFunctions, ShapeCtx};
 use crate::semantic::mc_inst::{McInstance, McInstances};
 use crate::McURI;
 
@@ -175,11 +175,17 @@ impl McRecipe {
 // `signals` with IOType::None — never a declared *port*, so the §4.2
 // consistency surface, which reads the declared signal set, is unpolluted).
 
-impl HasFindInst for McRecipe {
+impl ShapeCtx for McRecipe {
     fn find_inst(&self, id: &str) -> Option<McInstance> {
         self.find_inst_with_span(id).map(|(inst, _)| inst)
     }
 
+    fn uri(&self) -> &McURI {
+        &self.uri
+    }
+}
+
+impl HasFindInst for McRecipe {
     fn find_inst_mut(&mut self, _id: &str) -> Option<&mut crate::McInstance> {
         None
     }
@@ -238,10 +244,6 @@ impl HasFindInst for McRecipe {
 
     fn upgrade_label_to_bus(&mut self, _name: &str) -> bool {
         false
-    }
-
-    fn uri(&self) -> &McURI {
-        &self.uri
     }
 
     fn parse_declare(&mut self, node: &AstNode) -> Vec<McInstance> {

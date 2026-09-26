@@ -21,7 +21,7 @@ use crate::semantic::basic::mc_phrase::McPhrase;
 use crate::semantic::common::IOType;
 use crate::semantic::component::Mc2Component;
 use crate::semantic::context::resolve_cmie;
-use crate::semantic::mc_func::HasFindInst;
+use crate::semantic::mc_func::{HasFindInst, ShapeCtx};
 use crate::semantic::mc_ifs::Mc2Interface;
 use crate::semantic::module::Mc2Module;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -270,7 +270,7 @@ impl McInstance {
 
     /// Unified member resolution across container types (Phase 3.1).
     ///
-    /// Given a member name, dispatches to the container's [`HasFindInst::find_inst`]
+    /// Given a member name, dispatches to the container's [`ShapeCtx::find_inst`]
     /// implementation. Supports Component (pin members), Interface (interface pins),
     /// Bus (bus members), and Module (inst members).
     ///
