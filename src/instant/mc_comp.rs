@@ -129,6 +129,17 @@ fn formal_answers_to(declare: &McParamDeclare, name: &str) -> bool {
 }
 
 impl McComponentInst {
+    /// ★ U305⑤: is this part on the board but not fitted? The two spellings —
+    /// the constructor `NC` argument (transitional) and the statement-line
+    /// `@dnp` marker — are one verdict, and this is its single read point, the
+    /// instance-level twin of [`crate::InstEntry::not_fitted`]. Readers that
+    /// print, export or serialize "is it fitted" must ask here rather than
+    /// pick a field, or a marker written in one spelling goes unseen by
+    /// whichever reader picked the other.
+    pub fn not_fitted(&self) -> bool {
+        self.nc || self.dnp
+    }
+
     /// Create a new component instance
     pub fn new(name: &str, def: Arc<McComponent>) -> Self {
         let mut inst = Self {
@@ -1571,7 +1582,7 @@ fn numeric_str_cmp(a: &str, b: &str) -> std::cmp::Ordering {
 impl std::fmt::Display for McComponentInst {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}::{}", self.name, self.def.name)?;
-        if self.nc {
+        if self.not_fitted() {
             write!(f, "(NC)")?;
         }
 

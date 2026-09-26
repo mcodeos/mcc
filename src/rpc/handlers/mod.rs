@@ -1312,7 +1312,7 @@ pub(crate) fn instance_to_json(inst: &crate::MccProjectTree, view: &crate::TreeV
                 "name":       c.name.to_string(),
                 "class_name": c.def.name.to_string(),
                 "pins":       pins,
-                "nc":         c.nc,
+                "nc":         c.not_fitted(),
             })
         })
         .collect();

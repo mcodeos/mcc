@@ -136,7 +136,7 @@ fn collect_components(
                     class: c.def.name.to_string(),
                     value,
                     footprint: attr_text(c, "package").unwrap_or_default(),
-                    dnp: c.nc,
+                    dnp: c.not_fitted(),
                     module_path: path.to_string(),
                 },
             );

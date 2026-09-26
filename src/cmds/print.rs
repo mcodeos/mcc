@@ -279,7 +279,7 @@ pub fn print_module_inst(
                     });
                 }
             }
-            let nc_str = if comp.nc { "(NC)" } else { "" };
+            let nc_str = if comp.not_fitted() { "(NC)" } else { "" };
             println!(
                 "{}     [C] {}: {}{} [pins: {}]",
                 indent,

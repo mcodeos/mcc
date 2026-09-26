@@ -44,7 +44,7 @@ range (threshold 40KB).
 | `instant/mc_mod/fcallinst.rs` | 148 KB | 26 |
 | `viz/layout/equi_audit.rs` | 137 KB | 100 |
 | `rpc/handlers/mod.rs` | 132 KB | 107 |
-| `instant/mc_mod/phases.rs` | 130 KB | 29 |
+| `instant/mc_mod/phases.rs` | 131 KB | 29 |
 | `export/kicad_sch.rs` | 127 KB | 106 |
 | `instant/mc_mod/points.rs` | 123 KB | 20 |
 | `semantic/mc_inst.rs` | 123 KB | 89 |
@@ -67,7 +67,7 @@ range (threshold 40KB).
 | `db/` | 28 | 1045 KB |
 | `eval/` | 2 | 50 KB |
 | `export/` | 7 | 185 KB |
-| `instant/` | 41 | 1651 KB |
+| `instant/` | 41 | 1652 KB |
 | `lsp/` | 7 | 70 KB |
 | `output/` | 7 | 107 KB |
 | `query/` | 9 | 170 KB |
@@ -3164,51 +3164,52 @@ instant/mc_bus.rs#L171  fn dlu_bus__merge_into_empty_bus
 instant/mc_comp.rs#L28  struct McComponentInst
 instant/mc_comp.rs#L123  fn formal_answers_to
 instant/mc_comp.rs#L131  impl McComponentInst
-instant/mc_comp.rs#L133  fn new
-instant/mc_comp.rs#L161  fn degraded
-instant/mc_comp.rs#L186  fn with_params
-instant/mc_comp.rs#L248  fn with_nc
-instant/mc_comp.rs#L278  fn set_nc_pins
-instant/mc_comp.rs#L288  fn init_pins
-instant/mc_comp.rs#L324  fn init_call_pin_rows
-instant/mc_comp.rs#L341  fn init_cond_pins
-instant/mc_comp.rs#L464  fn init_cond_errors
-instant/mc_comp.rs#L521  fn attrs_of_pin
-instant/mc_comp.rs#L531  fn init_cond_attrs
-instant/mc_comp.rs#L590  fn condition_reads_unreduced_param
-instant/mc_comp.rs#L614  fn init_resolved_attrs
-instant/mc_comp.rs#L632  fn resolve_attr_value
-instant/mc_comp.rs#L692  fn lookup_param_value
-instant/mc_comp.rs#L744  fn resolve_expr_to_literal
-instant/mc_comp.rs#L795  fn resolve_expr_to_int
-instant/mc_comp.rs#L808  fn resolve_expr_to_value
-instant/mc_comp.rs#L838  fn apply_operands
-instant/mc_comp.rs#L847  fn init_dynamic_pins
-instant/mc_comp.rs#L878  fn declared_param_names
-instant/mc_comp.rs#L891  fn expand_dynamic_line
-instant/mc_comp.rs#L950  fn get_param_bindings
-instant/mc_comp.rs#L995  fn find_conditional_pin_id
-instant/mc_comp.rs#L1012  fn pin_name
-instant/mc_comp.rs#L1027  fn get_pin
-instant/mc_comp.rs#L1037  fn get_left_pin
-instant/mc_comp.rs#L1062  fn get_right_pin
-instant/mc_comp.rs#L1091  fn get_input_pins
-instant/mc_comp.rs#L1098  fn get_output_pins
-instant/mc_comp.rs#L1103  fn get_power_pins
-instant/mc_comp.rs#L1111  fn get_pins_by_io
-instant/mc_comp.rs#L1122  fn get_pins_grouped
-instant/mc_comp.rs#L1152  fn get_all_pins
-instant/mc_comp.rs#L1162  fn sorted_pin_ids
-instant/mc_comp.rs#L1169  fn is_two_port
-instant/mc_comp.rs#L1174  fn is_multi_pin
-instant/mc_comp.rs#L1182  fn has_io_annotations
-instant/mc_comp.rs#L1189  fn pin_count
-instant/mc_comp.rs#L1232  fn find_bus_port_pin_ids
-instant/mc_comp.rs#L1505  fn pin_id_cmp
-instant/mc_comp.rs#L1521  fn natural_cmp
-instant/mc_comp.rs#L1562  fn numeric_str_cmp
-instant/mc_comp.rs#L1571  impl std::fmt::Display for McComponentInst
-instant/mc_comp.rs#L1572  fn fmt
+instant/mc_comp.rs#L139  fn not_fitted
+instant/mc_comp.rs#L144  fn new
+instant/mc_comp.rs#L172  fn degraded
+instant/mc_comp.rs#L197  fn with_params
+instant/mc_comp.rs#L259  fn with_nc
+instant/mc_comp.rs#L289  fn set_nc_pins
+instant/mc_comp.rs#L299  fn init_pins
+instant/mc_comp.rs#L335  fn init_call_pin_rows
+instant/mc_comp.rs#L352  fn init_cond_pins
+instant/mc_comp.rs#L475  fn init_cond_errors
+instant/mc_comp.rs#L532  fn attrs_of_pin
+instant/mc_comp.rs#L542  fn init_cond_attrs
+instant/mc_comp.rs#L601  fn condition_reads_unreduced_param
+instant/mc_comp.rs#L625  fn init_resolved_attrs
+instant/mc_comp.rs#L643  fn resolve_attr_value
+instant/mc_comp.rs#L703  fn lookup_param_value
+instant/mc_comp.rs#L755  fn resolve_expr_to_literal
+instant/mc_comp.rs#L806  fn resolve_expr_to_int
+instant/mc_comp.rs#L819  fn resolve_expr_to_value
+instant/mc_comp.rs#L849  fn apply_operands
+instant/mc_comp.rs#L858  fn init_dynamic_pins
+instant/mc_comp.rs#L889  fn declared_param_names
+instant/mc_comp.rs#L902  fn expand_dynamic_line
+instant/mc_comp.rs#L961  fn get_param_bindings
+instant/mc_comp.rs#L1006  fn find_conditional_pin_id
+instant/mc_comp.rs#L1023  fn pin_name
+instant/mc_comp.rs#L1038  fn get_pin
+instant/mc_comp.rs#L1048  fn get_left_pin
+instant/mc_comp.rs#L1073  fn get_right_pin
+instant/mc_comp.rs#L1102  fn get_input_pins
+instant/mc_comp.rs#L1109  fn get_output_pins
+instant/mc_comp.rs#L1114  fn get_power_pins
+instant/mc_comp.rs#L1122  fn get_pins_by_io
+instant/mc_comp.rs#L1133  fn get_pins_grouped
+instant/mc_comp.rs#L1163  fn get_all_pins
+instant/mc_comp.rs#L1173  fn sorted_pin_ids
+instant/mc_comp.rs#L1180  fn is_two_port
+instant/mc_comp.rs#L1185  fn is_multi_pin
+instant/mc_comp.rs#L1193  fn has_io_annotations
+instant/mc_comp.rs#L1200  fn pin_count
+instant/mc_comp.rs#L1243  fn find_bus_port_pin_ids
+instant/mc_comp.rs#L1516  fn pin_id_cmp
+instant/mc_comp.rs#L1532  fn natural_cmp
+instant/mc_comp.rs#L1573  fn numeric_str_cmp
+instant/mc_comp.rs#L1582  impl std::fmt::Display for McComponentInst
+instant/mc_comp.rs#L1583  fn fmt
 instant/mc_mod/builder.rs#L71  struct InstantiationBuilder
 instant/mc_mod/builder.rs#L239  impl Deref for InstantiationBuilder
 instant/mc_mod/builder.rs#L240  type Target
@@ -3474,31 +3475,31 @@ instant/mc_mod/phases.rs#L33  impl InstantiationBuilder
 instant/mc_mod/phases.rs#L144  fn instantiate_interface
 instant/mc_mod/phases.rs#L500  fn inject_port_member_labels
 instant/mc_mod/phases.rs#L639  fn instantiate_declarations_resilient
-instant/mc_mod/phases.rs#L986  fn resolve_component_nc_pins
-instant/mc_mod/phases.rs#L1055  fn resolve_module_nc_ports
-instant/mc_mod/phases.rs#L1121  fn report_nc_operand_miss
-instant/mc_mod/phases.rs#L1146  fn instantiate_stmts_resilient
-instant/mc_mod/phases.rs#L1298  fn dedup_connections
-instant/mc_mod/phases.rs#L1343  fn member_anchor
-instant/mc_mod/phases.rs#L1363  fn is_internal_member
-instant/mc_mod/phases.rs#L1399  fn validate_expanded_net_points
-instant/mc_mod/phases.rs#L1565  fn arg_declared_volt
-instant/mc_mod/phases.rs#L1586  fn bind_actual_args_to_ports
-instant/mc_mod/phases.rs#L1797  fn bind_call_args_to_ports
-instant/mc_mod/phases.rs#L2025  fn check_unbound_param_ports
-instant/mc_mod/phases.rs#L2107  fn run_component_constructor
-instant/mc_mod/phases.rs#L2294  fn iface_ordinal_member_names
-instant/mc_mod/phases.rs#L2304  fn iface_adopted_pin_table
-instant/mc_mod/phases.rs#L2316  fn extract_port_bus_members
-instant/mc_mod/phases.rs#L2398  fn read_iface_diff_groups
-instant/mc_mod/phases.rs#L2436  fn port_base_name
-instant/mc_mod/phases.rs#L2456  fn port_members
-instant/mc_mod/phases.rs#L2488  fn is_power_terminal
-instant/mc_mod/phases.rs#L2500  fn bindable_formals
-instant/mc_mod/phases.rs#L2530  fn declared_volt_of_params
-instant/mc_mod/phases.rs#L2552  fn declared_volt_of_texts
-instant/mc_mod/phases.rs#L2582  fn nc_port_hits
-instant/mc_mod/phases.rs#L2596  fn nc_port_range_hits
+instant/mc_mod/phases.rs#L990  fn resolve_component_nc_pins
+instant/mc_mod/phases.rs#L1059  fn resolve_module_nc_ports
+instant/mc_mod/phases.rs#L1125  fn report_nc_operand_miss
+instant/mc_mod/phases.rs#L1150  fn instantiate_stmts_resilient
+instant/mc_mod/phases.rs#L1302  fn dedup_connections
+instant/mc_mod/phases.rs#L1347  fn member_anchor
+instant/mc_mod/phases.rs#L1367  fn is_internal_member
+instant/mc_mod/phases.rs#L1403  fn validate_expanded_net_points
+instant/mc_mod/phases.rs#L1569  fn arg_declared_volt
+instant/mc_mod/phases.rs#L1590  fn bind_actual_args_to_ports
+instant/mc_mod/phases.rs#L1801  fn bind_call_args_to_ports
+instant/mc_mod/phases.rs#L2029  fn check_unbound_param_ports
+instant/mc_mod/phases.rs#L2111  fn run_component_constructor
+instant/mc_mod/phases.rs#L2298  fn iface_ordinal_member_names
+instant/mc_mod/phases.rs#L2308  fn iface_adopted_pin_table
+instant/mc_mod/phases.rs#L2320  fn extract_port_bus_members
+instant/mc_mod/phases.rs#L2402  fn read_iface_diff_groups
+instant/mc_mod/phases.rs#L2440  fn port_base_name
+instant/mc_mod/phases.rs#L2460  fn port_members
+instant/mc_mod/phases.rs#L2492  fn is_power_terminal
+instant/mc_mod/phases.rs#L2504  fn bindable_formals
+instant/mc_mod/phases.rs#L2534  fn declared_volt_of_params
+instant/mc_mod/phases.rs#L2556  fn declared_volt_of_texts
+instant/mc_mod/phases.rs#L2586  fn nc_port_hits
+instant/mc_mod/phases.rs#L2600  fn nc_port_range_hits
 instant/mc_mod/points.rs#L42  fn parse_curly_select
 instant/mc_mod/points.rs#L56  fn expand_member_ida
 instant/mc_mod/points.rs#L95  fn resolve_bare_member_pid
@@ -6483,19 +6484,20 @@ semantic/component/mod.rs#L900  struct Mc2Component
 semantic/component/mod.rs#L921  impl std::fmt::Display for McComponent
 semantic/component/mod.rs#L922  fn fmt
 semantic/component/mod.rs#L928  impl Mc2Component
-semantic/component/mod.rs#L929  fn new
-semantic/component/mod.rs#L941  fn with_nc
-semantic/component/mod.rs#L953  fn with_params
-semantic/component/mod.rs#L969  fn integer_param_bindings
-semantic/component/mod.rs#L993  fn pins_contain
-semantic/component/mod.rs#L1008  fn find_pin
-semantic/component/mod.rs#L1073  fn resolved_pin_count
-semantic/component/mod.rs#L1087  fn find_port
-semantic/component/mod.rs#L1101  fn port_to_instance
-semantic/component/mod.rs#L1137  fn find_scoped_enum_value
-semantic/component/mod.rs#L1172  fn lookup_enum_class_id
-semantic/component/mod.rs#L1179  impl std::fmt::Display for Mc2Component
-semantic/component/mod.rs#L1180  fn fmt
+semantic/component/mod.rs#L933  fn not_fitted
+semantic/component/mod.rs#L937  fn new
+semantic/component/mod.rs#L949  fn with_nc
+semantic/component/mod.rs#L961  fn with_params
+semantic/component/mod.rs#L977  fn integer_param_bindings
+semantic/component/mod.rs#L1001  fn pins_contain
+semantic/component/mod.rs#L1016  fn find_pin
+semantic/component/mod.rs#L1081  fn resolved_pin_count
+semantic/component/mod.rs#L1095  fn find_port
+semantic/component/mod.rs#L1109  fn port_to_instance
+semantic/component/mod.rs#L1145  fn find_scoped_enum_value
+semantic/component/mod.rs#L1180  fn lookup_enum_class_id
+semantic/component/mod.rs#L1187  impl std::fmt::Display for Mc2Component
+semantic/component/mod.rs#L1188  fn fmt
 semantic/context.rs#L26  fn resolve_cmie
 semantic/context.rs#L39  trait NameResolver
 semantic/context.rs#L42  fn resolve
@@ -11674,4 +11676,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-423 files, 11591 declarations.
+423 files, 11593 declarations.

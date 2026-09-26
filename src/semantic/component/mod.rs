@@ -926,6 +926,14 @@ impl std::fmt::Display for McComponent {
 }
 
 impl Mc2Component {
+    /// ★ U305⑤: the modelling-layer twin of
+    /// [`crate::instant::McComponentInst::not_fitted`] — the constructor `NC`
+    /// argument and the statement-line `@dnp` marker state one verdict, and a
+    /// reader that means "is it fitted" asks here instead of picking a field.
+    pub fn not_fitted(&self) -> bool {
+        self.nc || self.dnp
+    }
+
     pub fn new(name: &str, base: Arc<McComponent>) -> Self {
         Self {
             name: McIds::from(name),
@@ -1178,7 +1186,7 @@ fn lookup_enum_class_id(from_uri: &McURI, def_uri: &McURI, class_name: &McIds) -
 
 impl std::fmt::Display for Mc2Component {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.nc {
+        if self.not_fitted() {
             write!(f, "{}(NC)", self.name)
         } else {
             write!(f, "{}", self.name)

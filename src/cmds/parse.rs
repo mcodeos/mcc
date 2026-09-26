@@ -747,7 +747,7 @@ fn instance_to_node(inst: &mcc::MccProjectTree, view: &mcc::TreeView) -> Instanc
                 name: c.name.to_string(),
                 class_name: c.def.name.to_string(),
                 pins,
-                nc: c.nc,
+                nc: c.not_fitted(),
             }
         })
         .collect();

@@ -66,7 +66,7 @@ pub fn collect_params(
                     "value": value,
                     "partno": attr_text(c, "partno"),
                     "package": attr_text(c, "package"),
-                    "dnp": c.nc,
+                    "dnp": c.not_fitted(),
                 }),
             );
         }
