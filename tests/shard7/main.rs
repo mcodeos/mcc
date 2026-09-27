@@ -24,6 +24,8 @@ mod erc_single_ruler;
 mod expr_dot_curly;
 mod flatten_net_check_diagnostics;
 mod floating_label;
+mod func_diff_view;
+mod func_diff_view_golden;
 mod ghost_port_boundary;
 mod iface_chain;
 mod iface_connect_rule;

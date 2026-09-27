@@ -35,6 +35,7 @@
 pub mod corercview;
 pub mod diagview;
 pub mod expectview;
+pub mod funcdiff;
 pub mod join;
 pub mod netlistview;
 pub mod p2;
@@ -132,9 +133,9 @@ pub const ORG_UNITS_VIEW: &str = "org-units";
 /// face may publish one only once its serde payload group has landed — the
 /// carried words so far are `diagnostics` ([`diagview`]), `netlist`
 /// ([`netlistview`]), `project-model` ([`projmodel`]), `core-erc`
-/// ([`corercview`]) and `expectation` ([`expectview`]), `diff` is the last
-/// v1 reservation, and
-/// publishing one of those would be impersonating a projection that does not
+/// ([`corercview`]), `expectation` ([`expectview`]) and `diff`
+/// ([`funcdiff`]) — all six words now carry a payload, and publishing any
+/// other canonical word would be impersonating a projection that does not
 /// exist. The lock `tests/shard7/view_vocabulary.rs` reads the canonical
 /// words from the CDDL, holds every published word that equals a canonical
 /// word to the carried set, and holds this list equal to what the producers
@@ -156,6 +157,7 @@ pub fn published_views() -> Vec<&'static str> {
         projmodel::PROJECT_MODEL_VIEW,
         corercview::CORE_ERC_VIEW,
         expectview::EXPECTATION_VIEW,
+        funcdiff::DIFF_VIEW,
         stage_diff::DIFF_P2_VIEW,
         stage_diff::DIFF_VEC_VIEW,
         stage_diff::DIFF_VIZ_VIEW,
@@ -338,6 +340,15 @@ impl StageView {
 /// the schema asks for — both tokens from one pass, no second scan — and it is
 /// also the only way the two can be *seen* to agree, since a second scan could
 /// collect a different world.
+/// The envelope identity tokens of the world loaded *now* — the same
+/// derivation [`StageView::assemble`] uses. Exposed for the one two-world
+/// command (`diff --mode functional`, `cmds::diff`) that must carry the
+/// **left** operand's identity in its envelope while its view is assembled
+/// after the right operand's world has replaced the left one.
+pub fn identity_tokens(top: &str) -> (Option<String>, Option<String>) {
+    revision_tokens(top)
+}
+
 fn revision_tokens(top: &str) -> (Option<String>, Option<String>) {
     let pairs = world_ver::source_pairs();
     match pairs.as_deref() {

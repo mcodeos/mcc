@@ -183,6 +183,7 @@ pub use semantic::basic::mc_param::{
 pub use semantic::basic::mc_param_type::{McIoTy, McParamArity, McParamType, McParamTypeKind};
 pub use semantic::basic::mc_paramd::{GlobalDiag, GlobalDiagKind};
 pub use semantic::validation as check;
+pub use semantic::module::expects::{Kind, Ledger};
 
 // ── CLI config ──
 pub use cli::config::{get_libs_load_list, should_load_mcode};

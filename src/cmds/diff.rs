@@ -62,15 +62,18 @@ use anyhow::Result;
 
 use crate::output::die;
 
-use mcc::cli::{DiffArgs, DiffView, OutputFormat};
+use mcc::cli::{DiffArgs, DiffMode, DiffView, OutputFormat};
 
 /// The text face's first column: one word per change type, in the order the
 /// rows are printed. `unaligned` is not a change type but is grouped with them
 /// because it is the only other row kind a difference has.
 const ROW_WORDS: [&str; 4] = ["remove", "add", "modify", "unaligned"];
 
-/// Render `mcc diff <A> <B> --view <view>`.
+/// Render `mcc diff <A> <B> --mode <mode>`.
 pub fn run(args: &DiffArgs) -> Result<()> {
+    if args.mode == DiffMode::Functional {
+        return functional_run(args.a.as_str(), args.b.as_str());
+    }
     let seg: mcc::stages::StageSeg = match args.view {
         DiffView::StageViz => mcc::stages::StageSeg::Viz,
         DiffView::StageP2 => mcc::stages::StageSeg::P2,
@@ -393,4 +396,117 @@ fn counts_of(diff: &mcc::stages::stage_diff::StageDiff) -> serde_json::Value {
     }
     map.insert("changes".to_string(), serde_json::json!(diff.changes.len()));
     serde_json::Value::Object(map)
+}
+
+/// One side of a functional comparison: the top module's acceptance ledger
+/// with the engine's verdicts on it, plus the envelope identity the world
+/// had when it was loaded (the functional view is assembled after B's world
+/// has replaced A's, but the envelope's claim is about A — the same rule
+/// `emit_envelope` states for the identity diff).
+struct FunctionalSide {
+    ledger: mcc::Ledger,
+    report: mcc::check::expectation::ExpectationReport,
+    identity: (Option<String>, Option<String>),
+}
+
+/// The functional half of `mcc diff`: two worlds, each judged by the
+/// acceptance engine on its top module's `expects`, aligned on the shared
+/// semantic keys (`stages::funcdiff`, acceptance design §6).
+///
+/// Both operands are worlds — a saved stage reading is an identity-mode
+/// operand and no kind of functional one, so there is no structural sniffing
+/// here: a path that is not a source world fails its own way in the load.
+/// `init_local` per side, exactly as the identity mode does: without the
+/// reset the second load would be the first world plus its own additions,
+/// and every verdict would be an artefact of accumulation.
+fn functional_run(a_path: &str, b_path: &str) -> Result<()> {
+    let a = functional_side(a_path);
+    let b = functional_side(b_path);
+    let av = mcc::stages::funcdiff::side_verdicts(&a.ledger, &a.report);
+    let bv = mcc::stages::funcdiff::side_verdicts(&b.ledger, &b.report);
+    let change = mcc::stages::funcdiff::functional_change(&av, &bv);
+    let mut view = mcc::stages::funcdiff::functional_view(a_path, b_path, &change);
+    view.world_ver = a.identity.0.clone();
+    view.top_ver = a.identity.1.clone();
+    if matches!(
+        mcc::cli::globals().format,
+        OutputFormat::Text | OutputFormat::Csv
+    ) {
+        // CSV falls back to the text face on purpose, as the identity mode
+        // and `show stage` do: a fixed-width readout is not CSV-safe.
+        return write_text(&mcc::stages::funcdiff::render_functional_text(
+            &view, &av, &bv,
+        ));
+    }
+    let mut builder = crate::output::builder::ResultBuilder::start("mcc diff");
+    builder.set_stage(crate::output::envelope::StageViewData::from(&view));
+    let env = crate::output::envelope::Envelope::ok(builder.finish());
+    crate::output::emit_envelope(
+        &env,
+        mcc::cli::globals().format,
+        mcc::cli::globals()
+            .output
+            .as_deref()
+            .map(std::path::Path::new),
+        true,
+    )
+}
+
+/// Load one operand as a world and run the acceptance engine on its top
+/// module — the same fetch `show expectation` does (`mcb_pass2_flat`, the
+/// ledger rides the module the top names, uri match first), so the
+/// comparison cannot read verdicts from a different run than the gate.
+fn functional_side(target: &str) -> FunctionalSide {
+    crate::cmds::manifest::init_local(Some(target), &mcc::cli::globals().lib);
+    let (entry_uri, resolved_top) = crate::cmds::common::load_target(
+        Some(target),
+        mcc::cli::globals().top.as_deref(),
+        mcc::cli::globals().entry.as_deref(),
+    )
+    .unwrap_or_else(|e| die!("mcc::diff", 1, "{e}"));
+    if entry_uri.is_empty() {
+        die!(
+            "mcc::diff",
+            1,
+            "functional operand '{target}' read no source"
+        );
+    }
+    let top = resolved_top
+        .or_else(|| {
+            crate::cmds::common::resolve_top_module(&entry_uri, mcc::cli::globals().top.clone())
+        })
+        .unwrap_or_else(|| {
+            die!(
+                "mcc::diff",
+                1,
+                "no modules found in '{target}'\nhint: load a file with -F or use --top"
+            )
+        });
+    let entry = mcc::McSpaceName {
+        ident: mcc::McIds::from(top.as_str()),
+        uri: mcc::uri_intern(&entry_uri),
+    };
+    let (_tree, table) = match mcc::mcb_pass2_flat(&entry, 1) {
+        Ok(pair) => pair,
+        Err(e) => die!("mcc::diff", 1, "functional operand '{target}': flat pass2 failed: {e}"),
+    };
+    let Some((_, module)) = mcc::definition_space()
+        .workspace_modules()
+        .into_iter()
+        .find(|(sn, _)| sn.ident.to_string() == top && sn.uri == mcc::uri_intern(&entry_uri))
+        .or_else(|| {
+            mcc::definition_space()
+                .workspace_modules()
+                .into_iter()
+                .find(|(sn, _)| sn.ident.to_string() == top)
+        })
+    else {
+        die!("mcc::diff", 1, "functional operand '{target}': no module named '{top}'");
+    };
+    let report = mcc::check::expectation::run(&table, &module.expects, &module.uri);
+    FunctionalSide {
+        ledger: module.expects.clone(),
+        report,
+        identity: mcc::stages::identity_tokens(&top),
+    }
 }

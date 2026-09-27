@@ -383,18 +383,40 @@ pub enum DiffView {
     StageVec,
 }
 
+/// Which alignment a difference runs under (acceptance design §6): the
+/// identity diff answers "did this design change correctly" on NodeId; the
+/// functional diff answers "how do two implementations of one intent
+/// compare" on the shared `expects` semantic keys.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
+pub enum DiffMode {
+    /// NodeId-keyed alignment over a stage view (the default; `--view`
+    /// selects the segment). Saved readings are operands.
+    #[value(name = "identity")]
+    Identity,
+
+    /// Shared-expects alignment over two worlds (`stages::funcdiff`). Both
+    /// operands are source paths; a saved stage reading is not one of these.
+    #[value(name = "functional")]
+    Functional,
+}
+
 #[derive(clap::Args, Debug, Clone)]
 pub struct DiffArgs {
     /// Left operand: the reference the changes are reported against. A source
-    /// path (or project) read now, or a reading saved earlier by `mcc show
-    /// stage <seg> -f json -o <file>`.
+    /// path (or project) read now, or — identity mode only — a reading saved
+    /// earlier by `mcc show stage <seg> -f json -o <file>`.
     pub a: String,
 
     /// Right operand: the reading compared against the left one. Same two
     /// kinds as the left one.
     pub b: String,
 
-    /// Which view to compare.
+    /// Which alignment to run.
+    #[arg(long, value_enum, default_value = "identity", value_name = "MODE")]
+    pub mode: DiffMode,
+
+    /// Which view to compare (identity mode; functional aligns on the
+    /// shared `expects` keys and takes no view).
     #[arg(long, value_enum, default_value = "stage.viz", value_name = "VIEW")]
     pub view: DiffView,
 }

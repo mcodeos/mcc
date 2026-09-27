@@ -160,8 +160,15 @@ change = {
 ; Second mode: functional alignment -- same intent, different implementation;
 ; aligned on shared expects semantic keys, never on NodeId / source position
 ; (doc §2.5, P2 dynamic closure 2026-09-04).
+; type words: "module-replace" = boundary equivalent (every shared key PASS
+; on both sides, acceptance design 6.1); "verdict-divergence" = a shared key
+; FAILs on one side; "deferred" = shared keys present but awaiting sim (the
+; dynamic arm, 6.2 -- word added 2026-09-26, b4038: the 2026-09-04 enum
+; predates the engine and carried no word for the marking 6.1 rules);
+; "none" = no shared key at all, delta omitted (no equivalence judgment,
+; sides accounted separately).
 functional-change = {
-  type: "none" / "module-replace" / "verdict-divergence"
+  type: "none" / "module-replace" / "verdict-divergence" / "deferred"
   kind: "module-replace"    ; block level
   ? delta: { shared_keys: [* shared-key-verdict] }
 }

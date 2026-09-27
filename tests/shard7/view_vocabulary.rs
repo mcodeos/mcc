@@ -77,6 +77,7 @@ fn cddl_view_name_rule_is_exactly_the_six_ruled_words() {
 const CARRIED_CANONICAL_VIEWS: &[&str] = &[
     "core-erc",
     "diagnostics",
+    "diff",
     "expectation",
     "netlist",
     "project-model",
@@ -115,6 +116,7 @@ fn registry_covers_every_producer_constant() {
     stamped.push(stages::projmodel::PROJECT_MODEL_VIEW);
     stamped.push(stages::corercview::CORE_ERC_VIEW);
     stamped.push(stages::expectview::EXPECTATION_VIEW);
+    stamped.push(stages::funcdiff::DIFF_VIEW);
     stamped.push(stages::stage_diff::DIFF_P2_VIEW);
     stamped.push(stages::stage_diff::DIFF_VEC_VIEW);
     stamped.push(stages::stage_diff::DIFF_VIZ_VIEW);
@@ -501,4 +503,71 @@ fn cddl_expectation_group_members_are_exactly_the_serialized_fields() {
         .cloned()
         .collect();
     assert_eq!(bkeys, vec!["low".to_string()], "absent side must be omitted");
+}
+
+/// The same guard for the sixth and last carried group: a fully populated
+/// `FunctionalChange` (a shared face to judge) serializes exactly the CDDL
+/// `functional-change` member set; a `none` block omits `delta` — the only
+/// optional member — and nothing else. The nested `shared-key-verdict` set is
+/// held too: `key`/`A`/`B`, the capital letters the CDDL spells.
+#[test]
+fn cddl_functional_change_group_members_are_exactly_the_serialized_fields() {
+    use mcc::stages::funcdiff::{FunctionalChange, SharedKeyVerdict, SharedKeys};
+
+    let keys = |v: &serde_json::Value| -> Vec<String> {
+        let mut keys: Vec<String> = v
+            .as_object()
+            .expect("FunctionalChange serializes to an object")
+            .keys()
+            .cloned()
+            .collect();
+        keys.sort();
+        keys
+    };
+
+    let full = FunctionalChange {
+        change_type: "module-replace".to_string(),
+        kind: mcc::stages::funcdiff::FUNCTIONAL_KIND,
+        delta: Some(SharedKeys {
+            shared_keys: vec![SharedKeyVerdict {
+                key: "value-bound:RAW[3.0V~3.5V]".to_string(),
+                a: "PASS".to_string(),
+                b: "PASS".to_string(),
+            }],
+        }),
+    };
+    assert_eq!(
+        keys(&serde_json::to_value(&full).expect("full item serializes")),
+        cddl_group_members("functional-change ="),
+        "the serialized `functional-change` and the CDDL group drifted"
+    );
+
+    let none = FunctionalChange {
+        change_type: "none".to_string(),
+        kind: mcc::stages::funcdiff::FUNCTIONAL_KIND,
+        delta: None,
+    };
+    let mut required = cddl_group_members("functional-change =");
+    required.retain(|m| m != "delta");
+    assert_eq!(
+        keys(&serde_json::to_value(&none).expect("none item serializes")),
+        required,
+        "a `none` block must omit exactly the optional member `delta`"
+    );
+
+    let row = serde_json::to_value(&full.delta.expect("full has a delta").shared_keys[0])
+        .expect("shared-key-verdict serializes");
+    let rkeys: Vec<String> = row
+        .as_object()
+        .expect("shared-key-verdict serializes to an object")
+        .keys()
+        .cloned()
+        .collect();
+    assert_eq!(
+        rkeys,
+        cddl_group_members("shared-key-verdict ="),
+        "the serialized `shared-key-verdict` and the CDDL group drifted"
+    );
+    assert!(rkeys.contains(&"A".to_string()) && rkeys.contains(&"B".to_string()),
+        "the verdict members are the CDDL's capital A/B");
 }

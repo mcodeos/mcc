@@ -1,0 +1,145 @@
+{
+  "defer": {
+    "counts": {
+      "deferred": 1,
+      "module-replace": 0,
+      "none": 0,
+      "verdict-divergence": 0
+    },
+    "items": [
+      {
+        "delta": {
+          "shared_keys": [
+            {
+              "A": "DEFER",
+              "B": "DEFER",
+              "key": "role-match:u1"
+            }
+          ]
+        },
+        "kind": "module-replace",
+        "type": "deferred"
+      }
+    ],
+    "key_table": null,
+    "layout_version": null,
+    "mcc_version": "0.0.0-test",
+    "metric_schema_version": null,
+    "render_version": null,
+    "schema_version": "proj.1.1",
+    "top": "defer vs defer",
+    "top_ver": null,
+    "view": "diff",
+    "world_ver": null
+  },
+  "diverge": {
+    "counts": {
+      "deferred": 0,
+      "module-replace": 0,
+      "none": 0,
+      "verdict-divergence": 1
+    },
+    "items": [
+      {
+        "delta": {
+          "shared_keys": [
+            {
+              "A": "PASS",
+              "B": "PASS",
+              "key": "role-match:u1"
+            },
+            {
+              "A": "PASS",
+              "B": "PASS",
+              "key": "driven:RAW"
+            },
+            {
+              "A": "PASS",
+              "B": "FAIL",
+              "key": "value-bound:RAW[3.0V~3.5V]"
+            }
+          ]
+        },
+        "kind": "module-replace",
+        "type": "verdict-divergence"
+      }
+    ],
+    "key_table": null,
+    "layout_version": null,
+    "mcc_version": "0.0.0-test",
+    "metric_schema_version": null,
+    "render_version": null,
+    "schema_version": "proj.1.1",
+    "top": "diverge vs diverge",
+    "top_ver": null,
+    "view": "diff",
+    "world_ver": null
+  },
+  "none": {
+    "counts": {
+      "deferred": 0,
+      "module-replace": 0,
+      "none": 1,
+      "verdict-divergence": 0
+    },
+    "items": [
+      {
+        "kind": "module-replace",
+        "type": "none"
+      }
+    ],
+    "key_table": null,
+    "layout_version": null,
+    "mcc_version": "0.0.0-test",
+    "metric_schema_version": null,
+    "render_version": null,
+    "schema_version": "proj.1.1",
+    "top": "none vs none",
+    "top_ver": null,
+    "view": "diff",
+    "world_ver": null
+  },
+  "replace": {
+    "counts": {
+      "deferred": 0,
+      "module-replace": 1,
+      "none": 0,
+      "verdict-divergence": 0
+    },
+    "items": [
+      {
+        "delta": {
+          "shared_keys": [
+            {
+              "A": "PASS",
+              "B": "PASS",
+              "key": "role-match:u1"
+            },
+            {
+              "A": "PASS",
+              "B": "PASS",
+              "key": "driven:RAW"
+            },
+            {
+              "A": "PASS",
+              "B": "PASS",
+              "key": "value-bound:RAW[3.0V~3.5V]"
+            }
+          ]
+        },
+        "kind": "module-replace",
+        "type": "module-replace"
+      }
+    ],
+    "key_table": null,
+    "layout_version": null,
+    "mcc_version": "0.0.0-test",
+    "metric_schema_version": null,
+    "render_version": null,
+    "schema_version": "proj.1.1",
+    "top": "replace vs replace",
+    "top_ver": null,
+    "view": "diff",
+    "world_ver": null
+  }
+}
