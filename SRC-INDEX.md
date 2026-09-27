@@ -76,7 +76,7 @@ range (threshold 40KB).
 | `semantic/` | 98 | 2871 KB |
 | `stages/` | 18 | 396 KB |
 | `vector/` | 26 | 496 KB |
-| `viz/` | 98 | 2476 KB |
+| `viz/` | 97 | 2449 KB |
 
 ## Declaration index
 
@@ -3517,20 +3517,20 @@ instant/mc_mod/points.rs#L95  fn resolve_bare_member_pid
 instant/mc_mod/points.rs#L153  fn declared_pin_id
 instant/mc_mod/points.rs#L177  impl InstantiationBuilder
 instant/mc_mod/points.rs#L178  fn get_left_points
-instant/mc_mod/points.rs#L956  fn get_right_points
-instant/mc_mod/points.rs#L1583  fn get_left_points_from_phrase
-instant/mc_mod/points.rs#L1629  fn get_right_points_from_phrase
-instant/mc_mod/points.rs#L1674  fn deepest_component_owner
-instant/mc_mod/points.rs#L1688  fn node_to_netpoint
-instant/mc_mod/points.rs#L1959  fn expand_port_lanes
-instant/mc_mod/points.rs#L1962  fn parse_brace_members
-instant/mc_mod/points.rs#L1982  fn strip_brace_suffix
-instant/mc_mod/points.rs#L2007  fn iotype_allowed
-instant/mc_mod/points.rs#L2333  fn normalize_one_inst_pin_path
-instant/mc_mod/points.rs#L2365  fn note_internal_member_ref
-instant/mc_mod/points.rs#L2407  fn resolve_child_points
-instant/mc_mod/points.rs#L2462  fn is_port
-instant/mc_mod/points.rs#L2466  fn ensure_label
+instant/mc_mod/points.rs#L960  fn get_right_points
+instant/mc_mod/points.rs#L1588  fn get_left_points_from_phrase
+instant/mc_mod/points.rs#L1634  fn get_right_points_from_phrase
+instant/mc_mod/points.rs#L1679  fn deepest_component_owner
+instant/mc_mod/points.rs#L1693  fn node_to_netpoint
+instant/mc_mod/points.rs#L1964  fn expand_port_lanes
+instant/mc_mod/points.rs#L1967  fn parse_brace_members
+instant/mc_mod/points.rs#L1987  fn strip_brace_suffix
+instant/mc_mod/points.rs#L2012  fn iotype_allowed
+instant/mc_mod/points.rs#L2338  fn normalize_one_inst_pin_path
+instant/mc_mod/points.rs#L2370  fn note_internal_member_ref
+instant/mc_mod/points.rs#L2412  fn resolve_child_points
+instant/mc_mod/points.rs#L2467  fn is_port
+instant/mc_mod/points.rs#L2471  fn ensure_label
 instant/mc_mod/stmt.rs#L29  struct IfaceEndpoint
 instant/mc_mod/stmt.rs#L36  enum LaneItem
 instant/mc_mod/stmt.rs#L53  enum DirExpect
@@ -10608,54 +10608,17 @@ viz/mod.rs#L48  mod layout_manifest
 viz/mod.rs#L49  mod layout_model
 viz/mod.rs#L50  mod log
 viz/mod.rs#L51  mod metrics
-viz/mod.rs#L52  mod pins
-viz/mod.rs#L53  mod project
-viz/mod.rs#L54  mod render
-viz/mod.rs#L55  mod route
-viz/mod.rs#L56  mod semantic
-viz/mod.rs#L57  mod sourcelink
-viz/mod.rs#L58  mod special
-viz/mod.rs#L59  mod srcuri
-viz/mod.rs#L60  mod stability
-viz/mod.rs#L61  mod template
-viz/mod.rs#L62  mod traits
-viz/mod.rs#L68  static SYNTHETIC_PIN_COUNT
-viz/pins/mod.rs#L44  struct PinKey
-viz/pins/mod.rs#L49  impl PinKey
-viz/pins/mod.rs#L50  fn new
-viz/pins/mod.rs#L59  struct PinAbsPoint
-viz/pins/mod.rs#L68  enum PinAnchorSource
-viz/pins/mod.rs#L80  struct PinAnchorWarning
-viz/pins/mod.rs#L89  struct PinAnchor
-viz/pins/mod.rs#L109  struct BoxAnchorSummary
-viz/pins/mod.rs#L125  struct PinAnchorReport
-viz/pins/mod.rs#L146  struct PinAnchorConfig
-viz/pins/mod.rs#L155  impl Default for PinAnchorConfig
-viz/pins/mod.rs#L156  fn default
-viz/pins/mod.rs#L172  struct PinAnchorModel
-viz/pins/mod.rs#L179  impl PinAnchorModel
-viz/pins/mod.rs#L181  fn build
-viz/pins/mod.rs#L418  fn apply_to_graph
-viz/pins/mod.rs#L450  fn intent_side_from_io
-viz/pins/mod.rs#L473  fn project_to_lr
-viz/pins/mod.rs#L481  fn pick_side_by_direction
-viz/pins/mod.rs#L498  fn side_order
-viz/pins/mod.rs#L508  fn assign_offsets_per_box_side
-viz/pins/mod.rs#L530  fn pin_anchor_pipeline
-viz/pins/mod.rs#L554  mod tests
-viz/pins/mod.rs#L560  fn mk_box
-viz/pins/mod.rs#L581  fn add_pin
-viz/pins/mod.rs#L593  fn ep
-viz/pins/mod.rs#L600  fn power_pin_intent_top
-viz/pins/mod.rs#L619  fn input_left_output_right
-viz/pins/mod.rs#L640  fn lr_only_projects_top_bottom
-viz/pins/mod.rs#L662  fn offsets_unique_per_side
-viz/pins/mod.rs#L694  fn model_deterministic
-viz/pins/mod.rs#L712  fn left_anchor_at_box_left
-viz/pins/mod.rs#L736  fn apply_to_graph_writes_entry_points
-viz/pins/mod.rs#L758  fn all_endpoints_have_anchors
-viz/pins/mod.rs#L792  fn pin_anchor_pipeline_smoke
-viz/pins/mod.rs#L810  fn box_anchor_summary_counts
+viz/mod.rs#L52  mod project
+viz/mod.rs#L53  mod render
+viz/mod.rs#L54  mod route
+viz/mod.rs#L55  mod semantic
+viz/mod.rs#L56  mod sourcelink
+viz/mod.rs#L57  mod special
+viz/mod.rs#L58  mod srcuri
+viz/mod.rs#L59  mod stability
+viz/mod.rs#L60  mod template
+viz/mod.rs#L61  mod traits
+viz/mod.rs#L67  static SYNTHETIC_PIN_COUNT
 viz/project.rs#L52  struct ProjectionRecord
 viz/project.rs#L62  struct ProjectionLog
 viz/project.rs#L67  impl ProjectionLog
@@ -11665,4 +11628,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-423 files, 11582 declarations.
+422 files, 11545 declarations.
