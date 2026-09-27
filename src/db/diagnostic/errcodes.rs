@@ -318,9 +318,10 @@ pub const PARSER_DECLAREB_INVALID: u32 = 2094;
 /// fire instead. Registration kept, no producer.
 pub const PARSER_BODY_INVALID: u32 = 2095;
 
-/// Retired: reserved for a per-production parser arm that was never
-/// written; the grammar's recovery arms (E1002/E1003/E1004/E1007/E1013)
-/// fire instead. Registration kept, no producer.
+/// U337 (ruling A): a bare literal in the condition position (`if (1)`)
+/// parses but is not a readable condition — the judge family has no
+/// truth-valued arm, and the branch chain never selects. The `mc_judge:
+/// mc_literal` grammar arm fires this code with the literal's own span.
 pub const PARSER_JUDGE_INVALID: u32 = 2096;
 
 /// Retired: reserved for a per-production parser arm that was never
@@ -2508,7 +2509,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(PARSER_CONDBLOCK_INVALID, "Retired: no producer.", "Retired - no producer. Reserved for a per-production parser arm that was never written; the grammar fires its recovery codes instead."),
     entry!(PARSER_DECLAREB_INVALID, "Retired: no producer.", "Retired - no producer. Reserved for a per-production parser arm that was never written; the grammar fires its recovery codes instead."),
     entry!(PARSER_BODY_INVALID, "Retired: no producer.", "Retired - no producer. Reserved for a per-production parser arm that was never written; the grammar fires its recovery codes instead."),
-    entry!(PARSER_JUDGE_INVALID, "Retired: no producer.", "Retired - no producer. Reserved for a per-production parser arm that was never written; the grammar fires its recovery codes instead."),
+    entry!(PARSER_JUDGE_INVALID, "A bare literal is not a condition.", "A bare literal (`if (1)`) has no judge operator, so the branch chain never selects. Write a readable judge form instead — for example `param == value`, `address & 0x01`, or `param in [A, B]`."),
     entry!(PARSER_PARD_INVALID, "Retired: no producer.", "Retired - no producer. Reserved for a per-production parser arm that was never written; the grammar fires its recovery codes instead."),
     entry!(PARSER_URI_INVALID, "Retired: no producer.", "Retired - no producer. Reserved for a per-production parser arm that was never written; the grammar fires its recovery codes instead."),
     entry!(PARSER_PHRASES_INVALID, "Retired: no producer.", "Retired - no producer. Reserved for a per-production parser arm that was never written; the grammar fires its recovery codes instead."),

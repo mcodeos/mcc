@@ -263,6 +263,10 @@
 //    distinct root tells the semantic layer the rows append — the node split
 //    of the pins precedent (31 `=` vs 32 `+=`), kept for a non-keyword key
 #define MCAST_ATTRIBUTE_ADD             337
+//1e. bare-literal judge (U337): a literal in the condition position parses
+//    but is never a readable condition — the semantic layer does not select
+//    the chain; the grammar fires MCD_E1017_JUDGE_ERROR with the literal span
+#define MCAST_JUDGE_BARE_LITERAL        338
 
 
 //---------------------------

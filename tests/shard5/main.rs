@@ -37,5 +37,6 @@ mod u63_call_arg_binding;
 mod vec_body_portcount;
 mod vec_r0_operator_fidelity;
 mod vec_series_rowzip;
+mod u337_bare_literal_cond;
 mod vector_inst_materialize;
 mod workspace_identity;
