@@ -3708,7 +3708,14 @@ impl McPhrase {
                                 )),
                             })
                             .collect();
-                        return Some(McPhrase::Endpoint(McRef::Group(lanes)));
+                        // A single-member declare is a plain reference, not a
+                        // lane group — collapse to the same shape every other
+                        // single-ref producer builds (U316 site 1), so
+                        // consumers do not have to defend a Group-of-1.
+                        return Some(match lanes.len() {
+                            1 => McPhrase::Endpoint(lanes.into_iter().next().unwrap()),
+                            _ => McPhrase::Endpoint(McRef::Group(lanes)),
+                        });
                     }
                     let names = inner.to_id_or_ida();
                     if names.len() == 1 {

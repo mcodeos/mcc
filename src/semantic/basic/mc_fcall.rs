@@ -866,9 +866,13 @@ impl McFuncCall {
                                     )),
                                 })
                                 .collect();
-                            caller = Some(Box::new(McPhrase::Endpoint(McRef::Group(
-                                lanes,
-                            ))));
+                            // Single-member declares collapse to a plain
+                            // reference like every other producer (U316
+                            // site 1) — no Group-of-1 spelling.
+                            caller = Some(Box::new(match lanes.len() {
+                                1 => McPhrase::Endpoint(lanes.into_iter().next().unwrap()),
+                                _ => McPhrase::Endpoint(McRef::Group(lanes)),
+                            }));
                         } else if let Some(sub) = inner.get_sub_node() {
                             let mut class_node: Option<AstNode> = None;
                             for c in sub.iter() {
