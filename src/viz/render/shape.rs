@@ -129,13 +129,7 @@ fn render_box_inner(b: &McVecBox, is_root: bool, clickable_subs: &[i64]) -> Stri
         Symbol::Inductor => InductorShape.render(b),
         Symbol::Diode | Symbol::Led | Symbol::Zener => DiodeShape.render(b),
         Symbol::Ic => IcShape.render(b),
-        Symbol::Module => {
-            if is_root {
-                render_sub_module_root(b, drill)
-            } else {
-                render_sub_module(b, drill)
-            }
-        }
+        Symbol::Module => render_sub_module(b, drill),
         Symbol::PowerRail { .. } => PowerRailShape.render(b),
         Symbol::Dot => render_dot_symbol(b),
         Symbol::TestPoint => render_test_point(b),

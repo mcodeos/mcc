@@ -76,7 +76,7 @@ range (threshold 40KB).
 | `semantic/` | 98 | 2871 KB |
 | `stages/` | 18 | 396 KB |
 | `vector/` | 26 | 496 KB |
-| `viz/` | 97 | 2449 KB |
+| `viz/` | 97 | 2448 KB |
 
 ## Declaration index
 
@@ -3517,20 +3517,20 @@ instant/mc_mod/points.rs#L95  fn resolve_bare_member_pid
 instant/mc_mod/points.rs#L153  fn declared_pin_id
 instant/mc_mod/points.rs#L177  impl InstantiationBuilder
 instant/mc_mod/points.rs#L178  fn get_left_points
-instant/mc_mod/points.rs#L960  fn get_right_points
-instant/mc_mod/points.rs#L1588  fn get_left_points_from_phrase
-instant/mc_mod/points.rs#L1634  fn get_right_points_from_phrase
-instant/mc_mod/points.rs#L1679  fn deepest_component_owner
-instant/mc_mod/points.rs#L1693  fn node_to_netpoint
-instant/mc_mod/points.rs#L1964  fn expand_port_lanes
-instant/mc_mod/points.rs#L1967  fn parse_brace_members
-instant/mc_mod/points.rs#L1987  fn strip_brace_suffix
-instant/mc_mod/points.rs#L2012  fn iotype_allowed
-instant/mc_mod/points.rs#L2338  fn normalize_one_inst_pin_path
-instant/mc_mod/points.rs#L2370  fn note_internal_member_ref
-instant/mc_mod/points.rs#L2412  fn resolve_child_points
-instant/mc_mod/points.rs#L2467  fn is_port
-instant/mc_mod/points.rs#L2471  fn ensure_label
+instant/mc_mod/points.rs#L956  fn get_right_points
+instant/mc_mod/points.rs#L1583  fn get_left_points_from_phrase
+instant/mc_mod/points.rs#L1629  fn get_right_points_from_phrase
+instant/mc_mod/points.rs#L1674  fn deepest_component_owner
+instant/mc_mod/points.rs#L1688  fn node_to_netpoint
+instant/mc_mod/points.rs#L1959  fn expand_port_lanes
+instant/mc_mod/points.rs#L1962  fn parse_brace_members
+instant/mc_mod/points.rs#L1982  fn strip_brace_suffix
+instant/mc_mod/points.rs#L2007  fn iotype_allowed
+instant/mc_mod/points.rs#L2333  fn normalize_one_inst_pin_path
+instant/mc_mod/points.rs#L2365  fn note_internal_member_ref
+instant/mc_mod/points.rs#L2407  fn resolve_child_points
+instant/mc_mod/points.rs#L2462  fn is_port
+instant/mc_mod/points.rs#L2466  fn ensure_label
 instant/mc_mod/stmt.rs#L29  struct IfaceEndpoint
 instant/mc_mod/stmt.rs#L36  enum LaneItem
 instant/mc_mod/stmt.rs#L53  enum DirExpect
@@ -10819,23 +10819,23 @@ viz/render/shape.rs#L43  trait BoxShape
 viz/render/shape.rs#L45  fn render
 viz/render/shape.rs#L61  fn render_box
 viz/render/shape.rs#L97  fn render_box_inner
-viz/render/shape.rs#L185  fn render_custom_symbol
-viz/render/shape.rs#L214  fn escape_xml_attr
-viz/render/shape.rs#L226  fn box_name_label
-viz/render/shape.rs#L240  fn render_test_point
-viz/render/shape.rs#L265  fn render_dot_symbol
-viz/render/shape.rs#L287  fn render_box_legacy
-viz/render/shape.rs#L328  mod tests
-viz/render/shape.rs#L333  fn mk
-viz/render/shape.rs#L358  fn custom_symbol_overrides_system_symbol_in_device_layers
-viz/render/shape.rs#L377  fn no_custom_symbol_uses_system
-viz/render/shape.rs#L390  fn box_body
-viz/render/shape.rs#L412  fn root_box_advertises_drill_down_only_when_the_layer_exists
-viz/render/shape.rs#L458  fn drill_down_does_not_depend_on_the_face
-viz/render/shape.rs#L486  fn virtual_test_point_hides_instance_name
-viz/render/shape.rs#L501  fn real_test_point_keeps_instance_name
-viz/render/shape.rs#L512  fn box_with_source_span_stamps_its_coordinate
-viz/render/shape.rs#L524  fn box_without_source_span_stamps_nothing
+viz/render/shape.rs#L179  fn render_custom_symbol
+viz/render/shape.rs#L208  fn escape_xml_attr
+viz/render/shape.rs#L220  fn box_name_label
+viz/render/shape.rs#L234  fn render_test_point
+viz/render/shape.rs#L259  fn render_dot_symbol
+viz/render/shape.rs#L281  fn render_box_legacy
+viz/render/shape.rs#L322  mod tests
+viz/render/shape.rs#L327  fn mk
+viz/render/shape.rs#L352  fn custom_symbol_overrides_system_symbol_in_device_layers
+viz/render/shape.rs#L371  fn no_custom_symbol_uses_system
+viz/render/shape.rs#L384  fn box_body
+viz/render/shape.rs#L406  fn root_box_advertises_drill_down_only_when_the_layer_exists
+viz/render/shape.rs#L452  fn drill_down_does_not_depend_on_the_face
+viz/render/shape.rs#L480  fn virtual_test_point_hides_instance_name
+viz/render/shape.rs#L495  fn real_test_point_keeps_instance_name
+viz/render/shape.rs#L506  fn box_with_source_span_stamps_its_coordinate
+viz/render/shape.rs#L518  fn box_without_source_span_stamps_nothing
 viz/render/sub_module.rs#L45  fn submodule_pin_opts
 viz/render/sub_module.rs#L66  fn render_submodule_pin
 viz/render/sub_module.rs#L79  fn render_sub_module
