@@ -492,6 +492,28 @@ fn bom__dnp_row_matches_nc_constructor_multiset() {
     );
 }
 
+/// A DNP row reaches named inline constructions too: `r1::PART.SHAPE()`
+/// materializes through the inline-construction funnel, which consults the
+/// same overlay authority as the declaration seams (U326② corpus migration —
+/// the anonymous corpus parts get named and move to the overlay). An
+/// anonymous product matches no key anyone can write, so it never dangles.
+#[test]
+fn bom__dnp_row_marks_a_named_inline_construction() {
+    let src = DNP_BOARD_SRC.replace(
+        "module main\n{\n    BOARD b\n}",
+        "module BOARD2\n{\n    io N1\n    io N2\n    r1::PART.SHAPE() - N1 - N2\n}\n\nmodule main\n{\n    BOARD b\n    BOARD2 b2\n}",
+    );
+    assert!(src.contains("BOARD2"), "the splice landed");
+    let overlay = "bom main {\n    b2.r1 = DNP\n}\n";
+    let (table, diags) = build_with_src(&src, Some(overlay));
+    assert!(
+        fitted_of(&table, "main.b2.r1"),
+        "the named inline construction is bom-addressable; diags: {:?}",
+        diag_multiset(&diags)
+    );
+    assert_eq!(count_code(&diags, mcc::errcodes::BOM_KEY_NOT_SLOT), 0);
+}
+
 /// The DNP row's verdict is marking only: a part it names keeps its binding
 /// face untouched (class, selection state) — a not-fitted part is still the
 /// part that was chosen.

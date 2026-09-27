@@ -299,6 +299,14 @@ impl InstantiationBuilder {
         // anonymous construction — the registry interns it by the anchor, not
         // the counter name, so inserting a sibling never renumbers it.
         inst.anchor = anchor;
+        // ★ U326②: the bom overlay's device-level DNP word rules inline
+        // constructions the same as declarations — a named construction
+        // (`rsn::RES(0R)`) is bom-addressable. Keep an NC-constructor mark
+        // (`with_params` may have set one); an anonymous product matches no
+        // key anyone can write and takes the flag only from `NC`.
+        inst.dnp =
+            crate::instant::bom::dnp_authority(&self.current_path, &inst_name)
+                .unwrap_or(inst.dnp);
 
         // Drop the funcall's synthetic interface sentinels. With no caller the
         // call has no interface of its own, so left/right are `<X>.in` /
@@ -481,6 +489,11 @@ impl InstantiationBuilder {
         let safe_type = type_name.replace('.', "_");
         let (inst_name, _, anchor) = self.auto_name(super::AutoNameKind::Normal, &safe_type);
         let mut sub_inst = McModuleInst::with_params(&inst_name, module_def, params)?;
+        // ★ U326②: the bom overlay's device-level DNP word, exactly as for
+        // inline component constructions.
+        sub_inst.dnp =
+            crate::instant::bom::dnp_authority(&self.current_path, &inst_name)
+                .unwrap_or(sub_inst.dnp);
         sub_inst.anchor = Some(anchor);
 
         // ── Expansion provenance: ModuleCall (parent-side leaf record, §4.1-B7) ──
@@ -1060,6 +1073,11 @@ impl InstantiationBuilder {
             line: self.current_offset(),
             expansion_id: None,
         };
+        // ★ U326②: the bom overlay's device-level DNP word reaches func-body
+        // declarations too — `full` is relative to this module, so the key
+        // rides the module's own canonical path.
+        inst.dnp = crate::instant::bom::dnp_authority(&self.current_path, full)
+            .unwrap_or(inst.dnp);
         self.add_component(inst);
         Ok(())
     }
