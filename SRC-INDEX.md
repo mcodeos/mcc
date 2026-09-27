@@ -34,10 +34,10 @@ range (threshold 40KB).
 | `db/infra/mc_code.rs` | 397 KB | 121 |
 | `semantic/basic/mc_phrase.rs` | 351 KB | 89 |
 | `semantic/component/mc_pins/mod.rs` | 242 KB | 112 |
-| `semantic/validation/nets/mod.rs` | 209 KB | 136 |
-| `db/diagnostic/errcodes.rs` | 206 KB | 466 |
+| `semantic/validation/nets/mod.rs` | 212 KB | 139 |
+| `db/diagnostic/errcodes.rs` | 207 KB | 467 |
 | `instant/mc_mod/stmt.rs` | 197 KB | 80 |
-| `rules.rs` | 190 KB | 83 |
+| `rules.rs` | 192 KB | 83 |
 | `instant/insttab.rs` | 181 KB | 130 |
 | `cmds/show.rs` | 164 KB | 123 |
 | `db/defregistry.rs` | 158 KB | 182 |
@@ -57,14 +57,14 @@ range (threshold 40KB).
 
 | Directory | Files | Size |
 |---|---|---|
-| `(root)/` | 8 | 379 KB |
+| `(root)/` | 8 | 381 KB |
 | `ast/` | 7 | 81 KB |
 | `bin/` | 2 | 37 KB |
 | `build/` | 5 | 78 KB |
 | `builder/` | 1 | 0 KB |
 | `cli/` | 8 | 127 KB |
 | `cmds/` | 28 | 517 KB |
-| `db/` | 28 | 1038 KB |
+| `db/` | 28 | 1039 KB |
 | `eval/` | 2 | 50 KB |
 | `export/` | 7 | 185 KB |
 | `instant/` | 41 | 1651 KB |
@@ -73,7 +73,7 @@ range (threshold 40KB).
 | `query/` | 9 | 170 KB |
 | `refdef/` | 7 | 126 KB |
 | `rpc/` | 16 | 312 KB |
-| `semantic/` | 98 | 2877 KB |
+| `semantic/` | 98 | 2880 KB |
 | `stages/` | 18 | 396 KB |
 | `vector/` | 26 | 496 KB |
 | `viz/` | 97 | 2448 KB |
@@ -2060,15 +2060,16 @@ db/diagnostic/errcodes.rs#L2300  const AC_NOMINAL_CONFLICT
 db/diagnostic/errcodes.rs#L2309  const PROTECTIVE_PIN_NO_COPPER
 db/diagnostic/errcodes.rs#L2318  const IFACE_CHAIN_SOURCE_UNREACHED
 db/diagnostic/errcodes.rs#L2329  const IFACE_ROLE_PEER_CONFLICT
-db/diagnostic/errcodes.rs#L2342  const DOMAIN_NET_MIXED_BRIDGE
-db/diagnostic/errcodes.rs#L2355  const DOMAIN_BRIDGE_DIRECTION_REVERSED
-db/diagnostic/errcodes.rs#L2367  const DOMAIN_BRIDGE_LEG_INCONSISTENT
-db/diagnostic/errcodes.rs#L2378  const DOMAIN_BRIDGE_DANGLING
-db/diagnostic/errcodes.rs#L2392  const EXPECTATION_TARGET_MISSING
-db/diagnostic/errcodes.rs#L2398  const EXPECTATION_CLASS_MISMATCH
-db/diagnostic/errcodes.rs#L2403  const EXPECTATION_NOT_DRIVEN
-db/diagnostic/errcodes.rs#L2407  const EXPECTATION_VALUE_OUT_OF_WINDOW
-db/diagnostic/errcodes.rs#L2409  static ALL_CODES
+db/diagnostic/errcodes.rs#L2340  const POLARITY_REVERSED
+db/diagnostic/errcodes.rs#L2353  const DOMAIN_NET_MIXED_BRIDGE
+db/diagnostic/errcodes.rs#L2366  const DOMAIN_BRIDGE_DIRECTION_REVERSED
+db/diagnostic/errcodes.rs#L2378  const DOMAIN_BRIDGE_LEG_INCONSISTENT
+db/diagnostic/errcodes.rs#L2389  const DOMAIN_BRIDGE_DANGLING
+db/diagnostic/errcodes.rs#L2403  const EXPECTATION_TARGET_MISSING
+db/diagnostic/errcodes.rs#L2409  const EXPECTATION_CLASS_MISMATCH
+db/diagnostic/errcodes.rs#L2414  const EXPECTATION_NOT_DRIVEN
+db/diagnostic/errcodes.rs#L2418  const EXPECTATION_VALUE_OUT_OF_WINDOW
+db/diagnostic/errcodes.rs#L2420  static ALL_CODES
 db/diagnostic/mod.rs#L2  mod diagnostic
 db/diagnostic/mod.rs#L3  mod errcodes
 db/diagnostic/mod.rs#L4  mod override_store
@@ -5054,53 +5055,53 @@ rules.rs#L374  fn from_name
 rules.rs#L387  struct RuleMeta
 rules.rs#L428  struct FlatErcRule
 rules.rs#L488  static FLAT_ERC_RULES
-rules.rs#L1406  struct DeclRule
-rules.rs#L1457  static DECL_RULES
-rules.rs#L1492  struct GateRule
-rules.rs#L1552  static GATE_RULES
-rules.rs#L1751  fn flat_erc_rules
-rules.rs#L1756  fn declaration_rules
-rules.rs#L1761  fn assembly_gate_rules
-rules.rs#L1766  fn post_parse_rules
-rules.rs#L1773  fn rule_count
-rules.rs#L1779  fn find_rule
-rules.rs#L1806  fn rules_in_scope
-rules.rs#L1836  struct LockLedgerEntry
-rules.rs#L1851  const DOC_LOCK_PLACEHOLDERS
-rules.rs#L1861  fn lock_ledger
-rules.rs#L1885  struct RuleFilter
-rules.rs#L1903  fn query_rules
-rules.rs#L1904  fn hit
-rules.rs#L1929  fn gate_rule_by_tag
-rules.rs#L1936  fn gate_severity
-rules.rs#L1943  fn assembly_gate_blocking_tags
-rules.rs#L1952  mod tests
-rules.rs#L1984  const FLAT_ERC_ORDER
-rules.rs#L2052  const GATE_ORDER
-rules.rs#L2060  const DECL_ORDER
-rules.rs#L2067  const POSTPARSE_ORDER
-rules.rs#L2193  fn flat_erc_first_rule_is_e4101_pilot
-rules.rs#L2205  fn declaration_order_is_execution_order
-rules.rs#L2213  fn owner_is_a_typed_fn_pointer_to_the_host_check
-rules.rs#L2225  fn catalog_queries_work
-rules.rs#L2269  fn declaration_rules_reproduce_the_pin_check_sequence
-rules.rs#L2300  fn flat_erc_governance_defaults_match_severity
-rules.rs#L2313  fn gate_rules_reproduce_the_report_row_set
-rules.rs#L2332  fn gate_report_levels_match_the_preregistry_levels
-rules.rs#L2367  fn assembly_gate_blocking_set_is_the_error_rows
-rules.rs#L2383  fn gate_tag_lookup_and_severity_query_work
-rules.rs#L2399  fn codes_and_names_unique_across_every_scope
-rules.rs#L2416  fn post_parse_rules_reproduce_the_registration_order
-rules.rs#L2430  fn post_parse_governance_defaults_match_the_semantic_layer
-rules.rs#L2456  fn every_rule_names_its_owner_severity_and_family_consistently
-rules.rs#L2471  const VIZ_LAYOUT_ORDER
-rules.rs#L2478  fn viz_layout_rows_are_aggregated_read_only
-rules.rs#L2501  fn viz_layout_governance_defaults_are_locked
-rules.rs#L2530  fn lock_ledger_projects_every_numeric_code_exactly_once
-rules.rs#L2559  fn lock_ledger_anchors_are_strong_or_documented_and_pinned
-rules.rs#L2595  fn query_rules_filters_axes_and_preserves_table_order
-rules.rs#L2670  struct PostParseRule
-rules.rs#L2731  static POSTPARSE_RULES
+rules.rs#L1420  struct DeclRule
+rules.rs#L1471  static DECL_RULES
+rules.rs#L1506  struct GateRule
+rules.rs#L1566  static GATE_RULES
+rules.rs#L1765  fn flat_erc_rules
+rules.rs#L1770  fn declaration_rules
+rules.rs#L1775  fn assembly_gate_rules
+rules.rs#L1780  fn post_parse_rules
+rules.rs#L1787  fn rule_count
+rules.rs#L1793  fn find_rule
+rules.rs#L1820  fn rules_in_scope
+rules.rs#L1850  struct LockLedgerEntry
+rules.rs#L1865  const DOC_LOCK_PLACEHOLDERS
+rules.rs#L1875  fn lock_ledger
+rules.rs#L1899  struct RuleFilter
+rules.rs#L1917  fn query_rules
+rules.rs#L1918  fn hit
+rules.rs#L1943  fn gate_rule_by_tag
+rules.rs#L1950  fn gate_severity
+rules.rs#L1957  fn assembly_gate_blocking_tags
+rules.rs#L1966  mod tests
+rules.rs#L1999  const FLAT_ERC_ORDER
+rules.rs#L2068  const GATE_ORDER
+rules.rs#L2076  const DECL_ORDER
+rules.rs#L2083  const POSTPARSE_ORDER
+rules.rs#L2209  fn flat_erc_first_rule_is_e4101_pilot
+rules.rs#L2221  fn declaration_order_is_execution_order
+rules.rs#L2229  fn owner_is_a_typed_fn_pointer_to_the_host_check
+rules.rs#L2241  fn catalog_queries_work
+rules.rs#L2285  fn declaration_rules_reproduce_the_pin_check_sequence
+rules.rs#L2316  fn flat_erc_governance_defaults_match_severity
+rules.rs#L2329  fn gate_rules_reproduce_the_report_row_set
+rules.rs#L2348  fn gate_report_levels_match_the_preregistry_levels
+rules.rs#L2383  fn assembly_gate_blocking_set_is_the_error_rows
+rules.rs#L2399  fn gate_tag_lookup_and_severity_query_work
+rules.rs#L2415  fn codes_and_names_unique_across_every_scope
+rules.rs#L2432  fn post_parse_rules_reproduce_the_registration_order
+rules.rs#L2446  fn post_parse_governance_defaults_match_the_semantic_layer
+rules.rs#L2472  fn every_rule_names_its_owner_severity_and_family_consistently
+rules.rs#L2487  const VIZ_LAYOUT_ORDER
+rules.rs#L2494  fn viz_layout_rows_are_aggregated_read_only
+rules.rs#L2517  fn viz_layout_governance_defaults_are_locked
+rules.rs#L2546  fn lock_ledger_projects_every_numeric_code_exactly_once
+rules.rs#L2575  fn lock_ledger_anchors_are_strong_or_documented_and_pinned
+rules.rs#L2614  fn query_rules_filters_axes_and_preserves_table_order
+rules.rs#L2689  struct PostParseRule
+rules.rs#L2750  static POSTPARSE_RULES
 semantic/basic/attr_keys.rs#L48  enum AttrFace
 semantic/basic/attr_keys.rs#L62  enum AttrValueKind
 semantic/basic/attr_keys.rs#L93  enum ElementClass
@@ -7736,123 +7737,126 @@ semantic/validation/nets/mod.rs#L167  mod ac_face
 semantic/validation/nets/mod.rs#L171  mod iface_peer
 semantic/validation/nets/mod.rs#L179  mod iface_chain
 semantic/validation/nets/mod.rs#L188  mod iface_role_peers
-semantic/validation/nets/mod.rs#L204  fn u319_probe_dump
-semantic/validation/nets/mod.rs#L279  fn run_net_checks
-semantic/validation/nets/mod.rs#L308  fn erc_payload
-semantic/validation/nets/mod.rs#L340  struct NetCheckResult
-semantic/validation/nets/mod.rs#L365  struct NetCheckRow
-semantic/validation/nets/mod.rs#L378  impl From<&NetCheckResult> for NetCheckRow
-semantic/validation/nets/mod.rs#L379  fn from
-semantic/validation/nets/mod.rs#L394  fn net_check_rows
-semantic/validation/nets/mod.rs#L410  fn net_results_to_diagnostics
-semantic/validation/nets/mod.rs#L428  fn log_net_check_diagnostics
-semantic/validation/nets/mod.rs#L451  fn entry_pos
-semantic/validation/nets/mod.rs#L468  fn is_nc_entry
-semantic/validation/nets/mod.rs#L473  fn best_pos
-semantic/validation/nets/mod.rs#L500  fn check_driver_conflict
-semantic/validation/nets/mod.rs#L553  fn is_module_out_port_exit
-semantic/validation/nets/mod.rs#L589  fn check_undriven_nets
-semantic/validation/nets/mod.rs#L645  fn check_floating_inputs
-semantic/validation/nets/mod.rs#L680  fn check_nc_connected
-semantic/validation/nets/mod.rs#L711  fn check_unconnected_outputs
-semantic/validation/nets/mod.rs#L753  fn check_voltage_mismatch
-semantic/validation/nets/mod.rs#L754  const TOL
-semantic/validation/nets/mod.rs#L831  fn pin_declared_voltages
-semantic/validation/nets/mod.rs#L939  fn collect_kvs_voltage
-semantic/validation/nets/mod.rs#L970  fn parse_voltage_str
-semantic/validation/nets/mod.rs#L988  fn fmt_voltages
-semantic/validation/nets/mod.rs#L996  fn check_unwired_instances
-semantic/validation/nets/mod.rs#L1041  fn check_backfeed
-semantic/validation/nets/mod.rs#L1072  fn check_port_io_mismatch
-semantic/validation/nets/mod.rs#L1107  fn check_power_nets
-semantic/validation/nets/mod.rs#L1141  fn check_unused_module_ports
-semantic/validation/nets/mod.rs#L1239  fn check_single_point_nets
-semantic/validation/nets/mod.rs#L1262  fn check_pin_count_mismatch
-semantic/validation/nets/mod.rs#L1335  fn check_unselected_abstract
-semantic/validation/nets/mod.rs#L1372  fn bom_entry
-semantic/validation/nets/mod.rs#L1386  fn bom_anchor
-semantic/validation/nets/mod.rs#L1395  fn check_bom_value_descendant
-semantic/validation/nets/mod.rs#L1423  fn check_bom_key_slot
-semantic/validation/nets/mod.rs#L1507  fn check_floating_outputs
-semantic/validation/nets/mod.rs#L1553  fn check_unwired_pins
-semantic/validation/nets/mod.rs#L1593  fn power_intent_defs
-semantic/validation/nets/mod.rs#L1617  fn check_power_bridge_loop
-semantic/validation/nets/mod.rs#L1689  fn check_clamp_ref_role
-semantic/validation/nets/mod.rs#L1739  fn check_power_rail_contract
-semantic/validation/nets/mod.rs#L1760  fn check_power_rail_two_roots
-semantic/validation/nets/mod.rs#L1797  fn check_rail_nature_consistency
-semantic/validation/nets/mod.rs#L1835  struct PowerScan
-semantic/validation/nets/mod.rs#L1869  impl PowerScan
-semantic/validation/nets/mod.rs#L1870  fn build
-semantic/validation/nets/mod.rs#L1984  fn is_transparent
-semantic/validation/nets/mod.rs#L1992  fn def_of
-semantic/validation/nets/mod.rs#L1999  fn def_arc
-semantic/validation/nets/mod.rs#L2006  fn rail_face
-semantic/validation/nets/mod.rs#L2020  fn rail_cap_face
-semantic/validation/nets/mod.rs#L2034  fn source_faces
-semantic/validation/nets/mod.rs#L2071  fn net_nominal
-semantic/validation/nets/mod.rs#L2108  fn has_source_root
-semantic/validation/nets/mod.rs#L2150  fn port_source_of
-semantic/validation/nets/mod.rs#L2167  fn capacity_roots
-semantic/validation/nets/mod.rs#L2236  fn check_sink_nominal_mismatch
-semantic/validation/nets/mod.rs#L2316  fn check_undriven_sink_net
-semantic/validation/nets/mod.rs#L2424  fn check_power_source_contention
-semantic/validation/nets/mod.rs#L2518  fn check_isolated_dc_bridge
-semantic/validation/nets/mod.rs#L2573  fn check_protective_multi_bridge
-semantic/validation/nets/mod.rs#L2634  fn check_earth_dc_leak
-semantic/validation/nets/mod.rs#L2686  fn check_reference_island_root
-semantic/validation/nets/mod.rs#L2802  fn check_role_ref_missing_bridge
-semantic/validation/nets/mod.rs#L2859  fn check_pin_contract_decode
-semantic/validation/nets/mod.rs#L2922  fn check_pin_contract_return_member
-semantic/validation/nets/mod.rs#L2968  fn check_combine_output_tol
-semantic/validation/nets/mod.rs#L3033  struct EffClass
-semantic/validation/nets/mod.rs#L3052  fn eff_class
-semantic/validation/nets/mod.rs#L3108  struct DeclEdge
-semantic/validation/nets/mod.rs#L3149  fn declared_dc_edges
-semantic/validation/nets/mod.rs#L3207  fn endpoint_identity
-semantic/validation/nets/mod.rs#L3221  fn net_identities
-semantic/validation/nets/mod.rs#L3247  fn pair_matches
-semantic/validation/nets/mod.rs#L3258  fn scope_nets
-semantic/validation/nets/mod.rs#L3285  type EdgeEndpoint
-semantic/validation/nets/mod.rs#L3287  fn edge_endpoint
-semantic/validation/nets/mod.rs#L3313  fn leg_sites
-semantic/validation/nets/mod.rs#L3351  fn check_return_leg_undeclared
-semantic/validation/nets/mod.rs#L3522  fn check_pin_copper_expectation
-semantic/validation/nets/mod.rs#L3599  enum Expectation
-semantic/validation/nets/mod.rs#L3610  enum ClassAxis
-semantic/validation/nets/mod.rs#L3618  fn class_axis_of_word
-semantic/validation/nets/mod.rs#L3627  impl ClassAxis
-semantic/validation/nets/mod.rs#L3633  fn subsumes
-semantic/validation/nets/mod.rs#L3645  fn judge_expectation
-semantic/validation/nets/mod.rs#L3726  fn push_unanchored
-semantic/validation/nets/mod.rs#L3750  fn exp_phrase
-semantic/validation/nets/mod.rs#L3773  fn check_barrier_isolation
-semantic/validation/nets/mod.rs#L3847  fn def_pin_of
-semantic/validation/nets/mod.rs#L3869  fn domain_edge_covers
-semantic/validation/nets/mod.rs#L3886  fn comp_def_uri
-semantic/validation/nets/mod.rs#L3896  struct DeviceReturnClass
-semantic/validation/nets/mod.rs#L3929  fn check_device_return_span
-semantic/validation/nets/mod.rs#L4131  fn check_port_bind_role
-semantic/validation/nets/mod.rs#L4216  fn resolve_bind_role
-semantic/validation/nets/mod.rs#L4304  fn exposed_hosts
-semantic/validation/nets/mod.rs#L4332  fn check_exposed_clamp_coverage
-semantic/validation/nets/mod.rs#L4375  fn segment_is_clamped
-semantic/validation/nets/mod.rs#L4434  fn clamp_declaration_plane
-semantic/validation/nets/mod.rs#L4475  const NO_SKIP
-semantic/validation/nets/mod.rs#L4481  fn role_excluded
-semantic/validation/nets/mod.rs#L4506  fn copper_region_into
-semantic/validation/nets/mod.rs#L4593  fn check_exposed_clamp_downstream
-semantic/validation/nets/mod.rs#L4703  fn fmt_amps
-semantic/validation/nets/mod.rs#L4712  fn fmt_round
-semantic/validation/nets/mod.rs#L4727  fn sink_contract_for
-semantic/validation/nets/mod.rs#L4748  fn source_contract_for
-semantic/validation/nets/mod.rs#L4775  fn decode_pwr_entry
-semantic/validation/nets/mod.rs#L4801  fn member_net_of
-semantic/validation/nets/mod.rs#L4819  fn net_name
-semantic/validation/nets/mod.rs#L4827  mod tests
-semantic/validation/nets/mod.rs#L4834  fn net_result
-semantic/validation/nets/mod.rs#L4846  fn diag_key
-semantic/validation/nets/mod.rs#L4851  fn net_results_to_diagnostics_is_identity_under_any_store_today
+semantic/validation/nets/mod.rs#L215  fn check_polarity_reverse
+semantic/validation/nets/mod.rs#L294  fn polarity_pin_ids
+semantic/validation/nets/mod.rs#L310  fn declared_net_potential
+semantic/validation/nets/mod.rs#L331  fn potential_text
+semantic/validation/nets/mod.rs#L353  fn run_net_checks
+semantic/validation/nets/mod.rs#L375  fn erc_payload
+semantic/validation/nets/mod.rs#L407  struct NetCheckResult
+semantic/validation/nets/mod.rs#L432  struct NetCheckRow
+semantic/validation/nets/mod.rs#L445  impl From<&NetCheckResult> for NetCheckRow
+semantic/validation/nets/mod.rs#L446  fn from
+semantic/validation/nets/mod.rs#L461  fn net_check_rows
+semantic/validation/nets/mod.rs#L477  fn net_results_to_diagnostics
+semantic/validation/nets/mod.rs#L495  fn log_net_check_diagnostics
+semantic/validation/nets/mod.rs#L518  fn entry_pos
+semantic/validation/nets/mod.rs#L535  fn is_nc_entry
+semantic/validation/nets/mod.rs#L540  fn best_pos
+semantic/validation/nets/mod.rs#L567  fn check_driver_conflict
+semantic/validation/nets/mod.rs#L620  fn is_module_out_port_exit
+semantic/validation/nets/mod.rs#L656  fn check_undriven_nets
+semantic/validation/nets/mod.rs#L712  fn check_floating_inputs
+semantic/validation/nets/mod.rs#L747  fn check_nc_connected
+semantic/validation/nets/mod.rs#L778  fn check_unconnected_outputs
+semantic/validation/nets/mod.rs#L820  fn check_voltage_mismatch
+semantic/validation/nets/mod.rs#L821  const TOL
+semantic/validation/nets/mod.rs#L898  fn pin_declared_voltages
+semantic/validation/nets/mod.rs#L1006  fn collect_kvs_voltage
+semantic/validation/nets/mod.rs#L1037  fn parse_voltage_str
+semantic/validation/nets/mod.rs#L1055  fn fmt_voltages
+semantic/validation/nets/mod.rs#L1063  fn check_unwired_instances
+semantic/validation/nets/mod.rs#L1108  fn check_backfeed
+semantic/validation/nets/mod.rs#L1139  fn check_port_io_mismatch
+semantic/validation/nets/mod.rs#L1174  fn check_power_nets
+semantic/validation/nets/mod.rs#L1208  fn check_unused_module_ports
+semantic/validation/nets/mod.rs#L1306  fn check_single_point_nets
+semantic/validation/nets/mod.rs#L1329  fn check_pin_count_mismatch
+semantic/validation/nets/mod.rs#L1402  fn check_unselected_abstract
+semantic/validation/nets/mod.rs#L1439  fn bom_entry
+semantic/validation/nets/mod.rs#L1453  fn bom_anchor
+semantic/validation/nets/mod.rs#L1462  fn check_bom_value_descendant
+semantic/validation/nets/mod.rs#L1490  fn check_bom_key_slot
+semantic/validation/nets/mod.rs#L1574  fn check_floating_outputs
+semantic/validation/nets/mod.rs#L1620  fn check_unwired_pins
+semantic/validation/nets/mod.rs#L1660  fn power_intent_defs
+semantic/validation/nets/mod.rs#L1684  fn check_power_bridge_loop
+semantic/validation/nets/mod.rs#L1756  fn check_clamp_ref_role
+semantic/validation/nets/mod.rs#L1806  fn check_power_rail_contract
+semantic/validation/nets/mod.rs#L1827  fn check_power_rail_two_roots
+semantic/validation/nets/mod.rs#L1864  fn check_rail_nature_consistency
+semantic/validation/nets/mod.rs#L1902  struct PowerScan
+semantic/validation/nets/mod.rs#L1936  impl PowerScan
+semantic/validation/nets/mod.rs#L1937  fn build
+semantic/validation/nets/mod.rs#L2051  fn is_transparent
+semantic/validation/nets/mod.rs#L2059  fn def_of
+semantic/validation/nets/mod.rs#L2066  fn def_arc
+semantic/validation/nets/mod.rs#L2073  fn rail_face
+semantic/validation/nets/mod.rs#L2087  fn rail_cap_face
+semantic/validation/nets/mod.rs#L2101  fn source_faces
+semantic/validation/nets/mod.rs#L2138  fn net_nominal
+semantic/validation/nets/mod.rs#L2175  fn has_source_root
+semantic/validation/nets/mod.rs#L2217  fn port_source_of
+semantic/validation/nets/mod.rs#L2234  fn capacity_roots
+semantic/validation/nets/mod.rs#L2303  fn check_sink_nominal_mismatch
+semantic/validation/nets/mod.rs#L2383  fn check_undriven_sink_net
+semantic/validation/nets/mod.rs#L2491  fn check_power_source_contention
+semantic/validation/nets/mod.rs#L2585  fn check_isolated_dc_bridge
+semantic/validation/nets/mod.rs#L2640  fn check_protective_multi_bridge
+semantic/validation/nets/mod.rs#L2701  fn check_earth_dc_leak
+semantic/validation/nets/mod.rs#L2753  fn check_reference_island_root
+semantic/validation/nets/mod.rs#L2869  fn check_role_ref_missing_bridge
+semantic/validation/nets/mod.rs#L2926  fn check_pin_contract_decode
+semantic/validation/nets/mod.rs#L2989  fn check_pin_contract_return_member
+semantic/validation/nets/mod.rs#L3035  fn check_combine_output_tol
+semantic/validation/nets/mod.rs#L3100  struct EffClass
+semantic/validation/nets/mod.rs#L3119  fn eff_class
+semantic/validation/nets/mod.rs#L3175  struct DeclEdge
+semantic/validation/nets/mod.rs#L3216  fn declared_dc_edges
+semantic/validation/nets/mod.rs#L3274  fn endpoint_identity
+semantic/validation/nets/mod.rs#L3288  fn net_identities
+semantic/validation/nets/mod.rs#L3314  fn pair_matches
+semantic/validation/nets/mod.rs#L3325  fn scope_nets
+semantic/validation/nets/mod.rs#L3352  type EdgeEndpoint
+semantic/validation/nets/mod.rs#L3354  fn edge_endpoint
+semantic/validation/nets/mod.rs#L3380  fn leg_sites
+semantic/validation/nets/mod.rs#L3418  fn check_return_leg_undeclared
+semantic/validation/nets/mod.rs#L3589  fn check_pin_copper_expectation
+semantic/validation/nets/mod.rs#L3666  enum Expectation
+semantic/validation/nets/mod.rs#L3677  enum ClassAxis
+semantic/validation/nets/mod.rs#L3685  fn class_axis_of_word
+semantic/validation/nets/mod.rs#L3694  impl ClassAxis
+semantic/validation/nets/mod.rs#L3700  fn subsumes
+semantic/validation/nets/mod.rs#L3712  fn judge_expectation
+semantic/validation/nets/mod.rs#L3793  fn push_unanchored
+semantic/validation/nets/mod.rs#L3817  fn exp_phrase
+semantic/validation/nets/mod.rs#L3840  fn check_barrier_isolation
+semantic/validation/nets/mod.rs#L3914  fn def_pin_of
+semantic/validation/nets/mod.rs#L3936  fn domain_edge_covers
+semantic/validation/nets/mod.rs#L3953  fn comp_def_uri
+semantic/validation/nets/mod.rs#L3963  struct DeviceReturnClass
+semantic/validation/nets/mod.rs#L3996  fn check_device_return_span
+semantic/validation/nets/mod.rs#L4198  fn check_port_bind_role
+semantic/validation/nets/mod.rs#L4283  fn resolve_bind_role
+semantic/validation/nets/mod.rs#L4371  fn exposed_hosts
+semantic/validation/nets/mod.rs#L4399  fn check_exposed_clamp_coverage
+semantic/validation/nets/mod.rs#L4442  fn segment_is_clamped
+semantic/validation/nets/mod.rs#L4501  fn clamp_declaration_plane
+semantic/validation/nets/mod.rs#L4542  const NO_SKIP
+semantic/validation/nets/mod.rs#L4548  fn role_excluded
+semantic/validation/nets/mod.rs#L4573  fn copper_region_into
+semantic/validation/nets/mod.rs#L4660  fn check_exposed_clamp_downstream
+semantic/validation/nets/mod.rs#L4770  fn fmt_amps
+semantic/validation/nets/mod.rs#L4779  fn fmt_round
+semantic/validation/nets/mod.rs#L4794  fn sink_contract_for
+semantic/validation/nets/mod.rs#L4815  fn source_contract_for
+semantic/validation/nets/mod.rs#L4842  fn decode_pwr_entry
+semantic/validation/nets/mod.rs#L4868  fn member_net_of
+semantic/validation/nets/mod.rs#L4886  fn net_name
+semantic/validation/nets/mod.rs#L4894  mod tests
+semantic/validation/nets/mod.rs#L4901  fn net_result
+semantic/validation/nets/mod.rs#L4913  fn diag_key
+semantic/validation/nets/mod.rs#L4918  fn net_results_to_diagnostics_is_identity_under_any_store_today
 semantic/validation/nets/protect.rs#L49  fn declared_ref_roles
 semantic/validation/nets/protect.rs#L80  fn role_in_chain
 semantic/validation/nets/protect.rs#L99  fn marked_components
@@ -11632,4 +11636,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-422 files, 11549 declarations.
+422 files, 11553 declarations.

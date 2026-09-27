@@ -194,6 +194,162 @@ pub(crate) use iface_role_peers::check_iface_role_peers;
 /// (`FLAT_ERC_RULES`); the runner executes each declared rule in declaration
 /// order (§5-5 of the rule-registry design), replacing the former hand-written
 /// call table. Output is byte-identical to the old sequence.
+/// ERC family B9 polarity reverse (rules-catalog-design.md family B, U319):
+/// a polarized part wired with its positive terminal at the lower declared DC
+/// potential. Scope is declaration-driven, never a class name or pin count: a
+/// class whose pin rows name both polarity sides (`+`/`-` or
+/// `ANODE`/`CATHODE` — the electrolytic spelling writes the flag
+/// `spec.polarized = true` alongside, the diode spelling writes the names
+/// alone). The U319 ruling scoped the rule flag-∪-names; the landing proved
+/// the flag arm reduces to the names arm — only the names locate the
+/// terminals, and every flag carrier in the libraries names its sides too —
+/// so the names are the one witness here (bare `A`/`K` are deliberately not
+/// read, those letters name too many ordinary pins). The judgment reads the
+/// finished net map: a landed net's potential is provable only as a declared
+/// rail hot's signed nominal or the paired return's 0 — a signal net, an
+/// undeclared copper, or a hot whose nominal does not decode is an unknown,
+/// and an unknown on either side stays silent (the rule never guesses what
+/// the board did not declare). Fires per instance at warning level; a
+/// not-fitted instance is skipped (the part is not mounted, the wiring has no
+/// physical object — U305's not_fitted law).
+pub(crate) fn check_polarity_reverse(table: &InstTable, results: &mut Vec<NetCheckResult>) {
+    let idx = crate::instant::island::NetIslandIndex::build(table);
+    // DomainFilter::Any — library parts carry the names the same as
+    // board-local ones (U320's all_components root fix is what makes the
+    // library read work).
+    let defs: std::collections::HashMap<String, std::sync::Arc<McComponent>> =
+        crate::definition_space()
+            .all_components()
+            .into_iter()
+            .map(|(sn, c)| (sn.ident.to_string(), c))
+            .collect();
+    for comp in table.get_components() {
+        if comp.synthetic || comp.unselected || comp.not_fitted || comp.class_name.is_empty() {
+            continue;
+        }
+        let Some(def) = defs.get(&comp.class_name).map(|c| c.as_ref()) else {
+            continue;
+        };
+        let Some((pos_id, neg_id)) = polarity_pin_ids(def) else {
+            continue;
+        };
+        let mut plus: Option<&InstEntry> = None;
+        let mut minus: Option<&InstEntry> = None;
+        for pin in table.get_pins_of(comp.id) {
+            let pin_id = pin.path.rsplit('.').next().unwrap_or("");
+            if pin_id == pos_id {
+                plus = Some(pin);
+            } else if pin_id == neg_id {
+                minus = Some(pin);
+            }
+        }
+        let (Some(plus), Some(minus)) = (plus, minus) else {
+            continue; // a polarity side the instance never materialized is unwirable
+        };
+        let (Some(pnet), Some(mnet)) = (table.get_net_of(plus.id), table.get_net_of(minus.id))
+        else {
+            continue; // an unwired terminal is the unconnected family's object
+        };
+        if pnet.id == mnet.id {
+            continue; // both terminals on one net: no polarity to violate
+        }
+        let (Some(pv), Some(mv)) = (
+            declared_net_potential(table, &idx, pnet),
+            declared_net_potential(table, &idx, mnet),
+        ) else {
+            continue; // an unknown potential is never guessed
+        };
+        if pv >= mv {
+            continue; // the positive terminal sits at or above the negative one: wired right
+        }
+        let (pos, uri) = entry_pos(comp);
+        results.push(NetCheckResult {
+            check: "polarity-reverse",
+            severity: "warning",
+            message: crate::errcodes::format_msg(
+                crate::errcodes::POLARITY_REVERSED,
+                &[
+                    &comp.path,
+                    &format!("pin {pos_id}"),
+                    &pnet.name,
+                    &potential_text(table, &idx, pnet),
+                    &format!("pin {neg_id}"),
+                    &mnet.name,
+                    &potential_text(table, &idx, mnet),
+                ],
+            ),
+            net_name: pnet.name.clone(),
+            code: crate::errcodes::POLARITY_REVERSED,
+            pos,
+            uri,
+        });
+    }
+}
+
+/// The polarity-side pin ids of one class def, by its own declared pin names:
+/// the `+`/`ANODE` row and the `-`/`CATHODE` row, exactly these four words
+/// (the spellings the standard libraries write — the `\+` escape arrives here
+/// as `+`). `None` unless both sides sit on distinct rows: a part that names
+/// only one polarity side has no judgment here.
+fn polarity_pin_ids(def: &McComponent) -> Option<(String, String)> {
+    let side = |words: &[&str]| {
+        def.pins
+            .pins
+            .iter()
+            .find(|(_, p)| p.names.iter().any(|n| words.contains(&n.as_str())))
+            .map(|(id, _)| id.clone())
+    };
+    let pos = side(&["+", "ANODE"])?;
+    let neg = side(&["-", "CATHODE"])?;
+    (pos != neg).then_some((pos, neg))
+}
+
+/// The declared DC potential of one flat net, in volts: a declared rail hot's
+/// signed nominal, or 0 for the paired return (the `pwrflow.rs` reading — the
+/// return is the conductor the hot closes over). Everything else is None.
+fn declared_net_potential(
+    table: &InstTable,
+    idx: &crate::instant::island::NetIslandIndex,
+    net: &NetEntry,
+) -> Option<f64> {
+    let attr = idx.get(net.id)?;
+    let module = attr.module?;
+    for r in table.power_decls().get(&module)?.l1_rails() {
+        if r.hot == net.name {
+            return r.v; // an undecodable nominal is an unknown, not a guess
+        }
+        if r.ret == net.name {
+            return Some(0.0);
+        }
+    }
+    None
+}
+
+/// The message-side spelling of a proven potential: the rail's verbatim
+/// nominal text for a hot, `0` for a return. Only called on a net whose
+/// potential [`declared_net_potential`] just proved.
+fn potential_text(
+    table: &InstTable,
+    idx: &crate::instant::island::NetIslandIndex,
+    net: &NetEntry,
+) -> String {
+    if let Some(attr) = idx.get(net.id) {
+        if let Some(module) = attr.module {
+            if let Some(decls) = table.power_decls().get(&module) {
+                for r in decls.l1_rails() {
+                    if r.hot == net.name && r.v.is_some() {
+                        return r.v_text.clone();
+                    }
+                    if r.ret == net.name {
+                        return "0".to_string();
+                    }
+                }
+            }
+        }
+    }
+    String::new()
+}
+
 pub fn run_net_checks(table: &InstTable) -> Vec<NetCheckResult> {
     let mut results = Vec::new();
     for rule in crate::rules::flat_erc_rules() {

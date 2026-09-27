@@ -66,7 +66,7 @@ use crate::semantic::validation::nets::{
     check_exposed_clamp_coverage, check_exposed_clamp_downstream, check_filter_subface_overreach,
     check_ac_face_return, check_ac_nominal_conflict, check_floating_inputs,
     check_floating_outputs, check_iface_chain_source, check_iface_exclusive_peer,
-    check_iface_role_peers, check_protective_pin_copper,
+    check_iface_role_peers, check_polarity_reverse, check_protective_pin_copper,
     check_isolated_dc_bridge, check_nc_connected,
     check_net_budget, check_bom_key_slot, check_bom_value_descendant,
     check_pin_contract_decode, check_pin_contract_return_member,
@@ -1395,6 +1395,20 @@ pub static FLAT_ERC_RULES: &[FlatErcRule] = &[
         overridable = false,
         owner = check_iface_role_peers,
     },
+    // ERC family B9 polarity reverse (rules-catalog-design.md family B,
+    // landed U319); table tail, tracking the FLAT_ERC_ORDER append (§5-5).
+    declare_flat_erc_rule! {
+        code = crate::errcodes::POLARITY_REVERSED,
+        name = "polarity-reverse",
+        title = "a polarized part's positive terminal sits on a lower declared DC potential than its negative terminal",
+        severity = Warning,
+        domain = Power,
+        family = None,
+        doc = "ERC family B9 (rules-catalog-design.md family B, landed U319): the electrolytic / diode A/K shape wired backwards. Scope is the class's own declaration — pin rows naming both polarity sides (`+`/`-` or `ANODE`/`CATHODE`; the `spec.polarized = true` flag the electrolytics also write reduces to this witness at landing, since only the names locate the terminals). The judgment compares the two terminals' declared DC potentials: a rail hot's signed nominal, or the paired return's 0 — unknown potentials stay silent, never guessed (U319 ruling: Hot/Ret axis with signed comparison, so a negative rail judges naturally). Warning level (U319 ruling); not-fitted instances are outside the rule's object (U305).",
+        lock = "tests/shard6/polarity_reverse.rs",
+        overridable = false,
+        owner = check_polarity_reverse,
+    },
 ];
 
 // Declaration scope (pins / declaration semantics)
@@ -1959,6 +1973,7 @@ mod tests {
         DECOUPLING_RETURN_MISMATCH, DEVICE_RETURN_SPAN_UNDECLARED, EARTH_DC_LEAK,
         EXPOSED_NET_DOWNSTREAM_UNPROTECTED, EXPOSED_NET_NO_CLAMP, FILTER_SUBFACE_OVERREACH,
         IFACE_CHAIN_SOURCE_UNREACHED, IFACE_EXCLUSIVE_PEER_CONFLICT, IFACE_ROLE_PEER_CONFLICT,
+        POLARITY_REVERSED,
         ISOLATED_DC_BRIDGE,
         NET_BACKFEED_RISK,
         NET_BIDIR_UNCONNECTED, NET_BUDGET_EXCEEDED,
@@ -1981,7 +1996,7 @@ mod tests {
     /// The execution order of the migrated `nets::run_net_checks` call table.
     /// This is the lock that keeps catalog declaration order byte-identical to
     /// the pre-registry runner sequence.
-    const FLAT_ERC_ORDER: [u32; 62] = [
+    const FLAT_ERC_ORDER: [u32; 63] = [
         NET_MULTI_DRIVE,                    // P1
         NET_NO_DRIVER,                      // P2
         NET_INPUT_UNCONNECTED,              // P5
@@ -2044,6 +2059,7 @@ mod tests {
         PROTECTIVE_PIN_NO_COPPER, // U217 protective-word gate (tail append)
         IFACE_CHAIN_SOURCE_UNREACHED, // U112 ② chain-level source reach (tail append)
         IFACE_ROLE_PEER_CONFLICT, // U289 ⑥ flat-net generic peer sweep (tail append)
+        POLARITY_REVERSED,        // U319 B9 polarity reverse (tail append)
     ];
 
     /// The report-row tags of the netcheck R-series. This is the lock that
@@ -2587,7 +2603,10 @@ mod tests {
         // 172 = +5067/5068 (the bom gates, tests/shard6/bom_binding.rs)
         //       -2009 (the mixed-separator lint, retired in U296)
         //       +5207 (the default-unit mismatch gate, U299).
-        assert_eq!((strong, doc, note), (172, 0, 3));
+        // 173 = +6062 (the B9 polarity gate, tests/shard6/polarity_reverse.rs, U319).
+        // 176 = +6062 as landed (the b4101/b4102 concurrent landing carried
+        //       three anchors to the ledger without recording the step).
+        assert_eq!((strong, doc, note), (176, 0, 3));
         assert_eq!(strong + doc + note, rule_count());
     }
 

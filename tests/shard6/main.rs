@@ -28,6 +28,7 @@ mod member_lane_alias;
 mod nested_call_arg;
 mod net_report_consistency;
 mod pin_groups;
+mod polarity_reverse;
 mod port_member_declared;
 mod power_intent_l1;
 mod rail_identity_declared;

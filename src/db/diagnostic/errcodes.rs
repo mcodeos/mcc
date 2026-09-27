@@ -2328,6 +2328,17 @@ pub const IFACE_CHAIN_SOURCE_UNREACHED: u32 = 6060;
 /// either side stay silent (the single-side law shared with 6054).
 pub const IFACE_ROLE_PEER_CONFLICT: u32 = 6061;
 
+/// ERC family B rule B9 **polarity reverse** (rules-catalog-design.md family
+/// B, landed U319): a polarized part's positive terminal sits on a declared DC
+/// potential *lower* than its negative terminal's — the electrolytic / diode
+/// A/K shape wired backwards. Scope is declaration-driven, never a class name
+/// or pin count: the class's own `spec.polarized = true` flag, or its pin rows
+/// naming both polarity sides (`+`/`-` or `ANODE`/`CATHODE`). A potential is
+/// provable only as a declared rail hot's signed nominal or the paired
+/// return's 0; an unknown potential on either side stays silent — the rule
+/// never guesses what the board did not declare.
+pub const POLARITY_REVERSED: u32 = 6062;
+
 /// R3 **mixed bridge identity** (intent-reference-layer-design.md §10.4 bridge
 /// identity three-state): a `@bridge(X, Y)` whose two arguments disagree on
 /// kind — one names a whole-referenceable domain of the owning module, the
@@ -2894,6 +2905,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(PROTECTIVE_PIN_NO_COPPER, "A pin declaring @role(protective) or @role(earth) shares a net with no protective conductor.", "the pin '{0}' declares @role({1}), but its net '{2}' touches no conductor the owning scope declares protective or earth — the role word is a promise about the copper, and a plain net does not keep it. Wire the pin to a `conduit`/port declared `@role(protective)`/`@role(earth)` (the single-point the clamp rules read), or drop the role word if the terminal is not protective (ac-interface-design.md §4/§7, U217; the beta ruling: PE is not an interface member, it lives in the role machinery)."),
     entry!(IFACE_CHAIN_SOURCE_UNREACHED, "A sink-shaped adoption lane reaches no source of its family along the adoption chain.", "interface '{0}' lane '{1}' on '{2}' adopts role '{3}', whose pins all declare `in` — a sink-shaped lane — but no source endpoint of the same family is reachable along the adoption chain: the walk crossed every net the family's lanes lead to from here and found only further sink lanes. A unidirectional lane fed from nowhere is a dangling input — an orphan clock input is a clock that never arrives. Wire a source-role endpoint onto the chain (directly, or through a sink lane whose instance also declares a source pin of the same family), or drop the direction words if the lane is not genuinely a consumer (clock-intent-design.md §2.2, U112 ②)."),
     entry!(IFACE_ROLE_PEER_CONFLICT, "Two role-bearing endpoints of one family on a flat net are not mutual peers per the interface's role table.", "Net '{0}' joins '{1}' (role {2}) and '{3}' (role {4}) of family '{5}', but the roles are not mutual peers: the role block of '{2}' does not declare '{4}' in its `peer` set (and/or the reverse). The pair met only through role-less conductors — a wiring mediator or a module port — so the statement-level judge (4121) never saw it; the flat net walk did (replicated-binding-design.md §4 check 4). Give one endpoint the matching role, or extend the peer tables so the two roles name each other."),
+    entry!(POLARITY_REVERSED, "A polarized part's positive terminal sits on a lower declared DC potential than its negative terminal.", "instance '{0}' is polarized — its positive terminal ({1}) lands on '{2}' at {3} while its negative terminal ({4}) lands on '{5}' at {6} — the electrolytic/diode reverse connection that ends in heat, not in a working part. Swap the two nets so the positive terminal faces the higher declared potential, or drop the polarity declaration if the part genuinely has none (erc rules-catalog family B9, U319)."),
     entry!(EXPECTATION_TARGET_MISSING, "An `expects` row names a target the built top does not contain.", "the `expects` row '{0}' addresses a {1}, but the built top has no {1} named '{0}' — only what the top instantiates or declares can carry an expectation (circuit-intent-acceptance-design.md §4)"),
     entry!(EXPECTATION_CLASS_MISMATCH, "The instance an `expects` row names instantiates no face matching the row's class word.", "the instance '{0}' instantiates '{1}', and none of its declared faces matches the expected '{2}' — a class row reads the same keys `::` binding reads: the class itself, its variant base chain, and its adopted recipes ({3}) (circuit-intent-acceptance-design.md §3-§4)"),
     entry!(EXPECTATION_NOT_DRIVEN, "The net an `expects = driven` row names carries no declared driver.", "the net '{0}' carries no declared driver — no endpoint on it is an `Out` pin or a declared power source, the same declared-face rule the undriven-net gate reads; wire a source onto it, or drop the `driven` row if the net is a passive branch (circuit-intent-acceptance-design.md §3-§4)"),
