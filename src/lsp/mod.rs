@@ -11,5 +11,6 @@ pub mod completion;
 pub mod diagnostics;
 pub mod gotodef;
 pub mod hover;
+pub mod quickfix;
 pub mod references;
 pub mod sem;

@@ -46,6 +46,12 @@ pub fn diagnostic_to_json(d: &Diagnostic) -> Value {
         "related": [],
     });
 
+    // Style-gate QuickFix (U327): rename edits derived at serialization time,
+    // when the RefDef tables are hot. Absent for every other code.
+    if let Some(fix) = crate::lsp::quickfix::fix_payload(d) {
+        v["fix"] = fix;
+    }
+
     if !d.other.is_empty() {
         let related: Vec<Value> = d
             .other
@@ -83,6 +89,12 @@ pub fn diagnostic_to_json_full(d: &Diagnostic) -> Value {
         "suggestions": [],
         "related": [],
     });
+
+    // Style-gate QuickFix (U327): rename edits derived at serialization time,
+    // when the RefDef tables are hot. Absent for every other code.
+    if let Some(fix) = crate::lsp::quickfix::fix_payload(d) {
+        v["fix"] = fix;
+    }
 
     // Fill suggestions from RelatedInformation
     if !d.other.is_empty() {

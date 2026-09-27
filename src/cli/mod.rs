@@ -1406,6 +1406,14 @@ pub struct FmtArgs {
     /// exits 1 when any file differs
     #[arg(long)]
     pub check: bool,
+
+    /// Rename style-gate names (E5070 net labels) to their corrected spelling
+    /// before formatting. Off by default: unlike the whitespace pass, a rename
+    /// rewrites the token sequence. Only faces whose consumer set is provably
+    /// complete are touched — a name with consumers the ref tables cannot see
+    /// is left as-is rather than renamed partially.
+    #[arg(long)]
+    pub rename: bool,
 }
 
 // erc

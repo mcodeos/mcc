@@ -37,7 +37,7 @@ pub mod cli;
 pub mod db;
 pub mod hierarchy;
 pub mod instant;
-pub(crate) mod lsp;
+pub mod lsp;
 pub(crate) mod query;
 // The rule catalog (§2.2 descriptors + governance axes) is the single read
 // projection behind `mcc rules`, RPC `rules.*`, MCP tools, `explain`/`caps`

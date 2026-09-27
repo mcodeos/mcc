@@ -2715,6 +2715,29 @@ macro_rules! declare_post_parse_rule {
         doc = $doc:literal,
         lock = $lock:literal,
     ) => {
+        declare_post_parse_rule! {
+            code = $code,
+            name = $name,
+            title = $title,
+            severity = $sev,
+            domain = $dom,
+            host = $host,
+            doc = $doc,
+            lock = $lock,
+            fix = None,
+        }
+    };
+    (
+        code = $code:expr,
+        name = $name:literal,
+        title = $title:literal,
+        severity = $sev:ident,
+        domain = $dom:ident,
+        host = $host:literal,
+        doc = $doc:literal,
+        lock = $lock:literal,
+        fix = $fix:ident,
+    ) => {
         PostParseRule {
             meta: RuleMeta {
                 code: $code,
@@ -2727,7 +2750,7 @@ macro_rules! declare_post_parse_rule {
                 doc: $doc,
                 lock: $lock,
                 overridable: false,
-                fix: FixKind::None,
+                fix: FixKind::$fix,
                 plane: RulePlane::CoreMechanism,
                 acceptance: Acceptance::Legal,
                 sink: RuleSink::Envelope,
@@ -3264,8 +3287,9 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         severity = Info,
         domain = NamingStyle,
         host = "style",
-        doc = "Style guide §2 #3: net labels and module port faces are UPPER_SNAKE. Two faces name a net — the module header formals and the body's net labels; pins and datasheet names are exempt (§2.1). Instance names stay outside the gate: the refdes vs functional-block split needs design context no machine holds. Workspace files only; the factory corpus is conformant (b4075/b4079) and a stale live copy must not red the gate.",
+        doc = "Style guide §2 #3: net labels and module port faces are UPPER_SNAKE. Two faces name a net — the module header formals and the body's net labels; pins and datasheet names are exempt (§2.1). Instance names stay outside the gate: the refdes vs functional-block split needs design context no machine holds. Workspace files only; the factory corpus is conformant (b4075/b4079) and a stale live copy must not red the gate. Carries a QuickFix (U327) for the body net-label/free-net face: the diagnostics channel derives a rename-all-occurrences edit set (lsp/quickfix.rs). The port face stays fix-free while member-chain consumers are unindexed.",
         lock = "tests/lock_pp_naming_ports.rs",
+        fix = QuickFix,
     },
     declare_post_parse_rule! {
         code = crate::errcodes::NAME_ROLE_ENUM_NOT_UPPER_SNAKE,
@@ -3274,7 +3298,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         severity = Info,
         domain = NamingStyle,
         host = "style",
-        doc = "Style guide §2 #6: role values (the interface's role vocabulary) and enum values are UPPER_SNAKE. The @role(...) lowercase word vocabulary is a §2.1 exemption and is not judged here.",
+        doc = "Style guide §2 #6: role values (the interface's role vocabulary) and enum values are UPPER_SNAKE. The @role(...) lowercase word vocabulary is a §2.1 exemption and is not judged here. No fix axis yet (U327): a rename would need member-chain consumer refs, which the pass1 ref tables do not index today.",
         lock = "tests/lock_pp_naming_ports.rs",
     },
     declare_post_parse_rule! {
@@ -3284,7 +3308,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         severity = Info,
         domain = NamingStyle,
         host = "style",
-        doc = "Style guide §2 #9: function names are uppercase-initial, library and user funcs one rule — functions are class-level behavior and take the class's form. Only the first letter is judged.",
+        doc = "Style guide §2 #9: function names are uppercase-initial, library and user funcs one rule — functions are class-level behavior and take the class's form. Only the first letter is judged. No fix axis yet (U327): call sites are member chains, which the pass1 ref tables do not index today.",
         lock = "tests/lock_pp_naming_ports.rs",
     },
     // exprs — ExprsCheck: expression-context validity and attribute values.
