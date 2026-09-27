@@ -754,54 +754,16 @@ impl InstantiationBuilder {
                 Ok(points)
             }
             McPhrase::Endpoint(ref ep) => {
+                // U314 item 9: the member-expansion and P2-10 bare-name
+                // expansion arms that used to live here are retired — the
+                // semantic layer rewrites every member-carrying spelling into
+                // Bus-base endpoints, which the mirrored Bus arm above
+                // intercepts; instrumentation (b4101) recorded zero hits on
+                // both fallback arms. The fallback now mirrors the right face
+                // exactly: one `node_to_netpoint` per bus.
                 let left = ep.get_left();
                 let mut points = Vec::new();
                 for bus in left {
-                    // ── non-empty members → expand each member to physical pin ID ──
-                    if !bus.name.is_empty() && !bus.member.is_empty() {
-                        let is_owned = self.find_submodule(&bus.name).is_some()
-                            || self.find_component(&bus.name).is_some();
-                        for m in &bus.member {
-                            let path = format!("{}.{}", bus.name, m);
-                            if let Some(lanes) = self.expand_port_lanes(&path) {
-                                points.extend(lanes);
-                                continue;
-                            }
-                            let path = self.normalize_one_inst_pin_path(&path).unwrap_or(path);
-                            if let Some(lanes) = self.expand_port_lanes(&path) {
-                                points.extend(lanes);
-                            } else if is_owned {
-                                self.note_internal_member_ref(&path);
-                                points.push(
-                                    NetPoint::with_owner(
-                                        &path,
-                                        &bus.name,
-                                        IOType::None,
-                                        site.clone(),
-                                    )
-                                    .with_member_name(m),
-                                );
-                            } else {
-                                points.push(
-                                    NetPoint::new(&path, IOType::None, site.clone())
-                                        .with_member_name(m),
-                                );
-                            }
-                        }
-                        continue;
-                    }
-                    // ── P2-10 fix: try expand_port_lanes for Label-type ports ──
-                    // Bare interface ports like `io UART0` are stored as Label
-                    // in the symbol table, not as Interface/Bus. Without this,
-                    // get_left_points returns a single scalar point instead of
-                    // expanding to member lanes, causing cross-wiring with
-                    // component arrays like res[1:2].
-                    if !bus.name.is_empty() && bus.member.is_empty() {
-                        if let Some(lanes) = self.expand_port_lanes(&bus.name) {
-                            points.extend(lanes);
-                            continue;
-                        }
-                    }
                     points.push(self.node_to_netpoint(&bus));
                 }
                 Ok(points)

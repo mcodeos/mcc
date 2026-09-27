@@ -6,7 +6,8 @@
 //!
 //! Verdict (2026-09-27): the fallback-arm divergence between
 //! `get_left_points` and `get_right_points` (member expansion + the P2-10
-//! bare-name expansion exist only on the left fallback) is **unreachable**.
+//! bare-name expansion existed only on the left fallback) was
+//! **unreachable** — both dead arms retired in place (U314 item 9).
 //! The semantic layer rewrites every member-carrying spelling into Bus-base
 //! endpoints (instref.rs, `dot_or_curly`), which the mirrored Bus arm
 //! (points.rs:974) intercepts on both faces. Instrumented runs — a targeted
