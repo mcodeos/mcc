@@ -110,7 +110,18 @@ impl OpdShape {
     /// §5.1): parallel consumes no port, so a degenerate operand has to pick
     /// one face to attach to, and only its written side can decide which.
     /// `Unknown` is not degenerate -- it is a wildcard handled by the caller's
-    /// empty guard, not an operand that owns a face.
+    /// empty guard, not an operand that owns a face. That answer is
+    /// load-bearing: `opcheck::parallel_pair_sides` reads `port_left` off a
+    /// degenerate right operand, and `Unknown`'s ports are empty, so flipping
+    /// this arm would change the §5.1 pairing of every `+` that carries an
+    /// unresolved operand.
+    ///
+    /// Deliberately a dual track with the `^` walker
+    /// (`is_reverse_noop_operand`, mc_phrase.rs), not one machine to converge
+    /// (U330 ruling): on a shape-by-use operand the answers differ only by
+    /// phase — this classifier runs at Pass1 against still-empty faces, the
+    /// walker at Pass2 against the resolved equal faces — with a byte-identical
+    /// netlist either way (mcd log/9.27.u330-reverse-noop-divergence.md).
     pub fn is_degenerate(&self) -> bool {
         match self {
             OpdShape::Point(_) | OpdShape::Column(_) => true,

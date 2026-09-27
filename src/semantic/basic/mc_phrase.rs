@@ -4051,6 +4051,16 @@ fn shape_defaults(c: &Mc2Component) -> CompPinShape {
 /// matters (`eval_port_elems`, and the E2903 diagnostic) the shape itself is
 /// read instead.
 ///
+/// Dual track with `OpdShape::is_degenerate` (opd_shape.rs), by design (U330
+/// ruling): on a shape-by-use operand the two answers differ only by *phase* —
+/// Pass1's shape layer sees `Unknown` (both faces still empty), while this
+/// walker runs at Pass2 on the resolved, equal faces — and the netlist is
+/// byte-identical either way, because picking either face of an equal-face
+/// operand yields the same list. Do not unify the two: `is_degenerate`'s
+/// `Unknown => false` is load-bearing for the §5.1 wildcard pairing
+/// (`opcheck::parallel_pair_sides`), so flipping it would change every `+`
+/// that carries an unresolved operand (mcd log/9.27.u330-reverse-noop-divergence.md).
+///
 /// The `+` case is why the test cannot be syntactic: two one-pin bodies
 /// (`TP1 + TP2`) stack into a point (`1*1 + 1*1 = 1*1`) and are a no-op, while
 /// two two-pin parts stack into a `1*2` node whose faces differ and whose
