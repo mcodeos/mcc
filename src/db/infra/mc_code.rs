@@ -591,63 +591,7 @@ impl McCode {
             }
 
             // Collect structured diagnostics from parser (mc_dlog_add)
-            {
-                // Gather all entries, resolve messages, dedup by position
-                let mut raw: Vec<(u32, i32, u32, u32, String)> = Vec::new();
-                let mut dlog_ptr = fe.get_dlog_entries();
-                while !dlog_ptr.is_null() {
-                    let entry = &*dlog_ptr;
-                    let msg = if entry.msg.is_null() {
-                        Self::dlog_parser_message(entry.code).to_string()
-                    } else {
-                        std::ffi::CStr::from_ptr(entry.msg)
-                            .to_string_lossy()
-                            .to_string()
-                    };
-                    raw.push((entry.code, entry.level, entry.pos, entry.len, msg));
-                    dlog_ptr = entry.next;
-                }
-                // Dedup: at overlapping positions, keep the highest code (most specific)
-                // Parser errors are below PARSER_WARNING_CODE_BASE; warnings are more specific.
-                raw.sort_by_key(|e| (e.2, e.3)); // sort by pos, then len
-                let hyphen_use_spans = self.hyphenated_use_spans();
-                let mut last_end: u32 = 0;
-                for (code, level, pos, len, msg) in &raw {
-                    if *pos < last_end && *code < errcodes::PARSER_WARNING_CODE_BASE {
-                        continue; // skip less-specific error at same position
-                    }
-                    // The synthetic interface wrapper (module VIRT_<T> { }) is
-                    // generated with an empty body — its normal, intended shape.
-                    // Suppress the parser's empty-body warning (2115) during a
-                    // synthetic-view reload (see build/vinst.rs).
-                    if *code == errcodes::PARSER_EMPTY_BODY
-                        && crate::build::vinst::is_loading_synthetic_view()
-                    {
-                        continue;
-                    }
-                    // The C parser drops hyphenated use paths (e.g.
-                    // `use ./comp-cap.mc` is tokenized as `comp` `-` `...`),
-                    // so the trailing tokens produce a spurious top-level
-                    // error anchored inside the recovered path span (see
-                    // hyphenated_use_spans).
-                    if *code == errcodes::PARSER_TOP_INVALID
-                        && hyphen_use_spans
-                            .iter()
-                            .any(|(s, l)| *pos >= *s && *pos < s.saturating_add(*l))
-                    {
-                        continue;
-                    }
-                    last_end = pos.saturating_add(*len);
-                    match level {
-                        2 => crate::db::diagnostic::diagnostic::dlog_warning_at(
-                            *code, *pos, *len, &msg,
-                        ),
-                        _ => crate::db::diagnostic::diagnostic::dlog_error_at(
-                            *code, *pos, *len, &msg,
-                        ),
-                    }
-                }
-            }
+            self.emit_parser_dlogs(&fe);
 
             // Pop only after BOTH the error-token collection and the dlog
             // collection above have converted byte positions to (line, col).
@@ -778,59 +722,7 @@ impl McCode {
 
             // Collect structured diagnostics from parser (mc_dlog_add)
             if emit_diags {
-                let mut raw: Vec<(u32, i32, u32, u32, String)> = Vec::new();
-                let mut dlog_ptr = fe.get_dlog_entries();
-                while !dlog_ptr.is_null() {
-                    let entry = &*dlog_ptr;
-                    let msg = if entry.msg.is_null() {
-                        Self::dlog_parser_message(entry.code).to_string()
-                    } else {
-                        std::ffi::CStr::from_ptr(entry.msg)
-                            .to_string_lossy()
-                            .to_string()
-                    };
-                    raw.push((entry.code, entry.level, entry.pos, entry.len, msg));
-                    dlog_ptr = entry.next;
-                }
-                // Dedup: at overlapping positions, keep the highest code (most specific)
-                raw.sort_by_key(|e| (e.2, e.3));
-                let hyphen_use_spans = self.hyphenated_use_spans();
-                let mut last_end: u32 = 0;
-                for (code, level, pos, len, msg) in &raw {
-                    if *pos < last_end && *code < errcodes::PARSER_WARNING_CODE_BASE {
-                        continue;
-                    }
-                    // The synthetic interface wrapper (module VIRT_<T> { }) is
-                    // generated with an empty body — its normal, intended shape.
-                    // Suppress the parser's empty-body warning (2115) during a
-                    // synthetic-view reload (see build/vinst.rs).
-                    if *code == errcodes::PARSER_EMPTY_BODY
-                        && crate::build::vinst::is_loading_synthetic_view()
-                    {
-                        continue;
-                    }
-                    // The C parser drops hyphenated use paths (e.g.
-                    // `use ./comp-cap.mc` is tokenized as `comp` `-` `...`),
-                    // so the trailing tokens produce a spurious top-level
-                    // error anchored inside the recovered path span (see
-                    // hyphenated_use_spans).
-                    if *code == errcodes::PARSER_TOP_INVALID
-                        && hyphen_use_spans
-                            .iter()
-                            .any(|(s, l)| *pos >= *s && *pos < s.saturating_add(*l))
-                    {
-                        continue;
-                    }
-                    last_end = pos.saturating_add(*len);
-                    match level {
-                        2 => crate::db::diagnostic::diagnostic::dlog_warning_at(
-                            *code, *pos, *len, &msg,
-                        ),
-                        _ => crate::db::diagnostic::diagnostic::dlog_error_at(
-                            *code, *pos, *len, &msg,
-                        ),
-                    }
-                }
+                self.emit_parser_dlogs(&fe);
             }
 
             // Pop only after BOTH the error-token collection and the dlog
@@ -1089,58 +981,7 @@ impl McCode {
 
             // Collect structured diagnostics from parser (mc_dlog_add)
             {
-                let mut raw: Vec<(u32, i32, u32, u32, String)> = Vec::new();
-                let mut dlog_ptr = fe.get_dlog_entries();
-                while !dlog_ptr.is_null() {
-                    let entry = &*dlog_ptr;
-                    let msg = if entry.msg.is_null() {
-                        Self::dlog_parser_message(entry.code).to_string()
-                    } else {
-                        std::ffi::CStr::from_ptr(entry.msg)
-                            .to_string_lossy()
-                            .to_string()
-                    };
-                    raw.push((entry.code, entry.level, entry.pos, entry.len, msg));
-                    dlog_ptr = entry.next;
-                }
-                raw.sort_by_key(|e| (e.2, e.3));
-                let hyphen_use_spans = self.hyphenated_use_spans();
-                let mut last_end: u32 = 0;
-                for (code, level, pos, len, msg) in &raw {
-                    if *pos < last_end && *code < errcodes::PARSER_WARNING_CODE_BASE {
-                        continue;
-                    }
-                    // The synthetic interface wrapper (module VIRT_<T> { }) is
-                    // generated with an empty body — its normal, intended shape.
-                    // Suppress the parser's empty-body warning (2115) during a
-                    // synthetic-view reload (see build/vinst.rs).
-                    if *code == errcodes::PARSER_EMPTY_BODY
-                        && crate::build::vinst::is_loading_synthetic_view()
-                    {
-                        continue;
-                    }
-                    // The C parser drops hyphenated use paths (e.g.
-                    // `use ./comp-cap.mc` is tokenized as `comp` `-` `...`),
-                    // so the trailing tokens produce a spurious top-level
-                    // error anchored inside the recovered path span (see
-                    // hyphenated_use_spans).
-                    if *code == errcodes::PARSER_TOP_INVALID
-                        && hyphen_use_spans
-                            .iter()
-                            .any(|(s, l)| *pos >= *s && *pos < s.saturating_add(*l))
-                    {
-                        continue;
-                    }
-                    last_end = pos.saturating_add(*len);
-                    match level {
-                        2 => crate::db::diagnostic::diagnostic::dlog_warning_at(
-                            *code, *pos, *len, &msg,
-                        ),
-                        _ => crate::db::diagnostic::diagnostic::dlog_error_at(
-                            *code, *pos, *len, &msg,
-                        ),
-                    }
-                }
+                self.emit_parser_dlogs(&fe);
             }
 
             // Pop only after BOTH the error-token collection and the dlog
@@ -6593,53 +6434,75 @@ impl McCode {
         None
     }
 
-    /// Look up the human-readable message for a parser diagnostic code.
-    /// Codes follow the unified numbering (Pass1b parser cluster 2080-2116);
-    /// keep in sync with `errcodes.rs` descriptions.
-    fn dlog_parser_message(code: u32) -> &'static str {
-        match code {
-            // Errors (2081–2110)
-            2081 => "Invalid top-level declaration",
-            2082 => "Invalid clause in a body",
-            2083 => "Invalid pin declaration",
-            2084 => "Pin ID must be a constant integer, not an expression",
-            2085 => "Pin name must be a constant identifier, not an expression",
-            2086 => "Net endpoint must be a port/label, not a literal",
-            2087 => "Invalid net/connection expression",
-            2088 => "Invalid if/else condition block",
-            2089 => "Invalid role block",
-            2090 => "Invalid function definition",
-            2091 => "Invalid pins declaration",
-            2092 => "Invalid import statement",
-            2093 => "Invalid condition body",
-            2094 => "Invalid instance declaration (:: syntax)",
-            2095 => "Invalid body",
-            2096 => "Invalid condition expression",
-            2097 => "Invalid parameter declaration",
-            2098 => "Invalid import path",
-            2099 => "Invalid expression list",
-            2100 => "Invalid operand list",
-            2101 => "Invalid parameter list",
-            2102 => "Invalid parameter declaration list",
-            2103 => "Invalid attribute value list",
-            2104 => "Invalid attribute line list",
-            2105 => "Invalid pin name list",
-            2106 => "Invalid instance list",
-            2107 => "Invalid else-if chain",
-            2108 => "Invalid identifier list",
-            2109 => "Invalid path in import",
-            2110 => "Invalid expression",
-            // Warnings (2111–2116)
-            2111 => "Single '|' used as a binary operator outside a pin context",
-            2112 => "'±' used as a binary operator outside a tolerance context",
-            2113 => "Transpose (') on a literal has no effect",
-            2114 => "Caret (^) on a literal has no effect",
-            2115 => "Empty body — no clauses defined",
-            2116 => "Empty pins declaration",
-            // Per-production precise arms (thread gaps in the shared numeric
-            // space; 2117+ is AST-code territory)
-            2120 => "Reserved word used as an attribute value",
-            _ => "Syntax error",
+    /// Collect the parser's structured diagnostics (mc_dlog_add), resolve
+    /// each entry's message, dedup overlapping positions, and emit the
+    /// survivors. Message text is resolved from the canonical `errcodes.rs`
+    /// table — the single source of truth; the C parser carries its own
+    /// text only for the tattr reserved-word arm (2120), every other
+    /// producer emits a bare code. There is deliberately no second message
+    /// table here: a code retired in `errcodes.rs` must not stay emittable
+    /// through a hand-written arm.
+    fn emit_parser_dlogs(&self, fe: &crate::ast::bindings::Frontend) {
+        // Gather all entries and resolve messages. Walking the C-side
+        // linked list touches raw pointers, same as the callers did inline.
+        let mut raw: Vec<(u32, i32, u32, u32, String)> = Vec::new();
+        let mut dlog_ptr = fe.get_dlog_entries();
+        while !dlog_ptr.is_null() {
+            let entry = unsafe { &*dlog_ptr };
+            let msg = if entry.msg.is_null() {
+                crate::db::diagnostic::errcodes::describe(entry.code)
+                    .map(|e| e.message.to_string())
+                    .unwrap_or_else(|| "Syntax error".to_string())
+            } else {
+                unsafe {
+                    std::ffi::CStr::from_ptr(entry.msg)
+                        .to_string_lossy()
+                        .to_string()
+                }
+            };
+            raw.push((entry.code, entry.level, entry.pos, entry.len, msg));
+            dlog_ptr = entry.next;
+        }
+        // Dedup: at overlapping positions, keep the highest code (most
+        // specific). Parser errors are below PARSER_WARNING_CODE_BASE;
+        // warnings are more specific.
+        raw.sort_by_key(|e| (e.2, e.3));
+        let hyphen_use_spans = self.hyphenated_use_spans();
+        let mut last_end: u32 = 0;
+        for (code, level, pos, len, msg) in &raw {
+            if *pos < last_end && *code < errcodes::PARSER_WARNING_CODE_BASE {
+                continue;
+            }
+            // The synthetic interface wrapper (module VIRT_<T> { }) is
+            // generated with an empty body — its normal, intended shape.
+            // Suppress the parser's empty-body warning (2115) during a
+            // synthetic-view reload (see build/vinst.rs).
+            if *code == errcodes::PARSER_EMPTY_BODY
+                && crate::build::vinst::is_loading_synthetic_view()
+            {
+                continue;
+            }
+            // The C parser drops hyphenated use paths (e.g.
+            // `use ./comp-cap.mc` is tokenized as `comp` `-` `...`),
+            // so the trailing tokens produce a spurious top-level
+            // error anchored inside the recovered path span (see
+            // hyphenated_use_spans).
+            if *code == errcodes::PARSER_TOP_INVALID
+                && hyphen_use_spans
+                    .iter()
+                    .any(|(s, l)| *pos >= *s && *pos < s.saturating_add(*l))
+            {
+                continue;
+            }
+            last_end = pos.saturating_add(*len);
+            match level {
+                2 => crate::db::diagnostic::diagnostic::dlog_warning_at(
+                    *code, *pos, *len, &msg,
+                ),
+                _ => crate::db::diagnostic::diagnostic::dlog_error_at(
+                    *code, *pos, *len, &msg,
+                ),
+            }
         }
     }
 }
