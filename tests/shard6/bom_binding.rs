@@ -95,19 +95,23 @@ fn discard(dir: &Path) {
 /// and the diagnostics. The board source enters through a file under the
 /// project dir — the overlay only speaks for builds whose entry lives under
 /// the root that owns it.
-fn build_with(overlay: Option<&str>) -> (mcc::InstTable, Vec<mcc::McDiagnostic>) {
+fn build_with_src(src: &str, overlay: Option<&str>) -> (mcc::InstTable, Vec<mcc::McDiagnostic>) {
     // The lock spans the whole build: the workspace, the project root and the
     // overlay registry are process-global, and shard tests run in parallel.
     let _lock = common::lock();
     common::reset();
     let dir = set_overlay(overlay);
     let board_uri = dir.join("board.mc").to_string_lossy().into_owned();
-    common::load_string(&board_uri, BOARD_SRC);
+    common::load_string(&board_uri, src);
     let built = mcc::mcc_build_flat(&mcc::McIds::from("main"), &board_uri, 1000);
     let table = built.expect("flat build").1;
     let diags = mcc::mcc_diagnose_all();
     discard(&dir);
     (table, diags)
+}
+
+fn build_with(overlay: Option<&str>) -> (mcc::InstTable, Vec<mcc::McDiagnostic>) {
+    build_with_src(BOARD_SRC, overlay)
 }
 
 fn count_code(diags: &[mcc::McDiagnostic], code: u32) -> usize {
@@ -377,4 +381,225 @@ fn bom__parse_broken_carrier_reports_and_clears() {
         0,
         "the registry cleared"
     );
+}
+
+// U326②: the device-level DNP row (`path = DNP`). The overlay is the
+// assembly authority where it names the key: a DNP row
+// marks the part not fitted, a selection row without one clears a code-face
+// `@dnp`, no row leaves the code face standing. The bom-overlay board speaks
+// through the same reading faces as the code face, so the two spellings are
+// one verdict (A/B multiset).
+
+/// The DNP board: same shape as `BOARD_SRC`, plus a concrete part the corpus
+/// spells `@dnp` in the code face (arm A) and the overlay marks with a DNP
+/// row (arm B).
+const DNP_BOARD_SRC: &str = r#"
+abstract component PART.SHAPE
+{
+    pins = [
+        in 1 = A
+        out 2 = Y
+    ]
+}
+
+component PART.SHAPE_V2 : PART.SHAPE
+{
+    partno = "PS-V2"
+}
+
+component OTHER.THING
+{
+    pins = [
+        in 1 = A
+        out 2 = Y
+    ]
+}
+
+module BOARD
+{
+    PART.SHAPE slot
+    OTHER.THING fixed
+}
+
+module main
+{
+    BOARD b
+}
+"#;
+
+/// `not_fitted` of the flat row at `path`.
+fn fitted_of(table: &mcc::InstTable, path: &str) -> bool {
+    let id = table
+        .get_id_by_path(path)
+        .unwrap_or_else(|| panic!("row {path} present"));
+    table.get_entry(id).unwrap().not_fitted
+}
+
+/// Every flat row as (path, not_fitted), in path order — the A/B multiset.
+fn fitted_map(table: &mcc::InstTable) -> Vec<(String, bool)> {
+    let mut rows: Vec<(String, bool)> = table
+        .iter()
+        .map(|(_, e)| (e.path.clone(), e.not_fitted))
+        .collect();
+    rows.sort();
+    rows
+}
+
+/// The diagnostic multiset, code + message, sorted — the A/B half that must
+/// not move when the same verdict changes spelling.
+fn diag_multiset(diags: &[mcc::McDiagnostic]) -> Vec<(u32, String)> {
+    let mut v: Vec<(u32, String)> = diags
+        .iter()
+        .map(|d| (d.code, d.msg.clone()))
+        .collect();
+    v.sort();
+    v
+}
+
+/// A DNP row marks the named part not fitted and nothing else; the verdict
+/// lands on the same flag the code face writes, and both overlay checks stay
+/// silent (a consumed DNP key is not dangling).
+#[test]
+fn bom__dnp_row_marks_the_part_not_fitted() {
+    let (table, diags) = build_with(Some(&bom_block("    b.fixed = DNP\n")));
+    assert!(fitted_of(&table, "main.b.fixed"), "the row names the part");
+    assert!(
+        !fitted_of(&table, "main.b.slot"),
+        "the sibling keeps its code face"
+    );
+    assert_eq!(count_code(&diags, mcc::errcodes::BOM_KEY_NOT_SLOT), 0);
+    assert_eq!(
+        count_code(&diags, mcc::errcodes::BOM_VALUE_NOT_DESCENDANT),
+        0
+    );
+}
+
+/// A/B: the code-face `@dnp` and the overlay DNP row are one verdict — the
+/// fitted map and the whole diagnostic multiset are equal across the two
+/// spellings (bom-overlay board, single-variable comparison).
+#[test]
+fn bom__dnp_row_matches_code_face_marker_multiset() {
+    let src_a = DNP_BOARD_SRC.replace(
+        "    OTHER.THING fixed\n",
+        "    OTHER.THING fixed @dnp\n",
+    );
+    let (table_a, diags_a) = build_with_src(&src_a, None);
+    let (table_b, diags_b) = build_with_src(DNP_BOARD_SRC, Some(&bom_block("    b.fixed = DNP\n")));
+    assert_eq!(fitted_map(&table_a), fitted_map(&table_b), "same verdict");
+    assert_eq!(diag_multiset(&diags_a), diag_multiset(&diags_b), "same diags");
+    assert!(
+        fitted_map(&table_a).iter().any(|(p, f)| p == "main.b.fixed" && *f),
+        "arm A really marks the part"
+    );
+}
+
+/// The overlay's word is final where it names the key: a selection row on a
+/// marked slot clears the code-face `@dnp` — and still binds the variant.
+#[test]
+fn bom__selection_row_clears_code_face_dnp() {
+    let src = DNP_BOARD_SRC.replace(
+        "    PART.SHAPE slot\n",
+        "    PART.SHAPE slot @dnp\n",
+    );
+    let (table, diags) = build_with_src(
+        &src,
+        Some(&bom_block("    b.slot = PART.SHAPE_V2\n")),
+    );
+    let id = table.get_id_by_path("main.b.slot").unwrap();
+    let e = table.get_entry(id).unwrap();
+    assert_eq!(e.class_name, "PART.SHAPE_V2", "the row still binds");
+    assert!(!e.not_fitted, "the overlay's word clears the marker");
+    assert!(!e.unselected, "a bound slot is selected");
+    assert_eq!(count_code(&diags, mcc::errcodes::BOM_KEY_NOT_SLOT), 0);
+}
+
+/// One key, one row of each kind: the variant is chosen and the part is not
+/// fitted — "a part chosen for the board and left off it".
+#[test]
+fn bom__slot_takes_selection_row_and_dnp_row_together() {
+    let (table, diags) = build_with(Some(&bom_block(
+        "    b.slot = PART.SHAPE_V2\n    b.slot = DNP\n",
+    )));
+    let id = table.get_id_by_path("main.b.slot").unwrap();
+    let e = table.get_entry(id).unwrap();
+    assert_eq!(e.class_name, "PART.SHAPE_V2", "the selection row binds");
+    assert!(e.not_fitted, "the DNP row marks the part");
+    assert!(!e.unselected, "a bound slot is selected");
+    assert_eq!(count_code(&diags, mcc::errcodes::BOM_KEY_NOT_SLOT), 0);
+}
+
+/// A DNP row on a module instance marks the module's own entry — the subtree
+/// push-down retired with U326①, so the mounted parts keep their own face.
+#[test]
+fn bom__dnp_row_on_module_instance_marks_the_module_only() {
+    let (table, diags) = build_with(Some(&bom_block("    b = DNP\n")));
+    assert!(fitted_of(&table, "main.b"), "the module entry is marked");
+    assert!(
+        !fitted_of(&table, "main.b.fixed"),
+        "the mounted part keeps its own face"
+    );
+    assert!(!fitted_of(&table, "main.b.slot"));
+    assert_eq!(count_code(&diags, mcc::errcodes::BOM_KEY_NOT_SLOT), 0);
+}
+
+/// Duplicate DNP rows judge by the same b1 shape: same value is a W, and the
+/// first row still marks the part.
+#[test]
+fn bom__duplicate_dnp_rows_warn_and_first_row_wins() {
+    let (table, diags) = build_with(Some(&bom_block(
+        "    b.fixed = DNP\n    b.fixed = DNP\n",
+    )));
+    assert!(fitted_of(&table, "main.b.fixed"), "the first row wins");
+    let key_diags: Vec<&mcc::McDiagnostic> = diags
+        .iter()
+        .filter(|d| d.code == mcc::errcodes::BOM_KEY_NOT_SLOT)
+        .collect();
+    assert_eq!(key_diags.len(), 1, "one duplicate report");
+    assert!(
+        !matches!(key_diags[0].level, mcc::DiagnosticLevel::Error),
+        "same-value duplicate is a Warning"
+    );
+}
+
+/// A DNP key that names no instance dangles into the b3 domain (E5068),
+/// anchored at the overlay row.
+#[test]
+fn bom__dangling_dnp_key_fires_5068() {
+    let (_, diags) = build_with(Some(&bom_block("    b.nope = DNP\n")));
+    let b3: Vec<&mcc::McDiagnostic> = diags
+        .iter()
+        .filter(|d| d.code == mcc::errcodes::BOM_KEY_NOT_SLOT)
+        .collect();
+    assert_eq!(b3.len(), 1);
+    assert!(
+        b3[0].msg.contains("no instance"),
+        "the message names the empty path: {}",
+        b3[0].msg
+    );
+}
+
+/// A DNP row under a header naming a top the build does not enter consumes
+/// nothing and dangles, exactly like a selection row.
+#[test]
+fn bom__dnp_row_top_mismatch_dangles() {
+    let (_, diags) = build_with(Some("bom other {\n    b.fixed = DNP\n}\n"));
+    let b3 = diags
+        .iter()
+        .filter(|d| d.code == mcc::errcodes::BOM_KEY_NOT_SLOT)
+        .count();
+    assert_eq!(b3, 1, "the row dangles (E5068)");
+}
+
+/// The reservation is exact: a lowercase value is not the DNP word — it
+/// routes to the selection namespace, and on an abstract slot resolves to no
+/// live def (E5067).
+#[test]
+fn bom__dnp_word_is_case_exact() {
+    let (_, diags) = build_with(Some(&bom_block("    b.slot = dnp\n")));
+    assert_eq!(
+        count_code(&diags, mcc::errcodes::BOM_VALUE_NOT_DESCENDANT),
+        1,
+        "a lowercase value is an unresolved selection, not a DNP row"
+    );
+    assert_eq!(count_code(&diags, mcc::errcodes::BOM_KEY_NOT_SLOT), 0);
 }

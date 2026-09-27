@@ -857,7 +857,15 @@ impl InstantiationBuilder {
                     inst.set_nc_pins(nc_pins);
                     // ★ U305⑤: the declaration's `@dnp` flag rides to the
                     // instance (the table marks it not-fitted from here).
-                    inst.dnp = c.dnp;
+                    // ★ U326②: the bom overlay's device-level DNP word is the
+                    // assembly authority where it names the key — a DNP row
+                    // marks the part, a selection row without one clears the
+                    // code-face marker; no row, code face stands.
+                    inst.dnp = crate::instant::bom::dnp_authority(
+                        &self.current_path,
+                        &c.name.to_string(),
+                    )
+                    .unwrap_or(c.dnp);
                     self.add_component(inst);
 
                     // ── P1-C5: Execute same-name constructor func ──
@@ -898,9 +906,16 @@ impl InstantiationBuilder {
                     let inst_name = m.name.to_string();
                     let mut inst = McModuleInst::new(&inst_name, m.base.clone());
                     // ★ U305⑤: the declaration's `@dnp` flag rides to the
-                    // sub-module instance (flatten marks it and its whole
-                    // subtree not-fitted).
-                    inst.dnp = m.dnp;
+                    // sub-module instance (flatten marks the module's own
+                    // entry not-fitted; the subtree push-down retired with
+                    // U326①). ★ U326②: the bom overlay's device-level DNP
+                    // word is the assembly authority where it names the key,
+                    // exactly as for components.
+                    inst.dnp = crate::instant::bom::dnp_authority(
+                        &self.current_path,
+                        &inst_name,
+                    )
+                    .unwrap_or(m.dnp);
                     // ★ Sub-module instantiation failure → record diagnostics, but keep instance
                     // Phase C1: intern into the circuit registry under the full path
                     // (`{parent}.{inst_name}`), so this sub-module and its products

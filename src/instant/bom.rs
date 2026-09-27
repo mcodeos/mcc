@@ -12,7 +12,10 @@
 //! lex spans and normal parse diagnostics. Keys are instance paths relative
 //! to the top module named in the header (`"LDO.ldo"`); values are component
 //! class names resolved against the live defs at bind time. A binding
-//! replaces the instance's class identity only — never its shape. See
+//! replaces the instance's class identity only — never its shape. A row
+//! whose value spells the reserved word [`DNP_WORD`] is a device-level DNP
+//! row (U326②) — it marks the key's part not fitted, and the overlay's word
+//! is final where it names the key ([`dnp_authority`]). See
 //! bom-overlay-design.md (U267①); the reading face is the sole producer of
 //! [`BindingRow`], and the two consumers (bind seam, E5067/E5068 checks) judge
 //! rows, never the carrier.
@@ -21,13 +24,22 @@ use crate::ast::node::AstNode;
 use crate::ast::{bindings::Frontend, macros::{
     MCAST_ATT_ID, MCAST_ATT_VALUES, MCAST_ATTRIBUTE, MCAST_BODY, MCAST_NAME, MCAST_BOM,
 }};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::CString;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{LazyLock, RwLock};
 
 pub(crate) const BOM_FILE: &str = "bom.mc";
+
+/// The reserved value word that spells a device-level DNP row (U326②):
+/// `path = DNP` names the key's part not fitted. The word is reserved in the
+/// overlay's value position — a row value spelling exactly `DNP` never
+/// resolves as a class name, so a live component def with that name is
+/// unselectable through the overlay (the exact-name law leaves no second
+/// guess, and the reservation is what keeps the two row kinds decidable at
+/// read time).
+pub(crate) const DNP_WORD: &str = "DNP";
 
 /// One overlay row as read: the U245 §4 seam contract quadruple. The value is
 /// a name, not a resolution — identity is minted by the DefRegistry alone.
@@ -88,9 +100,17 @@ struct BomState {
     /// bom key (top-relative instance path) -> variant class name;
     /// first row wins on duplicates.
     entries: BTreeMap<String, String>,
+    /// Device-level DNP rows in file order (U326②; `value_class` is always
+    /// [`DNP_WORD`]) — the read face's second product, for anchors.
+    dnp_rows: Vec<BindingRow>,
+    /// Keys carrying a DNP row; first row wins on duplicates.
+    dnp_entries: BTreeSet<String>,
     duplicates: Vec<DuplicateRow>,
     /// bom key -> (canonical instance path, bind outcome); per build run
     binds: BTreeMap<String, (String, BindOutcome)>,
+    /// DNP keys a materialization consumed this build run (the dangling
+    /// check's second ledger; selection keys consume through `binds`).
+    dnp_binds: BTreeMap<String, String>,
 }
 
 static BOM_STATE: LazyLock<RwLock<BomState>> =
@@ -119,19 +139,27 @@ fn load_for_dir(dir: &Path) {
         state.rows.clear();
         state.header_top = None;
         state.entries.clear();
+        state.dnp_rows.clear();
+        state.dnp_entries.clear();
         state.duplicates.clear();
         return;
     };
     let uri = root.join(BOM_FILE).to_string_lossy().into_owned();
-    let (header_top, rows, duplicates, parse_ok) = parse_bom(&text, &uri);
+    let (header_top, rows, dnp_rows, duplicates, parse_ok) = parse_bom(&text, &uri);
     let mut entries = BTreeMap::new();
+    let mut dnp_entries = BTreeSet::new();
     if parse_ok {
         // First row wins: a duplicate never replaces the earlier selection
-        // (its own E5068 W/E fires from `duplicates` instead).
+        // (its own E5068 W/E fires from `duplicates` instead). The two row
+        // kinds keep separate namespaces — one key may carry both a selection
+        // row and a DNP row (a part chosen for the board and not fitted).
         for row in &rows {
             entries
                 .entry(row.path.clone())
                 .or_insert_with(|| row.value_class.clone());
+        }
+        for row in &dnp_rows {
+            dnp_entries.insert(row.path.clone());
         }
     }
     let mut state = BOM_STATE.write().expect("bom overlay lock");
@@ -139,6 +167,8 @@ fn load_for_dir(dir: &Path) {
     state.header_top = header_top;
     state.rows = rows;
     state.entries = entries;
+    state.dnp_rows = dnp_rows;
+    state.dnp_entries = dnp_entries;
     state.duplicates = duplicates;
 }
 
@@ -153,11 +183,13 @@ fn parse_bom(
 ) -> (
     Option<String>,
     Vec<BindingRow>,
+    Vec<BindingRow>,
     Vec<DuplicateRow>,
     bool,
 ) {
     let mut header_top = None;
     let mut rows: Vec<BindingRow> = Vec::new();
+    let mut dnp_rows: Vec<BindingRow> = Vec::new();
     let mut duplicates: Vec<DuplicateRow> = Vec::new();
     // reset + load + lex + parse must run under the one frontend lock; the
     // Frontend value itself is that lock, and the diagnostics drain below
@@ -214,7 +246,13 @@ fn parse_bom(
                         let Some(row) = binding_row(&clause, uri) else {
                             continue;
                         };
-                        if let Some(first) = rows.iter().find(|r| r.path == row.path) {
+                        // The reserved word routes the row: `DNP` lands in the
+                        // device-level namespace, everything else is a
+                        // selection row. Duplicates judge per namespace — a
+                        // key may carry one row of each kind.
+                        let is_dnp = row.value_class == DNP_WORD;
+                        let ns = if is_dnp { &dnp_rows } else { &rows };
+                        if let Some(first) = ns.iter().find(|r| r.path == row.path) {
                             duplicates.push(DuplicateRow {
                                 key: row.path.clone(),
                                 first_value: first.value_class.clone(),
@@ -222,6 +260,8 @@ fn parse_bom(
                                 span: row.span,
                                 uri: row.uri.clone(),
                             });
+                        } else if is_dnp {
+                            dnp_rows.push(row);
                         } else {
                             rows.push(row);
                         }
@@ -291,7 +331,7 @@ fn parse_bom(
     if !fcontent_ptr.is_null() {
         unsafe { libc::free(fcontent_ptr as *mut libc::c_void) };
     }
-    (header_top, rows, duplicates, parse_ok)
+    (header_top, rows, dnp_rows, duplicates, parse_ok)
 }
 
 /// The dotted name an id-chain node spells (`main`, `LDO.ldo`): token nodes
@@ -347,6 +387,7 @@ pub(crate) fn begin_build(entry_uri: &str) {
     }
     let mut state = BOM_STATE.write().expect("bom overlay lock");
     state.binds.clear();
+    state.dnp_binds.clear();
     state.entry = Some(entry);
 }
 
@@ -443,6 +484,49 @@ fn record(key: String, path: String, outcome: BindOutcome) {
         .insert(key, (path, outcome));
 }
 
+/// The overlay's device-level DNP word for one instance (U326②). The overlay
+/// is the assembly authority where it names the key: a DNP row marks the part not
+/// fitted; a selection row without a DNP row is the overlay's final word for
+/// a fitted part and clears a code-face `@dnp`. `None` — overlay inactive,
+/// wrong header top, or no row for the key — leaves the code face standing
+/// (the transition rule: authority passes key by key, never board-wide).
+///
+/// A `Some(true)` verdict records the key as consumed for the dangling check;
+/// `Some(false)` needs no ledger of its own (a selection key always consumes
+/// through `apply_binding`'s bind attempt).
+pub(crate) fn dnp_authority(current_path: &str, inst: &str) -> Option<bool> {
+    let key = bom_key(current_path, inst);
+    let verdict = {
+        let state = BOM_STATE.read().expect("bom overlay lock");
+        if !bom_active(&state) {
+            return None;
+        }
+        // Same header-top gate as `apply_binding`: a build whose top differs
+        // consumes nothing.
+        let top = current_path.split('.').next();
+        let top_ok = state.header_top.as_deref().is_some_and(|t| Some(t) == top);
+        if !top_ok {
+            return None;
+        }
+        if state.dnp_entries.contains(&key) {
+            Some(true)
+        } else if state.entries.contains_key(&key) {
+            Some(false)
+        } else {
+            None
+        }
+    };
+    if verdict == Some(true) {
+        let path = format!("{current_path}.{inst}");
+        BOM_STATE
+            .write()
+            .expect("bom overlay lock")
+            .dnp_binds
+            .insert(key, path);
+    }
+    verdict
+}
+
 /// Resolve a value name against the live component defs (any domain — a
 /// value may name a library part), returning (def, def_id). The design sends
 /// the overlay through the DefRegistry, not the visibility tables, so this is
@@ -488,18 +572,28 @@ pub(crate) fn bind_outcomes() -> Vec<(String, String, BindOutcome)> {
         .collect()
 }
 
-/// Overlay keys that no bind attempt ever consumed (dangling paths).
+/// Overlay keys that no bind attempt ever consumed (dangling paths) — both
+/// row kinds: selection keys consume through the bind ledger, DNP keys
+/// through `dnp_authority`.
 pub(crate) fn dangling_keys() -> Vec<String> {
     let state = BOM_STATE.read().expect("bom overlay lock");
     if !bom_active(&state) {
         return Vec::new();
     }
-    state
+    let mut out: BTreeSet<String> = state
         .entries
         .keys()
         .filter(|k| !state.binds.contains_key(k.as_str()))
         .cloned()
-        .collect()
+        .collect();
+    out.extend(
+        state
+            .dnp_entries
+            .iter()
+            .filter(|k| !state.dnp_binds.contains_key(k.as_str()))
+            .cloned(),
+    );
+    out.into_iter().collect()
 }
 
 /// The class name a key maps to (for check messages).
@@ -514,6 +608,7 @@ pub(crate) fn bom_value(key: &str) -> Option<String> {
 
 /// The read face for check anchoring: a key's row span (real lex span) and
 /// the overlay file uri, so E5067/E5068 point at the overlay row itself.
+/// Both row kinds anchor — a DNP row points as well as a selection row.
 pub(crate) fn row_anchor(key: &str) -> Option<((u32, u32), String)> {
     let state = BOM_STATE.read().expect("bom overlay lock");
     if !bom_active(&state) {
@@ -522,6 +617,7 @@ pub(crate) fn row_anchor(key: &str) -> Option<((u32, u32), String)> {
     state
         .rows
         .iter()
+        .chain(state.dnp_rows.iter())
         .find(|r| r.path == key)
         .map(|r| (r.span, r.uri.clone()))
 }
