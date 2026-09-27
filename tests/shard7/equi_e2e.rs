@@ -347,7 +347,9 @@ const KNOWN_AUDIT_REDS: &[(&str, &str)] = &[
     // batch). Removed per the stale-entry rule.
     ("DCDC", "A10"),
     ("DCDC", "A17"),
-    ("DCDC", "A22"),
+    // ("DCDC", "A22") cleared by the A22 same-row exemption (U284): `_L1`'s two
+    // owner nets share row 200 — an in-line series member, each trunk ends at
+    // its own pin, so the body centre sits in the inter-pin gap by design.
     ("DCDC", "A24"),
     ("DCDC", "A29"),
     // ("DCDC", "A34") cleared by the A34 narrowing (U284): every failing pin
@@ -359,7 +361,9 @@ const KNOWN_AUDIT_REDS: &[(&str, &str)] = &[
     // label found a clear home (side flip or vertical stand-up), so the layer
     // has no text overlap left.
     ("lp322dcdc", "A18"),
-    ("lp322dcdc", "A22"),
+    // ("lp322dcdc", "A22") cleared by the A22 same-row exemption (U284): `_R1`'s
+    // two owner nets share row 100 — in-line series member, same shape as the
+    // DCDC note above.
     ("LDO", "A17"),
     ("LDO", "A34"),
     // ("MCU513", "A7"/"A10"/"A24"/"A29") found green 2026-09-27 at the b4111
@@ -368,7 +372,9 @@ const KNOWN_AUDIT_REDS: &[(&str, &str)] = &[
     ("MCU513", "A8"),
     ("MCU513", "A12"),
     ("MCU513", "A17"),
-    ("MCU513", "A22"),
+    // ("MCU513", "A22") cleared by the A22 same-row exemption (U284): `_C6`'s
+    // two owner nets share row 460 — in-line series member, same shape as the
+    // DCDC note above.
     ("MCU513", "A25"),
     // ("MCU513", "A34") cleared by the A34 narrowing: `_R3` hangs by its Top
     // tooth and `UC`'s GND pins face Bottom — both exempt by design.
@@ -377,7 +383,10 @@ const KNOWN_AUDIT_REDS: &[(&str, &str)] = &[
     ("UC", "A8"),
     ("UC", "A17"),
     ("UC", "A18"),
-    ("UC", "A22"),
+    // ("UC", "A22") cleared by the A22 same-row exemption (U284): `_R4`'s two
+    // owner nets share row 100 — in-line series member, same shape as the DCDC
+    // note above.
+
     // ("UC", "A10") / ("UC", "A11") / ("UC", "A29") cleared by b3962: the
     // ground COLUMN's arm nets are now one sticky side-decision unit (no pass
     // re-orients one arm on its own), so the column survives Pass 2.5 and the
@@ -398,7 +407,9 @@ const KNOWN_AUDIT_REDS: &[(&str, &str)] = &[
     ("X6", "A4"),
     ("X6", "A10"),
     ("X6", "A14"),
-    ("X6", "A22"),
+    // ("X6", "A22") cleared by the A22 same-row exemption (U284): the `X6` box's
+    // two owner nets share row 100 — in-line series member, same shape as the
+    // DCDC note above.
     ("X6", "A24"),
     ("X6", "A29"),
     // ("X6", "A34") cleared by the A34 narrowing: `_C4` hangs by its Top tooth.
@@ -407,7 +418,18 @@ const KNOWN_AUDIT_REDS: &[(&str, &str)] = &[
     ("MIC", "A3"),
     ("MIC", "A17"),
     ("MIC", "A18"),
-    ("MIC", "A22"),
+    // ("MIC", "A8") registered by the A22 batch (U284): audit-side only. The
+    // envelope no longer takes no-slot taps (the phantom (0,0) tap used to prop
+    // up MIC.P~0's stale layout span), so that span is now degenerate and the
+    // audit replay loses a junction dot. The render side re-envelopes fresh
+    // (span (170,660)) and never drew from the stale span — same face as the
+    // A2 lane-drift entry below. Root: slots authored after the layout-phase
+    // envelope; waits with the terminal-only-anchor placement piece.
+    ("MIC", "A8"),
+    // ("MIC", "A22") turned green with the same span change: MIC.P~0's stale
+    // layout span is degenerate now, so the check self-skips — the geometry
+    // did NOT heal. `C1` remains pinned by the A34 entry (both pins off rows
+    // 200/300) and the A2/A3 lane-drift face.
     // ("MIC", "A34") re-faced by the A34 narrowing: the old reds (mic/wm7121
     // GND pins on Bottom teeth) are exempt now, but dropping the two-pin
     // exemption exposed `C1` — its MIC.P~0/MIC.N~0 pins face Left/Right into

@@ -4009,12 +4009,22 @@ pub fn envelop_lanes(graph: &McVecGraph, topos: &mut [NetTopology]) {
         }
 
         // Member taps: the exact point `realize` connects to the trunk (group's
-        // first pin, read from the placed box's PinSlots).
+        // first pin, read from the placed box's PinSlots). A pin with no slot
+        // draws nothing (`realize` skips it), so it must not feed the envelope
+        // either — `member_pin_point`'s fallback would inject a phantom tap from
+        // an unplaced rect (U284 A22: MIC `C1` tapped at (0,0) before its slots
+        // were authored, dragging both owner spans' lo to 0).
         for group in topo.groups.iter().skip(1) {
             let Some(b) = graph.boxes.iter().find(|b| b.id == group.box_id) else {
                 continue;
             };
-            let (mx, _my) = member_pin_point(b, group);
+            let Some(&pid) = group.pin_ids.first() else {
+                continue;
+            };
+            let Some(slot) = slot_of(b, pid) else {
+                continue;
+            };
+            let (mx, _my) = slot_point(b, slot);
             vals.push(mx);
         }
 

@@ -1619,6 +1619,9 @@ fn check_a22_spanning_member_in_span(graph: &McVecGraph, topos: &[NetTopology]) 
     );
     // box_id → (nid, span_lo, span_hi, row_axis) for every net that owns it.
     let mut owner: BTreeMap<i64, Vec<(i64, f64, f64, f64)>> = BTreeMap::new();
+    // box_id → per-owner (nid, net name, tap point), so a failure can name the
+    // span and the tap that fed it (U284 probe turned permanent).
+    let mut taps: BTreeMap<i64, Vec<(i64, String, f64, f64)>> = BTreeMap::new();
     for t in topos {
         if t.terminal_only || t.groups.len() < 2 {
             continue;
@@ -1629,11 +1632,30 @@ fn check_a22_spanning_member_in_span(graph: &McVecGraph, topos: &[NetTopology]) 
                 .entry(g.box_id)
                 .or_default()
                 .push((t.nid, lo, hi, t.lane.axis));
+            let (tx, ty) = graph
+                .boxes
+                .iter()
+                .find(|b| b.id == g.box_id)
+                .map(|b| member_pin_point(b, g))
+                .unwrap_or((f64::NAN, f64::NAN));
+            taps.entry(g.box_id).or_default().push((t.nid, t.net_name.clone(), tx, ty));
         }
     }
     for (box_id, owners) in owner {
         // a two-pin member shared by two nets = a spanning part.
         if owners.len() < 2 {
+            continue;
+        }
+        // ★ U284: the contract is a CROSS-ROW member — owners on different
+        // rows. A box shared by two nets on the SAME row is an in-line series
+        // member: each trunk ends at its own pin (A7 forbids the trunk through
+        // the body), so the centre sits in the inter-pin gap by construction
+        // and is in neither span. Not this check's contract (5 of the 6 real
+        // A22 reds were exactly this shape).
+        let mut axes: Vec<f64> = owners.iter().map(|o| o.3).collect();
+        axes.sort_by(f64::total_cmp);
+        axes.dedup_by(|a, b| (*a - *b).abs() < 0.5);
+        if axes.len() < 2 {
             continue;
         }
         let Some(b) = graph.boxes.iter().find(|b| b.id == box_id) else {
@@ -1666,9 +1688,21 @@ fn check_a22_spanning_member_in_span(graph: &McVecGraph, topos: &[NetTopology]) 
         for (lo, hi) in &dist {
             let (slo, shi) = if lo < hi { (*lo, *hi) } else { (*hi, *lo) };
             if !(xc >= slo - 4.0 && xc <= shi + 4.0) {
+                let detail = taps
+                    .get(&box_id)
+                    .map(|ts| {
+                        ts.iter()
+                            .map(|&(nid, ref name, tx, ty)| {
+                                format!("net '{name}'(nid={nid}) tap=({tx:.0},{ty:.0})")
+                            })
+                            .collect::<Vec<_>>()
+                            .join("; ")
+                    })
+                    .unwrap_or_default();
                 c.fail(format!(
-                    "cross-row member '{}' (id={}) centre x={xc:.0} outside a span [{slo:.0},{shi:.0}]",
-                    b.name, box_id
+                    "cross-row member '{}' (id={box_id}) rect=({:.0},{:.0},{:.0},{:.0}) \
+                     centre x={xc:.0} outside a span [{slo:.0},{shi:.0}]; {detail}",
+                    b.name, b.x, b.y, b.w, b.h
                 ));
             }
         }
