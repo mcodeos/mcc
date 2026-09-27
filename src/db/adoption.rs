@@ -191,6 +191,35 @@ pub fn materialize_variant(base: &McComponent, child: &McComponent) -> McCompone
     mat.span = child.span.clone();
     mat.is_abstract = false;
     mat.variant_base = child.variant_base.clone();
+    // U333 (ruling A): the base's same-name constructor func rides the base
+    // clone under the *base's* name, but instance construction binds call
+    // arguments by the def's own short name (`bind_params` looks the short
+    // name up in `funcs`). Rename it to the child so `CHILD d1(pwr)` sees the
+    // inherited construction arity instead of failing with "expected 0" and
+    // getting the instance skipped. The parse-time data lock
+    // (VARIANT_REDECLARES_PINS_PARAMS_FUNCS) already forbids a child from
+    // declaring funcs of its own, so the rename cannot collide.
+    {
+        let base_last = base
+            .name
+            .to_string()
+            .rsplit('.')
+            .next()
+            .unwrap_or("")
+            .to_string();
+        let child_last = child
+            .name
+            .to_string()
+            .rsplit('.')
+            .next()
+            .unwrap_or("")
+            .to_string();
+        if !base_last.is_empty() && base_last != child_last {
+            if let Some(f) = mat.funcs.find_mut(&base_last) {
+                f.name = crate::McIds::from(child_last.as_str());
+            }
+        }
+    }
     // adopts ride the base clone (inherited §7.2); a child self-listing `::`
     // is already the parse-time VARIANT_ADOPTS data lock.
     apply_attr_overrides(&mut mat.attrs, &child.attrs);

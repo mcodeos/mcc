@@ -258,6 +258,34 @@ impl InstantiationBuilder {
     /// but need to look up components/sub_modules/buses to determine correct owner
     ///
     /// `is_left`: true for left endpoint, false for right endpoint
+    /// U333 (ruling B): diagnose a member reference whose base names an
+    /// instance that was skipped at its declaration (parameter bind failure,
+    /// E4176). The skipped instance sits in no table, so the reference falls
+    /// through every resolution arm to the literal/bus-definition fallback
+    /// and invents a net spelled after the instance — the debris reads as a
+    /// mystery net when the real cause is the bind failure at the
+    /// declaration. Warning-level and global (build-report visible); the
+    /// (code, uri, pos) dedup keeps one report per statement.
+    pub(super) fn note_skipped_instance_ref(&mut self, base: &str) {
+        if !self
+            .failed_records
+            .iter()
+            .any(|r| r.component_name == base)
+        {
+            return;
+        }
+        self.log_global_diag(
+            crate::errcodes::CONN_SKIPPED_INSTANCE_REF,
+            crate::db::diagnostic::diagnostic::DiagnosticLevel::Warning,
+            format!(
+                "Instance '{}' was skipped (its parameter bind failed), so references \
+                 to its members fall to literal net labels instead of the instance's \
+                 pins; fix the constructor arguments at the declaration.",
+                base
+            ),
+        );
+    }
+
     pub(super) fn resolve_curly_mn_points(
         &mut self,
         left: &[McBus],
@@ -266,6 +294,17 @@ impl InstantiationBuilder {
     ) -> Result<Vec<NetPoint>, InstError> {
         let site = self.construction_site();
         let elements = if is_left { left } else { right };
+
+        // U333 (ruling B): an instance whose construction was skipped still
+        // owns its declared name, so a member reference walks the normal
+        // arms, misses, and silently invents a literal net. Diagnose it at
+        // the fallback boundary so the debris points back at the bind
+        // failure. Minting continues either way (errors do not block the
+        // build).
+        if let Some(first) = elements.first() {
+            let base = first.name.split_once('.').map_or(first.name.as_str(), |(b, _)| b);
+            self.note_skipped_instance_ref(base);
+        }
 
         // P1-A3
         // Curly-mn such as `ldo{vin|vout}` / `mcu{MIC | DAC_OUT, SPK_MUTE}`

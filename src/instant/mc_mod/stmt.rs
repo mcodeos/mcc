@@ -2758,6 +2758,23 @@ impl InstantiationBuilder {
     }
 
     pub(super) fn process_member_internal(&mut self, phrase: &McPhrase) -> Result<(), InstError> {
+        // U333 (ruling B): a `-`-chain member the parser classified as a bus
+        // face (`PL3085.VCC` → `Bus(PL3085{VCC})`) whose base names an
+        // instance that was skipped at its declaration (parameter bind
+        // failure, E4176) walks every resolution arm, misses, and silently
+        // mints a literal net spelled after the skipped instance. Diagnose
+        // the reference at the member boundary so the debris points back at
+        // the bind failure; minting continues (errors do not block the
+        // build). `note_skipped_instance_ref` is a no-op for healthy bases,
+        // and the (code, uri, pos) global-dedup collapses the double mint
+        // (vexpr reads both faces) to one report per statement.
+        if let McPhrase::Endpoint(McRef::Name(McInstanceRef {
+            base: McInstance::Bus(bus),
+            ..
+        })) = phrase
+        {
+            self.note_skipped_instance_ref(bus.name());
+        }
         match phrase {
             McPhrase::Parallel(stmts) => {
                 // P1-E1

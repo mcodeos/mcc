@@ -613,6 +613,14 @@ impl InstantiationBuilder {
                                     .with_member_name(m),
                             );
                         } else {
+                            // U333 (ruling B): `PL3085.VCC` naming an instance
+                            // that was skipped at its declaration (E4176) falls
+                            // exactly here — no port lanes to expand, no owning
+                            // table to consult — and would mint a literal net
+                            // spelled after the skipped instance. Diagnose at
+                            // the fallback boundary; minting continues (errors
+                            // do not block the build).
+                            self.note_skipped_instance_ref(&bus.name);
                             points.push(
                                 NetPoint::new(&path, IOType::None, site.clone())
                                     .with_member_name(m),
@@ -1255,6 +1263,14 @@ impl InstantiationBuilder {
                                     .with_member_name(m),
                             );
                         } else {
+                            // U333 (ruling B): `PL3085.VCC` naming an instance
+                            // that was skipped at its declaration (E4176) falls
+                            // exactly here — no port lanes to expand, no owning
+                            // table to consult — and would mint a literal net
+                            // spelled after the skipped instance. Diagnose at
+                            // the fallback boundary; minting continues (errors
+                            // do not block the build).
+                            self.note_skipped_instance_ref(&bus.name);
                             points.push(
                                 NetPoint::new(&path, IOType::None, site.clone())
                                     .with_member_name(m),

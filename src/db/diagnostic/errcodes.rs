@@ -672,6 +672,13 @@ pub const SINGLE_USE_INLINE_NET: u32 = 3137;
 /// builds compile away, leaving the drop silent).
 pub const CONN_EMPTY_POINT_PATH: u32 = 3138;
 
+/// A member reference names an instance whose construction was skipped
+/// (parameter bind failure, E4176, at the declaration). The reference walks
+/// the normal resolution arms, misses (the skipped instance is in no table)
+/// and falls to the literal/bus-definition fallback — silently inventing a
+/// net spelled after the instance instead of reaching its pins.
+pub const CONN_SKIPPED_INSTANCE_REF: u32 = 3139;
+
 // Pass1c: instance declaration / reference (3150-3199)
 
 /// Failed to parse an instance in an expression context.
@@ -2572,6 +2579,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(FUNC_FLOATING_LABEL, "Net endpoint in a function body that resolves to nothing declared.", "`{0}` does not resolve to a declared pin, interface, parameter member, or instance of this component — floating label. If it is a local net, declare it (e.g. `RES R[1:2](...)`) or connect it to a component pin."),
     entry!(SINGLE_USE_INLINE_NET, "An inline ghost-net (reference base resolves to no declared instance) is referenced only once.", "`{0}` has no declared base and connects to nothing else — inline ghost-net referenced only once; declare it or fix the name."),
     entry!(CONN_EMPTY_POINT_PATH, "A connection operand expanded to an empty point path.", "A connection operand expanded to no point (empty point path) — the leg is dropped. The endpoint spelling does not resolve in this body; check `this`/formal references and pin names."),
+    entry!(CONN_SKIPPED_INSTANCE_REF, "A member reference names an instance whose construction was skipped.", "Instance `{0}` was skipped (its parameter bind failed), so the reference to its members falls to a literal net label instead of the instance's pins. Fix the constructor arguments at the declaration."),
     // section
     entry!(INST_EXPR_PARSE_FAILED, "Failed to parse an instance in an expression context.", "Failed to parse MCAST_INSTANCE in expression context"),
     entry!(CURLY_MN_WRONG_BASE, "Curly-member construction requires a component or module base.", "CURLY_MN requires Component or Module"),
