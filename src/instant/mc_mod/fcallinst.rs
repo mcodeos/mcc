@@ -2493,6 +2493,7 @@ impl InstantiationBuilder {
                                 member: bus.members.clone(),
                                 full_members: Vec::new(),
                                 synthetic: None,
+                                error_kind: None,
                             };
                             return McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
                                 McInstance::Bus(new_bus),
