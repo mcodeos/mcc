@@ -3287,7 +3287,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         severity = Info,
         domain = NamingStyle,
         host = "style",
-        doc = "Style guide §2 #3: net labels and module port faces are UPPER_SNAKE. Two faces name a net — the module header formals and the body's net labels; pins and datasheet names are exempt (§2.1). Instance names stay outside the gate: the refdes vs functional-block split needs design context no machine holds. Workspace files only; the factory corpus is conformant (b4075/b4079) and a stale live copy must not red the gate. Carries a QuickFix (U327) for the body net-label/free-net face: the diagnostics channel derives a rename-all-occurrences edit set (lsp/quickfix.rs). The port face stays fix-free while member-chain consumers are unindexed.",
+        doc = "Style guide §2 #3: net labels and module port faces are UPPER_SNAKE. Two faces name a net — the module header formals and the body's net labels; pins and datasheet names are exempt (§2.1). Instance names stay outside the gate: the refdes vs functional-block split needs design context no machine holds. Workspace files only; the factory corpus is conformant (b4075/b4079) and a stale live copy must not red the gate. Carries a QuickFix (U327): the diagnostics channel derives a rename-all-occurrences edit set (lsp/quickfix.rs); the port face joins by re-coupling the synthetic whole-chain defs to the pinned declaration (U341), with each chain-consumer edit narrowed to the member segment.",
         lock = "tests/lock_pp_naming_ports.rs",
         fix = QuickFix,
     },

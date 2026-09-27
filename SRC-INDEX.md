@@ -68,7 +68,7 @@ range (threshold 40KB).
 | `eval/` | 2 | 50 KB |
 | `export/` | 7 | 185 KB |
 | `instant/` | 41 | 1674 KB |
-| `lsp/` | 8 | 89 KB |
+| `lsp/` | 8 | 95 KB |
 | `output/` | 7 | 107 KB |
 | `query/` | 9 | 170 KB |
 | `refdef/` | 7 | 126 KB |
@@ -303,7 +303,6 @@ ast/macros.rs#L180  const MCAST_UNIT_MUL
 ast/macros.rs#L181  const MCAST_UNIT_GROUP
 ast/macros.rs#L182  const MCAST_BOM
 ast/macros.rs#L183  const MCAST_ATTRIBUTE_ADD
-ast/macros.rs#L184  const MCAST_JUDGE_BARE_LITERAL
 ast/mod.rs#L5  mod bindings
 ast/mod.rs#L6  mod error
 ast/mod.rs#L7  mod macros
@@ -4185,21 +4184,22 @@ lsp/mod.rs#L16  mod sem
 lsp/quickfix.rs#L38  fn fix_payload
 lsp/quickfix.rs#L54  fn corrected_spelling
 lsp/quickfix.rs#L81  fn quoted_name
-lsp/quickfix.rs#L93  fn def_ref_kinds
-lsp/quickfix.rs#L110  fn collect_edits
-lsp/quickfix.rs#L221  mod tests
-lsp/quickfix.rs#L226  fn gate_messages_quote_the_flagged_name
-lsp/quickfix.rs#L238  fn corrected_spelling_matches_gate_predicates
-lsp/quickfix.rs#L266  fn build_workspace
-lsp/quickfix.rs#L288  fn first_diag
-lsp/quickfix.rs#L295  fn diag_for
-lsp/quickfix.rs#L306  fn spans
-lsp/quickfix.rs#L316  fn net_label_fix_renames_every_occurrence_in_the_module
-lsp/quickfix.rs#L354  fn port_face_stays_fix_free_until_member_chain_refs_index_consumers
-lsp/quickfix.rs#L370  fn enum_value_stays_fix_free_until_member_chain_refs_index_consumers
-lsp/quickfix.rs#L387  fn func_stays_fix_free_until_member_chain_refs_index_call_sites
-lsp/quickfix.rs#L400  fn role_value_half_stays_fix_free
-lsp/quickfix.rs#L417  fn non_style_diagnostics_carry_no_fix
+lsp/quickfix.rs#L93  fn member_span
+lsp/quickfix.rs#L109  fn def_ref_kinds
+lsp/quickfix.rs#L126  fn collect_edits
+lsp/quickfix.rs#L278  mod tests
+lsp/quickfix.rs#L283  fn gate_messages_quote_the_flagged_name
+lsp/quickfix.rs#L295  fn corrected_spelling_matches_gate_predicates
+lsp/quickfix.rs#L323  fn build_workspace
+lsp/quickfix.rs#L345  fn first_diag
+lsp/quickfix.rs#L352  fn diag_for
+lsp/quickfix.rs#L363  fn spans
+lsp/quickfix.rs#L373  fn net_label_fix_renames_every_occurrence_in_the_module
+lsp/quickfix.rs#L411  fn port_face_fix_renames_member_chain_consumers_member_segment_only
+lsp/quickfix.rs#L483  fn enum_value_stays_fix_free_until_member_chain_refs_index_consumers
+lsp/quickfix.rs#L500  fn func_stays_fix_free_until_member_chain_refs_index_call_sites
+lsp/quickfix.rs#L513  fn role_value_half_stays_fix_free
+lsp/quickfix.rs#L530  fn non_style_diagnostics_carry_no_fix
 lsp/references.rs#L31  fn find
 lsp/references.rs#L54  fn find_at
 lsp/references.rs#L181  mod tests

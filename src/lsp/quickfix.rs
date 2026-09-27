@@ -85,6 +85,22 @@ fn quoted_name(msg: &str) -> Option<String> {
     Some(rest[..end].to_string())
 }
 
+/// The span a rename edit touches for one occurrence row. Member-only rows
+/// (plain operands) cover exactly the name; whole-chain rows (`psu.vin`,
+/// recorded for hover/goto-def over the full chain) are narrowed to the
+/// member tail — and only when the covered text really ends in `.{name}`,
+/// so a row that names something else is dropped rather than guessed.
+fn member_span(text: &str, start: usize, stop: usize, name: &str) -> Option<(usize, usize)> {
+    let covered = text.get(start..stop)?;
+    if covered == name {
+        return Some((start, stop));
+    }
+    if covered.ends_with(&format!(".{name}")) {
+        return Some((stop - name.len(), stop));
+    }
+    None
+}
+
 /// Def kinds a gate's fix renames, and the ref kinds that locate occurrences.
 /// A body net label registers as an implicit NetDef/NetRef (the net_items
 /// builder), a port row as PortDef/PortRef. 5071 covers only the enum-value
@@ -144,16 +160,17 @@ fn collect_edits(code: u32, uri: &str, name: &str, replacement: &str) -> Option<
     // Soundness gate: a fix may only fire when the indexed occurrence set is
     // provably complete. Net labels and free nets are module-local by
     // construction, so their NetRef/LabelRef rows are the whole story. A port
-    // face, an enum value or a func is consumed through member chains
-    // (`psu.vin`, `Pkg.DIP8`, `inst.Enable`) and plain-phrase member operands
-    // never reach `iter_net_refs` — the consumer refs are not indexed today,
-    // so a rename would silently dangle them. Those faces stay fix-free until
-    // member-chain ref registration lands (U327 ledger).
+    // face is consumed plainly (net-ref rows on the declaration's id) and
+    // through member chains (`psu.vin`): chain rows exist and pair with a
+    // synthetic whole-chain def whose def_map entry sits at the true
+    // declaration's (file, span) — the alias union below re-couples those
+    // rows, so the port face carries a fix (U341). Enum values and funcs stay
+    // suppressed: their cross-file consumer faces are not indexed in a
+    // joinable shape today (a module-level `t.enable(...)` call site carries
+    // rows paired to synthetic ids outside the FuncRef join), so a rename
+    // would silently dangle them.
     if defs.keys().any(|(kind, _)| {
-        matches!(
-            kind,
-            SymbolKind::PortDef | SymbolKind::EnumValDef | SymbolKind::FuncDef
-        )
+        matches!(kind, SymbolKind::EnumValDef | SymbolKind::FuncDef)
     }) {
         return None;
     }
@@ -162,7 +179,41 @@ fn collect_edits(code: u32, uri: &str, name: &str, replacement: &str) -> Option<
     // resolves to a pinned def. DeclareIds are workspace-unique, so the id
     // alone is the join key — the def side and the ref side carry different
     // SymbolKinds for the same symbol (`NetDef` vs `NetRef`).
-    let ids: HashSet<u32> = defs.keys().map(|(_, id)| *id).collect();
+    let mut ids: HashSet<u32> = defs.keys().map(|(_, id)| *id).collect();
+    // ②b U341 alias union: a member-chain consumer row (`psu.vin`) pairs with
+    // a synthetic def — the full chain spelling under a fresh DeclareId —
+    // whose def_map entry points at the true declaration's (file, span).
+    // Union those synthetic ids into the join key set; the name guard (exact
+    // or dotted tail) keeps same-span different-name defs (square-vec
+    // expansions) out of the union.
+    for entry in WORKSPACE.mcodes.iter() {
+        let Ok(sym) = entry.value().symbols.lock() else {
+            continue;
+        };
+        for ((kind, decl_id), def_name) in sym.def_names.iter() {
+            if !def_kinds.contains(kind) || ids.contains(decl_id) {
+                continue;
+            }
+            let Some(loc) = sym.def_map.get(&(*kind, *decl_id)) else {
+                continue;
+            };
+            let file = if loc.file_id != 0 {
+                crate::semantic::common::uri_of_file_id(loc.file_id).to_string()
+            } else {
+                entry.key().to_string()
+            };
+            let dotted_tail = format!(".{name}");
+            if defs.iter().any(|((def_kind, _), (def_file, start, end))| {
+                def_kind == kind
+                    && def_file == &file
+                    && *start == loc.byte_start as usize
+                    && *end == loc.byte_end as usize
+                    && (def_name.as_str() == name || def_name.ends_with(&dotted_tail))
+            }) {
+                ids.insert(*decl_id);
+            }
+        }
+    }
     // (file, start, end) → replacement; BTreeMap dedups (a def span may also
     // appear as a ref interval) and imposes the apply order.
     let mut edits: BTreeMap<(String, usize, usize), String> = BTreeMap::new();
@@ -174,10 +225,16 @@ fn collect_edits(code: u32, uri: &str, name: &str, replacement: &str) -> Option<
         let Ok(sym) = entry.value().symbols.lock() else {
             continue;
         };
+        // Chain-consumer rows carry the whole-chain span (`psu.vin`); a
+        // rename touches only the flagged member segment.
+        let text = entry.value().content.as_str();
         for (kind, decl_id, start, stop) in sym.ref_entries.iter() {
             if ref_kinds.contains(kind) && ids.contains(decl_id) {
+                let Some((start, stop)) = member_span(text, *start, *stop, &name) else {
+                    continue;
+                };
                 edits.insert(
-                    (file_uri.clone(), *start, *stop),
+                    (file_uri.clone(), start, stop),
                     replacement.to_string(),
                 );
             }
@@ -351,19 +408,75 @@ mod tests {
     }
 
     #[test]
-    fn port_face_stays_fix_free_until_member_chain_refs_index_consumers() {
-        // A module port's cross-file consumer names it through a member chain
-        // (`p.vin`), and plain-phrase member operands never reach
-        // `iter_net_refs` — measured: the consumer file registers no ref row.
-        // Renaming only the declaration would dangle that consumer (exact
-        // name compare), so the port face carries no fix.
-        let def_src = "module PSU\n{\n    in vin::DC(5V)\n    vin - VOUT\n}\n\nmodule main\n{\n}\n";
-        let _guard = build_workspace(&[("/mcc/u327_psu.mc", def_src)], "/mcc/u327_psu.mc");
-        let diag = first_diag(crate::errcodes::NAME_NET_NOT_UPPER_SNAKE, "/mcc/u327_psu.mc");
-        assert!(
-            fix_payload(&diag).is_none(),
-            "port faces must not carry a fix while member-chain consumers are unindexed"
+    fn port_face_fix_renames_member_chain_consumers_member_segment_only() {
+        // A module port is consumed plainly (same file) and through a
+        // cross-file member chain (`psu.vin`). The chain row pairs with a
+        // synthetic whole-chain def at the true declaration span — the alias
+        // union re-couples it, and the whole-chain row's edit narrows to the
+        // member segment: renaming `vin` must never clobber the `psu.` base.
+        // Real files on disk: `use ./psu.mc` resolution requires the target
+        // (same constraint as the loader tests in db/infra/mc_code.rs).
+        let _guard = crate::db::infra::init::MCC_TEST_PARSE_LOCK.lock().expect("lock");
+        crate::mcc_init_no_lib();
+        crate::mcc_set_system_root(std::path::Path::new(""));
+        crate::mcc_clear_workspace();
+        let dir = std::env::temp_dir().join(format!("mcc-u341-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let def_src = "module PSU\n{\n    in vin::DC(5V)\n    vin - VOUT\n}\n";
+        let use_src = "use ./psu.mc\n\nmodule main\n{\n    PSU psu\n    psu.vin - VOUT\n}\n";
+        let def_path = dir.join("psu.mc");
+        let main_path = dir.join("main.mc");
+        std::fs::write(&def_path, def_src).unwrap();
+        std::fs::write(&main_path, use_src).unwrap();
+        let def_uri: McURI = format!("file://{}", def_path.canonicalize().unwrap().display());
+        let main_uri: McURI = format!("file://{}", main_path.canonicalize().unwrap().display());
+        crate::mcc_load_from_string(&def_uri, def_src);
+        crate::mcc_load_from_string(&main_uri, use_src);
+        crate::mcc_build(&crate::McIds::from("main"), &main_uri).expect("build main failed");
+        // The style gate fires per built module's own file, so the PSU module
+        // needs its own build pass before psu.mc carries E5070.
+        crate::mcc_build(&crate::McIds::from("PSU"), &def_uri).expect("build PSU failed");
+        crate::build::pass1::mcb_parse_all_modules();
+
+        // Diagnostic loc.uri stores the bare file path (no scheme), so the
+        // lookup keys on the raw path while the ref tables key on file://.
+        let diag = diag_for(
+            crate::errcodes::NAME_NET_NOT_UPPER_SNAKE,
+            def_path.canonicalize().unwrap().display().to_string().as_str(),
+            "vin",
         );
+        let payload = fix_payload(&diag).expect("port face carries a fix once chain rows pair");
+        let edits = payload["edits"].as_array().unwrap();
+        // Declaration + plain use in the def file, member segment only in the
+        // consumer file (len("vin") == 3).
+        assert_eq!(edits.len(), 3, "edits: {edits:?}");
+        let by_file: std::collections::BTreeMap<&str, Vec<&Value>> =
+            edits.iter().fold(Default::default(), |mut m, e| {
+                m.entry(e["file"].as_str().unwrap())
+                    .or_default()
+                    .push(e);
+                m
+            });
+        // Edit file keys are bare paths (same shape as diagnostic loc.uri).
+        let def_key = def_path.canonicalize().unwrap().display().to_string();
+        let use_key = main_path.canonicalize().unwrap().display().to_string();
+        let def_file = &by_file[def_key.as_str()];
+        assert_eq!(def_file.len(), 2);
+        for e in def_file {
+            assert_eq!(e["len"].as_u64().unwrap(), 3);
+            assert_eq!(e["replacement"], "VIN");
+        }
+        let use_file = &by_file[use_key.as_str()];
+        assert_eq!(use_file.len(), 1);
+        assert_eq!(use_file[0]["len"].as_u64().unwrap(), 3);
+        assert_eq!(use_file[0]["replacement"], "VIN");
+        // The edit must sit on the member segment (`vin` of `psu.vin`), never
+        // on the whole chain or the base instance.
+        let covered = &use_src[use_file[0]["pos"].as_u64().unwrap() as usize
+            ..use_file[0]["pos"].as_u64().unwrap() as usize + 3];
+        assert_eq!(covered, "vin");
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
