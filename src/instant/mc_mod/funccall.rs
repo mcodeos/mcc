@@ -82,6 +82,7 @@ impl InstantiationBuilder {
         left: &[McBus],
         right: &[McBus],
         caller: Option<&McPhrase>,
+        pre_closure: bool,
     ) -> Result<FuncCallInst, InstError> {
         // ── Add diagnostic info ──
         let _caller_kind = caller
@@ -307,6 +308,7 @@ impl InstantiationBuilder {
                         left,
                         right,
                         caller_label,
+                        pre_closure,
                     );
                 }
                 McCMIE::Module(module_def) => {
@@ -650,6 +652,52 @@ impl InstantiationBuilder {
             let class_name = fc.func_name.to_string();
             if self.failed_classes.contains(&class_name) {
                 return Ok(Vec::new());
+            }
+        }
+
+        // U338: a bare construction anchor (`[A,B] => CAP(x) -> ...`) carries
+        // its `=>` prefix as real left buses with `pre_closure` set (the fold
+        // in mc_fcall; a caller-less call otherwise has only synthetic
+        // sentinels here). The left mouth answers the pre lanes — the chain
+        // head closes on itself row-wise — and the right mouth answers the
+        // same lane set so the tail zips row-wise against it. When the
+        // prefix failed to bind (E4180 width mismatch at instantiation), the
+        // exit mouth falls back to the instance's own face instead: the
+        // width fact is reported once, and the tail still lands on real
+        // terminals rather than re-judging the same mismatch as E4007.
+        if let McPhrase::FuncCall(fc) = member {
+            if fc.pre_closure
+                && fc.caller.is_none()
+                && fc.left.iter().any(|b| !b.is_synthetic())
+            {
+                if side.is_left() {
+                    let pts: Vec<NetPoint> =
+                        fc.left.iter().map(|b| self.node_to_netpoint(b)).collect();
+                    return Ok(pts);
+                }
+                let key = Self::member_key(member);
+                if let Some(AutoInst::Name(inst_name)) = self.auto_inst_map.get(&key) {
+                    if let Some(comp) = self.find_component(inst_name) {
+                        let multi = comp.is_multi_pin() && comp.has_io_annotations();
+                        let terminals: Vec<NetPoint> = if multi {
+                            comp.get_input_pins()
+                                .into_iter()
+                                .chain(comp.get_output_pins())
+                                .collect()
+                        } else {
+                            comp.get_left_pin()
+                                .into_iter()
+                                .chain(comp.get_right_pin())
+                                .collect()
+                        };
+                        if fc.left.len() != terminals.len() {
+                            return Ok(terminals);
+                        }
+                    }
+                }
+                let pts: Vec<NetPoint> =
+                    fc.left.iter().map(|b| self.node_to_netpoint(b)).collect();
+                return Ok(pts);
             }
         }
 

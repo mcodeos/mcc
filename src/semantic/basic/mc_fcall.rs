@@ -411,6 +411,44 @@ impl McFuncCall {
         }
     }
 
+    /// U338: the `=>` prefix as terminal-binding lanes. A bare name is one
+    /// lane (`A` → `[A]`); a Set is one lane per name element
+    /// (`[A, B]` → `[A, B]`); a bus-spelled head (`DC1{VDD, GND}`) is ONE
+    /// lane carrying its members (the point layer expands members). A form
+    /// that carries no name words (numeric, placeholder, nested phrase)
+    /// returns `None` — the fold does not fire and the dropped-prefix face
+    /// stands.
+    fn pre_lanes_to_buses(pre: &McParamValue) -> Option<Vec<McBus>> {
+        fn lane_value(v: &McParamValue) -> Option<Vec<McBus>> {
+            match v {
+                McParamValue::Ids(ids) => Some(McFuncCall::ids_to_lanes(ids)),
+                McParamValue::Opd(McOpd::Id(ids)) => Some(McFuncCall::ids_to_lanes(ids)),
+                _ => None,
+            }
+        }
+        match pre {
+            McParamValue::Ids(_) | McParamValue::Opd(McOpd::Id(_)) => lane_value(pre),
+            McParamValue::Set(items) => {
+                let mut lanes = Vec::new();
+                for item in items {
+                    lanes.extend(lane_value(item)?);
+                }
+                Some(lanes)
+            }
+            _ => None,
+        }
+    }
+
+    /// One `McIds` prefix element as lane buses (same expansion the
+    /// formal→actual substitution uses: bus form stays one membered bus,
+    /// plain names expand one bus each).
+    fn ids_to_lanes(ids: &McIds) -> Vec<McBus> {
+        if let Some((base, members)) = ids.as_bus() {
+            return vec![McBus::new_with_members(&base, members)];
+        }
+        ids.expand().iter().map(|n| McBus::new(n)).collect()
+    }
+
     /// Whether `caller` is a construction — recorded as `receiver_is_ctor`.
     fn caller_is_construction(caller: &Option<Box<McPhrase>>, uri: &crate::McURI) -> bool {
         caller
@@ -793,6 +831,48 @@ impl McFuncCall {
                 return Some(branches.into_iter().next().unwrap());
             }
             return Some(McPhrase::Multiple(branches));
+        }
+
+        // U338: bare construction anchor `[A,B] => CAP(x)`. With no
+        // `.Method(_)` tail the R3 fold above does not apply; when the name
+        // resolves to a component class in the def space (never by spelling),
+        // the prefix lanes travel on the construction as its terminal
+        // binding — `[A,B] => CAP(x)` ≡ `A - CAP(x) - B` — and the anchor
+        // answers its lane face to a chain tail (`[A,B] => CAP(x) -> [C,D]`
+        // ≡ the infix form plus the row-wise `[A,B] -> [C,D]`). The
+        // instantiation layer owns the binding
+        // (`instantiate_component_construction`) and the face answer
+        // (`resolve_funccall_face`); both key on the `pre_closure` +
+        // caller-less + real-`left` marker set here.
+        // Module / interface / unresolved names keep their own faces —
+        // modules rebind through `left`/`right` under their port law
+        // (`rebind_submodule_params`), and a width that cannot pair is judged
+        // at instantiation (VECTOR_WIDTH_MISMATCH), not guessed at parse.
+        if pre_param_opt.is_some() && instance_name.is_some() && method_name_opt.is_none() {
+            let inst_ids = instance_name.as_ref().unwrap();
+            let pre_param = pre_param_opt.as_ref().unwrap();
+            if matches!(
+                resolve_cmie(&DB, inst_ids, context.uri()),
+                Some(McCMIE::Component(_))
+            ) {
+                if let Some(lanes) = Self::pre_lanes_to_buses(pre_param) {
+                    if !lanes.is_empty() {
+                        return Some(McPhrase::FuncCall(McFuncCall {
+                            id: 0,
+                            caller: None,
+                            func_name: inst_ids.clone(),
+                            params: instance_params.clone(),
+                            left: lanes,
+                            right: vec![],
+                            dot_member: None,
+                            resolved_return_shape: None,
+                            pre_closure: true,
+                            named_ctor: false,
+                            receiver_is_ctor: false,
+                        }));
+                    }
+                }
+            }
         }
 
         // === Iter 2: detect DECLARE child node ===

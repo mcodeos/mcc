@@ -46,3 +46,4 @@ mod virtual_component_view;
 mod u316_closure_faces;
 mod u316_fold_faces;
 mod u316_lr_mirror;
+mod u338_inline_anchor;

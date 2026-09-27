@@ -181,6 +181,7 @@ impl InstantiationBuilder {
         left: &[McBus],
         right: &[McBus],
         caller_name: Option<&str>,
+        pre_closure: bool,
     ) -> Result<FuncCallInst, InstError> {
         // 1. Auto-name: CAP → @CAP_1, DIO.ESD → @DIO_ESD_1, ...
         // P0-2: replace '.' in type_name with '_'
@@ -219,7 +220,7 @@ impl InstantiationBuilder {
             ExpansionKind::ComponentCtor,
             caller_name.map(|n| n.to_string()),
             type_name.clone(),
-            call_site,
+            call_site.clone(),
             Some(crate::semantic::common::SourcePos::new(
                 comp_def.uri.clone(),
                 comp_def.span.start as u32,
@@ -355,6 +356,75 @@ impl InstantiationBuilder {
             .collect();
         let left = left_filtered.as_slice();
         let right = right_filtered.as_slice();
+
+        // ── U338: bare construction anchor `[A,B] => CAP(x)` ──
+        // The `=>` prefix arrives here as real left buses with `pre_closure`
+        // set (the fold in mc_fcall keeps the prefix instead of dropping it).
+        // The prefix lanes bind the instance's ordered terminal list pairwise
+        // (lane i → terminal i: multi-pin+IO reads input pins then output
+        // pins, otherwise left pin then right pin) and OWN the wiring — the
+        // generic mouth pass below folds every left bus onto ONE pin, which
+        // is exactly the phantom merged-net face U338 retired. A width
+        // mismatch reports E4180 and leaves the terminals unbound; the
+        // instance is still created (errors do not block instantiation).
+        if pre_closure && !left.is_empty() {
+            let mut new_connections = Vec::new();
+            let terminals: Vec<NetPoint> = if inst.is_multi_pin() && inst.has_io_annotations() {
+                inst.get_input_pins()
+                    .into_iter()
+                    .chain(inst.get_output_pins())
+                    .collect()
+            } else {
+                inst.get_left_pin()
+                    .into_iter()
+                    .chain(inst.get_right_pin())
+                    .collect()
+            };
+            if left.len() != terminals.len() {
+                let prefix_display = left
+                    .iter()
+                    .map(|b| b.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let message = crate::errcodes::format_msg(
+                    crate::errcodes::VECTOR_WIDTH_MISMATCH,
+                    &[
+                        &format!("{inst_name} terminals") as &dyn std::fmt::Display,
+                        &terminals.len() as &dyn std::fmt::Display,
+                        &prefix_display,
+                        &left.len() as &dyn std::fmt::Display,
+                    ],
+                );
+                match &call_site {
+                    Some(sp) => self.record_error_at(
+                        crate::errcodes::VECTOR_WIDTH_MISMATCH,
+                        message,
+                        sp.uri.clone(),
+                        sp.offset,
+                    ),
+                    None => {
+                        self.record_error(crate::errcodes::VECTOR_WIDTH_MISMATCH, message)
+                    }
+                }
+            } else {
+                for (lane, terminal) in left.iter().zip(terminals.iter()) {
+                    let lp = self.node_to_netpoint(lane);
+                    let cid = self.next_conn_id();
+                    new_connections.push(self.make_conn_with_provenance(
+                        cid,
+                        vec![lp, terminal.clone()],
+                        ConnDir::Undirected,
+                        None,
+                    ));
+                }
+            }
+            inst.expansion_id = Some(eidx);
+            self.expansion.end(eidx);
+            return Ok(FuncCallInst::Components {
+                new_components: vec![inst],
+                new_connections,
+            });
+        }
 
         // 3. Handle connections from FuncCall's own left/right to component pins
         let mut new_connections = Vec::new();

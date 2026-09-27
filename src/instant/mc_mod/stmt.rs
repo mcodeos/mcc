@@ -3431,6 +3431,7 @@ impl InstantiationBuilder {
                     &fc.left,
                     &fc.right,
                     fc.caller.as_deref(),
+                    fc.pre_closure,
                 )?;
                 match result {
                     FuncCallInst::Components {
