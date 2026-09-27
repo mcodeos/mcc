@@ -16,7 +16,7 @@
 //! whose value spells the reserved word [`DNP_WORD`] is a device-level DNP
 //! row (U326②) — it marks the key's part not fitted, and the overlay's word
 //! is final where it names the key ([`dnp_authority`]). See
-//! bom-overlay-design.md (U267①); the reading face is the sole producer of
+//! doc/bom/bom-overlay-design.md (U267①); the reading face is the sole producer of
 //! [`BindingRow`], and the two consumers (bind seam, E5067/E5068 checks) judge
 //! rows, never the carrier.
 
