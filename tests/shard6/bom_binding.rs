@@ -383,16 +383,14 @@ fn bom__parse_broken_carrier_reports_and_clears() {
     );
 }
 
-// U326②: the device-level DNP row (`path = DNP`). The overlay is the
-// assembly authority where it names the key: a DNP row
-// marks the part not fitted, a selection row without one clears a code-face
-// `@dnp`, no row leaves the code face standing. The bom-overlay board speaks
-// through the same reading faces as the code face, so the two spellings are
-// one verdict (A/B multiset).
+// U326②: the device-level DNP row (`path = DNP`). The code-face `@dnp`
+// marker is retired (locked in `instance_dnp_marker.rs`), so the overlay is
+// the only device-level DNP authority: a DNP row marks the part not fitted
+// on the same flat-table flag the constructor `NC` argument writes — one
+// verdict for every reader (A/B multiset).
 
-/// The DNP board: same shape as `BOARD_SRC`, plus a concrete part the corpus
-/// spells `@dnp` in the code face (arm A) and the overlay marks with a DNP
-/// row (arm B).
+/// The DNP board: same shape as `BOARD_SRC`, plus a concrete part for the
+/// overlay's DNP row to name.
 const DNP_BOARD_SRC: &str = r#"
 abstract component PART.SHAPE
 {
@@ -465,7 +463,7 @@ fn bom__dnp_row_marks_the_part_not_fitted() {
     assert!(fitted_of(&table, "main.b.fixed"), "the row names the part");
     assert!(
         !fitted_of(&table, "main.b.slot"),
-        "the sibling keeps its code face"
+        "the sibling stays fitted"
     );
     assert_eq!(count_code(&diags, mcc::errcodes::BOM_KEY_NOT_SLOT), 0);
     assert_eq!(
@@ -474,14 +472,15 @@ fn bom__dnp_row_marks_the_part_not_fitted() {
     );
 }
 
-/// A/B: the code-face `@dnp` and the overlay DNP row are one verdict — the
-/// fitted map and the whole diagnostic multiset are equal across the two
-/// spellings (bom-overlay board, single-variable comparison).
+/// A/B: the overlay DNP row and the constructor `NC` argument — the two
+/// surviving not-fitted producers — are one verdict: the fitted map and the
+/// whole diagnostic multiset are equal across the two spellings
+/// (single-variable comparison, same board).
 #[test]
-fn bom__dnp_row_matches_code_face_marker_multiset() {
+fn bom__dnp_row_matches_nc_constructor_multiset() {
     let src_a = DNP_BOARD_SRC.replace(
         "    OTHER.THING fixed\n",
-        "    OTHER.THING fixed @dnp\n",
+        "    OTHER.THING fixed(NC)\n",
     );
     let (table_a, diags_a) = build_with_src(&src_a, None);
     let (table_b, diags_b) = build_with_src(DNP_BOARD_SRC, Some(&bom_block("    b.fixed = DNP\n")));
@@ -493,23 +492,16 @@ fn bom__dnp_row_matches_code_face_marker_multiset() {
     );
 }
 
-/// The overlay's word is final where it names the key: a selection row on a
-/// marked slot clears the code-face `@dnp` — and still binds the variant.
+/// The DNP row's verdict is marking only: a part it names keeps its binding
+/// face untouched (class, selection state) — a not-fitted part is still the
+/// part that was chosen.
 #[test]
-fn bom__selection_row_clears_code_face_dnp() {
-    let src = DNP_BOARD_SRC.replace(
-        "    PART.SHAPE slot\n",
-        "    PART.SHAPE slot @dnp\n",
-    );
-    let (table, diags) = build_with_src(
-        &src,
-        Some(&bom_block("    b.slot = PART.SHAPE_V2\n")),
-    );
-    let id = table.get_id_by_path("main.b.slot").unwrap();
+fn bom__dnp_row_leaves_the_binding_face_untouched() {
+    let (table, diags) = build_with(Some(&bom_block("    b.fixed = DNP\n")));
+    let id = table.get_id_by_path("main.b.fixed").unwrap();
     let e = table.get_entry(id).unwrap();
-    assert_eq!(e.class_name, "PART.SHAPE_V2", "the row still binds");
-    assert!(!e.not_fitted, "the overlay's word clears the marker");
-    assert!(!e.unselected, "a bound slot is selected");
+    assert!(e.not_fitted, "the row marks the part");
+    assert!(!e.unselected, "marking is not unselection");
     assert_eq!(count_code(&diags, mcc::errcodes::BOM_KEY_NOT_SLOT), 0);
 }
 

@@ -487,9 +487,9 @@ fn record(key: String, path: String, outcome: BindOutcome) {
 /// The overlay's device-level DNP word for one instance (U326②). The overlay
 /// is the assembly authority where it names the key: a DNP row marks the part not
 /// fitted; a selection row without a DNP row is the overlay's final word for
-/// a fitted part and clears a code-face `@dnp`. `None` — overlay inactive,
-/// wrong header top, or no row for the key — leaves the code face standing
-/// (the transition rule: authority passes key by key, never board-wide).
+/// a fitted part. `None` — overlay inactive, wrong header top, or no row for
+/// the key — leaves the part fitted (the code-face `@dnp` marker is retired;
+/// the overlay is the only device-level authority).
 ///
 /// A `Some(true)` verdict records the key as consumed for the dangling check;
 /// `Some(false)` needs no ledger of its own (a selection key always consumes

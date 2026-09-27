@@ -905,12 +905,6 @@ pub struct Mc2Component {
     pub params: Vec<McParamValue>,
     pub insts: Vec<McInst>,
     pub nc: bool,
-    /// ★ U305⑤: the declaration line's `@dnp` flag — the part is not fitted.
-    /// Consumed at instantiation time onto [`crate::instant::McComponentInst::dnp`],
-    /// which lands `InstEntry.not_fitted` (BOM / viz / export read the flag,
-    /// the unconnected-pin diagnostics keep reporting — the ruling keeps ERC
-    /// unexempted).
-    pub dnp: bool,
     /// ★ NC layer ③: the declaration clause's `@ncpin(…)` trailer, in written
     /// form (see [`crate::semantic::nc_pin`]). Consumed at instantiation time,
     /// where the written identities are resolved against this instance's own
@@ -928,12 +922,12 @@ impl std::fmt::Display for McComponent {
 }
 
 impl Mc2Component {
-    /// ★ U305⑤: the modelling-layer twin of
-    /// [`crate::instant::McComponentInst::not_fitted`] — the constructor `NC`
-    /// argument and the statement-line `@dnp` marker state one verdict, and a
-    /// reader that means "is it fitted" asks here instead of picking a field.
+    /// The modelling-layer twin of
+    /// [`crate::instant::McComponentInst::not_fitted`] for the constructor
+    /// `NC` argument (the statement-line `@dnp` marker retired with U326② —
+    /// device-level not-fitted reads the bom overlay, not a code marker).
     pub fn not_fitted(&self) -> bool {
-        self.nc || self.dnp
+        self.nc
     }
 
     pub fn new(name: &str, base: Arc<McComponent>) -> Self {
@@ -944,7 +938,6 @@ impl Mc2Component {
             insts: Vec::new(),
             nc_pins: Vec::new(),
             nc: false,
-            dnp: false,
         }
     }
 
@@ -956,7 +949,6 @@ impl Mc2Component {
             insts: Vec::new(),
             nc_pins: Vec::new(),
             nc: is_nc,
-            dnp: false,
         }
     }
 
@@ -969,7 +961,6 @@ impl Mc2Component {
             insts: Vec::new(),
             nc_pins: Vec::new(),
             nc,
-            dnp: false,
         }
     }
 

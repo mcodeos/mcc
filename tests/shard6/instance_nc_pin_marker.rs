@@ -718,10 +718,12 @@ fn sem_instncpin__marker_still_closes_a_name_nc_pin() {
 // ── U305③: the statement-line tail-marker slot is closed ──
 //
 // A trailing `@word(…)` on an instance line or a connection line is a closed
-// vocabulary: instance lines read `@ncpin`/`@dnp`, connection lines read the
+// vocabulary: instance lines read `@ncpin`, connection lines read the
 // relation words `@bridge`/`@couple`/`@clamp`/`@star`. Anything else reports
 // E3188 instead of parsing through and vanishing — before U305③ `@nc_pin`
-// was a silent no-op, indistinguishable from a working marker.
+// was a silent no-op, indistinguishable from a working marker. `@dnp` left
+// the vocabulary with U326② (device-level DNP authority moved to the bom
+// overlay); it now reports through this same gate.
 
 /// A misspelled marker reports by exact name — `@nc_pin` is not `@ncpin`,
 /// and the line marks nothing.
@@ -742,12 +744,12 @@ fn sem_stmtmarker__unknown_instance_marker_reports() {
     assert!(b.reports(NET_BIDIR_UNCONNECTED, "main.d1.1"));
 }
 
-/// The known vocabulary stays silent: `@ncpin` and `@dnp` are both admitted
-/// on the instance line (`@dnp`'s semantics land with U305⑤; the vocabulary
-/// gate already admits the key).
+/// The known vocabulary stays silent: `@ncpin` is admitted on the instance
+/// line (`@dnp` left the vocabulary with U326② — its retirement is locked in
+/// `instance_dnp_marker.rs`).
 #[test]
 fn sem_stmtmarker__instance_vocabulary_admitted() {
-    let b = build(CHIP, "    CHIP d1 @ncpin(1)\n    CHIP d2 @dnp");
+    let b = build(CHIP, "    CHIP d1 @ncpin(1)");
     assert_eq!(b.count(STMT_MARKER_UNKNOWN), 0, "{:?}", b.diags);
     assert_eq!(b.marked_paths(), ["main.d1.1"]);
 }

@@ -1492,23 +1492,26 @@ fn source_capacity_over_declared_sinks_fires_budget() {
     );
 }
 
-/// ★ U305⑤: a `@dnp` sink is not fitted — it draws nothing, so its amp
-/// stays out of the PWR-4 sum (the derive half skips not-fitted devices the
-/// same way). Two 300mA sinks on a 500mA source fire 6021
+/// A not-fitted sink draws nothing, so its amp stays out of the PWR-4 sum
+/// (the derive half skips not-fitted devices the same way). U305⑤ pinned
+/// this through the code-face `@dnp` marker; U326② retired that marker — the
+/// not-fitted authority is the bom overlay's DNP row (producer locked in
+/// `bom_binding.rs`) and the constructor `NC` argument (used here). Two
+/// 300mA sinks on a 500mA source fire 6021
 /// (`source_capacity_over_declared_sinks_fires_budget`); fitting only one
 /// brings the demand back within capacity.
 #[test]
 fn dnp_sink_amp_is_out_of_the_budget_sum() {
     let src = format!(
         "{SRC_CAP}{SNK_AMP3}\nmodule main {{\n    conduit GND @role(main)\n    \
-         io V33\n    SRC_CAP s\n    SNK_AMP3 a\n    SNK_AMP3 b @dnp\n    \
+         io V33\n    SRC_CAP s\n    SNK_AMP3 a\n    SNK_AMP3 b(NC)\n    \
          s.OUT -> V33\n    s.GND -> GND\n    a.VDD -> V33\n    a.GND -> GND\n    \
          b.VDD -> V33\n    b.GND -> GND\n}}\n"
     );
     let codes = build_codes(&src);
     assert!(
         !codes.contains(&mcc::errcodes::NET_BUDGET_EXCEEDED),
-        "a @dnp sink's amp must stay out of the PWR-4 sum (300mA ≤ 500mA); got codes: {codes:?}"
+        "a not-fitted sink's amp must stay out of the PWR-4 sum (300mA ≤ 500mA); got codes: {codes:?}"
     );
 }
 

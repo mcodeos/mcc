@@ -2,25 +2,24 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-// Lock for the instance-line `@dnp` flag (U305⑤) — "this part is not fitted".
+// Retirement lock for the code-face `@dnp` marker (U326②, 2026-09-27) — the
+// word no longer reads anywhere.
 //
-// The flag is the statement-line sibling of the constructor `NC` argument: it
-// lands the same flat-table flag (`InstEntry.not_fitted`), so every consumer
-// that already reads the flag — BOM, viz, export — treats the part as
-// mounted-but-absent without any new reader. Two rulings pin the semantics:
-// the unconnected-pin diagnostics keep reporting on a DNP part (no ERC
-// exemption — the pins really are unconnected), and a module instance may be
-// `@dnp`. A third ruling retires the subtree push-down (U326①, 2026-09-27:
-// device-level DNP authority moves to the bom overlay, and module-level
-// inheritance is dropped until it returns there) — the flag marks the
-// assembly's own entry, and a part mounted inside it stays fitted.
+// U305⑤ introduced `@dnp` on both statement-line faces; U326① retired the
+// module subtree push-down; U326② moved the device-level not-fitted authority
+// to the bom overlay's `path = DNP` row and retired the marker outright
+// (user ruling: anonymous parts get named and move to the overlay — the
+// overlay is the only device-level authority). What remains to pin:
 //
-// The same marker also reads on a **connection line**, where it means "every
-// part this statement puts on the board is not fitted" (U305⑤ inline carrier,
-// b4063). A connection line declares no instance to flag, so the flag is
-// applied statement-wide at the build's product funnels — the place that
-// knows what the statement actually built — and a flagged line that built
-// nothing reports 3189 instead of letting the marker apply to nothing.
+// 1. `@dnp` on either face is just an unknown tail marker now — it reports
+//    3188 (the U305③ vocabulary gate) and applies to nothing.
+// 2. The retired 3189 ("marker with nothing to apply to") is gone with it:
+//    no statement shape may resurrect it.
+// 3. The overlay DNP row and the constructor `NC` argument keep landing the
+//    same flat-table flag the marker used to (`not_fitted`), so every
+//    consumer — BOM, viz, export — still sees a not-fitted part. The overlay
+//    face is locked in `bom_binding.rs`; this file pins the constructor face
+//    through one downstream reader.
 #![allow(non_snake_case)]
 
 use crate::common;
@@ -28,19 +27,15 @@ use crate::common;
 use mcc::McIds;
 
 // ── codes under test ──
-const ATTR_VALUE_NOT_IN_VOCABULARY: u32 = 5360;
-/// The flagged connection line built no part — the marker reached nothing.
-const STMT_MARKER_NO_TARGET: u32 = 3189;
-// ── the "unconnected" family that keeps reporting on a DNP part ──
+const STMT_MARKER_UNKNOWN: u32 = 3188;
+/// Retired with the marker (U326②) — must never fire again.
+const RETIRED_MARKER_NO_TARGET: u32 = 3189;
+// ── the "unconnected" family that keeps reporting on a not-fitted part ──
 const NET_BIDIR_UNCONNECTED: u32 = 4117;
-const NET_MODULE_PORT_UNCONNECTED: u32 = 4114;
 
 /// A two-pin passive, both pins bidirectional.
 const CHIP: &str =
     "component CHIP\n{\n    pins = [\n        io 1 = A\n        io 2 = B\n    ]\n}\n";
-
-/// A sub-module instantiating `CHIP` and exposing one port to the parent.
-const SUB: &str = "module SUB\n{\n    io A\n    CHIP u1\n    A -> u1.1\n}\n";
 
 struct Built {
     /// Paths of the entries flagged not-fitted — the structural fact, read
@@ -91,160 +86,88 @@ impl Built {
     }
 }
 
-/// `@dnp` on a component instance marks exactly that instance not-fitted —
-/// and its pins keep reporting unconnected (the ruling keeps ERC
-/// unexempted: the pins really are unconnected).
+/// `@dnp` on an instance line reports the vocabulary gate (3188) and marks
+/// nothing — the word left the line's vocabulary with U326②.
 #[test]
-fn sem_dnp__component_flag_marks_not_fitted_and_keeps_reports() {
+fn sem_dnp__retired_word_on_instance_line_reports_unknown() {
     let b = build(CHIP, "    CHIP d1 @dnp");
-    assert_eq!(b.fitted_paths(), ["main.d1"]);
-    assert!(b.reports(NET_BIDIR_UNCONNECTED, "main.d1.1"));
-    assert!(b.reports(NET_BIDIR_UNCONNECTED, "main.d1.2"));
     assert_eq!(
-        b.count(NET_BIDIR_UNCONNECTED),
-        2,
-        "a DNP part's unconnected pins must keep reporting; diags: {:?}",
-        b.diags
-    );
-}
-
-/// The unmarked twin: nothing is not-fitted. Locking only the marked case
-/// would pass even if the flag were a blanket table-wide default.
-#[test]
-fn sem_dnp__unmarked_twin_stays_fitted() {
-    let b = build(CHIP, "    CHIP d1");
-    assert!(b.not_fitted.is_empty(), "{:?}", b.not_fitted);
-}
-
-/// `@dnp` on a module instance marks the module entry itself — and nothing
-/// else. The subtree push-down is retired (U326①): the part mounted inside a
-/// marked assembly stays fitted.
-#[test]
-fn sem_dnp__module_flag_marks_the_entry_not_the_subtree() {
-    let b = build(&format!("{CHIP}{SUB}"), "    SUB s1 @dnp");
-    assert_eq!(
-        b.fitted_paths(),
-        ["main.s1"],
-        "a DNP module marks its own entry only; diags: {:?}",
-        b.diags
-    );
-    // The assembly's own diagnostics keep reporting too (no exemption).
-    assert!(
-        b.reports(NET_MODULE_PORT_UNCONNECTED, "main.s1.A")
-            || b.reports(NET_BIDIR_UNCONNECTED, "main.s1.u1.2"),
-        "the DNP assembly's unconnected faces must keep reporting; diags: {:?}",
-        b.diags
-    );
-}
-
-/// The bare flag is the only legal shape: `@dnp(yes)` reports the flag-arity
-/// code (5360) and still counts as written — the part is marked either way.
-#[test]
-fn sem_dnp__flag_with_value_reports_5360_and_still_marks() {
-    let b = build(CHIP, "    CHIP d1 @dnp(yes)");
-    assert_eq!(
-        b.count(ATTR_VALUE_NOT_IN_VOCABULARY),
+        b.count(STMT_MARKER_UNKNOWN),
         1,
-        "diags: {:?}",
-        b.diags
-    );
-    assert_eq!(b.fitted_paths(), ["main.d1"]);
-}
-
-// ── the inline carrier: `@dnp` on a connection line ──
-
-/// A connection line declares no instance, so its `@dnp` flags the part the
-/// line **builds** — here an anonymous inline construction. The part reaches
-/// the same flat-table flag as the declaration face, so the BOM bucket and
-/// every other `not_fitted` consumer see it with no new reader.
-#[test]
-fn sem_dnp__inline_construction_on_a_connection_line_marks_the_part() {
-    let b = build(CHIP, "    io N1\n    io N2\n    N1 - CHIP() - N2 @dnp");
-    assert_eq!(
-        b.fitted_paths().len(),
-        1,
-        "the line builds exactly one part; diags: {:?}",
+        "the retired marker must report as an unknown word; diags: {:?}",
         b.diags
     );
     assert!(
-        b.fitted_paths()[0].starts_with("main._"),
-        "the built part is the statement's own anonymous instance: {:?}",
-        b.fitted_paths()
-    );
-    assert_eq!(b.count(STMT_MARKER_NO_TARGET), 0);
-}
-
-/// The unmarked twin of the line above. Without it a blanket "everything is
-/// not fitted" default would pass the marked case.
-#[test]
-fn sem_dnp__inline_twin_on_a_connection_line_stays_fitted() {
-    let b = build(CHIP, "    io N1\n    io N2\n    N1 - CHIP() - N2");
-    assert!(b.not_fitted.is_empty(), "{:?}", b.not_fitted);
-}
-
-/// A line that builds **two** parts flags both: the marker is the statement's,
-/// not the construction's, so a bracket vector's every expansion member is
-/// covered without the flag being readable off any one of them.
-#[test]
-fn sem_dnp__inline_carrier_covers_every_part_the_statement_builds() {
-    let b = build(
-        CHIP,
-        "    io N1\n    io N2\n    io N3\n    N1 - [a[1:2]::CHIP()] - [N2, N3] @dnp",
-    );
-    assert_eq!(
-        b.fitted_paths().len(),
-        2,
-        "both replica members are the statement's products; diags: {:?}",
+        b.reports(STMT_MARKER_UNKNOWN, "dnp"),
+        "the report names the word; diags: {:?}",
         b.diags
     );
+    assert!(
+        b.not_fitted.is_empty(),
+        "the retired word marks nothing: {:?}",
+        b.not_fitted
+    );
 }
 
-/// The marker with nothing to mark: a connection line that builds no part
-/// leaves `@dnp` claimed by nobody, which reports (the U305③ rule) instead of
-/// vanishing. The spelling is legal here — a mistyped word is 3188 — so this
-/// is its own code.
+/// `@dnp` on a connection line reports the same gate — and the line-specific
+/// code 3189 must not resurrect for it (the inline carrier is retired with
+/// the word).
 #[test]
-fn sem_dnp__connection_line_marker_without_a_construction_reports() {
+fn sem_dnp__retired_word_on_connection_line_reports_unknown_no_3189() {
     let b = build(
         CHIP,
         "    io N1\n    io N2\n    CHIP d1\n    d1.1 -> d1.2 @dnp",
     );
     assert_eq!(
-        b.count(STMT_MARKER_NO_TARGET),
+        b.count(STMT_MARKER_UNKNOWN),
         1,
-        "a flagged connection line that builds nothing must report; diags: {:?}",
+        "the retired marker reports on a connection line too; diags: {:?}",
         b.diags
     );
-    // And the reference line's own `@dnp` is *not* borrowed by the marker: the
-    // declared part keeps its own status.
+    assert_eq!(
+        b.count(RETIRED_MARKER_NO_TARGET),
+        0,
+        "3189 is retired with the word and must never fire; diags: {:?}",
+        b.diags
+    );
     assert!(b.not_fitted.is_empty(), "{:?}", b.not_fitted);
 }
 
-/// The flag's arity rule reads the same on a connection line: `@dnp(yes)`
-/// reports 5360 and the line's part is marked anyway.
+/// The gate did not widen: a word that never left the vocabulary still
+/// passes. Guards the retirement against turning into a blanket "reject all
+/// tail markers" regression.
 #[test]
-fn sem_dnp__inline_flag_with_value_reports_5360_and_still_marks() {
-    let b = build(CHIP, "    io N1\n    io N2\n    N1 - CHIP() - N2 @dnp(yes)");
+fn sem_dnp__live_words_still_pass_the_gate() {
+    let b = build(
+        CHIP,
+        "    CHIP d1 @ncpin(1)\n    io p1\n    io p2\n    p1 -> d1.A @bridge(p1, p2)",
+    );
     assert_eq!(
-        b.count(ATTR_VALUE_NOT_IN_VOCABULARY),
-        1,
-        "diags: {:?}",
+        b.count(STMT_MARKER_UNKNOWN),
+        0,
+        "live vocabulary words must still pass; diags: {:?}",
         b.diags
     );
-    assert_eq!(b.fitted_paths().len(), 1, "diags: {:?}", b.diags);
 }
 
-/// The two spellings are **one verdict on every reader**, not just on the flat
-/// table. A reader that picks the instance's `nc` field sees only the
-/// constructor face, which is how `export kicad`'s DNP property went missing
-/// for a `@dnp` part — this lock is written after that probe. Both parts below
-/// are not fitted, and one reader must say so about both.
+/// The constructor `NC` argument still lands the flat-table flag and keeps
+/// reporting unconnected (no ERC exemption), and it still reaches a
+/// downstream reader. The marker face this file once locked alongside it is
+/// gone — the overlay face lives in `bom_binding.rs`.
 #[test]
-fn sem_dnp__every_reader_sees_both_spellings() {
+fn sem_dnp__constructor_nc_face_keeps_reaching_the_readers() {
+    let b = build(CHIP, "    CHIP d1(NC)");
+    assert_eq!(b.fitted_paths(), ["main.d1"], "{:?}", b.diags);
+    assert!(
+        b.reports(NET_BIDIR_UNCONNECTED, "main.d1.1"),
+        "a not-fitted part's pins keep reporting; diags: {:?}",
+        b.diags
+    );
+
     let _lock = common::lock();
     common::reset();
     let uri = "/mcc/instance-dnp-readers.mc".to_string();
-    let source = format!("{CHIP}\nmodule main\n{{\n    CHIP a(NC)\n    CHIP b @dnp\n}}\n");
+    let source = format!("{CHIP}\nmodule main\n{{\n    CHIP a(NC)\n}}\n");
     mcc::mcc_load_from_string(&uri, &source);
     let (tree, table, arena, store) =
         mcc::mcc_build_flat_with_arena(&McIds::from("main"), &uri, 1000).expect("flat build");
@@ -252,8 +175,7 @@ fn sem_dnp__every_reader_sees_both_spellings() {
         mcc::export::kicad::build_kicad_netlist(&tree, &table, &arena, &store, "main");
     assert_eq!(
         kicad.matches("(name \"DNP\") (value \"yes\")").count(),
-        2,
-        "the constructor face and the marker face must both reach the DNP \
-         property — a reader that picks one field loses the other:\n{kicad}"
+        1,
+        "the constructor face must still reach the DNP property:\n{kicad}"
     );
 }

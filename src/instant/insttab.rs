@@ -2149,7 +2149,7 @@ impl InstTable {
             inst.node_id,
             Some(McSpaceName::new(&inst.def.name, inst.def.uri.clone())),
         );
-        // ★ U305⑤: a `@dnp` module instance is not fitted — and neither is
+        // A not-fitted module instance is not fitted — and neither is
         // anything mounted inside it. The subtree propagation runs once after
         // the whole flatten (`from_module_inst`); here only the module's own
         // entry is marked.
@@ -2580,8 +2580,8 @@ impl InstTable {
                 }
             }
 
-            // ★ M0-B-D: pass through the nc marker; ★ U305⑤: `@dnp` lands
-            // the same flag — the part is not fitted either way.
+            // ★ M0-B-D: pass through the nc marker; the not-fitted flag
+            // lands the same way — the part is not fitted either way.
             if comp.nc || comp.dnp {
                 if let Some(entry) = self.entries.get_mut(&comp_id) {
                     entry.not_fitted = true;
@@ -2859,7 +2859,7 @@ impl InstTable {
                 }
             }
 
-            // ★ M0-B-D nc marker / ★ U305⑤ `@dnp` (same as pass-1)
+            // ★ M0-B-D nc marker / not-fitted flag (same as pass-1)
             if comp.nc || comp.dnp {
                 if let Some(entry) = self.entries.get_mut(&comp_id) {
                     entry.not_fitted = true;

@@ -124,7 +124,7 @@ fn collect_parts_impl(
     view: &TreeView,
     path: &str,
     out: &mut BTreeSet<(String, bool, String)>,
-    // ★ U305⑤: a `@dnp` ancestor scope — every part inside a not-fitted
+    // A not-fitted ancestor scope — every part inside a not-fitted
     // assembly is not fitted with it.
     inherited_dnp: bool,
 ) {
@@ -184,7 +184,7 @@ fn collect_parts_impl(
     for sub in &subs {
         if !sub.name.starts_with("__") {
             let sub_path = format!("{path}.{}", sub.name);
-            // ★ U305⑤: a `@dnp` sub-module is itself a row — "designed in,
+            // A not-fitted sub-module is itself a row — "designed in,
             // not placed" is exactly what a downstream reader has to see —
             // and its whole subtree inherits the status.
             if sub.dnp {
@@ -239,8 +239,8 @@ fn nc_status<'a>(
         let Some(&c) = by_name.get(cur) else {
             return false;
         };
-        // ★ U305⑤: the constructor `NC` argument and the statement-line
-        // `@dnp` flag say the same thing here — the part is not fitted.
+        // The constructor `NC` argument and the not-fitted flag say the
+        // same thing here — the part is not fitted.
         if c.nc || c.dnp {
             return true;
         }

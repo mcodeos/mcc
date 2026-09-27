@@ -75,11 +75,11 @@ pub struct McComponentInst {
     /// NC (Not Connected) instance
     pub nc: bool,
 
-    /// ★ U305⑤: the declaration line's `@dnp` flag — the part is not fitted
-    /// (a real part left off the board). Same flat-table effect as `nc`
-    /// (`InstEntry.not_fitted`), separate provenance: `nc` comes from the
-    /// constructor `NC` argument (the transitional spelling), `dnp` from the
-    /// `@dnp` statement-line marker.
+    /// The part is not fitted (a real part left off the board). Same
+    /// flat-table effect as `nc` (`InstEntry.not_fitted`), separate
+    /// provenance: `nc` comes from the constructor `NC` argument (the
+    /// transitional spelling), `dnp` from the bom overlay's device-level
+    /// DNP word (U326②).
     pub dnp: bool,
 
     /// ★ M0-B-E: instance origin (declaration vs funcall)
@@ -129,10 +129,11 @@ fn formal_answers_to(declare: &McParamDeclare, name: &str) -> bool {
 }
 
 impl McComponentInst {
-    /// ★ U305⑤: is this part on the board but not fitted? The two spellings —
-    /// the constructor `NC` argument (transitional) and the statement-line
-    /// `@dnp` marker — are one verdict, and this is its single read point, the
-    /// instance-level twin of [`crate::InstEntry::not_fitted`]. Readers that
+    /// Is this part on the board but not fitted? The two spellings — the
+    /// constructor `NC` argument (transitional) and the bom overlay's
+    /// device-level DNP word — are one verdict, and this is its single read
+    /// point, the instance-level twin of [`crate::InstEntry::not_fitted`].
+    /// Readers that
     /// print, export or serialize "is it fitted" must ask here rather than
     /// pick a field, or a marker written in one spelling goes unseen by
     /// whichever reader picked the other.

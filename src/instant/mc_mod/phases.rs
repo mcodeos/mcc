@@ -694,8 +694,8 @@ impl InstantiationBuilder {
                         // No arguments: plain instance. An NC-marked declaration
                         // with no parameter list keeps the not-connected flag.
                         // `dnp` stays out of this test on purpose: it is read
-                        // off a marker, never off the argument list, so an
-                        // empty list below is a real one and takes the
+                        // off the bom overlay, never off the argument list, so
+                        // an empty list below is a real one and takes the
                         // default-binding path.
                         if c.nc {
                             McComponentInst::with_nc(&c.name.to_string(), bound.clone(), &c.params)
@@ -855,17 +855,16 @@ impl InstantiationBuilder {
                     // see the instance without its marker).
                     let nc_pins = self.resolve_component_nc_pins(&inst, &c.nc_pins);
                     inst.set_nc_pins(nc_pins);
-                    // ★ U305⑤: the declaration's `@dnp` flag rides to the
-                    // instance (the table marks it not-fitted from here).
-                    // ★ U326②: the bom overlay's device-level DNP word is the
-                    // assembly authority where it names the key — a DNP row
-                    // marks the part, a selection row without one clears the
-                    // code-face marker; no row, code face stands.
+                    // ★ U326②: the bom overlay's device-level DNP word is
+                    // the assembly authority where it names the key — a DNP
+                    // row marks the part, a selection row without one leaves
+                    // the part fitted; no row, no word anywhere (the code-face
+                    // `@dnp` marker retired with U326②).
                     inst.dnp = crate::instant::bom::dnp_authority(
                         &self.current_path,
                         &c.name.to_string(),
                     )
-                    .unwrap_or(c.dnp);
+                    .unwrap_or(false);
                     self.add_component(inst);
 
                     // ── P1-C5: Execute same-name constructor func ──
@@ -905,17 +904,15 @@ impl InstantiationBuilder {
                     );
                     let inst_name = m.name.to_string();
                     let mut inst = McModuleInst::new(&inst_name, m.base.clone());
-                    // ★ U305⑤: the declaration's `@dnp` flag rides to the
-                    // sub-module instance (flatten marks the module's own
-                    // entry not-fitted; the subtree push-down retired with
-                    // U326①). ★ U326②: the bom overlay's device-level DNP
-                    // word is the assembly authority where it names the key,
-                    // exactly as for components.
+                    // ★ U326②: the bom overlay's device-level DNP word is
+                    // the assembly authority, exactly as for components — a
+                    // DNP row marks the module's own entry not-fitted (the
+                    // subtree push-down retired with U326①).
                     inst.dnp = crate::instant::bom::dnp_authority(
                         &self.current_path,
                         &inst_name,
                     )
-                    .unwrap_or(m.dnp);
+                    .unwrap_or(false);
                     // ★ Sub-module instantiation failure → record diagnostics, but keep instance
                     // Phase C1: intern into the circuit registry under the full path
                     // (`{parent}.{inst_name}`), so this sub-module and its products
@@ -1165,12 +1162,6 @@ impl InstantiationBuilder {
     pub(super) fn instantiate_stmts_resilient(&mut self) {
         let stmts = self.def.stmts.clone();
         let stmt_spans = self.def.stmt_spans.clone();
-        // ★ U305⑤ inline carrier: the incoming statement scope's `@dnp` — a
-        // child module instantiated inside an outer statement runs this same
-        // method on the same builder, and the outer statement's flag must
-        // survive that (every product of the outer statement is its product).
-        // Restored on the way out, beside the per-stmt restore in the loop.
-        let outer_dnp = self.current_stmt_dnp;
         for (_i, _l) in stmts.iter().enumerate() {}
         for (idx, stmt) in stmts.iter().enumerate() {
             // Iter-6.S4.3
@@ -1230,14 +1221,6 @@ impl InstantiationBuilder {
             let stmt_end = stmt_spans.get(idx + 1).map_or(u32::MAX, |s| s.start as u32);
             self.current_stmt_end = Some(stmt_end);
 
-            // ★ U305⑤ inline carrier: this statement's trailing `@dnp`, applied
-            // by the two product funnels (`add_component` / `add_submodule`) to
-            // every part the statement puts on the board. `stmt_dnp_used` is the
-            // "did the marker reach anything" witness for the report below.
-            let line_dnp = self.def.stmt_dnp.get(idx).copied().unwrap_or(false);
-            self.current_stmt_dnp = line_dnp;
-            self.stmt_dnp_used = false;
-
             if let Err(e) = self.process_stmt(stmt) {
                 // ★ Single connection stmt failure doesn't interrupt, record diagnostics then
                 // continue processing subsequent stmts
@@ -1254,44 +1237,12 @@ impl InstantiationBuilder {
             // connections created after the recursion (e.g. a transposed
             // declareb) are attributed to the callee's stmt instead.
             self.current_stmt_span = stmt_span.clone();
-            // ── U305⑤: the `@dnp` flag gets the same treatment, and one job
-            // more. A nested expansion (func body, child module) rewrites it, so
-            // restoring it here keeps the rest of *this* statement's products
-            // flagged. Then the report: a connection line's marker that reached
-            // no product is a marker nothing applies — the U305③ rule that a
-            // claimed-by-nobody marker must not pass silently. Only a line that
-            // actually carried the flag can report, so this can never fire on
-            // an ordinary statement.
-            self.current_stmt_dnp = line_dnp;
-            if line_dnp && !self.stmt_dnp_used {
-                // Anchored at the statement's own span (`record_error` would
-                // prefer a stale `current_func_span` over it when one is in
-                // force).
-                if let Some(sp) = stmt_span.clone() {
-                    self.record_error_at(
-                        crate::errcodes::STMT_MARKER_NO_TARGET,
-                        crate::errcodes::format_msg(
-                            crate::errcodes::STMT_MARKER_NO_TARGET,
-                            &[&crate::semantic::stmt_marker::DNP_KEY],
-                        ),
-                        sp.uri.clone(),
-                        sp.offset,
-                    );
-                }
-            }
         }
         // Clear after loop to avoid stale span leaking into post-stmt checks.
         // `current_trunk` needs no reset here: every producer is RAII
         // guarded (§7.11(2)) and restores it on exit.
         self.current_stmt_span = None;
         self.current_stmt_end = None;
-        // The `@dnp` scope is the *caller's* statement, not this module's body:
-        // restore what was in force when the loop was entered rather than
-        // clearing, so an outer statement that built this module keeps its flag
-        // for the products it builds after the recursion returns.
-        self.current_stmt_dnp = outer_dnp;
-        self.stmt_dnp_used = false;
-
         // ── P2-C2: After all body stmts processed, project accumulated bus members to bare ports
         // ──
         // NOTE: These post-processing steps are now invoked from instantiate() after

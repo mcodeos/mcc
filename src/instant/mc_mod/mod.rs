@@ -202,8 +202,8 @@ pub struct McModuleInst {
     /// covers that member only. Empty for an unmarked instance.
     pub nc_ports: BTreeSet<String>,
 
-    /// ★ U305⑤: the declaration line's `@dnp` flag — this assembly is not
-    /// fitted. Marks the module's flat entry `not_fitted` at flatten time,
+    /// This assembly is not fitted (bom overlay's device-level DNP word,
+    /// U326②). Marks the module's flat entry `not_fitted` at flatten time,
     /// and (forward-propagated) every entry inside it: a DNP sub-board takes
     /// its whole subtree off the BOM / viz with it.
     pub dnp: bool,
