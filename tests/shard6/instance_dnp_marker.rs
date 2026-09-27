@@ -7,14 +7,13 @@
 // The flag is the statement-line sibling of the constructor `NC` argument: it
 // lands the same flat-table flag (`InstEntry.not_fitted`), so every consumer
 // that already reads the flag — BOM, viz, export — treats the part as
-// mounted-but-absent without any new reader. Two rulings pin the semantics
-// (2026-09-26): the unconnected-pin diagnostics keep reporting on a DNP part
-// (no ERC exemption — the pins really are unconnected), and a module instance
-// may be `@dnp`, which takes its whole subtree off the board with it.
-//
-// A module entry's `not_fitted` therefore covers descendants: the forward
-// pass in `InstTable::propagate_not_fitted` runs after the flatten, and a
-// parent always registers before its children.
+// mounted-but-absent without any new reader. Two rulings pin the semantics:
+// the unconnected-pin diagnostics keep reporting on a DNP part (no ERC
+// exemption — the pins really are unconnected), and a module instance may be
+// `@dnp`. A third ruling retires the subtree push-down (U326①, 2026-09-27:
+// device-level DNP authority moves to the bom overlay, and module-level
+// inheritance is dropped until it returns there) — the flag marks the
+// assembly's own entry, and a part mounted inside it stays fitted.
 //
 // The same marker also reads on a **connection line**, where it means "every
 // part this statement puts on the board is not fitted" (U305⑤ inline carrier,
@@ -117,18 +116,19 @@ fn sem_dnp__unmarked_twin_stays_fitted() {
     assert!(b.not_fitted.is_empty(), "{:?}", b.not_fitted);
 }
 
-/// `@dnp` on a module instance marks the module **and its whole subtree** —
-/// the part mounted inside a DNP assembly is off the board with it.
+/// `@dnp` on a module instance marks the module entry itself — and nothing
+/// else. The subtree push-down is retired (U326①): the part mounted inside a
+/// marked assembly stays fitted.
 #[test]
-fn sem_dnp__module_flag_marks_the_whole_subtree() {
+fn sem_dnp__module_flag_marks_the_entry_not_the_subtree() {
     let b = build(&format!("{CHIP}{SUB}"), "    SUB s1 @dnp");
     assert_eq!(
         b.fitted_paths(),
-        ["main.s1", "main.s1.u1"],
-        "a DNP module takes its subtree with it; diags: {:?}",
+        ["main.s1"],
+        "a DNP module marks its own entry only; diags: {:?}",
         b.diags
     );
-    // The subtree's own diagnostics keep reporting too (no exemption).
+    // The assembly's own diagnostics keep reporting too (no exemption).
     assert!(
         b.reports(NET_MODULE_PORT_UNCONNECTED, "main.s1.A")
             || b.reports(NET_BIDIR_UNCONNECTED, "main.s1.u1.2"),

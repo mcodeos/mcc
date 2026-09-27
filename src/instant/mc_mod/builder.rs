@@ -858,8 +858,8 @@ impl InstantiationBuilder {
         let mut inst = inst;
         // ★ U305⑤ inline carrier: same statement-wide flag as
         // [`Self::add_component`] — a sub-assembly the statement builds is not
-        // fitted either, and `McModuleInst.dnp` already takes its subtree with
-        // it (`InstTable::propagate_not_fitted`).
+        // fitted either. The flag marks the assembly's own entry only: the
+        // subtree push-down is retired (U326①), so its internals stay fitted.
         if self.current_stmt_dnp {
             inst.dnp = true;
             self.stmt_dnp_used = true;

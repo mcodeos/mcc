@@ -38,7 +38,7 @@ range (threshold 40KB).
 | `semantic/validation/nets/mod.rs` | 205 KB | 135 |
 | `instant/mc_mod/stmt.rs` | 202 KB | 80 |
 | `rules.rs` | 188 KB | 83 |
-| `instant/insttab.rs` | 183 KB | 131 |
+| `instant/insttab.rs` | 181 KB | 130 |
 | `cmds/show.rs` | 164 KB | 123 |
 | `db/defregistry.rs` | 157 KB | 182 |
 | `instant/mc_mod/fcallinst.rs` | 149 KB | 26 |
@@ -67,7 +67,7 @@ range (threshold 40KB).
 | `db/` | 28 | 1045 KB |
 | `eval/` | 2 | 50 KB |
 | `export/` | 7 | 185 KB |
-| `instant/` | 41 | 1658 KB |
+| `instant/` | 41 | 1657 KB |
 | `lsp/` | 7 | 70 KB |
 | `output/` | 7 | 107 KB |
 | `query/` | 9 | 170 KB |
@@ -3042,71 +3042,70 @@ instant/insttab.rs#L1375  fn block_parts_of
 instant/insttab.rs#L1383  fn net_origin
 instant/insttab.rs#L1391  fn member_pin_of
 instant/insttab.rs#L1408  fn from_module_inst
-instant/insttab.rs#L1437  fn propagate_not_fitted
-instant/insttab.rs#L1458  fn from_module_inst_with_arena
-instant/insttab.rs#L1487  fn register
-instant/insttab.rs#L1649  fn set_member_info
-instant/insttab.rs#L1659  fn set_identity
-instant/insttab.rs#L1684  fn set_point
-instant/insttab.rs#L1692  fn set_pwr_dir
-instant/insttab.rs#L1700  fn set_pwr_nom
-instant/insttab.rs#L1708  fn set_exposed
-instant/insttab.rs#L1717  fn set_expectations
-instant/insttab.rs#L1726  fn set_iface_lane
-instant/insttab.rs#L1735  fn set_ac_face
-instant/insttab.rs#L1743  fn set_pwr_member
-instant/insttab.rs#L1754  fn record_member_pin_sem
-instant/insttab.rs#L1785  fn set_pin_count
-instant/insttab.rs#L1798  fn mark_nc
-instant/insttab.rs#L1809  fn set_vector_info
-instant/insttab.rs#L1820  fn mark_alias
-instant/insttab.rs#L1856  fn declared_member_port_of
-instant/insttab.rs#L1889  fn fold_alias
-instant/insttab.rs#L1909  fn vector_member_paths
-instant/insttab.rs#L1931  fn mark_synthetic_by_path_prefix
-instant/insttab.rs#L1942  fn register_simple
-instant/insttab.rs#L1964  fn get_id_by_path
-instant/insttab.rs#L1969  fn get_entry
-instant/insttab.rs#L1986  fn class_def_of
-instant/insttab.rs#L1999  fn children_of
-instant/insttab.rs#L2007  fn iter
-instant/insttab.rs#L2012  fn len
-instant/insttab.rs#L2017  fn is_empty
-instant/insttab.rs#L2022  fn is_bridge_passive
-instant/insttab.rs#L2029  fn get_nets
-instant/insttab.rs#L2034  fn get_net
-instant/insttab.rs#L2043  fn get_net_of
-instant/insttab.rs#L2051  fn nets_of
-instant/insttab.rs#L2059  fn get_components
-instant/insttab.rs#L2071  fn iter_entries
-instant/insttab.rs#L2078  fn get_modules
-instant/insttab.rs#L2086  fn get_pins_of
-instant/insttab.rs#L2094  fn get_ports_of
-instant/insttab.rs#L2102  fn net_count
-instant/insttab.rs#L2129  fn backfill_port_decl_pos
-instant/insttab.rs#L2147  fn port_decl_span_of
-instant/insttab.rs#L2155  fn flatten_module
-instant/insttab.rs#L3260  fn flatten_nets
-instant/insttab.rs#L3465  fn resolve_netpoint_path
-instant/insttab.rs#L3501  fn resolve_single_path
-instant/insttab.rs#L3548  fn dump
-instant/insttab.rs#L3633  fn write_known_missing
-instant/insttab.rs#L3682  fn collect_failed_records
-instant/insttab.rs#L3716  fn expand_bracket_list
-instant/insttab.rs#L3747  mod tests
-instant/insttab.rs#L3751  fn mat_insttab__register_and_lookup
-instant/insttab.rs#L3766  fn mat_insttab__no_duplicate_registration
-instant/insttab.rs#L3787  fn mat_insttab__children_of
-instant/insttab.rs#L3823  fn mat_insttab__id_uniqueness
-instant/insttab.rs#L3843  fn mat_insttab__resolve_bus_member_path_fallback
-instant/insttab.rs#L3878  fn mat_insttab__resolve_plain_dot_path_still_works
-instant/insttab.rs#L3908  fn mat_insttab__resolve_top_level_port_no_prefix
-instant/insttab.rs#L3931  fn mat_insttab__resolve_bracket_list_expands
-instant/insttab.rs#L3969  fn mat_insttab__resolve_bracket_partial_miss
-instant/insttab.rs#L4000  fn mat_insttab__resolve_missing_path_returns_empty
-instant/insttab.rs#L4015  fn mat_insttab__expand_bracket_list_syntax
-instant/insttab.rs#L4045  fn mat_insttab__element_class_comes_from_the_definition_spec_table
-instant/insttab.rs#L4047  const SRC
+instant/insttab.rs#L1428  fn from_module_inst_with_arena
+instant/insttab.rs#L1457  fn register
+instant/insttab.rs#L1619  fn set_member_info
+instant/insttab.rs#L1629  fn set_identity
+instant/insttab.rs#L1654  fn set_point
+instant/insttab.rs#L1662  fn set_pwr_dir
+instant/insttab.rs#L1670  fn set_pwr_nom
+instant/insttab.rs#L1678  fn set_exposed
+instant/insttab.rs#L1687  fn set_expectations
+instant/insttab.rs#L1696  fn set_iface_lane
+instant/insttab.rs#L1705  fn set_ac_face
+instant/insttab.rs#L1713  fn set_pwr_member
+instant/insttab.rs#L1724  fn record_member_pin_sem
+instant/insttab.rs#L1755  fn set_pin_count
+instant/insttab.rs#L1768  fn mark_nc
+instant/insttab.rs#L1779  fn set_vector_info
+instant/insttab.rs#L1790  fn mark_alias
+instant/insttab.rs#L1826  fn declared_member_port_of
+instant/insttab.rs#L1859  fn fold_alias
+instant/insttab.rs#L1879  fn vector_member_paths
+instant/insttab.rs#L1901  fn mark_synthetic_by_path_prefix
+instant/insttab.rs#L1912  fn register_simple
+instant/insttab.rs#L1934  fn get_id_by_path
+instant/insttab.rs#L1939  fn get_entry
+instant/insttab.rs#L1956  fn class_def_of
+instant/insttab.rs#L1969  fn children_of
+instant/insttab.rs#L1977  fn iter
+instant/insttab.rs#L1982  fn len
+instant/insttab.rs#L1987  fn is_empty
+instant/insttab.rs#L1992  fn is_bridge_passive
+instant/insttab.rs#L1999  fn get_nets
+instant/insttab.rs#L2004  fn get_net
+instant/insttab.rs#L2013  fn get_net_of
+instant/insttab.rs#L2021  fn nets_of
+instant/insttab.rs#L2029  fn get_components
+instant/insttab.rs#L2041  fn iter_entries
+instant/insttab.rs#L2048  fn get_modules
+instant/insttab.rs#L2056  fn get_pins_of
+instant/insttab.rs#L2064  fn get_ports_of
+instant/insttab.rs#L2072  fn net_count
+instant/insttab.rs#L2099  fn backfill_port_decl_pos
+instant/insttab.rs#L2117  fn port_decl_span_of
+instant/insttab.rs#L2125  fn flatten_module
+instant/insttab.rs#L3230  fn flatten_nets
+instant/insttab.rs#L3435  fn resolve_netpoint_path
+instant/insttab.rs#L3471  fn resolve_single_path
+instant/insttab.rs#L3518  fn dump
+instant/insttab.rs#L3603  fn write_known_missing
+instant/insttab.rs#L3652  fn collect_failed_records
+instant/insttab.rs#L3686  fn expand_bracket_list
+instant/insttab.rs#L3717  mod tests
+instant/insttab.rs#L3721  fn mat_insttab__register_and_lookup
+instant/insttab.rs#L3736  fn mat_insttab__no_duplicate_registration
+instant/insttab.rs#L3757  fn mat_insttab__children_of
+instant/insttab.rs#L3793  fn mat_insttab__id_uniqueness
+instant/insttab.rs#L3813  fn mat_insttab__resolve_bus_member_path_fallback
+instant/insttab.rs#L3848  fn mat_insttab__resolve_plain_dot_path_still_works
+instant/insttab.rs#L3878  fn mat_insttab__resolve_top_level_port_no_prefix
+instant/insttab.rs#L3901  fn mat_insttab__resolve_bracket_list_expands
+instant/insttab.rs#L3939  fn mat_insttab__resolve_bracket_partial_miss
+instant/insttab.rs#L3970  fn mat_insttab__resolve_missing_path_returns_empty
+instant/insttab.rs#L3985  fn mat_insttab__expand_bracket_list_syntax
+instant/insttab.rs#L4015  fn mat_insttab__element_class_comes_from_the_definition_spec_table
+instant/insttab.rs#L4017  const SRC
 instant/island.rs#L45  enum NetRole
 instant/island.rs#L60  impl NetRole
 instant/island.rs#L61  fn as_str
@@ -11698,4 +11697,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-423 files, 11615 declarations.
+423 files, 11614 declarations.
