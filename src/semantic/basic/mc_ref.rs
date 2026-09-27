@@ -4,6 +4,8 @@
 
 use std::fmt;
 
+use crate::semantic::basic::mc_bus::BusErrorKind;
+
 use crate::semantic::mc_inst::McInstance;
 
 // McInstanceRef - instance reference
@@ -143,14 +145,14 @@ impl McRef {
             McRef::Name(ref_) => vec![ref_.to_bus()],
             McRef::Group(nodes) => {
                 if nodes.is_empty() {
-                    vec![McBus::new("<error:empty_list>")]
+                    vec![McBus::new_error(BusErrorKind::EmptyList)]
                 } else {
                     nodes[0].get_left()
                 }
             }
             McRef::Ports { left, .. } => {
                 if left.is_empty() {
-                    vec![McBus::new("<error:empty_input>")]
+                    vec![McBus::new_error(BusErrorKind::EmptyInput)]
                 } else {
                     left.iter().flat_map(|n| n.get_left()).collect()
                 }
@@ -164,14 +166,14 @@ impl McRef {
             McRef::Name(ref_) => vec![ref_.to_bus()],
             McRef::Group(nodes) => {
                 if nodes.is_empty() {
-                    vec![McBus::new("<error:empty_list>")]
+                    vec![McBus::new_error(BusErrorKind::EmptyList)]
                 } else {
                     nodes.last().unwrap().get_right()
                 }
             }
             McRef::Ports { right, .. } => {
                 if right.is_empty() {
-                    vec![McBus::new("<error:empty_output>")]
+                    vec![McBus::new_error(BusErrorKind::EmptyOutput)]
                 } else {
                     right.iter().flat_map(|n| n.get_right()).collect()
                 }

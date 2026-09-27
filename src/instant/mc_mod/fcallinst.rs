@@ -2725,6 +2725,7 @@ impl InstantiationBuilder {
                     member: b.member.clone(),
                     full_members: b.full_members.clone(),
                     synthetic: b.synthetic,
+                    error_kind: b.error_kind,
                 };
                 McPhrase::Endpoint(McRef::Name(McInstanceRef::new(McInstance::Bus(
                     new_bus,
@@ -2933,6 +2934,7 @@ impl InstantiationBuilder {
                 member: new_members,
                 full_members: elem.full_members.clone(),
                 synthetic: elem.synthetic,
+                error_kind: elem.error_kind,
             };
         }
 
@@ -2966,6 +2968,7 @@ impl InstantiationBuilder {
             member: new_members,
             full_members: new_full_members,
             synthetic: elem.synthetic,
+            error_kind: elem.error_kind,
         }
     }
 

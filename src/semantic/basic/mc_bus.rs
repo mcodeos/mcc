@@ -29,6 +29,40 @@ impl IoSide {
     }
 }
 
+/// The shape-level truth an error placeholder bus stands for (U313). Every
+/// `<error:…>` spelling is minted by [`McBus::new_error`] with one of these
+/// kinds, and consumers ask [`McBus::error_kind`] instead of sniffing the
+/// name — a new spelling cannot bypass the kind.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum BusErrorKind {
+    /// The two sides of a connect disagree on lane count.
+    ShapeMismatch,
+    /// A parallel group had no operands.
+    EmptyParallel,
+    /// A series chain had no members.
+    EmptySeq,
+    /// A bracketed group named nothing.
+    EmptyList,
+    /// A port face had no left side.
+    EmptyInput,
+    /// A port face had no right side.
+    EmptyOutput,
+}
+
+impl BusErrorKind {
+    /// The segment the bus name carries between `<error:` and `>`.
+    pub(crate) fn spelling(self) -> &'static str {
+        match self {
+            BusErrorKind::ShapeMismatch => "shape_mismatch",
+            BusErrorKind::EmptyParallel => "empty_parallel",
+            BusErrorKind::EmptySeq => "empty_seq",
+            BusErrorKind::EmptyList => "empty_list",
+            BusErrorKind::EmptyInput => "empty_input",
+            BusErrorKind::EmptyOutput => "empty_output",
+        }
+    }
+}
+
 /// A bus or parameterised identifier with optional member access.
 ///
 /// # `.` (dot) and `{}` (curly braces) equivalence
@@ -56,6 +90,11 @@ pub struct McBus {
     /// Excluded from equality: it records where the bus came from, not what the
     /// bus is.
     pub(crate) synthetic: Option<IoSide>,
+    /// The shape-level error this placeholder stands for; `None` on every real
+    /// bus. The producer declares it ([`McBus::new_error`]) and consumers ask
+    /// [`McBus::error_kind`] — the `<error:…>` spelling is never sniffed.
+    /// Excluded from equality, same rule as `synthetic`.
+    pub(crate) error_kind: Option<BusErrorKind>,
 }
 
 impl PartialEq for McBus {
@@ -85,6 +124,7 @@ impl McBus {
             member: Vec::new(),
             full_members: Vec::new(),
             synthetic: None,
+            error_kind: None,
         }
     }
 
@@ -98,7 +138,27 @@ impl McBus {
             member: Vec::new(),
             full_members: Vec::new(),
             synthetic: Some(side),
+            error_kind: None,
         }
+    }
+
+    /// The `<error:…>` placeholder bus for a shape-level error. The kind is
+    /// stamped here so consumers ask [`McBus::error_kind`] and never sniff the
+    /// name; the name keeps the canonical spelling for display and export
+    /// exclusion.
+    pub(crate) fn new_error(kind: BusErrorKind) -> Self {
+        Self {
+            name: format!("{}{}>", Self::ERROR_PREFIX, kind.spelling()),
+            member: Vec::new(),
+            full_members: Vec::new(),
+            synthetic: None,
+            error_kind: Some(kind),
+        }
+    }
+
+    /// The shape-level error this placeholder stands for, if it is one.
+    pub(crate) fn error_kind(&self) -> Option<BusErrorKind> {
+        self.error_kind
     }
 
     pub(crate) fn is_synthetic(&self) -> bool {
@@ -115,6 +175,7 @@ impl McBus {
             member: members.clone(),
             full_members: members,
             synthetic: None,
+            error_kind: None,
         }
     }
 
@@ -142,6 +203,7 @@ impl McBus {
             member: vec![member.clone()],
             full_members: vec![member],
             synthetic: None,
+            error_kind: None,
         }
     }
 
@@ -162,6 +224,7 @@ impl From<&McBus> for Vec<McBus> {
             member: bus.member.clone(),
             full_members: bus.full_members.clone(),
             synthetic: bus.synthetic,
+            error_kind: bus.error_kind,
         }]
     }
 }
@@ -173,6 +236,7 @@ impl From<McBus> for Vec<McBus> {
             member: bus.member,
             full_members: bus.full_members,
             synthetic: bus.synthetic,
+            error_kind: bus.error_kind,
         }]
     }
 }

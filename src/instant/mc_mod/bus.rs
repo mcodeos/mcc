@@ -186,6 +186,7 @@ impl InstantiationBuilder {
                     member: Vec::new(),
                     full_members: Vec::new(),
                     synthetic: None,
+                    error_kind: None,
                 };
 
                 // §8.9.6.7: stamp the structured lane member name on each
@@ -234,6 +235,7 @@ impl InstantiationBuilder {
                     member: Vec::new(),
                     full_members: Vec::new(),
                     synthetic: None,
+                    error_kind: None,
                 };
                 // §8.9.6.7: stamp the structured lane member name on each
                 // expanded point (mirror of expand_node_element above).

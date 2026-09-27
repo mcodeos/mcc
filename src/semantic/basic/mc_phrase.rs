@@ -4,7 +4,7 @@
 
 use super::super::{
     basic::form::RefVerdict,
-    basic::mc_bus::{IoSide, McBus},
+    basic::mc_bus::{BusErrorKind, IoSide, McBus},
     basic::mc_closure::McClosure,
     basic::mc_ref::{McRef, McInstanceRef},
     basic::mc_fcall::{check_ctor_bind, McFuncCall, ReturnShape},
@@ -4303,6 +4303,7 @@ impl McPhrase {
                         member: Vec::new(),
                         full_members: data.full_members.clone(),
                         synthetic: data.synthetic,
+                        error_kind: data.error_kind,
                     }]
                 } else {
                     Vec::from(data.clone())
@@ -4335,7 +4336,7 @@ impl McPhrase {
             }
             McPhrase::Parallel(opds) => {
                 if opds.is_empty() {
-                    vec![McBus::new("<error:empty_parallel>")]
+                    vec![McBus::new_error(BusErrorKind::EmptyParallel)]
                 } else {
                     opds[0].get_left()
                 }
@@ -4351,7 +4352,7 @@ impl McPhrase {
             McPhrase::Group(ref g) => g.get_left(),
             McPhrase::Series(ref phrases, _) => {
                 if phrases.is_empty() {
-                    vec![McBus::new("<error:empty_seq>")]
+                    vec![McBus::new_error(BusErrorKind::EmptySeq)]
                 } else {
                     phrases[0].get_left()
                 }
@@ -4447,6 +4448,7 @@ impl McPhrase {
                         member: Vec::new(),
                         full_members: data.full_members.clone(),
                         synthetic: data.synthetic,
+                        error_kind: data.error_kind,
                     }]
                 } else {
                     Vec::from(data.clone())
@@ -4479,7 +4481,7 @@ impl McPhrase {
             }
             McPhrase::Parallel(opds) => {
                 if opds.is_empty() {
-                    vec![McBus::new("<error:empty_parallel>")]
+                    vec![McBus::new_error(BusErrorKind::EmptyParallel)]
                 } else {
                     opds[0].get_right()
                 }
@@ -4488,7 +4490,7 @@ impl McPhrase {
             McPhrase::Group(ref g) => g.get_right(),
             McPhrase::Series(ref phrases, _) => {
                 if phrases.is_empty() {
-                    vec![McBus::new("<error:empty_seq>")]
+                    vec![McBus::new_error(BusErrorKind::EmptySeq)]
                 } else {
                     phrases.last().unwrap().get_right()
                 }
@@ -4743,6 +4745,7 @@ impl McPhrase {
                                 member: Vec::new(),
                                 full_members: data.full_members.clone(),
                                 synthetic: data.synthetic,
+                                error_kind: data.error_kind,
                             });
                         }
                     }
@@ -4769,6 +4772,7 @@ impl McPhrase {
                                         member: Vec::new(),
                                         full_members: data.full_members.clone(),
                                         synthetic: data.synthetic,
+                                        error_kind: data.error_kind,
                                     });
                                 }
                             }
@@ -5552,7 +5556,7 @@ fn check_transpose_allowed(opd: &McPhrase, context: &mut dyn HasFindInst) -> Res
         .port_left()
         .iter()
         .chain(shape.port_right().iter())
-        .any(|b| b.name.contains("<error"))
+        .any(|b| b.error_kind().is_some())
     {
         return Ok(());
     }
@@ -5951,7 +5955,7 @@ fn eval_port_elems(phrase: &McPhrase, right: bool, context: &dyn ShapeCtx) -> Ve
                     // empty series: a degenerate chain has no port — emit the
                     // same error sentinel the previous path produced, without
                     // delegating to the symbol-level get_left/get_right.
-                    vec![McBus::new("<error:empty_seq>")]
+                    vec![McBus::new_error(BusErrorKind::EmptySeq)]
                 }
             }
         }
@@ -5964,7 +5968,7 @@ fn eval_port_elems(phrase: &McPhrase, right: bool, context: &dyn ShapeCtx) -> Ve
         McPhrase::Parallel(opds) => {
             let Some((first, rest)) = opds.split_first() else {
                 // empty parallel: nothing to read a port from; sentinel.
-                return vec![McBus::new("<error:empty_parallel>")];
+                return vec![McBus::new_error(BusErrorKind::EmptyParallel)];
             };
             let acc_left = eval_port_elems(first, false, context);
             if !right {
@@ -6415,7 +6419,7 @@ fn eval_port_elems(phrase: &McPhrase, right: bool, context: &dyn ShapeCtx) -> Ve
                         )
                         .with_uri(context.uri().to_string()),
                     );
-                    vec![McBus::new("<error:shape_mismatch>")]
+                    vec![McBus::new_error(BusErrorKind::ShapeMismatch)]
                 }
             } else if g.left_match && !g.opds.is_empty() {
                 eval_port_elems(&g.opds[0], false, context)
@@ -6428,7 +6432,7 @@ fn eval_port_elems(phrase: &McPhrase, right: bool, context: &dyn ShapeCtx) -> Ve
                     )
                     .with_uri(context.uri().to_string()),
                 );
-                vec![McBus::new("<error:shape_mismatch>")]
+                vec![McBus::new_error(BusErrorKind::ShapeMismatch)]
             }
         }
         // Multiple operands concatenate every element's port in order.

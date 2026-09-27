@@ -109,7 +109,7 @@ pub fn check_series(dir: ConnDir, lhs: &OpdShape, rhs: &OpdShape) -> OpCheck {
 /// `get_left`/`get_right` only exposes a single point, so the `1*2` row-vector
 /// shape is invisible at the phrase layer and only fully expanded in Pass2.
 pub fn port_row_shape(elems: &[McBus]) -> Shape {
-    if elems.is_empty() || elems.iter().any(|e| e.name.contains("<error")) {
+    if elems.is_empty() || elems.iter().any(|e| e.error_kind().is_some()) {
         return Shape::unknown();
     }
     Shape::new(elems.iter().map(|e| e.size()).sum::<usize>().max(1))

@@ -4,7 +4,7 @@
 
 use super::mc_phrase::McPhrase;
 use crate::ast::node::AstNode;
-use crate::semantic::basic::mc_bus::McBus;
+use crate::semantic::basic::mc_bus::{BusErrorKind, McBus};
 use crate::semantic::basic::mc_ref::{McRef, McInstanceRef};
 use crate::semantic::mc_func::HasFindInst;
 use crate::semantic::mc_inst::McInstance;
@@ -83,7 +83,7 @@ impl McGroup {
                 )
                 .with_action(LedgerAction::Silent),
             );
-            vec![McBus::new("<error:shape_mismatch>")]
+            vec![McBus::new_error(BusErrorKind::ShapeMismatch)]
         }
     }
 
@@ -101,7 +101,7 @@ impl McGroup {
                 )
                 .with_action(LedgerAction::Silent),
             );
-            vec![McBus::new("<error:shape_mismatch>")]
+            vec![McBus::new_error(BusErrorKind::ShapeMismatch)]
         }
     }
 }

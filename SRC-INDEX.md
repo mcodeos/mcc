@@ -32,10 +32,10 @@ range (threshold 40KB).
 |---|---|---|
 | `viz/layout/equipotential_tree.rs` | 417 KB | 203 |
 | `db/infra/mc_code.rs` | 397 KB | 121 |
-| `semantic/basic/mc_phrase.rs` | 350 KB | 89 |
+| `semantic/basic/mc_phrase.rs` | 351 KB | 89 |
 | `semantic/component/mc_pins/mod.rs` | 242 KB | 112 |
+| `semantic/validation/nets/mod.rs` | 209 KB | 136 |
 | `db/diagnostic/errcodes.rs` | 206 KB | 466 |
-| `semantic/validation/nets/mod.rs` | 205 KB | 135 |
 | `instant/mc_mod/stmt.rs` | 197 KB | 80 |
 | `rules.rs` | 190 KB | 83 |
 | `instant/insttab.rs` | 181 KB | 130 |
@@ -46,8 +46,8 @@ range (threshold 40KB).
 | `rpc/handlers/mod.rs` | 132 KB | 107 |
 | `instant/mc_mod/phases.rs` | 129 KB | 29 |
 | `export/kicad_sch.rs` | 127 KB | 106 |
-| `instant/mc_mod/points.rs` | 123 KB | 20 |
 | `semantic/mc_inst.rs` | 122 KB | 88 |
+| `instant/mc_mod/points.rs` | 121 KB | 20 |
 | `semantic/module/mod.rs` | 119 KB | 85 |
 | `semantic/basic/mc_fcall.rs` | 112 KB | 22 |
 | `vector/graph/fromblock.rs` | 103 KB | 35 |
@@ -67,13 +67,13 @@ range (threshold 40KB).
 | `db/` | 28 | 1038 KB |
 | `eval/` | 2 | 50 KB |
 | `export/` | 7 | 185 KB |
-| `instant/` | 41 | 1653 KB |
+| `instant/` | 41 | 1651 KB |
 | `lsp/` | 7 | 70 KB |
 | `output/` | 7 | 107 KB |
 | `query/` | 9 | 170 KB |
 | `refdef/` | 7 | 126 KB |
 | `rpc/` | 16 | 312 KB |
-| `semantic/` | 98 | 2871 KB |
+| `semantic/` | 98 | 2877 KB |
 | `stages/` | 18 | 396 KB |
 | `vector/` | 26 | 496 KB |
 | `viz/` | 97 | 2448 KB |
@@ -3293,10 +3293,10 @@ instant/mc_mod/bus.rs#L69  fn find_bus
 instant/mc_mod/bus.rs#L74  fn is_bus
 instant/mc_mod/bus.rs#L96  fn check_bus_member_ref
 instant/mc_mod/bus.rs#L159  fn expand_node_element
-instant/mc_mod/bus.rs#L205  fn expand_node_element_to_points
-instant/mc_mod/bus.rs#L249  fn extract_member_names
-instant/mc_mod/bus.rs#L259  fn resolve_curly_mn_points
-instant/mc_mod/bus.rs#L325  fn process_curly_mn_as_bus
+instant/mc_mod/bus.rs#L206  fn expand_node_element_to_points
+instant/mc_mod/bus.rs#L251  fn extract_member_names
+instant/mc_mod/bus.rs#L261  fn resolve_curly_mn_points
+instant/mc_mod/bus.rs#L327  fn process_curly_mn_as_bus
 instant/mc_mod/dump.rs#L43  static DUMP_ENABLED
 instant/mc_mod/dump.rs#L49  fn dump_enabled
 instant/mc_mod/dump.rs#L62  fn p1_prefix
@@ -3391,13 +3391,13 @@ instant/mc_mod/fcallinst.rs#L1546  fn run_submodule_method
 instant/mc_mod/fcallinst.rs#L2027  fn run_component_method
 instant/mc_mod/fcallinst.rs#L2389  fn strip_host_iface_phantoms
 instant/mc_mod/fcallinst.rs#L2420  fn expand_bus_labels
-instant/mc_mod/fcallinst.rs#L2494  fn instance_declares_port
-instant/mc_mod/fcallinst.rs#L2509  fn actual_is_parent_ref
-instant/mc_mod/fcallinst.rs#L2537  fn prefix_instance_stmt_with_skip
-instant/mc_mod/fcallinst.rs#L2547  fn prefix_instance_phrase_with_skip
-instant/mc_mod/fcallinst.rs#L2861  fn prefix_instance_node_element_with_skip
-instant/mc_mod/fcallinst.rs#L2977  fn prefix_param_value_with_skip
-instant/mc_mod/fcallinst.rs#L3026  fn validate_fcall_return_shape
+instant/mc_mod/fcallinst.rs#L2495  fn instance_declares_port
+instant/mc_mod/fcallinst.rs#L2510  fn actual_is_parent_ref
+instant/mc_mod/fcallinst.rs#L2538  fn prefix_instance_stmt_with_skip
+instant/mc_mod/fcallinst.rs#L2548  fn prefix_instance_phrase_with_skip
+instant/mc_mod/fcallinst.rs#L2863  fn prefix_instance_node_element_with_skip
+instant/mc_mod/fcallinst.rs#L2981  fn prefix_param_value_with_skip
+instant/mc_mod/fcallinst.rs#L3030  fn validate_fcall_return_shape
 instant/mc_mod/funccall.rs#L40  enum FuncCallInst
 instant/mc_mod/funccall.rs#L57  enum FaceSide
 instant/mc_mod/funccall.rs#L62  impl FaceSide
@@ -3517,20 +3517,20 @@ instant/mc_mod/points.rs#L95  fn resolve_bare_member_pid
 instant/mc_mod/points.rs#L153  fn declared_pin_id
 instant/mc_mod/points.rs#L177  impl InstantiationBuilder
 instant/mc_mod/points.rs#L178  fn get_left_points
-instant/mc_mod/points.rs#L956  fn get_right_points
-instant/mc_mod/points.rs#L1583  fn get_left_points_from_phrase
-instant/mc_mod/points.rs#L1629  fn get_right_points_from_phrase
-instant/mc_mod/points.rs#L1674  fn deepest_component_owner
-instant/mc_mod/points.rs#L1688  fn node_to_netpoint
-instant/mc_mod/points.rs#L1959  fn expand_port_lanes
-instant/mc_mod/points.rs#L1962  fn parse_brace_members
-instant/mc_mod/points.rs#L1982  fn strip_brace_suffix
-instant/mc_mod/points.rs#L2007  fn iotype_allowed
-instant/mc_mod/points.rs#L2333  fn normalize_one_inst_pin_path
-instant/mc_mod/points.rs#L2365  fn note_internal_member_ref
-instant/mc_mod/points.rs#L2407  fn resolve_child_points
-instant/mc_mod/points.rs#L2462  fn is_port
-instant/mc_mod/points.rs#L2466  fn ensure_label
+instant/mc_mod/points.rs#L918  fn get_right_points
+instant/mc_mod/points.rs#L1545  fn get_left_points_from_phrase
+instant/mc_mod/points.rs#L1591  fn get_right_points_from_phrase
+instant/mc_mod/points.rs#L1636  fn deepest_component_owner
+instant/mc_mod/points.rs#L1650  fn node_to_netpoint
+instant/mc_mod/points.rs#L1921  fn expand_port_lanes
+instant/mc_mod/points.rs#L1924  fn parse_brace_members
+instant/mc_mod/points.rs#L1944  fn strip_brace_suffix
+instant/mc_mod/points.rs#L1969  fn iotype_allowed
+instant/mc_mod/points.rs#L2295  fn normalize_one_inst_pin_path
+instant/mc_mod/points.rs#L2327  fn note_internal_member_ref
+instant/mc_mod/points.rs#L2369  fn resolve_child_points
+instant/mc_mod/points.rs#L2424  fn is_port
+instant/mc_mod/points.rs#L2428  fn ensure_label
 instant/mc_mod/stmt.rs#L29  struct IfaceEndpoint
 instant/mc_mod/stmt.rs#L36  enum LaneItem
 instant/mc_mod/stmt.rs#L53  enum DirExpect
@@ -3613,25 +3613,25 @@ instant/mc_mod/stmt.rs#L3888  fn resolve_array_caller_to_existing
 instant/mc_mod/stmt.rs#L3950  fn phrase_contains_failed_class
 instant/mc_mod/subst.rs#L33  impl InstantiationBuilder
 instant/mc_mod/subst.rs#L40  fn param_value_to_node_elements
-instant/mc_mod/subst.rs#L118  fn phrase_to_node_elements
-instant/mc_mod/subst.rs#L140  fn opdc_to_node_elements
-instant/mc_mod/subst.rs#L156  fn ids_to_node_elements
-instant/mc_mod/subst.rs#L183  fn substitute_node_element
-instant/mc_mod/subst.rs#L259  fn substitute_node_elements
-instant/mc_mod/subst.rs#L271  fn node_elements_to_bus
-instant/mc_mod/subst.rs#L303  fn substitute_param_value
-instant/mc_mod/subst.rs#L406  fn external_wrap
-instant/mc_mod/subst.rs#L418  fn param_value_to_phrase
-instant/mc_mod/subst.rs#L458  fn self_ref_keyword
-instant/mc_mod/subst.rs#L479  fn self_ref_to_bus
-instant/mc_mod/subst.rs#L502  fn substitute_phrase
-instant/mc_mod/subst.rs#L781  fn substitute_stmt
-instant/mc_mod/subst.rs#L792  mod tests
-instant/mc_mod/subst.rs#L801  struct NoScope
-instant/mc_mod/subst.rs#L805  impl ShapeCtx for NoScope
-instant/mc_mod/subst.rs#L806  fn find_inst
-instant/mc_mod/subst.rs#L809  fn uri
-instant/mc_mod/subst.rs#L819  fn mat_subst__inline_attrs_param_value_is_not_degraded_to_text_node
+instant/mc_mod/subst.rs#L121  fn phrase_to_node_elements
+instant/mc_mod/subst.rs#L143  fn opdc_to_node_elements
+instant/mc_mod/subst.rs#L159  fn ids_to_node_elements
+instant/mc_mod/subst.rs#L186  fn substitute_node_element
+instant/mc_mod/subst.rs#L264  fn substitute_node_elements
+instant/mc_mod/subst.rs#L276  fn node_elements_to_bus
+instant/mc_mod/subst.rs#L308  fn substitute_param_value
+instant/mc_mod/subst.rs#L411  fn external_wrap
+instant/mc_mod/subst.rs#L423  fn param_value_to_phrase
+instant/mc_mod/subst.rs#L463  fn self_ref_keyword
+instant/mc_mod/subst.rs#L484  fn self_ref_to_bus
+instant/mc_mod/subst.rs#L507  fn substitute_phrase
+instant/mc_mod/subst.rs#L786  fn substitute_stmt
+instant/mc_mod/subst.rs#L797  mod tests
+instant/mc_mod/subst.rs#L806  struct NoScope
+instant/mc_mod/subst.rs#L810  impl ShapeCtx for NoScope
+instant/mc_mod/subst.rs#L811  fn find_inst
+instant/mc_mod/subst.rs#L814  fn uri
+instant/mc_mod/subst.rs#L824  fn mat_subst__inline_attrs_param_value_is_not_degraded_to_text_node
 instant/mc_mod/vexpr/eval.rs#L61  struct LaneOutcome
 instant/mc_mod/vexpr/eval.rs#L68  impl InstantiationBuilder
 instant/mc_mod/vexpr/eval.rs#L74  fn vexpr_fold_member
@@ -5238,41 +5238,46 @@ semantic/basic/mc_bus.rs#L9  enum IoSide
 semantic/basic/mc_bus.rs#L14  impl IoSide
 semantic/basic/mc_bus.rs#L16  fn word
 semantic/basic/mc_bus.rs#L24  fn pin
-semantic/basic/mc_bus.rs#L49  struct McBus
-semantic/basic/mc_bus.rs#L61  impl PartialEq for McBus
-semantic/basic/mc_bus.rs#L62  fn eq
-semantic/basic/mc_bus.rs#L69  impl Eq for McBus
-semantic/basic/mc_bus.rs#L71  impl std::fmt::Debug for McBus
-semantic/basic/mc_bus.rs#L72  fn fmt
-semantic/basic/mc_bus.rs#L81  impl McBus
-semantic/basic/mc_bus.rs#L82  fn new
-semantic/basic/mc_bus.rs#L95  fn synthetic_io
-semantic/basic/mc_bus.rs#L104  fn is_synthetic
-semantic/basic/mc_bus.rs#L108  fn synthetic_side
-semantic/basic/mc_bus.rs#L112  fn new_with_members
-semantic/basic/mc_bus.rs#L121  fn name
-semantic/basic/mc_bus.rs#L127  const ERROR_PREFIX
-semantic/basic/mc_bus.rs#L129  fn add_member
-semantic/basic/mc_bus.rs#L135  fn get_full_members
-semantic/basic/mc_bus.rs#L139  fn member_ref
-semantic/basic/mc_bus.rs#L149  fn size
-semantic/basic/mc_bus.rs#L158  impl From<&McBus> for Vec<McBus>
-semantic/basic/mc_bus.rs#L159  fn from
-semantic/basic/mc_bus.rs#L169  impl From<McBus> for Vec<McBus>
-semantic/basic/mc_bus.rs#L170  fn from
-semantic/basic/mc_bus.rs#L190  struct McList
-semantic/basic/mc_bus.rs#L195  impl std::fmt::Debug for McList
-semantic/basic/mc_bus.rs#L196  fn fmt
-semantic/basic/mc_bus.rs#L205  impl McList
-semantic/basic/mc_bus.rs#L206  fn new_with_members
-semantic/basic/mc_bus.rs#L213  fn name
-semantic/basic/mc_bus.rs#L217  fn add_member
-semantic/basic/mc_bus.rs#L223  impl std::fmt::Display for McBus
-semantic/basic/mc_bus.rs#L224  fn fmt
-semantic/basic/mc_bus.rs#L235  mod tests
-semantic/basic/mc_bus.rs#L242  fn synthetic_io_declares_its_side
-semantic/basic/mc_bus.rs#L257  fn provenance_is_not_identity
-semantic/basic/mc_bus.rs#L268  fn provenance_survives_the_hand_offs
+semantic/basic/mc_bus.rs#L37  enum BusErrorKind
+semantic/basic/mc_bus.rs#L52  impl BusErrorKind
+semantic/basic/mc_bus.rs#L54  fn spelling
+semantic/basic/mc_bus.rs#L83  struct McBus
+semantic/basic/mc_bus.rs#L100  impl PartialEq for McBus
+semantic/basic/mc_bus.rs#L101  fn eq
+semantic/basic/mc_bus.rs#L108  impl Eq for McBus
+semantic/basic/mc_bus.rs#L110  impl std::fmt::Debug for McBus
+semantic/basic/mc_bus.rs#L111  fn fmt
+semantic/basic/mc_bus.rs#L120  impl McBus
+semantic/basic/mc_bus.rs#L121  fn new
+semantic/basic/mc_bus.rs#L135  fn synthetic_io
+semantic/basic/mc_bus.rs#L149  fn new_error
+semantic/basic/mc_bus.rs#L160  fn error_kind
+semantic/basic/mc_bus.rs#L164  fn is_synthetic
+semantic/basic/mc_bus.rs#L168  fn synthetic_side
+semantic/basic/mc_bus.rs#L172  fn new_with_members
+semantic/basic/mc_bus.rs#L182  fn name
+semantic/basic/mc_bus.rs#L188  const ERROR_PREFIX
+semantic/basic/mc_bus.rs#L190  fn add_member
+semantic/basic/mc_bus.rs#L196  fn get_full_members
+semantic/basic/mc_bus.rs#L200  fn member_ref
+semantic/basic/mc_bus.rs#L211  fn size
+semantic/basic/mc_bus.rs#L220  impl From<&McBus> for Vec<McBus>
+semantic/basic/mc_bus.rs#L221  fn from
+semantic/basic/mc_bus.rs#L232  impl From<McBus> for Vec<McBus>
+semantic/basic/mc_bus.rs#L233  fn from
+semantic/basic/mc_bus.rs#L254  struct McList
+semantic/basic/mc_bus.rs#L259  impl std::fmt::Debug for McList
+semantic/basic/mc_bus.rs#L260  fn fmt
+semantic/basic/mc_bus.rs#L269  impl McList
+semantic/basic/mc_bus.rs#L270  fn new_with_members
+semantic/basic/mc_bus.rs#L277  fn name
+semantic/basic/mc_bus.rs#L281  fn add_member
+semantic/basic/mc_bus.rs#L287  impl std::fmt::Display for McBus
+semantic/basic/mc_bus.rs#L288  fn fmt
+semantic/basic/mc_bus.rs#L299  mod tests
+semantic/basic/mc_bus.rs#L306  fn synthetic_io_declares_its_side
+semantic/basic/mc_bus.rs#L321  fn provenance_is_not_identity
+semantic/basic/mc_bus.rs#L332  fn provenance_survives_the_hand_offs
 semantic/basic/mc_closure.rs#L14  struct McClosure
 semantic/basic/mc_closure.rs#L23  impl McClosure
 semantic/basic/mc_closure.rs#L25  fn parse
@@ -5842,80 +5847,80 @@ semantic/basic/mc_phrase.rs#L4219  fn check_net_pair_plusminus
 semantic/basic/mc_phrase.rs#L4234  impl McPhrase
 semantic/basic/mc_phrase.rs#L4239  fn reverse_is_noop
 semantic/basic/mc_phrase.rs#L4243  fn get_left
-semantic/basic/mc_phrase.rs#L4392  fn get_right
-semantic/basic/mc_phrase.rs#L4522  fn dot_or_curly
-semantic/basic/mc_phrase.rs#L4915  fn access_node_element_members
-semantic/basic/mc_phrase.rs#L4978  fn curly_mn
-semantic/basic/mc_phrase.rs#L4994  fn opd_to_node_element_vec
-semantic/basic/mc_phrase.rs#L5082  fn upgrade_new_label_or_bus
-semantic/basic/mc_phrase.rs#L5093  fn needs_paren_for_priority
-semantic/basic/mc_phrase.rs#L5112  fn needs_paren_for_series
-semantic/basic/mc_phrase.rs#L5137  fn format_series_item
-semantic/basic/mc_phrase.rs#L5145  impl std::fmt::Display for McPhrase
-semantic/basic/mc_phrase.rs#L5146  fn fmt
-semantic/basic/mc_phrase.rs#L5214  fn flatten
-semantic/basic/mc_phrase.rs#L5318  fn stretch_licensed_members
-semantic/basic/mc_phrase.rs#L5342  fn operand_is_licensed_member
-semantic/basic/mc_phrase.rs#L5358  fn operand_lane_width
-semantic/basic/mc_phrase.rs#L5366  fn infer_shape_and_upgrade
-semantic/basic/mc_phrase.rs#L5546  fn check_transpose_allowed
-semantic/basic/mc_phrase.rs#L5567  fn interface_elems
-semantic/basic/mc_phrase.rs#L5609  fn with_owner
-semantic/basic/mc_phrase.rs#L5629  fn component_port_elems
-semantic/basic/mc_phrase.rs#L5691  fn base_instance_name
-semantic/basic/mc_phrase.rs#L5710  fn module_port_elems
-semantic/basic/mc_phrase.rs#L5785  fn operand_base_member
-semantic/basic/mc_phrase.rs#L5816  fn module_member_is_internal
-semantic/basic/mc_phrase.rs#L5859  fn report_internal_member_access
-semantic/basic/mc_phrase.rs#L5891  fn group_display_form
-semantic/basic/mc_phrase.rs#L5896  fn eval_port_elems
-semantic/basic/mc_phrase.rs#L6457  impl OpdShape
-semantic/basic/mc_phrase.rs#L6464  fn of
-semantic/basic/mc_phrase.rs#L6474  fn from_sides
-semantic/basic/mc_phrase.rs#L6521  fn check_list_column_width_mixed
-semantic/basic/mc_phrase.rs#L6578  fn declared_scalar_element
-semantic/basic/mc_phrase.rs#L6601  fn list_element_elems
-semantic/basic/mc_phrase.rs#L6617  fn column_kind
-semantic/basic/mc_phrase.rs#L6647  enum ColumnKind
-semantic/basic/mc_phrase.rs#L6678  fn is_connectable
-semantic/basic/mc_phrase.rs#L6693  mod nested_subscript_tests
-semantic/basic/mc_phrase.rs#L6697  fn nested_subscript__embedded_group_splits_from_single_ida
-semantic/basic/mc_phrase.rs#L6705  fn nested_subscript__named_inner_members
-semantic/basic/mc_phrase.rs#L6713  fn nested_subscript__matrix_is_not_split
-semantic/basic/mc_phrase.rs#L6719  fn nested_subscript__curly_on_array_splits
-semantic/basic/mc_phrase.rs#L6737  fn nested_subscript__plain_curly_bus_is_not_split
-semantic/basic/mc_phrase.rs#L6758  mod r0_group_structure_tests
-semantic/basic/mc_phrase.rs#L6762  fn group
-semantic/basic/mc_phrase.rs#L6773  fn spliced_statement
-semantic/basic/mc_phrase.rs#L6788  fn r0_group_structure__inner_chain_survives_the_statement_split
-semantic/basic/mc_phrase.rs#L6808  fn r0_group_structure__display_renders_the_inner_parentheses
-semantic/basic/mc_phrase.rs#L6820  fn r0_group_structure__inner_direction_stays_under_a_different_outer
-semantic/basic/mc_ref.rs#L12  struct McInstanceRef
-semantic/basic/mc_ref.rs#L16  impl McInstanceRef
-semantic/basic/mc_ref.rs#L17  fn new
-semantic/basic/mc_ref.rs#L21  fn full_name
-semantic/basic/mc_ref.rs#L60  fn from_label
-semantic/basic/mc_ref.rs#L64  fn to_bus
-semantic/basic/mc_ref.rs#L73  impl fmt::Display for McInstanceRef
-semantic/basic/mc_ref.rs#L74  fn fmt
-semantic/basic/mc_ref.rs#L83  enum McRef
-semantic/basic/mc_ref.rs#L98  impl McRef
-semantic/basic/mc_ref.rs#L99  fn name
-semantic/basic/mc_ref.rs#L103  fn group
-semantic/basic/mc_ref.rs#L107  fn ports
-semantic/basic/mc_ref.rs#L115  fn leaves
-semantic/basic/mc_ref.rs#L127  fn from_label
-semantic/basic/mc_ref.rs#L131  fn from_labels
-semantic/basic/mc_ref.rs#L140  fn get_left
-semantic/basic/mc_ref.rs#L161  fn get_right
-semantic/basic/mc_ref.rs#L183  impl fmt::Display for McRef
-semantic/basic/mc_ref.rs#L184  fn fmt
-semantic/basic/mc_ref.rs#L200  impl From<McInstanceRef> for McRef
-semantic/basic/mc_ref.rs#L201  fn from
-semantic/basic/mc_ref.rs#L206  impl From<McInstance> for McInstanceRef
-semantic/basic/mc_ref.rs#L207  fn from
-semantic/basic/mc_ref.rs#L212  impl From<McInstance> for McRef
-semantic/basic/mc_ref.rs#L213  fn from
+semantic/basic/mc_phrase.rs#L4393  fn get_right
+semantic/basic/mc_phrase.rs#L4524  fn dot_or_curly
+semantic/basic/mc_phrase.rs#L4919  fn access_node_element_members
+semantic/basic/mc_phrase.rs#L4982  fn curly_mn
+semantic/basic/mc_phrase.rs#L4998  fn opd_to_node_element_vec
+semantic/basic/mc_phrase.rs#L5086  fn upgrade_new_label_or_bus
+semantic/basic/mc_phrase.rs#L5097  fn needs_paren_for_priority
+semantic/basic/mc_phrase.rs#L5116  fn needs_paren_for_series
+semantic/basic/mc_phrase.rs#L5141  fn format_series_item
+semantic/basic/mc_phrase.rs#L5149  impl std::fmt::Display for McPhrase
+semantic/basic/mc_phrase.rs#L5150  fn fmt
+semantic/basic/mc_phrase.rs#L5218  fn flatten
+semantic/basic/mc_phrase.rs#L5322  fn stretch_licensed_members
+semantic/basic/mc_phrase.rs#L5346  fn operand_is_licensed_member
+semantic/basic/mc_phrase.rs#L5362  fn operand_lane_width
+semantic/basic/mc_phrase.rs#L5370  fn infer_shape_and_upgrade
+semantic/basic/mc_phrase.rs#L5550  fn check_transpose_allowed
+semantic/basic/mc_phrase.rs#L5571  fn interface_elems
+semantic/basic/mc_phrase.rs#L5613  fn with_owner
+semantic/basic/mc_phrase.rs#L5633  fn component_port_elems
+semantic/basic/mc_phrase.rs#L5695  fn base_instance_name
+semantic/basic/mc_phrase.rs#L5714  fn module_port_elems
+semantic/basic/mc_phrase.rs#L5789  fn operand_base_member
+semantic/basic/mc_phrase.rs#L5820  fn module_member_is_internal
+semantic/basic/mc_phrase.rs#L5863  fn report_internal_member_access
+semantic/basic/mc_phrase.rs#L5895  fn group_display_form
+semantic/basic/mc_phrase.rs#L5900  fn eval_port_elems
+semantic/basic/mc_phrase.rs#L6461  impl OpdShape
+semantic/basic/mc_phrase.rs#L6468  fn of
+semantic/basic/mc_phrase.rs#L6478  fn from_sides
+semantic/basic/mc_phrase.rs#L6525  fn check_list_column_width_mixed
+semantic/basic/mc_phrase.rs#L6582  fn declared_scalar_element
+semantic/basic/mc_phrase.rs#L6605  fn list_element_elems
+semantic/basic/mc_phrase.rs#L6621  fn column_kind
+semantic/basic/mc_phrase.rs#L6651  enum ColumnKind
+semantic/basic/mc_phrase.rs#L6682  fn is_connectable
+semantic/basic/mc_phrase.rs#L6697  mod nested_subscript_tests
+semantic/basic/mc_phrase.rs#L6701  fn nested_subscript__embedded_group_splits_from_single_ida
+semantic/basic/mc_phrase.rs#L6709  fn nested_subscript__named_inner_members
+semantic/basic/mc_phrase.rs#L6717  fn nested_subscript__matrix_is_not_split
+semantic/basic/mc_phrase.rs#L6723  fn nested_subscript__curly_on_array_splits
+semantic/basic/mc_phrase.rs#L6741  fn nested_subscript__plain_curly_bus_is_not_split
+semantic/basic/mc_phrase.rs#L6762  mod r0_group_structure_tests
+semantic/basic/mc_phrase.rs#L6766  fn group
+semantic/basic/mc_phrase.rs#L6777  fn spliced_statement
+semantic/basic/mc_phrase.rs#L6792  fn r0_group_structure__inner_chain_survives_the_statement_split
+semantic/basic/mc_phrase.rs#L6812  fn r0_group_structure__display_renders_the_inner_parentheses
+semantic/basic/mc_phrase.rs#L6824  fn r0_group_structure__inner_direction_stays_under_a_different_outer
+semantic/basic/mc_ref.rs#L14  struct McInstanceRef
+semantic/basic/mc_ref.rs#L18  impl McInstanceRef
+semantic/basic/mc_ref.rs#L19  fn new
+semantic/basic/mc_ref.rs#L23  fn full_name
+semantic/basic/mc_ref.rs#L62  fn from_label
+semantic/basic/mc_ref.rs#L66  fn to_bus
+semantic/basic/mc_ref.rs#L75  impl fmt::Display for McInstanceRef
+semantic/basic/mc_ref.rs#L76  fn fmt
+semantic/basic/mc_ref.rs#L85  enum McRef
+semantic/basic/mc_ref.rs#L100  impl McRef
+semantic/basic/mc_ref.rs#L101  fn name
+semantic/basic/mc_ref.rs#L105  fn group
+semantic/basic/mc_ref.rs#L109  fn ports
+semantic/basic/mc_ref.rs#L117  fn leaves
+semantic/basic/mc_ref.rs#L129  fn from_label
+semantic/basic/mc_ref.rs#L133  fn from_labels
+semantic/basic/mc_ref.rs#L142  fn get_left
+semantic/basic/mc_ref.rs#L163  fn get_right
+semantic/basic/mc_ref.rs#L185  impl fmt::Display for McRef
+semantic/basic/mc_ref.rs#L186  fn fmt
+semantic/basic/mc_ref.rs#L202  impl From<McInstanceRef> for McRef
+semantic/basic/mc_ref.rs#L203  fn from
+semantic/basic/mc_ref.rs#L208  impl From<McInstance> for McInstanceRef
+semantic/basic/mc_ref.rs#L209  fn from
+semantic/basic/mc_ref.rs#L214  impl From<McInstance> for McRef
+semantic/basic/mc_ref.rs#L215  fn from
 semantic/basic/mc_role.rs#L12  struct McRole
 semantic/basic/mc_role.rs#L19  impl McRole
 semantic/basic/mc_role.rs#L20  fn new
@@ -6690,82 +6695,82 @@ semantic/mc_inst.rs#L155  fn get_name
 semantic/mc_inst.rs#L175  fn members
 semantic/mc_inst.rs#L184  fn full_members
 semantic/mc_inst.rs#L192  fn to_node_element_with_prefix
-semantic/mc_inst.rs#L203  fn to_node_element
-semantic/mc_inst.rs#L224  fn is_component
-semantic/mc_inst.rs#L232  fn is_module
-semantic/mc_inst.rs#L240  fn is_label_or_bus
-semantic/mc_inst.rs#L253  fn type_name
-semantic/mc_inst.rs#L279  fn resolve_member
-semantic/mc_inst.rs#L301  struct McInstances
-semantic/mc_inst.rs#L352  impl McInstances
-semantic/mc_inst.rs#L353  fn new
-semantic/mc_inst.rs#L374  fn set_nc_pins
-semantic/mc_inst.rs#L380  fn get_vector_members
-semantic/mc_inst.rs#L386  fn vector_groups
-semantic/mc_inst.rs#L391  fn set_label_kind
-semantic/mc_inst.rs#L401  fn get_label_kind
-semantic/mc_inst.rs#L414  fn is_port_io_type
-semantic/mc_inst.rs#L421  fn contains
-semantic/mc_inst.rs#L426  fn iter_ports
-semantic/mc_inst.rs#L446  fn names_in_decl_order
-semantic/mc_inst.rs#L461  fn iter_in_decl_order
-semantic/mc_inst.rs#L468  fn iter_ports_in_decl_order
-semantic/mc_inst.rs#L478  fn get_port_span
-semantic/mc_inst.rs#L483  fn port_spans
-semantic/mc_inst.rs#L488  fn iter_instance_names
-semantic/mc_inst.rs#L494  fn iter_port_names
-semantic/mc_inst.rs#L510  fn insts
-semantic/mc_inst.rs#L518  fn resolve_idx
-semantic/mc_inst.rs#L528  fn all_name_forms_for
-semantic/mc_inst.rs#L576  fn store_port_span
-semantic/mc_inst.rs#L588  fn register_bus_def
-semantic/mc_inst.rs#L605  fn bus_def
-semantic/mc_inst.rs#L610  fn iter_bus_defs
-semantic/mc_inst.rs#L617  fn record_declareb_def
-semantic/mc_inst.rs#L624  fn declareb_def
-semantic/mc_inst.rs#L631  fn iter_declareb_defs
-semantic/mc_inst.rs#L638  fn iter_ports_with_span
-semantic/mc_inst.rs#L662  fn iter_labels_with_span
-semantic/mc_inst.rs#L686  fn iter_port_spans_sorted
-semantic/mc_inst.rs#L699  fn record_net_ref
-semantic/mc_inst.rs#L704  fn iter_net_refs
-semantic/mc_inst.rs#L709  fn record_chain_ref
-semantic/mc_inst.rs#L719  fn iter_chain_refs
-semantic/mc_inst.rs#L727  fn find_name_in_text
-semantic/mc_inst.rs#L762  fn parse
-semantic/mc_inst.rs#L1474  fn strip_trailing_digits
-semantic/mc_inst.rs#L1483  fn parse_declare
-semantic/mc_inst.rs#L2011  fn register_nested_iface_declare_args
-semantic/mc_inst.rs#L2058  fn declare_class_ids
-semantic/mc_inst.rs#L2071  fn parse_opd
-semantic/mc_inst.rs#L2226  fn parse_opd_square_vec
-semantic/mc_inst.rs#L2328  fn get
-semantic/mc_inst.rs#L2332  fn get_mut
-semantic/mc_inst.rs#L2336  fn get_with_iotype
-semantic/mc_inst.rs#L2340  fn iter
-semantic/mc_inst.rs#L2344  fn iter_with_iotype
-semantic/mc_inst.rs#L2348  fn create
-semantic/mc_inst.rs#L2355  fn create_inst
-semantic/mc_inst.rs#L2361  fn find_port
-semantic/mc_inst.rs#L2366  fn inputs
-semantic/mc_inst.rs#L2375  fn outputs
-semantic/mc_inst.rs#L2384  fn bidirs
-semantic/mc_inst.rs#L2393  fn get_all_inputs
-semantic/mc_inst.rs#L2402  fn get_all_outputs
-semantic/mc_inst.rs#L2411  fn get_all_ports
-semantic/mc_inst.rs#L2416  fn is_empty
-semantic/mc_inst.rs#L2421  fn inputs_with_name
-semantic/mc_inst.rs#L2430  fn outputs_with_name
-semantic/mc_inst.rs#L2439  fn bidirs_with_name
-semantic/mc_inst.rs#L2448  fn powers_with_name
-semantic/mc_inst.rs#L2457  fn get_iotype
-semantic/mc_inst.rs#L2462  fn get_all_names
-semantic/mc_inst.rs#L2467  impl From<McInstance> for McPhrase
-semantic/mc_inst.rs#L2468  fn from
-semantic/mc_inst.rs#L2475  impl std::fmt::Display for McInstance
-semantic/mc_inst.rs#L2476  fn fmt
-semantic/mc_inst.rs#L2513  impl std::fmt::Display for McInstances
-semantic/mc_inst.rs#L2514  fn fmt
+semantic/mc_inst.rs#L204  fn to_node_element
+semantic/mc_inst.rs#L225  fn is_component
+semantic/mc_inst.rs#L233  fn is_module
+semantic/mc_inst.rs#L241  fn is_label_or_bus
+semantic/mc_inst.rs#L254  fn type_name
+semantic/mc_inst.rs#L280  fn resolve_member
+semantic/mc_inst.rs#L302  struct McInstances
+semantic/mc_inst.rs#L353  impl McInstances
+semantic/mc_inst.rs#L354  fn new
+semantic/mc_inst.rs#L375  fn set_nc_pins
+semantic/mc_inst.rs#L381  fn get_vector_members
+semantic/mc_inst.rs#L387  fn vector_groups
+semantic/mc_inst.rs#L392  fn set_label_kind
+semantic/mc_inst.rs#L402  fn get_label_kind
+semantic/mc_inst.rs#L415  fn is_port_io_type
+semantic/mc_inst.rs#L422  fn contains
+semantic/mc_inst.rs#L427  fn iter_ports
+semantic/mc_inst.rs#L447  fn names_in_decl_order
+semantic/mc_inst.rs#L462  fn iter_in_decl_order
+semantic/mc_inst.rs#L469  fn iter_ports_in_decl_order
+semantic/mc_inst.rs#L479  fn get_port_span
+semantic/mc_inst.rs#L484  fn port_spans
+semantic/mc_inst.rs#L489  fn iter_instance_names
+semantic/mc_inst.rs#L495  fn iter_port_names
+semantic/mc_inst.rs#L511  fn insts
+semantic/mc_inst.rs#L519  fn resolve_idx
+semantic/mc_inst.rs#L529  fn all_name_forms_for
+semantic/mc_inst.rs#L577  fn store_port_span
+semantic/mc_inst.rs#L589  fn register_bus_def
+semantic/mc_inst.rs#L606  fn bus_def
+semantic/mc_inst.rs#L611  fn iter_bus_defs
+semantic/mc_inst.rs#L618  fn record_declareb_def
+semantic/mc_inst.rs#L625  fn declareb_def
+semantic/mc_inst.rs#L632  fn iter_declareb_defs
+semantic/mc_inst.rs#L639  fn iter_ports_with_span
+semantic/mc_inst.rs#L663  fn iter_labels_with_span
+semantic/mc_inst.rs#L687  fn iter_port_spans_sorted
+semantic/mc_inst.rs#L700  fn record_net_ref
+semantic/mc_inst.rs#L705  fn iter_net_refs
+semantic/mc_inst.rs#L710  fn record_chain_ref
+semantic/mc_inst.rs#L720  fn iter_chain_refs
+semantic/mc_inst.rs#L728  fn find_name_in_text
+semantic/mc_inst.rs#L763  fn parse
+semantic/mc_inst.rs#L1475  fn strip_trailing_digits
+semantic/mc_inst.rs#L1484  fn parse_declare
+semantic/mc_inst.rs#L2012  fn register_nested_iface_declare_args
+semantic/mc_inst.rs#L2059  fn declare_class_ids
+semantic/mc_inst.rs#L2072  fn parse_opd
+semantic/mc_inst.rs#L2227  fn parse_opd_square_vec
+semantic/mc_inst.rs#L2329  fn get
+semantic/mc_inst.rs#L2333  fn get_mut
+semantic/mc_inst.rs#L2337  fn get_with_iotype
+semantic/mc_inst.rs#L2341  fn iter
+semantic/mc_inst.rs#L2345  fn iter_with_iotype
+semantic/mc_inst.rs#L2349  fn create
+semantic/mc_inst.rs#L2356  fn create_inst
+semantic/mc_inst.rs#L2362  fn find_port
+semantic/mc_inst.rs#L2367  fn inputs
+semantic/mc_inst.rs#L2376  fn outputs
+semantic/mc_inst.rs#L2385  fn bidirs
+semantic/mc_inst.rs#L2394  fn get_all_inputs
+semantic/mc_inst.rs#L2403  fn get_all_outputs
+semantic/mc_inst.rs#L2412  fn get_all_ports
+semantic/mc_inst.rs#L2417  fn is_empty
+semantic/mc_inst.rs#L2422  fn inputs_with_name
+semantic/mc_inst.rs#L2431  fn outputs_with_name
+semantic/mc_inst.rs#L2440  fn bidirs_with_name
+semantic/mc_inst.rs#L2449  fn powers_with_name
+semantic/mc_inst.rs#L2458  fn get_iotype
+semantic/mc_inst.rs#L2463  fn get_all_names
+semantic/mc_inst.rs#L2468  impl From<McInstance> for McPhrase
+semantic/mc_inst.rs#L2469  fn from
+semantic/mc_inst.rs#L2476  impl std::fmt::Display for McInstance
+semantic/mc_inst.rs#L2477  fn fmt
+semantic/mc_inst.rs#L2514  impl std::fmt::Display for McInstances
+semantic/mc_inst.rs#L2515  fn fmt
 semantic/mod.rs#L5  mod basic
 semantic/mod.rs#L6  mod recipe
 semantic/mod.rs#L7  mod common
@@ -7731,122 +7736,123 @@ semantic/validation/nets/mod.rs#L167  mod ac_face
 semantic/validation/nets/mod.rs#L171  mod iface_peer
 semantic/validation/nets/mod.rs#L179  mod iface_chain
 semantic/validation/nets/mod.rs#L188  mod iface_role_peers
-semantic/validation/nets/mod.rs#L197  fn run_net_checks
-semantic/validation/nets/mod.rs#L219  fn erc_payload
-semantic/validation/nets/mod.rs#L251  struct NetCheckResult
-semantic/validation/nets/mod.rs#L276  struct NetCheckRow
-semantic/validation/nets/mod.rs#L289  impl From<&NetCheckResult> for NetCheckRow
-semantic/validation/nets/mod.rs#L290  fn from
-semantic/validation/nets/mod.rs#L305  fn net_check_rows
-semantic/validation/nets/mod.rs#L321  fn net_results_to_diagnostics
-semantic/validation/nets/mod.rs#L339  fn log_net_check_diagnostics
-semantic/validation/nets/mod.rs#L362  fn entry_pos
-semantic/validation/nets/mod.rs#L379  fn is_nc_entry
-semantic/validation/nets/mod.rs#L384  fn best_pos
-semantic/validation/nets/mod.rs#L411  fn check_driver_conflict
-semantic/validation/nets/mod.rs#L464  fn is_module_out_port_exit
-semantic/validation/nets/mod.rs#L500  fn check_undriven_nets
-semantic/validation/nets/mod.rs#L556  fn check_floating_inputs
-semantic/validation/nets/mod.rs#L591  fn check_nc_connected
-semantic/validation/nets/mod.rs#L622  fn check_unconnected_outputs
-semantic/validation/nets/mod.rs#L664  fn check_voltage_mismatch
-semantic/validation/nets/mod.rs#L665  const TOL
-semantic/validation/nets/mod.rs#L742  fn pin_declared_voltages
-semantic/validation/nets/mod.rs#L850  fn collect_kvs_voltage
-semantic/validation/nets/mod.rs#L881  fn parse_voltage_str
-semantic/validation/nets/mod.rs#L899  fn fmt_voltages
-semantic/validation/nets/mod.rs#L907  fn check_unwired_instances
-semantic/validation/nets/mod.rs#L952  fn check_backfeed
-semantic/validation/nets/mod.rs#L983  fn check_port_io_mismatch
-semantic/validation/nets/mod.rs#L1018  fn check_power_nets
-semantic/validation/nets/mod.rs#L1052  fn check_unused_module_ports
-semantic/validation/nets/mod.rs#L1150  fn check_single_point_nets
-semantic/validation/nets/mod.rs#L1173  fn check_pin_count_mismatch
-semantic/validation/nets/mod.rs#L1246  fn check_unselected_abstract
-semantic/validation/nets/mod.rs#L1283  fn bom_entry
-semantic/validation/nets/mod.rs#L1297  fn bom_anchor
-semantic/validation/nets/mod.rs#L1306  fn check_bom_value_descendant
-semantic/validation/nets/mod.rs#L1334  fn check_bom_key_slot
-semantic/validation/nets/mod.rs#L1418  fn check_floating_outputs
-semantic/validation/nets/mod.rs#L1464  fn check_unwired_pins
-semantic/validation/nets/mod.rs#L1504  fn power_intent_defs
-semantic/validation/nets/mod.rs#L1528  fn check_power_bridge_loop
-semantic/validation/nets/mod.rs#L1600  fn check_clamp_ref_role
-semantic/validation/nets/mod.rs#L1650  fn check_power_rail_contract
-semantic/validation/nets/mod.rs#L1671  fn check_power_rail_two_roots
-semantic/validation/nets/mod.rs#L1708  fn check_rail_nature_consistency
-semantic/validation/nets/mod.rs#L1746  struct PowerScan
-semantic/validation/nets/mod.rs#L1780  impl PowerScan
-semantic/validation/nets/mod.rs#L1781  fn build
-semantic/validation/nets/mod.rs#L1895  fn is_transparent
-semantic/validation/nets/mod.rs#L1903  fn def_of
-semantic/validation/nets/mod.rs#L1910  fn def_arc
-semantic/validation/nets/mod.rs#L1917  fn rail_face
-semantic/validation/nets/mod.rs#L1931  fn rail_cap_face
-semantic/validation/nets/mod.rs#L1945  fn source_faces
-semantic/validation/nets/mod.rs#L1982  fn net_nominal
-semantic/validation/nets/mod.rs#L2019  fn has_source_root
-semantic/validation/nets/mod.rs#L2061  fn port_source_of
-semantic/validation/nets/mod.rs#L2078  fn capacity_roots
-semantic/validation/nets/mod.rs#L2147  fn check_sink_nominal_mismatch
-semantic/validation/nets/mod.rs#L2227  fn check_undriven_sink_net
-semantic/validation/nets/mod.rs#L2335  fn check_power_source_contention
-semantic/validation/nets/mod.rs#L2429  fn check_isolated_dc_bridge
-semantic/validation/nets/mod.rs#L2484  fn check_protective_multi_bridge
-semantic/validation/nets/mod.rs#L2545  fn check_earth_dc_leak
-semantic/validation/nets/mod.rs#L2597  fn check_reference_island_root
-semantic/validation/nets/mod.rs#L2713  fn check_role_ref_missing_bridge
-semantic/validation/nets/mod.rs#L2770  fn check_pin_contract_decode
-semantic/validation/nets/mod.rs#L2833  fn check_pin_contract_return_member
-semantic/validation/nets/mod.rs#L2879  fn check_combine_output_tol
-semantic/validation/nets/mod.rs#L2944  struct EffClass
-semantic/validation/nets/mod.rs#L2963  fn eff_class
-semantic/validation/nets/mod.rs#L3019  struct DeclEdge
-semantic/validation/nets/mod.rs#L3060  fn declared_dc_edges
-semantic/validation/nets/mod.rs#L3118  fn endpoint_identity
-semantic/validation/nets/mod.rs#L3132  fn net_identities
-semantic/validation/nets/mod.rs#L3158  fn pair_matches
-semantic/validation/nets/mod.rs#L3169  fn scope_nets
-semantic/validation/nets/mod.rs#L3196  type EdgeEndpoint
-semantic/validation/nets/mod.rs#L3198  fn edge_endpoint
-semantic/validation/nets/mod.rs#L3224  fn leg_sites
-semantic/validation/nets/mod.rs#L3262  fn check_return_leg_undeclared
-semantic/validation/nets/mod.rs#L3433  fn check_pin_copper_expectation
-semantic/validation/nets/mod.rs#L3510  enum Expectation
-semantic/validation/nets/mod.rs#L3521  enum ClassAxis
-semantic/validation/nets/mod.rs#L3529  fn class_axis_of_word
-semantic/validation/nets/mod.rs#L3538  impl ClassAxis
-semantic/validation/nets/mod.rs#L3544  fn subsumes
-semantic/validation/nets/mod.rs#L3556  fn judge_expectation
-semantic/validation/nets/mod.rs#L3637  fn push_unanchored
-semantic/validation/nets/mod.rs#L3661  fn exp_phrase
-semantic/validation/nets/mod.rs#L3684  fn check_barrier_isolation
-semantic/validation/nets/mod.rs#L3758  fn def_pin_of
-semantic/validation/nets/mod.rs#L3780  fn domain_edge_covers
-semantic/validation/nets/mod.rs#L3797  fn comp_def_uri
-semantic/validation/nets/mod.rs#L3807  struct DeviceReturnClass
-semantic/validation/nets/mod.rs#L3840  fn check_device_return_span
-semantic/validation/nets/mod.rs#L4042  fn check_port_bind_role
-semantic/validation/nets/mod.rs#L4127  fn resolve_bind_role
-semantic/validation/nets/mod.rs#L4215  fn exposed_hosts
-semantic/validation/nets/mod.rs#L4243  fn check_exposed_clamp_coverage
-semantic/validation/nets/mod.rs#L4286  fn segment_is_clamped
-semantic/validation/nets/mod.rs#L4345  fn clamp_declaration_plane
-semantic/validation/nets/mod.rs#L4386  const NO_SKIP
-semantic/validation/nets/mod.rs#L4392  fn role_excluded
-semantic/validation/nets/mod.rs#L4417  fn copper_region_into
-semantic/validation/nets/mod.rs#L4504  fn check_exposed_clamp_downstream
-semantic/validation/nets/mod.rs#L4614  fn fmt_amps
-semantic/validation/nets/mod.rs#L4623  fn fmt_round
-semantic/validation/nets/mod.rs#L4638  fn sink_contract_for
-semantic/validation/nets/mod.rs#L4659  fn source_contract_for
-semantic/validation/nets/mod.rs#L4686  fn decode_pwr_entry
-semantic/validation/nets/mod.rs#L4712  fn member_net_of
-semantic/validation/nets/mod.rs#L4730  fn net_name
-semantic/validation/nets/mod.rs#L4738  mod tests
-semantic/validation/nets/mod.rs#L4745  fn net_result
-semantic/validation/nets/mod.rs#L4757  fn diag_key
-semantic/validation/nets/mod.rs#L4762  fn net_results_to_diagnostics_is_identity_under_any_store_today
+semantic/validation/nets/mod.rs#L204  fn u319_probe_dump
+semantic/validation/nets/mod.rs#L279  fn run_net_checks
+semantic/validation/nets/mod.rs#L308  fn erc_payload
+semantic/validation/nets/mod.rs#L340  struct NetCheckResult
+semantic/validation/nets/mod.rs#L365  struct NetCheckRow
+semantic/validation/nets/mod.rs#L378  impl From<&NetCheckResult> for NetCheckRow
+semantic/validation/nets/mod.rs#L379  fn from
+semantic/validation/nets/mod.rs#L394  fn net_check_rows
+semantic/validation/nets/mod.rs#L410  fn net_results_to_diagnostics
+semantic/validation/nets/mod.rs#L428  fn log_net_check_diagnostics
+semantic/validation/nets/mod.rs#L451  fn entry_pos
+semantic/validation/nets/mod.rs#L468  fn is_nc_entry
+semantic/validation/nets/mod.rs#L473  fn best_pos
+semantic/validation/nets/mod.rs#L500  fn check_driver_conflict
+semantic/validation/nets/mod.rs#L553  fn is_module_out_port_exit
+semantic/validation/nets/mod.rs#L589  fn check_undriven_nets
+semantic/validation/nets/mod.rs#L645  fn check_floating_inputs
+semantic/validation/nets/mod.rs#L680  fn check_nc_connected
+semantic/validation/nets/mod.rs#L711  fn check_unconnected_outputs
+semantic/validation/nets/mod.rs#L753  fn check_voltage_mismatch
+semantic/validation/nets/mod.rs#L754  const TOL
+semantic/validation/nets/mod.rs#L831  fn pin_declared_voltages
+semantic/validation/nets/mod.rs#L939  fn collect_kvs_voltage
+semantic/validation/nets/mod.rs#L970  fn parse_voltage_str
+semantic/validation/nets/mod.rs#L988  fn fmt_voltages
+semantic/validation/nets/mod.rs#L996  fn check_unwired_instances
+semantic/validation/nets/mod.rs#L1041  fn check_backfeed
+semantic/validation/nets/mod.rs#L1072  fn check_port_io_mismatch
+semantic/validation/nets/mod.rs#L1107  fn check_power_nets
+semantic/validation/nets/mod.rs#L1141  fn check_unused_module_ports
+semantic/validation/nets/mod.rs#L1239  fn check_single_point_nets
+semantic/validation/nets/mod.rs#L1262  fn check_pin_count_mismatch
+semantic/validation/nets/mod.rs#L1335  fn check_unselected_abstract
+semantic/validation/nets/mod.rs#L1372  fn bom_entry
+semantic/validation/nets/mod.rs#L1386  fn bom_anchor
+semantic/validation/nets/mod.rs#L1395  fn check_bom_value_descendant
+semantic/validation/nets/mod.rs#L1423  fn check_bom_key_slot
+semantic/validation/nets/mod.rs#L1507  fn check_floating_outputs
+semantic/validation/nets/mod.rs#L1553  fn check_unwired_pins
+semantic/validation/nets/mod.rs#L1593  fn power_intent_defs
+semantic/validation/nets/mod.rs#L1617  fn check_power_bridge_loop
+semantic/validation/nets/mod.rs#L1689  fn check_clamp_ref_role
+semantic/validation/nets/mod.rs#L1739  fn check_power_rail_contract
+semantic/validation/nets/mod.rs#L1760  fn check_power_rail_two_roots
+semantic/validation/nets/mod.rs#L1797  fn check_rail_nature_consistency
+semantic/validation/nets/mod.rs#L1835  struct PowerScan
+semantic/validation/nets/mod.rs#L1869  impl PowerScan
+semantic/validation/nets/mod.rs#L1870  fn build
+semantic/validation/nets/mod.rs#L1984  fn is_transparent
+semantic/validation/nets/mod.rs#L1992  fn def_of
+semantic/validation/nets/mod.rs#L1999  fn def_arc
+semantic/validation/nets/mod.rs#L2006  fn rail_face
+semantic/validation/nets/mod.rs#L2020  fn rail_cap_face
+semantic/validation/nets/mod.rs#L2034  fn source_faces
+semantic/validation/nets/mod.rs#L2071  fn net_nominal
+semantic/validation/nets/mod.rs#L2108  fn has_source_root
+semantic/validation/nets/mod.rs#L2150  fn port_source_of
+semantic/validation/nets/mod.rs#L2167  fn capacity_roots
+semantic/validation/nets/mod.rs#L2236  fn check_sink_nominal_mismatch
+semantic/validation/nets/mod.rs#L2316  fn check_undriven_sink_net
+semantic/validation/nets/mod.rs#L2424  fn check_power_source_contention
+semantic/validation/nets/mod.rs#L2518  fn check_isolated_dc_bridge
+semantic/validation/nets/mod.rs#L2573  fn check_protective_multi_bridge
+semantic/validation/nets/mod.rs#L2634  fn check_earth_dc_leak
+semantic/validation/nets/mod.rs#L2686  fn check_reference_island_root
+semantic/validation/nets/mod.rs#L2802  fn check_role_ref_missing_bridge
+semantic/validation/nets/mod.rs#L2859  fn check_pin_contract_decode
+semantic/validation/nets/mod.rs#L2922  fn check_pin_contract_return_member
+semantic/validation/nets/mod.rs#L2968  fn check_combine_output_tol
+semantic/validation/nets/mod.rs#L3033  struct EffClass
+semantic/validation/nets/mod.rs#L3052  fn eff_class
+semantic/validation/nets/mod.rs#L3108  struct DeclEdge
+semantic/validation/nets/mod.rs#L3149  fn declared_dc_edges
+semantic/validation/nets/mod.rs#L3207  fn endpoint_identity
+semantic/validation/nets/mod.rs#L3221  fn net_identities
+semantic/validation/nets/mod.rs#L3247  fn pair_matches
+semantic/validation/nets/mod.rs#L3258  fn scope_nets
+semantic/validation/nets/mod.rs#L3285  type EdgeEndpoint
+semantic/validation/nets/mod.rs#L3287  fn edge_endpoint
+semantic/validation/nets/mod.rs#L3313  fn leg_sites
+semantic/validation/nets/mod.rs#L3351  fn check_return_leg_undeclared
+semantic/validation/nets/mod.rs#L3522  fn check_pin_copper_expectation
+semantic/validation/nets/mod.rs#L3599  enum Expectation
+semantic/validation/nets/mod.rs#L3610  enum ClassAxis
+semantic/validation/nets/mod.rs#L3618  fn class_axis_of_word
+semantic/validation/nets/mod.rs#L3627  impl ClassAxis
+semantic/validation/nets/mod.rs#L3633  fn subsumes
+semantic/validation/nets/mod.rs#L3645  fn judge_expectation
+semantic/validation/nets/mod.rs#L3726  fn push_unanchored
+semantic/validation/nets/mod.rs#L3750  fn exp_phrase
+semantic/validation/nets/mod.rs#L3773  fn check_barrier_isolation
+semantic/validation/nets/mod.rs#L3847  fn def_pin_of
+semantic/validation/nets/mod.rs#L3869  fn domain_edge_covers
+semantic/validation/nets/mod.rs#L3886  fn comp_def_uri
+semantic/validation/nets/mod.rs#L3896  struct DeviceReturnClass
+semantic/validation/nets/mod.rs#L3929  fn check_device_return_span
+semantic/validation/nets/mod.rs#L4131  fn check_port_bind_role
+semantic/validation/nets/mod.rs#L4216  fn resolve_bind_role
+semantic/validation/nets/mod.rs#L4304  fn exposed_hosts
+semantic/validation/nets/mod.rs#L4332  fn check_exposed_clamp_coverage
+semantic/validation/nets/mod.rs#L4375  fn segment_is_clamped
+semantic/validation/nets/mod.rs#L4434  fn clamp_declaration_plane
+semantic/validation/nets/mod.rs#L4475  const NO_SKIP
+semantic/validation/nets/mod.rs#L4481  fn role_excluded
+semantic/validation/nets/mod.rs#L4506  fn copper_region_into
+semantic/validation/nets/mod.rs#L4593  fn check_exposed_clamp_downstream
+semantic/validation/nets/mod.rs#L4703  fn fmt_amps
+semantic/validation/nets/mod.rs#L4712  fn fmt_round
+semantic/validation/nets/mod.rs#L4727  fn sink_contract_for
+semantic/validation/nets/mod.rs#L4748  fn source_contract_for
+semantic/validation/nets/mod.rs#L4775  fn decode_pwr_entry
+semantic/validation/nets/mod.rs#L4801  fn member_net_of
+semantic/validation/nets/mod.rs#L4819  fn net_name
+semantic/validation/nets/mod.rs#L4827  mod tests
+semantic/validation/nets/mod.rs#L4834  fn net_result
+semantic/validation/nets/mod.rs#L4846  fn diag_key
+semantic/validation/nets/mod.rs#L4851  fn net_results_to_diagnostics_is_identity_under_any_store_today
 semantic/validation/nets/protect.rs#L49  fn declared_ref_roles
 semantic/validation/nets/protect.rs#L80  fn role_in_chain
 semantic/validation/nets/protect.rs#L99  fn marked_components
@@ -11626,4 +11632,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-422 files, 11543 declarations.
+422 files, 11549 declarations.

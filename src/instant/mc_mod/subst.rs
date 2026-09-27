@@ -57,6 +57,7 @@ impl InstantiationBuilder {
                         member: Vec::new(),
                         full_members: Vec::new(),
                         synthetic: None,
+                        error_kind: None,
                     }]
                 }
             }
@@ -67,6 +68,7 @@ impl InstantiationBuilder {
                     member: Vec::new(),
                     full_members: Vec::new(),
                     synthetic: None,
+                    error_kind: None,
                 }]
             }
             McParamValue::Set(values) => values
@@ -98,6 +100,7 @@ impl InstantiationBuilder {
                     member: Vec::new(),
                     full_members: Vec::new(),
                     synthetic: None,
+                    error_kind: None,
                 }]
             }
         }
@@ -207,6 +210,7 @@ impl InstantiationBuilder {
                                 member: vec![],
                                 full_members: vec![],
                                 synthetic: elem.synthetic,
+                                error_kind: elem.error_kind,
                             }];
                         }
                     }
@@ -252,6 +256,7 @@ impl InstantiationBuilder {
             member: elem.member.clone(),
             full_members: elem.full_members.clone(),
             synthetic: elem.synthetic,
+            error_kind: elem.error_kind,
         }]
     }
 
