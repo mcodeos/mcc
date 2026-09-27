@@ -1511,37 +1511,29 @@ impl McFuncCall {
                     if let Some(ref caller_opd) = caller {
                         match caller_opd.as_ref() {
                             McPhrase::Endpoint(McRef::Name(McInstanceRef {
-                                base: McInstance::Component(c),
-                                members: _,
+                                base: McInstance::Component(c)
                             })) => McIds::from(c.name.to_string().as_str()),
                             McPhrase::Endpoint(McRef::Name(McInstanceRef {
-                                base: McInstance::Module(m),
-                                members: _,
+                                base: McInstance::Module(m)
                             })) => McIds::from(m.name.to_string().as_str()),
                             McPhrase::Endpoint(McRef::Name(McInstanceRef {
-                                base: McInstance::Bus(ne),
-                                members: _,
+                                base: McInstance::Bus(ne)
                             })) => McIds::from(ne.name.as_str()),
                             McPhrase::Endpoint(McRef::Name(McInstanceRef {
-                                base: McInstance::Label(label),
-                                members: _,
+                                base: McInstance::Label(label)
                             })) => McIds::from(label.as_str()),
                             McPhrase::Multiple(opds) if !opds.is_empty() => match &opds[0] {
                                 McPhrase::Endpoint(McRef::Name(McInstanceRef {
-                                    base: McInstance::Bus(ne),
-                                    members: _,
+                                    base: McInstance::Bus(ne)
                                 })) => McIds::from(ne.name.as_str()),
                                 McPhrase::Endpoint(McRef::Name(McInstanceRef {
-                                    base: McInstance::Label(label),
-                                    members: _,
+                                    base: McInstance::Label(label)
                                 })) => McIds::from(label.as_str()),
                                 McPhrase::Endpoint(McRef::Name(McInstanceRef {
-                                    base: McInstance::Component(c),
-                                    members: _,
+                                    base: McInstance::Component(c)
                                 })) => McIds::from(c.name.to_string().as_str()),
                                 McPhrase::Endpoint(McRef::Name(McInstanceRef {
-                                    base: McInstance::Module(m),
-                                    members: _,
+                                    base: McInstance::Module(m)
                                 })) => McIds::from(m.name.to_string().as_str()),
                                 _ => {
                                     if declare_node.is_some() {
@@ -1608,37 +1600,29 @@ impl McFuncCall {
                 } else if let Some(ref caller_opd) = caller {
                     match caller_opd.as_ref() {
                         McPhrase::Endpoint(McRef::Name(McInstanceRef {
-                            base: McInstance::Component(c),
-                            members: _,
+                            base: McInstance::Component(c)
                         })) => McIds::from(c.name.to_string().as_str()),
                         McPhrase::Endpoint(McRef::Name(McInstanceRef {
-                            base: McInstance::Module(m),
-                            members: _,
+                            base: McInstance::Module(m)
                         })) => McIds::from(m.name.to_string().as_str()),
                         McPhrase::Endpoint(McRef::Name(McInstanceRef {
-                            base: McInstance::Bus(ne),
-                            members: _,
+                            base: McInstance::Bus(ne)
                         })) => McIds::from(ne.name.as_str()),
                         McPhrase::Endpoint(McRef::Name(McInstanceRef {
-                            base: McInstance::Label(label),
-                            members: _,
+                            base: McInstance::Label(label)
                         })) => McIds::from(label.as_str()),
                         McPhrase::Multiple(opds) if !opds.is_empty() => match &opds[0] {
                             McPhrase::Endpoint(McRef::Name(McInstanceRef {
-                                base: McInstance::Bus(ne),
-                                members: _,
+                                base: McInstance::Bus(ne)
                             })) => McIds::from(ne.name.as_str()),
                             McPhrase::Endpoint(McRef::Name(McInstanceRef {
-                                base: McInstance::Label(label),
-                                members: _,
+                                base: McInstance::Label(label)
                             })) => McIds::from(label.as_str()),
                             McPhrase::Endpoint(McRef::Name(McInstanceRef {
-                                base: McInstance::Component(c),
-                                members: _,
+                                base: McInstance::Component(c)
                             })) => McIds::from(c.name.to_string().as_str()),
                             McPhrase::Endpoint(McRef::Name(McInstanceRef {
-                                base: McInstance::Module(m),
-                                members: _,
+                                base: McInstance::Module(m)
                             })) => McIds::from(m.name.to_string().as_str()),
                             _ => {
                                 dlog_error(

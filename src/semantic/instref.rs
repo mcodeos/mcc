@@ -57,7 +57,6 @@ fn validate_inst_member_ref(
                 // (lane pairing) sees a consistent shape.
                 let inst_ref = McInstanceRef {
                     base: McInstance::Bus(McBus::new_with_members(base_name, members.to_vec())),
-                    members: Vec::new(),
                 };
                 return Some(McPhrase::Endpoint(McRef::Name(inst_ref)));
             }
@@ -295,7 +294,6 @@ fn validate_component_pin_ref(
 
         let inst_ref = McInstanceRef {
             base: McInstance::Bus(member_ref),
-            members: Vec::new(),
         };
 
         return Some(McPhrase::Endpoint(McRef::Name(inst_ref)));
@@ -303,7 +301,6 @@ fn validate_component_pin_ref(
 
     let inst_ref = McInstanceRef {
         base: McInstance::Bus(McBus::new_with_members(base_name, valid_members.clone())),
-        members: Vec::new(),
     };
 
     Some(McPhrase::Endpoint(McRef::Name(inst_ref)))
@@ -396,7 +393,6 @@ fn validate_module_port_ref(
         let member_ref = McBus::member_ref(base_name, valid_members[0].clone());
         let inst_ref = McInstanceRef {
             base: McInstance::Bus(member_ref),
-            members: Vec::new(),
         };
 
         return Some(McPhrase::Endpoint(McRef::Name(inst_ref)));
@@ -404,7 +400,6 @@ fn validate_module_port_ref(
 
     let inst_ref = McInstanceRef {
         base: McInstance::Bus(McBus::new_with_members(base_name, valid_members.clone())),
-        members: Vec::new(),
     };
 
     Some(McPhrase::Endpoint(McRef::Name(inst_ref)))
@@ -482,7 +477,6 @@ fn validate_interface_member_ref(
         let member_ref = McBus::member_ref(base_name, valid_members[0].clone());
         let inst_ref = McInstanceRef {
             base: McInstance::Bus(member_ref),
-            members: Vec::new(),
         };
 
         return Some(McPhrase::Endpoint(McRef::Name(inst_ref)));
@@ -490,7 +484,6 @@ fn validate_interface_member_ref(
 
     let inst_ref = McInstanceRef {
         base: McInstance::Bus(McBus::new_with_members(base_name, valid_members.clone())),
-        members: Vec::new(),
     };
 
     Some(McPhrase::Endpoint(McRef::Name(inst_ref)))
@@ -669,7 +662,6 @@ fn validate_component_interface_ref(
             let full_path = format!("{component}.{interface}.{m}");
             McPhrase::Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::Bus(McBus::new(&full_path)),
-                members: Vec::new(),
             }))
         })
         .collect();

@@ -5008,19 +5008,8 @@ impl McPhrase {
                 })) => Some(vec![McBus::new(name)]),
                 McPhrase::Endpoint(McRef::Name(McInstanceRef {
                     base: McInstance::Module(m),
-                    members,
-                })) => {
-                    let name = m.name.to_string();
-                    let members = members
-                        .iter()
-                        .flat_map(|ml| ml.expand())
-                        .collect::<Vec<_>>();
-                    if members.is_empty() {
-                        Some(vec![McBus::new(&name)])
-                    } else {
-                        Some(vec![McBus::new_with_members(&name, members)])
-                    }
-                }
+                    ..
+                })) => Some(vec![McBus::new(m.name.to_string().as_str())]),
                 _ => {
                     dlog_trace(
                         crate::errcodes::PHRASE_CURLY_UNSUPPORTED_OPERAND,

@@ -258,9 +258,6 @@ impl InstantiationBuilder {
     fn ref_path_of(phrase: &McPhrase) -> Option<String> {
         match phrase {
             McPhrase::Endpoint(McRef::Name(iref)) => {
-                if !iref.members.is_empty() {
-                    return None;
-                }
                 match &iref.base {
                     McInstance::Label(s) => Some(s.clone()),
                     McInstance::Component(c) => Some(c.name.to_string()),
@@ -277,9 +274,6 @@ impl InstantiationBuilder {
             // `p.SPI` written as a member access on another phrase: append the
             // access to whatever the inner phrase names.
             McPhrase::Member(inner, McRef::Name(iref)) => {
-                if !iref.members.is_empty() {
-                    return None;
-                }
                 let McInstance::Label(tail) = &iref.base else {
                     return None;
                 };
@@ -535,15 +529,10 @@ impl InstantiationBuilder {
     /// dotted path (`USB.vin` → "USB", ["vin"]); a plain net label has neither
     /// members nor a dot → `None`.
     fn iref_tokens(iref: &McInstanceRef) -> Option<(String, Vec<String>)> {
-        let (owner, mut tokens) = match &iref.base {
+        let (owner, tokens) = match &iref.base {
             McInstance::Bus(bus) => (bus.name().to_string(), bus.get_full_members().clone()),
             _ => return None,
         };
-        // Member tokens sometimes ride the instance-ref member lists instead of
-        // the bus (parse-path dependent) — merge both.
-        for ml in &iref.members {
-            tokens.extend(ml.expand());
-        }
         if tokens.is_empty() {
             if let Some((o, m)) = owner.rsplit_once('.') {
                 return Some((o.to_string(), vec![m.to_string()]));
@@ -1419,30 +1408,15 @@ impl InstantiationBuilder {
             }
             McPhrase::Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::Component(c),
-                members,
             })) => {
                 let inst_name = c.name.to_string();
 
-                // P0-1 fix
-                // If user explicitly wrote member access (e.g., `dcdc{Vin, GND}` or
-                // `wm7121{2,3}`), expand these members into Bus.member, letting downstream
-                // get_left_points / get_right_points expand bus-to-bus.
-                //
-                // Otherwise (bare component reference like `R1` / `C1`), still use pin count
+                // Bare component reference like `R1` / `C1`: use pin count
                 // heuristic:
                 //   0/1 pin → single-point Bus
                 //   2 pin   → 2-pin Ports (left=.1, right=.2)
                 // multi-pin → single-point Bus (fallback, pin handling delegated to
                 // FuncCall/declaration)
-                let expanded: Vec<String> = members.iter().flat_map(|ml| ml.expand()).collect();
-                if !expanded.is_empty() {
-                    return (
-                        vec![McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
-                            McInstance::Bus(McBus::new_with_members(&inst_name, expanded)),
-                        )))],
-                        Vec::new(),
-                    );
-                }
 
                 // Two-pin determination (def-driven)
                 // Decide from the class's *real* pin count — static pins plus
@@ -1481,57 +1455,8 @@ impl InstantiationBuilder {
             }
             McPhrase::Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::Module(m),
-                members,
             })) => {
                 let inst_name = m.name.to_string();
-
-                // P1-A1b
-                // User explicit member access `speaker{DAC_IN, US_SPEAKER_MUTE}`:
-                // Note **cannot** directly return `Bus(name, members)` — `get_left_points`
-                // Bus branch `Vec::from(mcbus)` in member.len()==2 special path
-                // would clear `member` field, resulting in `speaker{DAC_IN, US_SPEAKER_MUTE}`
-                // collapsed back to scalar `speaker` sharing the chain's other-side net.
-                //
-                // Changed to return `McRef::Ports`, which in `get_left_points` goes through
-                // resolve_curly_mn_points, that path stably returns `speaker.DAC_IN` /
-                // `speaker.US_SPEAKER_MUTE` as independent NetPoints with owner.
-                //
-                // Port iotype looked up from declared submodule instance `self.sub_modules`:
-                //   - In / InOut  → left  side
-                //   - Out / InOut → right side
-                // Members not found (e.g., module not declared or pass2 not yet instantiated), put
-                // on
-                // left side as fallback.
-                let expanded: Vec<String> = members.iter().flat_map(|ml| ml.expand()).collect();
-                if !expanded.is_empty() {
-                    let sub_opt = self.find_submodule(&inst_name);
-                    let mut left: Vec<McRef> = Vec::new();
-                    let mut right: Vec<McRef> = Vec::new();
-                    for m_name in &expanded {
-                        let path = format!("{inst_name}.{m_name}");
-                        let ep = McRef::Name(McInstanceRef::new(McInstance::Bus(
-                            McBus::new(&path),
-                        )));
-                        let iotype = sub_opt
-                            .as_ref()
-                            .and_then(|s| s.ports.iter().find(|p| p.name == *m_name))
-                            .map(|p| p.iotype.clone())
-                            .unwrap_or(IOType::None);
-                        match iotype {
-                            IOType::In => left.push(ep),
-                            IOType::Out => right.push(ep),
-                            IOType::InOut => {
-                                left.push(ep.clone());
-                                right.push(ep);
-                            }
-                            _ => left.push(ep),
-                        }
-                    }
-                    return (
-                        vec![McPhrase::Endpoint(McRef::Ports { left, right })],
-                        Vec::new(),
-                    );
-                }
 
                 // P1-A2
                 // Bare module reference `V3V3 -> dcdc -> V1V2`: need to split module into
@@ -1606,27 +1531,13 @@ impl InstantiationBuilder {
             }
             McPhrase::Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::Interface(i),
-                members,
             })) => {
                 let inst_name = i.name.to_string();
 
-                // P0-2 fix
-                // Interface class label defaults to "single net label" handling (same as Label).
-                // No longer auto-expand to `.1/.2` just because "interface has 2 pins" — that
-                // breaks
-                // `V5V::DC(5V)` "attach interface type to label" top-level usage.
-                //
-                // Only expand when user **explicitly** uses `{m1, m2}` syntax to access certain
-                // members.
-                let expanded: Vec<String> = members.iter().flat_map(|ml| ml.expand()).collect();
-                if !expanded.is_empty() {
-                    return (
-                        vec![McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
-                            McInstance::Bus(McBus::new_with_members(&inst_name, expanded)),
-                        )))],
-                        Vec::new(),
-                    );
-                }
+                // Interface class label defaults to "single net label" handling
+                // (same as Label): never auto-expand to `.1/.2` just because an
+                // interface has 2 pins — that breaks `V5V::DC(5V)` "attach
+                // interface type to label" top-level usage.
 
                 (
                     vec![McPhrase::from(McInstance::Bus(McBus::new(&inst_name)))],
@@ -1895,11 +1806,8 @@ impl InstantiationBuilder {
             let should_expand = match &members[i] {
                 McPhrase::Endpoint(McRef::Name(McInstanceRef {
                     base: McInstance::Bus(bus),
-                    members,
-                })) => {
-                    let n = bus.member.len().max(bus.full_members.len());
-                    n > 1 && members.is_empty()
-                }
+                    ..
+                })) => bus.member.len().max(bus.full_members.len()) > 1,
                 _ => false,
             };
             if should_expand {
@@ -2037,15 +1945,6 @@ impl InstantiationBuilder {
         };
         if base_name.is_some() {
             return base_name;
-        }
-        // For Module/Component endpoints like `mcu513.MIC`,
-        // use the first member name as the trunk group.
-        if let Some(ml) = ir.members.first() {
-            if let Some(m) = ml.items.first() {
-                if let crate::semantic::basic::mc_ref::McMember::Single(s) = m {
-                    return Some(s.clone());
-                }
-            }
         }
         // Fallback: if members is empty, use the base label name
         // (e.g. McPhrase::Member(_, Label("DAC_OUT")) → "DAC_OUT")
@@ -2200,11 +2099,7 @@ impl InstantiationBuilder {
             _ => {
                 // Member access (`mcu513.MIC`) is a bracket/list member; a bare
                 // label fallback has no coarse identity.
-                if !ir.members.is_empty() {
-                    Some(TrunkKind::List)
-                } else {
-                    Some(TrunkKind::Plain)
-                }
+                Some(TrunkKind::Plain)
             }
         }
     }
