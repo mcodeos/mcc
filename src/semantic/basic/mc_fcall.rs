@@ -126,7 +126,8 @@ pub(crate) fn get_right_bus_from_phrase(phrase: &McPhrase) -> Vec<McBus> {
 /// §4 / §9.7).
 fn count_uscores(p: &McParamValue) -> usize {
     match p {
-        McParamValue::NONE(_) | McParamValue::Opd(McOpd::Uscore) => 1,
+        // `_` unifies on NONE (U316 site 3) — no Opd(Uscore) spelling exists.
+        McParamValue::NONE(_) => 1,
         McParamValue::Set(vs) => vs.iter().map(count_uscores).sum(),
         _ => 0,
     }
@@ -164,7 +165,6 @@ fn group_prefix_members(p: &McParamValue) -> Option<Vec<McParamValue>> {
 fn fold_prefix_into_uscore(p: &McParamValue, prefix: &McParamValue) -> (McParamValue, bool) {
     match p {
         McParamValue::NONE(_) => (prefix.clone(), true),
-        McParamValue::Opd(McOpd::Uscore) => (prefix.clone(), true),
         McParamValue::Set(vs) => {
             let mut new_vs = Vec::with_capacity(vs.len());
             let mut done = false;

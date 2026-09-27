@@ -828,8 +828,8 @@ impl InstantiationBuilder {
 
     fn is_placeholder_param(p: &McParamValue) -> bool {
         match p {
+            // `_` unifies on NONE (U316 site 3) — no Opd(Uscore) spelling.
             McParamValue::NONE(_) => true,
-            McParamValue::Opd(McOpd::Uscore) => true,
             McParamValue::Set(vals) => {
                 !vals.is_empty() && vals.iter().all(Self::is_placeholder_param)
             }

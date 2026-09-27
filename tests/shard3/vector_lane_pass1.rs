@@ -198,3 +198,56 @@ fn single_member_declare_caller_is_not_a_group() {
         other => panic!("single-member declare must collapse to Endpoint(Name), got {other:?}"),
     }
 }
+
+/// ── U316 site 3: the `_` placeholder binds as NONE, never Opd(Uscore) ───
+/// `.Cap(_, VDD)` — param 0 is `NONE("_")` (the grammar routes a
+/// param-position `_` through mc_opd, which used to build Opd(Uscore)).
+/// Netlist face: unchanged — a bare positional `_` still fails the port
+/// bind (E4176, pre-existing) and fabricates no `_` net; the `=>`
+/// redemption face keeps its own locks in shard4/param_prefix_uscore_count.rs.
+#[test]
+fn uscore_placeholder_is_none_and_connects_nothing() {
+    // (a) binding face: the spelling is NONE.
+    {
+        let src = format!(
+            "{CAP_COMP}module main {{\n    io VDD\n    func M() {{\n        CAP c(1)\n        c.Cap(_, VDD)\n    }}\n}}\n"
+        );
+        let stmts = func_m_stmts(&src, "/mcc/uscore-none.mc");
+        let fc = find_funccall(&stmts, "Cap").expect("Cap fcall in M stmts");
+        assert_eq!(fc.params.len(), 2, "two args; got {:?}", fc.params);
+        match &fc.params[0] {
+            mcc::McParamValue::NONE(s) => assert_eq!(s, "_"),
+            other => panic!("`_` must bind as NONE(\"_\"), got {other:?}"),
+        }
+    }
+    // (b) netlist face: no `_` net fabricated; bare `_` still binds-fails.
+    {
+        let _lock = common::lock();
+        common::reset();
+        let uri = McURI::from("/mcc/uscore-netlist.mc");
+        let src =
+            format!("{CAP_COMP}module main {{\n    io VDD\n    CAP(1).Cap(_, VDD)\n}}");
+        mcc::mcc_load_from_string(&uri, &src);
+        let (_, table) =
+            mcc::mcc_build_flat(&McIds::from("main"), &uri, 1000).expect("flat build");
+        let mut netlines: Vec<String> = Vec::new();
+        for net in table.get_nets() {
+            let mut pts: Vec<String> = net
+                .points
+                .iter()
+                .filter_map(|pid| table.get_entry(*pid).map(|e| e.path.clone()))
+                .collect();
+            pts.sort();
+            netlines.push(format!("{} <= [{}]", net.name, pts.join(", ")));
+        }
+        assert!(
+            !netlines.iter().any(|l| l.starts_with("_ <=")),
+            "no `_` net may be fabricated; got {netlines:?}"
+        );
+        let codes: Vec<u32> = mcc::mcc_diagnose_all().iter().map(|d| d.code).collect();
+        assert!(
+            codes.contains(&4176),
+            "a bare positional `_` still fails the port bind (E4176); got {codes:?}"
+        );
+    }
+}

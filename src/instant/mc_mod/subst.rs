@@ -42,6 +42,11 @@ impl InstantiationBuilder {
         cx: &dyn ShapeCtx,
     ) -> Vec<McBus> {
         match value {
+            // The `_` placeholder connects nothing (U316 site 3). It used to
+            // arrive as Opd(Uscore) whose opdc arm answers empty; unified on
+            // NONE it must not fall into the Display fallback below, which
+            // would fabricate a net literally named `_`.
+            McParamValue::NONE(_) => vec![],
             McParamValue::Ids(ids) => {
                 if ids.is_empty() {
                     vec![]
@@ -423,7 +428,6 @@ impl InstantiationBuilder {
                 }
             }
             McParamValue::Opd(McOpd::Pins(ids)) => McPhrase::label(ids.to_string()),
-            McParamValue::Opd(McOpd::Uscore) => McPhrase::label("_".to_string()),
             McParamValue::Const(c) => McPhrase::label(format!("{c}")),
             McParamValue::Int(v) => McPhrase::label(v.to_string()),
             McParamValue::Hex(v) => McPhrase::label(v.to_string()),
@@ -431,7 +435,12 @@ impl InstantiationBuilder {
             McParamValue::String(v) => McPhrase::label(v.to_string()),
             McParamValue::UValue(v) => McPhrase::label(v.to_string()),
             McParamValue::NONE(name) | McParamValue::NC(name) => McPhrase::label(name.clone()),
-            McParamValue::InlineAttrs(_) => McPhrase::label("_".to_string()),
+            // Opd(Uscore) is not buildable any more (U316 site 3) — `_`
+            // arrives as NONE and matched the arm above; the spelling here
+            // only keeps the variant enumeration total.
+            McParamValue::Opd(McOpd::Uscore) | McParamValue::InlineAttrs(_) => {
+                McPhrase::label("_".to_string())
+            }
             McParamValue::Set(vals) => {
                 McPhrase::Multiple(vals.iter().map(Self::param_value_to_phrase).collect())
             }

@@ -99,7 +99,14 @@ impl McParamValue {
             // Operand
             MCAST_OPD => {
                 if let Some(opd) = McOpd::new(node) {
-                    Some(McParamValue::Opd(opd))
+                    // The `_` placeholder unifies on NONE (U316 site 3) — the
+                    // grammar routes a param-position `_` through mc_opd, so
+                    // without this arm every `.Cap(_)` built Opd(Uscore).
+                    if matches!(opd, McOpd::Uscore) {
+                        Some(McParamValue::NONE(String::from("_")))
+                    } else {
+                        Some(McParamValue::Opd(opd))
+                    }
                 } else {
                     // Fallback: try to parse as phrase (handles bus references like lpa.VDD)
                     McPhrase::new(node, context)
@@ -459,6 +466,9 @@ fn expr_to_param_value(expr: &McExpression) -> McParamValue {
         McExpression::Const(c) => McParamValue::Const(c.clone()),
         McExpression::Variable(opd) => match opd {
             McOpd::Id(ids) => McParamValue::Ids(ids.clone()),
+            // Same U316 site 3 unification: an expression-position `_` is
+            // NONE, never Opd(Uscore).
+            McOpd::Uscore => McParamValue::NONE(String::from("_")),
             other => McParamValue::Opd(other.clone()),
         },
         McExpression::Set(items) => {
