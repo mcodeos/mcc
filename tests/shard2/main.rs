@@ -29,6 +29,7 @@ mod pins_index_access;
 mod pins_self_face_phrase;
 mod resolve_policy;
 mod u249_curly_dot_chain;
+mod u332_entry_resolution;
 mod u291_adopted_func_member;
 mod u289_component_pin_tables;
 mod u320_lib_adoption;

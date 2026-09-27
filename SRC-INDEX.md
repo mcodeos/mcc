@@ -60,7 +60,7 @@ range (threshold 40KB).
 | `(root)/` | 8 | 381 KB |
 | `ast/` | 7 | 81 KB |
 | `bin/` | 2 | 37 KB |
-| `build/` | 5 | 78 KB |
+| `build/` | 5 | 79 KB |
 | `builder/` | 1 | 0 KB |
 | `cli/` | 8 | 127 KB |
 | `cmds/` | 28 | 517 KB |
@@ -509,9 +509,9 @@ build/pass2.rs#L60  fn mcb_pass2
 build/pass2.rs#L74  fn mcb_instantiate
 build/pass2.rs#L85  fn mcb_instantiate_with_registry
 build/pass2.rs#L100  fn resolve_entry_module
-build/pass2.rs#L148  fn do_instantiate
-build/pass2.rs#L227  fn mcb_pass2_flat
-build/pass2.rs#L256  fn mcb_pass2_flat_with
+build/pass2.rs#L162  fn do_instantiate
+build/pass2.rs#L241  fn mcb_pass2_flat
+build/pass2.rs#L270  fn mcb_pass2_flat_with
 build/vinst.rs#L29  const SYNTHETIC_INSTANCE
 build/vinst.rs#L42  static SYNTHETIC_MODULES
 build/vinst.rs#L44  fn synthetic_modules
@@ -864,16 +864,16 @@ cmds/check.rs#L155  fn dedup_mcc_diags
 cmds/check.rs#L168  fn run
 cmds/check.rs#L409  fn print_ledger
 cmds/common.rs#L21  fn load_target
-cmds/common.rs#L74  fn resolve_top_module
-cmds/common.rs#L83  fn build_pass2
-cmds/common.rs#L100  fn build_pass2_with_arena
-cmds/common.rs#L132  struct ConnView
-cmds/common.rs#L141  fn join_conn_points
-cmds/common.rs#L171  fn render_layered_conns
-cmds/common.rs#L264  fn member_leaf
-cmds/common.rs#L273  fn member_leaves_ordered
-cmds/common.rs#L289  fn endpoint_port
-cmds/common.rs#L301  fn two_end_trunk
+cmds/common.rs#L79  fn resolve_top_module
+cmds/common.rs#L87  fn build_pass2
+cmds/common.rs#L104  fn build_pass2_with_arena
+cmds/common.rs#L136  struct ConnView
+cmds/common.rs#L145  fn join_conn_points
+cmds/common.rs#L175  fn render_layered_conns
+cmds/common.rs#L268  fn member_leaf
+cmds/common.rs#L277  fn member_leaves_ordered
+cmds/common.rs#L293  fn endpoint_port
+cmds/common.rs#L305  fn two_end_trunk
 cmds/config.rs#L10  fn strip_global_prefix
 cmds/config.rs#L18  fn run
 cmds/config.rs#L78  fn get_config_value

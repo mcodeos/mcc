@@ -127,6 +127,20 @@ pub(crate) fn resolve_entry_module(
             return Ok((uri, def));
         }
 
+        // 3. Unique-ident fallback: a caller may pass a valid module ident
+        // with some other file's uri (the entry file's, typically — the U332
+        // evidence shape, where the Available-modules list below showed the
+        // target all along). Accept it only when the workspace holds exactly
+        // one module of that name; ambiguity stays an error — the fallback
+        // must not silently pick a side.
+        let ident_matches: Vec<_> = modules
+            .iter()
+            .filter(|(sn, _)| sn.ident == entry.ident)
+            .collect();
+        if let [(sn, def)] = ident_matches.as_slice() {
+            return Ok((sn.uri.to_string(), (*def).clone()));
+        }
+
         let available: Vec<String> = modules
             .iter()
             .map(|(sn, _)| format!("{}@{}", sn.ident, sn.uri))

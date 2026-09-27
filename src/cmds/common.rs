@@ -69,13 +69,17 @@ pub fn load_target(
 }
 
 /// Resolve the top module: an explicit top (manifest top_module, or `--top` /
-/// `--entry` override) first, else the module declared in the entry file,
-/// else the first loaded module.
+/// `--entry` override) first, else the module declared in the entry file.
+///
+/// No "first loaded module" last resort: in a stale or mixed workspace that
+/// arm silently picked an arbitrary module as the top (the U332 driver face)
+/// and produced a misleading downstream error. A `None` return is the caller's
+/// "no top found" error with its own hint, which every consumer already
+/// renders.
 pub fn resolve_top_module(entry_uri: &str, explicit_top: Option<String>) -> Option<String> {
     explicit_top
         .or_else(|| mcc::cli::globals().top.clone())
         .or_else(|| mcc::mcb_get_module_name_by_uri(&entry_uri.to_string()))
-        .or_else(mcc::mcb_get_first_module_name)
 }
 
 /// Run Pass2 for `top` in `uri`, converting an engine panic into an error so
