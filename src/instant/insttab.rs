@@ -867,6 +867,14 @@ pub enum InstOrigin {
         /// (§7.4). Not part of `PartialEq` — provenance only, does not
         /// change semantic comparison (verify / golden depend on that).
         expansion_id: Option<usize>,
+        /// ★ U331: name of the receiver instance whose method body created
+        /// this instance, recorded at creation time (`None` = module-level
+        /// expansion with no receiver). The P8-1 pass-2 re-parent reads this
+        /// source instead of guessing by `fn_name` — `fn_name` is the class
+        /// name at creation and is later rebranded to the dispatched method
+        /// name (M0-B-E.1), so it never identified the creator. Not part of
+        /// `PartialEq` — provenance only.
+        owner: Option<String>,
     },
 }
 
@@ -2474,23 +2482,15 @@ impl InstTable {
             }
         }
 
-        // ── ★ P8-1: build func-to-owner map for correcting parent_id of
-        // func-created instances. When a component defines a func (e.g. FLASH.GD25Q32E
-        // defines func GD25Q32E), instances created by that func belong to the
-        // component instance, not the calling module.
-        //
-        // ★ P9-A1 fix: only include Declared components. Func-created instances
-        // (CAP, RES etc.) are themselves being reparented and cannot be owners.
-        let mut func_to_owner: HashMap<String, String> = HashMap::new();
-        let comps: Vec<_> = view.components(inst).collect();
-        for comp in comps {
-            if !matches!(comp.origin, InstOrigin::Declared) {
-                continue;
-            }
-            for func in comp.def.funcs.iter() {
-                func_to_owner.insert(func.name.to_string(), comp.name.clone());
-            }
-        }
+        // ── ★ U331: the P8-1 func_to_owner name-keyed map is retired. It
+        // guessed the creator of a func-created instance by func NAME, but the
+        // instance's `fn_name` carries the class name at creation and is
+        // rebranded to the dispatched METHOD name (M0-B-E.1, fcallinst) — so
+        // the lookup either never matched the intended creator or matched by
+        // name collision, re-parenting whole instance sets under the wrong
+        // owner and dropping every bare-path connection point (U331 ①②).
+        // The true creator now rides `InstOrigin::FuncCall.owner`, recorded at
+        // creation time; pass 2 reads it directly.
 
         // ★ §11.1: build the vector-member projection map (member name →
         // group info) from the modeling-layer `vectors` groups before the
@@ -2782,8 +2782,13 @@ impl InstTable {
             }
         }
 
-        // ★ P8-1 pass 2: func-created components — re-parent to the component
-        // that defines the func, not the calling module.
+        // ★ P8-1 pass 2: func-created components — re-parent to the receiver
+        // instance whose method body created them (U331): the true creator
+        // rides `InstOrigin::FuncCall.owner`, recorded at creation time. A
+        // re-parented instance keeps its flat module-level spelling
+        // resolvable (alias entries below), so the connection points the
+        // expansion recorded against the flat path still resolve — the U331
+        // ①② silent net drops die with the path mismatch.
         let comps: Vec<_> = view.components(inst).collect();
         for comp in comps {
             if !matches!(comp.origin, InstOrigin::FuncCall { .. }) {
@@ -2805,25 +2810,32 @@ impl InstTable {
                 |m: &str| is_declared_ground(m) || comp_ground_coppers.iter().any(|r| r == m);
             let is_comp_power =
                 |m: &str| is_declared_power(m) || comp_power_members.iter().any(|p| p == m);
-            let fn_name = match &comp.origin {
-                InstOrigin::FuncCall { fn_name, .. } => fn_name.clone(),
+            // ★ U331: the true creator recorded at creation time — the
+            // receiver instance whose method body expanded to this
+            // construction. `fn_name` is deliberately NOT consulted: it is
+            // the class name at creation, rebranded to the dispatched method
+            // name by M0-B-E.1, and never identified the creator.
+            let owner = match &comp.origin {
+                InstOrigin::FuncCall { owner, .. } => owner.clone(),
                 _ => continue,
             };
 
-            let (comp_path, comp_parent_id) = match func_to_owner.get(&fn_name) {
+            let flat_path = format!("{my_path}.{}", comp.name);
+            let (comp_path, comp_parent_id) = match owner {
                 Some(owner_name) => {
                     let owner_path = format!("{my_path}.{owner_name}");
                     if let Some(owner_id) = self.get_id_by_path(&owner_path) {
                         let path = format!("{owner_path}.{}", comp.name);
                         (path, Some(owner_id))
                     } else {
-                        // Owner not found (should not happen), fall back to module parent
-                        (format!("{my_path}.{}", comp.name), Some(my_id))
+                        // Receiver not projected in this module (should not
+                        // happen), fall back to module parent
+                        (flat_path.clone(), Some(my_id))
                     }
                 }
                 None => {
-                    // Func owner not in this module (e.g., builtin func), fall back
-                    (format!("{my_path}.{}", comp.name), Some(my_id))
+                    // Module-level expansion (no receiver), stay flat
+                    (flat_path.clone(), Some(my_id))
                 }
             };
 
@@ -2841,6 +2853,15 @@ impl InstTable {
                 comp.node_id,
                 Some(McSpaceName::new(&comp.def.name, comp.def.uri.clone())),
             );
+            // ★ U331: a re-parented instance keeps its flat module-level
+            // spelling resolvable — the body expansion recorded connection
+            // points against the flat path (`main._C1.1`), and those points
+            // are only projected later (flatten_nets). The alias entry lets
+            // the four-arm resolve hit the re-parented id without rewriting
+            // the recorded paths.
+            if comp_path != flat_path {
+                self.path_index.insert(flat_path.clone(), comp_id);
+            }
             // ★ Structural pin count (same as pass-1): pins registered below.
             self.set_pin_count(comp_id, comp.pins.len());
 
@@ -2934,6 +2955,13 @@ impl InstTable {
                     // call that gives the lane its `PointId` — so this segment
                     // and the net layer name the pin identically by
                     // construction, not by two agreeing implementations.
+                    // ★ U331: keep the flat spelling of a re-parented pin
+                    // resolvable — the expansion recorded its connection
+                    // points against the pre-re-parent layout.
+                    if comp_path != flat_path {
+                        self.path_index
+                            .insert(format!("{flat_path}.{pin_name}"), pin_id);
+                    }
                     let point = crate::instant::lane::point_of_comp_pin(comp, pin_name);
                     self.set_point(pin_id, point);
 

@@ -162,6 +162,14 @@ pub(crate) struct InstantiationBuilder {
     /// / [`Self::is_passthrough_formal`].
     func_scope: Vec<HashSet<String>>,
 
+    /// ★ U331: the receiver instance whose component-method body is currently
+    /// expanding (`None` = module-level expansion). Read at FuncCall-origin
+    /// creation time to record the true creator on
+    /// [`crate::instant::insttab::InstOrigin::FuncCall::owner`] — the name the
+    /// P8-1 pass-2 re-parent keys on. Private to the builder: consumed only
+    /// through [`Self::with_method_receiver`].
+    pub(super) method_receiver: Option<String>,
+
     /// Phase C1: per-build identity registry (canonical path ↔ [`NodeId`])
     /// shared by this module and every sub-module built under it. Every
     /// product pushed by [`Self::add_component`] / [`Self::add_submodule`]
@@ -446,6 +454,7 @@ impl InstantiationBuilder {
             current_trunk_iface: None,
             chain_iface_endpoints: HashMap::new(),
             func_scope: Vec::new(),
+            method_receiver: None,
             identity,
             current_path,
             net_table: Vec::new(),
@@ -556,8 +565,9 @@ impl InstantiationBuilder {
             .find(|c| c.name == name)
     }
 
-    /// U318 扩面: resolve a dotted owner spelling against the **caller's**
-    /// instance scope while a component func body is being expanded.
+    /// U318 scope expansion: resolve a dotted owner spelling against the
+    /// **caller's** instance scope while a component func body is being
+    /// expanded.
     ///
     /// A func body text is the component author's code and never names the
     /// caller's siblings lexically — the only way a caller-side dotted
@@ -1583,6 +1593,25 @@ impl InstantiationBuilder {
         self.func_scope.push(names);
         let r = f(self);
         self.func_scope.pop();
+        r
+    }
+
+    /// ★ U331 RAII: run `f` with `receiver` recorded as the instance whose
+    /// method body is expanding, restored on every exit path. FuncCall-origin
+    /// constructions inside `f` carry it as their creation-time owner
+    /// (`InstOrigin::FuncCall.owner`) — the key the P8-1 pass-2 re-parent
+    /// reads. A component method passes `Some(inst_name)`; a sub-module
+    /// method passes `None` (its body expands in the sub-module's own scope,
+    /// so the outer receiver must not leak in).
+    pub(super) fn with_method_receiver<R>(
+        &mut self,
+        receiver: Option<&str>,
+        f: impl FnOnce(&mut Self) -> R,
+    ) -> R {
+        let saved = self.method_receiver.clone();
+        self.method_receiver = receiver.map(String::from);
+        let r = f(self);
+        self.method_receiver = saved;
         r
     }
 

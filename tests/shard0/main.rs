@@ -14,3 +14,4 @@ mod u151_label_boundary;
 mod u153_anon_port_func_formal;
 mod u152_body_face_decl_order;
 mod u152c6_pin_canonical_order;
+mod u331_method_owner_reparent;

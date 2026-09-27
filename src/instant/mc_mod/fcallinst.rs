@@ -289,11 +289,15 @@ impl InstantiationBuilder {
             }
         };
         // ★ M0-B-E: mark the funcall origin (back-trunk to the ComponentCtor
-        // expansion record, §7.4)
+        // expansion record, §7.4). ★ U331: the creation-time owner rides
+        // along — the receiver whose method body (if any) is expanding — so
+        // the P8-1 pass-2 re-parent keys on the true creator, never on the
+        // (class-named, later rebranded) `fn_name`.
         inst.origin = InstOrigin::FuncCall {
             fn_name: type_name.clone(),
             line: gen_line,
             expansion_id: Some(eidx),
+            owner: self.method_receiver.clone(),
         };
         // Phase G (plan §9 G item 5): the "source span + role" anchor of an
         // anonymous construction — the registry interns it by the anchor, not
@@ -1072,6 +1076,8 @@ impl InstantiationBuilder {
             fn_name: comp.base.name.to_string(),
             line: self.current_offset(),
             expansion_id: None,
+            // ★ U331: creation-time owner — see the ComponentCtor site.
+            owner: self.method_receiver.clone(),
         };
         // ★ U326②: the bom overlay's device-level DNP word reaches func-body
         // declarations too — `full` is relative to this module, so the key
@@ -1366,9 +1372,18 @@ impl InstantiationBuilder {
         // actual as a passthrough formal (P6); restored on every exit (RAII).
         self.with_func_scope(&bindings, |this| -> Result<(), _> {
             if this.find_submodule(inst_name).is_some() {
-                this.run_submodule_method(inst_name, func_def, &bindings)?;
+                // ★ U331: a sub-module body expands in the sub-module's own
+                // scope — clear the outer receiver so its constructions
+                // don't inherit it.
+                this.with_method_receiver(None, |this| {
+                    this.run_submodule_method(inst_name, func_def, &bindings)
+                })?;
             } else {
-                this.run_component_method(inst_name, func_def, &bindings)?;
+                // ★ U331: record the receiver for the body's constructions —
+                // the creation-time owner the P8-1 pass-2 re-parent keys on.
+                this.with_method_receiver(Some(inst_name), |this| {
+                    this.run_component_method(inst_name, func_def, &bindings)
+                })?;
             }
             Ok(())
         })?;
@@ -1383,9 +1398,14 @@ impl InstantiationBuilder {
         // left untouched.
         let store = self.store.clone();
         if let Some(mut comp) = self.find_component(inst_name) {
+            // `owner` is not `Copy`, so the origin is cloned out of the
+            // shared instance before the pieces are moved into the rebrand.
             if let InstOrigin::FuncCall {
-                line, expansion_id, ..
-            } = comp.origin
+                line,
+                expansion_id,
+                owner,
+                ..
+            } = comp.origin.clone()
             {
                 let cid = comp
                     .node_id
@@ -1394,6 +1414,10 @@ impl InstantiationBuilder {
                     fn_name: func_def.name.to_string(),
                     line,
                     expansion_id,
+                    // ★ U331: the creation-time owner is provenance of THIS
+                    // instance's own creation — a rebrand of `fn_name` to the
+                    // dispatched method name must not touch it.
+                    owner,
                 };
                 // Phase C S3: the instance store is the sole content store —
                 // the rewritten origin lands back in the store.
@@ -2298,10 +2322,15 @@ impl InstantiationBuilder {
         //    the func has no stmts (declaration-only funcs still create the
         //    instances for sibling-func references). ──
         self.materialize_declared_subinstances(func_def, inst_name)?;
-        if func_def.stmts.is_empty() {
+        // ★ U331 ③: a body whose statements are ALL conditional (if/else)
+        // parses into `conds` with `stmts` empty — bailing on `stmts` alone
+        // starved the conds channel below of every such body (pca9555
+        // Address, nsi814x Pull). Only a body with neither statements nor
+        // conditional blocks has nothing to run.
+        if func_def.stmts.is_empty() && func_def.conds.is_empty() {
             mcc_dbg!(
                 "inst::fcall",
-                "Warning: component method '{}.{}' has no parsed stmts.",
+                "Warning: component method '{}.{}' has no parsed stmts or conditional blocks.",
                 inst_name,
                 func_def.name
             );
