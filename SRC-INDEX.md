@@ -5344,10 +5344,10 @@ semantic/basic/mc_expr.rs#L78  impl McExpression
 semantic/basic/mc_expr.rs#L79  fn new
 semantic/basic/mc_expr.rs#L279  fn eval_int
 semantic/basic/mc_expr.rs#L298  fn expand
-semantic/basic/mc_expr.rs#L330  fn resolve_message
-semantic/basic/mc_expr.rs#L356  fn not_a_whole_number
-semantic/basic/mc_expr.rs#L364  impl std::fmt::Display for McExpression
-semantic/basic/mc_expr.rs#L365  fn fmt
+semantic/basic/mc_expr.rs#L329  fn resolve_message
+semantic/basic/mc_expr.rs#L355  fn not_a_whole_number
+semantic/basic/mc_expr.rs#L363  impl std::fmt::Display for McExpression
+semantic/basic/mc_expr.rs#L364  fn fmt
 semantic/basic/mc_fcall.rs#L27  struct McFuncCall
 semantic/basic/mc_fcall.rs#L65  enum ReturnShape
 semantic/basic/mc_fcall.rs#L78  fn get_right_bus_from_phrase
@@ -6293,8 +6293,8 @@ semantic/component/mc_layout.rs#L125  fn edge_slot
 semantic/component/mc_layout.rs#L136  fn parse_edge
 semantic/component/mc_layout.rs#L195  fn expand_members
 semantic/component/mc_layout.rs#L249  fn expand_numeric_range
-semantic/component/mc_layout.rs#L265  fn parse_i64
-semantic/component/mc_layout.rs#L271  fn warn
+semantic/component/mc_layout.rs#L260  fn parse_i64
+semantic/component/mc_layout.rs#L266  fn warn
 semantic/component/mc_pins/dynamic.rs#L14  struct DynamicPinExpr
 semantic/component/mc_pins/dynamic.rs#L19  impl DynamicPinExpr
 semantic/component/mc_pins/dynamic.rs#L20  fn from_ast
@@ -6305,34 +6305,34 @@ semantic/component/mc_pins/dynamic.rs#L84  fn substitute_params
 semantic/component/mc_pins/dynamic.rs#L88  fn substitute_recursive
 semantic/component/mc_pins/dynamic.rs#L129  fn resolve_binding
 semantic/component/mc_pins/dynamic.rs#L143  fn expand_range
-semantic/component/mc_pins/dynamic.rs#L163  fn expand_with_bindings
-semantic/component/mc_pins/dynamic.rs#L177  fn substitute_and_eval
-semantic/component/mc_pins/dynamic.rs#L187  fn eval_text
-semantic/component/mc_pins/dynamic.rs#L193  fn eval_value
-semantic/component/mc_pins/dynamic.rs#L240  enum DynPinFail
-semantic/component/mc_pins/dynamic.rs#L250  struct DynamicPinLine
-semantic/component/mc_pins/dynamic.rs#L267  impl DynamicPinLine
-semantic/component/mc_pins/dynamic.rs#L268  fn new
-semantic/component/mc_pins/dynamic.rs#L279  fn with_group
-semantic/component/mc_pins/dynamic.rs#L284  fn with_attrs
-semantic/component/mc_pins/dynamic.rs#L289  fn with_iotype
-semantic/component/mc_pins/dynamic.rs#L294  fn with_values
-semantic/component/mc_pins/dynamic.rs#L299  fn with_pin_id
-semantic/component/mc_pins/dynamic.rs#L304  fn with_pin_name
-semantic/component/mc_pins/dynamic.rs#L309  fn resolve
-semantic/component/mc_pins/dynamic.rs#L318  fn resolve_checked
-semantic/component/mc_pins/dynamic.rs#L367  fn dynamic_pin_count
-semantic/component/mc_pins/dynamic.rs#L374  fn has_param_refs
-semantic/component/mc_pins/dynamic.rs#L398  fn width_binder_requests
-semantic/component/mc_pins/dynamic.rs#L442  fn unbound_single_name
-semantic/component/mc_pins/dynamic.rs#L462  fn collect_unbound_names
-semantic/component/mc_pins/dynamic.rs#L496  fn augment_with_width_binders
-semantic/component/mc_pins/dynamic.rs#L517  impl Default for DynamicPinLine
-semantic/component/mc_pins/dynamic.rs#L518  fn default
-semantic/component/mc_pins/dynamic.rs#L523  impl std::fmt::Display for DynamicPinExpr
-semantic/component/mc_pins/dynamic.rs#L524  fn fmt
-semantic/component/mc_pins/dynamic.rs#L529  impl std::fmt::Display for DynamicPinLine
-semantic/component/mc_pins/dynamic.rs#L530  fn fmt
+semantic/component/mc_pins/dynamic.rs#L161  fn expand_with_bindings
+semantic/component/mc_pins/dynamic.rs#L175  fn substitute_and_eval
+semantic/component/mc_pins/dynamic.rs#L185  fn eval_text
+semantic/component/mc_pins/dynamic.rs#L191  fn eval_value
+semantic/component/mc_pins/dynamic.rs#L238  enum DynPinFail
+semantic/component/mc_pins/dynamic.rs#L248  struct DynamicPinLine
+semantic/component/mc_pins/dynamic.rs#L265  impl DynamicPinLine
+semantic/component/mc_pins/dynamic.rs#L266  fn new
+semantic/component/mc_pins/dynamic.rs#L277  fn with_group
+semantic/component/mc_pins/dynamic.rs#L282  fn with_attrs
+semantic/component/mc_pins/dynamic.rs#L287  fn with_iotype
+semantic/component/mc_pins/dynamic.rs#L292  fn with_values
+semantic/component/mc_pins/dynamic.rs#L297  fn with_pin_id
+semantic/component/mc_pins/dynamic.rs#L302  fn with_pin_name
+semantic/component/mc_pins/dynamic.rs#L307  fn resolve
+semantic/component/mc_pins/dynamic.rs#L316  fn resolve_checked
+semantic/component/mc_pins/dynamic.rs#L365  fn dynamic_pin_count
+semantic/component/mc_pins/dynamic.rs#L372  fn has_param_refs
+semantic/component/mc_pins/dynamic.rs#L396  fn width_binder_requests
+semantic/component/mc_pins/dynamic.rs#L440  fn unbound_single_name
+semantic/component/mc_pins/dynamic.rs#L460  fn collect_unbound_names
+semantic/component/mc_pins/dynamic.rs#L494  fn augment_with_width_binders
+semantic/component/mc_pins/dynamic.rs#L515  impl Default for DynamicPinLine
+semantic/component/mc_pins/dynamic.rs#L516  fn default
+semantic/component/mc_pins/dynamic.rs#L521  impl std::fmt::Display for DynamicPinExpr
+semantic/component/mc_pins/dynamic.rs#L522  fn fmt
+semantic/component/mc_pins/dynamic.rs#L527  impl std::fmt::Display for DynamicPinLine
+semantic/component/mc_pins/dynamic.rs#L528  fn fmt
 semantic/component/mc_pins/mod.rs#L5  mod dynamic
 semantic/component/mc_pins/mod.rs#L34  fn resolve_interface_binding
 semantic/component/mc_pins/mod.rs#L43  enum McPinPort

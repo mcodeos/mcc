@@ -145,11 +145,9 @@ impl DynamicPinExpr {
             McExpression::Slice(left, right) => {
                 let start = self.substitute_and_eval(left, bindings)?;
                 let end = self.substitute_and_eval(right, bindings)?;
-                if start <= end {
-                    Some((start..=end).collect())
-                } else {
-                    Some((end..=start).rev().collect())
-                }
+                Some(crate::semantic::basic::mc_ids::expand_numeric_slice(
+                    start, end,
+                ))
             }
             _ => {
                 let val = self.evaluate_with_bindings(bindings)?;

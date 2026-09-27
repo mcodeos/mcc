@@ -249,17 +249,12 @@ fn expand_members(node: &AstNode, edge: &AstNode, out: &mut Vec<String>) {
 fn expand_numeric_range(left: &AstNode, right: &AstNode) -> Option<Vec<String>> {
     let lo = parse_i64(left)?;
     let hi = parse_i64(right)?;
-    let mut v: Vec<String> = Vec::new();
-    if lo <= hi {
-        for x in lo..=hi {
-            v.push(x.to_string());
-        }
-    } else {
-        for x in (hi..=lo).rev() {
-            v.push(x.to_string());
-        }
-    }
-    Some(v)
+    Some(
+        crate::semantic::basic::mc_ids::expand_numeric_slice(lo, hi)
+            .into_iter()
+            .map(|x| x.to_string())
+            .collect(),
+    )
 }
 
 fn parse_i64(node: &AstNode) -> Option<i64> {

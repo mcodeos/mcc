@@ -308,11 +308,10 @@ impl McExpression {
             }
             McExpression::Slice(left, right) => {
                 if let (Ok(start), Ok(end)) = (left.eval_int(), right.eval_int()) {
-                    if start <= end {
-                        (start..=end).map(|x| x.to_string()).collect()
-                    } else {
-                        (end..=start).rev().map(|x| x.to_string()).collect()
-                    }
+                    super::mc_ids::expand_numeric_slice(start, end)
+                        .into_iter()
+                        .map(|x| x.to_string())
+                        .collect()
                 } else {
                     vec![]
                 }
