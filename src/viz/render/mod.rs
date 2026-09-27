@@ -187,12 +187,11 @@ fn render_block_frames(graph: &crate::vector::graph::McVecGraph) -> String {
     svg
 }
 
-/// Draw a module's boundary frame: the dashed rect, its title, and the ports on
-/// it.
+/// Draw a module's boundary ports and title — no frame rect.
 ///
-/// A port is a drawn object — a stub tick plus a dot at the anchor the layout
-/// pass chose, with the port's name just outside the frame. The name is the
-/// **port's** (`vin`); the net it carries keeps its own name on the wire, so one
+/// A port is a named anchor where the module's own leads cross the sheet
+/// boundary: the layout pass chose the anchor, the name is the **port's**
+/// (`vin`), and the net it carries keeps its own name on the wire, so one
 /// place carries one identity. Colour follows the structurally-carried supply
 /// axis (never the port or net name): supply ports take the rail red the device
 /// layer already paints power with, signals the signal blue.
@@ -201,15 +200,9 @@ fn render_module_frame(mf: &crate::vector::graph::ModuleFrame) -> String {
 
     let mut svg = format!(
         r##"  <g class="module-frame">
-    <rect x="{x:.1}" y="{y:.1}" width="{w:.1}" height="{h:.1}" rx="8" ry="8"
-          fill="none" stroke="#616161" stroke-width="1.5" stroke-dasharray="8,4"/>
     <text x="{tx:.1}" y="{ty:.1}" font-size="14" font-weight="600" fill="#616161"
           dominant-baseline="auto">{title}</text>
 "##,
-        x = mf.x,
-        y = mf.y,
-        w = mf.w,
-        h = mf.h,
         tx = mf.x,
         ty = mf.y - 8.0,
         title = escape_xml(&mf.title),
@@ -217,31 +210,19 @@ fn render_module_frame(mf: &crate::vector::graph::ModuleFrame) -> String {
 
     for p in &mf.ports {
         let color = if p.is_supply { "#C0392B" } else { "#2980B9" };
-        // The stub points from the frame inward, so the port reads as a terminal
-        // ON the boundary rather than a floating label.
-        const TICK: f64 = 9.0;
-        let (sx, sy, ex, ey, ax, ay, anchor) = match p.side {
-            EntrySide::Left => (p.x, p.y, p.x + TICK, p.y, p.x - 6.0, p.y, "end"),
-            EntrySide::Right => (p.x, p.y, p.x - TICK, p.y, p.x + 6.0, p.y, "start"),
-            EntrySide::Top => (p.x, p.y, p.x, p.y + TICK, p.x, p.y - 6.0, "middle"),
-            EntrySide::Bottom => (p.x, p.y, p.x, p.y - TICK, p.x, p.y + 12.0, "middle"),
+        let (ax, ay, anchor) = match p.side {
+            EntrySide::Left => (p.x - 6.0, p.y, "end"),
+            EntrySide::Right => (p.x + 6.0, p.y, "start"),
+            EntrySide::Top => (p.x, p.y - 6.0, "middle"),
+            EntrySide::Bottom => (p.x, p.y + 12.0, "middle"),
         };
         svg.push_str(&format!(
             r##"    <g class="port" data-port="{name}">
-    <line x1="{sx:.1}" y1="{sy:.1}" x2="{ex:.1}" y2="{ey:.1}"
-          stroke="{color}" stroke-width="2.0"/>
-    <circle cx="{px:.1}" cy="{py:.1}" r="3.0" fill="{color}"/>
     <text x="{ax:.1}" y="{ay:.1}" text-anchor="{anchor}" font-size="11"
           font-weight="600" fill="{color}" dominant-baseline="central">{name}</text>
   </g>
 "##,
             name = escape_xml(&p.name),
-            sx = sx,
-            sy = sy,
-            ex = ex,
-            ey = ey,
-            px = p.x,
-            py = p.y,
             ax = ax,
             ay = ay,
             anchor = anchor,
