@@ -23,10 +23,11 @@
 //!    set and drags that body's own shape error out (E4007). The noise is
 //!    accepted, and asserted here so the price stays visible rather than
 //!    being rediscovered;
-//! 3. **a surplus of single-lane elements stays pairable** — `[SPI, GND, VDD]`
-//!    (`param-prefix-design.md` §3.2, conclusion 1): every member pairs and
-//!    only the surplus is left over, so **both fork branches are built**,
-//!    each wire-complete;
+//! 3. **a surplus element never forks the statement** — `[SPI, GND, VDD]`
+//!    (U329 ruling 2026-09-28, superseding `param-prefix-design.md` §3.2
+//!    conclusion 1): the direct face is one Set actual, E4180 at the width
+//!    gate (4 members against 2 formals — the same verdict as family 2), and
+//!    the part is still **built**, its residue reported, not dropped;
 //! 4. **legitimately unwired is not an error at all** — a declared-only part
 //!    with no connection (including one whose *written* name starts with `_`)
 //!    is built, and reported unwired: that report is the mechanism this whole
@@ -238,15 +239,20 @@ fn noblock__fatal_width_mismatch_still_builds_the_residue() {
     }
 }
 
-/// conclusion 1 (`param-prefix-design.md` §3.2): the surplus is **kept**. `SPI`
-/// occupies the argument table on its z-axis, so the statement forks per lane
-/// — and each branch pairs its own two members against the two slots. Only a
-/// leftover single-lane element remains, which the ruling does not punish, so
-/// **both branches build**, each wire-complete.
+/// U329 (ruling 2026-09-28): the direct-written face is **one Set actual** —
+/// fan-out is legal only on the `=>` prefix face. This supersedes
+/// `param-prefix-design.md` §3.2 conclusion 1 (the per-lane fork): from the
+/// circuit space the spelling is invisible (`SPI` and `SPI{A, B}` name the
+/// same 2-net bundle), so a 2-slot part cannot take a 4-lane bundle
+/// unambiguously — a fork would invent a part the author never wrote and
+/// silently drop the surplus. The honest verdict is the width gate's: the
+/// Set counts 4 members against 2 formals, **E4180** — the same verdict as
+/// the explicit `SPI{A, B}` spelling (family 2).
 ///
-/// This is the discriminator: without it, family 2's rule would degenerate
-/// into "a width mismatch drops the part", which would drop exactly the case
-/// the ruling spares.
+/// What this test still pins of the §11.6 family is the surviving half: the
+/// error does **not** drop the part. `_C1` is built — one instance, not a
+/// fork's two — and its residue is reported (half-bound pins, the body's
+/// own shape error), never silently discarded.
 #[test]
 fn noblock__surplus_elements_still_build() {
     let body = "        CAP(10).Cap([SPI, GND, VDD])";
@@ -254,30 +260,34 @@ fn noblock__surplus_elements_still_build() {
     let devs = devices_of(&src, "/mcc/noblock-surplus.mc");
     assert_eq!(
         devs,
-        BTreeSet::from(["_C1".to_string(), "_C2".to_string()]),
-        "both fork branches are complete, so both are built; body={body:?}"
+        BTreeSet::from(["_C1".to_string()]),
+        "one part builds despite the error, and the fork invents no second \
+         part; body={body:?}"
     );
     assert_eq!(
         count_code(&src, "/mcc/noblock-surplus.mc", 4180),
-        2,
-        "and each branch reports the mismatch it saw; body={body:?}"
+        1,
+        "the direct face answers the width gate honestly: 4 members against 2 \
+         formals, one E4180 — the same verdict as the explicit SPI{{A, B}} \
+         spelling; body={body:?}"
     );
 
-    // `_C1` takes SPI.A, `_C2` takes SPI.B; each also lands on GND — 2 of 2
-    // pins wired, i.e. "the part itself is complete".
+    // The residue stays visible: the kept part is half-bound (pin 1 has no
+    // net), and the library body's own shape error drags out against the
+    // half-bound formal set — the same accepted noise as family 2.
+    let codes = codes_of(&src, "/mcc/noblock-surplus.mc");
+    assert!(
+        codes.contains(&4007) && codes.contains(&4116),
+        "the kept residue is reported (body shape error + half-bound pins), \
+         not silently discarded; body={body:?} codes={codes:?}"
+    );
     let nets = nets_of(&src, "/mcc/noblock-surplus.mc");
-    for (dev, lane) in [("_C1", "SPI.A"), ("_C2", "SPI.B")] {
-        let on = |net: &str| {
-            nets.iter().any(|pts| {
-                pts.iter()
-                    .any(|p| p == net && pts.iter().any(|q| q.starts_with(dev)))
-            })
-        };
-        assert!(
-            on(lane) && on("GND"),
-            "{dev} must be wired to both {lane} and GND; nets={nets:?}"
-        );
-    }
+    assert!(
+        nets.iter().any(|pts| {
+            pts.iter().any(|p| p == "GND") && pts.iter().any(|q| q.starts_with("_C1"))
+        }),
+        "the bound half of the residue lands on its net; nets={nets:?}"
+    );
 }
 
 /// Blocker 1 of the U51 discussion, which survives the reversal unchanged:

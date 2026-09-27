@@ -623,7 +623,21 @@ impl InstantiationBuilder {
                 // The Multiple arm above already consumed any `BUS - C(..).M`
                 // pair, so reaching a FuncCall here means no chain member
                 // carried this bus.
-                McPhrase::FuncCall(fc) => match self.fc_lane_bus(fc) {
+                //
+                // ── U329 (ruling 2026-09-28, matching-rules-design.md §6.2):
+                // lane expansion on THIS face is fold-provenance-gated. The
+                // folded call carries `pre_closure` (mc_fcall.rs sets it at
+                // the fold and nothing else does), so it alone identifies the
+                // `=>` origin — the one face where fan-out is legal. A
+                // directly-written actual that merely NAMES a multi-member
+                // bus (`M([BUS, VDD])`) is not a prefix: per the G4 law the
+                // Set is ONE argument, the bus fills its single slot whole,
+                // and a ≥2-member width against that slot is the width
+                // gate's honest E4180 (same verdict as the bus-literal
+                // spelling). Without the gate the guard consumed the bare
+                // name first and fed the width gate a false lane count —
+                // the silent conflation U329 filed.
+                McPhrase::FuncCall(fc) if fc.pre_closure => match self.fc_lane_bus(fc) {
                     Some(base_bus) => {
                         let lanes = self.bus_lane_phrases(&base_bus);
                         if lanes.len() > 1 {
