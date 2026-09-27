@@ -135,16 +135,19 @@ pub fn render_pin_named(
     // The physical pin for this lead (BoxPin: pin_id=number/common name, description=function name,
     // io=direction)
     let pin = b.find_pin(ep.pin_id);
+    let io_dir = pin.map(|p| p.io).unwrap_or(IoDirection::Unknown);
 
-    // Marker (dot or stub).
+    // Marker (dot or stub). On a stub, overlay the IO direction arrow (in points into box / out
+    // points out of box / io diamond).
     let marker = match opts.style {
         PinStyle::Dot => format!(r##"<circle cx="{cx:.1}" cy="{cy:.1}" r="2.5" fill="#222"/>"##),
         PinStyle::Stub => {
             let (ex, ey) = stub_outward(b, ep, LEAD_STUB_LEN);
-            format!(
+            let line = format!(
                 r##"<line x1="{cx:.1}" y1="{cy:.1}" x2="{ex:.1}" y2="{ey:.1}"
                         stroke="#222" stroke-width="1.2"/>"##
-            )
+            );
+            format!("{}{}", line, io_marker(b, ep, io_dir))
         }
     };
 
@@ -310,6 +313,57 @@ fn stub_outward(b: &McVecBox, ep: &EntryPoint, length: f64) -> (f64, f64) {
         EntrySide::Bottom => (cx, cy + length),
         EntrySide::Left => (cx - length, cy),
         EntrySide::Right => (cx + length, cy),
+    }
+}
+
+/// IO direction marker: small arrow / diamond drawn on the stub line.
+///
+/// - `Input`  → solid triangle, tip **points into the box** (signal flows in);
+/// - `Output` → solid triangle, tip **points out of the box** (signal flows out);
+/// - `Bidir`  → hollow diamond (mc `io`, bidirectional);
+/// - `Power` / `Ground` / `Passive` / `Unknown` → not drawn (return empty).
+///
+/// Geometry: `d` = distance along the outward direction from the box edge (px), `w` = perpendicular
+/// offset (px). The triangle occupies the 2~7px segment of the stub.
+fn io_marker(b: &McVecBox, ep: &EntryPoint, io: IoDirection) -> String {
+    // Unit vector along the outward lead direction (from box edge outward)
+    let (ox, oy) = match ep.side {
+        EntrySide::Top => (0.0, -1.0),
+        EntrySide::Bottom => (0.0, 1.0),
+        EntrySide::Left => (-1.0, 0.0),
+        EntrySide::Right => (1.0, 0.0),
+    };
+    // Perpendicular direction (used to widen the arrow base)
+    let (px, py) = (-oy, ox);
+    let (cx, cy) = pin_position(b, ep);
+    let pt = |d: f64, w: f64| (cx + ox * d + px * w, cy + oy * d + py * w);
+
+    let tri = |apex: (f64, f64), b1: (f64, f64), b2: (f64, f64)| {
+        format!(
+            r##"<polygon points="{:.1},{:.1} {:.1},{:.1} {:.1},{:.1}" fill="#1A237E"/>"##,
+            apex.0, apex.1, b1.0, b1.1, b2.0, b2.1
+        )
+    };
+
+    match io {
+        // Tip on the inside (near box, d=2), base outside (d=7) → points into the box
+        IoDirection::Input => tri(pt(2.0, 0.0), pt(7.0, 3.0), pt(7.0, -3.0)),
+        // Tip on the outside (d=7), base inside (d=2) → points out of the box
+        IoDirection::Output => tri(pt(7.0, 0.0), pt(2.0, 3.0), pt(2.0, -3.0)),
+        // Bidirectional: hollow diamond
+        IoDirection::Bidir => {
+            let n = pt(2.0, 0.0);
+            let l = pt(4.5, 2.5);
+            let f = pt(7.0, 0.0);
+            let r = pt(4.5, -2.5);
+            format!(
+                r##"<polygon points="{:.1},{:.1} {:.1},{:.1} {:.1},{:.1} {:.1},{:.1}" fill="#FFF" stroke="#1A237E" stroke-width="1"/>"##,
+                n.0, n.1, l.0, l.1, f.0, f.1, r.0, r.1
+            )
+        }
+        IoDirection::Power | IoDirection::Ground | IoDirection::Passive | IoDirection::Unknown => {
+            String::new()
+        }
     }
 }
 

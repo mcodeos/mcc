@@ -187,17 +187,15 @@ fn render_block_frames(graph: &crate::vector::graph::McVecGraph) -> String {
     svg
 }
 
-/// Draw a module's boundary ports and title — no frame rect.
+/// Draw a module's boundary title and the lead wires of its ports — no frame
+/// rect, no port terminals.
 ///
-/// A port is a named anchor where the module's own leads cross the sheet
-/// boundary: the layout pass chose the anchor, the name is the **port's**
-/// (`vin`), and the net it carries keeps its own name on the wire, so one
-/// place carries one identity. Colour follows the structurally-carried supply
-/// axis (never the port or net name): supply ports take the rail red the device
-/// layer already paints power with, signals the signal blue.
+/// The layout pass anchors each port on the sheet boundary; the net a port
+/// carries keeps its own name on the wire, so one place carries one identity.
+/// Colour follows the structurally-carried supply axis (never the port or net
+/// name): supply leads take the rail red the device layer already paints power
+/// with, signals the signal blue.
 fn render_module_frame(mf: &crate::vector::graph::ModuleFrame) -> String {
-    use crate::vector::graph::EntrySide;
-
     let mut svg = format!(
         r##"  <g class="module-frame">
     <text x="{tx:.1}" y="{ty:.1}" font-size="14" font-weight="600" fill="#616161"
@@ -210,28 +208,9 @@ fn render_module_frame(mf: &crate::vector::graph::ModuleFrame) -> String {
 
     for p in &mf.ports {
         let color = if p.is_supply { "#C0392B" } else { "#2980B9" };
-        let (ax, ay, anchor) = match p.side {
-            EntrySide::Left => (p.x - 6.0, p.y, "end"),
-            EntrySide::Right => (p.x + 6.0, p.y, "start"),
-            EntrySide::Top => (p.x, p.y - 6.0, "middle"),
-            EntrySide::Bottom => (p.x, p.y + 12.0, "middle"),
-        };
-        svg.push_str(&format!(
-            r##"    <g class="port" data-port="{name}">
-    <text x="{ax:.1}" y="{ay:.1}" text-anchor="{anchor}" font-size="11"
-          font-weight="600" fill="{color}" dominant-baseline="central">{name}</text>
-  </g>
-"##,
-            name = escape_xml(&p.name),
-            ax = ax,
-            ay = ay,
-            anchor = anchor,
-            color = color,
-        ));
-        // ★ U160-5: the lead wires the layout pass routed — one polyline per
-        // net crossing this port, from the tick's inner end to that net's own
-        // boundary-crossing symbol. Drawn before the dot so the anchor dot
-        // caps the joint.
+        // ★ U160-5: the lead wires the layout pass routed — one line run per
+        // net crossing this port, from the boundary anchor to that net's own
+        // boundary-crossing symbol.
         for lead in &p.leads {
             for s in lead {
                 svg.push_str(&format!(

@@ -242,7 +242,10 @@ fn render_sub_module_impl(b: &McVecBox, is_root: bool, drill: bool) -> String {
         };
 
         format!(
-            r##"{g_open}{title_svg}{name_svg}{class_svg}    <g transform="translate({corner_x:.1},{corner_y:.1})">
+            r##"{g_open}{title_svg}{name_svg}{class_svg}    <rect x="{x:.1}" y="{y:.1}" width="{w:.1}" height="{h:.1}" rx="6"
+          fill="none" stroke="#424242" stroke-width="1.5" stroke-dasharray="5,3"
+          pointer-events="none"/>
+    <g transform="translate({corner_x:.1},{corner_y:.1})">
       <circle cx="0" cy="0" r="8" fill="#424242" />
       <text x="0" y="0.5" text-anchor="middle" dominant-baseline="central"
             font-size="10" font-weight="700" fill="#FAFAFA">＋</text>
@@ -253,6 +256,10 @@ fn render_sub_module_impl(b: &McVecBox, is_root: bool, drill: bool) -> String {
             title_svg = title_svg,
             name_svg = name_svg,
             class_svg = class_svg,
+            x = b.x,
+            y = b.y,
+            w = b.w,
+            h = b.h,
             corner_x = b.x + b.w - 10.0,
             corner_y = b.y + 10.0,
             pins = pins,
