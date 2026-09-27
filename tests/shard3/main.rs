@@ -43,3 +43,4 @@ mod vec_p29_idempotence;
 mod vec_parallel_pairing;
 mod vector_lane_pass1;
 mod virtual_component_view;
+mod u316_closure_faces;
