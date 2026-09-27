@@ -60,11 +60,12 @@ module POWER_LDO()
     LDO.SOT23_5             ldo
     ldo.Enable()
 
-    VIN -> ldo.VIN =>
-    CAP(10uF, ±20%, CAP.X5R, 10V).Cap(_)
+    VIN -> ldo.VIN
+    ldo.VIN.Vin - CAP(10uF, ±20%, CAP.X5R, 10V) - VIN.GND
 
-    CAP(4.7uF, ±20%, CAP.Y5V, 6.3V).Cap(ldo.VOUT)
-    -> VOUT
+    ldo.VOUT.Vout -> VOUT.VCC
+    ldo.VOUT.GND -> VOUT.GND
+    ldo.VOUT.Vout - CAP(4.7uF, ±20%, CAP.Y5V, 6.3V) - VOUT.GND
 
 }
 
@@ -94,13 +95,13 @@ module POWER_DCDC()
     DCDC.LP3220AB5F   lp322dcdc.Enable()
 
     [VDD_3V3, GND] -> lp322dcdc{Vin, GND}
-    CAP(10uF,10V).Cap(lp322dcdc{Vin, GND})
-    CAP(1uF,10V).Cap(lp322dcdc{EN, GND})
+    VDD_3V3 - CAP(10uF,10V) - GND
+    lp322dcdc.EN - CAP(1uF,10V) - GND
 
     lp322dcdc.LX -> IND(2.2uH, 1.5A) -> VCC_1V2
-    CAP(10uF,10V).Cap([VCC_1V2, GND])
-    CAP(100nF,25V).Cap([VCC_1V2, GND])
+    VCC_1V2 - CAP(10uF,10V) - GND
+    VCC_1V2 - CAP(100nF,25V) - GND
 
     VCC_1V2 - RES(137kΩ, 1%) - lp322dcdc.FB - RES(150kΩ, 1%) - GND
-    CAP(15pF).Cap([lp322dcdc.FB, GND])
+    lp322dcdc.FB - CAP(15pF) - GND
 }

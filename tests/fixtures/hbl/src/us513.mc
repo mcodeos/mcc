@@ -47,11 +47,15 @@ component MCU.US513_20_F
         io 20 = GPIO[2] | EXT_CLK_IN
     ]
 
-    func Power(V3V3::DC(3.3V), V1V2::DC(1.2V))
+    func Power([VDD_3V3, GND]::DC(3.3V), [VCC_1V2, GND]::DC(1.2V))
     {
-        V3V3 => CAP(1uF, ±10%, CAP.X5R, 10V).Cap(_) -> [VDD, GND]
-        V1V2 => CAP(1uF, ±10%, CAP.X5R, 10V).Cap(_) -> [VDD_CORE, GND]
-        CAP(1uF, ±10%, CAP.X5R, 10V).Cap([AVDD09_CAP, GND])
+        VDD_3V3 - CAP(1uF, ±10%, CAP.X5R, 10V) - GND
+        VDD_3V3 - VDD
+        this.GND - GND
+        VCC_1V2 - CAP(1uF, ±10%, CAP.X5R, 10V) - GND
+        VCC_1V2 - VDD_CORE
+        GND -> this.GND
+        AVDD09_CAP - CAP(1uF, ±10%, CAP.X5R, 10V) - GND
     }
 
     func I2C(address)
@@ -62,8 +66,8 @@ component MCU.US513_20_F
         else //if address == 0x35
             GPIO[2] - RES(100kΩ) -> GND
 
-        RES(10kΩ).Pullup([I2C0.SCL, VDD])
-        RES(10kΩ).Pullup([I2C0.SDA, VDD])
+        I2C0.SCL - RES(10kΩ) - VDD
+        I2C0.SDA - RES(10kΩ) - VDD
     }
 }
 
@@ -109,11 +113,12 @@ component FLASH.GD25Q32E
         
     func GD25Q32E([V3V3, GND]::DC(3.3V))
     {
-        [V3V3, GND] => CAP(100nF, ±20%, CAP.X5R, 25V).Cap(_) -> [VCC, VSS]
+        [V3V3, GND] -> [VCC, VSS]
+        VCC - CAP(100nF, ±20%, CAP.X5R, 25V) - VSS
 
-        RES(10kΩ).Pullup([_CS, V3V3])
-        RES(10kΩ).Pullup([_WP, V3V3])
-        RES(10kΩ).Pullup([_HOLD, V3V3])
+        _CS - RES(10kΩ) - V3V3
+        _WP - RES(10kΩ) - V3V3
+        _HOLD - RES(10kΩ) - V3V3
     }
 }
 
@@ -140,7 +145,7 @@ module US513(psnk [VDD_3V3,GND]::DC(3.3V), psnk [VCC_1V2,GND]::DC(1.2V))
     }
 
     UART0 - R[1:2]::RES(0Ω) - UC.UART0
-    RES(100kΩ).Pullup([UC.7, UC.VDD])
+    UC.7 - RES(100kΩ) - UC.VDD
 
     MIC{P,N} -> [C4::CAP(),C5::CAP()] -> UC.ADC{P,N}
 

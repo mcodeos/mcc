@@ -45,7 +45,8 @@ module MIC_SIP(psnk DC{VDD_3V3, GND}::DC(3.3V))
     mic{1,2} -> [dio[1:2]::DIO.ESD(5V)] -> [DC.GND, DC.GND]
 
     MICROPHONE.WM7121P wm7121(NC)
-    CAP(100nF, ±20%, CAP.X5R, 25V, NC).Cap([[DC.VDD_3V3 -> wm7121.VCC], DC.GND])
+    wm7121.VCC -> DC.VDD_3V3
+    DC.VDD_3V3 - CAP(100nF, ±20%, CAP.X5R, 25V, NC) - DC.GND
     wm7121{2,3} - [DC.GND, DC.GND]
     MIC.N - RES(0R, NC) - DC.GND
 }
