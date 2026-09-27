@@ -2829,15 +2829,27 @@ impl InstantiationBuilder {
                     .iter()
                     .map(|e| Self::prefix_instance_node_element_with_skip(e, inst_name, skip))
                     .collect();
-                let left_bus = Self::node_elements_to_bus(&prefixed_left);
-                let right_bus = Self::node_elements_to_bus(&prefixed_right);
+                // U318: a bare multi-element face folds to an **anonymous**
+                // bus (`{name:"", member:[...]}`) whose 2-member pass-through
+                // read (`get_left`) drops the members entirely and reduces to
+                // an empty-path point. Keep the folded form only when it
+                // carries a real name; an anonymous fold is re-emitted as one
+                // bus entry per element so each dotted full path reaches
+                // `resolve_curly_mn_points` intact (mirror of the subst.rs
+                // Ports arm).
+                let face_refs = |elements: &[McBus]| -> Vec<McRef> {
+                    let folded = Self::node_elements_to_bus(elements);
+                    if !folded.name.is_empty() {
+                        return vec![McRef::Name(McInstanceRef::new(McInstance::Bus(folded)))];
+                    }
+                    elements
+                        .iter()
+                        .map(|e| McRef::Name(McInstanceRef::new(McInstance::Bus(e.clone()))))
+                        .collect()
+                };
                 McPhrase::Endpoint(McRef::Ports {
-                    left: vec![McRef::Name(McInstanceRef::new(McInstance::Bus(
-                        left_bus,
-                    )))],
-                    right: vec![McRef::Name(McInstanceRef::new(McInstance::Bus(
-                        right_bus,
-                    )))],
+                    left: face_refs(&prefixed_left),
+                    right: face_refs(&prefixed_right),
                 })
             }
             // ── P3-1: recursively prefix each item in a McRef::Group ──

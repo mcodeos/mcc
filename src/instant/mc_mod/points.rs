@@ -209,7 +209,7 @@ impl InstantiationBuilder {
                         .collect();
                     let is_owned = !elements.name.is_empty()
                         && (self.find_submodule(&elements.name).is_some()
-                            || self.find_component(&elements.name).is_some());
+                            || self.find_component_visible(&elements.name).is_some());
                     // Bug ② fix
                     // only register as bus when name is not known component/submodule.
                     // if `uC{XTAL, ...}` "component instance + pin member" form gets
@@ -309,7 +309,7 @@ impl InstantiationBuilder {
                         // on hit, endpoints generated in owner form.
                         let elem_owned = !elem.name.is_empty()
                             && (self.find_submodule(&elem.name).is_some()
-                                || self.find_component(&elem.name).is_some());
+                                || self.find_component_visible(&elem.name).is_some());
                         if !elem.name.is_empty() && !elem_owned {
                             // BUS_MEMBER_UNDECLARED: validate the referenced
                             // member against the port's declared member set
@@ -595,7 +595,7 @@ impl InstantiationBuilder {
                     // direction-heuristic pin — silently wiring (or
                     // shape-mismatching) the wrong pad.
                     let is_owned = self.find_submodule(&bus.name).is_some()
-                        || self.find_component(&bus.name).is_some();
+                        || self.find_component_visible(&bus.name).is_some();
                     let mut points = Vec::new();
                     for m in &bus.member {
                         let path = format!("{}.{}", bus.name, m);
@@ -648,7 +648,7 @@ impl InstantiationBuilder {
                     if let Some(lanes) = self.expand_port_lanes(&bus.name) {
                         return Ok(lanes);
                     }
-                    if let Some(comp) = self.find_component(&bus.name) {
+                    if let Some(comp) = self.find_component_visible(&bus.name) {
                         if let Some(pin) = comp.get_left_pin() {
                             return Ok(vec![pin]);
                         }
@@ -728,7 +728,7 @@ impl InstantiationBuilder {
                     if let McRef::Name(iref) = item {
                         if matches!(iref.base, McInstance::Component(_)) {
                             let bus = iref.to_bus();
-                            if let Some(comp) = self.find_component(&bus.name) {
+                            if let Some(comp) = self.find_component_visible(&bus.name) {
                                 if let Some(pin) = comp.get_left_pin() {
                                     points.push(pin);
                                     routed = true;
@@ -865,7 +865,7 @@ impl InstantiationBuilder {
                 if let Some(ref mname) = member_name {
                     if let Some(caller) = Self::extract_caller_inst_name(phrase) {
                         // (A) direct component lookup (same module)
-                        if let Some(comp) = self.find_component(&caller) {
+                        if let Some(comp) = self.find_component_visible(&caller) {
                             if let Some(pids) = comp.find_bus_port_pin_ids(mname) {
                                 return Ok(pids
                                     .iter()
@@ -944,7 +944,7 @@ impl InstantiationBuilder {
                         .collect();
                     let is_owned = !elements.name.is_empty()
                         && (self.find_submodule(&elements.name).is_some()
-                            || self.find_component(&elements.name).is_some());
+                            || self.find_component_visible(&elements.name).is_some());
                     // Bug ② fix (mirror get_left_points)
                     // component/submodule instance names not registered as bus, avoids downstream
                     // inst_table
@@ -1030,7 +1030,7 @@ impl InstantiationBuilder {
                         // Bug ② fix (mirror get_left_points)
                         let elem_owned = !elem.name.is_empty()
                             && (self.find_submodule(&elem.name).is_some()
-                                || self.find_component(&elem.name).is_some());
+                                || self.find_component_visible(&elem.name).is_some());
                         if !elem.name.is_empty() && !elem_owned {
                             // BUS_MEMBER_UNDECLARED: validate the referenced
                             // member against the port's declared member set
@@ -1237,7 +1237,7 @@ impl InstantiationBuilder {
                     // each member to its physical lanes instead of collapsing to
                     // get_right_pin's single direction-heuristic pin.
                     let is_owned = self.find_submodule(&bus.name).is_some()
-                        || self.find_component(&bus.name).is_some();
+                        || self.find_component_visible(&bus.name).is_some();
                     let mut points = Vec::new();
                     for m in &bus.member {
                         let path = format!("{}.{}", bus.name, m);
@@ -1290,7 +1290,7 @@ impl InstantiationBuilder {
                     if let Some(lanes) = self.expand_port_lanes(&bus.name) {
                         return Ok(lanes);
                     }
-                    if let Some(comp) = self.find_component(&bus.name) {
+                    if let Some(comp) = self.find_component_visible(&bus.name) {
                         if let Some(pin) = comp.get_right_pin() {
                             return Ok(vec![pin]);
                         }
@@ -1376,7 +1376,7 @@ impl InstantiationBuilder {
                     if let McRef::Name(iref) = item {
                         if matches!(iref.base, McInstance::Component(_)) {
                             let bus = iref.to_bus();
-                            if let Some(comp) = self.find_component(&bus.name) {
+                            if let Some(comp) = self.find_component_visible(&bus.name) {
                                 if let Some(pin) = comp.get_right_pin() {
                                     points.push(pin);
                                     routed = true;
@@ -1483,7 +1483,7 @@ impl InstantiationBuilder {
                 if let Some(ref mname) = member_name {
                     if let Some(caller) = Self::extract_caller_inst_name(phrase) {
                         // (A) direct component lookup
-                        if let Some(comp) = self.find_component(&caller) {
+                        if let Some(comp) = self.find_component_visible(&caller) {
                             if let Some(pids) = comp.find_bus_port_pin_ids(mname) {
                                 return Ok(pids
                                     .iter()
@@ -1637,7 +1637,7 @@ impl InstantiationBuilder {
         let mut best: Option<&str> = None;
         for (i, _) in path.match_indices('.') {
             let candidate = &path[..i];
-            if self.find_component(candidate).is_some() {
+            if self.find_component_visible(candidate).is_some() {
                 best = Some(candidate);
             }
         }
@@ -1671,7 +1671,7 @@ impl InstantiationBuilder {
             let mut rest_part = rest;
             for (i, _) in element.name.match_indices('.') {
                 let candidate = &element.name[..i];
-                if self.find_component(candidate).is_some() {
+                if self.find_component_visible(candidate).is_some() {
                     owner_part = candidate;
                     rest_part = &element.name[i + 1..];
                 }
@@ -1700,7 +1700,7 @@ impl InstantiationBuilder {
             // unique `@_phantom_<inst>_<n>` name, but it is no longer silent: the
             // warning surfaces an upstream chain-expansion bug instead of
             // absorbing it.
-            if let Some(comp) = self.find_component(owner_part) {
+            if let Some(comp) = self.find_component_visible(owner_part) {
                 if let Some(side) = element.synthetic_side() {
                     let diag = crate::errcodes::format_msg(
                         crate::errcodes::PHANTOM_IO_ACCESS,
@@ -1785,7 +1785,7 @@ impl InstantiationBuilder {
             if let Some((class_part, _)) = element.name.rsplit_once('.') {
                 if !class_part.is_empty()
                     && Self::is_registered_class_name(class_part)
-                    && self.find_component(class_part).is_none()
+                    && self.find_component_visible(class_part).is_none()
                     && self.find_submodule(class_part).is_none()
                     && !self.is_port(class_part)
                     && !self.is_bus(class_part)
@@ -1820,7 +1820,7 @@ impl InstantiationBuilder {
         // core: never set owner == entire path (that's the source of X.X, violates NetPoint doc
         // invariant).
         // 4a. single-pin component (e.g., TEST_POINT) → inst.<unique pin>, owner=inst
-        if let Some(comp) = self.find_component(&element.name) {
+        if let Some(comp) = self.find_component_visible(&element.name) {
             if comp.def.pins.names_to_id.len() == 1 {
                 // get unique pin name
                 // SAFETY: guarded by `names_to_id.len() == 1` check above
@@ -1844,7 +1844,7 @@ impl InstantiationBuilder {
 
         // 4b. curly member selection wm7121{VCC} → inst.VCC, owner=inst
         if let Some((base, member)) = parse_curly_select(&element.name) {
-            if self.find_component(&base).is_some() || self.find_submodule(&base).is_some() {
+            if self.find_component_visible(&base).is_some() || self.find_submodule(&base).is_some() {
                 let path = format!("{base}.{member}");
                 return NetPoint::with_owner(&path, &base, IOType::None, site.clone());
             }
@@ -2142,7 +2142,7 @@ impl InstantiationBuilder {
         // Component bus ports are mostly io (InOut) direction, must be allowed.
         if let Some((owner, port_name)) = name.split_once('.') {
             if !port_name.contains('.') {
-                if let Some(comp) = self.find_component(owner) {
+                if let Some(comp) = self.find_component_visible(owner) {
                     // ── P2-3: strip brace suffix from port_name ──
                     // e.g., `uC.ADC{P,N}` → port_name="ADC{P,N}", port_base="ADC"
                     let port_base = strip_brace_suffix(port_name);
@@ -2228,7 +2228,7 @@ impl InstantiationBuilder {
                 // → port_base="XTAL", member="X1" → physical pin "X6.1"
                 if let Some((port_base, member)) = port_name.split_once('.') {
                     let port_base = strip_brace_suffix(port_base);
-                    if let Some(comp) = self.find_component(owner) {
+                    if let Some(comp) = self.find_component_visible(owner) {
                         if let Some(pids) = comp.find_bus_port_pin_ids(port_base) {
                             if let Some((_, pin_id)) = pids.iter().find(|(m, _)| m == member) {
                                 // §4.2 check 2: this dotted member just reached
@@ -2274,7 +2274,7 @@ impl InstantiationBuilder {
                             .map(|p| (p.name.clone(), p.bus_members.clone()))
                             .collect()
                     });
-                let _comp_has = self.find_component(owner).map(|c| c.name.clone());
+                let _comp_has = self.find_component_visible(owner).map(|c| c.name.clone());
             } else {
                 let _self_ports: Vec<(String, Vec<String>)> = self
                     .ports
@@ -2294,7 +2294,7 @@ impl InstantiationBuilder {
     /// ports / labels / already-pid all return None, untouched).
     pub(super) fn normalize_one_inst_pin_path(&mut self, path: &str) -> Option<String> {
         let (inst, member) = path.split_once('.')?;
-        let comp = self.find_component(inst)?;
+        let comp = self.find_component_visible(inst)?;
         let id = declared_pin_id(&comp, member)?;
         self.note_pin_option_use(inst, &comp, member, &id);
         let new = format!("{inst}.{id}");
@@ -2377,7 +2377,7 @@ impl InstantiationBuilder {
         if let Some(lanes) = self.expand_port_lanes(&path) {
             return Some(lanes);
         }
-        if let Some(comp) = self.find_component(owner) {
+        if let Some(comp) = self.find_component_visible(owner) {
             let id = declared_pin_id(&comp, member)?;
             // §4.2 check 2: curly two-face access resolves through here too.
             self.note_pin_option_use(owner, &comp, member, &id);

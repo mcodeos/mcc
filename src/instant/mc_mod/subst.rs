@@ -723,6 +723,33 @@ impl InstantiationBuilder {
                 let new_r: Vec<McBus> = shape.port_right();
                 let left_elems: Vec<McBus> = left.iter().flat_map(|e| e.get_left()).collect();
                 let right_elems: Vec<McBus> = right.iter().flat_map(|e| e.get_right()).collect();
+                // U318: a `this{L|R}` two-side pin selector reaches here as a
+                // Ports whose faces carry `this.<pin>` dotted buses (built by
+                // the semantic layer, which cannot know the caller instance).
+                // The dotted self face must rewrite to the caller instance at
+                // expansion — the same `this.ANODE` dotted-form law the
+                // Label/Bus endpoint arms apply — otherwise the literal
+                // `this.<pin>` lands in the netlist (single pair) or feeds the
+                // fold an unresolvable operand (multi pair).
+                let rewrite_self_face = |elems: Vec<McBus>| -> Vec<McBus> {
+                    elems
+                        .into_iter()
+                        .map(|mut b| {
+                            if let Some(ctx) = expansion_ctx {
+                                if Self::self_ref_keyword(&b.name).is_some() {
+                                    let rewritten = Self::self_ref_to_bus(&b.name, ctx);
+                                    b.name = rewritten.name;
+                                    if !rewritten.member.is_empty() {
+                                        b.member = rewritten.member;
+                                    }
+                                }
+                            }
+                            b
+                        })
+                        .collect()
+                };
+                let left_elems = rewrite_self_face(left_elems);
+                let right_elems = rewrite_self_face(right_elems);
                 let names = |bs: &[McBus]| -> Vec<String> {
                     bs.iter().map(|b| b.name.clone()).collect()
                 };
@@ -740,37 +767,43 @@ impl InstantiationBuilder {
                 // Also perform formal-parameter substitution on the Ports' left/right McBus
                 let left_subst = Self::substitute_node_elements(&left_elems, bindings, cx);
                 let right_subst = Self::substitute_node_elements(&right_elems, bindings, cx);
+                // U318: a bare multi-element face folds to an **anonymous**
+                // bus (`{name:"", member:[p1.1, p1.3]}`) — and a 2-member bus
+                // reads back through `get_left`'s pass-through arm as a single
+                // empty-name element, dropping the members entirely and
+                // reducing to an empty-path point (E3138, zero nets). Keep the
+                // folded form only when it carries a real name; an anonymous
+                // fold is re-emitted as one bus entry per element so each
+                // dotted full path reaches `resolve_curly_mn_points` intact.
+                let face_refs = |elements: &[McBus]| -> Vec<McRef> {
+                    let folded = Self::node_elements_to_bus(elements);
+                    if !folded.name.is_empty() {
+                        return vec![McRef::Name(McInstanceRef::new(McInstance::Bus(folded)))];
+                    }
+                    elements
+                        .iter()
+                        .map(|e| McRef::Name(McInstanceRef::new(McInstance::Bus(e.clone()))))
+                        .collect()
+                };
                 if left_subst.is_empty() && right_subst.is_empty() {
                     McPhrase::Endpoint(McRef::Ports {
                         left: vec![],
                         right: vec![],
                     })
                 } else if left_subst.is_empty() {
-                    let right_bus = Self::node_elements_to_bus(&right_subst);
                     McPhrase::Endpoint(McRef::Ports {
                         left: vec![],
-                        right: vec![McRef::Name(McInstanceRef::new(McInstance::Bus(
-                            right_bus.clone(),
-                        )))],
+                        right: face_refs(&right_subst),
                     })
                 } else if right_subst.is_empty() {
-                    let left_bus = Self::node_elements_to_bus(&left_subst);
                     McPhrase::Endpoint(McRef::Ports {
-                        left: vec![McRef::Name(McInstanceRef::new(McInstance::Bus(
-                            left_bus.clone(),
-                        )))],
+                        left: face_refs(&left_subst),
                         right: vec![],
                     })
                 } else {
-                    let left_bus = Self::node_elements_to_bus(&left_subst);
-                    let right_bus = Self::node_elements_to_bus(&right_subst);
                     McPhrase::Endpoint(McRef::Ports {
-                        left: vec![McRef::Name(McInstanceRef::new(McInstance::Bus(
-                            left_bus,
-                        )))],
-                        right: vec![McRef::Name(McInstanceRef::new(McInstance::Bus(
-                            right_bus,
-                        )))],
+                        left: face_refs(&left_subst),
+                        right: face_refs(&right_subst),
                     })
                 }
             }

@@ -102,7 +102,7 @@ impl InstantiationBuilder {
         // members accumulate incrementally and must not be treated as a fixed
         // declaration; `modldo.vout` is a submodule port (validation deferred).
         let first = owner.split('.').next().unwrap_or(owner);
-        if self.find_component(first).is_some() || self.find_submodule(first).is_some() {
+        if self.find_component_visible(first).is_some() || self.find_submodule(first).is_some() {
             return;
         }
         // The only authoritative "declared" member set is the port's own
@@ -279,7 +279,7 @@ impl InstantiationBuilder {
         if let Some(first) = elements.first() {
             if !first.member.is_empty() {
                 let base = &first.name;
-                if self.find_submodule(base).is_some() || self.find_component(base).is_some() {
+                if self.find_submodule(base).is_some() || self.find_component_visible(base).is_some() {
                     let mut points = Vec::new();
                     for elem in elements {
                         if elem.member.is_empty() {
@@ -334,20 +334,29 @@ impl InstantiationBuilder {
         //    child resolver: it expands a whole-group face to its declared lanes
         //    (`ldo{VIN | VOUT}` → `ldo.VIN.{Vin,GND}`) and otherwise returns the
         //    declared physical pin id point (`uC.VDD` → `uC.5`).
-        if self.find_component(base_name).is_some() {
-            return Ok(elements
-                .iter()
-                .flat_map(|e| {
+        if self.find_component_visible(base_name).is_some() {
+            let mut points: Vec<NetPoint> = Vec::new();
+            for e in elements {
+                // U318: a merged element (`node_elements_to_bus` folded
+                // [p1.1, p1.3] into {name: "p1.1", member: ["p1.3"]})
+                // carries its sibling paths in `member` — each member is a
+                // full path in its own right and must expand, or the
+                // folded pins silently drop out of the face.
+                let name_paths = std::iter::once(e.name.clone())
+                    .chain(e.member.iter().cloned())
+                    .collect::<Vec<String>>();
+                for path in name_paths {
                     // McBus.name may already be dotted (like "R1.1") or just (like "1")
-                    let path = if e.name.contains('.') {
-                        e.name.clone()
+                    let path = if path.contains('.') {
+                        path
                     } else {
-                        format!("{}.{}", base_name, e.name)
+                        format!("{}.{}", base_name, path)
                     };
                     if let Some((owner, member)) = path.split_once('.') {
                         if !member.contains('.') {
-                            if let Some(pts) = self.resolve_child_points(owner, member) {
-                                return pts;
+                            if let Some(pts) = self.resolve_child_points(&owner, &member) {
+                                points.extend(pts);
+                                continue;
                             }
                         }
                     }
@@ -356,14 +365,15 @@ impl InstantiationBuilder {
                     // (the materialized member), else validate_expanded_net_points
                     // looks `cap1.1` up in U1's pins → E3179. ──
                     let owner = self.deepest_component_owner(&path).to_string();
-                    vec![NetPoint::with_owner(
+                    points.push(NetPoint::with_owner(
                         &path,
                         &owner,
                         IOType::None,
                         site.clone(),
-                    )]
-                })
-                .collect());
+                    ));
+                }
+            }
+            return Ok(points);
         }
 
         // 2. Submodule port access

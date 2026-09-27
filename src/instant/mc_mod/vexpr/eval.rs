@@ -186,6 +186,19 @@ impl InstantiationBuilder {
         next: &ConcreteOpd,
         dir: ConnDir,
     ) -> Result<(), InstError> {
+        // U318: an operand carrying an empty point path violates the §7.5 I1
+        // invariant the fold locks on. Left to `fold_series` the violation is
+        // a debug-only panic (`enforce_i4` folds out of release builds), so a
+        // release user's only observation was a silently dropped leg. Report
+        // the empty path as a real diagnostic and drop the leg here, before
+        // the fold sees it.
+        if concrete_has_empty_path(acc) || concrete_has_empty_path(next) {
+            self.record_error(
+                crate::errcodes::CONN_EMPTY_POINT_PATH,
+                crate::errcodes::format_msg(crate::errcodes::CONN_EMPTY_POINT_PATH, &[]),
+            );
+            return Ok(());
+        }
         let step = fold_series(acc, next);
         if step.skipped {
             return Ok(());
@@ -461,6 +474,15 @@ impl InstantiationBuilder {
 /// The concrete points behind a face, in face order.
 fn points_of(eps: &[Ep]) -> Vec<NetPoint> {
     eps.iter().map(|e| e.point.clone()).collect()
+}
+
+/// U318: does either face of the operand carry an element whose point never
+/// resolved (empty path)? This is the §7.5 I1 breach `check_i1` reports.
+fn concrete_has_empty_path(opd: &ConcreteOpd) -> bool {
+    opd.left
+        .iter()
+        .chain(opd.right.iter())
+        .any(|e| e.point.path.is_empty())
 }
 
 #[cfg(test)]

@@ -556,6 +556,48 @@ impl InstantiationBuilder {
             .find(|c| c.name == name)
     }
 
+    /// U318 扩面: resolve a dotted owner spelling against the **caller's**
+    /// instance scope while a component func body is being expanded.
+    ///
+    /// A func body text is the component author's code and never names the
+    /// caller's siblings lexically — the only way a caller-side dotted
+    /// spelling (`PL3085.VCC`, from `CAP.Cap(PL3085{VCC, GND})`) appears in
+    /// the body is through formal→actual substitution. At the receiver's
+    /// construction site the caller module is an **ancestor** in the instance
+    /// tree, so the lookup walks parents until the owner is a direct child of
+    /// one. Gated on `func_scope` being non-empty: at module level the plain
+    /// [`Self::find_component`] already answers, and the walk must not turn a
+    /// typo into a cross-branch binding. Crossing exactly the instantiated
+    /// module boundaries keeps the label-boundary law (U151, E3184) intact —
+    /// a spelling is still only ever resolved against a module's **own**
+    /// children, never into a sibling's internals.
+    pub(super) fn find_component_caller_scope(&self, name: &str) -> Option<Rc<McComponentInst>> {
+        if self.func_scope.is_empty() {
+            return None;
+        }
+        let mut id = self.tree.node_id?;
+        while let Some(parent) = self.arena.borrow().parent(id) {
+            id = parent;
+            if let Some(c) = self
+                .components_of(id)
+                .into_iter()
+                .find(|c| c.name == name)
+            {
+                return Some(c);
+            }
+        }
+        None
+    }
+
+    /// Dotted-path owner resolution: the construction site's own scope first,
+    /// then (inside a func body) the caller scope walk. This is the one
+    /// resolver the dotted endpoint arms use, so `<owner>.<member>` answers
+    /// the same whichever side of a func call the spelling was written on.
+    pub(super) fn find_component_visible(&self, name: &str) -> Option<Rc<McComponentInst>> {
+        self.find_component(name)
+            .or_else(|| self.find_component_caller_scope(name))
+    }
+
     /// §4.2 check 2: record that `member` — an option name of the component
     /// definition — was used to reach physical pin `pid` of instance `inst`,
     /// and report E5156 when a second, different option reaches the same
