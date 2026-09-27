@@ -747,7 +747,15 @@ impl InstantiationBuilder {
         };
         // Vector-formal width rules at the boundary (matching-rules-design.md
         // §3): equal width pairs member-to-lane, scalar/unequal reports E4180.
-        bindings = self.align_vector_bindings(&bindings, None);
+        // A width-deficit call skips its body (E4176 skip precedent): the
+        // half-bound formals would wire the body's bare literals as silent
+        // phantom nets (U339 shape law — violation is an error, and no
+        // phantom net is produced from a rejected binding set).
+        let (aligned, width_rejected) = self.align_vector_bindings_reporting(&bindings, None);
+        bindings = aligned;
+        if width_rejected {
+            return Ok(FuncCallInst::PassThrough);
+        }
 
         // 2. Expand function body stmts with parameter substitution.
         // The func scope is pushed for the whole expansion so nested calls
@@ -947,6 +955,25 @@ impl InstantiationBuilder {
         bindings: &McParamBindings,
         anchor: Option<crate::semantic::common::SourcePos>,
     ) -> McParamBindings {
+        self.align_vector_bindings_reporting(bindings, anchor).0
+    }
+
+    /// Same walk as [`Self::align_vector_bindings`], additionally reporting
+    /// whether any formal was rejected on width with a **deficit** (fewer
+    /// actual lanes than formal members). A deficit leaves formal members
+    /// unbound, and the body then wires those bare literals as silent phantom
+    /// nets (`_C1.net2` / `_net0`, U339) — exactly the garbage the E4176
+    /// bind-failure skip exists to prevent, so the caller skips the body. A
+    /// **surplus** (more lanes than members) is spared: the per-lane fork +
+    /// zip clamp leaves every member bound and no phantom behind
+    /// (`noblock__surplus_elements_still_build`), so it does not set the
+    /// flag.
+    pub(super) fn align_vector_bindings_reporting(
+        &mut self,
+        bindings: &McParamBindings,
+        anchor: Option<crate::semantic::common::SourcePos>,
+    ) -> (McParamBindings, bool) {
+        let mut width_rejected = false;
         let mut out: Vec<McParamBinding> = Vec::with_capacity(bindings.len());
         for b in bindings.iter() {
             let members = b.declare.expand();
@@ -1028,11 +1055,15 @@ impl InstantiationBuilder {
                         ),
                         None => self.record_error(crate::errcodes::VECTOR_WIDTH_MISMATCH, message),
                     }
+                    width_rejected = got < expected;
                     out.push(b.clone());
                 }
             }
         }
-        McParamBindings::from_bindings(out).with_key_overrides_of(bindings)
+        (
+            McParamBindings::from_bindings(out).with_key_overrides_of(bindings),
+            width_rejected,
+        )
     }
 
     // 3.5 §3.3/§3.4 — materialize func-local sub-instances in pass2
@@ -1356,7 +1387,17 @@ impl InstantiationBuilder {
             };
         // Vector-formal width rules at the boundary (matching-rules-design.md
         // §3): equal width pairs member-to-lane, scalar/unequal reports E4180.
-        bindings = self.align_vector_bindings(&bindings, None);
+        // A width-deficit call skips its body (E4176 skip precedent): the
+        // half-bound formals would wire the body's bare literals as silent
+        // phantom nets (`_C1.net2` / `_net0`, U339 shape law — violation is an
+        // error, and no phantom net is produced from a rejected binding set).
+        // The receiver instance itself stays built (an error does not block
+        // instantiation); only the body's wiring is withheld.
+        let (aligned, width_rejected) = self.align_vector_bindings_reporting(&bindings, None);
+        bindings = aligned;
+        if width_rejected {
+            return Ok(FuncCallInst::PassThrough);
+        }
 
         // ── P2-13: wire Series net-expression params before body expansion ──
         // `[[dc.VDD_3V3 -> wm7121.VCC], dc.GND]` carries an internal `->`

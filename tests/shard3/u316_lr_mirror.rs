@@ -49,16 +49,37 @@ fn nets(body: &str) -> Vec<String> {
     lines
 }
 
+fn codes(body: &str) -> Vec<u32> {
+    let _lock = common::lock();
+    common::reset();
+    let src = format!("{PRE}{body}\n    }}\n}}\n");
+    let uri = McURI::from("/mcc/u316-lr-mirror.mc");
+    mcc::mcc_load_from_string(&uri, &src);
+    let _ = mcc::mcc_build_flat(&McIds::from("main"), &uri, 1000).expect("flat build");
+    mcc::mcc_diagnose_all().iter().map(|d| d.code).collect()
+}
+
 /// The mirrored spellings must produce byte-identical nets — the fallback
 /// asymmetry never reaches the observable face.
+///
+/// U339 (ruled 2026-09-28): the previous vehicle pinned the phantom-net face —
+/// the `_` placeholder made `[_, VDD]` a one-lane actual against the
+/// two-member formal `[n1, n2]`, and the half-bound body still expanded,
+/// wiring `n1` as the literal phantom `_R1.n1` on an anonymous `_net0`. The
+/// shape-law landing turns that into a deficit width error (E4180) and the
+/// body no longer runs on rejected bindings (E4176 skip precedent), so both
+/// faces produce no nets at all. The lock now pins the still-symmetric
+/// outcome: the mirror property survives the error-ization — both chain faces
+/// reject the deficit spelling identically, and no phantom net is produced
+/// from either side.
 #[test]
 fn bare_membered_port_collapses_symmetrically_on_both_chain_faces() {
-    let expected = vec![
-        "VDD <= [main.VDD, main._R1.2]",
-        "_net0 <= [main._R1.1, main._R1.n1]",
-    ];
     let l = nets("SPI - RES(1k).Pullup([_, VDD])");
     let r = nets("RES(1k).Pullup([_, VDD]) - SPI");
-    assert_eq!(l, expected, "left-side face changed");
-    assert_eq!(r, expected, "right-side face changed");
+    assert_eq!(l, Vec::<String>::new(), "left-side face: deficit body is skipped, no phantom nets");
+    assert_eq!(r, Vec::<String>::new(), "right-side face: deficit body is skipped, no phantom nets");
+    assert!(
+        codes("SPI - RES(1k).Pullup([_, VDD])").contains(&4180),
+        "the deficit spelling still reports the width error (E4180)"
+    );
 }
