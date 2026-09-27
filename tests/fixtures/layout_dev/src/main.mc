@@ -27,13 +27,13 @@ component CONN.USB_MINI_B
 
 module PORT_USB()
 {
-    io vin{POWER_SYS, GND}::DC(5V)
+    io VIN{POWER_SYS, GND}::DC(5V)
 
     CONN.USB_MINI_B sock
     TP1::TP()
 
-    ((sock.VBUS -> USB_VBUS) + TP1) -> RES(0R) -> vin.POWER_SYS
-    (sock.5 + sock.6 + sock.7 + sock.SHIELD3 + sock.SHIELD4) -> vin.GND
+    ((sock.VBUS -> USB_VBUS) + TP1) -> RES(0R) -> VIN.POWER_SYS
+    (sock.5 + sock.6 + sock.7 + sock.SHIELD3 + sock.SHIELD4) -> VIN.GND
 }
 
 module main

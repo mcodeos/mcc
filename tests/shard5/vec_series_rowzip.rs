@@ -97,7 +97,7 @@ fn build(src: &str, uri: &str) -> (Vec<u32>, Vec<(String, Vec<String>)>) {
 
 /// Benign build-info codes that may accompany a legal vector build.
 fn benign(c: u32) -> bool {
-    matches!(c, 5641 | 5642 | 5643 | 5054)
+    matches!(c, 5641 | 5642 | 5643 | 5054 | 5070 | 5071 | 5072)
 }
 
 /// The net holding `path`, if any.

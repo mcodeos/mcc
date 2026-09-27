@@ -58,7 +58,7 @@ const TESTPOINT: &str = "component TESTPOINT {\n    pins = [\n        1 = 1\n   
 /// replaced the rail-*spelling* exemption — the family already carries E3136
 /// alongside its verdict this way (`vec_r0_operator_encoding`, `A'^`).
 fn benign(c: u32) -> bool {
-    matches!(c, 5641 | 5642 | 5643 | 5054 | 3136)
+    matches!(c, 5641 | 5642 | 5643 | 5054 | 5070 | 5071 | 5072 | 3136)
 }
 
 /// Build `main` and return (non-benign codes sorted, net partition).

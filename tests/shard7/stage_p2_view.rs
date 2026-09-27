@@ -565,8 +565,8 @@ fn the_counts_do_not_contradict_the_build_summary() {
 ///
 /// `US513` declares four of its ports bare (`io MIC{P, N}, I2C0, SPI, …`) and
 /// wires one of them from a function with a boundary formal — `func
-/// loadFlash(SPI) { SPI + UC.SPI }`, called by `main` as
-/// `MCU513.i2c().loadFlash(FLASH.SPI)`. Because the call arrives *after* the
+/// LoadFlash(SPI) { SPI + UC.SPI }`, called by `main` as
+/// `MCU513.I2C().LoadFlash(FLASH.SPI)`. Because the call arrives *after* the
 /// sub-module's `instantiate` finished, the body's connections are made into an
 /// already-frozen module, and the net table is built exactly once — at the end
 /// of `instantiate`. Freezing only the overlay fragment after the re-entry left

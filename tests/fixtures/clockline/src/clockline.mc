@@ -13,14 +13,14 @@ interface XTF(role)
     pins = [
         [1,2] = [X1, X2]
     ]
-    role Osc
+    role OSC
     {
-        peer = Res
+        peer = RES
         exclusive = true
     }
-    role Res
+    role RES
     {
-        peer = Osc
+        peer = OSC
         exclusive = true
     }
 }
@@ -34,19 +34,19 @@ interface CKF(role)
     pins = [
         1 = CK
     ]
-    role Src
+    role SRC
     {
         pins = [
             out 1 = CK
         ]
-        peer = Snk
+        peer = SNK
     }
-    role Snk
+    role SNK
     {
         pins = [
             in 1 = CK
         ]
-        peer = Src
+        peer = SRC
     }
 }
 
@@ -69,28 +69,28 @@ interface MBF(role)
 component CRY
 {
     pins = [
-        [1,2] = XT::XTF(Res)
+        [1,2] = XT::XTF(RES)
     ]
 }
 
 component MCU
 {
     pins = [
-        [3,4] = XTAL::XTF(Osc)
+        [3,4] = XTAL::XTF(OSC)
     ]
 }
 
 component OSC
 {
     pins = [
-        1 = DRV::CKF(Src)
+        1 = DRV::CKF(SRC)
     ]
 }
 
 component SINK
 {
     pins = [
-        1 = RCV::CKF(Snk)
+        1 = RCV::CKF(SNK)
     ]
 }
 

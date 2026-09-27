@@ -42,7 +42,7 @@ fn codes_without_benign(codes: &[u32]) -> Vec<u32> {
     codes
         .iter()
         .copied()
-        .filter(|c| !matches!(c, 5641 | 5642 | 5054))
+        .filter(|c| !matches!(c, 5641 | 5642 | 5054 | 5070 | 5071 | 5072))
         .collect()
 }
 

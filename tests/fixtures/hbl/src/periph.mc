@@ -29,25 +29,25 @@ component MICROPHONE.WM7121P
     ]  
 }
 
-module MIC_SIP(psnk dc{VDD_3V3, GND}::DC(3.3V))
+module MIC_SIP(psnk DC{VDD_3V3, GND}::DC(3.3V))
 {
     out MIC{P, N}::ADC.DIFF(TRANSMITTER)
 
     MICROPHONE.SIP2 mic
 
-    // dc -> [RES(240Ω, ±1%, "R0402"), _] + CAP(4.7uF, ±20%, CAP.Y5V, 6.3V)'
+    // DC -> [RES(240Ω, ±1%, "R0402"), _] + CAP(4.7uF, ±20%, CAP.Y5V, 6.3V)'
     // -> VMIC::DC()
     // -> [RES(1kΩ, ±1%, "R0402"), RES(1kΩ, ±1%, "R0402")]  
     // -> CAP(1uF, ±10%, CAP.X5R, 10V)'                                            
     // -> [RES(1kΩ, ±1%, "R0402"), RES(1kΩ, ±1%, "R0402")] -> MIC{P,N}
 
     mic{1,2} -> C1::CAP(470pF)' -> MIC{P,N}
-    mic{1,2} -> [dio[1:2]::DIO.ESD(5V)] -> [dc.GND, dc.GND]
+    mic{1,2} -> [dio[1:2]::DIO.ESD(5V)] -> [DC.GND, DC.GND]
 
     MICROPHONE.WM7121P wm7121(NC)
-    CAP(100nF, ±20%, CAP.X5R, 25V, NC).Cap([[dc.VDD_3V3 -> wm7121.VCC], dc.GND])
-    wm7121{2,3} - [dc.GND, dc.GND]
-    MIC.N - RES(0R, NC) - dc.GND
+    CAP(100nF, ±20%, CAP.X5R, 25V, NC).Cap([[DC.VDD_3V3 -> wm7121.VCC], DC.GND])
+    wm7121{2,3} - [DC.GND, DC.GND]
+    MIC.N - RES(0R, NC) - DC.GND
 }
 
 component LPA4871

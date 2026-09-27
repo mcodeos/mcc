@@ -55,7 +55,7 @@ module MC
 /// Codes that are build-info, not a verdict (same set the shard7 family
 /// tolerates).
 fn benign(c: u32) -> bool {
-    matches!(c, 5641 | 5642 | 5643 | 5054)
+    matches!(c, 5641 | 5642 | 5643 | 5054 | 5070 | 5071 | 5072)
 }
 
 /// Build `main` over the parameterized-family fixture; same normalization as

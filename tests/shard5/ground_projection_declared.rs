@@ -20,9 +20,9 @@
 //! ② The §7.1 accepted consequence has MIGRATED BACK, as the design predicted
 //!    ("migrates back once the LDO boundary is declared as a ::DC pair, cf. mcs
 //!    hbl"). A `::DC` face pair is a property of the declaration, not of the
-//!    spelling: the scalar header `in vin::DC(5V)` / `out vout::DC(3.3V)` brings
+//!    spelling: the scalar header `in VIN::DC(5V)` / `out VOUT::DC(3.3V)` brings
 //!    the same supply/return faces over from the DC interface's own pin table
-//!    that `psnk vin{V5V, GND}::DC(5V)` writes out, so the LDO body's nets are
+//!    that `psnk VIN{V5V, GND}::DC(5V)` writes out, so the LDO body's nets are
 //!    declared and the sub-block ground tie holds structurally — no name guess.
 //! ③ Rule (c): a pseudo endpoint is dropped (rail boundary declaration) iff the
 //!    GROUP resolves to a declared supply identity; Signal groups keep their
@@ -71,8 +71,8 @@ fn net<'a>(layer: &'a McVecBlock, name: &str) -> &'a mcc::vector::model::McVecNe
 /// main's ground plane is exactly ONE declared Ground net: the merged `GND`
 /// conductor (bare `GND` + `V1V2.GND` + `V3V3.GND` + `V5V.GND`). The 5V return
 /// is in it because the sub-block tie is now assertable as a declaration: the
-/// LDO's scalar header `in vin::DC(5V)` declares its return
-/// face, which is the same copper its `vout` face returns on. This is the §7.1
+/// LDO's scalar header `in VIN::DC(5V)` declares its return
+/// face, which is the same copper its `VOUT` face returns on. This is the §7.1
 /// migration the design predicted for this fixture (cf. mcs hbl, which had
 /// already migrated to the written-pair spelling).
 #[test]
@@ -128,9 +128,9 @@ fn scalar_ldo_header_declares_its_faces() {
         .expect("hbl has an LDO sub-layer");
 
     let expected = [
-        ("vin.VCC", AttrRole::Hot),
-        ("vout.VCC", AttrRole::Hot),
-        ("vin.GND", AttrRole::Ret),
+        ("VIN.VCC", AttrRole::Hot),
+        ("VOUT.VCC", AttrRole::Hot),
+        ("VIN.GND", AttrRole::Ret),
     ];
     for (want, role) in expected {
         let n = net(ldo, want);
@@ -151,7 +151,7 @@ fn scalar_ldo_header_declares_its_faces() {
         .collect();
     assert_eq!(
         classified,
-        vec!["vin.VCC", "vout.VCC", "vin.GND"],
+        vec!["VIN.VCC", "VOUT.VCC", "VIN.GND"],
         "LDO's classified nets must be exactly its declared ::DC faces"
     );
 }
@@ -177,7 +177,7 @@ fn rail_nets_drop_pseudo_endpoints_but_keep_port_frames() {
     // The LDO's named ports are real ports of a declared rail net — the frame
     // stays (their endpoints are Port members, not the layer's own bare names).
     let ldo = main.blocks.iter().find(|b| b.name == "LDO").expect("LDO");
-    for want in ["vin.VCC", "vout.VCC", "vin.GND"] {
+    for want in ["VIN.VCC", "VOUT.VCC", "VIN.GND"] {
         let n = net(ldo, want);
         assert!(
             n.boundary.is_some(),

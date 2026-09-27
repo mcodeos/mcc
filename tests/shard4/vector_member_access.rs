@@ -63,7 +63,7 @@ fn vector_member_access_pairs_per_lane() {
     let rest: Vec<u32> = codes
         .iter()
         .copied()
-        .filter(|c| !matches!(c, 5641 | 5642 | 5054))
+        .filter(|c| !matches!(c, 5641 | 5642 | 5054 | 5070 | 5071 | 5072))
         .collect();
     assert_eq!(
         rest,

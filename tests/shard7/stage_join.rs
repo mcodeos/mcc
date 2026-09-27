@@ -2166,10 +2166,10 @@ fn root_layer_clauses_are_no_longer_dropped() {
 
     let mut seen = 0;
     for needle in [
-        "USB.vin -> V5V::DC(5V)",
-        "V5V -> LDO{vin|vout} -> V3V3::DC(3.3V)",
+        "USB.VIN -> V5V::DC(5V)",
+        "V5V -> LDO{VIN|VOUT} -> V3V3::DC(3.3V)",
         "V3V3 -> DCDC -> V1V2::DC(1.2V)",
-        "MCU513.i2c().loadFlash(FLASH.SPI)",
+        "MCU513.I2C().LoadFlash(FLASH.SPI)",
         "MIC(V3V3).MIC ->",
     ] {
         let at = line_of(&src, needle, 1) as u64;

@@ -98,7 +98,7 @@ fn encoded(stmt: &str) -> (Vec<String>, Vec<u32>) {
     let mut codes: Vec<u32> = mcc::mcc_diagnose_all()
         .iter()
         .map(|d| d.code)
-        .filter(|c| !matches!(c, 5641 | 5642 | 5643 | 5054))
+        .filter(|c| !matches!(c, 5641 | 5642 | 5643 | 5054 | 5070 | 5071 | 5072))
         .collect();
     codes.sort_unstable();
     codes.dedup();

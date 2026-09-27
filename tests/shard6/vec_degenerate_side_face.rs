@@ -95,7 +95,7 @@ const RES2: &str = "component RES2 {\n    pins = [\n        1 = 1\n        2 = 2
 /// replaced the rail-*spelling* exemption, and this file already carries E3136
 /// alongside its verdict that way (see the `E3136` note further down).
 fn benign(c: u32) -> bool {
-    matches!(c, 5641 | 5642 | 5643 | 5054 | 3136)
+    matches!(c, 5641 | 5642 | 5643 | 5054 | 5070 | 5071 | 5072 | 3136)
 }
 
 /// Build `main` and return (non-benign codes sorted, net partition).

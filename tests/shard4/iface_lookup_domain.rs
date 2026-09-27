@@ -57,7 +57,7 @@ fn comp_with_role(role_arg: &str) -> String {
 // pre-widening behavior was a spurious E4106 "interface not loaded".
 #[test]
 fn lock_pp_interface__lib_iface_valid_role_no_not_loaded() {
-    let result = parse(&comp_with_role("Host"));
+    let result = parse(&comp_with_role("HOST"));
     assert!(
         codes_with(&result, 4106).is_empty(),
         "valid lib-interface role must not fire E4106"
@@ -95,7 +95,7 @@ fn lock_pp_interface__lib_iface_bad_role_reports_4104_not_4106() {
 // The E4106 arm stays reachable for a name no definition answers to.
 #[test]
 fn lock_pp_interface__unknown_iface_still_not_loaded() {
-    let result = parse(&comp_with_role("Host").replace("DBG.UARTBOOT", "NOSUCH.DEF"));
+    let result = parse(&comp_with_role("HOST").replace("DBG.UARTBOOT", "NOSUCH.DEF"));
     let hits = codes_with(&result, 4106);
     assert!(
         hits.len() == 1,
@@ -108,7 +108,7 @@ fn lock_pp_interface__unknown_iface_still_not_loaded() {
 // pre-widening Project-only role-bearing set let it bypass silently.
 #[test]
 fn lock_pp_interface__lib_iface_literal_role_arg_fires_4185() {
-    let result = parse(&comp_with_role("\"Host\""));
+    let result = parse(&comp_with_role("\"HOST\""));
     let hits = codes_with(&result, 4185);
     assert!(
         hits.len() == 1,

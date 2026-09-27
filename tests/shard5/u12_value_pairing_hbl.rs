@@ -75,17 +75,17 @@ fn u12__hbl_supplies_reach_the_ports_they_declare() {
 
     // The 3.3 V positive face. Everything here arrives from an argument named
     // `V3V3`: the MCU's `[VDD_3V3,GND]::DC(3.3V)`, the microphone's
-    // `dc{VDD_3V3,GND}::DC(3.3V)`, the flash's `[V3V3,GND]::DC(3.3V)`, the
+    // `DC{VDD_3V3,GND}::DC(3.3V)`, the flash's `[V3V3,GND]::DC(3.3V)`, the
     // speaker and both converters.
     assert_eq!(
         net_of(&nets, "V3V3.VCC"),
         [
             "DCDC.VDD_3V3",
             "FLASH.8",
-            "LDO.vout.VCC",
+            "LDO.VOUT.VCC",
             "MCU513.VDD_3V3",
+            "MIC.DC.VDD_3V3",
             "MIC.VDD_3V3",
-            "MIC.dc.VDD_3V3",
             "SPK.USB_VBUS_1.VDD_3V",
             "SPK.VDD_3V",
             "V3V3.VCC",
@@ -108,14 +108,14 @@ fn u12__hbl_supplies_reach_the_ports_they_declare() {
     let gnd = [
         "DCDC.GND",
         "FLASH.4",
-        "LDO.vin.GND",
-        "LDO.vout.GND",
+        "LDO.VIN.GND",
+        "LDO.VOUT.GND",
         "MCU513.GND",
+        "MIC.DC.GND",
         "MIC.GND",
-        "MIC.dc.GND",
         "SPK.GND",
         "SPK.USB_VBUS_1.GND",
-        "USB.vin.GND",
+        "USB.VIN.GND",
         "V1V2.GND",
         "V3V3.GND",
         "V5V.GND",

@@ -65,7 +65,7 @@ fn instance_pins(value: &Value) -> Vec<String> {
 #[test]
 fn anon__single_pin_registers_nameless_and_connects_by_id() {
     let result = parse(
-        "component C\n{\n    pins = [\n        in 1 = _\n    ]\n}\n\nmodule main\n{\n    io a\n    C c1()\n    a -> c1.1\n}\n",
+        "component C\n{\n    pins = [\n        in 1 = _\n    ]\n}\n\nmodule main\n{\n    io A\n    C c1()\n    A -> c1.1\n}\n",
     );
     let diags = diagnostics(&result);
     assert!(diags.is_empty(), "expected no diagnostics: {diags:?}");
@@ -76,7 +76,7 @@ fn anon__single_pin_registers_nameless_and_connects_by_id() {
 #[test]
 fn anon__unlimited_count_across_rows() {
     let result = parse(
-        "component C\n{\n    pins = [\n        in 1 = _\n        in 2 = _\n        io [3,4] = _\n    ]\n}\n\nmodule main\n{\n    io a\n    C c1()\n    a -> c1.1\n    a -> c1.4\n}\n",
+        "component C\n{\n    pins = [\n        in 1 = _\n        in 2 = _\n        io [3,4] = _\n    ]\n}\n\nmodule main\n{\n    io A\n    C c1()\n    A -> c1.1\n    A -> c1.4\n}\n",
     );
     let diags = diagnostics(&result);
     assert!(diags.is_empty(), "expected no diagnostics: {diags:?}");
@@ -90,7 +90,7 @@ fn anon__unlimited_count_across_rows() {
 #[test]
 fn anon__mixed_named_and_anon_both_addressable() {
     let result = parse(
-        "component C\n{\n    pins = [\n        in 1 = P\n        in 2 = _\n    ]\n}\n\nmodule main\n{\n    io a\n    C c1()\n    a -> c1.P\n    a -> c1.2\n}\n",
+        "component C\n{\n    pins = [\n        in 1 = P\n        in 2 = _\n    ]\n}\n\nmodule main\n{\n    io A\n    C c1()\n    A -> c1.P\n    A -> c1.2\n}\n",
     );
     let diags = diagnostics(&result);
     assert!(diags.is_empty(), "expected no diagnostics: {diags:?}");
@@ -104,7 +104,7 @@ fn anon__mixed_named_and_anon_both_addressable() {
 #[test]
 fn anon__e3179_hint_lists_anon_ids() {
     let result = parse(
-        "component C\n{\n    pins = [\n        in 1 = _\n        in 4 = P\n    ]\n}\n\nmodule main\n{\n    io a\n    C c1()\n    a -> c1.99\n}\n",
+        "component C\n{\n    pins = [\n        in 1 = _\n        in 4 = P\n    ]\n}\n\nmodule main\n{\n    io A\n    C c1()\n    A -> c1.99\n}\n",
     );
     let diags = diagnostics(&result);
     assert!(
@@ -119,7 +119,7 @@ fn anon__e3179_hint_lists_anon_ids() {
 #[test]
 fn anon__underscore_member_never_resolves() {
     let result = parse(
-        "component C\n{\n    pins = [\n        in 1 = _\n    ]\n}\n\nmodule main\n{\n    io a\n    C c1()\n    a -> c1._\n}\n",
+        "component C\n{\n    pins = [\n        in 1 = _\n    ]\n}\n\nmodule main\n{\n    io A\n    C c1()\n    A -> c1._\n}\n",
     );
     let diags = diagnostics(&result);
     assert!(
@@ -133,7 +133,7 @@ fn anon__underscore_member_never_resolves() {
 #[test]
 fn anon__iface_member_addressable_by_name_and_id() {
     let result = parse(
-        "interface BUS2\n{\n    pins = [\n        io 1 = CLK\n        io 2 = DAT\n    ]\n}\n\ncomponent Host\n{\n    pins = [\n        io [1,2] = B0::BUS2()\n    ]\n}\n\nmodule main\n{\n    io a\n    Host u1()\n    a -> u1.B0.1\n    a -> u1.B0.CLK\n    a -> u1.B0.2\n}\n",
+        "interface BUS2\n{\n    pins = [\n        io 1 = CLK\n        io 2 = DAT\n    ]\n}\n\ncomponent Host\n{\n    pins = [\n        io [1,2] = B0::BUS2()\n    ]\n}\n\nmodule main\n{\n    io A\n    Host u1()\n    A -> u1.B0.1\n    A -> u1.B0.CLK\n    A -> u1.B0.2\n}\n",
     );
     let diags = diagnostics(&result);
     assert!(diags.is_empty(), "expected no diagnostics: {diags:?}");
@@ -145,7 +145,7 @@ fn anon__iface_member_addressable_by_name_and_id() {
 #[test]
 fn anon__anon_iface_member_collapse_and_id_path() {
     let result = parse(
-        "interface GP\n{\n    pins = [\n        1 = _\n    ]\n}\n\ncomponent Dev\n{\n    pins = [\n        io [1,2,3] = GPIO[7,8,9]::GP()\n    ]\n}\n\nmodule main\n{\n    io a\n    Dev d1()\n    a -> d1.GPIO7\n    a -> d1.GPIO7.1\n    a -> d1.GPIO9\n}\n",
+        "interface GP\n{\n    pins = [\n        1 = _\n    ]\n}\n\ncomponent Dev\n{\n    pins = [\n        io [1,2,3] = GPIO[7,8,9]::GP()\n    ]\n}\n\nmodule main\n{\n    io A\n    Dev d1()\n    A -> d1.GPIO7\n    A -> d1.GPIO7.1\n    A -> d1.GPIO9\n}\n",
     );
     let diags = diagnostics(&result);
     assert!(diags.is_empty(), "expected no diagnostics: {diags:?}");

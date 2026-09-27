@@ -112,3 +112,128 @@ fn pp_naming_ports__duplicate_header_port_never_reports_5152() {
         result["result"]["pass0"]["diagnostics"]
     );
 }
+
+// ── mcode style-guide gates (spec/21-mcode-style.md §2/§7, style host) ──
+
+#[test]
+fn pp_naming_ports__net_and_port_lowercase_fire_5070() {
+    // NAME_NET_NOT_UPPER_SNAKE = 5070 (style.rs §2 #3 sweep). Both faces that
+    // name a net are judged: the declared port row (`in vin::DC(5V)`) and the
+    // body net labels a connection phrase creates (`gnd`, `vout`).
+    let source = r#"module main
+{
+    in vin::DC(5V)
+    gnd -> vout
+}
+"#;
+    let result = parse(source);
+    assert!(
+        has_code(&result, 5070),
+        "expected 5070 net-name diagnostic: {}",
+        result["result"]["pass0"]["diagnostics"]
+    );
+}
+
+#[test]
+fn pp_naming_ports__instance_name_lowercase_never_fires_5070() {
+    // The instance/functional-block split is §2 #2 and stays OUTSIDE the
+    // gate (§7: not machine-judgeable). A lowercase functional-block instance name and
+    // an uppercase refdes instance in one module must not produce 5070.
+    let source = r#"component CAP2
+{
+    name = "C"
+    pins = [1 = P, 2 = N]
+}
+
+module main
+{
+    dc24v = CAP2()
+    C1 = CAP2()
+}
+"#;
+    let result = parse(source);
+    assert!(
+        !has_code(&result, 5070),
+        "instance names must not be judged by the net gate: {}",
+        result["result"]["pass0"]["diagnostics"]
+    );
+}
+
+#[test]
+fn pp_naming_ports__role_value_lowercase_fires_5071() {
+    // NAME_ROLE_ENUM_NOT_UPPER_SNAKE = 5071 (style.rs §2 #6 sweep). A role
+    // value spelled Pascal-case must be flagged.
+    let source = r#"interface XTAL(role)
+{
+    pins = [1 = XIN]
+
+    role Osc
+    {
+        peer = Res
+    }
+
+    role Res
+    {
+        peer = Osc
+    }
+}
+
+module main
+{
+}
+"#;
+    let result = parse(source);
+    assert!(
+        has_code(&result, 5071),
+        "expected 5071 role-value diagnostic: {}",
+        result["result"]["pass0"]["diagnostics"]
+    );
+}
+
+#[test]
+fn pp_naming_ports__enum_value_lowercase_fires_5071() {
+    // Same code, enum face: value ids an enum declares are §2 #6 too.
+    let source = r#"enum dielectric
+{
+    x7r,
+    fast
+}
+
+module main
+{
+}
+"#;
+    let result = parse(source);
+    assert!(
+        has_code(&result, 5071),
+        "expected 5071 enum-value diagnostic: {}",
+        result["result"]["pass0"]["diagnostics"]
+    );
+}
+
+#[test]
+fn pp_naming_ports__func_lowercase_initial_fires_5072() {
+    // NAME_FUNC_NOT_UPPER_INITIAL = 5072 (style.rs §2 #9 sweep). A func whose
+    // name starts with a lowercase letter must be flagged.
+    let source = r#"component TINY
+{
+    name = "T"
+    pins = [1 = A]
+
+    func enable([net1, net2])
+    {
+        net1 - this - net2
+    }
+}
+
+module main
+{
+}
+"#;
+    let result = parse(source);
+    assert!(
+        has_code(&result, 5072),
+        "expected 5072 func-name diagnostic: {}",
+        result["result"]["pass0"]["diagnostics"]
+    );
+}

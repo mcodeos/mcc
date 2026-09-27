@@ -102,7 +102,7 @@ fn codes_of(src: &str, uri: &str) -> Vec<u32> {
 /// 5256). The components are still built — which is what this lock reads — and
 /// any real wiring failure shows up as a `4xxx` code, which is not benign.
 fn benign(c: u32) -> bool {
-    matches!(c, 5641 | 5642 | 5643 | 5054 | 3157 | 5256)
+    matches!(c, 5641 | 5642 | 5643 | 5054 | 5070 | 5071 | 5072 | 3157 | 5256)
 }
 
 /// The auto-instance heads (`_Rn`) appearing in the partition's point paths.

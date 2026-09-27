@@ -62,7 +62,7 @@ module POWER_LDO()
 
 /// Benign residues of a minimal fixture: the never-called/unused-func family
 /// the sibling anchors already filter (`vec_r0_operator_encoding.rs`).
-const BENIGN: &[u32] = &[5054, 5641, 5642, 5643];
+const BENIGN: &[u32] = &[5054, 5070, 5071, 5072, 5641, 5642, 5643];
 
 fn shape(p: &McPhrase) -> String {
     match p {

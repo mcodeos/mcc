@@ -43,9 +43,9 @@ rect 660.0 60.0 160.0 80.0
 [text]
 text 140.0 380.0 USB
 text 140.0 396.0 POWER_USB
-text 214.0 380.0 vin
+text 214.0 380.0 VIN
 text 280.0 370.0 USB
-text 346.0 380.0 vin
+text 346.0 380.0 VIN
 text 420.0 240.0 FLASH
 text 420.0 256.0 FLASH.GD25Q32E
 text 420.0 380.0 LDO
@@ -53,7 +53,7 @@ text 420.0 396.0 POWER_LDO
 text 420.0 520.0 DCDC
 text 420.0 536.0 POWER_DCDC
 text 494.0 256.8 _CS
-text 494.0 380.0 vout
+text 494.0 380.0 VOUT
 text 494.0 500.0 VDD_3V3
 text 494.0 540.0 VCC_1V2
 text 504.0 249.8 1

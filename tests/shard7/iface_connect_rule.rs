@@ -99,7 +99,7 @@ component BAREDEV
 /// Codes that are build-info, not a verdict (same set the vector-oracle family
 /// tolerates).
 fn benign(c: u32) -> bool {
-    matches!(c, 5641 | 5642 | 5643 | 5054)
+    matches!(c, 5054 | 5070 | 5071 | 5072 | 5641 | 5642 | 5643)
 }
 
 /// Build `main` with the body statement `body` and return (non-benign codes

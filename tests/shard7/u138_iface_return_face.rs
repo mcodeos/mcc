@@ -69,7 +69,7 @@ fn build_return(body: &str, uri: &str) -> (Vec<u32>, Vec<Vec<String>>) {
     let mut codes: Vec<u32> = mcc::mcc_diagnose_all()
         .iter()
         .map(|d| d.code)
-        .filter(|c| !matches!(*c, 5641 | 5642 | 5643 | 5054))
+        .filter(|c| !matches!(*c, 5641 | 5642 | 5643 | 5054 | 5070 | 5071 | 5072))
         .collect();
     codes.sort_unstable();
     let mut partition: Vec<Vec<String>> = net_store

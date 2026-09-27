@@ -67,7 +67,7 @@ fn net<'a>(g: &'a McVecGraph, name: &str) -> &'a mcc::vector::graph::VizNet {
 }
 
 /// Ruling ③ at the net level, on the LDO body whose header is a **scalar**
-/// `::DC` port pair (`in vin::DC(5V)` / `out vout::DC(3.3V)`).
+/// `::DC` port pair (`in VIN::DC(5V)` / `out VOUT::DC(3.3V)`).
 ///
 /// A `::DC` contract declares a supply face and a return face, and the faces
 /// sit at the declared positions in the interface's own pin table — so these
@@ -81,9 +81,9 @@ fn scalar_dc_header_faces_are_declared_not_name_guessed() {
     let ldo = find_layer(&graph, "LDO").expect("hbl has an LDO sub-layer");
 
     let expected = [
-        ("vin.VCC", AttrRole::Hot, NetKind::Power),
-        ("vout.VCC", AttrRole::Hot, NetKind::Power),
-        ("vin.GND", AttrRole::Ret, NetKind::Ground),
+        ("VIN.VCC", AttrRole::Hot, NetKind::Power),
+        ("VOUT.VCC", AttrRole::Hot, NetKind::Power),
+        ("VIN.GND", AttrRole::Ret, NetKind::Ground),
     ];
     for (want, role, kind) in expected {
         let n = net(ldo, want);
@@ -137,7 +137,7 @@ fn declared_rails_kind_follows_attr_role() {
 
     // Declared ground side -> NetKind::Ground, attr role Ret. Every return in
     // this design is the same copper inside the modules that face each other
-    // (the LDO's `vin` and `vout` both declare their 2nd face the return), so
+    // (the LDO's `VIN` and `VOUT` both declare their 2nd face the return), so
     // main has ONE ground conductor, carrying the bare `GND` label it is named
     // by — not one per rail.
     let gnd = net(&graph, "GND");

@@ -83,7 +83,7 @@ fn lock_pp_interface__module_port_role_4184_fires() {
         result["result"]["pass0"]["diagnostics"]
     );
     assert!(
-        hits[0].contains("bus") && hits[0].contains("TAG") && hits[0].contains("Master"),
+        hits[0].contains("bus") && hits[0].contains("TAG") && hits[0].contains("MASTER"),
         "E4184 must name the port, the interface and the role: {}",
         hits[0]
     );

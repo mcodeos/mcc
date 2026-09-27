@@ -526,10 +526,10 @@ fn a_source_position_resolves_to_the_statement_it_names() {
     // the mistake observable: the second one's line must resolve to the second
     // one's text, not to its neighbour's.
     let first = line_of(&src, "FLASH.GD25Q32E", 1);
-    let second = line_of(&src, "MCU513.i2c().loadFlash", 1);
+    let second = line_of(&src, "MCU513.I2C().LoadFlash", 1);
     assert_eq!(second, first + 1, "this lock needs the two lines adjacent");
 
-    for (line, needle) in [(first, "FLASH.GD25Q32E"), (second, "MCU513.i2c()")] {
+    for (line, needle) in [(first, "FLASH.GD25Q32E"), (second, "MCU513.I2C()")] {
         let view = trace_of(&cwd, &entry, &position_key(&entry, line), &[]);
         assert_eq!(
             row_at(&view, "src")["loc"]["line"],
@@ -731,13 +731,13 @@ fn the_class_a_walk_prints_is_the_class_the_hop_prints() {
     // something directly is an `expand` even when another statement wires the
     // same rows, so `MIC(V3V3).MIC ->` -- which writes the microphone rows --
     // cannot serve here. The position is the second spelling of
-    // `MCU513.i2c()`: the first one is chained into `loadFlash` and reaches a
+    // `MCU513.I2C()`: the first one is chained into `LoadFlash` and reaches a
     // row through it (U166 -- the call is named for what it is, never for how
     // far its rows reached).
     let wanted: [(&str, usize, &str); 3] = [
         ("FLASH.GD25Q32E FLASH(V3V3)", 1, "carry"),
         ("V5V -> LDO", 1, "expand"),
-        ("MCU513.i2c()", 2, "call"),
+        ("MCU513.I2C()", 2, "call"),
     ];
     let mut seen: BTreeMap<String, usize> = BTreeMap::new();
     for (needle, nth, class) in wanted {

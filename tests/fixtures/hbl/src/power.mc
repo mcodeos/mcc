@@ -22,14 +22,14 @@ component USB.MINI_B
 
 module POWER_USB()
 {
-    io vin{POWER_SYS, GND}::DC(5V)
+    io VIN{POWER_SYS, GND}::DC(5V)
 
     USB.MINI_B usbsock
     TP1::TP()
     TP3::TP()
 
-    ((usbsock.VBUS -> USB_VBUS) + TP1) -> RES(0R) -> vin.POWER_SYS
-    (usbsock.5 + usbsock.6 + usbsock.7 + usbsock.SHIELD3 + usbsock.SHIELD4) + TP3 -> vin.GND
+    ((usbsock.VBUS -> USB_VBUS) + TP1) -> RES(0R) -> VIN.POWER_SYS
+    (usbsock.5 + usbsock.6 + usbsock.7 + usbsock.SHIELD3 + usbsock.SHIELD4) + TP3 -> VIN.GND
 }
 
 abstract component LDO.SOT23_5
@@ -41,7 +41,7 @@ abstract component LDO.SOT23_5
         out [5, 2] = VOUT{Vout, GND}::DC(3.3V)
     ]
 
-    func enable(){
+    func Enable(){
         VIN.Vin -> CE
     }
 }
@@ -54,17 +54,17 @@ component LDO.SGM2019_33YN5G_TR : LDO.SOT23_5
 
 module POWER_LDO()
 {
-    in vin::DC(5V)
-    out vout::DC(3.3V)
+    in VIN::DC(5V)
+    out VOUT::DC(3.3V)
 
     LDO.SOT23_5             ldo
-    ldo.enable()
+    ldo.Enable()
 
-    vin -> ldo.VIN =>
+    VIN -> ldo.VIN =>
     CAP(10uF, ±20%, CAP.X5R, 10V).Cap(_)
 
     CAP(4.7uF, ±20%, CAP.Y5V, 6.3V).Cap(ldo.VOUT)
-    -> vout
+    -> VOUT
 
 }
 
@@ -81,7 +81,7 @@ component DCDC.LP3220AB5F
         4 = Vin
         5 = FB
     ]
-    func enable(){
+    func Enable(){
         Vin -> RES(47kΩ) -> EN
     }
 }
@@ -91,7 +91,7 @@ module POWER_DCDC()
     in [VDD_3V3, GND]::DC(3.3V)
     out [VCC_1V2, GND]::DC(1.2V)
 
-    DCDC.LP3220AB5F   lp322dcdc.enable()
+    DCDC.LP3220AB5F   lp322dcdc.Enable()
 
     [VDD_3V3, GND] -> lp322dcdc{Vin, GND}
     CAP(10uF,10V).Cap(lp322dcdc{Vin, GND})

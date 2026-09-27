@@ -20,10 +20,10 @@ component MICROPHONE.SIP2_1_25MM_WA : MICROPHONE.ELECTRET
     package = PKG.MIC_SIP2
 }
 
-module main(psnk dc{VDD_3V3, GND}::DC(3.3V))
+module main(psnk DC{VDD_3V3, GND}::DC(3.3V))
 {
     MICROPHONE.ELECTRET mic
 
-    mic{1,2} -> C1::CAP(470pF)' -> dc.GND
-    mic{3,4} -> dc.GND
+    mic{1,2} -> C1::CAP(470pF)' -> DC.GND
+    mic{3,4} -> DC.GND
 }

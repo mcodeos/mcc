@@ -2064,7 +2064,7 @@ mod tests {
     /// first-emission source order. This is the lock that keeps
     /// `POSTPARSE_RULES` byte-identical to the `validation/*` emission set;
     /// the object hosts stay the executor, so this anchors the catalog copy.
-    const POSTPARSE_ORDER: [u32; 96] = [
+    const POSTPARSE_ORDER: [u32; 99] = [
         // duplicate
         crate::errcodes::DUP_CMIE_CROSS_FILE,
         // dupwithin
@@ -2125,6 +2125,10 @@ mod tests {
         crate::errcodes::FUNC_PARAMS_NO_BODY,
         crate::errcodes::REF_INTEGRITY,
         crate::errcodes::SPEC_KEY_UNDECLARED_PARAM,
+        // style
+        crate::errcodes::NAME_NET_NOT_UPPER_SNAKE,
+        crate::errcodes::NAME_ROLE_ENUM_NOT_UPPER_SNAKE,
+        crate::errcodes::NAME_FUNC_NOT_UPPER_INITIAL,
         // exprs
         crate::errcodes::EXPR_THIS_TOP_LEVEL,
         crate::errcodes::EXPR_PLACEHOLDER_ONLY,
@@ -3229,10 +3233,41 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         doc = "Spec key references a parameter that is not declared.",
         lock = "tests/lock_pp_refs.rs",
     },
-    // style — StyleCheck (registered between refs and exprs in with_defaults)
-    // contributes no codes of its own: its NAME_COMPONENT_LOWERCASE sweep is
-    // the duplicate of the naming host row declared above, so the table
-    // records no style-only row.
+    // style — StyleCheck (registered between refs and exprs in with_defaults).
+    // The J1 lowercase-component sweep duplicates the naming host row declared
+    // above; the style-only rows are the mcode style-guide gates
+    // (spec/21-mcode-style.md §2/§7), Info by birth — they report spelling,
+    // never block instantiation.
+    declare_post_parse_rule! {
+        code = crate::errcodes::NAME_NET_NOT_UPPER_SNAKE,
+        name = "net-not-upper-snake",
+        title = "a net label or module port face carries a lowercase letter",
+        severity = Info,
+        domain = NamingStyle,
+        host = "style",
+        doc = "Style guide §2 #3: net labels and module port faces are UPPER_SNAKE. Two faces name a net — the module header formals and the body's net labels; pins and datasheet names are exempt (§2.1). Instance names stay outside the gate: the refdes vs functional-block split needs design context no machine holds. Workspace files only; the factory corpus is conformant (b4075/b4079) and a stale live copy must not red the gate.",
+        lock = "tests/lock_pp_naming_ports.rs",
+    },
+    declare_post_parse_rule! {
+        code = crate::errcodes::NAME_ROLE_ENUM_NOT_UPPER_SNAKE,
+        name = "role-enum-not-upper-snake",
+        title = "a role value or enum value carries a lowercase letter",
+        severity = Info,
+        domain = NamingStyle,
+        host = "style",
+        doc = "Style guide §2 #6: role values (the interface's role vocabulary) and enum values are UPPER_SNAKE. The @role(...) lowercase word vocabulary is a §2.1 exemption and is not judged here.",
+        lock = "tests/lock_pp_naming_ports.rs",
+    },
+    declare_post_parse_rule! {
+        code = crate::errcodes::NAME_FUNC_NOT_UPPER_INITIAL,
+        name = "func-not-upper-initial",
+        title = "a function name starts with a lowercase letter",
+        severity = Info,
+        domain = NamingStyle,
+        host = "style",
+        doc = "Style guide §2 #9: function names are uppercase-initial, library and user funcs one rule — functions are class-level behavior and take the class's form. Only the first letter is judged.",
+        lock = "tests/lock_pp_naming_ports.rs",
+    },
     // exprs — ExprsCheck: expression-context validity and attribute values.
     declare_post_parse_rule! {
         code = crate::errcodes::EXPR_THIS_TOP_LEVEL,

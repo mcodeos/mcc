@@ -1319,6 +1319,20 @@ pub const BOM_VALUE_NOT_DESCENDANT: u32 = 5067;
 /// branches b2/b3 = E5068).
 pub const BOM_KEY_NOT_SLOT: u32 = 5068;
 
+/// Net/port name contains a lowercase letter; the style guide spells net
+/// labels UPPER_SNAKE (spec/21-mcode-style.md §2 #3). Style gate, Info.
+pub const NAME_NET_NOT_UPPER_SNAKE: u32 = 5070;
+
+/// Role or enum value contains a lowercase letter; the style guide spells
+/// both UPPER_SNAKE (spec/21-mcode-style.md §2 #6, role values included).
+/// Style gate, Info.
+pub const NAME_ROLE_ENUM_NOT_UPPER_SNAKE: u32 = 5071;
+
+/// Function name starts with a lowercase letter; functions are class-level
+/// behavior and take the class's uppercase-initial form
+/// (spec/21-mcode-style.md §2 #9). Style gate, Info.
+pub const NAME_FUNC_NOT_UPPER_INITIAL: u32 = 5072;
+
 // Pass3: reference integrity (5100-5149)
 
 /// Spec key references a parameter that is not declared.
@@ -2691,6 +2705,9 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(NAME_INSTANCE_SINGLE_CHAR, "Instance name is a single character.", "Instance name is a single character."),
     entry!(NAME_PORT_INST_SHADOWS_CMIE, "Port/instance name shadows a library CMIE name.", "Port/instance name shadows a library CMIE name."),
     entry!(NAME_PARAM_SHADOWS_CMIE, "Parameter name shadows a library CMIE name.", "Parameter name shadows a library CMIE name."),
+    entry!(NAME_NET_NOT_UPPER_SNAKE, "Net/port name is not UPPER_SNAKE.", "Net/port name '{0}' is not UPPER_SNAKE; the style guide spells net labels and port faces UPPER_SNAKE (mcode-style §2 #3)."),
+    entry!(NAME_ROLE_ENUM_NOT_UPPER_SNAKE, "Role/enum value is not UPPER_SNAKE.", "{0} value '{1}' is not UPPER_SNAKE; the style guide spells role and enum values UPPER_SNAKE (mcode-style §2 #6)."),
+    entry!(NAME_FUNC_NOT_UPPER_INITIAL, "Function name does not start with uppercase.", "Function name '{0}' does not start with an uppercase letter; functions are class-level behavior and take the class's uppercase-initial form (mcode-style §2 #9)."),
     entry!(RECIPE_BODY_INVALID, "recipe body may only contain signal declarations and funcs.", "recipe body may only contain signal declarations and funcs"),
     entry!(RECIPE_FUNC_UNRESOLVED_REF, "recipe func references a name that is not a declared signal, parameter, or func-local instance.", "'{0}' is not a declared signal, parameter, or local in this recipe func"),
     entry!(VARIANT_REDECLARES_PINS_PARAMS_FUNCS, "A variant may not declare pins, construction params, or funcs — they are inherited from the abstract base.", "variant '{0}' may not declare pins, params, or funcs (inherited from the base)"),

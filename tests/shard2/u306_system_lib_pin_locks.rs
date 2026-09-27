@@ -865,7 +865,7 @@ fn u306__module_us513_port_table() {
         ("SPI", IOType::InOut, &[]),
         ("UART0", IOType::InOut, &[]),
         ("UART1", IOType::InOut, &[]),
-        ("port1", IOType::InOut, &["A", "B", "C", "D"]),
+        ("PORT_1", IOType::InOut, &["A", "B", "C", "D"]),
         ("DAC_OUT", IOType::Out, &[]),
         ("SPK_MUTE", IOType::Out, &[]),
     ];

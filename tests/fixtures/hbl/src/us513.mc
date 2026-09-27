@@ -47,14 +47,14 @@ component MCU.US513_20_F
         io 20 = GPIO[2] | EXT_CLK_IN
     ]
 
-    func power(V3V3::DC(3.3V), V1V2::DC(1.2V))
+    func Power(V3V3::DC(3.3V), V1V2::DC(1.2V))
     {
         V3V3 => CAP(1uF, ±10%, CAP.X5R, 10V).Cap(_) -> [VDD, GND]
         V1V2 => CAP(1uF, ±10%, CAP.X5R, 10V).Cap(_) -> [VDD_CORE, GND]
         CAP(1uF, ±10%, CAP.X5R, 10V).Cap([AVDD09_CAP, GND])
     }
 
-    func i2c(address)
+    func I2C(address)
     {
 
         if address == 0x36
@@ -79,7 +79,7 @@ component Crystal2.DST310S
         [1,2] = XTAL::XTAL()
     ]
 
-    func setup(GND) {
+    func Setup(GND) {
         XTAL - R442::RES(1MΩ, ±1%)'
         - [
             CAP(18pF, ±5%, CAP.C0G, 50V),  
@@ -119,27 +119,27 @@ component FLASH.GD25Q32E
 
 module US513(psnk [VDD_3V3,GND]::DC(3.3V), psnk [VCC_1V2,GND]::DC(1.2V))
 {
-    io MIC{P,N}, I2C0, SPI, UART0, UART1, port1{A,B,C,D}
+    io MIC{P,N}, I2C0, SPI, UART0, UART1, PORT_1{A,B,C,D}
     out DAC_OUT, SPK_MUTE
 
     MCU.US513_20_F UC
 
-    UC.power([VDD_3V3,GND], [VCC_1V2,GND])
+    UC.Power([VDD_3V3,GND], [VCC_1V2,GND])
 
     Crystal2.DST310S(NC) X6
-    X6.setup(GND).XTAL -> UC.XTAL
+    X6.Setup(GND).XTAL -> UC.XTAL
 
-    func i2c()
+    func I2C()
     {
-        UC.i2c(0x36).I2C0 -> I2C0
+        UC.I2C(0x36).I2C0 -> I2C0
     }
 
-    func loadFlash(SPI)
+    func LoadFlash(SPI)
     {
         SPI + UC.SPI
     }
 
-    UART0 - res[1:2]::RES(0Ω) - UC.UART0
+    UART0 - R[1:2]::RES(0Ω) - UC.UART0
     RES(100kΩ).Pullup([UC.7, UC.VDD])
 
     MIC{P,N} -> [C4::CAP(),C5::CAP()] -> UC.ADC{P,N}

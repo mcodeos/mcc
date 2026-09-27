@@ -89,7 +89,7 @@ fn codes_of(src: &str, uri: &str) -> Vec<u32> {
 /// is all this lock needs — and any change to that is caught by the partition
 /// assertions below, not by the code list.
 fn benign(c: u32) -> bool {
-    matches!(c, 5641 | 5642 | 5643 | 5054 | 3157 | 5256)
+    matches!(c, 5641 | 5642 | 5643 | 5054 | 5070 | 5071 | 5072 | 3157 | 5256)
 }
 
 /// The instance-name prefixes carried by the partition's point paths (the
