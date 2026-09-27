@@ -1746,7 +1746,14 @@ impl RegistryState {
         }
 
         // ── P2 §4.1: adopts / effective_funcs over the (now materialized) defs.
-        let comps = ds.workspace_components();
+        // Any domain, not project-only (U320): the recipe-and-adopt pattern is
+        // at home in library files (`component X :: Recipe` next to the recipe
+        // it adopts, the K1 capability layer), and a project-only enumeration
+        // silently dropped every library-side host — no diagnostic anywhere,
+        // just E3071 at the call site. Library hosts that keep live defs
+        // (mcode auto-visibility) get their effective method set here exactly
+        // like project hosts.
+        let comps = ds.all_components();
         for (sn, comp) in comps.iter() {
             if comp.adopts.is_empty() {
                 continue;
