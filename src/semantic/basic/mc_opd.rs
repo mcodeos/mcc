@@ -163,16 +163,6 @@ impl McOpd {
         }
     }
 
-    /// Get member list (if any)
-    pub fn get_members(&self) -> Vec<&McOpd> {
-        match self {
-            McOpd::Id(_) => vec![],
-            McOpd::This(_) => vec![],
-            McOpd::Pins(_) => vec![],
-            McOpd::Uscore => vec![],
-        }
-    }
-
     /// Try to convert to simple string list (for anonymous params)
     pub fn to_string_list(&self) -> Option<Vec<String>> {
         match self {

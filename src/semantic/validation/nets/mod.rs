@@ -844,13 +844,13 @@ pub(crate) fn pin_declared_voltages(table: &InstTable, entry: &InstEntry) -> Opt
 }
 
 /// Extract scalar voltages from a KVS value:
-/// `Const(Keyword("3.3V"))` → 3.3; `Square([Uval(1.2V), Uval(1.3V)])` →
+/// `Const("3.3V")` → 3.3; `Square([Uval(1.2V), Uval(1.3V)])` →
 /// [1.2, 1.3]; nested `low:`/`high:` sub-keys are recursed. Ranges
 /// (`0V ~ 0.7V`) are skipped — only concrete scalar volts count.
 fn collect_kvs_voltage(value: &KVSValue, out: &mut Vec<f64>) {
     match value {
         KVSValue::Const(c) => {
-            let crate::semantic::basic::mc_literal::McConst::Keyword(s) = c;
+            let crate::semantic::basic::mc_literal::McConst(s) = c;
             if let Some(v) = parse_voltage_str(s) {
                 out.push(v);
             }

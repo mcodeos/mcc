@@ -5465,29 +5465,28 @@ semantic/basic/mc_ids.rs#L1566  fn is_empty
 semantic/basic/mc_ids.rs#L1571  fn get_primary_name
 semantic/basic/mc_ids.rs#L1583  fn root_name
 semantic/basic/mc_ids.rs#L1596  fn all_name_forms
-semantic/basic/mc_ids.rs#L1629  fn get_members
-semantic/basic/mc_ids.rs#L1637  fn get_base_name
-semantic/basic/mc_ids.rs#L1669  fn dot_chain_parts
-semantic/basic/mc_ids.rs#L1692  fn as_dot_access
-semantic/basic/mc_ids.rs#L1712  impl std::fmt::Display for McIds
-semantic/basic/mc_ids.rs#L1713  fn fmt
-semantic/basic/mc_ids.rs#L1724  impl Ord for McIds
-semantic/basic/mc_ids.rs#L1725  fn cmp
-semantic/basic/mc_ids.rs#L1730  impl PartialOrd for McIds
-semantic/basic/mc_ids.rs#L1731  fn partial_cmp
-semantic/basic/mc_ids.rs#L1736  impl std::fmt::Display for IdsSegment
-semantic/basic/mc_ids.rs#L1737  fn fmt
-semantic/basic/mc_ids.rs#L1776  mod tests
-semantic/basic/mc_ids.rs#L1781  fn curly_chain_ids
-semantic/basic/mc_ids.rs#L1796  fn sem_mcids__curly_chain_member_normalizes_to_dotted_identity
-semantic/basic/mc_ids.rs#L1819  fn sem_mcids__curly_chain_member_expands_and_displays_as_one_member
-semantic/basic/mc_ids.rs#L1829  fn sem_mcids__sub_path_reads_the_member_names
-semantic/basic/mc_ids.rs#L1845  fn sem_mcids__display_base_members_scalar
-semantic/basic/mc_ids.rs#L1857  fn sem_mcids__display_base_members_curly_group
-semantic/basic/mc_ids.rs#L1876  fn sem_mcids__display_base_members_square_group
-semantic/basic/mc_ids.rs#L1897  fn sem_mcids__display_base_members_slice_token_is_single_member
-semantic/basic/mc_ids.rs#L1907  fn sem_mcids__display_base_members_empty_group_keeps_base
-semantic/basic/mc_ids.rs#L1915  fn sem_mcids__display_base_members_bare_curly
+semantic/basic/mc_ids.rs#L1631  fn get_base_name
+semantic/basic/mc_ids.rs#L1663  fn dot_chain_parts
+semantic/basic/mc_ids.rs#L1686  fn as_dot_access
+semantic/basic/mc_ids.rs#L1706  impl std::fmt::Display for McIds
+semantic/basic/mc_ids.rs#L1707  fn fmt
+semantic/basic/mc_ids.rs#L1718  impl Ord for McIds
+semantic/basic/mc_ids.rs#L1719  fn cmp
+semantic/basic/mc_ids.rs#L1724  impl PartialOrd for McIds
+semantic/basic/mc_ids.rs#L1725  fn partial_cmp
+semantic/basic/mc_ids.rs#L1730  impl std::fmt::Display for IdsSegment
+semantic/basic/mc_ids.rs#L1731  fn fmt
+semantic/basic/mc_ids.rs#L1770  mod tests
+semantic/basic/mc_ids.rs#L1775  fn curly_chain_ids
+semantic/basic/mc_ids.rs#L1790  fn sem_mcids__curly_chain_member_normalizes_to_dotted_identity
+semantic/basic/mc_ids.rs#L1813  fn sem_mcids__curly_chain_member_expands_and_displays_as_one_member
+semantic/basic/mc_ids.rs#L1823  fn sem_mcids__sub_path_reads_the_member_names
+semantic/basic/mc_ids.rs#L1839  fn sem_mcids__display_base_members_scalar
+semantic/basic/mc_ids.rs#L1851  fn sem_mcids__display_base_members_curly_group
+semantic/basic/mc_ids.rs#L1870  fn sem_mcids__display_base_members_square_group
+semantic/basic/mc_ids.rs#L1891  fn sem_mcids__display_base_members_slice_token_is_single_member
+semantic/basic/mc_ids.rs#L1901  fn sem_mcids__display_base_members_empty_group_keeps_base
+semantic/basic/mc_ids.rs#L1909  fn sem_mcids__display_base_members_bare_curly
 semantic/basic/mc_kvs.rs#L15  enum KVSValue
 semantic/basic/mc_kvs.rs#L21  impl std::fmt::Display for KVSValue
 semantic/basic/mc_kvs.rs#L22  fn fmt
@@ -5535,31 +5534,30 @@ semantic/basic/mc_literal.rs#L196  impl std::fmt::Display for McString
 semantic/basic/mc_literal.rs#L197  fn fmt
 semantic/basic/mc_literal.rs#L202  impl From<&str> for McString
 semantic/basic/mc_literal.rs#L203  fn from
-semantic/basic/mc_literal.rs#L211  enum McConst
-semantic/basic/mc_literal.rs#L215  impl McConst
-semantic/basic/mc_literal.rs#L216  fn new
-semantic/basic/mc_literal.rs#L231  impl std::fmt::Display for McConst
-semantic/basic/mc_literal.rs#L232  fn fmt
-semantic/basic/mc_literal.rs#L239  impl std::fmt::Debug for McConst
-semantic/basic/mc_literal.rs#L240  fn fmt
-semantic/basic/mc_literal.rs#L248  enum McLiteral
-semantic/basic/mc_literal.rs#L257  impl McLiteral
-semantic/basic/mc_literal.rs#L258  fn new
+semantic/basic/mc_literal.rs#L212  struct McConst
+semantic/basic/mc_literal.rs#L213  impl McConst
+semantic/basic/mc_literal.rs#L214  fn new
+semantic/basic/mc_literal.rs#L229  impl std::fmt::Display for McConst
+semantic/basic/mc_literal.rs#L230  fn fmt
+semantic/basic/mc_literal.rs#L235  impl std::fmt::Debug for McConst
+semantic/basic/mc_literal.rs#L236  fn fmt
+semantic/basic/mc_literal.rs#L242  enum McLiteral
+semantic/basic/mc_literal.rs#L251  impl McLiteral
+semantic/basic/mc_literal.rs#L252  fn new
 semantic/basic/mc_opd.rs#L13  enum McOpd
 semantic/basic/mc_opd.rs#L20  impl McOpd
 semantic/basic/mc_opd.rs#L21  fn new
 semantic/basic/mc_opd.rs#L145  fn new_from_ids_node
 semantic/basic/mc_opd.rs#L157  fn expand
-semantic/basic/mc_opd.rs#L167  fn get_members
-semantic/basic/mc_opd.rs#L177  fn to_string_list
-semantic/basic/mc_opd.rs#L187  fn match_name
-semantic/basic/mc_opd.rs#L197  impl McOpd
-semantic/basic/mc_opd.rs#L198  fn to_string
-semantic/basic/mc_opd.rs#L207  fn len
-semantic/basic/mc_opd.rs#L217  impl From<&str> for McOpd
-semantic/basic/mc_opd.rs#L218  fn from
-semantic/basic/mc_opd.rs#L223  impl std::fmt::Display for McOpd
-semantic/basic/mc_opd.rs#L224  fn fmt
+semantic/basic/mc_opd.rs#L167  fn to_string_list
+semantic/basic/mc_opd.rs#L177  fn match_name
+semantic/basic/mc_opd.rs#L187  impl McOpd
+semantic/basic/mc_opd.rs#L188  fn to_string
+semantic/basic/mc_opd.rs#L197  fn len
+semantic/basic/mc_opd.rs#L207  impl From<&str> for McOpd
+semantic/basic/mc_opd.rs#L208  fn from
+semantic/basic/mc_opd.rs#L213  impl std::fmt::Display for McOpd
+semantic/basic/mc_opd.rs#L214  fn fmt
 semantic/basic/mc_param.rs#L26  static R05_UNRESOLVED_UNIT
 semantic/basic/mc_param.rs#L28  fn reset_r05_counter
 semantic/basic/mc_param.rs#L36  enum McParamValue
@@ -11628,4 +11626,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-422 files, 11545 declarations.
+422 files, 11543 declarations.

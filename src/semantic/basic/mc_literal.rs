@@ -207,18 +207,16 @@ impl From<&str> for McString {
     }
 }
 
-#[derive(Clone)]
-pub enum McConst {
-    // Only override MCK_CONST keyword constant
-    Keyword(String),
-}
+/// An MCK_CONST keyword constant; the spelled word is the whole value.
+#[derive(Clone, PartialEq, Eq)]
+pub struct McConst(pub String);
 impl McConst {
     pub fn new(node: &AstNode) -> Option<Self> {
         // Only handle MCK_CONST keyword constant
         if node.is_type(MCAST_CONST) {
             // Guarded accessor: the C parser can emit a NULL/small .data.
             if let Ok(str_value) = node.data_as_cstr()?.to_str() {
-                Some(McConst::Keyword(str_value.to_string()))
+                Some(McConst(str_value.to_string()))
             } else {
                 None
             }
@@ -230,17 +228,13 @@ impl McConst {
 
 impl std::fmt::Display for McConst {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            McConst::Keyword(keyword) => write!(f, "{keyword}"),
-        }
+        write!(f, "{}", self.0)
     }
 }
 
 impl std::fmt::Debug for McConst {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            McConst::Keyword(keyword) => write!(f, "McConst::Keyword({keyword:?})"),
-        }
+        write!(f, "McConst({:?})", self.0)
     }
 }
 

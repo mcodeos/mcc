@@ -1625,12 +1625,6 @@ impl McIds {
         forms
     }
 
-    /// Get the member list
-    pub fn get_members(&self) -> Vec<&McIds> {
-        // McIds does not have the concept of members, return empty list
-        vec![]
-    }
-
     /// Get the base name (without the square bracket part)
     /// e.g. GPIO[1:2] returns Some("GPIO")
     /// e.g. DC2.VDD returns None (because of .)
