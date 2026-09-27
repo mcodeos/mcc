@@ -42,7 +42,7 @@ range (threshold 40KB).
 | `cmds/show.rs` | 164 KB | 123 |
 | `db/defregistry.rs` | 158 KB | 182 |
 | `instant/mc_mod/fcallinst.rs` | 150 KB | 26 |
-| `viz/layout/equi_audit.rs` | 137 KB | 100 |
+| `viz/layout/equi_audit.rs` | 139 KB | 100 |
 | `rpc/handlers/mod.rs` | 132 KB | 107 |
 | `instant/mc_mod/phases.rs` | 129 KB | 29 |
 | `export/kicad_sch.rs` | 127 KB | 106 |
@@ -76,7 +76,7 @@ range (threshold 40KB).
 | `semantic/` | 98 | 2880 KB |
 | `stages/` | 18 | 396 KB |
 | `vector/` | 26 | 496 KB |
-| `viz/` | 97 | 2448 KB |
+| `viz/` | 97 | 2450 KB |
 
 ## Declaration index
 
@@ -9412,105 +9412,105 @@ viz/layout/entry_points.rs#L2164  fn p06_hysteresis_prevents_borderline_switch
 viz/layout/entry_points.rs#L2187  fn p06_same_axis_switch_always_allowed
 viz/layout/entry_points.rs#L2204  fn p06_is_repinnable_table
 viz/layout/equi_audit.rs#L92  enum Milestone
-viz/layout/equi_audit.rs#L118  impl fmt::Display for Milestone
-viz/layout/equi_audit.rs#L119  fn fmt
-viz/layout/equi_audit.rs#L133  enum Orient
-viz/layout/equi_audit.rs#L140  impl Orient
-viz/layout/equi_audit.rs#L141  fn of
-viz/layout/equi_audit.rs#L151  fn glyph
-viz/layout/equi_audit.rs#L167  struct TapView
-viz/layout/equi_audit.rs#L189  struct NetView
-viz/layout/equi_audit.rs#L224  struct LayoutView
-viz/layout/equi_audit.rs#L234  fn build_view
-viz/layout/equi_audit.rs#L251  fn build_net_view
-viz/layout/equi_audit.rs#L338  fn anchor_tap_point
-viz/layout/equi_audit.rs#L361  fn terminal_label
-viz/layout/equi_audit.rs#L369  fn box_name
-viz/layout/equi_audit.rs#L380  fn f
-viz/layout/equi_audit.rs#L384  fn opt_f
-viz/layout/equi_audit.rs#L388  fn opt_i
-viz/layout/equi_audit.rs#L392  fn opt_s
-viz/layout/equi_audit.rs#L396  fn side_glyph
-viz/layout/equi_audit.rs#L406  fn row_src_glyph
-viz/layout/equi_audit.rs#L415  impl fmt::Display for LayoutView
-viz/layout/equi_audit.rs#L416  fn fmt
-viz/layout/equi_audit.rs#L525  fn truncate
-viz/layout/equi_audit.rs#L534  fn dump_layout_model
-viz/layout/equi_audit.rs#L541  enum CheckStatus
-viz/layout/equi_audit.rs#L547  struct Check
-viz/layout/equi_audit.rs#L556  impl Check
-viz/layout/equi_audit.rs#L557  fn new
-viz/layout/equi_audit.rs#L567  fn fail
-viz/layout/equi_audit.rs#L578  struct EquiAudit
-viz/layout/equi_audit.rs#L582  impl EquiAudit
-viz/layout/equi_audit.rs#L583  fn failures
-viz/layout/equi_audit.rs#L591  fn blocking
-viz/layout/equi_audit.rs#L600  fn assert_clean_through
-viz/layout/equi_audit.rs#L616  impl fmt::Display for EquiAudit
-viz/layout/equi_audit.rs#L617  fn fmt
-viz/layout/equi_audit.rs#L637  fn audit_equi_tree
-viz/layout/equi_audit.rs#L685  fn check_a1_rows
-viz/layout/equi_audit.rs#L708  fn render_replay
-viz/layout/equi_audit.rs#L732  fn check_a2_lane_replay
-viz/layout/equi_audit.rs#L768  fn check_a2b_anchor_replay
-viz/layout/equi_audit.rs#L797  fn check_a3_dangling
-viz/layout/equi_audit.rs#L816  fn dangling_segments
-viz/layout/equi_audit.rs#L881  fn check_a4_passive_orientation
-viz/layout/equi_audit.rs#L950  fn check_a7_wire_through_box
-viz/layout/equi_audit.rs#L1028  fn is_opposite_sides
-viz/layout/equi_audit.rs#L1048  fn check_a8_junction_present
-viz/layout/equi_audit.rs#L1086  fn check_a9_ground_glyphs
-viz/layout/equi_audit.rs#L1118  fn check_a10_same_side_rows
-viz/layout/equi_audit.rs#L1179  fn check_a11_same_row_opposite
-viz/layout/equi_audit.rs#L1212  fn check_a12_row_band_overlap
-viz/layout/equi_audit.rs#L1263  fn check_a13_pin_overlap
-viz/layout/equi_audit.rs#L1295  fn check_a14_label_fit
-viz/layout/equi_audit.rs#L1358  fn check_a15_ground_band
-viz/layout/equi_audit.rs#L1404  fn check_a16_ground_count_conservation
-viz/layout/equi_audit.rs#L1443  fn check_a17_text_overlap
-viz/layout/equi_audit.rs#L1513  fn symbol_text_bbox
-viz/layout/equi_audit.rs#L1539  fn check_a18_wire_collinear_edge
-viz/layout/equi_audit.rs#L1591  fn rects_overlap
-viz/layout/equi_audit.rs#L1602  fn check_a21_members_do_not_overlap
-viz/layout/equi_audit.rs#L1639  fn check_a22_spanning_member_in_span
-viz/layout/equi_audit.rs#L1707  fn check_a23_shunt_near_anchor_pin
-viz/layout/equi_audit.rs#L1709  const MEMBER_GAP_LOCAL
-viz/layout/equi_audit.rs#L1760  fn check_a24_no_wire_crossings
-viz/layout/equi_audit.rs#L1823  fn check_a25_label_clear_of_members
-viz/layout/equi_audit.rs#L1881  fn check_a26_shunt_balance
-viz/layout/equi_audit.rs#L1938  fn check_a27_pin_on_its_row
-viz/layout/equi_audit.rs#L1985  fn check_a28_along_is_collinear
-viz/layout/equi_audit.rs#L2040  fn check_a29_run_spans_disjoint
-viz/layout/equi_audit.rs#L2076  fn check_a30_satellite_pins_on_rows
-viz/layout/equi_audit.rs#L2118  fn check_a34_every_pin_on_its_row
-viz/layout/equi_audit.rs#L2192  fn check_a31_row_end_budget
-viz/layout/equi_audit.rs#L2270  fn check_a32_label_has_a_stub
-viz/layout/equi_audit.rs#L2323  mod fixture
-viz/layout/equi_audit.rs#L2330  fn mk_box
-viz/layout/equi_audit.rs#L2365  fn two_pin
-viz/layout/equi_audit.rs#L2386  fn label
-viz/layout/equi_audit.rs#L2397  fn net
-viz/layout/equi_audit.rs#L2409  fn build_moddcdc_graph
-viz/layout/equi_audit.rs#L2530  fn build_ldo_graph
-viz/layout/equi_audit.rs#L2616  fn build_series_bridge_graph
-viz/layout/equi_audit.rs#L2715  fn build_two_anchor_graph
-viz/layout/equi_audit.rs#L2802  mod tests
-viz/layout/equi_audit.rs#L2810  fn placed
-viz/layout/equi_audit.rs#L2827  fn write_dump
-viz/layout/equi_audit.rs#L2834  fn moddcdc_topology_shape
-viz/layout/equi_audit.rs#L2862  fn a1_is_falsifiable
-viz/layout/equi_audit.rs#L2897  fn moddcdc_anchor_baseline
-viz/layout/equi_audit.rs#L2955  fn moddcdc_m0_audit
-viz/layout/equi_audit.rs#L2980  fn moddcdc_m3_fixture_assertions
-viz/layout/equi_audit.rs#L3073  fn coupled_two_pin_part_reads_bridge
-viz/layout/equi_audit.rs#L3172  fn bottom_labels_do_not_overlap
-viz/layout/equi_audit.rs#L3218  fn same_net_pins_are_adjacent
-viz/layout/equi_audit.rs#L3279  fn ldo_audit
-viz/layout/equi_audit.rs#L3300  fn series_bridge_shunt_fixture
-viz/layout/equi_audit.rs#L3358  fn two_anchor_fixture
-viz/layout/equi_audit.rs#L3427  fn dump_is_deterministic
-viz/layout/equi_audit.rs#L3438  fn audit_does_not_mutate
-viz/layout/equi_audit.rs#L3456  fn m6_regression_structure
+viz/layout/equi_audit.rs#L120  impl fmt::Display for Milestone
+viz/layout/equi_audit.rs#L121  fn fmt
+viz/layout/equi_audit.rs#L135  enum Orient
+viz/layout/equi_audit.rs#L142  impl Orient
+viz/layout/equi_audit.rs#L143  fn of
+viz/layout/equi_audit.rs#L153  fn glyph
+viz/layout/equi_audit.rs#L169  struct TapView
+viz/layout/equi_audit.rs#L191  struct NetView
+viz/layout/equi_audit.rs#L226  struct LayoutView
+viz/layout/equi_audit.rs#L236  fn build_view
+viz/layout/equi_audit.rs#L253  fn build_net_view
+viz/layout/equi_audit.rs#L340  fn anchor_tap_point
+viz/layout/equi_audit.rs#L363  fn terminal_label
+viz/layout/equi_audit.rs#L371  fn box_name
+viz/layout/equi_audit.rs#L382  fn f
+viz/layout/equi_audit.rs#L386  fn opt_f
+viz/layout/equi_audit.rs#L390  fn opt_i
+viz/layout/equi_audit.rs#L394  fn opt_s
+viz/layout/equi_audit.rs#L398  fn side_glyph
+viz/layout/equi_audit.rs#L408  fn row_src_glyph
+viz/layout/equi_audit.rs#L417  impl fmt::Display for LayoutView
+viz/layout/equi_audit.rs#L418  fn fmt
+viz/layout/equi_audit.rs#L527  fn truncate
+viz/layout/equi_audit.rs#L536  fn dump_layout_model
+viz/layout/equi_audit.rs#L543  enum CheckStatus
+viz/layout/equi_audit.rs#L549  struct Check
+viz/layout/equi_audit.rs#L558  impl Check
+viz/layout/equi_audit.rs#L559  fn new
+viz/layout/equi_audit.rs#L569  fn fail
+viz/layout/equi_audit.rs#L580  struct EquiAudit
+viz/layout/equi_audit.rs#L584  impl EquiAudit
+viz/layout/equi_audit.rs#L585  fn failures
+viz/layout/equi_audit.rs#L593  fn blocking
+viz/layout/equi_audit.rs#L602  fn assert_clean_through
+viz/layout/equi_audit.rs#L618  impl fmt::Display for EquiAudit
+viz/layout/equi_audit.rs#L619  fn fmt
+viz/layout/equi_audit.rs#L639  fn audit_equi_tree
+viz/layout/equi_audit.rs#L687  fn check_a1_rows
+viz/layout/equi_audit.rs#L710  fn render_replay
+viz/layout/equi_audit.rs#L734  fn check_a2_lane_replay
+viz/layout/equi_audit.rs#L770  fn check_a2b_anchor_replay
+viz/layout/equi_audit.rs#L799  fn check_a3_dangling
+viz/layout/equi_audit.rs#L818  fn dangling_segments
+viz/layout/equi_audit.rs#L883  fn check_a4_passive_orientation
+viz/layout/equi_audit.rs#L952  fn check_a7_wire_through_box
+viz/layout/equi_audit.rs#L1030  fn is_opposite_sides
+viz/layout/equi_audit.rs#L1050  fn check_a8_junction_present
+viz/layout/equi_audit.rs#L1088  fn check_a9_ground_glyphs
+viz/layout/equi_audit.rs#L1120  fn check_a10_same_side_rows
+viz/layout/equi_audit.rs#L1181  fn check_a11_same_row_opposite
+viz/layout/equi_audit.rs#L1214  fn check_a12_row_band_overlap
+viz/layout/equi_audit.rs#L1265  fn check_a13_pin_overlap
+viz/layout/equi_audit.rs#L1297  fn check_a14_label_fit
+viz/layout/equi_audit.rs#L1360  fn check_a15_ground_band
+viz/layout/equi_audit.rs#L1406  fn check_a16_ground_count_conservation
+viz/layout/equi_audit.rs#L1445  fn check_a17_text_overlap
+viz/layout/equi_audit.rs#L1515  fn symbol_text_bbox
+viz/layout/equi_audit.rs#L1541  fn check_a18_wire_collinear_edge
+viz/layout/equi_audit.rs#L1593  fn rects_overlap
+viz/layout/equi_audit.rs#L1604  fn check_a21_members_do_not_overlap
+viz/layout/equi_audit.rs#L1641  fn check_a22_spanning_member_in_span
+viz/layout/equi_audit.rs#L1709  fn check_a23_shunt_near_anchor_pin
+viz/layout/equi_audit.rs#L1711  const MEMBER_GAP_LOCAL
+viz/layout/equi_audit.rs#L1762  fn check_a24_no_wire_crossings
+viz/layout/equi_audit.rs#L1825  fn check_a25_label_clear_of_members
+viz/layout/equi_audit.rs#L1883  fn check_a26_shunt_balance
+viz/layout/equi_audit.rs#L1940  fn check_a27_pin_on_its_row
+viz/layout/equi_audit.rs#L1987  fn check_a28_along_is_collinear
+viz/layout/equi_audit.rs#L2042  fn check_a29_run_spans_disjoint
+viz/layout/equi_audit.rs#L2078  fn check_a30_satellite_pins_on_rows
+viz/layout/equi_audit.rs#L2126  fn check_a34_every_pin_on_its_row
+viz/layout/equi_audit.rs#L2193  fn check_a31_row_end_budget
+viz/layout/equi_audit.rs#L2271  fn check_a32_label_has_a_stub
+viz/layout/equi_audit.rs#L2324  mod fixture
+viz/layout/equi_audit.rs#L2331  fn mk_box
+viz/layout/equi_audit.rs#L2366  fn two_pin
+viz/layout/equi_audit.rs#L2387  fn label
+viz/layout/equi_audit.rs#L2398  fn net
+viz/layout/equi_audit.rs#L2410  fn build_moddcdc_graph
+viz/layout/equi_audit.rs#L2531  fn build_ldo_graph
+viz/layout/equi_audit.rs#L2617  fn build_series_bridge_graph
+viz/layout/equi_audit.rs#L2716  fn build_two_anchor_graph
+viz/layout/equi_audit.rs#L2803  mod tests
+viz/layout/equi_audit.rs#L2811  fn placed
+viz/layout/equi_audit.rs#L2828  fn write_dump
+viz/layout/equi_audit.rs#L2835  fn moddcdc_topology_shape
+viz/layout/equi_audit.rs#L2863  fn a1_is_falsifiable
+viz/layout/equi_audit.rs#L2898  fn moddcdc_anchor_baseline
+viz/layout/equi_audit.rs#L2956  fn moddcdc_m0_audit
+viz/layout/equi_audit.rs#L2984  fn moddcdc_m3_fixture_assertions
+viz/layout/equi_audit.rs#L3077  fn coupled_two_pin_part_reads_bridge
+viz/layout/equi_audit.rs#L3176  fn bottom_labels_do_not_overlap
+viz/layout/equi_audit.rs#L3222  fn same_net_pins_are_adjacent
+viz/layout/equi_audit.rs#L3283  fn ldo_audit
+viz/layout/equi_audit.rs#L3307  fn series_bridge_shunt_fixture
+viz/layout/equi_audit.rs#L3368  fn two_anchor_fixture
+viz/layout/equi_audit.rs#L3439  fn dump_is_deterministic
+viz/layout/equi_audit.rs#L3450  fn audit_does_not_mutate
+viz/layout/equi_audit.rs#L3468  fn m6_regression_structure
 viz/layout/equi_chain.rs#L138  enum PartOrientation
 viz/layout/equi_chain.rs#L159  enum EndUse
 viz/layout/equi_chain.rs#L175  impl EndUse

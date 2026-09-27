@@ -108,10 +108,12 @@ pub enum Milestone {
     M5,
     /// Regression + fallbacks.
     M6,
-    /// ★ M11: the row END BUDGET (A31) and the label stub (A32). The fixtures
-    /// still call `assert_clean_through(M6)`, so these two are REPORTED and not
-    /// enforced; advancing a fixture to `M7` is the one-line change that turns
-    /// them on.
+    /// ★ M11: the row END BUDGET (A31) and the label stub (A32). A34 (M15.4,
+    /// narrowed to row-facing pins) is also due here. `same_net_pins_are_adjacent`
+    /// and `series_bridge_shunt_fixture` enforce `M7`; `moddcdc_m0_audit` and
+    /// `ldo_audit` still call `assert_clean_through(M6)` — each carries one
+    /// row-facing pin off its row (CAP_1 / POWER_SYS), so advancing them waits
+    /// on that placement fix.
     M7,
 }
 
@@ -2104,8 +2106,8 @@ fn check_a30_satellite_pins_on_rows(graph: &McVecGraph, topos: &[NetTopology]) -
     c
 }
 
-/// ★ M15.4 (A34): EVERY pin of a net lies on that net's row and inside its span
-/// — not just the anchor group's.
+/// ★ M15.4 (A34): every ROW-FACING pin of a net lies on that net's row and
+/// inside its span — on every group member, not just the anchor group's.
 ///
 /// A27 checks the anchor group only, which was fine while the anchor group was
 /// always the layer anchor. It is not: on `mic` the interesting nets are anchored
@@ -2113,10 +2115,16 @@ fn check_a30_satellite_pins_on_rows(graph: &McVecGraph, topos: &[NetTopology]) -
 /// stub on one edge of that satellite with its trunk somewhere else — a shape
 /// A27 structurally could not see.
 ///
-/// A multi-pin box hanging off a row as a `Sink` is exempt: its pins face the
-/// trunk from above or below by design, and A30 owns that case.
+/// Narrowed per ruling (U284): a pin whose slot faces Top/Bottom connects to the
+/// row by a perpendicular tooth BY DESIGN (the M7.6 Sink shape, generalized to
+/// any member and any group index — two-pin passes included); its geometry is
+/// A14/A30's business, not a row violation. What A34 locks is the row-facing
+/// face: a Left/Right pin off the row axis forces the wire to dogleg, and a
+/// row-facing pin beyond the span end means the trunk never reaches it. A30
+/// carries the same face for satellites (non-anchor, ≥3 pins); A34 is the
+/// general law over every box.
 fn check_a34_every_pin_on_its_row(graph: &McVecGraph, topos: &[NetTopology]) -> Check {
-    let mut c = Check::new("A34", "every pin lies on its net's row", Milestone::M7);
+    let mut c = Check::new("A34", "every row-facing pin lies on its net's row", Milestone::M7);
     for topo in topos.iter() {
         if topo.terminal_only || !topo.lane.horizontal {
             continue;
@@ -2125,29 +2133,22 @@ fn check_a34_every_pin_on_its_row(graph: &McVecGraph, topos: &[NetTopology]) -> 
             topo.lane.span.0.min(topo.lane.span.1),
             topo.lane.span.0.max(topo.lane.span.1),
         );
-        for (gi, group) in topo.groups.iter().enumerate() {
+        for group in topo.groups.iter() {
             let Some(b) = graph.boxes.iter().find(|bb| bb.id == group.box_id) else {
                 continue;
             };
-            // Two-pin members and Sinks hang OFF the row on purpose.
-            if gi > 0 && b.pins.len() < 3 {
-                continue;
-            }
-            if gi > 0
-                && !b
-                    .slots
-                    .iter()
-                    .any(|s| matches!(s.side, EntrySide::Left | EntrySide::Right))
-            {
-                continue; // a Sink: pins on Top/Bottom, A30's business
-            }
             for &pid in &group.pin_ids {
                 let Some(s) = slot_of(b, pid) else { continue };
+                // Top/Bottom pins walk a tooth by design; only the row-facing
+                // sides owe the row their axis.
+                if !matches!(s.side, EntrySide::Left | EntrySide::Right) {
+                    continue;
+                }
                 let (px, py) = slot_point(b, s);
                 if (py - topo.lane.axis).abs() > 1.0 {
                     c.fail(format!(
-                        "'{}' pin {} on '{}' sits at y={:.0} but the row is {:.0}",
-                        topo.net_name, pid, b.name, py, topo.lane.axis
+                        "'{}' pin {} on '{}' sits at y={:.0} but the row is {:.0} (side {:?})",
+                        topo.net_name, pid, b.name, py, topo.lane.axis, s.side
                     ));
                 } else if px < lo - TOOTH_GAP - 1.0 || px > hi + TOOTH_GAP + 1.0 {
                     c.fail(format!(
@@ -2963,7 +2964,10 @@ mod tests {
 
         // Enforced through M3_5: A1/A2/A2b/A10-A15, A4 and A17/A18. M4 adds
         // A21/A22/A23 (column model). M5 adds A24/A25/A26. M6 adds A16 (ground
-        // count conservation) — all green on moddcdc.
+        // count conservation) — all green on moddcdc. M7 is blocked by A34:
+        // CAP_1's GND pin faces Left along the GND row but sits a band off it
+        // (the row-facing-pin-off-row family the real layers carry under their
+        // own A34 reds); advancing waits on that placement fix.
         audit.assert_clean_through(Milestone::M6);
     }
 
@@ -3287,7 +3291,10 @@ mod tests {
         write_dump("ldo.M2", &body);
         eprintln!("{body}");
 
-        // M6.3 final acceptance: the whole audit through M6 (A16-A26).
+        // M6.3 final acceptance: the whole audit through M6 (A16-A26). M7 is
+        // blocked by A34: POWER_SYS's pin 103 faces Right along its row but
+        // sits at y=200 against the row's 100 — the same row-facing-pin
+        // defect the real LDO layer lists.
         audit.assert_clean_through(Milestone::M6);
     }
 
@@ -3303,8 +3310,11 @@ mod tests {
         place_by_topology(&mut g, &mut topos);
         let audit = audit_equi_tree(&g, &topos);
 
-        // ★ M4.5 final acceptance: the whole audit is now enforced through M4.
-        audit.assert_clean_through(Milestone::M4);
+        // ★ M4.5 final acceptance, advanced to M7 (U284 A34 narrowing): the
+        // whole audit through A31/A32/A34 is green on this fixture — the shunt
+        // caps hang by their Top/Bottom teeth, so the narrowed A34 (row-facing
+        // pins only) reads it clean.
+        audit.assert_clean_through(Milestone::M7);
 
         // The bridge members must be >w (vertical) and the shunts must be near
         // their anchor pin — a cross-check that the fixture really puts the
@@ -3418,7 +3428,9 @@ mod tests {
         }
 
         let audit = audit_equi_tree(&g, &topos);
-        audit.assert_clean_through(Milestone::M6);
+        // Advanced to M7 with the A34 narrowing (U284): every pin this fixture
+        // places is row-facing and on its row, so A31/A32/A34 enforce clean.
+        audit.assert_clean_through(Milestone::M7);
     }
 
     /// The dump must be a pure function of the placed graph: two projections of

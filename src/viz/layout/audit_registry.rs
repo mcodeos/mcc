@@ -226,7 +226,7 @@ pub static VIZ_AUDIT_RULES: &[VizAuditRule] = &[
     ),
     a_rule!(
         "A34",
-        "every pin lies on its net's row",
+        "every row-facing pin lies on its net's row",
         M7,
         "equi_audit::check_a34_every_pin_on_its_row"
     ),

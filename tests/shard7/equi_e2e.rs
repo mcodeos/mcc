@@ -340,13 +340,19 @@ fn audit_hbl_device_layers(g: &mut McVecGraph, is_root: bool) -> Vec<(String, mc
 ///    stale entries fail, so fixes cannot hide behind the ratchet.
 /// Cleanup of the defects themselves is ledger work, not this table's job.
 const KNOWN_AUDIT_REDS: &[(&str, &str)] = &[
-    ("DCDC", "A7"),
+    // ("DCDC", "A7") found green 2026-09-27 at the b4111 HEAD x the live
+    // ~/.mcode of that morning — the green predates the A34 batch and its
+    // cause was not bisected here (candidates: the U324 b4075 role rename
+    // that re-pinned the library corpus, the b4102-b4111 instantiation
+    // batch). Removed per the stale-entry rule.
     ("DCDC", "A10"),
     ("DCDC", "A17"),
     ("DCDC", "A22"),
     ("DCDC", "A24"),
     ("DCDC", "A29"),
-    ("DCDC", "A34"),
+    // ("DCDC", "A34") cleared by the A34 narrowing (U284): every failing pin
+    // hung off the row by a Top/Bottom tooth (`_R2`'s drop), which the
+    // narrowed check exempts by design.
     ("lp322dcdc", "A8"),
     ("lp322dcdc", "A10"),
     ("lp322dcdc", "A17"),
@@ -354,16 +360,16 @@ const KNOWN_AUDIT_REDS: &[(&str, &str)] = &[
     ("lp322dcdc", "A22"),
     ("LDO", "A17"),
     ("LDO", "A34"),
-    ("MCU513", "A7"),
+    // ("MCU513", "A7"/"A10"/"A24"/"A29") found green 2026-09-27 at the b4111
+    // HEAD x the live ~/.mcode of that morning — same pre-batch drift as the
+    // DCDC A7 note above; cause not bisected here.
     ("MCU513", "A8"),
-    ("MCU513", "A10"),
     ("MCU513", "A12"),
     ("MCU513", "A17"),
     ("MCU513", "A22"),
-    ("MCU513", "A24"),
     ("MCU513", "A25"),
-    ("MCU513", "A29"),
-    ("MCU513", "A34"),
+    // ("MCU513", "A34") cleared by the A34 narrowing: `_R3` hangs by its Top
+    // tooth and `UC`'s GND pins face Bottom — both exempt by design.
     ("UC", "A2"),
     ("UC", "A3"),
     ("UC", "A8"),
@@ -382,19 +388,28 @@ const KNOWN_AUDIT_REDS: &[(&str, &str)] = &[
     // same-side lens sees the crossing too. Fix (early placement of
     // terminal-only anchors) is ledger work, not this table's job.
     ("UC", "A24"),
+    // ("UC", "A34") registered by the A34 narrowing: the old two-pin-member
+    // exemption hid it. `_C1`/`_C2`'s GND pins face Right along the GND row
+    // (row 300) but sit at y=100/140 — the terminal-only-anchor fallback
+    // family, same root as the A18/A24 entries above.
+    ("UC", "A34"),
     ("X6", "A4"),
     ("X6", "A10"),
     ("X6", "A14"),
     ("X6", "A22"),
     ("X6", "A24"),
     ("X6", "A29"),
-    ("X6", "A34"),
+    // ("X6", "A34") cleared by the A34 narrowing: `_C4` hangs by its Top tooth.
     ("MIC", "A1"),
     ("MIC", "A2"),
     ("MIC", "A3"),
     ("MIC", "A17"),
     ("MIC", "A18"),
     ("MIC", "A22"),
+    // ("MIC", "A34") re-faced by the A34 narrowing: the old reds (mic/wm7121
+    // GND pins on Bottom teeth) are exempt now, but dropping the two-pin
+    // exemption exposed `C1` — its MIC.P~0/MIC.N~0 pins face Left/Right into
+    // rows 200/300 while the cap sits at y=140.
     ("MIC", "A34"),
     ("SPK", "A8"),
     ("SPK", "A10"),
@@ -405,9 +420,12 @@ const KNOWN_AUDIT_REDS: &[(&str, &str)] = &[
     ("SPK", "A34"),
     ("USB", "A8"),
     ("USB", "A17"),
-    ("USB", "A34"),
+    // ("USB", "A34") cleared by the A34 narrowing: usbsock's five VIN.GND pins
+    // face Bottom (tooth drops), exempt by design.
     ("FLASH", "A8"),
     ("FLASH", "A17"),
+    // ("FLASH", "A34") found green 2026-09-27 at the b4111 HEAD x the live
+    // ~/.mcode of that morning — pre-batch drift, cause not bisected here.
 ];
 
 #[test]
