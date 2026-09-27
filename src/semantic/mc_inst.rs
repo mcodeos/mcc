@@ -197,6 +197,7 @@ impl McInstance {
             full_members: Vec::new(),
             synthetic: None,
             error_kind: None,
+            caller_scope: false,
         }
     }
 

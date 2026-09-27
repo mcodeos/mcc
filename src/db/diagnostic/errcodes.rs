@@ -1199,6 +1199,20 @@ pub const IFACE_VIEW_LANE_MISMATCH: u32 = 4186;
 /// as an endpoint is a legal bus identity).
 pub const MEDIATOR_IFACE_ROLE: u32 = 4187;
 
+/// A bare member name in a func body matches members of **several** vector
+/// formals whose bound values for it differ (U328 face: silent first-formal
+/// merge). Body substitution answers every bare member name through
+/// `McParamBindings::find`, which scans formals in declaration order and
+/// returns the FIRST formal declaring that member — so with two `[hot, GND]`
+/// formals the second formal's ground lane is silently merged into the first
+/// one's net, rc=0, zero diagnostics. Names on the chain/group faces carry
+/// their formal membership structurally and are never judged here; the
+/// operand context has no member-ownership qualifier (`this.X` reaches local
+/// pins, not "formal N's member"). Warning, never an error: callers that bind
+/// both formals' same-named members to the same net see no difference. The
+/// check lives at func-method expansion (`fcallinst::run_component_method`).
+pub const INST_FUNC_FORMAL_MEMBER_AMBIGUOUS: u32 = 4188;
+
 // Pass2: AssemblyGate netlist health — R-series report rows (4200-4249)
 //
 // The netcheck Tier-0 report (instant::netcheck) registers every R-series row
@@ -2685,6 +2699,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     // section
     entry!(INST_CHAIN_LINK_SKIPPED, "A chain link was skipped because the method is not defined on the instance.", "Method '{0}' not defined in {1} '{2}'; chain link skipped, no body expanded."),
     entry!(INST_ARG_NO_FORMAL_PORT, "Instance argument has no formal port to bind.", "Instance '{0}' arg{1} '{2}' has no formal port to bind"),
+    entry!(INST_FUNC_FORMAL_MEMBER_AMBIGUOUS, "A bare member name in a func body matches several formals whose bound values differ; the first formal silently wins.", "Member '{0}' is declared by formals {1} and {2} of func '{3}' with different bound values; body references take {1} (first formal, declaration order)"),
     entry!(INST_METHOD_FALLBACK, "Instance method could not be resolved; passed through instead.", "Unrecognized function call '{0}' in module '{1}' — treated as pass-through (class not loaded or name misspelled)"),
     entry!(INST_IFACE_INSTANTIATE_FAILED, "Interface instantiation failed.", "Interface instantiation failed: {0}"),
     entry!(INST_SUBMODULE_INSTANTIATE_FAILED, "Sub-module instantiation failed.", "Sub-module '{0}' instantiation failed: {1}"),

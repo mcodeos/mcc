@@ -95,6 +95,17 @@ pub struct McBus {
     /// [`McBus::error_kind`] — the `<error:…>` spelling is never sniffed.
     /// Excluded from equality, same rule as `synthetic`.
     pub(crate) error_kind: Option<BusErrorKind>,
+    /// U328: this element is a **substituted formal value** — its spelling was
+    /// written at the caller's site and only happens to be re-read inside the
+    /// callee body (the two-space model has no cross-space mapping table, so
+    /// the value travels as a spelling). Producers are the formal→actual
+    /// substitution return sites (`subst::substitute_node_element`); consumers
+    /// are the callee-scope name passes (`fcallinst` prefixing / point
+    /// resolution), which must not re-resolve the spelling against the callee
+    /// instance's own pins — a same-spelled local pin would hijack the caller
+    /// net (the pwrint ground split, U328 addendum). Excluded from equality,
+    /// same rule as `synthetic`.
+    pub(crate) caller_scope: bool,
 }
 
 impl PartialEq for McBus {
@@ -125,6 +136,7 @@ impl McBus {
             full_members: Vec::new(),
             synthetic: None,
             error_kind: None,
+            caller_scope: false,
         }
     }
 
@@ -139,6 +151,7 @@ impl McBus {
             full_members: Vec::new(),
             synthetic: Some(side),
             error_kind: None,
+            caller_scope: false,
         }
     }
 
@@ -153,6 +166,7 @@ impl McBus {
             full_members: Vec::new(),
             synthetic: None,
             error_kind: Some(kind),
+            caller_scope: false,
         }
     }
 
@@ -169,6 +183,19 @@ impl McBus {
         self.synthetic
     }
 
+    /// Whether this element's spelling originates from the caller's site (a
+    /// substituted formal value). The producer declares it at the substitution
+    /// return site; consumers ask instead of guessing from the shape.
+    pub(crate) fn is_caller_scope(&self) -> bool {
+        self.caller_scope
+    }
+
+    /// Mark this element as a caller-scope spelling (builder-style).
+    pub(crate) fn from_caller_scope(mut self) -> Self {
+        self.caller_scope = true;
+        self
+    }
+
     pub(crate) fn new_with_members(name: &str, members: Vec<String>) -> Self {
         Self {
             name: name.to_string(),
@@ -176,6 +203,7 @@ impl McBus {
             full_members: members,
             synthetic: None,
             error_kind: None,
+            caller_scope: false,
         }
     }
 
@@ -204,6 +232,7 @@ impl McBus {
             full_members: vec![member],
             synthetic: None,
             error_kind: None,
+            caller_scope: false,
         }
     }
 
@@ -225,6 +254,7 @@ impl From<&McBus> for Vec<McBus> {
             full_members: bus.full_members.clone(),
             synthetic: bus.synthetic,
             error_kind: bus.error_kind,
+            caller_scope: bus.caller_scope,
         }]
     }
 }
@@ -237,6 +267,7 @@ impl From<McBus> for Vec<McBus> {
             full_members: bus.full_members,
             synthetic: bus.synthetic,
             error_kind: bus.error_kind,
+            caller_scope: bus.caller_scope,
         }]
     }
 }

@@ -2048,6 +2048,50 @@ impl InstantiationBuilder {
         func_def: &McFunction,
         bindings: &McParamBindings,
     ) -> Result<(), InstError> {
+        // ── U328 face-A: a bare member name in the body is answered by the
+        //    FIRST formal declaring it (`McParamBindings::find` scans in
+        //    declaration order). When several formals declare the same member
+        //    name with different bound values, the silent first-hit merge
+        //    loses a net — report it once per member, anchored at the
+        //    instance's declaration line (E4180's anchor rule). ──
+        for (member, first, others) in bindings.ambiguous_member_names() {
+            let message = crate::errcodes::format_msg(
+                crate::errcodes::INST_FUNC_FORMAL_MEMBER_AMBIGUOUS,
+                &[
+                    &member,
+                    &first,
+                    &others.join(", "),
+                    &func_def.name.to_string(),
+                ],
+            );
+            // Warning level: callers that bind both formals' same-named
+            // members to the same net see no difference. Anchored at the
+            // instance's declaration line (E4180's anchor rule), the global
+            // log is the user-visible channel (phases.rs' dual-emission
+            // pattern: collector + global log).
+            self.record_warning(crate::errcodes::INST_FUNC_FORMAL_MEMBER_AMBIGUOUS, message.clone());
+            let level = crate::db::diagnostic::diagnostic::DiagnosticLevel::Warning;
+            match self.def.insts.get_port_span(inst_name) {
+                Some(r) => crate::db::diagnostic::diagnostic::diagnostic_log_at(
+                    crate::errcodes::INST_FUNC_FORMAL_MEMBER_AMBIGUOUS,
+                    level,
+                    self.def_uri.clone(),
+                    r.start as u32,
+                    1,
+                    &message,
+                    &[],
+                ),
+                None => crate::db::diagnostic::diagnostic::diagnostic_log(
+                    crate::errcodes::INST_FUNC_FORMAL_MEMBER_AMBIGUOUS,
+                    level,
+                    0,
+                    0,
+                    &message,
+                    &[],
+                ),
+            }
+        }
+
         let mut skip: std::collections::HashSet<String> = std::collections::HashSet::new();
         // The caller instance name is absolute; it must never be re-prefixed.
         // Required after `this` substitution turns `this` into the instance bus.
@@ -2494,6 +2538,7 @@ impl InstantiationBuilder {
                                 full_members: Vec::new(),
                                 synthetic: None,
                                 error_kind: None,
+                                caller_scope: false,
                             };
                             return McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
                                 McInstance::Bus(new_bus),
@@ -2694,6 +2739,11 @@ impl InstantiationBuilder {
                 base: McInstance::Bus(ref b),
                 ..
             })) if b.member.is_empty() => {
+                // U328: caller-scope spelling (substituted formal value) is not
+                // a callee-local reference — never prefix it.
+                if b.is_caller_scope() {
+                    return phrase.clone();
+                }
                 if skip.contains(&b.name) || b.name.starts_with(&inst_prefix) || b.name.is_empty() {
                     phrase.clone()
                 } else {
@@ -2713,7 +2763,10 @@ impl InstantiationBuilder {
                 base: McInstance::Bus(ref b),
                 ..
             })) => {
-                let prefixed_name = if skip.contains(&b.name)
+                // U328: caller-scope spelling (substituted formal value) is not
+                // a callee-local reference — never prefix it.
+                let prefixed_name = if b.is_caller_scope()
+                    || skip.contains(&b.name)
                     || b.name.starts_with(&inst_prefix)
                     || b.name.is_empty()
                 {
@@ -2727,6 +2780,7 @@ impl InstantiationBuilder {
                     full_members: b.full_members.clone(),
                     synthetic: b.synthetic,
                     error_kind: b.error_kind,
+                    caller_scope: b.caller_scope,
                 };
                 McPhrase::Endpoint(McRef::Name(McInstanceRef::new(McInstance::Bus(
                     new_bus,
@@ -2895,6 +2949,15 @@ impl InstantiationBuilder {
         inst_name: &str,
         skip: &std::collections::HashSet<String>,
     ) -> McBus {
+        // U328: a substituted formal value is the caller's spelling, not a
+        // callee-local reference. The skip set cannot protect it — P2-8 removes
+        // component pin names from the skip set precisely so that the body's
+        // own bare pin references DO get prefixed — so the provenance marker
+        // decides: a caller-scope spelling passes through untouched and keeps
+        // unioning with the caller's net by spelling.
+        if elem.is_caller_scope() {
+            return elem.clone();
+        }
         // Already prefixed with this instance
         if elem.name.starts_with(inst_name)
             && elem.name.len() > inst_name.len()
@@ -2948,6 +3011,7 @@ impl InstantiationBuilder {
                 full_members: elem.full_members.clone(),
                 synthetic: elem.synthetic,
                 error_kind: elem.error_kind,
+                caller_scope: elem.caller_scope,
             };
         }
 
@@ -2982,6 +3046,7 @@ impl InstantiationBuilder {
             full_members: new_full_members,
             synthetic: elem.synthetic,
             error_kind: elem.error_kind,
+            caller_scope: elem.caller_scope,
         }
     }
 

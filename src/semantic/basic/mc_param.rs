@@ -1648,6 +1648,70 @@ impl McParamBindings {
         None
     }
 
+    /// U328 face-A: member names declared by MORE THAN ONE formal whose bound
+    /// values for that member differ. Body substitution answers bare member
+    /// names through [`Self::find`], which scans formals in declaration order
+    /// and silently returns the first hit — with two `[hot, GND]` formals the
+    /// second ground lane vanishes into the first. Returns one row per
+    /// ambiguous member name: `(member, first_formal, other_formals)`.
+    /// Value comparison is spelling equality (the two-space model carries
+    /// values as spellings, no cross-space mapping table).
+    pub fn ambiguous_member_names(&self) -> Vec<(String, String, Vec<String>)> {
+        // One (member, formal, lane-spelling) row per declared member of each
+        // vector formal. Only Set lanes carry per-member spellings; a formal
+        // bound to a non-Set value has no per-member answer to conflict with.
+        let mut rows: Vec<(String, String, String)> = Vec::new();
+        for b in &self.bindings {
+            // A vector formal (`Multiple`) has no primary name; its
+            // display name ("[V3V3, GND]") is the author-facing identifier.
+            let formal = b.declare.display_name();
+            if formal.is_empty() {
+                continue;
+            }
+            let members = b.declare.expand();
+            if members.len() < 2 {
+                continue;
+            }
+            // Lane spellings: a bracket actual arrives either as a Set or as
+            // an Ids carrying one Square segment (`get_member_value` reads
+            // both faces; this helper mirrors it).
+            let lane_vals: Vec<McParamValue> = match b.get_value() {
+                Some(McParamValue::Set(vals)) => vals.clone(),
+                Some(McParamValue::Ids(ids)) => match ids.segments.iter().find_map(|seg| {
+                    match seg {
+                        crate::semantic::basic::mc_ids::IdsSegment::Square(inner) => Some(inner),
+                        _ => None,
+                    }
+                }) {
+                    Some(square) => square
+                        .iter()
+                        .map(|m| McParamValue::Ids(McIds::from(m.to_string().as_str())))
+                        .collect(),
+                    None => continue,
+                },
+                _ => continue,
+            };
+            for (m, v) in members.iter().zip(lane_vals.iter()) {
+                rows.push((m.clone(), formal.clone(), format!("{v}")));
+            }
+        }
+        let mut out: Vec<(String, String, Vec<String>)> = Vec::new();
+        for (member, first, val) in &rows {
+            if out.iter().any(|(m, _, _)| m == member) {
+                continue;
+            }
+            let others: Vec<String> = rows
+                .iter()
+                .filter(|(m, f, v)| m == member && f != first && v != val)
+                .map(|(_, f, _)| f.clone())
+                .collect();
+            if !others.is_empty() {
+                out.push((member.clone(), first.clone(), others));
+            }
+        }
+        out
+    }
+
     /// ── P3: derive a sub-binding excluding the specified formal parameter names ──
     /// Used for submodule methods: boundary formal params (bound to parent scope references) do not
     /// participate in body substitution, preserving the formal param names as submodule boundary

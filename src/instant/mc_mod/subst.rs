@@ -41,6 +41,13 @@ impl InstantiationBuilder {
         value: &McParamValue,
         cx: &dyn ShapeCtx,
     ) -> Vec<McBus> {
+        Self::param_value_to_node_elements_inner(value, cx)
+    }
+
+    fn param_value_to_node_elements_inner(
+        value: &McParamValue,
+        cx: &dyn ShapeCtx,
+    ) -> Vec<McBus> {
         match value {
             // The `_` placeholder connects nothing (U316 site 3). It used to
             // arrive as Opd(Uscore) whose opdc arm answers empty; unified on
@@ -58,6 +65,7 @@ impl InstantiationBuilder {
                         full_members: Vec::new(),
                         synthetic: None,
                         error_kind: None,
+                        caller_scope: false,
                     }]
                 }
             }
@@ -69,6 +77,7 @@ impl InstantiationBuilder {
                     full_members: Vec::new(),
                     synthetic: None,
                     error_kind: None,
+                    caller_scope: false,
                 }]
             }
             McParamValue::Set(values) => values
@@ -101,6 +110,7 @@ impl InstantiationBuilder {
                     full_members: Vec::new(),
                     synthetic: None,
                     error_kind: None,
+                    caller_scope: false,
                 }]
             }
         }
@@ -183,6 +193,15 @@ impl InstantiationBuilder {
     ///    -> McBus{name:"my_dc",member:["V1"]}
     ///
     /// Flattened version: elem.member is Vec<String>
+    /// U328: an element produced from a formal's bound value carries the
+    /// caller's spelling back into the callee body. Stamp every produced
+    /// element so the callee-scope name passes (prefixing, pin resolution) do
+    /// not re-resolve the spelling against the instance's own pins — a
+    /// same-spelled local pin would hijack the caller net.
+    fn from_formal_value(elems: Vec<McBus>) -> Vec<McBus> {
+        elems.into_iter().map(McBus::from_caller_scope).collect()
+    }
+
     fn substitute_node_element(
         elem: &McBus,
         bindings: &McParamBindings,
@@ -199,11 +218,15 @@ impl InstantiationBuilder {
                         }) {
                             if let McParamValue::Set(vals) = value {
                                 if let Some(v) = vals.get(idx) {
-                                    return Self::param_value_to_node_elements(v, cx);
+                                    return Self::from_formal_value(
+                                        Self::param_value_to_node_elements(v, cx),
+                                    );
                                 }
                             }
                             if idx == 0 {
-                                return Self::param_value_to_node_elements(value, cx);
+                                return Self::from_formal_value(
+                                    Self::param_value_to_node_elements(value, cx),
+                                );
                             }
                             return vec![McBus {
                                 name: elem.name.clone(),
@@ -211,10 +234,11 @@ impl InstantiationBuilder {
                                 full_members: vec![],
                                 synthetic: elem.synthetic,
                                 error_kind: elem.error_kind,
+                                caller_scope: elem.caller_scope,
                             }];
                         }
                     }
-                    return Self::param_value_to_node_elements(value, cx);
+                    return Self::from_formal_value(Self::param_value_to_node_elements(value, cx));
                 } else {
                     // Parameter with members: dc24v.VCC -> my_dc.V1
                     // elem.member is now Vec<String>
@@ -245,7 +269,7 @@ impl InstantiationBuilder {
                         }
                         new_base.member = new_members;
                     }
-                    return new_elems;
+                    return Self::from_formal_value(new_elems);
                 }
             }
         }
@@ -257,6 +281,7 @@ impl InstantiationBuilder {
             full_members: elem.full_members.clone(),
             synthetic: elem.synthetic,
             error_kind: elem.error_kind,
+            caller_scope: elem.caller_scope,
         }]
     }
 
@@ -278,7 +303,14 @@ impl InstantiationBuilder {
             return McBus::new("<empty>");
         }
         if elements.len() == 1 {
-            return McBus::new_with_members(&elements[0].name, elements[0].member.clone());
+            // U328: the caller-scope marker must survive the round-trip back to
+            // a single Bus, or the callee-scope name passes lose the provenance.
+            let bus = McBus::new_with_members(&elements[0].name, elements[0].member.clone());
+            return if elements[0].is_caller_scope() {
+                bus.from_caller_scope()
+            } else {
+                bus
+            };
         }
         // Iter-3.B3
         // In the multi-element case, the previous logic
@@ -293,7 +325,14 @@ impl InstantiationBuilder {
         let all_empty_members = elements.iter().all(|e| e.member.is_empty());
         if all_empty_members {
             let members: Vec<String> = elements.iter().map(|e| e.name.clone()).collect();
-            return McBus::new_with_members("", members);
+            // U328: any caller-scope element makes the whole group a
+            // caller-scope spelling group (its members are caller spellings).
+            let bus = McBus::new_with_members("", members);
+            return if elements.iter().any(|e| e.is_caller_scope()) {
+                bus.from_caller_scope()
+            } else {
+                bus
+            };
         }
         // Mixed form (both name and member present): keep the original logic as fallback
         let name = &elements[0].name;
@@ -626,6 +665,11 @@ impl InstantiationBuilder {
                     && substituted[0].name == elem.name
                     && substituted[0].member.is_empty()
                     && !is_self_ref
+                    // U328: a hit whose value coincides with the formal's own
+                    // spelling is still a hit — the caller-scope marker rides
+                    // only on the rewrapped Bus endpoint, so a marked value
+                    // must not take the as-is shortcut.
+                    && !substituted[0].is_caller_scope()
                 {
                     // No substitution hit for a non-self label, return as-is
                     phrase.clone()
@@ -663,6 +707,7 @@ impl InstantiationBuilder {
                     && substituted[0].name == bus_name
                     && substituted[0].member == b.member
                     && !is_self_ref
+                    && !substituted[0].is_caller_scope()
                 {
                     // No substitution hit for a non-self bus, return as-is
                     phrase.clone()
@@ -681,6 +726,7 @@ impl InstantiationBuilder {
                 if substituted.len() == 1
                     && substituted[0].name == l.name
                     && substituted[0].member == l.member
+                    && !substituted[0].is_caller_scope()
                 {
                     phrase.clone()
                 } else if substituted.is_empty() {

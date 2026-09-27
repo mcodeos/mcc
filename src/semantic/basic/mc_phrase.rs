@@ -4314,6 +4314,7 @@ impl McPhrase {
                         full_members: data.full_members.clone(),
                         synthetic: data.synthetic,
                         error_kind: data.error_kind,
+                        caller_scope: data.caller_scope,
                     }]
                 } else {
                     Vec::from(data.clone())
@@ -4459,6 +4460,7 @@ impl McPhrase {
                         full_members: data.full_members.clone(),
                         synthetic: data.synthetic,
                         error_kind: data.error_kind,
+                        caller_scope: data.caller_scope,
                     }]
                 } else {
                     Vec::from(data.clone())
@@ -4756,6 +4758,7 @@ impl McPhrase {
                                 full_members: data.full_members.clone(),
                                 synthetic: data.synthetic,
                                 error_kind: data.error_kind,
+                                caller_scope: data.caller_scope,
                             });
                         }
                     }
@@ -4783,6 +4786,7 @@ impl McPhrase {
                                         full_members: data.full_members.clone(),
                                         synthetic: data.synthetic,
                                         error_kind: data.error_kind,
+                                        caller_scope: data.caller_scope,
                                     });
                                 }
                             }
