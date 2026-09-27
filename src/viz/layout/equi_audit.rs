@@ -75,9 +75,9 @@ use crate::vector::graph::{BoxKind, EntrySide, McVecBox, McVecGraph, NetKind};
 use super::equipotential_tree::{
     assign_regions, assign_rows, build_topology, envelop_lanes, is_w_e_opposite, layer_anchor_id,
     member_pin_point, net_corridor_demand, partner_info, point_on_segment, realize_all,
-    resolve_lanes, segment_hits_box, slot_of, slot_point, tap_role, EquiTree, Lane, NetTopology,
-    PinGroup, Region, RowSource, TapRole, Terminal, TreeSymbol, TreeSymbolKind, LABEL_CHAR_W,
-    LABEL_PAD, ROW_CLEAR, SYMBOL_DROP, TOOTH_GAP,
+    rects_overlap, resolve_lanes, segment_hits_box, slot_of, slot_point, symbol_text_bbox,
+    tap_role, EquiTree, Lane, NetTopology, PinGroup, Region, RowSource, TapRole, Terminal,
+    TreeSymbol, TreeSymbolKind, LABEL_CHAR_W, LABEL_PAD, ROW_CLEAR, SYMBOL_DROP, TOOTH_GAP,
 };
 
 // Milestone gating
@@ -1509,28 +1509,6 @@ fn check_a17_text_overlap(graph: &McVecGraph, trees: &[EquiTree]) -> Check {
     c
 }
 
-/// Estimated text bounding box of a terminal symbol, matching the renderer
-/// (font 10px, ~0.6×char width, anchored by `text_side`: `-1` → "end" at x-4
-/// extends left, `+1` → "start" at x+4 extends right; y centred).
-fn symbol_text_bbox(sym: &TreeSymbol) -> (f64, f64, f64, f64) {
-    let font_size = 10.0;
-    let w = sym.label.chars().count() as f64 * font_size * 0.6;
-    let h = font_size;
-    // ★ M8.7: a vertical label is rotated -90 deg, so its span is a column — a
-    // vertical run of ~width reading UPWARD off `sym.y`, horizontal extent ~ one
-    // glyph height. Share this shape with the renderer / content bbox so A17
-    // neither false-positives nor misses a vertical glyph.
-    if sym.vertical {
-        return (sym.x - font_size / 2.0, sym.y - w, font_size, w);
-    }
-    let (bx, by) = if sym.text_side < 0.0 {
-        (sym.x - 4.0 - w, sym.y - h / 2.0)
-    } else {
-        (sym.x + 4.0, sym.y - h / 2.0)
-    };
-    (bx, by, w, h)
-}
-
 /// M3.5 (A18): no wire may run COLLINEAR with a box edge for a significant
 /// distance — e.g. a West pin's tooth used to coincide with `x = box.x` and
 /// draw a wire on top of the box border for the whole span (R3). `TOOTH_GAP`
@@ -1587,11 +1565,6 @@ fn check_a18_wire_collinear_edge(graph: &McVecGraph, trees: &[EquiTree]) -> Chec
         }
     }
     c
-}
-
-/// Two axis-aligned rects overlap (inclusive).
-fn rects_overlap(x0: f64, y0: f64, w0: f64, h0: f64, x1: f64, y1: f64, w1: f64, h1: f64) -> bool {
-    x0 < x1 + w1 && x1 < x0 + w0 && y0 < y1 + h1 && y1 < y0 + h0
 }
 
 // A21 / A22 / A23

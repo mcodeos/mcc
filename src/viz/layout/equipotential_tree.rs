@@ -6544,7 +6544,90 @@ pub(crate) fn realize_all(topo_list: &[NetTopology], graph: &McVecGraph) -> Vec<
     for t in topo_list {
         trees.push(realize(t, graph, &mut deflect));
     }
+    remediate_label_overlaps(&mut trees, graph);
     trees
+}
+
+/// ★ U284 (A17): after every tree is realized, give each label text a home
+/// that overlaps no component box, no FOREIGN net's wire and no other label's
+/// text — the producer half of `check_a17_text_overlap`. The pass lives HERE,
+/// at the end of `realize_all`, because the audit evaluates its checks on its
+/// own `realize_all` replay: this is the one point where the render side and
+/// the audit side derive identical trees (the U173 reconciler's determinism
+/// shape). Per labelled symbol, cheapest move first: flip the text to the
+/// other side of its anchor, else stand it up vertical (the M8.7 convention —
+/// the glyph reads upward off the symbol head, and no wire moves). A label
+/// with no clear home keeps its original placement and stays an A17 red
+/// (ledger work).
+fn remediate_label_overlaps(trees: &mut [EquiTree], graph: &McVecGraph) {
+    // Is this text box clear of every family A17 polices? Matches the audit's
+    // predicates exactly: boxes with extent, foreign nets' wires only (a label
+    // may ride its own net's wire), and every other label's ink.
+    let clear = |trees: &[EquiTree], ti: usize, si: usize, bb: (f64, f64, f64, f64)| -> bool {
+        for b in &graph.boxes {
+            if b.w <= 0.0 || b.h <= 0.0 {
+                continue;
+            }
+            if rects_overlap(bb.0, bb.1, bb.2, bb.3, b.x, b.y, b.w, b.h) {
+                return false;
+            }
+        }
+        for (tj, t2) in trees.iter().enumerate() {
+            if tj == ti {
+                continue;
+            }
+            for seg in &t2.segments {
+                if segment_hits_box(seg.x1, seg.y1, seg.x2, seg.y2, bb.0, bb.1, bb.2, bb.3) {
+                    return false;
+                }
+            }
+        }
+        for (tj, t2) in trees.iter().enumerate() {
+            for (sj, s2) in t2.symbols.iter().enumerate() {
+                if (tj, sj) == (ti, si) || s2.label.is_empty() {
+                    continue;
+                }
+                let b2 = symbol_text_bbox(s2);
+                if rects_overlap(bb.0, bb.1, bb.2, bb.3, b2.0, b2.1, b2.2, b2.3) {
+                    return false;
+                }
+            }
+        }
+        true
+    };
+    for ti in 0..trees.len() {
+        for si in 0..trees[ti].symbols.len() {
+            let (bb, vertical, text_side) = {
+                let sym = &trees[ti].symbols[si];
+                if sym.label.is_empty() {
+                    continue;
+                }
+                (symbol_text_bbox(sym), sym.vertical, sym.text_side)
+            };
+            if vertical {
+                continue; // the glyph already stands; no further move exists
+            }
+            if clear(trees, ti, si, bb) {
+                continue;
+            }
+            // Move 1: write on the other side of the anchor.
+            trees[ti].symbols[si].text_side = -text_side;
+            let flipped = symbol_text_bbox(&trees[ti].symbols[si]);
+            if clear(trees, ti, si, flipped) {
+                continue;
+            }
+            // Move 2: stand the text up (render rotates -90°, reads upward).
+            trees[ti].symbols[si].vertical = true;
+            let stood = symbol_text_bbox(&trees[ti].symbols[si]);
+            if clear(trees, ti, si, stood) {
+                continue;
+            }
+            // No clear home: restore the ORIGINAL placement — the audit must
+            // see the placement the pass settled on, not a third variant.
+            trees[ti].symbols[si].vertical = false;
+            trees[ti].symbols[si].text_side = text_side;
+        }
+    }
 }
 
 // ── U173: cross-net same-row overlap reconciliation ──
@@ -7835,7 +7918,10 @@ pub(crate) fn realize(
             TreeSymbolKind::NetLabel | TreeSymbolKind::BusLabel | TreeSymbolKind::PortLabel
         );
         let text_collides = if is_label && !sym.label.is_empty() {
-            let label_w = sym.label.len() as f64 * 7.0;
+            // ★ U284: the width is the shared renderer model
+            // (`label_text_width`), not a local guess — the A17 audit measures
+            // the same ink, so the avoidance and the yardstick agree.
+            let label_w = label_text_width(&sym.label);
             let (ls0, ls1) = if sym.text_side < 0.0 {
                 (attach.0 - 4.0 - label_w, attach.0 - 4.0)
             } else {
@@ -8086,6 +8172,47 @@ pub(crate) fn segment_hits_box(
         return lo.max(x - eps) + eps < hi.min(x + w + eps);
     }
     false
+}
+
+/// Two axis-aligned rects overlap (inclusive). Single definition for the A17
+/// producer and yardstick — the audit imports this, so the fixer and the
+/// counter cannot disagree (the U173 `RowOverlap` shape).
+pub(crate) fn rects_overlap(x0: f64, y0: f64, w0: f64, h0: f64, x1: f64, y1: f64, w1: f64, h1: f64) -> bool {
+    x0 < x1 + w1 && x1 < x0 + w0 && y0 < y1 + h1 && y1 < y0 + h0
+}
+
+/// Width of a label's SVG ink, in the renderer's own model (font-size 10,
+/// ~0.6 glyph advance — the `TEXT_WIDTH_FACTOR` canon in
+/// `render/label_render.rs`).
+pub(crate) fn label_text_width(label: &str) -> f64 {
+    const FONT: f64 = 10.0;
+    const W_FACTOR: f64 = 0.6;
+    label.chars().count() as f64 * FONT * W_FACTOR
+}
+
+/// Ink box of a symbol's label text in the renderer's own model — THE single
+/// estimate of what `equipotential_tree_render` draws: font-size 10, width by
+/// [`label_text_width`], line box 1.2×font (`TEXT_HEIGHT_FACTOR` canon),
+/// `text_side`-anchored 4 px off the symbol head and y-centred by
+/// `dominant-baseline="central"`; a vertical label rotates -90° and reads
+/// UPWARD off the head, so its span is a column of the label's width. Every
+/// consumer that must agree with the renderer or with the A17 audit reads
+/// this — placement avoidance and `check_a17_text_overlap` alike — so the
+/// producer and the yardstick cannot drift.
+pub(crate) fn symbol_text_bbox(sym: &TreeSymbol) -> (f64, f64, f64, f64) {
+    const FONT: f64 = 10.0;
+    const H_FACTOR: f64 = 1.2;
+    let w = label_text_width(&sym.label);
+    let h = FONT * H_FACTOR;
+    if sym.vertical {
+        return (sym.x - h / 2.0, sym.y - w, h, w);
+    }
+    let (bx, by) = if sym.text_side < 0.0 {
+        (sym.x - 4.0 - w, sym.y - h / 2.0)
+    } else {
+        (sym.x + 4.0, sym.y - h / 2.0)
+    };
+    (bx, by, w, h)
 }
 
 /// Do two axis-aligned segments share more than a single endpoint — either a

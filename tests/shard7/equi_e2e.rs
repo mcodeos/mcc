@@ -355,7 +355,9 @@ const KNOWN_AUDIT_REDS: &[(&str, &str)] = &[
     // narrowed check exempts by design.
     ("lp322dcdc", "A8"),
     ("lp322dcdc", "A10"),
-    ("lp322dcdc", "A17"),
+    // ("lp322dcdc", "A17") cleared by the A17 remediation pass (U284): every
+    // label found a clear home (side flip or vertical stand-up), so the layer
+    // has no text overlap left.
     ("lp322dcdc", "A18"),
     ("lp322dcdc", "A22"),
     ("LDO", "A17"),
@@ -415,7 +417,8 @@ const KNOWN_AUDIT_REDS: &[(&str, &str)] = &[
     ("SPK", "A10"),
     ("SPK", "A17"),
     ("SPK", "A18"),
-    ("SPK", "A25"),
+    // ("SPK", "A25") cleared by the A17 remediation pass (U284): the label
+    // whose ink covered a foreign member moved to a clear side.
     ("SPK", "A30"),
     ("SPK", "A34"),
     ("USB", "A8"),
