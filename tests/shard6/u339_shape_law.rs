@@ -268,9 +268,12 @@ fn u339__column_return_pair_chains_unchanged() {
     );
 }
 
-/// A node return against a two-lane trunk still reports the shape mismatch:
-/// the per-lane ×2 replication arm is NOT landed, so this face must stay a
-/// hard error rather than silently landing one wiring or the other.
+/// A node return against a two-lane trunk on a **declared-instance**
+/// receiver still reports the shape mismatch: the per-lane ×N replication
+/// builds a fresh component per lane, and a declared instance cannot be
+/// cloned — replication is construction-face only (`w{1,2} => BOX(..).M(_)`,
+/// the row locks below). This face therefore keeps its honest E4007 rather
+/// than silently landing one wiring or the other.
 #[test]
 fn u339__node_return_two_lane_trunk_still_reports_shape_mismatch() {
     let src = tie_main(
@@ -280,11 +283,79 @@ fn u339__node_return_two_lane_trunk_still_reports_shape_mismatch() {
     let nets = nets_of(&src, "/mcc/u339-node-return-trunk.mc");
     assert!(
         nets.iter().all(|net| !net.iter().any(|p| p.contains("t."))),
-        "no tie pin may land while the replication arm is unlanded; nets={nets:?}"
+        "no tie pin may land when the receiver cannot be cloned; nets={nets:?}"
     );
     let codes = codes_of(&src, "/mcc/u339-node-return-trunk.mc");
     assert!(
         codes.contains(&4007),
-        "the unlanded row arm stays an honest E4007; codes={codes:?}"
+        "the unclonable row face stays an honest E4007; codes={codes:?}"
+    );
+}
+
+// ── Row-return replication (U339 ③, the shape law's row half) ──
+
+/// Two-pin wires providing the lane trunks, and a two-pin box whose method
+/// returns a bare two-face row — the spelling the shape law reads as a row.
+const ROW_BOX: &str = "component WIRE2 {\n    pins = [\n        io [1, 2] = [A, B]\n    ]\n}\n\
+     component BOX {\n    pins = [\n        io [1, 2] = [P, Q]\n    ]\n";
+
+fn row_main(func_body: &str, stmt: &str) -> String {
+    format!(
+        "{ROW_BOX}    func RowRet([na, nb]) {{\n{func_body}\n    }}\n}}\n\
+         module main {{\n    WIRE2 w\n    WIRE2 t\n{stmt}\n}}\n"
+    )
+}
+
+/// The landed row half (vec-dianlu.md §7.7): a row return on a two-lane
+/// trunk replicates per lane — two fresh components, lane k binding
+/// (head lane k, tail lane k). The bare `{na | nb}` return is the row
+/// spelling (the grammar's base-less two-face form), and the body's own
+/// `this{P | Q}` wiring lands each component's pins on its lane pair.
+#[test]
+fn u339__row_return_replicates_per_lane_on_a_construction_receiver() {
+    let src = row_main(
+        "        na - this{P | Q} - nb\n        return {na | nb}",
+        "    w{1,2} => BOX().RowRet(_) -> t{2,1}",
+    );
+    let mut nets = nets_of(&src, "/mcc/u339-row-replicate.mc");
+    nets.retain(|net| net.iter().any(|p| p.contains("BOX")));
+    nets.sort();
+    assert_eq!(
+        nets,
+        vec![
+            vec!["_BOX1.1".to_string(), "w.1".to_string()],
+            vec!["_BOX1.2".to_string(), "t.2".to_string()],
+            vec!["_BOX2.1".to_string(), "w.2".to_string()],
+            vec!["_BOX2.2".to_string(), "t.1".to_string()],
+        ],
+        "lane k gets its own component bound (head lane k, tail lane k); nets={nets:?}"
+    );
+    let codes = codes_of(&src, "/mcc/u339-row-replicate.mc");
+    assert!(
+        !codes.contains(&4007) && !codes.contains(&4180),
+        "the compliant row return is diagnosed by nothing; codes={codes:?}"
+    );
+}
+
+/// `return this` (implicit own face) reads as the two-pin entry/exit row,
+/// so a body-less method on a construction receiver replicates the same
+/// way — the chain wiring gives each fresh component its lane-pair pin
+/// contacts. This was the face that sat silently zero-connected before the
+/// row half landed.
+#[test]
+fn u339__implicit_this_row_return_replicates_per_lane() {
+    let src = row_main("", "    w{1,2} => BOX().RowRet(_) -> t{2,1}");
+    let mut nets = nets_of(&src, "/mcc/u339-row-this.mc");
+    nets.retain(|net| net.iter().any(|p| p.contains("BOX")));
+    nets.sort();
+    assert_eq!(
+        nets,
+        vec![
+            vec!["_BOX1.1".to_string(), "w.1".to_string()],
+            vec!["_BOX1.2".to_string(), "t.2".to_string()],
+            vec!["_BOX2.1".to_string(), "w.2".to_string()],
+            vec!["_BOX2.2".to_string(), "t.1".to_string()],
+        ],
+        "the implicit this row replicates per lane; nets={nets:?}"
     );
 }

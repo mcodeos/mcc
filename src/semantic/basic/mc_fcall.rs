@@ -69,6 +69,16 @@ pub enum ReturnShape {
     This,
     /// `return <label/bus/expr>` → left empty, right = return value as bus vector
     Label { bus: Vec<McBus> },
+    /// Named-node return (`return this{P | N}`, the IDMN spelling) → the two
+    /// sides name genuinely different faces, so each mouth answers its own
+    /// side (vec-dianlu.md §8.1: FuncCall ports follow the return shape).
+    /// The buses keep their return-site spelling (`this.P`); the Pass1 width
+    /// gates count rows only, and Pass2 publishes the substituted names
+    /// through `AutoInst::ReturnFace` — these buses never wire directly.
+    Node {
+        left: Vec<McBus>,
+        right: Vec<McBus>,
+    },
 }
 
 /// ★ P4.1: Extract right-side buses from a McPhrase (for Endpoint return shape).
@@ -1957,7 +1967,8 @@ impl McFuncCall {
     /// # Three-state rules (per eval.md §8.1):
     /// - `Implicit` / `This` → `ReturnShape::This` — preserves caller shape
     /// - `Endpoint(ref phrase)` → `ReturnShape::Label { bus }` — right = phrase's right
-    ///   interface
+    ///   interface; the named-node spelling (`this{P | N}`, `McRef::Ports`)
+    ///   classifies as `ReturnShape::Node` instead — both sides carried
     /// - `Group(ref phrase)` → `ReturnShape::Label { bus }` — the flattened
     ///   member nets, one lane each (parallel members, not an aligned column)
     pub fn resolve_return_shape(&mut self, func_returns: &McFuncReturn) {
@@ -1966,6 +1977,25 @@ impl McFuncCall {
                 self.resolved_return_shape = Some(ReturnShape::This);
             }
             McFuncReturn::Endpoint(phrase) => {
+                // Named-node return (`this{P | N}`): both sides non-empty and
+                // distinct, so flattening to the right side would answer the
+                // left mouth with the right face. Carry both (U339 shape law
+                // ③: the evaluated shape decides; Pass2 classifies the same
+                // spelling as non-degenerate into `AutoInst::ReturnFace`).
+                if let McPhrase::Endpoint(McRef::Ports { left, right }) = phrase {
+                    if !left.is_empty() && !right.is_empty() {
+                        let side_buses = |eps: &[McRef]| -> Vec<McBus> {
+                            eps.iter()
+                                .flat_map(|ep| get_right_bus_from_phrase(&McPhrase::Endpoint(ep.clone())))
+                                .collect()
+                        };
+                        self.resolved_return_shape = Some(ReturnShape::Node {
+                            left: side_buses(left),
+                            right: side_buses(right),
+                        });
+                        return;
+                    }
+                }
                 // Endpoint return: derive bus from the returned phrase's right side
                 let bus = get_right_bus_from_phrase(phrase);
                 self.resolved_return_shape = Some(ReturnShape::Label { bus });

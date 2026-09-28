@@ -581,6 +581,44 @@ impl InstantiationBuilder {
         // create shorting connections (e.g. SCL-SDA bridge).
         let mut p25_consumed: std::collections::HashSet<usize> = std::collections::HashSet::new();
         while i < members.len() {
+            // ── U339 ③: the row-return half of the shape law ──
+            // (vec-dianlu.md §7.7: a member func's connection effect is
+            // decided by its evaluated return shape — column = bridge, row =
+            // per-lane ×N, block order §3.4.) On the `=>` fold face with a
+            // construction receiver and exactly one tail member, a ROW
+            // return replicates per lane: lane k gets its own fresh
+            // component bound (head lane k, tail lane k). The column return
+            // keeps the §11.6 whole-arg fill in the P2-5 plan below.
+            if !needs_lane_by_lane && i + 2 == members.len() {
+                if let McPhrase::FuncCall(fc) = &members[i] {
+                    if fc.pre_closure && fc.receiver_is_ctor {
+                        if let Some(lane_stmts) = self.try_expand_row_lane_replication(
+                            fc,
+                            &members[i + 1],
+                            gaps[i],
+                        ) {
+                            for idx in [i, i + 1] {
+                                p25_consumed.insert(idx);
+                            }
+                            for stmt in &lane_stmts {
+                                if let Err(e) = self.process_stmt(stmt) {
+                                    self.record_warning(
+                                        crate::errcodes::INST_BUILTIN_TWOPIN_EXPAND_FAILED,
+                                        crate::errcodes::format_msg(
+                                            crate::errcodes::INST_BUILTIN_TWOPIN_EXPAND_FAILED,
+                                            &[&e],
+                                        ),
+                                    );
+                                }
+                            }
+                            // Both members are consumed; nothing is left for
+                            // the member loop or the post-loop wiring.
+                            return Ok(());
+                        }
+                    }
+                }
+            }
+
             // Lane items to expand over, the FuncCall's index, the member
             // indices this expansion consumes, and whether each lane is paired
             // with the call as a Series member (the bus was also written as a
@@ -954,6 +992,155 @@ impl InstantiationBuilder {
                 ))))
             })
             .collect()
+    }
+
+    /// ── U339 ③: the row-return half of the member-func shape law ──
+    ///
+    /// vec-dianlu.md §7.7: a member func's connection effect is decided by
+    /// the shape of its evaluated result — column = bridge (one component
+    /// straddles the lanes), row = per-lane ×N (each lane gets its own
+    /// component, block order §3.4). The column half is the §11.6 whole-arg
+    /// fill in `align_vector_bindings`; this is the row half.
+    ///
+    /// Face: the `=>` fold (`pre_closure`) onto a construction receiver with
+    /// exactly one chain tail — `HEAD => C(..).M(_) -> TAIL`. The fold puts
+    /// the whole prefix into the call's single `_` slot, so the head lanes
+    /// are read from where the fold left them; the tail supplies the second
+    /// member of each lane pair. Per lane k the expansion emits
+    /// `head_k - C(..).M([head_k, tail_k]) - tail_k` as its own statement: a
+    /// fresh component per lane (fresh phrase IDs keep P2-9 dedup from
+    /// collapsing them), the width-2 Set actual binding positionally into
+    /// the width-2 Set formal, and the chain wiring giving a `return this`
+    /// body (no explicit net wiring) its pin contacts.
+    ///
+    /// Everything that is not this face — a declared-instance receiver
+    /// (it cannot be cloned), a scalar head (the deficit family), a
+    /// lane-count mismatch, a non-row return — returns `None` and keeps the
+    /// existing behaviour (whole-arg fill, or the honest E4180/E4007).
+    fn try_expand_row_lane_replication(
+        &mut self,
+        fc: &crate::semantic::basic::mc_fcall::McFuncCall,
+        tail: &McPhrase,
+        dir: ConnDir,
+    ) -> Option<Vec<McPhrase>> {
+        use crate::semantic::basic::opd_shape::OpdShape;
+        use crate::semantic::mc_func::McFuncReturn;
+
+        // 1. Construction receiver: the class the per-lane components are
+        //    built from, and the method's effective definition.
+        let caller_fc = match fc.caller.as_deref() {
+            Some(McPhrase::FuncCall(c)) => c,
+            _ => return None,
+        };
+        let class_name = caller_fc.func_name.to_string();
+        let comp_def = match crate::db::cmie::cmie::mcb_get_cmie(
+            &crate::semantic::basic::mc_ids::McIds::from(class_name.as_str()),
+            &crate::current_uri::get(),
+        ) {
+            Some(crate::McCMIE::Component(c)) => c,
+            _ => return None,
+        };
+        let func_def =
+            crate::db::defregistry::effective_method(&comp_def, &fc.func_name.to_string())?;
+
+        // 2. Row classification (§7.7): a row return replicates. `return
+        //    this` (implicit own face) reads as the two-pin entry/exit row;
+        //    a spelled non-degenerate return replicates when it is one
+        //    component row (`Row` — `OpdShape::from_sides` already folds the
+        //    one-leaf-per-side node into it). Degenerate (point / column)
+        //    returns bridge via the whole-arg fill and never reach here.
+        let row = match &func_def.returns {
+            McFuncReturn::Implicit | McFuncReturn::This => true,
+            McFuncReturn::Endpoint(ep) => matches!(OpdShape::of(ep, self), OpdShape::Row(_, _)),
+            McFuncReturn::Group(_) => false,
+        };
+        if !row {
+            return None;
+        }
+
+        // 3. Head lanes: the `=>` fold replaced the call's single `_` slot
+        //    with the whole prefix, so the folded params are exactly that
+        //    prefix (`M(_)`). A Set carries the lanes itself; a bare id
+        //    fills whole — its lanes are the declared bus's members, or the
+        //    written member group when the spelling carries one.
+        if fc.params.len() != 1 {
+            return None;
+        }
+        let ids_lane_names = |ids: &crate::semantic::basic::mc_ids::McIds| -> Vec<String> {
+            let name = ids.to_string();
+            if let Some(b) = self.find_bus(&name) {
+                if b.members.len() > 1 {
+                    return b.members.iter().map(|m| format!("{name}.{m}")).collect();
+                }
+            }
+            if let Some((base, members)) = ids.as_bus() {
+                if members.len() > 1 {
+                    return members.iter().map(|m| format!("{base}.{m}")).collect();
+                }
+            }
+            Vec::new()
+        };
+        let head_lanes: Vec<String> = match &fc.params[0] {
+            McParamValue::Set(vs) => {
+                let mut out = Vec::with_capacity(vs.len());
+                for v in vs {
+                    match v {
+                        McParamValue::Ids(ids) => out.extend(ids_lane_names(ids)),
+                        McParamValue::Opd(McOpd::Id(ids)) => out.extend(ids_lane_names(ids)),
+                        _ => return None,
+                    }
+                }
+                out
+            }
+            McParamValue::Ids(ids) => ids_lane_names(ids),
+            McParamValue::Opd(McOpd::Id(ids)) => ids_lane_names(ids),
+            _ => return None,
+        };
+        if head_lanes.len() < 2 {
+            // A scalar head is the deficit family — its E4180 stands.
+            return None;
+        }
+
+        // 4. Tail lanes: the tail's left mouth, zipped against the head
+        //    lanes row-wise (§3.4 block order: row k = lane k).
+        let tail_points = match self.get_left_points(tail) {
+            Ok(pts) => pts,
+            Err(_) => return None,
+        };
+        if tail_points.len() != head_lanes.len() {
+            // A mismatch keeps the statement face's honest E4007.
+            return None;
+        }
+
+        // 5. One fresh component per lane.
+        let lane_stmts = head_lanes
+            .iter()
+            .zip(tail_points.iter())
+            .map(|(h, t)| {
+                let endpoint = |name: &str| {
+                    McPhrase::Endpoint(McRef::Name(McInstanceRef::new(McInstance::Bus(
+                        McBus::new(name),
+                    ))))
+                };
+                let mut call = McPhrase::FuncCall(fc.clone());
+                Self::reset_phrase_ids(&mut call);
+                if let McPhrase::FuncCall(f2) = &mut call {
+                    // The fold is consumed: each lane's call is a plain call
+                    // with real actuals, not a pre-closure shell.
+                    f2.pre_closure = false;
+                    f2.params = vec![McParamValue::Set(vec![
+                        McParamValue::Opd(McOpd::Id(crate::semantic::basic::mc_ids::McIds::from(
+                            h.as_str(),
+                        ))),
+                        McParamValue::Opd(McOpd::Id(crate::semantic::basic::mc_ids::McIds::from(
+                            t.path.as_str(),
+                        ))),
+                    ])];
+                }
+                McPhrase::Series(vec![endpoint(h), call, endpoint(&t.path)], dir)
+            })
+            .collect();
+        Some(lane_stmts)
     }
 
     /// True when `base_bus` appears as a Set member (not as a whole top-level

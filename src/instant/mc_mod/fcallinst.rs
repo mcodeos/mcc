@@ -1631,7 +1631,6 @@ impl InstantiationBuilder {
 
         match &func_def.returns {
             McFuncReturn::Group(phrase) => {
-                eprintln!("PROBE ret=group");
                 let substituted = substitute_return(phrase);
                 let names: Vec<String> = match &substituted {
                     McPhrase::Group(g) => g
@@ -1653,7 +1652,6 @@ impl InstantiationBuilder {
                 }
             }
             McFuncReturn::Endpoint(ep) => {
-                eprintln!("PROBE ret=endpoint func={} phrase={}", func_def.name, ep);
                 let substituted = substitute_return(ep);
                 // Which face the return names is a *semantic* question, not a
                 // shape one: substitution rewrites formals into their actuals,
@@ -1727,7 +1725,6 @@ impl InstantiationBuilder {
                 }
             }
             McFuncReturn::Implicit | McFuncReturn::This => {
-                eprintln!("PROBE ret=this/implicit func={}", func_def.name);
                 // case ①: face = instance own default shape. Clear any stale
                 // endpoint from a previous statement.
                 LAST_RETURN_ENDPOINT.with(|cell| cell.replace(None));

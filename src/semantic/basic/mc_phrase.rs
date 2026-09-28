@@ -2904,6 +2904,42 @@ impl McPhrase {
             MCAST_OPD_CURLY_MN => {
                 let subnode1 = node.get_sub_node().expect(MISSING_SUBNODE);
                 let subnode2 = subnode1.get_next().expect(MISSING_SUBNODE);
+                // U339: the bare two-face row `{a | b}` (grammar arm with no
+                // base operand) marks its shape structurally — the first child
+                // is the left MCAST_OPDS wrapper itself, where a `X{n|m}` base
+                // is a single MCAST_OPD. The sides read as verbatim row
+                // endpoints: left face = a, right face = b, nothing prefixed.
+                if subnode1.get_type() == MCAST_OPDS {
+                    let mut left_side: Vec<String> = Vec::new();
+                    let mut cur = subnode1.get_sub_node();
+                    while let Some(n) = cur {
+                        left_side.extend(Self::curly_mn_side_members(&n));
+                        cur = n.get_next();
+                    }
+                    let mut right_side: Vec<String> = Vec::new();
+                    cur = subnode2.get_sub_node();
+                    while let Some(n) = cur {
+                        right_side.extend(Self::curly_mn_side_members(&n));
+                        cur = n.get_next();
+                    }
+                    if left_side.is_empty() && right_side.is_empty() {
+                        return None;
+                    }
+                    return Some(McPhrase::Endpoint(McRef::Ports {
+                        left: left_side
+                            .iter()
+                            .map(|r| {
+                                McRef::Name(McInstanceRef::new(McInstance::Bus(McBus::new(r))))
+                            })
+                            .collect(),
+                        right: right_side
+                            .iter()
+                            .map(|r| {
+                                McRef::Name(McInstanceRef::new(McInstance::Bus(McBus::new(r))))
+                            })
+                            .collect(),
+                    }));
+                }
                 let subnode3 = subnode2.get_next().expect(MISSING_SUBNODE);
 
                 let left_opd = Self::new(&subnode1, context)?;
@@ -2922,46 +2958,13 @@ impl McPhrase {
                 let mut right1: Vec<String> = Vec::new();
                 let mut cur = subnode2.get_sub_node();
                 while let Some(n) = cur {
-                    // ── SQUARE_VEC row flatten (two-face DC chain) ──
-                    // A curly face may be written as a literal bracket row
-                    // `oring{[IN1, GND] | [OUT, GND]}`; each `[a, b]` row parses as
-                    // one MCAST_OPD_SQUARE_VEC whose to_id_or_ida_or_num() only
-                    // returns the *first* child (`IN1`, dropping `GND`). Flatten the
-                    // whole row so both vector members reach the face, matching the
-                    // canonical member-list form `oring{IN1, GND | OUT, GND}`.
-                    if n.get_type() == MCAST_OPD_SQUARE_VEC {
-                        if let Some(mut s) = n.get_sub_node() {
-                            loop {
-                                right1.extend(s.to_id_or_ida_or_num());
-                                match s.get_next() {
-                                    Some(nx) => s = nx,
-                                    None => break,
-                                }
-                            }
-                        }
-                    } else {
-                        right1.extend(n.to_id_or_ida_or_num());
-                    }
+                    right1.extend(Self::curly_mn_side_members(&n));
                     cur = n.get_next();
                 }
                 let mut right2: Vec<String> = Vec::new();
                 cur = subnode3.get_sub_node();
-                // Right-face of the `|` split: same SQUARE_VEC bracket-row flatten as
-                // the left face above (`oring{IN1 | [OUT, GND]}` must keep GND).
                 while let Some(n) = cur {
-                    if n.get_type() == MCAST_OPD_SQUARE_VEC {
-                        if let Some(mut s) = n.get_sub_node() {
-                            loop {
-                                right2.extend(s.to_id_or_ida_or_num());
-                                match s.get_next() {
-                                    Some(nx) => s = nx,
-                                    None => break,
-                                }
-                            }
-                        }
-                    } else {
-                        right2.extend(n.to_id_or_ida_or_num());
-                    }
+                    right2.extend(Self::curly_mn_side_members(&n));
                     cur = n.get_next();
                 }
 
@@ -3971,6 +3974,30 @@ impl McPhrase {
             _ => None,
         }
     }
+
+    /// One side list of a curly-MN selector: id / ida / int elements, with a
+    /// literal bracket row flattened into its members so both vector members
+    /// reach the face (`oring{[IN1, GND] | [OUT, GND]}` keeps `GND`, matching
+    /// the canonical member-list form `oring{IN1, GND | OUT, GND}` — a
+    /// MCAST_OPD_SQUARE_VEC's `to_id_or_ida_or_num()` only returns the first
+    /// child, so the whole row is walked instead).
+    fn curly_mn_side_members(n: &AstNode) -> Vec<String> {
+        if n.get_type() == MCAST_OPD_SQUARE_VEC {
+            let mut out: Vec<String> = Vec::new();
+            if let Some(mut s) = n.get_sub_node() {
+                loop {
+                    out.extend(s.to_id_or_ida_or_num());
+                    match s.get_next() {
+                        Some(nx) => s = nx,
+                        None => break,
+                    }
+                }
+            }
+            out
+        } else {
+            n.to_id_or_ida_or_num()
+        }
+    }
 }
 
 // Shape defaults — eval.md §2 Pin shape default rules 1-4
@@ -4393,6 +4420,10 @@ impl McPhrase {
             // shape (f.left).
             McPhrase::FuncCall(ref f) => match &f.resolved_return_shape {
                 Some(ReturnShape::Label { bus }) => bus.clone(),
+                // Named-node return: the left mouth answers the left side
+                // (flattening to the return bus welded the left mouth to the
+                // right face — U339 shape law ③).
+                Some(ReturnShape::Node { left, .. }) => left.clone(),
                 Some(ReturnShape::This) | None => f.left.clone(),
             },
             McPhrase::Lead(_) => vec![McBus::new("(lead)")],
@@ -4525,6 +4556,7 @@ impl McPhrase {
             // `Label` → right = the return value's buses ([0|N]).
             McPhrase::FuncCall(ref f) => match &f.resolved_return_shape {
                 Some(ReturnShape::Label { bus }) => bus.clone(),
+                Some(ReturnShape::Node { right, .. }) => right.clone(),
                 Some(ReturnShape::This) | None => f.right.clone(),
             },
             McPhrase::Lead(_) => vec![McBus::new("(lead)")],
@@ -6155,12 +6187,16 @@ fn eval_port_elems(phrase: &McPhrase, right: bool, context: &dyn ShapeCtx) -> Ve
             if right {
                 let r = match &fc.resolved_return_shape {
                     Some(ReturnShape::Label { bus }) => bus.clone(),
+                    Some(ReturnShape::Node { right, .. }) => right.clone(),
                     Some(ReturnShape::This) | None => fc.right.clone(),
                 };
                 r
             } else {
                 match &fc.resolved_return_shape {
                     Some(ReturnShape::Label { .. }) => Vec::new(),
+                    // Named-node return: the left port has contact (the
+                    // `this{P | N}` left side), unlike the one-sided `Label`.
+                    Some(ReturnShape::Node { left, .. }) => left.clone(),
                     Some(ReturnShape::This) | None => fc.left.clone(),
                 }
             }
