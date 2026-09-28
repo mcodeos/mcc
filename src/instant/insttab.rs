@@ -542,6 +542,21 @@ pub(crate) fn iface_lane_of_pin(
         }
         return None;
     };
+    Some(iface_lane_of_iface(iface, port_name.to_string()))
+}
+
+/// Decode an interface adoption's lane carry ([`IfaceLane`]) from the
+/// resolved `Mc2Interface` and the adoption row's lane name — the shared
+/// tail of [`iface_lane_of_pin`] (component pins) and the module-port row
+/// decode (`phases.rs::instantiate_interface`, U352: a role-bearing module
+/// port carries the same flat carry a component pin does, so the flat
+/// checks read both faces of a module boundary the same way). Family and
+/// role come from the definition's own role table; the peer / cardinality /
+/// direction / class declarations come from the selected role's own rows.
+pub(crate) fn iface_lane_of_iface(
+    iface: &crate::semantic::mc_ifs::Mc2Interface,
+    lane: String,
+) -> IfaceLane {
     let role = iface.params.iter().find_map(|p| match p {
         crate::semantic::basic::mc_param::McParamValue::Ids(ids) => {
             let name = ids.to_string();
@@ -610,7 +625,7 @@ pub(crate) fn iface_lane_of_pin(
                 })
         })
         .unwrap_or(false);
-    Some(IfaceLane {
+    IfaceLane {
         family: iface.base.name.to_string(),
         role,
         peer_role,
@@ -618,10 +633,10 @@ pub(crate) fn iface_lane_of_pin(
         exclusive,
         peer_span,
         peer_card_text,
-        lane: port_name.to_string(),
+        lane,
         direction,
         analog,
-    })
+    }
 }
 
 /// The direction shape a role's pins declare ([`LaneDir`]): all members `in`
@@ -2399,6 +2414,17 @@ impl InstTable {
                     self.mark_nc(member_id);
                 }
 
+                // ★ U352: a role-bearing interface port's lane carry rides
+                // the member entries — the flat checks read the module
+                // port's face exactly like a component pin's (family +
+                // selected role + the role's own peer declaration). `RELAY`
+                // is the one legal role here today (E4184), and the
+                // exclusive-peer gate keys its relay traversal on this
+                // carry.
+                if let Some(lane) = &port.iface_lane {
+                    self.set_iface_lane(member_id, lane.clone());
+                }
+
                 // Set member_info role (Ground/Power) — consumed by the viz
                 // projection layer for rail classification, not for net merging.
                 // A connection-point DC pair declared on this port is decoded
@@ -2507,6 +2533,11 @@ impl InstTable {
                         e.io_type = IOType::None;
                     }
                 }
+            } else if let Some(lane) = &port.iface_lane {
+                // A role-bearing port that expanded to no members keeps its
+                // carry on the port entry itself — the one point the flat
+                // checks can see (U352).
+                self.set_iface_lane(port_id, lane.clone());
             }
         }
 

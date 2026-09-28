@@ -50,7 +50,7 @@ struct PeerPair {
 }
 
 /// Union-find root over net indices (the port-passthrough merge).
-fn find(parent: &mut [usize], mut x: usize) -> usize {
+pub(crate) fn find(parent: &mut [usize], mut x: usize) -> usize {
     while parent[x] != x {
         parent[x] = parent[parent[x]];
         x = parent[x];
@@ -68,6 +68,66 @@ fn union(parent: &mut [usize], a: usize, b: usize) {
     }
 }
 
+/// The conductor merge both flat sweeps read (U352): union-find over net
+/// indices, joining nets that share a conductor. Three arms, each a fact the
+/// boundary keeps:
+/// (a) a point id carried by several net segments (the boundary junction,
+/// A′ 3) is one conductor;
+/// (b) a module port's two faces — the child side and the parent side —
+/// register under the same spelling (the aggregate dotted form, or the
+/// slash lane of a subscript member) but as distinct entries with no shared
+/// id; the path is the conductor identity the boundary keeps (insttab.rs
+/// §A′: one physical point, both sides of the module boundary), so a
+/// spelling carried by several nets unions them — a real bus member (no
+/// port behind it) has a single spelling on one net and stays unmerged;
+/// (c) a slash-lane base joins its member nets.
+///
+/// With no relay faces in the table this joins only what ports already
+/// joined, so a sweep reading these groups instead of bare nets changes
+/// nothing; a relay body's internal `a - b` join rides the same arms (the
+/// relay's faces are module ports), which is what makes the exclusive-peer
+/// gate see through a cable (U352) — the body's own statements, crossing or
+/// straight, are what the merge reads.
+pub(crate) fn merged_conductor_parent(
+    table: &InstTable,
+    nets: &[&crate::instant::insttab::NetEntry],
+) -> Vec<usize> {
+    let mut parent: Vec<usize> = (0..nets.len()).collect();
+    // (a) A point id carried by several net segments is one conductor.
+    let mut seen: HashMap<u32, usize> = HashMap::new();
+    // (b) See above: a shared spelling is one conductor across the boundary.
+    let mut seen_path: HashMap<&str, usize> = HashMap::new();
+    for (ni, net) in nets.iter().enumerate() {
+        for &pid in &net.points {
+            match seen.get(&pid) {
+                Some(&pj) => union(&mut parent, ni, pj),
+                None => {
+                    seen.insert(pid, ni);
+                }
+            }
+            let Some(e) = table.get_entry(pid) else {
+                continue;
+            };
+            match seen_path.get(e.path.as_str()) {
+                Some(&pj) => union(&mut parent, ni, pj),
+                None => {
+                    seen_path.insert(e.path.as_str(), ni);
+                }
+            }
+            if let Some(idx) = e.path.rfind('/') {
+                let base = &e.path[..idx];
+                match seen_path.get(base) {
+                    Some(&pj) => union(&mut parent, ni, pj),
+                    None => {
+                        seen_path.insert(base, ni);
+                    }
+                }
+            }
+        }
+    }
+    parent
+}
+
 pub(crate) fn check_iface_role_peers(table: &InstTable, results: &mut Vec<NetCheckResult>) {
     let nets = table.get_nets();
 
@@ -76,49 +136,7 @@ pub(crate) fn check_iface_role_peers(table: &InstTable, results: &mut Vec<NetChe
     // joins its parent-side net to its child-side net: both NetEntries carry
     // the port's own InstEntry. Nets sharing any entry id are unioned into
     // one judge group, so the two device sides of a port collide directly.
-    let mut parent: Vec<usize> = (0..nets.len()).collect();
-    {
-        // (a) A point id carried by several net segments (the boundary
-        // junction, A′ 3) is one conductor.
-        let mut seen: HashMap<u32, usize> = HashMap::new();
-        // (b) A module port's two faces: the child side and the parent side
-        // register under the same spelling (the aggregate dotted form, or the
-        // slash lane of a subscript member) but as distinct entries with no
-        // shared id — the path is the conductor identity the boundary keeps
-        // (insttab.rs §A′: one physical point, both sides of the module
-        // boundary). A spelling carried by several nets unions them. A real
-        // bus member (no port behind it) has a single spelling on one net and
-        // stays unmerged.
-        let mut seen_path: HashMap<&str, usize> = HashMap::new();
-        for (ni, net) in nets.iter().enumerate() {
-            for &pid in &net.points {
-                match seen.get(&pid) {
-                    Some(&pj) => union(&mut parent, ni, pj),
-                    None => {
-                        seen.insert(pid, ni);
-                    }
-                }
-                let Some(e) = table.get_entry(pid) else {
-                    continue;
-                };
-                match seen_path.get(e.path.as_str()) {
-                    Some(&pj) => union(&mut parent, ni, pj),
-                    None => {
-                        seen_path.insert(e.path.as_str(), ni);
-                    }
-                }
-                if let Some(idx) = e.path.rfind('/') {
-                    let base = &e.path[..idx];
-                    match seen_path.get(base) {
-                        Some(&pj) => union(&mut parent, ni, pj),
-                        None => {
-                            seen_path.insert(base, ni);
-                        }
-                    }
-                }
-            }
-        }
-    }
+    let mut parent = merged_conductor_parent(table, &nets);
 
     // ── Group the role-bearing endpoints per merged conductor ──
     // An entry shared by several nets of one group (the port itself) counts
@@ -142,6 +160,14 @@ pub(crate) fn check_iface_role_peers(table: &InstTable, results: &mut Vec<NetChe
             let Some(_) = &lane.role else {
                 continue;
             };
+            // A RELAY face is the relay's conductor view, not an endpoint
+            // role: the relay body is the mediator the two real endpoints
+            // meet through, so the sweep never pairs a RELAY face against
+            // anything (U352 — the gate judges the hosts and devices a relay
+            // joins, never the relay itself).
+            if lane.role.as_deref() == Some("RELAY") {
+                continue;
+            }
             if group.iter().any(|(_, re)| re.entry.id == e.id) {
                 continue;
             }

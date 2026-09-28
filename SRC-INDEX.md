@@ -32,22 +32,22 @@ range (threshold 40KB).
 |---|---|---|
 | `viz/layout/equipotential_tree.rs` | 460 KB | 220 |
 | `db/infra/mc_code.rs` | 399 KB | 122 |
-| `semantic/basic/mc_phrase.rs` | 360 KB | 92 |
+| `semantic/basic/mc_phrase.rs` | 362 KB | 92 |
 | `semantic/component/mc_pins/mod.rs` | 242 KB | 112 |
 | `db/diagnostic/errcodes.rs` | 212 KB | 474 |
 | `semantic/validation/nets/mod.rs` | 212 KB | 139 |
-| `instant/mc_mod/stmt.rs` | 209 KB | 81 |
+| `instant/mc_mod/stmt.rs` | 210 KB | 81 |
 | `rules.rs` | 193 KB | 83 |
-| `instant/insttab.rs` | 183 KB | 130 |
-| `instant/mc_mod/fcallinst.rs` | 165 KB | 27 |
+| `instant/insttab.rs` | 186 KB | 131 |
+| `instant/mc_mod/fcallinst.rs` | 167 KB | 27 |
 | `cmds/show.rs` | 164 KB | 123 |
 | `db/defregistry.rs` | 158 KB | 182 |
 | `viz/layout/equi_audit.rs` | 140 KB | 98 |
 | `rpc/handlers/mod.rs` | 132 KB | 107 |
-| `instant/mc_mod/phases.rs` | 131 KB | 29 |
-| `semantic/module/mod.rs` | 128 KB | 86 |
+| `instant/mc_mod/phases.rs` | 132 KB | 29 |
+| `semantic/module/mod.rs` | 129 KB | 86 |
 | `export/kicad_sch.rs` | 127 KB | 106 |
-| `instant/mc_mod/points.rs` | 122 KB | 20 |
+| `instant/mc_mod/points.rs` | 123 KB | 20 |
 | `semantic/mc_inst.rs` | 122 KB | 88 |
 | `semantic/basic/mc_fcall.rs` | 119 KB | 25 |
 | `vector/graph/fromblock.rs` | 103 KB | 35 |
@@ -67,13 +67,13 @@ range (threshold 40KB).
 | `db/` | 28 | 1048 KB |
 | `eval/` | 2 | 50 KB |
 | `export/` | 7 | 185 KB |
-| `instant/` | 41 | 1704 KB |
+| `instant/` | 41 | 1713 KB |
 | `lsp/` | 8 | 118 KB |
 | `output/` | 7 | 107 KB |
 | `query/` | 9 | 170 KB |
 | `refdef/` | 7 | 134 KB |
 | `rpc/` | 16 | 312 KB |
-| `semantic/` | 98 | 2918 KB |
+| `semantic/` | 98 | 2938 KB |
 | `stages/` | 19 | 408 KB |
 | `vector/` | 26 | 494 KB |
 | `viz/` | 97 | 2483 KB |
@@ -3030,109 +3030,110 @@ instant/insttab.rs#L343  fn exposed_of_pin
 instant/insttab.rs#L365  fn expectations_of_pin
 instant/insttab.rs#L405  enum LaneDir
 instant/insttab.rs#L411  struct IfaceLane
-instant/insttab.rs#L455  enum AcFaceMember
-instant/insttab.rs#L467  struct AcFaceCarry
-instant/insttab.rs#L480  fn iface_role_attr_values
-instant/insttab.rs#L520  fn iface_lane_of_pin
-instant/insttab.rs#L604  fn lane_dir_of_pins
-instant/insttab.rs#L628  fn ac_face_carry_of_pin
-instant/insttab.rs#L660  fn is_ac_family
-instant/insttab.rs#L668  fn declared_ac_face_of_params
-instant/insttab.rs#L696  struct AcFaceCarryVolts
-instant/insttab.rs#L728  fn element_class_of
-instant/insttab.rs#L784  fn spec_quantity_of
-instant/insttab.rs#L824  fn declared_member_of_pin
-instant/insttab.rs#L839  fn declared_member_of_role
-instant/insttab.rs#L857  enum InstOrigin
-instant/insttab.rs#L881  impl PartialEq for InstOrigin
-instant/insttab.rs#L882  fn eq
-instant/insttab.rs#L902  impl Eq for InstOrigin
-instant/insttab.rs#L904  impl Default for InstOrigin
-instant/insttab.rs#L905  fn default
-instant/insttab.rs#L922  enum ProtectionKind
-instant/insttab.rs#L932  struct InstEntry
-instant/insttab.rs#L1162  impl InstEntry
-instant/insttab.rs#L1165  fn power_face
-instant/insttab.rs#L1172  fn power_spelling
-instant/insttab.rs#L1180  fn rail_identity
-instant/insttab.rs#L1186  fn wired_at
-instant/insttab.rs#L1192  fn unwired
-instant/insttab.rs#L1200  fn anchor_pos
-instant/insttab.rs#L1218  struct NetEntry
-instant/insttab.rs#L1244  struct InstTable
-instant/insttab.rs#L1336  impl InstTable
-instant/insttab.rs#L1338  fn new
-instant/insttab.rs#L1360  fn root_span
-instant/insttab.rs#L1367  fn net_table
-instant/insttab.rs#L1376  fn power_decls
-instant/insttab.rs#L1383  fn block_parts_of
-instant/insttab.rs#L1391  fn net_origin
-instant/insttab.rs#L1399  fn member_pin_of
-instant/insttab.rs#L1416  fn from_module_inst
-instant/insttab.rs#L1436  fn from_module_inst_with_arena
-instant/insttab.rs#L1465  fn register
-instant/insttab.rs#L1627  fn set_member_info
-instant/insttab.rs#L1637  fn set_identity
-instant/insttab.rs#L1662  fn set_point
-instant/insttab.rs#L1670  fn set_pwr_dir
-instant/insttab.rs#L1678  fn set_pwr_nom
-instant/insttab.rs#L1686  fn set_exposed
-instant/insttab.rs#L1695  fn set_expectations
-instant/insttab.rs#L1704  fn set_iface_lane
-instant/insttab.rs#L1713  fn set_ac_face
-instant/insttab.rs#L1721  fn set_pwr_member
-instant/insttab.rs#L1732  fn record_member_pin_sem
-instant/insttab.rs#L1763  fn set_pin_count
-instant/insttab.rs#L1776  fn mark_nc
-instant/insttab.rs#L1787  fn set_vector_info
-instant/insttab.rs#L1798  fn mark_alias
-instant/insttab.rs#L1834  fn declared_member_port_of
-instant/insttab.rs#L1867  fn fold_alias
-instant/insttab.rs#L1887  fn vector_member_paths
-instant/insttab.rs#L1909  fn mark_synthetic_by_path_prefix
-instant/insttab.rs#L1920  fn register_simple
-instant/insttab.rs#L1942  fn get_id_by_path
-instant/insttab.rs#L1947  fn get_entry
-instant/insttab.rs#L1964  fn class_def_of
-instant/insttab.rs#L1977  fn children_of
-instant/insttab.rs#L1985  fn iter
-instant/insttab.rs#L1990  fn len
-instant/insttab.rs#L1995  fn is_empty
-instant/insttab.rs#L2000  fn is_bridge_passive
-instant/insttab.rs#L2007  fn get_nets
-instant/insttab.rs#L2012  fn get_net
-instant/insttab.rs#L2021  fn get_net_of
-instant/insttab.rs#L2029  fn nets_of
-instant/insttab.rs#L2037  fn get_components
-instant/insttab.rs#L2049  fn iter_entries
-instant/insttab.rs#L2056  fn get_modules
-instant/insttab.rs#L2064  fn get_pins_of
-instant/insttab.rs#L2072  fn get_ports_of
-instant/insttab.rs#L2080  fn net_count
-instant/insttab.rs#L2107  fn backfill_port_decl_pos
-instant/insttab.rs#L2125  fn port_decl_span_of
-instant/insttab.rs#L2133  fn flatten_module
-instant/insttab.rs#L3258  fn flatten_nets
-instant/insttab.rs#L3463  fn resolve_netpoint_path
-instant/insttab.rs#L3499  fn resolve_single_path
-instant/insttab.rs#L3546  fn dump
-instant/insttab.rs#L3631  fn write_known_missing
-instant/insttab.rs#L3680  fn collect_failed_records
-instant/insttab.rs#L3714  fn expand_bracket_list
-instant/insttab.rs#L3745  mod tests
-instant/insttab.rs#L3749  fn mat_insttab__register_and_lookup
-instant/insttab.rs#L3764  fn mat_insttab__no_duplicate_registration
-instant/insttab.rs#L3785  fn mat_insttab__children_of
-instant/insttab.rs#L3821  fn mat_insttab__id_uniqueness
-instant/insttab.rs#L3841  fn mat_insttab__resolve_bus_member_path_fallback
-instant/insttab.rs#L3876  fn mat_insttab__resolve_plain_dot_path_still_works
-instant/insttab.rs#L3906  fn mat_insttab__resolve_top_level_port_no_prefix
-instant/insttab.rs#L3929  fn mat_insttab__resolve_bracket_list_expands
-instant/insttab.rs#L3967  fn mat_insttab__resolve_bracket_partial_miss
-instant/insttab.rs#L3998  fn mat_insttab__resolve_missing_path_returns_empty
-instant/insttab.rs#L4013  fn mat_insttab__expand_bracket_list_syntax
-instant/insttab.rs#L4043  fn mat_insttab__element_class_comes_from_the_definition_spec_table
-instant/insttab.rs#L4045  const SRC
+instant/insttab.rs#L464  enum AcFaceMember
+instant/insttab.rs#L476  struct AcFaceCarry
+instant/insttab.rs#L489  fn iface_role_attr_values
+instant/insttab.rs#L529  fn iface_lane_of_pin
+instant/insttab.rs#L556  fn iface_lane_of_iface
+instant/insttab.rs#L647  fn lane_dir_of_pins
+instant/insttab.rs#L671  fn ac_face_carry_of_pin
+instant/insttab.rs#L703  fn is_ac_family
+instant/insttab.rs#L711  fn declared_ac_face_of_params
+instant/insttab.rs#L739  struct AcFaceCarryVolts
+instant/insttab.rs#L771  fn element_class_of
+instant/insttab.rs#L827  fn spec_quantity_of
+instant/insttab.rs#L867  fn declared_member_of_pin
+instant/insttab.rs#L882  fn declared_member_of_role
+instant/insttab.rs#L900  enum InstOrigin
+instant/insttab.rs#L924  impl PartialEq for InstOrigin
+instant/insttab.rs#L925  fn eq
+instant/insttab.rs#L945  impl Eq for InstOrigin
+instant/insttab.rs#L947  impl Default for InstOrigin
+instant/insttab.rs#L948  fn default
+instant/insttab.rs#L965  enum ProtectionKind
+instant/insttab.rs#L975  struct InstEntry
+instant/insttab.rs#L1205  impl InstEntry
+instant/insttab.rs#L1208  fn power_face
+instant/insttab.rs#L1215  fn power_spelling
+instant/insttab.rs#L1223  fn rail_identity
+instant/insttab.rs#L1229  fn wired_at
+instant/insttab.rs#L1235  fn unwired
+instant/insttab.rs#L1243  fn anchor_pos
+instant/insttab.rs#L1261  struct NetEntry
+instant/insttab.rs#L1287  struct InstTable
+instant/insttab.rs#L1379  impl InstTable
+instant/insttab.rs#L1381  fn new
+instant/insttab.rs#L1403  fn root_span
+instant/insttab.rs#L1410  fn net_table
+instant/insttab.rs#L1419  fn power_decls
+instant/insttab.rs#L1426  fn block_parts_of
+instant/insttab.rs#L1434  fn net_origin
+instant/insttab.rs#L1442  fn member_pin_of
+instant/insttab.rs#L1459  fn from_module_inst
+instant/insttab.rs#L1479  fn from_module_inst_with_arena
+instant/insttab.rs#L1508  fn register
+instant/insttab.rs#L1670  fn set_member_info
+instant/insttab.rs#L1680  fn set_identity
+instant/insttab.rs#L1705  fn set_point
+instant/insttab.rs#L1713  fn set_pwr_dir
+instant/insttab.rs#L1721  fn set_pwr_nom
+instant/insttab.rs#L1729  fn set_exposed
+instant/insttab.rs#L1738  fn set_expectations
+instant/insttab.rs#L1747  fn set_iface_lane
+instant/insttab.rs#L1756  fn set_ac_face
+instant/insttab.rs#L1764  fn set_pwr_member
+instant/insttab.rs#L1775  fn record_member_pin_sem
+instant/insttab.rs#L1806  fn set_pin_count
+instant/insttab.rs#L1819  fn mark_nc
+instant/insttab.rs#L1830  fn set_vector_info
+instant/insttab.rs#L1841  fn mark_alias
+instant/insttab.rs#L1877  fn declared_member_port_of
+instant/insttab.rs#L1910  fn fold_alias
+instant/insttab.rs#L1930  fn vector_member_paths
+instant/insttab.rs#L1952  fn mark_synthetic_by_path_prefix
+instant/insttab.rs#L1963  fn register_simple
+instant/insttab.rs#L1985  fn get_id_by_path
+instant/insttab.rs#L1990  fn get_entry
+instant/insttab.rs#L2007  fn class_def_of
+instant/insttab.rs#L2020  fn children_of
+instant/insttab.rs#L2028  fn iter
+instant/insttab.rs#L2033  fn len
+instant/insttab.rs#L2038  fn is_empty
+instant/insttab.rs#L2043  fn is_bridge_passive
+instant/insttab.rs#L2050  fn get_nets
+instant/insttab.rs#L2055  fn get_net
+instant/insttab.rs#L2064  fn get_net_of
+instant/insttab.rs#L2072  fn nets_of
+instant/insttab.rs#L2080  fn get_components
+instant/insttab.rs#L2092  fn iter_entries
+instant/insttab.rs#L2099  fn get_modules
+instant/insttab.rs#L2107  fn get_pins_of
+instant/insttab.rs#L2115  fn get_ports_of
+instant/insttab.rs#L2123  fn net_count
+instant/insttab.rs#L2150  fn backfill_port_decl_pos
+instant/insttab.rs#L2168  fn port_decl_span_of
+instant/insttab.rs#L2176  fn flatten_module
+instant/insttab.rs#L3317  fn flatten_nets
+instant/insttab.rs#L3522  fn resolve_netpoint_path
+instant/insttab.rs#L3558  fn resolve_single_path
+instant/insttab.rs#L3605  fn dump
+instant/insttab.rs#L3690  fn write_known_missing
+instant/insttab.rs#L3739  fn collect_failed_records
+instant/insttab.rs#L3773  fn expand_bracket_list
+instant/insttab.rs#L3804  mod tests
+instant/insttab.rs#L3808  fn mat_insttab__register_and_lookup
+instant/insttab.rs#L3823  fn mat_insttab__no_duplicate_registration
+instant/insttab.rs#L3844  fn mat_insttab__children_of
+instant/insttab.rs#L3880  fn mat_insttab__id_uniqueness
+instant/insttab.rs#L3900  fn mat_insttab__resolve_bus_member_path_fallback
+instant/insttab.rs#L3935  fn mat_insttab__resolve_plain_dot_path_still_works
+instant/insttab.rs#L3965  fn mat_insttab__resolve_top_level_port_no_prefix
+instant/insttab.rs#L3988  fn mat_insttab__resolve_bracket_list_expands
+instant/insttab.rs#L4026  fn mat_insttab__resolve_bracket_partial_miss
+instant/insttab.rs#L4057  fn mat_insttab__resolve_missing_path_returns_empty
+instant/insttab.rs#L4072  fn mat_insttab__expand_bracket_list_syntax
+instant/insttab.rs#L4102  fn mat_insttab__element_class_comes_from_the_definition_spec_table
+instant/insttab.rs#L4104  const SRC
 instant/island.rs#L45  enum NetRole
 instant/island.rs#L60  impl NetRole
 instant/island.rs#L61  fn as_str
@@ -3415,17 +3416,17 @@ instant/mc_mod/fcallinst.rs#L1227  fn materialize_declared_subinstances
 instant/mc_mod/fcallinst.rs#L1271  fn materialize_vector_groups
 instant/mc_mod/fcallinst.rs#L1323  fn materialize_deferred_subinstances
 instant/mc_mod/fcallinst.rs#L1402  fn instantiate_instance_method
-instant/mc_mod/fcallinst.rs#L1763  fn run_submodule_method
-instant/mc_mod/fcallinst.rs#L2244  fn run_component_method
-instant/mc_mod/fcallinst.rs#L2655  fn strip_host_iface_phantoms
-instant/mc_mod/fcallinst.rs#L2686  fn expand_bus_labels
-instant/mc_mod/fcallinst.rs#L2762  fn instance_declares_port
-instant/mc_mod/fcallinst.rs#L2777  fn actual_is_parent_ref
-instant/mc_mod/fcallinst.rs#L2805  fn prefix_instance_stmt_with_skip
-instant/mc_mod/fcallinst.rs#L2815  fn prefix_instance_phrase_with_skip
-instant/mc_mod/fcallinst.rs#L3151  fn prefix_instance_node_element_with_skip
-instant/mc_mod/fcallinst.rs#L3280  fn prefix_param_value_with_skip
-instant/mc_mod/fcallinst.rs#L3329  fn validate_fcall_return_shape
+instant/mc_mod/fcallinst.rs#L1775  fn run_submodule_method
+instant/mc_mod/fcallinst.rs#L2256  fn run_component_method
+instant/mc_mod/fcallinst.rs#L2667  fn strip_host_iface_phantoms
+instant/mc_mod/fcallinst.rs#L2698  fn expand_bus_labels
+instant/mc_mod/fcallinst.rs#L2774  fn instance_declares_port
+instant/mc_mod/fcallinst.rs#L2789  fn actual_is_parent_ref
+instant/mc_mod/fcallinst.rs#L2817  fn prefix_instance_stmt_with_skip
+instant/mc_mod/fcallinst.rs#L2827  fn prefix_instance_phrase_with_skip
+instant/mc_mod/fcallinst.rs#L3187  fn prefix_instance_node_element_with_skip
+instant/mc_mod/fcallinst.rs#L3316  fn prefix_param_value_with_skip
+instant/mc_mod/fcallinst.rs#L3365  fn validate_fcall_return_shape
 instant/mc_mod/funccall.rs#L40  enum FuncCallInst
 instant/mc_mod/funccall.rs#L57  enum FaceSide
 instant/mc_mod/funccall.rs#L62  impl FaceSide
@@ -3512,53 +3513,53 @@ instant/mc_mod/mod.rs#L666  mod tests
 instant/mc_mod/mod.rs#L685  fn mat_aname__sequence_lock
 instant/mc_mod/phases.rs#L33  impl InstantiationBuilder
 instant/mc_mod/phases.rs#L144  fn instantiate_interface
-instant/mc_mod/phases.rs#L500  fn inject_port_member_labels
-instant/mc_mod/phases.rs#L639  fn instantiate_declarations_resilient
-instant/mc_mod/phases.rs#L1047  fn resolve_component_nc_pins
-instant/mc_mod/phases.rs#L1116  fn resolve_module_nc_ports
-instant/mc_mod/phases.rs#L1182  fn report_nc_operand_miss
-instant/mc_mod/phases.rs#L1207  fn instantiate_stmts_resilient
-instant/mc_mod/phases.rs#L1313  fn dedup_connections
-instant/mc_mod/phases.rs#L1358  fn member_anchor
-instant/mc_mod/phases.rs#L1378  fn is_internal_member
-instant/mc_mod/phases.rs#L1414  fn validate_expanded_net_points
-instant/mc_mod/phases.rs#L1580  fn arg_declared_volt
-instant/mc_mod/phases.rs#L1601  fn bind_actual_args_to_ports
-instant/mc_mod/phases.rs#L1812  fn bind_call_args_to_ports
-instant/mc_mod/phases.rs#L2040  fn check_unbound_param_ports
-instant/mc_mod/phases.rs#L2122  fn run_component_constructor
-instant/mc_mod/phases.rs#L2309  fn iface_ordinal_member_names
-instant/mc_mod/phases.rs#L2319  fn iface_adopted_pin_table
-instant/mc_mod/phases.rs#L2331  fn extract_port_bus_members
-instant/mc_mod/phases.rs#L2413  fn read_iface_diff_groups
-instant/mc_mod/phases.rs#L2451  fn port_base_name
-instant/mc_mod/phases.rs#L2471  fn port_members
-instant/mc_mod/phases.rs#L2503  fn is_power_terminal
-instant/mc_mod/phases.rs#L2515  fn bindable_formals
-instant/mc_mod/phases.rs#L2545  fn declared_volt_of_params
-instant/mc_mod/phases.rs#L2567  fn declared_volt_of_texts
-instant/mc_mod/phases.rs#L2597  fn nc_port_hits
-instant/mc_mod/phases.rs#L2611  fn nc_port_range_hits
+instant/mc_mod/phases.rs#L520  fn inject_port_member_labels
+instant/mc_mod/phases.rs#L659  fn instantiate_declarations_resilient
+instant/mc_mod/phases.rs#L1067  fn resolve_component_nc_pins
+instant/mc_mod/phases.rs#L1136  fn resolve_module_nc_ports
+instant/mc_mod/phases.rs#L1202  fn report_nc_operand_miss
+instant/mc_mod/phases.rs#L1227  fn instantiate_stmts_resilient
+instant/mc_mod/phases.rs#L1333  fn dedup_connections
+instant/mc_mod/phases.rs#L1378  fn member_anchor
+instant/mc_mod/phases.rs#L1398  fn is_internal_member
+instant/mc_mod/phases.rs#L1434  fn validate_expanded_net_points
+instant/mc_mod/phases.rs#L1600  fn arg_declared_volt
+instant/mc_mod/phases.rs#L1621  fn bind_actual_args_to_ports
+instant/mc_mod/phases.rs#L1832  fn bind_call_args_to_ports
+instant/mc_mod/phases.rs#L2060  fn check_unbound_param_ports
+instant/mc_mod/phases.rs#L2142  fn run_component_constructor
+instant/mc_mod/phases.rs#L2329  fn iface_ordinal_member_names
+instant/mc_mod/phases.rs#L2339  fn iface_adopted_pin_table
+instant/mc_mod/phases.rs#L2351  fn extract_port_bus_members
+instant/mc_mod/phases.rs#L2433  fn read_iface_diff_groups
+instant/mc_mod/phases.rs#L2471  fn port_base_name
+instant/mc_mod/phases.rs#L2491  fn port_members
+instant/mc_mod/phases.rs#L2523  fn is_power_terminal
+instant/mc_mod/phases.rs#L2535  fn bindable_formals
+instant/mc_mod/phases.rs#L2565  fn declared_volt_of_params
+instant/mc_mod/phases.rs#L2587  fn declared_volt_of_texts
+instant/mc_mod/phases.rs#L2617  fn nc_port_hits
+instant/mc_mod/phases.rs#L2631  fn nc_port_range_hits
 instant/mc_mod/points.rs#L42  fn parse_curly_select
 instant/mc_mod/points.rs#L56  fn expand_member_ida
 instant/mc_mod/points.rs#L95  fn resolve_bare_member_pid
 instant/mc_mod/points.rs#L153  fn declared_pin_id
 instant/mc_mod/points.rs#L177  impl InstantiationBuilder
 instant/mc_mod/points.rs#L178  fn get_left_points
-instant/mc_mod/points.rs#L926  fn get_right_points
-instant/mc_mod/points.rs#L1561  fn get_left_points_from_phrase
-instant/mc_mod/points.rs#L1607  fn get_right_points_from_phrase
-instant/mc_mod/points.rs#L1652  fn deepest_component_owner
-instant/mc_mod/points.rs#L1666  fn node_to_netpoint
-instant/mc_mod/points.rs#L1937  fn expand_port_lanes
-instant/mc_mod/points.rs#L1940  fn parse_brace_members
-instant/mc_mod/points.rs#L1960  fn strip_brace_suffix
-instant/mc_mod/points.rs#L1985  fn iotype_allowed
-instant/mc_mod/points.rs#L2311  fn normalize_one_inst_pin_path
-instant/mc_mod/points.rs#L2343  fn note_internal_member_ref
-instant/mc_mod/points.rs#L2385  fn resolve_child_points
-instant/mc_mod/points.rs#L2440  fn is_port
-instant/mc_mod/points.rs#L2444  fn ensure_label
+instant/mc_mod/points.rs#L937  fn get_right_points
+instant/mc_mod/points.rs#L1580  fn get_left_points_from_phrase
+instant/mc_mod/points.rs#L1626  fn get_right_points_from_phrase
+instant/mc_mod/points.rs#L1671  fn deepest_component_owner
+instant/mc_mod/points.rs#L1685  fn node_to_netpoint
+instant/mc_mod/points.rs#L1956  fn expand_port_lanes
+instant/mc_mod/points.rs#L1959  fn parse_brace_members
+instant/mc_mod/points.rs#L1979  fn strip_brace_suffix
+instant/mc_mod/points.rs#L2004  fn iotype_allowed
+instant/mc_mod/points.rs#L2330  fn normalize_one_inst_pin_path
+instant/mc_mod/points.rs#L2362  fn note_internal_member_ref
+instant/mc_mod/points.rs#L2404  fn resolve_child_points
+instant/mc_mod/points.rs#L2459  fn is_port
+instant/mc_mod/points.rs#L2463  fn ensure_label
 instant/mc_mod/stmt.rs#L29  struct IfaceEndpoint
 instant/mc_mod/stmt.rs#L36  enum LaneItem
 instant/mc_mod/stmt.rs#L53  enum DirExpect
@@ -3623,23 +3624,23 @@ instant/mc_mod/stmt.rs#L2432  fn check_net_topology
 instant/mc_mod/stmt.rs#L2443  fn check_iface_connect_net
 instant/mc_mod/stmt.rs#L2467  fn check_iface_topology
 instant/mc_mod/stmt.rs#L2509  fn iface_pair_diag
-instant/mc_mod/stmt.rs#L2644  fn iface_endpoint_of_point
-instant/mc_mod/stmt.rs#L2696  fn role_of
-instant/mc_mod/stmt.rs#L2719  fn mediator_iface_role
-instant/mc_mod/stmt.rs#L2740  fn record_chain_iface_endpoints
-instant/mc_mod/stmt.rs#L2773  fn record_chain_iface_endpoint_ep
-instant/mc_mod/stmt.rs#L2806  fn iface_attr_value_set
-instant/mc_mod/stmt.rs#L2873  fn connect_adjacent_pair
-instant/mc_mod/stmt.rs#L2922  fn normalize_branch_elem
-instant/mc_mod/stmt.rs#L2940  fn process_series_branch_inplace
-instant/mc_mod/stmt.rs#L2980  fn stash_pass_through
-instant/mc_mod/stmt.rs#L2987  fn process_member_internal
-instant/mc_mod/stmt.rs#L3945  fn assign_phrase_ids
-instant/mc_mod/stmt.rs#L3988  fn reset_phrase_ids
-instant/mc_mod/stmt.rs#L4026  fn member_key
-instant/mc_mod/stmt.rs#L4051  fn extract_caller_inst_name
-instant/mc_mod/stmt.rs#L4133  fn resolve_array_caller_to_existing
-instant/mc_mod/stmt.rs#L4195  fn phrase_contains_failed_class
+instant/mc_mod/stmt.rs#L2660  fn iface_endpoint_of_point
+instant/mc_mod/stmt.rs#L2712  fn role_of
+instant/mc_mod/stmt.rs#L2735  fn mediator_iface_role
+instant/mc_mod/stmt.rs#L2756  fn record_chain_iface_endpoints
+instant/mc_mod/stmt.rs#L2789  fn record_chain_iface_endpoint_ep
+instant/mc_mod/stmt.rs#L2822  fn iface_attr_value_set
+instant/mc_mod/stmt.rs#L2889  fn connect_adjacent_pair
+instant/mc_mod/stmt.rs#L2938  fn normalize_branch_elem
+instant/mc_mod/stmt.rs#L2956  fn process_series_branch_inplace
+instant/mc_mod/stmt.rs#L2996  fn stash_pass_through
+instant/mc_mod/stmt.rs#L3003  fn process_member_internal
+instant/mc_mod/stmt.rs#L3961  fn assign_phrase_ids
+instant/mc_mod/stmt.rs#L4004  fn reset_phrase_ids
+instant/mc_mod/stmt.rs#L4042  fn member_key
+instant/mc_mod/stmt.rs#L4067  fn extract_caller_inst_name
+instant/mc_mod/stmt.rs#L4149  fn resolve_array_caller_to_existing
+instant/mc_mod/stmt.rs#L4211  fn phrase_contains_failed_class
 instant/mc_mod/subst.rs#L33  impl InstantiationBuilder
 instant/mc_mod/subst.rs#L40  fn param_value_to_node_elements
 instant/mc_mod/subst.rs#L47  fn param_value_to_node_elements_inner
@@ -3805,45 +3806,45 @@ instant/mc_net.rs#L458  fn is_anon_net_name
 instant/mc_net.rs#L462  impl fmt::Display for ConnectionInst
 instant/mc_net.rs#L463  fn fmt
 instant/mc_net.rs#L483  struct PortInst
-instant/mc_net.rs#L582  struct AcPortFace
-instant/mc_net.rs#L588  impl PortInst
-instant/mc_net.rs#L590  fn new
-instant/mc_net.rs#L608  fn with_members
-instant/mc_net.rs#L625  fn is_bus_port
-instant/mc_net.rs#L637  fn path_suffixes
-instant/mc_net.rs#L684  struct PortPathSuffixes
-instant/mc_net.rs#L693  impl fmt::Display for PortInst
-instant/mc_net.rs#L694  fn fmt
-instant/mc_net.rs#L709  enum InstError
-instant/mc_net.rs#L749  impl fmt::Display for InstError
-instant/mc_net.rs#L750  fn fmt
-instant/mc_net.rs#L794  impl std::error::Error for InstError
-instant/mc_net.rs#L800  enum InstDiagLevel
-instant/mc_net.rs#L816  struct InstDiagnostic
-instant/mc_net.rs#L828  impl InstDiagnostic
-instant/mc_net.rs#L830  fn error
-instant/mc_net.rs#L840  fn warning
-instant/mc_net.rs#L850  impl fmt::Display for InstDiagnostic
-instant/mc_net.rs#L851  fn fmt
-instant/mc_net.rs#L874  fn normalize_pin_segments
-instant/mc_net.rs#L917  fn canonicalize_path
-instant/mc_net.rs#L959  struct NetTable
-instant/mc_net.rs#L973  impl NetTable
-instant/mc_net.rs#L974  fn new
-instant/mc_net.rs#L987  fn register_port
-instant/mc_net.rs#L1049  fn add_connection
-instant/mc_net.rs#L1191  fn tie_paths
-instant/mc_net.rs#L1222  fn batch_union_shared_nodes
-instant/mc_net.rs#L1261  fn into_nets
-instant/mc_net.rs#L1391  fn ensure_point
-instant/mc_net.rs#L1418  fn find
-instant/mc_net.rs#L1426  fn union
-instant/mc_net.rs#L1443  mod tests
-instant/mc_net.rs#L1447  fn dlu_net__canonicalize_arrow_residual
-instant/mc_net.rs#L1455  fn dlu_net__canonicalize_no_change
-instant/mc_net.rs#L1482  fn dlu_net__repeated_segment_is_identity
-instant/mc_net.rs#L1513  fn dlu_net__batch_union_merges_shared_nodes
-instant/mc_net.rs#L1555  fn dlu_net__duplicate_suffix_paths_stay_apart
+instant/mc_net.rs#L590  struct AcPortFace
+instant/mc_net.rs#L596  impl PortInst
+instant/mc_net.rs#L598  fn new
+instant/mc_net.rs#L617  fn with_members
+instant/mc_net.rs#L635  fn is_bus_port
+instant/mc_net.rs#L647  fn path_suffixes
+instant/mc_net.rs#L694  struct PortPathSuffixes
+instant/mc_net.rs#L703  impl fmt::Display for PortInst
+instant/mc_net.rs#L704  fn fmt
+instant/mc_net.rs#L719  enum InstError
+instant/mc_net.rs#L759  impl fmt::Display for InstError
+instant/mc_net.rs#L760  fn fmt
+instant/mc_net.rs#L804  impl std::error::Error for InstError
+instant/mc_net.rs#L810  enum InstDiagLevel
+instant/mc_net.rs#L826  struct InstDiagnostic
+instant/mc_net.rs#L838  impl InstDiagnostic
+instant/mc_net.rs#L840  fn error
+instant/mc_net.rs#L850  fn warning
+instant/mc_net.rs#L860  impl fmt::Display for InstDiagnostic
+instant/mc_net.rs#L861  fn fmt
+instant/mc_net.rs#L884  fn normalize_pin_segments
+instant/mc_net.rs#L927  fn canonicalize_path
+instant/mc_net.rs#L969  struct NetTable
+instant/mc_net.rs#L983  impl NetTable
+instant/mc_net.rs#L984  fn new
+instant/mc_net.rs#L997  fn register_port
+instant/mc_net.rs#L1059  fn add_connection
+instant/mc_net.rs#L1201  fn tie_paths
+instant/mc_net.rs#L1232  fn batch_union_shared_nodes
+instant/mc_net.rs#L1271  fn into_nets
+instant/mc_net.rs#L1401  fn ensure_point
+instant/mc_net.rs#L1428  fn find
+instant/mc_net.rs#L1436  fn union
+instant/mc_net.rs#L1453  mod tests
+instant/mc_net.rs#L1457  fn dlu_net__canonicalize_arrow_residual
+instant/mc_net.rs#L1465  fn dlu_net__canonicalize_no_change
+instant/mc_net.rs#L1492  fn dlu_net__repeated_segment_is_identity
+instant/mc_net.rs#L1523  fn dlu_net__batch_union_merges_shared_nodes
+instant/mc_net.rs#L1565  fn dlu_net__duplicate_suffix_paths_stay_apart
 instant/mod.rs#L5  mod arena
 instant/mod.rs#L6  mod bom
 instant/mod.rs#L7  mod deps
@@ -5619,17 +5620,19 @@ semantic/basic/mc_literal.rs#L252  fn new
 semantic/basic/mc_opd.rs#L13  enum McOpd
 semantic/basic/mc_opd.rs#L20  impl McOpd
 semantic/basic/mc_opd.rs#L21  fn new
-semantic/basic/mc_opd.rs#L145  fn new_from_ids_node
-semantic/basic/mc_opd.rs#L157  fn expand
-semantic/basic/mc_opd.rs#L167  fn to_string_list
-semantic/basic/mc_opd.rs#L177  fn match_name
-semantic/basic/mc_opd.rs#L187  impl McOpd
-semantic/basic/mc_opd.rs#L188  fn to_string
-semantic/basic/mc_opd.rs#L197  fn len
-semantic/basic/mc_opd.rs#L207  impl From<&str> for McOpd
-semantic/basic/mc_opd.rs#L208  fn from
-semantic/basic/mc_opd.rs#L213  impl std::fmt::Display for McOpd
-semantic/basic/mc_opd.rs#L214  fn fmt
+semantic/basic/mc_opd.rs#L186  fn new_from_ids_node
+semantic/basic/mc_opd.rs#L204  fn push_group_member
+semantic/basic/mc_opd.rs#L241  fn push_chain_segments
+semantic/basic/mc_opd.rs#L339  fn expand
+semantic/basic/mc_opd.rs#L349  fn to_string_list
+semantic/basic/mc_opd.rs#L359  fn match_name
+semantic/basic/mc_opd.rs#L369  impl McOpd
+semantic/basic/mc_opd.rs#L370  fn to_string
+semantic/basic/mc_opd.rs#L379  fn len
+semantic/basic/mc_opd.rs#L389  impl From<&str> for McOpd
+semantic/basic/mc_opd.rs#L390  fn from
+semantic/basic/mc_opd.rs#L395  impl std::fmt::Display for McOpd
+semantic/basic/mc_opd.rs#L396  fn fmt
 semantic/basic/mc_param.rs#L26  static R05_UNRESOLVED_UNIT
 semantic/basic/mc_param.rs#L28  fn reset_r05_counter
 semantic/basic/mc_param.rs#L36  enum McParamValue
@@ -5902,71 +5905,71 @@ semantic/basic/mc_phrase.rs#L613  fn expand_options
 semantic/basic/mc_phrase.rs#L625  fn expand_group
 semantic/basic/mc_phrase.rs#L695  fn cartesian_product
 semantic/basic/mc_phrase.rs#L711  fn new
-semantic/basic/mc_phrase.rs#L4080  fn salvage_inline_ctors
-semantic/basic/mc_phrase.rs#L4084  fn collect_fcalls
-semantic/basic/mc_phrase.rs#L4118  fn curly_mn_side_members
-semantic/basic/mc_phrase.rs#L4141  struct CompPinShape
-semantic/basic/mc_phrase.rs#L4149  enum PinShapeKind
-semantic/basic/mc_phrase.rs#L4171  fn shape_defaults
-semantic/basic/mc_phrase.rs#L4231  fn is_reverse_noop_operand
-semantic/basic/mc_phrase.rs#L4261  fn as_bare_component
-semantic/basic/mc_phrase.rs#L4272  fn body_arity
-semantic/basic/mc_phrase.rs#L4286  fn check_inst_plusminus
-semantic/basic/mc_phrase.rs#L4312  fn check_body_pair_plusminus
-semantic/basic/mc_phrase.rs#L4336  fn as_bare_net
-semantic/basic/mc_phrase.rs#L4364  fn root_ident
-semantic/basic/mc_phrase.rs#L4390  fn check_net_pair_plusminus
-semantic/basic/mc_phrase.rs#L4405  impl McPhrase
-semantic/basic/mc_phrase.rs#L4410  fn reverse_is_noop
-semantic/basic/mc_phrase.rs#L4414  fn get_left
-semantic/basic/mc_phrase.rs#L4569  fn get_right
-semantic/basic/mc_phrase.rs#L4702  fn dot_or_curly
-semantic/basic/mc_phrase.rs#L5099  fn access_node_element_members
-semantic/basic/mc_phrase.rs#L5162  fn curly_mn
-semantic/basic/mc_phrase.rs#L5178  fn opd_to_node_element_vec
-semantic/basic/mc_phrase.rs#L5266  fn upgrade_new_label_or_bus
-semantic/basic/mc_phrase.rs#L5277  fn needs_paren_for_priority
-semantic/basic/mc_phrase.rs#L5296  fn needs_paren_for_series
-semantic/basic/mc_phrase.rs#L5321  fn format_series_item
-semantic/basic/mc_phrase.rs#L5329  impl std::fmt::Display for McPhrase
-semantic/basic/mc_phrase.rs#L5330  fn fmt
-semantic/basic/mc_phrase.rs#L5398  fn flatten
-semantic/basic/mc_phrase.rs#L5502  fn stretch_licensed_members
-semantic/basic/mc_phrase.rs#L5526  fn operand_is_licensed_member
-semantic/basic/mc_phrase.rs#L5542  fn operand_lane_width
-semantic/basic/mc_phrase.rs#L5550  fn infer_shape_and_upgrade
-semantic/basic/mc_phrase.rs#L5730  fn check_transpose_allowed
-semantic/basic/mc_phrase.rs#L5751  fn interface_elems
-semantic/basic/mc_phrase.rs#L5793  fn with_owner
-semantic/basic/mc_phrase.rs#L5813  fn component_port_elems
-semantic/basic/mc_phrase.rs#L5875  fn base_instance_name
-semantic/basic/mc_phrase.rs#L5894  fn module_port_elems
-semantic/basic/mc_phrase.rs#L5969  fn operand_base_member
-semantic/basic/mc_phrase.rs#L6000  fn module_member_is_internal
-semantic/basic/mc_phrase.rs#L6043  fn report_internal_member_access
-semantic/basic/mc_phrase.rs#L6075  fn group_display_form
-semantic/basic/mc_phrase.rs#L6080  fn eval_port_elems
-semantic/basic/mc_phrase.rs#L6645  impl OpdShape
-semantic/basic/mc_phrase.rs#L6652  fn of
-semantic/basic/mc_phrase.rs#L6662  fn from_sides
-semantic/basic/mc_phrase.rs#L6709  fn check_list_column_width_mixed
-semantic/basic/mc_phrase.rs#L6766  fn declared_scalar_element
-semantic/basic/mc_phrase.rs#L6789  fn list_element_elems
-semantic/basic/mc_phrase.rs#L6805  fn column_kind
-semantic/basic/mc_phrase.rs#L6835  enum ColumnKind
-semantic/basic/mc_phrase.rs#L6866  fn is_connectable
-semantic/basic/mc_phrase.rs#L6881  mod nested_subscript_tests
-semantic/basic/mc_phrase.rs#L6885  fn nested_subscript__embedded_group_splits_from_single_ida
-semantic/basic/mc_phrase.rs#L6893  fn nested_subscript__named_inner_members
-semantic/basic/mc_phrase.rs#L6901  fn nested_subscript__matrix_is_not_split
-semantic/basic/mc_phrase.rs#L6907  fn nested_subscript__curly_on_array_splits
-semantic/basic/mc_phrase.rs#L6925  fn nested_subscript__plain_curly_bus_is_not_split
-semantic/basic/mc_phrase.rs#L6946  mod r0_group_structure_tests
-semantic/basic/mc_phrase.rs#L6950  fn group
-semantic/basic/mc_phrase.rs#L6961  fn spliced_statement
-semantic/basic/mc_phrase.rs#L6976  fn r0_group_structure__inner_chain_survives_the_statement_split
-semantic/basic/mc_phrase.rs#L6996  fn r0_group_structure__display_renders_the_inner_parentheses
-semantic/basic/mc_phrase.rs#L7008  fn r0_group_structure__inner_direction_stays_under_a_different_outer
+semantic/basic/mc_phrase.rs#L4104  fn salvage_inline_ctors
+semantic/basic/mc_phrase.rs#L4108  fn collect_fcalls
+semantic/basic/mc_phrase.rs#L4142  fn curly_mn_side_members
+semantic/basic/mc_phrase.rs#L4165  struct CompPinShape
+semantic/basic/mc_phrase.rs#L4173  enum PinShapeKind
+semantic/basic/mc_phrase.rs#L4195  fn shape_defaults
+semantic/basic/mc_phrase.rs#L4255  fn is_reverse_noop_operand
+semantic/basic/mc_phrase.rs#L4285  fn as_bare_component
+semantic/basic/mc_phrase.rs#L4296  fn body_arity
+semantic/basic/mc_phrase.rs#L4310  fn check_inst_plusminus
+semantic/basic/mc_phrase.rs#L4336  fn check_body_pair_plusminus
+semantic/basic/mc_phrase.rs#L4360  fn as_bare_net
+semantic/basic/mc_phrase.rs#L4388  fn root_ident
+semantic/basic/mc_phrase.rs#L4414  fn check_net_pair_plusminus
+semantic/basic/mc_phrase.rs#L4429  impl McPhrase
+semantic/basic/mc_phrase.rs#L4434  fn reverse_is_noop
+semantic/basic/mc_phrase.rs#L4438  fn get_left
+semantic/basic/mc_phrase.rs#L4593  fn get_right
+semantic/basic/mc_phrase.rs#L4726  fn dot_or_curly
+semantic/basic/mc_phrase.rs#L5123  fn access_node_element_members
+semantic/basic/mc_phrase.rs#L5186  fn curly_mn
+semantic/basic/mc_phrase.rs#L5202  fn opd_to_node_element_vec
+semantic/basic/mc_phrase.rs#L5290  fn upgrade_new_label_or_bus
+semantic/basic/mc_phrase.rs#L5301  fn needs_paren_for_priority
+semantic/basic/mc_phrase.rs#L5320  fn needs_paren_for_series
+semantic/basic/mc_phrase.rs#L5345  fn format_series_item
+semantic/basic/mc_phrase.rs#L5353  impl std::fmt::Display for McPhrase
+semantic/basic/mc_phrase.rs#L5354  fn fmt
+semantic/basic/mc_phrase.rs#L5422  fn flatten
+semantic/basic/mc_phrase.rs#L5526  fn stretch_licensed_members
+semantic/basic/mc_phrase.rs#L5550  fn operand_is_licensed_member
+semantic/basic/mc_phrase.rs#L5566  fn operand_lane_width
+semantic/basic/mc_phrase.rs#L5574  fn infer_shape_and_upgrade
+semantic/basic/mc_phrase.rs#L5754  fn check_transpose_allowed
+semantic/basic/mc_phrase.rs#L5775  fn interface_elems
+semantic/basic/mc_phrase.rs#L5817  fn with_owner
+semantic/basic/mc_phrase.rs#L5837  fn component_port_elems
+semantic/basic/mc_phrase.rs#L5899  fn base_instance_name
+semantic/basic/mc_phrase.rs#L5918  fn module_port_elems
+semantic/basic/mc_phrase.rs#L5993  fn operand_base_member
+semantic/basic/mc_phrase.rs#L6024  fn module_member_is_internal
+semantic/basic/mc_phrase.rs#L6067  fn report_internal_member_access
+semantic/basic/mc_phrase.rs#L6099  fn group_display_form
+semantic/basic/mc_phrase.rs#L6104  fn eval_port_elems
+semantic/basic/mc_phrase.rs#L6686  impl OpdShape
+semantic/basic/mc_phrase.rs#L6693  fn of
+semantic/basic/mc_phrase.rs#L6703  fn from_sides
+semantic/basic/mc_phrase.rs#L6750  fn check_list_column_width_mixed
+semantic/basic/mc_phrase.rs#L6807  fn declared_scalar_element
+semantic/basic/mc_phrase.rs#L6830  fn list_element_elems
+semantic/basic/mc_phrase.rs#L6846  fn column_kind
+semantic/basic/mc_phrase.rs#L6876  enum ColumnKind
+semantic/basic/mc_phrase.rs#L6907  fn is_connectable
+semantic/basic/mc_phrase.rs#L6922  mod nested_subscript_tests
+semantic/basic/mc_phrase.rs#L6926  fn nested_subscript__embedded_group_splits_from_single_ida
+semantic/basic/mc_phrase.rs#L6934  fn nested_subscript__named_inner_members
+semantic/basic/mc_phrase.rs#L6942  fn nested_subscript__matrix_is_not_split
+semantic/basic/mc_phrase.rs#L6948  fn nested_subscript__curly_on_array_splits
+semantic/basic/mc_phrase.rs#L6966  fn nested_subscript__plain_curly_bus_is_not_split
+semantic/basic/mc_phrase.rs#L6987  mod r0_group_structure_tests
+semantic/basic/mc_phrase.rs#L6991  fn group
+semantic/basic/mc_phrase.rs#L7002  fn spliced_statement
+semantic/basic/mc_phrase.rs#L7017  fn r0_group_structure__inner_chain_survives_the_statement_split
+semantic/basic/mc_phrase.rs#L7037  fn r0_group_structure__display_renders_the_inner_parentheses
+semantic/basic/mc_phrase.rs#L7049  fn r0_group_structure__inner_direction_stays_under_a_different_outer
 semantic/basic/mc_ref.rs#L14  struct McInstanceRef
 semantic/basic/mc_ref.rs#L18  impl McInstanceRef
 semantic/basic/mc_ref.rs#L19  fn new
@@ -5999,6 +6002,10 @@ semantic/basic/mc_role.rs#L20  fn new
 semantic/basic/mc_role.rs#L65  fn get_attr
 semantic/basic/mc_role.rs#L70  impl std::fmt::Display for McRole
 semantic/basic/mc_role.rs#L71  fn fmt
+semantic/basic/mc_role.rs#L86  struct PeerRoleRef
+semantic/basic/mc_role.rs#L100  fn peer_role_refs
+semantic/basic/mc_role.rs#L104  fn card_of
+semantic/basic/mc_role.rs#L119  fn one
 semantic/basic/mc_uval.rs#L13  enum McUnit
 semantic/basic/mc_uval.rs#L49  struct McUnitValueDeclare
 semantic/basic/mc_uval.rs#L55  impl McUnitValueDeclare
@@ -6904,76 +6911,76 @@ semantic/module/mod.rs#L482  fn scan_domain_bridges
 semantic/module/mod.rs#L625  fn parse_body
 semantic/module/mod.rs#L1097  fn collect_declare_ctor_refs
 semantic/module/mod.rs#L1139  fn split_decl_face
-semantic/module/mod.rs#L1199  fn is_plain_label_candidate
-semantic/module/mod.rs#L1221  fn extract_declare_class_span
-semantic/module/mod.rs#L1269  fn register_curly_param_bus_def
-semantic/module/mod.rs#L1340  fn find_inst
-semantic/module/mod.rs#L1347  fn add_label
-semantic/module/mod.rs#L1367  fn find_member_in_anon_insts
-semantic/module/mod.rs#L1409  fn add_component
-semantic/module/mod.rs#L1422  fn add_module
-semantic/module/mod.rs#L1429  fn get_input_elements
-semantic/module/mod.rs#L1438  fn get_output_elements
-semantic/module/mod.rs#L1452  fn port_decl_span
-semantic/module/mod.rs#L1459  impl ShapeCtx for McModule
-semantic/module/mod.rs#L1460  fn find_inst
-semantic/module/mod.rs#L1464  fn uri
-semantic/module/mod.rs#L1468  fn is_declared_port
-semantic/module/mod.rs#L1476  fn interface_param_members
-semantic/module/mod.rs#L1496  fn get_vector_members
-semantic/module/mod.rs#L1503  impl HasFindInst for McModule
-semantic/module/mod.rs#L1505  fn is_declared_instance_name
-semantic/module/mod.rs#L1512  fn note_func_call_caller
-semantic/module/mod.rs#L1522  fn report_floating_label
-semantic/module/mod.rs#L1530  fn register_gate_candidate
-semantic/module/mod.rs#L1539  fn find_inst_mut
-semantic/module/mod.rs#L1544  fn find_inst_with_span
-semantic/module/mod.rs#L1559  fn declared_port_members
-semantic/module/mod.rs#L1579  fn add_label_at
-semantic/module/mod.rs#L1590  fn add_bus
-semantic/module/mod.rs#L1603  fn add_list
-semantic/module/mod.rs#L1612  fn add_bus_member
-semantic/module/mod.rs#L1697  fn add_interface_member
-semantic/module/mod.rs#L1734  fn check_bus_member
-semantic/module/mod.rs#L1745  fn is_component_bus
-semantic/module/mod.rs#L1755  fn parse_declare
-semantic/module/mod.rs#L1767  fn add_component
-semantic/module/mod.rs#L1775  fn add_module
-semantic/module/mod.rs#L1793  fn gen_anon_name
-semantic/module/mod.rs#L1799  fn store_inst_span
-semantic/module/mod.rs#L1803  fn record_declareb_def
-semantic/module/mod.rs#L1812  fn upgrade_label_to_bus
-semantic/module/mod.rs#L1833  fn find_func_return
-semantic/module/mod.rs#L1837  fn domain_pair_named
-semantic/module/mod.rs#L1847  fn declared_endpoint_named
-semantic/module/mod.rs#L1859  fn scope_name
-semantic/module/mod.rs#L1863  fn licensed_domain_member_at
-semantic/module/mod.rs#L1875  struct DomainBridgeWord
-semantic/module/mod.rs#L1887  fn collect_domain_bridge_words
-semantic/module/mod.rs#L1916  fn report_domain_bridge_code
-semantic/module/mod.rs#L1925  impl McModule
-semantic/module/mod.rs#L1931  fn collect_net_def_spans
-semantic/module/mod.rs#L2001  fn collect_net_refs_in_node
-semantic/module/mod.rs#L2134  fn has_dot_chain
-semantic/module/mod.rs#L2172  fn try_record_chain_ref
-semantic/module/mod.rs#L2268  fn collect_instance_segments
-semantic/module/mod.rs#L2286  fn collect_fcall_segments
-semantic/module/mod.rs#L2315  fn walk_chain_children
-semantic/module/mod.rs#L2367  fn collect_ident_segments
-semantic/module/mod.rs#L2427  fn collect_curly_members
-semantic/module/mod.rs#L2454  fn curly_range
-semantic/module/mod.rs#L2461  fn record_scoped_net_ref
-semantic/module/mod.rs#L2570  struct Mc2Module
-semantic/module/mod.rs#L2581  impl Mc2Module
-semantic/module/mod.rs#L2582  fn new
-semantic/module/mod.rs#L2592  fn with_params
-semantic/module/mod.rs#L2603  fn find_port
-semantic/module/mod.rs#L2638  fn get_input_ports
-semantic/module/mod.rs#L2648  fn get_output_ports
-semantic/module/mod.rs#L2658  fn get_all_ports
-semantic/module/mod.rs#L2670  impl std::fmt::Display for McModule
-semantic/module/mod.rs#L2671  fn fmt
-semantic/module/mod.rs#L2677  struct InstRow
+semantic/module/mod.rs#L1233  fn is_plain_label_candidate
+semantic/module/mod.rs#L1255  fn extract_declare_class_span
+semantic/module/mod.rs#L1303  fn register_curly_param_bus_def
+semantic/module/mod.rs#L1374  fn find_inst
+semantic/module/mod.rs#L1381  fn add_label
+semantic/module/mod.rs#L1401  fn find_member_in_anon_insts
+semantic/module/mod.rs#L1443  fn add_component
+semantic/module/mod.rs#L1456  fn add_module
+semantic/module/mod.rs#L1463  fn get_input_elements
+semantic/module/mod.rs#L1472  fn get_output_elements
+semantic/module/mod.rs#L1486  fn port_decl_span
+semantic/module/mod.rs#L1493  impl ShapeCtx for McModule
+semantic/module/mod.rs#L1494  fn find_inst
+semantic/module/mod.rs#L1498  fn uri
+semantic/module/mod.rs#L1502  fn is_declared_port
+semantic/module/mod.rs#L1510  fn interface_param_members
+semantic/module/mod.rs#L1530  fn get_vector_members
+semantic/module/mod.rs#L1537  impl HasFindInst for McModule
+semantic/module/mod.rs#L1539  fn is_declared_instance_name
+semantic/module/mod.rs#L1546  fn note_func_call_caller
+semantic/module/mod.rs#L1556  fn report_floating_label
+semantic/module/mod.rs#L1564  fn register_gate_candidate
+semantic/module/mod.rs#L1573  fn find_inst_mut
+semantic/module/mod.rs#L1578  fn find_inst_with_span
+semantic/module/mod.rs#L1593  fn declared_port_members
+semantic/module/mod.rs#L1613  fn add_label_at
+semantic/module/mod.rs#L1624  fn add_bus
+semantic/module/mod.rs#L1637  fn add_list
+semantic/module/mod.rs#L1646  fn add_bus_member
+semantic/module/mod.rs#L1731  fn add_interface_member
+semantic/module/mod.rs#L1768  fn check_bus_member
+semantic/module/mod.rs#L1779  fn is_component_bus
+semantic/module/mod.rs#L1789  fn parse_declare
+semantic/module/mod.rs#L1801  fn add_component
+semantic/module/mod.rs#L1809  fn add_module
+semantic/module/mod.rs#L1827  fn gen_anon_name
+semantic/module/mod.rs#L1833  fn store_inst_span
+semantic/module/mod.rs#L1837  fn record_declareb_def
+semantic/module/mod.rs#L1846  fn upgrade_label_to_bus
+semantic/module/mod.rs#L1867  fn find_func_return
+semantic/module/mod.rs#L1871  fn domain_pair_named
+semantic/module/mod.rs#L1881  fn declared_endpoint_named
+semantic/module/mod.rs#L1893  fn scope_name
+semantic/module/mod.rs#L1897  fn licensed_domain_member_at
+semantic/module/mod.rs#L1909  struct DomainBridgeWord
+semantic/module/mod.rs#L1921  fn collect_domain_bridge_words
+semantic/module/mod.rs#L1950  fn report_domain_bridge_code
+semantic/module/mod.rs#L1959  impl McModule
+semantic/module/mod.rs#L1965  fn collect_net_def_spans
+semantic/module/mod.rs#L2035  fn collect_net_refs_in_node
+semantic/module/mod.rs#L2168  fn has_dot_chain
+semantic/module/mod.rs#L2206  fn try_record_chain_ref
+semantic/module/mod.rs#L2302  fn collect_instance_segments
+semantic/module/mod.rs#L2320  fn collect_fcall_segments
+semantic/module/mod.rs#L2349  fn walk_chain_children
+semantic/module/mod.rs#L2401  fn collect_ident_segments
+semantic/module/mod.rs#L2461  fn collect_curly_members
+semantic/module/mod.rs#L2488  fn curly_range
+semantic/module/mod.rs#L2495  fn record_scoped_net_ref
+semantic/module/mod.rs#L2604  struct Mc2Module
+semantic/module/mod.rs#L2615  impl Mc2Module
+semantic/module/mod.rs#L2616  fn new
+semantic/module/mod.rs#L2626  fn with_params
+semantic/module/mod.rs#L2637  fn find_port
+semantic/module/mod.rs#L2672  fn get_input_ports
+semantic/module/mod.rs#L2682  fn get_output_ports
+semantic/module/mod.rs#L2692  fn get_all_ports
+semantic/module/mod.rs#L2704  impl std::fmt::Display for McModule
+semantic/module/mod.rs#L2705  fn fmt
+semantic/module/mod.rs#L2711  struct InstRow
 semantic/module/pi.rs#L57  struct McPowerDecls
 semantic/module/pi.rs#L90  impl McPowerDecls
 semantic/module/pi.rs#L91  fn new
@@ -7587,9 +7594,9 @@ semantic/validation/hw.rs#L644  fn read_pair_constraint
 semantic/validation/hw.rs#L709  fn length_of_kvs
 semantic/validation/hw.rs#L729  fn check_pair_constraint_equality
 semantic/validation/hw.rs#L779  fn is_relay_peer_decl
-semantic/validation/hw.rs#L795  fn peer_role_names
-semantic/validation/hw.rs#L824  fn check_single_ioc_type_component
-semantic/validation/hw.rs#L906  fn check_func_param_pin_shadow
+semantic/validation/hw.rs#L796  fn peer_role_names
+semantic/validation/hw.rs#L809  fn check_single_ioc_type_component
+semantic/validation/hw.rs#L891  fn check_func_param_pin_shadow
 semantic/validation/iface_role_arg.rs#L29  struct IfaceRoleArgCheck
 semantic/validation/iface_role_arg.rs#L31  impl ValidationCheck for IfaceRoleArgCheck
 semantic/validation/iface_role_arg.rs#L32  fn name
@@ -7626,10 +7633,10 @@ semantic/validation/interface.rs#L25  fn default_severity
 semantic/validation/interface.rs#L29  fn run_post_parse
 semantic/validation/interface.rs#L43  fn check_iface_pin_completeness
 semantic/validation/interface.rs#L136  fn check_iface_role_exists
-semantic/validation/interface.rs#L245  fn check_module_port_role_free
-semantic/validation/interface.rs#L291  fn check_deprecated_cmie_usage
-semantic/validation/interface.rs#L404  fn has_deprecated_attr
-semantic/validation/interface.rs#L423  fn check_iface_view_lane_match
+semantic/validation/interface.rs#L252  fn check_module_port_role_free
+semantic/validation/interface.rs#L319  fn check_deprecated_cmie_usage
+semantic/validation/interface.rs#L432  fn has_deprecated_attr
+semantic/validation/interface.rs#L451  fn check_iface_view_lane_match
 semantic/validation/ledger.rs#L36  enum LedgerKind
 semantic/validation/ledger.rs#L52  impl LedgerKind
 semantic/validation/ledger.rs#L53  fn as_str
@@ -7788,14 +7795,15 @@ semantic/validation/nets/iface_chain.rs#L59  impl <'a> ChainIndex<'a>
 semantic/validation/nets/iface_chain.rs#L60  fn build
 semantic/validation/nets/iface_chain.rs#L91  fn check_iface_chain_source
 semantic/validation/nets/iface_chain.rs#L93  struct Fired
-semantic/validation/nets/iface_peer.rs#L36  struct LaneAcc
-semantic/validation/nets/iface_peer.rs#L49  fn owner_path_of
-semantic/validation/nets/iface_peer.rs#L57  fn check_iface_exclusive_peer
+semantic/validation/nets/iface_peer.rs#L39  struct LaneAcc
+semantic/validation/nets/iface_peer.rs#L56  fn owner_path_of
+semantic/validation/nets/iface_peer.rs#L64  fn check_iface_exclusive_peer
 semantic/validation/nets/iface_role_peers.rs#L36  struct RoleEndpoint
 semantic/validation/nets/iface_role_peers.rs#L42  struct PeerPair
 semantic/validation/nets/iface_role_peers.rs#L53  fn find
 semantic/validation/nets/iface_role_peers.rs#L61  fn union
-semantic/validation/nets/iface_role_peers.rs#L71  fn check_iface_role_peers
+semantic/validation/nets/iface_role_peers.rs#L91  fn merged_conductor_parent
+semantic/validation/nets/iface_role_peers.rs#L131  fn check_iface_role_peers
 semantic/validation/nets/mod.rs#L28  mod window
 semantic/validation/nets/mod.rs#L37  mod budget
 semantic/validation/nets/mod.rs#L43  mod budget_derive
@@ -11737,4 +11745,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-424 files, 11654 declarations.
+424 files, 11662 declarations.

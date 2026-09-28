@@ -30,6 +30,7 @@ mod ghost_port_boundary;
 mod iface_chain;
 mod iface_connect_rule;
 mod iface_exclusive_peer;
+mod iface_relay;
 mod iface_param_pin_same_name;
 mod iface_role_peers;
 mod iface_pin_number_binding;

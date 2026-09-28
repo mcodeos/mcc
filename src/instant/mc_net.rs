@@ -566,6 +566,14 @@ pub struct PortInst {
     /// carries `None`/`None` (a region-neutral face states no nominal), which
     /// is a real answer the nominal gate stays silent on.
     pub ac_face: Option<AcPortFace>,
+
+    /// U352: the adoption lane a role-bearing interface port declares — the
+    /// module-port twin of a component pin's carry ([`IfaceLane`], decoded by
+    /// the same def-side reader `iface_lane_of_iface`). Set only for rows
+    /// that carry a role argument (`io a::USB(RELAY)`); the role-less port —
+    /// the E4184 law's default — carries `None`, exactly the face the flat
+    /// checks saw before. Flatten reads it onto the port's member entries.
+    pub iface_lane: Option<crate::instant::insttab::IfaceLane>,
 }
 
 /// The declared region nominal of an `::AC.*` port row (U217
@@ -599,6 +607,7 @@ impl PortInst {
             diff_pair: Vec::new(),
             volt: None,
             ac_face: None,
+            iface_lane: None,
         }
     }
 
@@ -617,6 +626,7 @@ impl PortInst {
             diff_pair: Vec::new(),
             volt: None,
             ac_face: None,
+            iface_lane: None,
         }
     }
 

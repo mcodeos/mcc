@@ -2532,7 +2532,19 @@ impl InstantiationBuilder {
         // Step 2: role mutual-peer — each role must name the other in its
         // `peer` attribute. The peer names are read from the interface
         // definition's own role table, never from member names.
+        //
+        // U352: a RELAY face joins its sibling face — `a - b` inside the
+        // relay body is the crossing law's own statement, not a peer
+        // pairing. The relay role declares no `peer` by design (its face is
+        // the conductor view), and it declares no direction words or
+        // operating attributes either, so a same-family RELAY↔RELAY meeting
+        // ends the judge here; every other pair keeps the mutual-peer law.
+        let relay_join =
+            fam0 == fam && role0.as_deref() == Some("RELAY") && role.as_deref() == Some("RELAY");
         if let (Some(lr), Some(rr)) = (role0.as_deref(), role.as_deref()) {
+            if relay_join {
+                return false;
+            }
             let peers = |base: &crate::semantic::mc_ifs::McInterface, role: &str| -> Vec<String> {
                 base.roles
                     .iter()

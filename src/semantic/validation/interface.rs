@@ -242,6 +242,13 @@ fn check_iface_role_exists(acc: &mut CheckAccumulator) {
 /// decided by whatever terminal it is wired to on each side, so the port
 /// itself carries none. `io bus[1:4]::GPIO(Controller)` is an error; write
 /// `io bus[1:4]::GPIO()` (see replicated-binding-design.md R3).
+///
+/// The one exception the relay mechanism writes itself
+/// (iface-peer-cardinality-design.md §4): `role RELAY` is the interface's
+/// own relay declaration, and `io a::USB(RELAY)` states "this port is the
+/// relay's conductor face" — the face takes the interface's base pin table
+/// (the role-less conductor view) and selects no endpoint role. Every other
+/// role names an endpoint position and stays an error here.
 fn check_module_port_role_free(acc: &mut CheckAccumulator) {
     use crate::semantic::basic::mc_param_type::McParamTypeKind;
 
@@ -259,6 +266,27 @@ fn check_module_port_role_free(acc: &mut CheckAccumulator) {
                 ..
             } = d.param_type.kind
             {
+                // The relay carve: `RELAY` selects no endpoint position — it
+                // is the relay's own conductor face (see the function doc).
+                // The carve is conditional on the interface actually
+                // declaring the relay role: spelled against one whose role
+                // table has no `RELAY`, the argument selects neither a
+                // position nor a relay, so the R3 error keeps its voice.
+                if role_val == "RELAY" {
+                    let declared = crate::definition_space()
+                        .all_interfaces()
+                        .iter()
+                        .any(|(isn, iface)| {
+                            isn.ident.to_string() == *class_name
+                                && iface
+                                    .roles
+                                    .iter()
+                                    .any(|r| r.name.to_string() == "RELAY")
+                        });
+                    if declared {
+                        continue;
+                    }
+                }
                 let pname = d.get_primary_name().unwrap_or_default();
                 // Point at the port name itself where the def span was
                 // recorded; fall back to the module header span.

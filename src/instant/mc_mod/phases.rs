@@ -351,6 +351,26 @@ impl InstantiationBuilder {
                 }
                 _ => None,
             };
+            // ★ U352: a role-bearing interface port carries the same flat
+            // lane carry a component pin does (family + selected role + the
+            // role's own peer declaration), decoded by the same def-side
+            // reader — so the flat checks read both faces of a module
+            // boundary one way. Only rows with a role argument set it: the
+            // role-less port, the E4184 law's default, carries `None`, the
+            // face the checks saw before. (`RELAY` is the one legal role
+            // here today; the decode itself is role-agnostic, and an
+            // undeclared role name decodes to `role = None`, which sets
+            // nothing.)
+            port.iface_lane = match inst {
+                McInstance::Interface(iface) => {
+                    let lane =
+                        crate::instant::insttab::iface_lane_of_iface(iface, port_name.clone());
+                    // An undeclared role name decodes to `role = None`, which
+                    // sets nothing — same answer as a role-less row.
+                    lane.role.is_some().then_some(lane)
+                }
+                _ => None,
+            };
             // Phase C S3: lay the port's arena node down beside the Vec push
             // (the arena is the structural store; `ports` stays on the tree).
             self.append_port_arena(&port);

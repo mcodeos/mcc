@@ -31,7 +31,7 @@
 use std::collections::{HashMap, HashSet};
 
 use super::{entry_pos, NetCheckResult};
-use crate::instant::insttab::InstTable;
+use crate::instant::insttab::{InstEntry, IfaceLane, InstTable};
 
 /// Per-lane accumulator: the carry of the lane's first-seen terminal (for the
 /// diagnostic anchor and the message's role spelling) plus the set of
@@ -62,16 +62,37 @@ fn owner_path_of(entry: &crate::instant::insttab::InstEntry) -> String {
 }
 
 pub(crate) fn check_iface_exclusive_peer(table: &InstTable, results: &mut Vec<NetCheckResult>) {
-    let mut lanes: HashMap<(u32, String), LaneAcc> = HashMap::new();
+    let nets = table.get_nets();
+    // The judge runs over whole conductors, not bare nets (U352): the merge
+    // is the relay traversal. A relay body's internal `a - b` join makes its
+    // two faces one conductor, so a device lane torn across a cable sees the
+    // hosts on the far side — the body's own statements (crossing or
+    // straight) are what the merge reads, and a shape with no relay faces
+    // merges nothing, keeping the bare-net view exactly as before.
+    let mut parent = super::iface_role_peers::merged_conductor_parent(table, &nets);
+    let mut groups: HashMap<usize, Vec<(&InstEntry, &IfaceLane)>> = HashMap::new();
+    for (ni, net) in nets.iter().enumerate() {
+        let root = super::iface_role_peers::find(&mut parent, ni);
+        let group = groups.entry(root).or_default();
+        for &pid in &net.points {
+            let Some(e) = table.get_entry(pid) else {
+                continue;
+            };
+            let Some(carry) = e.iface_lane.as_ref() else {
+                continue;
+            };
+            if group.iter().any(|(seen, _)| seen.id == e.id) {
+                continue;
+            }
+            group.push((e, carry));
+        }
+    }
 
-    for net in table.get_nets() {
-        // The net's interface endpoints, resolved once: (entry, carry).
-        let endpoints: Vec<_> = net
-            .points
-            .iter()
-            .filter_map(|&pid| table.get_entry(pid))
-            .filter_map(|e| e.iface_lane.as_ref().map(|c| (e, c)))
-            .collect();
+    let mut group_list: Vec<(usize, Vec<(&InstEntry, &IfaceLane)>)> =
+        groups.into_iter().collect();
+    group_list.sort_by_key(|(root, _)| *root);
+    let mut lanes: HashMap<(u32, String), LaneAcc> = HashMap::new();
+    for (_, endpoints) in group_list {
         if endpoints.len() < 2 {
             continue;
         }
@@ -99,6 +120,14 @@ pub(crate) fn check_iface_exclusive_peer(table: &InstTable, results: &mut Vec<Ne
             let mut peers: HashSet<String> = HashSet::new();
             for (other, other_carry) in &endpoints {
                 if other.id == entry.id {
+                    continue;
+                }
+                // A RELAY face is a conductor, not a peer body (U352): its
+                // owner is the relay (the cable), never a peer instance, so
+                // the count looks through it to the far side's real
+                // endpoints — which the conductor merge already brought into
+                // this group.
+                if other_carry.role.as_deref() == Some("RELAY") {
                     continue;
                 }
                 if other_carry.family != carry.family
