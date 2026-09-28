@@ -706,3 +706,119 @@ fn assert_lock(
         .collect();
     assert_eq!(got, want, "{what}");
 }
+
+/// U358: level-window compatibility (E4124 level-window-mismatch). The
+/// driver's `voltage:[low:…, high:…]` band must sit inside the receiver's
+/// same-key band on a shared net. Every fixture here drives one shape of the
+/// design (level-window-compat-design.md §3): a violation fires once per
+/// driver/receiver pair on the first violating key; containment, a negative
+/// band, an inverted differential leg, an unknown endpoint and a one-sided
+/// window each stay silent unless the shared key itself is violated.
+
+/// 5V-TTL driver into a 1.8V-TTL receiver: the low bands contain (0 ~ 0.4 in
+/// 0 ~ 0.4), the high bands do not (2 ~ 3.3 vs accepted 1.2 ~ 1.8) — fires on
+/// the high key only.
+const TTL5_TO_18: &str = "component D {\n    pins = [\n        out 1 = A, voltage:[low:0V ~ 0.4V, high:2V ~ 3.3V]\n    ]\n}\ncomponent R {\n    pins = [\n        in 1 = B, voltage:[low:0V ~ 0.4V, high:1.2V ~ 1.8V]\n    ]\n}\n";
+
+fn e4124(src: &str) -> Vec<(u32, u32, String, String)> {
+    build_flat_diags(src)
+        .into_iter()
+        .filter(|d| d.0 == 4124)
+        .collect()
+}
+
+#[test]
+fn dlu_flatchk__level_window_high_violation_fires() {
+    let src = format!("{TTL5_TO_18}module main {{\n    D d\n    R r\n    d.A -> r.B\n}}");
+    let hits = e4124(&src);
+    assert_eq!(hits.len(), 1, "one pair, one fire: {hits:?}");
+    assert_eq!(hits[0].0, 4124);
+    assert!(
+        hits[0].3.contains("'main.d.1' drives high 2V ~ 3.3V outside 'main.r.1' accepted high band 1.2V ~ 1.8V"),
+        "message: {}",
+        hits[0].3
+    );
+}
+
+#[test]
+fn dlu_flatchk__level_window_containment_stays_silent() {
+    // Same-band 1.8V TTL driver into a 1.8V TTL receiver: both keys contain.
+    let src = format!(
+        "{}module main {{\n    D d\n    R r\n    d.A -> r.B\n}}",
+        TTL5_TO_18
+            .replacen("high:2V ~ 3.3V", "high:1.2V ~ 1.8V", 1)
+    );
+    assert!(
+        e4124(&src).is_empty(),
+        "a contained driver band must not fire"
+    );
+}
+
+#[test]
+fn dlu_flatchk__level_window_negative_bands_judge_signed() {
+    // RS-232-style bands cross zero; equal signed bands contain. A receiver
+    // window whose negative band is tighter than the driver's fires with the
+    // signed values in the message.
+    let src = "component D {\n    pins = [\n        out 1 = A, voltage:[low:-15V ~ -3V, high:+3V ~ +15V]\n    ]\n}\ncomponent R {\n    pins = [\n        in 1 = B, voltage:[low:-15V ~ -5V, high:+3V ~ +15V]\n    ]\n}\nmodule main {\n    D d\n    R r\n    d.A -> r.B\n}";
+    let hits = e4124(src);
+    assert_eq!(hits.len(), 1, "low -15V ~ -3V not inside -15V ~ -5V: {hits:?}");
+    assert!(
+        hits[0].3.contains("drives low -15V ~ -3V outside"),
+        "message: {}",
+        hits[0].3
+    );
+}
+
+#[test]
+fn dlu_flatchk__level_window_inverted_leg_compares_as_written() {
+    // RS-485 inverted leg: the high key's band is written in negative volts.
+    // Fields compare as declared, never sorted — equal inverted bands are a
+    // legal mating and stay silent.
+    let src = "component D {\n    pins = [\n        out 1 = A, voltage:[low:+2V ~ +6V, high:-6V ~ -2V]\n    ]\n}\ncomponent R {\n    pins = [\n        in 1 = B, voltage:[low:+2V ~ +6V, high:-6V ~ -2V]\n    ]\n}\nmodule main {\n    D d\n    R r\n    d.A -> r.B\n}";
+    assert!(
+        e4124(src).is_empty(),
+        "equal inverted bands must not fire"
+    );
+}
+
+#[test]
+fn dlu_flatchk__level_window_unknown_endpoint_stays_silent() {
+    // Rail-relative endpoints (the 74-series spelling) resolve to no scalar —
+    // the pair is unknown and stays silent rather than guessed.
+    let src = "component D {\n    pins = [\n        out 1 = A, voltage:[low:0V ~ 0.05*VCC, high:0.95*VCC ~ VCC]\n        in 2 = VCC\n    ]\n}\ncomponent R {\n    pins = [\n        in 1 = B, voltage:[low:0V ~ 0.3*VCC, high:0.7*VCC ~ VCC]\n        in 2 = VCC\n    ]\n}\nmodule main {\n    D d\n    R r\n    d.A -> r.B\n}";
+    assert!(e4124(src).is_empty(), "unknown endpoints must not fire");
+}
+
+#[test]
+fn dlu_flatchk__level_window_one_sided_low_violation_fires() {
+    // Open-collector spelling: only the low key is declared on both sides.
+    // The shared key judges; the missing high side is an open declaration.
+    let src = "component D {\n    pins = [\n        out 1 = A, voltage:[low:0V ~ 0.8V]\n    ]\n}\ncomponent R {\n    pins = [\n        in 1 = B, voltage:[low:0V ~ 0.4V]\n    ]\n}\nmodule main {\n    D d\n    R r\n    d.A -> r.B\n}";
+    let hits = e4124(src);
+    assert_eq!(hits.len(), 1, "low 0V ~ 0.8V not inside 0V ~ 0.4V: {hits:?}");
+    assert!(
+        hits[0].3.contains("drives low 0V ~ 0.8V outside"),
+        "message: {}",
+        hits[0].3
+    );
+}
+
+/// An inline UART-like family: the OSC role's receiver accepts 1.8V-TTL bands,
+/// the RES role's driver declares a 5V-TTL high band — the level facts live on
+/// the role rows, and the adopting components carry none of their own.
+const XTAL_IFACE: &str = "interface LVTX(role) {\n    pins = [\n        1 = _\n        2 = _\n    ]\n    role OSC {\n        pins = [\n            in 1 = X1, voltage:[low:0V ~ 0.4V, high:1.2V ~ 1.8V]\n            in 2 = X2, voltage:[low:0V ~ 0.4V, high:1.2V ~ 1.8V]\n        ]\n        peer = RES(1)\n    }\n    role RES {\n        pins = [\n            out 1 = X1, voltage:[low:0V ~ 0.4V, high:1.2V ~ 1.8V]\n            out 2 = X2, voltage:[low:0V ~ 0.4V, high:2V ~ 5V]\n        ]\n        peer = OSC(1)\n    }\n}\ncomponent MCU {\n    pins = [\n        in [1,2] = LVTX::LVTX(OSC)\n    ]\n}\ncomponent XRES {\n    pins = [\n        [1,2] = LVTX::LVTX(RES)\n    ]\n}\n";
+
+#[test]
+fn dlu_flatchk__level_window_role_adopted_pins_fire() {
+    // The body's out member drives the MCU's in member across the adoption:
+    // 2V ~ 5V high outside the accepted 1.2V ~ 1.8V — fires with the role
+    // rows' bands, the case role-name encoding was retired for (U358).
+    let src = format!("{XTAL_IFACE}module main {{\n    MCU mcu\n    XRES xres\n    mcu.LVTX.X2 -> xres.LVTX.X2\n}}");
+    let hits = e4124(&src);
+    assert_eq!(hits.len(), 1, "role-window violation must fire: {hits:?}");
+    assert!(
+        hits[0].3.contains("drives high 2V ~ 5V outside"),
+        "message: {}",
+        hits[0].3
+    );
+}

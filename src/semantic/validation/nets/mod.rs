@@ -188,6 +188,16 @@ pub(crate) use iface_chain::check_iface_chain_source;
 mod iface_role_peers;
 pub(crate) use iface_role_peers::check_iface_role_peers;
 
+// U358 — the level-window compatibility gate (level-window-compat-design.md
+// §3). level_window.rs is a sibling leaf like window.rs: one owner (E4124
+// check_level_window_mismatch) pairs Out/In pins on the flat net map and
+// judges, per level key both sides declare, the driver's `voltage:[low:…,
+// high:…]` band inside the receiver's — the ERC half of "level compatibility
+// is computed, not spelled into role names". Definition-space decode like
+// E4105; an endpoint that is no volt scalar is unknown and stays silent.
+mod level_window;
+pub(crate) use level_window::check_level_window_mismatch;
+
 /// Run all electrical net checks and return diagnostics.
 ///
 /// FlatErc rules are declared — and ordered — in `crate::rules`

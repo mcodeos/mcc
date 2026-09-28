@@ -1074,6 +1074,13 @@ pub const IFACE_ENDPOINT_COUNT_TOPOLOGY: u32 = 4122;
 /// rule §1.6 criterion 5 — judged only where both sides declare it).
 pub const IFACE_ATTR_INCOMPATIBLE: u32 = 4123;
 
+/// U358: one net joins a driving pin and a receiving pin whose
+/// `voltage:[low:…, high:…]` declarations share a level key, and the driver's
+/// band for that key is not inside the receiver's band. A side either pin
+/// declares but whose endpoints do not resolve to volt scalars is unknown,
+/// and unknown stays silent.
+pub const LEVEL_WINDOW_MISMATCH: u32 = 4124;
+
 // Pass2: instantiation checks (4150-4199)
 
 /// A chain link was skipped because the method is not defined on the instance.
@@ -2702,6 +2709,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(NET_NO_DRIVER, "Net has inputs but no output/power driver.", "Net has inputs but no output/power driver."),
     entry!(IFACE_ROLE_NOT_FOUND, "Interface role referenced by a param does not exist in the interface.", "Interface role referenced by a param does not exist in the interface."),
     entry!(NET_VOLTAGE_MISMATCH, "Power nets with different voltages are shorted together.", "Power nets with different voltages are shorted together."),
+    entry!(LEVEL_WINDOW_MISMATCH, "A driver's declared level band is outside the receiver's accepted band.", "A driver's declared level band is outside the receiver's accepted band."),
     entry!(IFACE_NOT_LOADED, "Interface referenced by a param is not loaded.", "Interface referenced by a param is not loaded."),
     entry!(IFACE_DEPRECATED_CMIE, "Deprecated interface/component/param used.", "Deprecated interface/component/param used."),
     entry!(NET_INPUT_UNCONNECTED, "An input port is not connected to any net.", "An input port is not connected to any net."),

@@ -66,8 +66,8 @@ use crate::semantic::validation::nets::{
     check_exposed_clamp_coverage, check_exposed_clamp_downstream, check_filter_subface_overreach,
     check_ac_face_return, check_ac_nominal_conflict, check_floating_inputs,
     check_floating_outputs, check_iface_chain_source, check_iface_exclusive_peer,
-    check_iface_role_peers, check_polarity_reverse, check_protective_pin_copper,
-    check_isolated_dc_bridge, check_nc_connected,
+    check_iface_role_peers, check_level_window_mismatch, check_polarity_reverse,
+    check_protective_pin_copper, check_isolated_dc_bridge, check_nc_connected,
     check_net_budget, check_bom_key_slot, check_bom_value_descendant,
     check_pin_contract_decode, check_pin_contract_return_member,
     check_pin_copper_expectation, check_pin_count_mismatch, check_port_bind_role,
@@ -1409,6 +1409,20 @@ pub static FLAT_ERC_RULES: &[FlatErcRule] = &[
         overridable = false,
         owner = check_polarity_reverse,
     },
+    // U358 level-window compatibility (level-window-compat-design.md §3);
+    // table tail, tracking the FLAT_ERC_ORDER append (§5-5).
+    declare_flat_erc_rule! {
+        code = crate::errcodes::LEVEL_WINDOW_MISMATCH,
+        name = "level-window-mismatch",
+        title = "a driver's declared level band sits outside the receiver's band",
+        severity = Error,
+        domain = IO,
+        family = None,
+        doc = "U358 (level-window-compat-design.md §3): one net joins an Out pin and an In pin whose voltage:[low:…, high:…] rows share a level key, and the driver's band for that key is not inside the receiver's — the ERC half of \"level compatibility is computed, not spelled into role names\". Definition-space decode like E4105: an adopted pin reads its role member's row, a plain pin its own row. The bands compare as written per level key (low/high name logic levels, not voltage ordering — an inverted differential leg is an ordinary band); an endpoint that is no volt scalar (0.3*VCC, a symbol) is unknown and the pair stays silent, as do roleless adoptions and module-port members (their def walk is a separate host).",
+        lock = "tests/shard7/flatten_net_check_diagnostics.rs",
+        overridable = false,
+        owner = check_level_window_mismatch,
+    },
 ];
 
 // Declaration scope (pins / declaration semantics)
@@ -1973,6 +1987,7 @@ mod tests {
         DECOUPLING_RETURN_MISMATCH, DEVICE_RETURN_SPAN_UNDECLARED, EARTH_DC_LEAK,
         EXPOSED_NET_DOWNSTREAM_UNPROTECTED, EXPOSED_NET_NO_CLAMP, FILTER_SUBFACE_OVERREACH,
         IFACE_CHAIN_SOURCE_UNREACHED, IFACE_EXCLUSIVE_PEER_CONFLICT, IFACE_ROLE_PEER_CONFLICT,
+        LEVEL_WINDOW_MISMATCH,
         POLARITY_REVERSED,
         ISOLATED_DC_BRIDGE,
         NET_BACKFEED_RISK,
@@ -1996,7 +2011,7 @@ mod tests {
     /// The execution order of the migrated `nets::run_net_checks` call table.
     /// This is the lock that keeps catalog declaration order byte-identical to
     /// the pre-registry runner sequence.
-    const FLAT_ERC_ORDER: [u32; 63] = [
+    const FLAT_ERC_ORDER: [u32; 64] = [
         NET_MULTI_DRIVE,                    // P1
         NET_NO_DRIVER,                      // P2
         NET_INPUT_UNCONNECTED,              // P5
@@ -2060,6 +2075,7 @@ mod tests {
         IFACE_CHAIN_SOURCE_UNREACHED, // U112 ② chain-level source reach (tail append)
         IFACE_ROLE_PEER_CONFLICT, // U289 ⑥ flat-net generic peer sweep (tail append)
         POLARITY_REVERSED,        // U319 B9 polarity reverse (tail append)
+        LEVEL_WINDOW_MISMATCH,    // U358 level-window compatibility (tail append)
     ];
 
     /// The report-row tags of the netcheck R-series. This is the lock that
@@ -2606,7 +2622,9 @@ mod tests {
         // 173 = +6062 (the B9 polarity gate, tests/shard6/polarity_reverse.rs, U319).
         // 176 = +6062 as landed (the b4101/b4102 concurrent landing carried
         //       three anchors to the ledger without recording the step).
-        assert_eq!((strong, doc, note), (176, 0, 3));
+        // 177 = +4124 (the U358 level-window gate,
+        //       tests/shard7/flatten_net_check_diagnostics.rs).
+        assert_eq!((strong, doc, note), (177, 0, 3));
         assert_eq!(strong + doc + note, rule_count());
     }
 
@@ -2667,12 +2685,17 @@ mod tests {
         assert!(!errs.is_empty());
         assert!(errs.iter().all(|m| m.severity == CheckSeverity::Error));
 
-        // Every row carries the default `fix = None` descriptor value.
+        // The fix filter partitions the table: every row but the U327/U341
+        // style renames (b4150/b4158) keeps the default `fix = None`.
         let fixes = query_rules(&RuleFilter {
             fix: Some(FixKind::None),
             ..Default::default()
         });
-        assert_eq!(fixes.len(), rule_count());
+        let renames = query_rules(&RuleFilter {
+            fix: Some(FixKind::QuickFix),
+            ..Default::default()
+        });
+        assert_eq!(fixes.len() + renames.len(), rule_count());
     }
 }
 
