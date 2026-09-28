@@ -461,22 +461,6 @@ impl McComponent {
                         let foldable = !default_params.is_empty()
                             && !conds_obj.references_param(&params.names());
                         if foldable {
-                            // U344: a foldable chain was never evaluated against
-                            // a live binding — this fold IS its only selection.
-                            // A judge that reads no parameter and no definition
-                            // key names a constant, so report it here where the
-                            // chain's own node still holds a span. A chain that
-                            // keeps to literals stays silent by design.
-                            if let Some(msg) = conds_obj.dead_judge_message(
-                                CondDefCtx { pins, attrs },
-                                &params.names(),
-                            ) {
-                                crate::db::diagnostic::diagnostic::dlog_error(
-                                    crate::errcodes::COND_NO_LIVE_INPUT,
-                                    &child,
-                                    &msg,
-                                );
-                            }
                             // The definition's own pins and keys are parsed by
                             // now; a condition reads those, never an instance.
                             if let Some(selected_block) = conds_obj.evaluate(
@@ -1049,38 +1033,6 @@ impl Mc2Component {
         }
 
         let eval_params = bindings.to_cond_params();
-        if std::env::var_os("U344_TRACE").is_some() {
-            eprintln!(
-                "U344 find_pin id={id} cond_chains={} bindings={} eval_params={eval_params:?}",
-                self.base.cond_pins.len(),
-                bindings.to_params_for_eval().len(),
-            );
-            for (i, conditional) in self.base.cond_pins.iter().enumerate() {
-                for (j, (condition, pins)) in conditional.if_blocks.iter().enumerate() {
-                    eprintln!(
-                        "U344 chain{i}.if{j} cond={condition:?} result={:?} pins={}",
-                        McConds::check_condition_result(
-                            condition,
-                            &eval_params,
-                            Some(CondDefCtx {
-                                pins: &self.base.pins,
-                                attrs: &self.base.attrs,
-                            }),
-                        ),
-                        pins.get_all_pins().len(),
-                    );
-                }
-                eprintln!(
-                    "U344 chain{i}.else present={} pins={:?}",
-                    conditional.else_pins.is_some(),
-                    conditional
-                        .else_pins
-                        .as_ref()
-                        .map(|p| p.get_all_pins())
-                        .unwrap_or_default(),
-                );
-            }
-        }
         for conditional in &self.base.cond_pins {
             let active = conditional
                 .if_blocks

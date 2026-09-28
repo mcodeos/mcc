@@ -609,6 +609,11 @@ pub const UNEXPECTED_CLAUSE_TYPE: u32 = 3081;
 /// A row of a module-body `expects` clause is not one of the designed forms.
 pub const EXPECTS_ROW_MALFORMED: u32 = 3082;
 
+/// A clause kind that carries no interface semantics was written in an
+/// interface body (attrs/roles/pins/conditional chains are the supported
+/// kinds; U346 ①).
+pub const INTERFACE_CLAUSE_UNSUPPORTED: u32 = 3083;
+
 // Pass1c: params / functions (3100-3149)
 
 /// Empty net in a function or module body.
@@ -1613,13 +1618,6 @@ pub const COND_JUDGE_OPERAND_DROPPED: u32 = 5461;
 /// author spells both sides in the same family.
 pub const COND_FAMILY_MISMATCH: u32 = 5462;
 
-/// A condition judge reads no live input — no parameter, no definition key —
-/// and names an identifier that resolves to no declared name, so the branch
-/// selection is the same for every instance and the misspelled name surfaces
-/// nowhere else (U344). A judge over literals alone (`if (1 == 1)`) is
-/// deliberately supported and stays silent.
-pub const COND_NO_LIVE_INPUT: u32 = 5463;
-
 // Pass3: hardware checks (5500-5549)
 
 /// Pin numbers have gaps.
@@ -2582,6 +2580,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(MODULE_METHOD_NOT_FOUND, "Function was not found in the class.", "function '{0}' not found in class '{1}'"),
     entry!(UNEXPECTED_CLAUSE_TYPE, "Module body: {0}", "module body: {0}"),
     entry!(EXPECTS_ROW_MALFORMED, "A row of this expects clause is not one of the designed forms: a class/role word, `driven`, a [low:/high:] window, or a `~` range.", "A row of this expects clause is not one of the designed forms: a class/role word, `driven`, a [low:/high:] window, or a `~` range."),
+    entry!(INTERFACE_CLAUSE_UNSUPPORTED, "This clause is not accepted in an interface body.", "This clause is not accepted in an interface body; an interface body carries attributes, roles, pin tables, and conditional pin chains only."),
     // section
     entry!(FUNC_EMPTY_NET, "Empty net in a function or module body.", "Empty NET"),
     entry!(PARAM_DECLARE_INVALID, "Invalid parameter declaration node.", "Invalid param declare node."),
@@ -2850,7 +2849,6 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(COND_DUPLICATE, "Duplicate condition in if/else-if chain.", "A later if/else-if branch duplicates an earlier branch's condition, so it can never be selected."),
     entry!(COND_JUDGE_OPERAND_DROPPED, "Condition operand was not recognized.", "A judge operand has a form the condition collector does not recognize (for example a call), so the whole judge is discarded and the branch never selects. Rewrite the operand as a parameter reference or a literal."),
     entry!(COND_FAMILY_MISMATCH, "Condition compares a bare word with a quoted string.", "The two sides of the judge belong to different lexical families ({0} vs {1}), so they can never be equal under the strict reading: a bare word only equals the same bare word, a quoted string only the same quoted text. Spell both sides in the same family, or bind the parameter so its family matches the judge."),
-    entry!(COND_NO_LIVE_INPUT, "Condition reads no parameter and no definition key.", "The judge never reads a parameter or a definition key, and '{0}' resolves to no declared name, so the branch selection is the same for every instance. Name a parameter or a definition key in the judge, or compare literals."),
     // section
     entry!(HW_PIN_NUMBER_GAP, "Pin numbers have gaps.", "Pin numbers have gaps."),
     entry!(HW_PIN_COUNT_HIGH, "Pin count is unusually high.", "Pin count is unusually high."),

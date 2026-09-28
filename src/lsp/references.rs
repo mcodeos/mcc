@@ -24,8 +24,9 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 /// (canonical home since U234 tier ②; the kinds double as the def-edge
 /// coverage contract behind the graph prefilter below. U342 batch 2 turned
 /// the P1 category whitelist into an exemption list: every paired def/ref
-/// kind is admitted by default, and only the FuncParamRef fork and the
-/// enum/role registration-miss faces stay out).
+/// kind is admitted by default, and only the enum/role registration-miss
+/// faces stay out — the FuncParamRef fork dissolved in batch B, once layer2
+/// stopped double-registering an occurrence).
 pub use crate::refdef::types::is_panel_ref_kind;
 
 /// Legacy name-based find-references (kept for `mcc refs <name>` and the
@@ -143,9 +144,11 @@ pub fn find_at(uri: &str, offset: usize, name_hint: Option<&str>) -> Vec<Value> 
     // referencing file keeps its edges), and the exact def-key match below
     // post-filters, so the prefilter cannot drop results. U342 batch 2: the
     // eligibility gate is an exemption list — every paired def/ref kind
-    // enters the panel (pin/param/bus-member level included), and only
-    // FuncParamRef (registration fork, latent 1:2) and the enum/role
-    // registration-miss faces stay out.
+    // enters the panel (pin/param/bus-member level included), and only the
+    // enum/role registration-miss faces stay out. Batch B dissolved the
+    // FuncParamRef exemption: the layer2 FuncParamRef pass drops any row
+    // whose (ref id, span) a real kind already paired, so the id enters the
+    // machine with zero double-pairing.
     let mut candidate_files: std::collections::HashSet<String> =
         WORKSPACE.refgraph.dependent_files_of_file(&def_uri).into_iter().collect();
     candidate_files.insert(def_uri.clone());
@@ -469,8 +472,8 @@ module main
     /// def plus every use on the name face (PinNameDef/PinNameRef), a
     /// cursor on a pin-id use answers the id face (PinIdDef/PinIdRef), and
     /// the def-site cursor reaches the same answer set through the def-site
-    /// pinning leg. The remaining exemptions (FuncParamRef fork, enum/role
-    /// registration misses) keep their own locks on the quickfix face.
+    /// pinning leg. The remaining exemptions (the enum/role registration
+    /// misses) keep their own locks on the quickfix face.
     #[test]
     fn find_at_answers_pin_level_faces_without_a_category_gate() {
         let _guard = crate::db::infra::init::MCC_TEST_PARSE_LOCK

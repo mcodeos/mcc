@@ -468,6 +468,12 @@ pub struct RefDefMap {
 /// every admitted ref in any `def_to_refs` must be edge-backed, so a
 /// graph-prefiltered face cannot drop it — ruling D4).
 ///
+/// Two consumers share the one pairing machine (`def_to_refs`): the refs
+/// panel joins it through this exemption list (a display policy), and the
+/// rename-fix face joins the same machine with its own `def_ref_kinds`
+/// face and no exemption gate (quickfix). This predicate shapes the panel
+/// answer only; it never gates pairing or rename reach.
+///
 /// The panel admits every paired def/ref kind by default; this predicate is
 /// the **exemption list**. Two probe results back the default-admit shape:
 /// the cross-file port/func rows already pair (pass1 mints the
@@ -475,13 +481,10 @@ pub struct RefDefMap {
 /// admitting the pin/param faces does not flood per-cursor answers (65
 /// pin/param defs in the hbl board fixture: median 1, max 7 refs each —
 /// only the aggregate row count grows, which is not a per-query cost).
-/// The exemptions:
+/// `FuncParamRef` is admitted with zero forking since U342 batch B: the
+/// layer2 FuncParamRef pass drops any row whose (ref id, span) a real-kind
+/// row already paired, so one occurrence pairs exactly once. The exemptions:
 ///
-/// - `FuncParamRef`: the funcall-argument catch-all. Its layer2 candidate
-///   list has no `NetDef`, so its own row drops and the real `NetRef` row
-///   (same id) answers instead; admitting it now would double-count the
-///   moment `NetDef` joins the candidates (latent 1:2). Re-admit when
-///   registration stops forking.
 /// - `EnumValDef`/`EnumValRef`: registration-miss exemption (U342) — a
 ///   qualified value use in a param/role position (`diel = Grade.good`)
 ///   registers no ref row at all, so admitting the attribute-value-face
@@ -494,10 +497,7 @@ pub struct RefDefMap {
 pub fn is_panel_ref_kind(kind: SymbolKind) -> bool {
     !matches!(
         kind,
-        SymbolKind::FuncParamRef
-            | SymbolKind::EnumValDef
-            | SymbolKind::EnumValRef
-            | SymbolKind::RoleDef
+        SymbolKind::EnumValDef | SymbolKind::EnumValRef | SymbolKind::RoleDef
     )
 }
 

@@ -57,8 +57,23 @@ pub fn fill_refdef_layer2(
         def_map.iter().map(|(k, loc)| (*k, *loc)).collect();
     defs_sorted.sort_by_key(|(k, _)| (k.0 as u8, k.1));
 
-    // ★ A3: Match refs from pre-collected ref_entries instead of scanning lapper
+    // ★ A3: Match refs from pre-collected ref_entries instead of scanning lapper.
+    // FuncParamRef rows are held back to a second pass below: the collector
+    // already dispatches each funcall argument to its most specific ref kind
+    // (collect.rs `resolve_arg_ref_kind`), so a FuncParamRef row co-existing
+    // with a real-kind row at the same (ref id, span) is one occurrence
+    // registered twice, and casting both rows pairs the occurrence twice in
+    // `def_to_refs` (the FuncParamRef fork U342 batch B dissolves).
+    let mut param_ref_rows: Vec<(SymbolKind, u32, usize, usize)> = Vec::new();
+    // (ref id, span) of the real-kind rows that paired this pass — the
+    // same-occurrence guard the FuncParamRef pass reads.
+    let mut answered_spans: std::collections::HashSet<(u32, usize, usize)> =
+        std::collections::HashSet::new();
     for &(ref_kind, decl_id, ref_start, ref_stop) in ref_entries {
+        if ref_kind == SymbolKind::FuncParamRef {
+            param_ref_rows.push((ref_kind, decl_id, ref_start, ref_stop));
+            continue;
+        }
         let candidate_defs: &[SymbolKind] = match ref_kind {
             SymbolKind::InstRef => &[SymbolKind::InstDef],
             // bare-identifier params register as UnknownDef via
@@ -160,6 +175,7 @@ pub fn fill_refdef_layer2(
             // local lookup always hits; never probe the def file's own table
             // with this id (different id space — see resolve_def_name).
             let def_name = resolve_def_name(def_names, &def_uri_str, def_kind, decl_id);
+            answered_spans.insert((decl_id, ref_start, ref_stop));
             map.insert(
                 ref_kind,
                 decl_id,
@@ -179,6 +195,95 @@ pub fn fill_refdef_layer2(
                 },
             );
         }
+    }
+
+    // ── FuncParamRef catch-all pass ──
+    // Held back from the main loop so the same-occurrence guard sees every
+    // real-kind row regardless of ref_entries order. A FuncParamRef row whose
+    // (ref id, span) already paired under a real kind is one occurrence
+    // registered twice — dropped here so the id enters the machine without
+    // the fork (U342 batch B). Rows whose occurrence no real kind answered
+    // (the catch-all's purpose — e.g. a free-net argument the collector
+    // could not dispatch) still pair through the full candidate list.
+    let mut param_cast = 0usize;
+    let mut param_dedup = 0usize;
+    for &(ref_kind, decl_id, ref_start, ref_stop) in &param_ref_rows {
+        debug_assert_eq!(ref_kind, SymbolKind::FuncParamRef);
+        if answered_spans.contains(&(decl_id, ref_start, ref_stop)) {
+            param_dedup += 1;
+            continue;
+        }
+        let candidate_defs: &[SymbolKind] = &[
+            SymbolKind::ParamDef,
+            SymbolKind::PinNameDef,
+            SymbolKind::PinIdDef,
+            SymbolKind::PinIfaceDef,
+            SymbolKind::PortDef,
+            SymbolKind::LabelDef,
+            SymbolKind::InstDef,
+            SymbolKind::FuncDef,
+            SymbolKind::ClassDef,
+            SymbolKind::EnumDef,
+            SymbolKind::EnumValDef,
+            SymbolKind::RoleDef,
+            SymbolKind::AttrDef,
+            SymbolKind::BusDef, // ★ R7: bus refs may resolve via FuncParamRef
+            SymbolKind::BusMemberDef, // ★ §3.4.3 (rev): member refs too
+            SymbolKind::UnknownDef, // ★ R7: untyped params
+        ];
+        let mut def_match: Option<(&SourceLocation, SymbolKind)> = None;
+        for &dk in candidate_defs {
+            if let Some(loc) = def_map.get(&(dk, decl_id)) {
+                def_match = Some((loc, dk));
+                break;
+            }
+        }
+        let Some((loc, def_kind)) = def_match else {
+            continue;
+        };
+        let def_start = loc.byte_start as usize;
+        let def_stop = loc.byte_end as usize;
+        if def_start == ref_start && def_stop == ref_stop {
+            continue; // self-ref skip
+        }
+        let def_uri_str = if loc.file_id != 0 {
+            crate::semantic::common::uri_of_file_id(loc.file_id).to_string()
+        } else {
+            file_uri.clone()
+        };
+        let fid = map.intern_file(&McURI::from(def_uri_str.as_str()));
+        let scope = crate::ast::sem::scope_from_ids(
+            container_table,
+            func_table,
+            loc.container_id,
+            loc.func_id,
+        );
+        let cid = map.intern_container(&scope);
+        let def_name = resolve_def_name(def_names, &def_uri_str, def_kind, decl_id);
+        param_cast += 1;
+        map.insert(
+            ref_kind,
+            decl_id,
+            RefDefEntry {
+                ref_kind,
+                ref_id: decl_id,
+                def_loc: SourceLocation {
+                    file_id: fid as u32,
+                    container_id: cid,
+                    func_id: 0,
+                    byte_start: def_start as u32,
+                    byte_end: def_stop as u32,
+                },
+                def_kind,
+                cmie_kind: CmieKind::UNKNOWN,
+                def_name,
+            },
+        );
+    }
+    if param_cast + param_dedup > 0 && std::env::var_os("MCC_U342_PARAM_PROBE").is_some() {
+        eprintln!(
+            "[u342b] FuncParamRef pass: cast={param_cast} deduped(same id+span)={param_dedup}"
+        );
     }
 
     // ── PortRef generation (§3.2.2 Rule 1) ──
@@ -397,5 +502,103 @@ pub fn fill_refdef_layer2(
                 );
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::refdef::types::SymbolKind::*;
+
+    fn def_loc(span: (usize, usize)) -> SourceLocation {
+        SourceLocation {
+            file_id: 0,
+            container_id: 0,
+            func_id: 0,
+            byte_start: span.0 as u32,
+            byte_end: span.1 as u32,
+        }
+    }
+
+    fn fill(
+        map: &mut RefDefMap,
+        defs: Vec<(SymbolKind, u32, (usize, usize))>,
+        refs: &[(SymbolKind, u32, usize, usize)],
+    ) {
+        let def_map: HashMap<(SymbolKind, u32), SourceLocation> = defs
+            .into_iter()
+            .map(|(k, id, span)| ((k, id), def_loc(span)))
+            .collect();
+        let def_names: HashMap<(SymbolKind, u32), String> = HashMap::new();
+        fill_refdef_layer2(
+            map,
+            &def_map,
+            &def_names,
+            refs,
+            &McURI::from("/mcc/u342b.mc"),
+            &[],
+            &[],
+        );
+    }
+
+    /// U342 batch B: a FuncParamRef row whose (ref id, span) a real-kind row
+    /// already paired is one occurrence registered twice — the layer2 pass
+    /// drops it, so the id enters the machine with zero double-pairing.
+    #[test]
+    fn svc_matching__func_param_fork_of_one_occurrence_dedupes() {
+        let mut map = RefDefMap::new();
+        fill(
+            &mut map,
+            vec![(LabelDef, 7, (100, 104)), (NetDef, 7, (100, 104))],
+            &[(NetRef, 7, 200, 203), (FuncParamRef, 7, 200, 203)],
+        );
+        let fid = crate::semantic::common::uri_intern("/mcc/u342b.mc").0;
+        let refs = map.get_refs_for_def(NetDef, fid, 100, 104);
+        assert_eq!(
+            refs,
+            &[(NetRef, 7)],
+            "one occurrence must pair exactly once, under the real kind's def key"
+        );
+        assert!(
+            map.get_refs_for_def(LabelDef, fid, 100, 104).is_empty(),
+            "the FuncParamRef fork must not pair under its candidate def key"
+        );
+        assert!(
+            map.get(FuncParamRef, 7).is_none(),
+            "the fork row must not be cast"
+        );
+    }
+
+    /// The catch-all survives where no real kind answered the occurrence —
+    /// a funcall argument only the FuncParamRef row registers still pairs.
+    #[test]
+    fn svc_matching__func_param_catch_all_survives_without_a_real_row() {
+        let mut map = RefDefMap::new();
+        fill(
+            &mut map,
+            vec![(LabelDef, 7, (100, 104))],
+            &[(FuncParamRef, 7, 200, 203)],
+        );
+        assert!(
+            map.get(FuncParamRef, 7).is_some(),
+            "the sole row of the occurrence must pair"
+        );
+    }
+
+    /// Same id, different occurrence spans: both rows pair — the guard is
+    /// per occurrence, never per id.
+    #[test]
+    fn svc_matching__same_id_different_occurrences_both_pair() {
+        let mut map = RefDefMap::new();
+        fill(
+            &mut map,
+            vec![(LabelDef, 7, (100, 104)), (NetDef, 7, (100, 104))],
+            &[(NetRef, 7, 200, 203), (FuncParamRef, 7, 300, 303)],
+        );
+        assert!(map.get(NetRef, 7).is_some());
+        assert!(
+            map.get(FuncParamRef, 7).is_some(),
+            "a distinct occurrence must keep its own pairing"
+        );
     }
 }

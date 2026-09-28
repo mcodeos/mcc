@@ -279,50 +279,6 @@ impl McCondition {
             | McCondition::BitOr { left, right } => named(left) || named(right),
         }
     }
-
-    /// Every identifier this judge reads, recursing through the logical
-    /// compositions and the arithmetic expression leaves. Duplicates are kept;
-    /// dedup is the caller's call (U344).
-    fn collect_idents(&self, out: &mut Vec<String>) {
-        let mut push = |op: &McCondOperand, out: &mut Vec<String>| {
-            if let McCondOperand::Ident(ids) = op {
-                out.push(ids.to_string());
-            }
-            if let McCondOperand::Expr { left, right, .. } = op {
-                Self::operand_collect_idents(left, out);
-                Self::operand_collect_idents(right, out);
-            }
-        };
-        match self {
-            McCondition::In { left, .. } => push(left, out),
-            McCondition::And { left, right } | McCondition::Or { left, right } => {
-                left.collect_idents(out);
-                right.collect_idents(out);
-            }
-            McCondition::Eq { left, right }
-            | McCondition::NotEq { left, right }
-            | McCondition::Lt { left, right }
-            | McCondition::Gt { left, right }
-            | McCondition::LtEq { left, right }
-            | McCondition::GtEq { left, right }
-            | McCondition::BitAnd { left, right }
-            | McCondition::BitOr { left, right } => {
-                push(left, out);
-                push(right, out);
-            }
-        }
-    }
-
-    fn operand_collect_idents(op: &McCondOperand, out: &mut Vec<String>) {
-        match op {
-            McCondOperand::Ident(ids) => out.push(ids.to_string()),
-            McCondOperand::Expr { left, right, .. } => {
-                Self::operand_collect_idents(left, out);
-                Self::operand_collect_idents(right, out);
-            }
-            McCondOperand::Literal(_) | McCondOperand::StrLit(_) | McCondOperand::Word(_) => {}
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -368,57 +324,6 @@ impl McConds {
         self.if_blocks
             .iter()
             .any(|c| c.condition.references_param(param_names))
-    }
-
-    /// The dead-judge report for this chain, when it has one (U344): a chain
-    /// whose judges read no parameter and no definition key cannot vary with
-    /// any binding, so the branch selection is a constant for every instance.
-    /// That is only worth reporting when a judge also *names* something — an
-    /// identifier that resolves to no declared name is almost always a
-    /// mistyped parameter, and the bare-face fallback would otherwise read the
-    /// judge silently as false. A judge over literals alone (`if (1 == 1)`)
-    /// is deliberately supported and stays silent.
-    pub fn dead_judge_message(
-        &self,
-        def: CondDefCtx<'_>,
-        param_names: &[String],
-    ) -> Option<String> {
-        let judges: Vec<&McCondition> = self.if_blocks.iter().map(|c| &c.condition).collect();
-        Self::judges_dead_judge_message(&judges, def, param_names)
-    }
-
-    /// The same dead-judge report for the judges of one chain, in the shape
-    /// the instantiation-time stores hold (`CondPins` / `CondAttrs` /
-    /// `CondErrors` each keep `if_blocks: Vec<(McCondition, _)>` rather than a
-    /// [`McConds`]).
-    pub fn judges_dead_judge_message(
-        judges: &[&McCondition],
-        def: CondDefCtx<'_>,
-        param_names: &[String],
-    ) -> Option<String> {
-        if judges.is_empty() {
-            return None;
-        }
-        // Live input ①: the chain reads a parameter — the call site answers.
-        if judges.iter().any(|c| c.references_param(param_names)) {
-            return None;
-        }
-        let mut idents = Vec::new();
-        for cond in judges {
-            cond.collect_idents(&mut idents);
-        }
-        // Live input ②: a judge reads the definition face (a `<pin>.<key>`
-        // ref or an attribute key). A name that reads, or a name that is the
-        // parameter the call site binds, is not the report's subject.
-        idents.retain(|name| {
-            !param_names.iter().any(|p| p == name)
-                && Self::read_def_value(def, name).is_none()
-        });
-        let unresolved = idents.first()?;
-        Some(crate::errcodes::format_msg(
-            crate::errcodes::COND_NO_LIVE_INPUT,
-            &[unresolved as &dyn std::fmt::Display],
-        ))
     }
 
     /// One `if` chain as raw branches: `(condition, block)` in source order,

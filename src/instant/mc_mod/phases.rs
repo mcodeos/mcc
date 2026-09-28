@@ -848,37 +848,6 @@ impl InstantiationBuilder {
                             }
                         }
                     }
-                    // U344: dead judges of the class's conditional chains —
-                    // conditions that read no parameter and no definition key —
-                    // ride out of the instance the same way the U39/U212
-                    // findings do, and anchor at the declaration that supplied
-                    // the arguments.
-                    if !inst.cond_dead_judge_errors.is_empty() {
-                        let anchor = self
-                            .def
-                            .insts
-                            .get_port_span(&c.name.to_string())
-                            .map(|r| r.start as u32);
-                        for (code, message) in &inst.cond_dead_judge_errors {
-                            match anchor {
-                                Some(pos) => {
-                                    if !crate::db::diagnostic::diagnostic::has_code_at(
-                                        *code,
-                                        &self.def_uri,
-                                        pos,
-                                    ) {
-                                        self.record_error_at(
-                                            *code,
-                                            message.clone(),
-                                            self.def_uri.clone(),
-                                            pos,
-                                        );
-                                    }
-                                }
-                                None => self.record_error(*code, message.clone()),
-                            }
-                        }
-                    }
                     // ★ U48: the declaration's `@ncpin(…)` marker becomes this
                     // instance's marked pin-id set. Resolved after the instance
                     // is built (so conditional / dynamic pins are already in

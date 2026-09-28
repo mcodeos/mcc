@@ -16,13 +16,14 @@
 //! (01-lexical §2), so a declaration-only edit would split nets, orphan call
 //! sites and dangle role/enum references. Def sites come from the flagged
 //! file's `def_names`/`def_map` (real names captured at `register_def`);
-//! occurrence sites come from every loaded file's `ref_entries`, whose
-//! `(ref_kind, declare_id)` rows carry the span inline. This deliberately
-//! bypasses the refs-panel exemption gate (`is_panel_ref_kind`) and the
-//! who-uses refgraph prefilter: the panel exempts the registration-forked
-//! FuncParamRef rows and the enum/role registration-miss faces (so their
-//! edges are never recorded), but they are exactly the faces a rename must
-//! reach.
+//! occurrence sites come from the shared layer2 pairing machine — every
+//! loaded file's `RefDefMap::def_to_refs` queried by the true def key
+//! `(def_kind, file_id, span)`, spans read back from each file's symbol
+//! lapper. This is the same machine the refs panel reads (`find_at`),
+//! joined here without the panel's display exemptions (`is_panel_ref_kind`
+//! is a panel display policy) and without the who-uses refgraph prefilter:
+//! the fix face is `def_ref_kinds` below, and a rename must reach every
+//! exact occurrence.
 //!
 //! Exemptions need no extra logic: the fix exists only where the gate fired,
 //! so §2.1 (pin names, datasheet names) never reaches a fix.
@@ -30,7 +31,7 @@
 use crate::db::cmie::tables::WORKSPACE;
 use crate::refdef::types::SymbolKind;
 use serde_json::{json, Value};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 /// Quick-fix payload for one diagnostic, or `None` when the diagnostic is not
 /// a style gate with a derivable rename (role values included: `RoleDef`
@@ -128,9 +129,12 @@ fn collect_edits(code: u32, uri: &str, name: &str, replacement: &str) -> Option<
     let (def_kinds, ref_kinds) = def_ref_kinds(code)?;
 
     // ① Pin the declaration(s): the flagged file's def_names → def_map. The
-    // symbols guard is dropped before the workspace scan below — the scan
+    // value carries the numeric def-file id alongside the file string — the
+    // def key `def_to_refs` was keyed by is (def_kind, file_id, span), and
+    // `file_id 0` means the flagged file itself (same sentinel layer2 uses).
+    // The symbols guard is dropped before the workspace scan below — the scan
     // re-locks the same file's mutex, and std Mutex is not reentrant.
-    let mut defs: HashMap<(SymbolKind, u32), (String, usize, usize)> = HashMap::new();
+    let mut defs: HashMap<(SymbolKind, u32), (String, u32, usize, usize)> = HashMap::new();
     {
         // Bind the definition-space guard so the borrowed SourceFile outlives
         // the statement (same trap references.rs ① documents).
@@ -147,9 +151,14 @@ fn collect_edits(code: u32, uri: &str, name: &str, replacement: &str) -> Option<
                 } else {
                     uri.to_string()
                 };
+                let file_id = if loc.file_id != 0 {
+                    loc.file_id
+                } else {
+                    crate::semantic::common::uri_intern(uri).0
+                };
                 defs.insert(
                     (*kind, *decl_id),
-                    (file, loc.byte_start as usize, loc.byte_end as usize),
+                    (file, file_id, loc.byte_start as usize, loc.byte_end as usize),
                 );
             }
         }
@@ -162,86 +171,90 @@ fn collect_edits(code: u32, uri: &str, name: &str, replacement: &str) -> Option<
     // provably complete. Net labels and free nets are module-local by
     // construction, so their NetRef/LabelRef rows are the whole story. A port
     // face is consumed plainly (net-ref rows on the declaration's id) and
-    // through member chains (`psu.vin`): chain rows exist and pair with a
-    // synthetic whole-chain def whose def_map entry sits at the true
-    // declaration's (file, span) — the alias union below re-couples those
-    // rows, so the port face carries a fix (U341). A func face is the same
-    // shape: `inst.Enable(...)` call sites register FuncRef rows (same-file
-    // rows pair with the real FuncDef id directly, cross-file rows with a
-    // synthetic id the alias union re-couples), and the two corpus call
-    // shapes — named-instance member call and inline two-pin chain — are both
-    // indexed; an in-body `this.f(...)` call is not legal syntax (E2082), so
-    // there is no third consumer face to dangle (U341 probe). Enum values stay
-    // suppressed: a qualified value use (`diel = Grade.good`) registers no ref
-    // row at all, and the EnumValDef span covers the whole value list, so a
-    // rename could not even place the declaration edit safely.
+    // through member chains (`psu.vin`): pass1 mints the consumer-side
+    // chain-hit def with the def file's id and the true declaration's span,
+    // so layer2 pairs every chain row under the true def key — the same
+    // pairing the refs panel reads (U342 probe: the cross-file rows already
+    // pair, and the hbl corpus switch is lossless). A func face is the same
+    // shape: `inst.Enable(...)` call sites register FuncRef rows paired under
+    // the true FuncDef key for both corpus call shapes — named-instance
+    // member call and inline two-pin chain — and an in-body `this.f(...)`
+    // call is not legal syntax (E2082), so there is no third consumer face
+    // to dangle (U341 probe). Enum values stay suppressed: a qualified value
+    // use (`diel = Grade.good`) registers no ref row at all, and the
+    // EnumValDef span covers the whole value list, so a rename could not even
+    // place the declaration edit safely.
     if defs.keys().any(|(kind, _)| kind == &SymbolKind::EnumValDef) {
         return None;
     }
 
-    // ② Occurrences: every loaded file's ref_entries rows whose DeclareId
-    // resolves to a pinned def. DeclareIds are workspace-unique, so the id
-    // alone is the join key — the def side and the ref side carry different
-    // SymbolKinds for the same symbol (`NetDef` vs `NetRef`).
-    let mut ids: HashSet<u32> = defs.keys().map(|(_, id)| *id).collect();
-    // ②b U341 alias union: a member-chain consumer row (`psu.vin`) pairs with
-    // a synthetic def — the full chain spelling under a fresh DeclareId —
-    // whose def_map entry points at the true declaration's (file, span).
-    // Union those synthetic ids into the join key set; the name guard (exact
-    // or dotted tail) keeps same-span different-name defs (square-vec
-    // expansions) out of the union.
+    // ② Occurrences: the shared layer2 pairing machine. Every loaded file's
+    // RefDefMap answers `def_to_refs[(def_kind, file_id, span)]` with every
+    // `(ref_kind, ref_id)` that resolved to that def — the same query the
+    // refs panel issues (`find_at`). The fix face is `ref_kinds` (from
+    // `def_ref_kinds`), not the panel's display exemptions: a rename must
+    // reach exactly the ref faces the gate's def kinds pair with.
+    let def_keys: Vec<(SymbolKind, u32, u32, u32)> = defs
+        .iter()
+        .map(|((kind, _), (_, file_id, start, end))| {
+            (*kind, *file_id, *start as u32, *end as u32)
+        })
+        .collect();
+    let mut refs: BTreeSet<(u8, u32)> = BTreeSet::new();
     for entry in WORKSPACE.mcodes.iter() {
         let Ok(sym) = entry.value().symbols.lock() else {
             continue;
         };
-        for ((kind, decl_id), def_name) in sym.def_names.iter() {
-            if !def_kinds.contains(kind) || ids.contains(decl_id) {
-                continue;
-            }
-            let Some(loc) = sym.def_map.get(&(*kind, *decl_id)) else {
-                continue;
-            };
-            let file = if loc.file_id != 0 {
-                crate::semantic::common::uri_of_file_id(loc.file_id).to_string()
-            } else {
-                entry.key().to_string()
-            };
-            let dotted_tail = format!(".{name}");
-            if defs.iter().any(|((def_kind, _), (def_file, start, end))| {
-                def_kind == kind
-                    && def_file == &file
-                    && *start == loc.byte_start as usize
-                    && *end == loc.byte_end as usize
-                    && (def_name.as_str() == name || def_name.ends_with(&dotted_tail))
-            }) {
-                ids.insert(*decl_id);
+        let Some(m) = sym.ref_def_map.as_ref() else {
+            continue;
+        };
+        for (def_kind, file_id, start, end) in &def_keys {
+            for &(rk, rid) in m.get_refs_for_def(*def_kind, *file_id, *start, *end) {
+                if ref_kinds.contains(&rk) {
+                    refs.insert((rk as u8, rid));
+                }
             }
         }
     }
+
     // (file, start, end) → replacement; BTreeMap dedups (a def span may also
     // appear as a ref interval) and imposes the apply order.
     let mut edits: BTreeMap<(String, usize, usize), String> = BTreeMap::new();
-    for (file, start, end) in defs.values() {
+    for (file, _, start, end) in defs.values() {
         edits.insert((file.clone(), *start, *end), replacement.to_string());
     }
+    // ②a Occurrence spans: (kind, id) → [(uri, start, stop)] from each file's
+    // symbol lapper. Lapper ids are workspace-unique DeclareIds, so the key is
+    // global and the same symbol maps to its span in every file — the same
+    // scan the panel's span leg runs. Chain-consumer rows carry the
+    // whole-chain span (`psu.vin`); a rename touches only the flagged member
+    // segment.
+    let mut span_index: HashMap<(u8, u32), Vec<(String, usize, usize)>> = HashMap::new();
     for entry in WORKSPACE.mcodes.iter() {
         let file_uri = entry.key().to_string();
         let Ok(sym) = entry.value().symbols.lock() else {
             continue;
         };
-        // Chain-consumer rows carry the whole-chain span (`psu.vin`); a
-        // rename touches only the flagged member segment.
-        let text = entry.value().content.as_str();
-        for (kind, decl_id, start, stop) in sym.ref_entries.iter() {
-            if ref_kinds.contains(kind) && ids.contains(decl_id) {
-                let Some((start, stop)) = member_span(text, *start, *stop, &name) else {
-                    continue;
-                };
-                edits.insert(
-                    (file_uri.clone(), start, stop),
-                    replacement.to_string(),
-                );
-            }
+        for iv in sym.symbol_lapper.iter() {
+            span_index
+                .entry((iv.val.kind, iv.val.id))
+                .or_default()
+                .push((file_uri.clone(), iv.start, iv.stop));
+        }
+    }
+    for (rk, rid) in refs {
+        let Some(spans) = span_index.get(&(rk, rid)) else {
+            continue;
+        };
+        for (ref_uri, start, stop) in spans {
+            let Some(mc) = WORKSPACE.mcodes.get(&crate::McURI::from(ref_uri.as_str())) else {
+                continue;
+            };
+            let Some((start, stop)) = member_span(mc.content.as_str(), *start, *stop, &name)
+            else {
+                continue;
+            };
+            edits.insert((ref_uri.clone(), start, stop), replacement.to_string());
         }
     }
     if edits.is_empty() {
@@ -414,12 +427,13 @@ mod tests {
     #[test]
     fn port_face_fix_renames_member_chain_consumers_member_segment_only() {
         // A module port is consumed plainly (same file) and through a
-        // cross-file member chain (`psu.vin`). The chain row pairs with a
-        // synthetic whole-chain def at the true declaration span — the alias
-        // union re-couples it, and the whole-chain row's edit narrows to the
-        // member segment: renaming `vin` must never clobber the `psu.` base.
-        // Real files on disk: `use ./psu.mc` resolution requires the target
-        // (same constraint as the loader tests in db/infra/mc_code.rs).
+        // cross-file member chain (`psu.vin`). The chain row pairs under the
+        // true def key in `def_to_refs` (pass1 mints the consumer-side
+        // chain-hit def with the def file's id), and the whole-chain row's
+        // edit narrows to the member segment: renaming `vin` must never
+        // clobber the `psu.` base. Real files on disk: `use ./psu.mc`
+        // resolution requires the target (same constraint as the loader
+        // tests in db/infra/mc_code.rs).
         let _guard = crate::db::infra::init::MCC_TEST_PARSE_LOCK.lock().expect("lock");
         crate::mcc_init_no_lib();
         crate::mcc_set_system_root(std::path::Path::new(""));
@@ -504,13 +518,14 @@ mod tests {
 
     #[test]
     fn func_fix_renames_cross_file_call_sites_member_segment_only() {
-        // A func is consumed through member calls: same-file rows pair with
-        // the real FuncDef id, cross-file rows with a synthetic id the alias
-        // union re-couples (U341 probe). Both corpus shapes — named-instance
-        // member call and inline two-pin chain — must carry an edit, each on
-        // the member segment only. Real files on disk: `use ./tiny.mc`
-        // resolution requires the target (same constraint as the loader tests
-        // in db/infra/mc_code.rs).
+        // A func is consumed through member calls: same-file rows and
+        // cross-file rows pair under the true FuncDef key in `def_to_refs`
+        // (U342 probe — pass1 mints the consumer-side fcall def with the def
+        // file's id). Both corpus shapes — named-instance member call and
+        // inline two-pin chain — must carry an edit, each on the member
+        // segment only. Real files on disk: `use ./tiny.mc` resolution
+        // requires the target (same constraint as the loader tests in
+        // db/infra/mc_code.rs).
         let _guard = crate::db::infra::init::MCC_TEST_PARSE_LOCK.lock().expect("lock");
         crate::mcc_init_no_lib();
         crate::mcc_set_system_root(std::path::Path::new(""));
