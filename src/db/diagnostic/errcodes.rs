@@ -1294,6 +1294,13 @@ pub const GATE_SYNTHETIC_PIN: u32 = 4215;
 /// (`Phrase * N` / `Phrase × N`).
 pub const CONN_REPLICATION_COUNT: u32 = 4216;
 
+/// U356 — a whole-foot port reference (`comp.Port`) names a registered
+/// multi-pin-style port of the component, but the port expands to no
+/// physical pin (its adoption resolves to nothing, or a single-member
+/// interface reused across pin groups leaves no unique pin), so the
+/// reference lands on no conductor at all.
+pub const WHOLE_FOOT_PIN_UNRESOLVED: u32 = 4217;
+
 // Pass3: duplicate validation (5000-5049)
 
 /// Same name defined in another file (cross-file duplicate).
@@ -2960,6 +2967,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(GATE_ORPHAN_INSTANCE, "R14 — an instance is registered but appears in no net.", "orphan instance: {0}"),
     entry!(GATE_SYNTHETIC_PIN, "R15 — a synthetic terminal is not backed by any real pin.", "synthetic terminal: {0}"),
     entry!(CONN_REPLICATION_COUNT, "U155 — a connection replication count must be an int >= 2.", "replication count: {0}"),
+    entry!(WHOLE_FOOT_PIN_UNRESOLVED, "A whole-foot port reference resolves to no physical pin.", "'{0}' names a port of '{1}' but the port expands to no physical pin — its pin adoption resolves to nothing, or a single-member interface reused across pin groups leaves no unique pin behind the whole-foot name. Name the member explicitly ('{0}.<member>' using the port's declared members), or check the port's declaration and adoption."),
     entry!(PIN_COPPER_EXPECTATION_MISMATCH, "A pin row declares an identity or signal-class expectation the net it lands on contradicts.", "pin '{0}' expects {1} but lands on class '{2}' — the class anchors neither a matching declared face nor a matching copper identity: bind the pin to a net of the expected identity, or change the expectation (pin-expectation-design.md §3-§4)"),
     entry!(PIN_COPPER_EXPECTATION_UNANCHORED, "A pin row declares an expectation but its net resolves no identity at all.", "pin '{0}' expects {1} but its net carries no declared identity — a bare net is no face at all: declare the copper (conduit or domain rail) in the owning module, or the expectation stays a wish (pin-expectation-design.md §3-§4)"),
     entry!(CROSS_BARRIER_NET, "Pins of two different @barrier groups on one component share a net — the declared isolation is bridged.", "component '{0}' carries barrier groups {1} on one net '{2}' — a group-wise isolation fact, physical by birth: split the net so no copper of this part reaches two groups, or drop the @barrier rows that overstate the part (barrier-design.md §3)"),

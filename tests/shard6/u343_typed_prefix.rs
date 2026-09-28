@@ -139,6 +139,15 @@ impl Drop for Probe {
 /// interface reference: the netlist carries the `PCLK ~ osc.CLKP` connection.
 /// Before the fix this exact shape (1-pin interface + role argument) produced
 /// an *empty* netlist — the downgraded bare-text bus never re-resolved.
+///
+/// U356 rebase: the whole-foot single-member interface reference now
+/// resolves to the adopted pin's physical id, so the net renders `osc.1`
+/// (the pid spelling every component-side interface lane uses — multi-member
+/// `c.DP -> d.DH` lands as `c.1`/`c.2` the same way). The pre-U356 spelling
+/// `osc.CLKP` in this assertion was the ghost point the U351 fixture
+/// exposed: pristine HEAD rendered the net but left `top.osc.1` E4119
+/// unconnected behind it. The guarded property — the prefixed reference
+/// reaches the receiver's net — now holds onto the physical pin.
 #[test]
 fn lock_netlist__prefixed_typed_iface_reference_stays_typed() {
     let probe = Probe::create("netlist");
@@ -154,8 +163,8 @@ fn lock_netlist__prefixed_typed_iface_reference_stays_typed() {
         "prefixed typed reference must not die with E4007; output: {text}"
     );
     assert!(
-        text.contains("PCLK: PCLK osc.CLKP"),
-        "the prefixed reference must land on the receiver's net; netlist: {text}"
+        text.contains("PCLK: PCLK osc.1"),
+        "the prefixed reference must land on the receiver's net through the adopted pin; netlist: {text}"
     );
 }
 

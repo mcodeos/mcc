@@ -166,6 +166,25 @@ pub(crate) fn declared_pin_id(
     if let Some(McPinPort::Single(id)) = comp.def.pins.names_to_id.get(member) {
         return Some(id.clone());
     }
+    // U356: a single-member interface adoption (`1 = SD::SPN(DEV)`) registers
+    // the whole-foot port name as an Interface whose adoption carries exactly
+    // one physical pin. The whole-foot name then IS that pin's written
+    // identity: resolve it here so every consumer of this resolver (pin-path
+    // normalization, curly access, ncpin, declaration face) lands on the same
+    // physical pin the member spelling (`SD.SB`) already resolves to.
+    // Multi-member adoptions expand through `find_bus_port_pin_ids` and must
+    // not take this arm; a single-member interface reused across pin groups
+    // accumulates a pad list in `registered_pins` (see the U150 note there),
+    // which is more than one pin — left unresolved, not guessed.
+    if let Some(McPinPort::Interface(iface)) = comp.def.pins.names_to_id.get(member) {
+        if iface.base.pins.member_names().len() == 1 {
+            let unique: std::collections::BTreeSet<&String> =
+                iface.registered_pins.iter().collect();
+            if unique.len() == 1 {
+                return Some(unique.into_iter().next().unwrap().clone());
+            }
+        }
+    }
     if let Some((_, last)) = member.rsplit_once('.') {
         if let Some(id) = comp.find_conditional_pin_id(last) {
             return Some(id);
@@ -252,6 +271,7 @@ impl InstantiationBuilder {
                             points.extend(lanes);
                         } else if is_owned {
                             self.note_internal_member_ref(&path);
+                            self.note_whole_foot_unresolved(&path);
                             points.push(
                                 NetPoint::with_owner(
                                     &path,
@@ -608,6 +628,7 @@ impl InstantiationBuilder {
                             points.extend(lanes);
                         } else if is_owned {
                             self.note_internal_member_ref(&path);
+                            self.note_whole_foot_unresolved(&path);
                             points.push(
                                 NetPoint::with_owner(&path, &bus.name, IOType::None, site.clone())
                                     .with_member_name(m),
@@ -1001,6 +1022,7 @@ impl InstantiationBuilder {
                             points.extend(lanes);
                         } else if is_owned {
                             self.note_internal_member_ref(&path);
+                            self.note_whole_foot_unresolved(&path);
                             points.push(
                                 NetPoint::with_owner(
                                     &path,
@@ -1269,6 +1291,7 @@ impl InstantiationBuilder {
                             points.extend(lanes);
                         } else if is_owned {
                             self.note_internal_member_ref(&path);
+                            self.note_whole_foot_unresolved(&path);
                             points.push(
                                 NetPoint::with_owner(&path, &bus.name, IOType::None, site.clone())
                                     .with_member_name(m),
@@ -2394,6 +2417,82 @@ impl InstantiationBuilder {
                 LedgerKind::UnresolvedRef,
                 path.to_string(),
                 "points.rs:submodule member is module-internal",
+            )
+            .with_action(LedgerAction::Error)
+            .with_uri(uri)
+            .with_span(pos, path.len() as u32),
+        );
+    }
+
+    /// U356: report a whole-foot `comp.Port` reference that names a real
+    /// multi-pin-style port of the component but resolved to no physical
+    /// pin — the reference is about to become a ghost point on no conductor
+    /// at all (the silent face this diagnostic closes; E4217). Scalar pins
+    /// and resolvable bus/interface ports never reach the report: both
+    /// resolvers are re-checked here so the diagnostic fires only on the
+    /// genuinely unresolved residue (a multi-pin adoption that resolved to
+    /// nothing, or a single-member interface reused across pin groups).
+    fn note_whole_foot_unresolved(&mut self, path: &str) {
+        use crate::semantic::component::mc_pins::McPinPort;
+        let Some((owner, member)) = path.split_once('.') else {
+            return;
+        };
+        // Member spellings (`comp.Port.member`) have their own resolution
+        // faces; only the whole-foot spelling is judged here.
+        if member.contains('.') {
+            return;
+        }
+        let Some(comp) = self.find_component_visible(owner) else {
+            return;
+        };
+        if !matches!(
+            comp.def.pins.names_to_id.get(member),
+            Some(
+                McPinPort::Interface(_)
+                    | McPinPort::Bus(_)
+                    | McPinPort::List(_, _)
+                    | McPinPort::Multi(_)
+            ),
+        ) {
+            return;
+        }
+        if comp.find_bus_port_pin_ids(member).is_some() {
+            return;
+        }
+        if declared_pin_id(&comp, member).is_some() {
+            return;
+        }
+        let (uri, pos) = match (&self.current_func_span, &self.current_stmt_span) {
+            (Some(sp), _) => (sp.uri.clone(), sp.offset),
+            (None, Some(s)) => (s.uri.clone(), s.offset),
+            (None, None) => (self.def_uri.clone(), 0),
+        };
+        // One unresolved whole-foot reference at one anchor is one
+        // diagnostic: the same access reaches this site once per mint face
+        // (left/right point extraction).
+        if !self
+            .whole_foot_unresolved_reported
+            .insert(format!("{uri}:{pos}"))
+        {
+            return;
+        }
+        crate::db::diagnostic::diagnostic::diagnostic_log_at(
+            crate::errcodes::WHOLE_FOOT_PIN_UNRESOLVED,
+            crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
+            uri.clone(),
+            pos,
+            path.len() as u32,
+            &crate::errcodes::format_msg(
+                crate::errcodes::WHOLE_FOOT_PIN_UNRESOLVED,
+                &[&path, &comp.name.to_string()],
+            ),
+            &[],
+        );
+        ledger::record(
+            LedgerEntry::new(
+                LedgerKind::UnresolvedRef,
+                path.to_string(),
+                "points.rs:whole-foot port reference resolved to no pin",
             )
             .with_action(LedgerAction::Error)
             .with_uri(uri)

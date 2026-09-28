@@ -135,6 +135,13 @@ pub(crate) struct InstantiationBuilder {
     /// (label-boundary-gate-design.md).
     pub(super) internal_member_reported: HashSet<String>,
 
+    /// U356: `uri:pos` anchors already reported as E4217 (whole-foot port
+    /// reference resolved to no pin) by this builder. The same reference
+    /// reaches the report site once per mint face (left/right point
+    /// extraction), so the set keeps one violation at one anchor to one
+    /// diagnostic — the same discipline as [`Self::internal_member_reported`].
+    pub(super) whole_foot_unresolved_reported: HashSet<String>,
+
     /// §4.2 check 2 (pin-semantics §4.3, U289 C1): option usage per physical
     /// pin, `{instance}.{pid}` → the first `(written name, option ordinal)`
     /// that resolved to it. The second name of a *different* option reaching
@@ -450,6 +457,7 @@ impl InstantiationBuilder {
             current_trunk: None,
             current_trunk_kind: None,
             internal_member_reported: HashSet::new(),
+            whole_foot_unresolved_reported: HashSet::new(),
             pin_option_use: HashMap::new(),
             current_trunk_iface: None,
             chain_iface_endpoints: HashMap::new(),
