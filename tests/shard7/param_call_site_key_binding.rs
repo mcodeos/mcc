@@ -565,6 +565,89 @@ fn pa_keys__pins_rooted_argument_on_dynamic_pins_is_not_judged() {
     assert_eq!(bind_hits(&diags).len(), 0, "got {diags:?}");
 }
 
+// Named members in a call-site row resolve like the `this{...}` self face: a
+// name addresses the pin the definition gave it, not nothing. The rows below
+// state the name face twice — selection by name must land where selection by
+// id does.
+
+/// `pins{A, B} = SWDBG` selects by declared pin name: the row lands on the
+/// pins the definition named A and B (ids 1 and 2), pin 3 stays unnamed.
+#[test]
+fn pa_keys__pins_rooted_argument_selects_by_declared_name() {
+    let src = format!("{NAMED_PINS}\nmodule main {{\n    C c1( pins{{A, B}} = SWDBG )\n}}\n");
+    let (diags, _) = probe(&src, "/mcc/keys-pins-names.mc");
+    assert_eq!(
+        diags.iter().filter(|d| d.code == CODE).count(),
+        0,
+        "a declared name selects its pin; got {diags:?}"
+    );
+    assert_eq!(
+        pin_names_of(&probe_pin_names(&src, "/mcc/keys-pins-names.mc"), "c1"),
+        vec!["1 = SWDBG".to_string(), "2 = SWDBG".to_string()],
+        "3 stays unnamed: the row names A and B only"
+    );
+}
+
+/// Id and name members mix in one row, each in its own face: `pins{1, P}`
+/// names the pin with id 1 and the pin named P (id 3).
+#[test]
+fn pa_keys__pins_rooted_argument_mixes_ids_and_names() {
+    let src = format!("{NAMED_PINS}\nmodule main {{\n    C c1( pins{{1, P}} = ALT )\n}}\n");
+    let (diags, _) = probe(&src, "/mcc/keys-pins-mixed.mc");
+    assert_eq!(bind_hits(&diags).len(), 0, "got {diags:?}");
+    assert_eq!(
+        pin_names_of(&probe_pin_names(&src, "/mcc/keys-pins-mixed.mc"), "c1"),
+        vec!["1 = ALT".to_string(), "3 = ALT".to_string()],
+        "2 stays unnamed: the row names id 1 and name P"
+    );
+}
+
+/// A name no pin answers to is the same bind failure as an unknown id: the
+/// row names pins the definition does not declare.
+#[test]
+fn pa_keys__pins_rooted_argument_naming_an_unknown_name_errors() {
+    let src = format!("{NAMED_PINS}\nmodule main {{\n    C c1( pins{{GHOST}} = X )\n}}\n");
+    let (diags, _) = probe(&src, "/mcc/keys-pins-unknown-name.mc");
+    let hits = bind_hits(&diags);
+    assert_eq!(hits.len(), 1, "got {diags:?}");
+    assert_eq!(hits[0].level, DiagnosticLevel::Error, "got {diags:?}");
+    assert!(
+        hits[0].msg.contains("pin row names pin GHOST"),
+        "the message must name the unknown name; got {}",
+        hits[0].msg
+    );
+    assert_eq!(
+        pin_names_of(&probe_pin_names(&src, "/mcc/keys-pins-unknown-name.mc"), "c1"),
+        Vec::<String>::new(),
+        "the error does not make the row invent a pin"
+    );
+}
+
+/// U347: a dot-chain member (`pins{A.B} = v`) is name-shaped, so it is judged
+/// against the declared name set like any other name — not silently dropped.
+/// On the `this` face `this{A.B}` is a supported spelling (U249:
+/// `uC{ADC.P}` ≡ `uC.ADC.P`); the call-site row has no group-expansion law,
+/// so the same spelling names a pin the class does not declare and reports
+/// the row's own code instead of no-oping.
+#[test]
+fn pa_keys__pins_rooted_argument_dot_chain_member_errors_not_noops() {
+    let src = format!("{NAMED_PINS}\nmodule main {{\n    C c1( pins{{A.B}} = X )\n}}\n");
+    let (diags, _) = probe(&src, "/mcc/keys-pins-dot-chain.mc");
+    let hits = bind_hits(&diags);
+    assert_eq!(hits.len(), 1, "got {diags:?}");
+    assert_eq!(hits[0].level, DiagnosticLevel::Error, "got {diags:?}");
+    assert!(
+        hits[0].msg.contains("pin row names pin A.B"),
+        "the message must name the dot-chain member; got {}",
+        hits[0].msg
+    );
+    assert_eq!(
+        pin_names_of(&probe_pin_names(&src, "/mcc/keys-pins-dot-chain.mc"), "c1"),
+        Vec::<String>::new(),
+        "the error does not make the row invent a pin"
+    );
+}
+
 // The colon spelling of a named argument (`k: v`).
 //
 // intent-reference-layer-design.md §7 writes the key with a colon

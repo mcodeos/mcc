@@ -323,24 +323,28 @@ impl McComponentInst {
         self.init_call_pin_rows();
     }
 
-    /// ★ U52: write the call site's pin rows (`pins{6:9} = SWDBG`) onto this
-    /// instance's pin-name face — the same face the definition's conditional
-    /// pin blocks write, so `insttab` / `show` / `print` consume them with no
-    /// change. `pins` is an identity clause, not an attribute (§1.6), so this is
-    /// the one call-site argument that names pins instead of binding a formal.
+    /// ★ U52: write the call site's pin rows (`pins{6:9} = SWDBG`,
+    /// `pins{A, GND} = SWDBG`) onto this instance's pin-name face — the same
+    /// face the definition's conditional pin blocks write, so `insttab` /
+    /// `show` / `print` consume them with no change. `pins` is an identity
+    /// clause, not an attribute (§1.6), so this is the one call-site argument
+    /// that names pins instead of binding a formal.
     ///
     /// A row renames only pins the definition already has: naming an id the
     /// definition never declared does not invent a pin (Pass1 reports E4176 for
-    /// it at the call site). The row's ids expand the same way a
-    /// definition-side pin row's do (`6:9` → 6,7,8,9).
+    /// it at the call site), and a named member resolves the same way the
+    /// `this{...}` self face resolves one — every pin the definition gives that
+    /// name. The row's ids expand the same way a definition-side pin row's do
+    /// (`6:9` → 6,7,8,9).
     fn init_call_pin_rows(&mut self) {
         let rows = self.params.call_pin_rows().to_vec();
+        let (name_to_ids, _) = McParamBindings::pin_name_faces(&self.def.pins.pin_id_to_names);
         for (ids, values) in rows.iter() {
             let names: Vec<String> = values.iter().map(|v| v.to_string()).collect();
             if names.is_empty() {
                 continue;
             }
-            for pin_id in McParamBindings::expand_pin_row_ids(ids) {
+            for pin_id in McParamBindings::expand_pin_row_ids(ids, &name_to_ids) {
                 if !self.pins.contains_key(&pin_id) {
                     continue;
                 }

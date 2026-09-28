@@ -864,11 +864,15 @@ impl McParamBindings {
         &self.pin_rows
     }
 
-    /// ★ U52: the pin ids a call-site pin row selects (`pins{6:9} = SWDBG`).
-    /// Digits name one pin, a slice names the closed range, anything else
-    /// names nothing — an id list is not a value, so no non-numeric member can
-    /// be a pin.
-    pub fn expand_pin_row_ids(ids: &[crate::semantic::basic::mc_ids::IdsSegment]) -> Vec<String> {
+    /// ★ U52: the pin ids a call-site pin row selects (`pins{6:9} = SWDBG`,
+    /// `pins{A, GND} = SWDBG`). A digit names one pin by id, a slice names the
+    /// closed id range, and a name names every pin the definition gives that
+    /// name — the same member resolution the `this{...}` self face gets, so the
+    /// two spellings address a pin alike. A dot-chain member names nothing.
+    pub fn expand_pin_row_ids(
+        ids: &[crate::semantic::basic::mc_ids::IdsSegment],
+        names: &std::collections::BTreeMap<String, Vec<String>>,
+    ) -> Vec<String> {
         use crate::semantic::basic::mc_ids::IdsSegment;
         let mut out = Vec::new();
         for seg in ids.iter() {
@@ -879,37 +883,88 @@ impl McParamBindings {
                         out.push(i.to_string());
                     }
                 }
+                IdsSegment::Ida(ida) => {
+                    if let Some(claimed) = names.get(&ida.to_string()) {
+                        out.extend(claimed.iter().cloned());
+                    }
+                }
                 _ => {}
             }
         }
         out
     }
 
-    /// ★ U52: the pin ids a call-site pin row names that `declared` does not
-    /// hold, in row order and deduplicated. A row renames pins the definition
-    /// already has — naming an id it never declared invents no pin, so the
-    /// caller reports it (E4176) instead of dropping the row silently. A row
-    /// with no values states nothing and is skipped.
+    /// ★ U52: the pins a call-site pin row names that the definition does not
+    /// declare, in row order and deduplicated. A row renames pins the
+    /// definition already has — naming an id it never declared invents no pin,
+    /// and neither does a name it never gave, so the caller reports both
+    /// (E4176) instead of dropping the row silently. A row with no values
+    /// states nothing and is skipped.
     pub fn undeclared_pin_row_ids(
         rows: &[(
             Vec<crate::semantic::basic::mc_ids::IdsSegment>,
             Vec<McAttrVal>,
         )],
         declared: &std::collections::BTreeSet<String>,
+        declared_names: &std::collections::BTreeSet<String>,
     ) -> Vec<String> {
+        use crate::semantic::basic::mc_ids::IdsSegment;
         let mut out: Vec<String> = Vec::new();
         for (ids, values) in rows.iter() {
             if values.is_empty() {
                 continue;
             }
-            for pin_id in Self::expand_pin_row_ids(ids) {
-                if declared.contains(&pin_id) || out.contains(&pin_id) {
-                    continue;
+            for seg in ids.iter() {
+                // An id member answers to the id set, a name member to the
+                // name set — the face it was written in decides the table. A
+                // dot-chain member (`pins{A.B}`) is a name shape too: it names
+                // nothing here (the row renames flat pins, and no pin is
+                // spelled `A.B` unless declared so), so it is judged against
+                // the name set instead of silently dropping the member.
+                let (spelled, face): (Vec<String>, &std::collections::BTreeSet<String>) = match seg
+                {
+                    IdsSegment::Int(n) => (vec![n.value.to_string()], declared),
+                    IdsSegment::Slice { from, to } => (
+                        (from.value..=to.value).map(|i| i.to_string()).collect(),
+                        declared,
+                    ),
+                    IdsSegment::Ida(ida) => (vec![ida.to_string()], declared_names),
+                    IdsSegment::Ids(ids) => (vec![ids.to_string()], declared_names),
+                    _ => (Vec::new(), declared),
+                };
+                for pin in spelled {
+                    if face.contains(&pin) || out.contains(&pin) {
+                        continue;
+                    }
+                    out.push(pin);
                 }
-                out.push(pin_id);
             }
         }
         out
+    }
+
+    /// The declared pin names of a definition (every name some pin answers to),
+    /// and each name mapped back to the ids that carry it — the name face a
+    /// call-site row's named members resolve against.
+    pub fn pin_name_faces(
+        pin_id_to_names: &std::collections::BTreeMap<String, Vec<String>>,
+    ) -> (
+        std::collections::BTreeMap<String, Vec<String>>,
+        std::collections::BTreeSet<String>,
+    ) {
+        let mut name_to_ids: std::collections::BTreeMap<String, Vec<String>> =
+            std::collections::BTreeMap::new();
+        for (id, names) in pin_id_to_names.iter() {
+            for name in names {
+                name_to_ids
+                    .entry(name.clone())
+                    .or_default()
+                    .push(id.clone());
+            }
+        }
+        let declared_names: std::collections::BTreeSet<String> =
+            name_to_ids.keys().cloned().collect();
+        (name_to_ids, declared_names)
     }
 
     /// The reason E4176 states for a row whose ids
@@ -1077,7 +1132,7 @@ impl McParamBindings {
                         // being matched against the definition's formals and
                         // attribute keys. Without this branch it stays an orphan
                         // (E4176, "named 'pins{6:9}'") — no key or formal can
-                        // ever be spelled `pins{…}`.
+                        // ever be spelled `pins{...}`.
                         if let Some(ids) = attr.pins_ids.clone() {
                             pin_rows.push((ids, attr.values.clone()));
                             continue;

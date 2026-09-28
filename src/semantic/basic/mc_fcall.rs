@@ -253,10 +253,12 @@ pub(crate) fn check_ctor_bind(
 }
 
 /// ★ U52: report E4176 once for the call-site pin rows that name pins
-/// `comp_def` does not declare (`pins{9:9} = SWDBG` on a two-pin class). A row
-/// renames pins the definition already has — an id it never declared invents no
-/// pin, so it is a bind failure, not a silent no-op. A class with dynamic pins
-/// has no closed id set ([`McComponent::closed_pin_ids`]) and is not judged.
+/// `comp_def` does not declare (`pins{9:9} = SWDBG` on a two-pin class, or a
+/// named member `pins{GND} = …` no pin answers to). A row renames pins the
+/// definition already has — an id it never declared invents no pin, and a name
+/// it never gave names nothing, so either is a bind failure, not a silent
+/// no-op. A class with dynamic pins has no closed id set
+/// ([`McComponent::closed_pin_ids`]) and is not judged.
 pub(crate) fn check_ctor_pin_rows(
     inst_name: &str,
     comp_def: &crate::semantic::component::McComponent,
@@ -269,7 +271,8 @@ pub(crate) fn check_ctor_pin_rows(
     let Some(declared) = comp_def.closed_pin_ids() else {
         return;
     };
-    let unknown = McParamBindings::undeclared_pin_row_ids(rows, &declared);
+    let (_, declared_names) = McParamBindings::pin_name_faces(&comp_def.pins.pin_id_to_names);
+    let unknown = McParamBindings::undeclared_pin_row_ids(rows, &declared, &declared_names);
     if unknown.is_empty() {
         return;
     }

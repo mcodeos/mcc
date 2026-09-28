@@ -182,3 +182,42 @@ fn pins_selfface__bad_member_reports_the_same_code_as_this() {
         "the two spellings must report the same code set for the same miss"
     );
 }
+
+/// U347: the pipe selector `pins{n | m}` parses and wires exactly as its
+/// `this{n | m}` twin. The generic `mc_opd {n | m}` rule is unreachable for
+/// either keyword (`%left MCK_THIS MCK_PINS` sits below `MCPT_LCURLY`, so the
+/// `{` force-shifts into the comma-only `mc_idm` path and the `|` prunes the
+/// stack) — each keyword survives through its own direct-SHIFT CURLY_MN arm
+/// in mca.y, and the two arms must produce mirror phrases.
+#[test]
+fn pins_selfface__pipe_selector_wires_like_this() {
+    let (pins_body, this_body) = body_pair_lines(
+        ["a - pins{P1 | P2} - b", ""],
+        ["a - this{P1 | P2} - b", ""],
+    );
+    let pins = nets_of(&src_of(&pins_body), "/mcc/pins-pipe-selector.mc");
+    let this = nets_of(&src_of(&this_body), "/mcc/this-pipe-selector.mc");
+
+    assert_eq!(
+        pins, this,
+        "`pins{{P1 | P2}}` must wire exactly as `this{{P1 | P2}}`"
+    );
+
+    // The selector is a two-side port choice, not a member list: the left
+    // option lands on the left call argument, the right option on the right.
+    assert_eq!(
+        pins.len(),
+        2,
+        "one net per side; nets={pins:?}"
+    );
+    let left = net_holding(&pins, "Q1.1").expect("left option landed pin 1");
+    assert!(
+        left.iter().any(|p| p.contains("N1")),
+        "P1 (pin 1) must join the left argument; net={left:?}"
+    );
+    let right = net_holding(&pins, "Q1.2").expect("right option landed pin 2");
+    assert!(
+        right.iter().any(|p| p.contains("N2")),
+        "P2 (pin 2) must join the right argument; net={right:?}"
+    );
+}
