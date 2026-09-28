@@ -68,9 +68,8 @@
 #define MCAST_IOTYPE_NC                45
 // 93 retired: the `label` direction word was removed (the word is freed for
 // the naming meaning); sibling ids stay stable, so the gap is permanent.
-#define MCAST_IOTYPE_PSRC              97 // power-source direction word (psrc) — pin/rail source side
-#define MCAST_IOTYPE_PSNK              98 // power-sink direction word (psnk) — pin/rail sink side
-#define MCAST_IOTYPE_PSBI              99 // power-bidirectional (psbi) — charge = sink, discharge = source
+// 97-99 retired (moved to 339-341): the ids collided with MCAST_JUDGE_OR
+// (97); every consumer matches by symbolic name, so the move is silent.
 
 //3.5 power-intent declarations (intent-design.md §5)
 //    MCAST_REF     = `conduit GND @role(main) @star` — conductor identity decl.
@@ -167,11 +166,14 @@
 #define MCAST_JUDGE_BITOR               91
 #define MCAST_JUDGE_IN                  92
 #define MCAST_JUDGE_AND                 93
-// 94-96 are MCAST_ABSTRACT/VARIANT/ADOPTS, so the logical-or judge lands at 97.
+// 94-96 are MCAST_ABSTRACT/VARIANT/ADOPTS, so the logical-or judge lands at
+// 97 (97-99 previously shared the psrc/psnk/psbi direction words — the
+// collision is resolved by their move to 339-341).
 #define MCAST_JUDGE_OR                  97
 
-//3.11 clause: author error clause `error( mc_phrase )` (U212). 98-99 are the
-// psnk/psbi direction words, 100 is the next free code in this section.
+//3.11 clause: author error clause `error( mc_phrase )` (U212). 98-99 are
+// free since the psnk/psbi direction words moved to 340-341; 100 is the
+// next free code in this section.
 #define MCAST_ERROR                     100
 
 //4. use
@@ -267,6 +269,12 @@
 //    but is never a readable condition — the semantic layer does not select
 //    the chain; the grammar fires MCD_E1017_JUDGE_ERROR with the literal span
 #define MCAST_JUDGE_BARE_LITERAL        338
+//1f. power direction words (moved off 97-99, which collided with
+//    MCAST_JUDGE_OR at 97): the psrc/psnk/psbi direction-word data nodes.
+//    Every consumer matches by symbolic name, so the move is silent.
+#define MCAST_IOTYPE_PSRC              339 // power-source direction word (psrc) — pin/rail source side
+#define MCAST_IOTYPE_PSNK              340 // power-sink direction word (psnk) — pin/rail sink side
+#define MCAST_IOTYPE_PSBI              341 // power-bidirectional (psbi) — charge = sink, discharge = source
 
 
 //---------------------------
