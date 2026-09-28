@@ -2617,7 +2617,7 @@ impl McCode {
 
         let mut map = RefDefMap::new();
         // U234 tier ②: insert() records the def resolution edge of every
-        // whitelisted ref entry against this owner file.
+        // panel-eligible ref entry against this owner file.
         map.owner_uri = self.uri.to_string();
 
         // Scope the lock to release before writing
@@ -8182,19 +8182,19 @@ module main
         (a_uri, b_uri)
     }
 
-    /// U234 tier ② coverage contract: every whitelisted entry in any file's
+    /// U234 tier ② coverage contract: every panel-eligible entry in any file's
     /// `def_to_refs` is edge-backed — the referencing file appears in the
     /// def file's graph projection. This is the invariant that makes the
     /// find_at prefilter unable to drop a ref (D4); a fixture without at
-    /// least one whitelisted entry would be a vacuous lock, so the count is
+    /// least one panel-eligible entry would be a vacuous lock, so the count is
     /// asserted too.
     #[test]
-    fn def_mccode__refgraph_whitelisted_def_to_refs_entries_are_edge_backed() {
+    fn def_mccode__refgraph_panel_eligible_def_to_refs_entries_are_edge_backed() {
         let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");
         let (a_uri, b_uri) = refgraph_inst_label_project("refgraph-coverage");
-        use crate::refdef::types::is_whitelisted_ref_kind;
+        use crate::refdef::types::is_panel_ref_kind;
 
-        let mut whitelisted = 0usize;
+        let mut eligible = 0usize;
         for entry in workspace::WORKSPACE.mcodes.iter() {
             let owner = entry.key().to_string();
             let sem = entry.value().symbols.lock().unwrap();
@@ -8208,24 +8208,24 @@ module main
                     owner.clone()
                 };
                 for &(rk, _) in refs {
-                    if !is_whitelisted_ref_kind(rk) {
+                    if !is_panel_ref_kind(rk) {
                         continue;
                     }
-                    whitelisted += 1;
+                    eligible += 1;
                     assert!(
                         workspace::WORKSPACE
                             .refgraph
                             .dependent_files_of_file(&def_uri)
                             .contains(&owner),
-                        "file {owner} holds whitelisted refs into {def_uri} with no edge"
+                        "file {owner} holds panel-eligible refs into {def_uri} with no edge"
                     );
                     break;
                 }
             }
         }
         assert!(
-            whitelisted > 0,
-            "fixture must produce whitelisted def_to_refs entries"
+            eligible > 0,
+            "fixture must produce panel-eligible def_to_refs entries"
         );
         assert!(
             workspace::WORKSPACE
@@ -8244,14 +8244,14 @@ module main
     /// label names are not reachable through the name-hint fallback at all —
     /// the name_index only holds class-level names, a pre-existing
     /// limitation — so their no-drop guarantee lives in the coverage lock
-    /// above: every whitelisted `def_to_refs` entry is edge-backed.)
+    /// above: every panel-eligible `def_to_refs` entry is edge-backed.)
     #[test]
     fn def_mccode__find_at_graph_prefilter_matches_the_full_scan() {
         let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");
         let (a_uri, _b_uri) = refgraph_inst_label_project("refgraph-findat");
         let dir = std::env::temp_dir().join(format!("mcc-refgraph-findat-{}", std::process::id()));
         let src = std::fs::read_to_string(dir.join("a.mc")).unwrap();
-        use crate::refdef::types::{is_whitelisted_ref_kind, SymbolKind};
+        use crate::refdef::types::{is_panel_ref_kind, SymbolKind};
 
         // The old algorithm, unfiltered: pin the def the way find_at's
         // name_hint fallback does, then every loaded file's reverse index
@@ -8284,7 +8284,7 @@ module main
                 if let Ok(s) = entry.value().symbols.lock() {
                     if let Some(m) = s.ref_def_map.as_ref() {
                         for &(rk, rid) in m.get_refs_for_def(dk, fid, ds, de) {
-                            if is_whitelisted_ref_kind(rk) {
+                            if is_panel_ref_kind(rk) {
                                 refs.insert((rk as u8, rid));
                             }
                         }

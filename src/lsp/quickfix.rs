@@ -18,10 +18,11 @@
 //! file's `def_names`/`def_map` (real names captured at `register_def`);
 //! occurrence sites come from every loaded file's `ref_entries`, whose
 //! `(ref_kind, declare_id)` rows carry the span inline. This deliberately
-//! bypasses the refs-panel whitelist (`is_whitelisted_ref_kind`) and the
-//! who-uses refgraph prefilter: ports, funcs and enum values are type-level
-//! noise for the panel (so their edges are never recorded), but they are
-//! exactly the faces a rename must reach.
+//! bypasses the refs-panel exemption gate (`is_panel_ref_kind`) and the
+//! who-uses refgraph prefilter: the panel exempts the registration-forked
+//! FuncParamRef rows and the enum/role registration-miss faces (so their
+//! edges are never recorded), but they are exactly the faces a rename must
+//! reach.
 //!
 //! Exemptions need no extra logic: the fix exists only where the gate fired,
 //! so §2.1 (pin names, datasheet names) never reaches a fix.

@@ -20,10 +20,13 @@ use crate::McURI;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-/// P1 refs whitelist — see [`crate::refdef::types::is_whitelisted_ref_kind`]
+/// Refs-panel eligibility — see [`crate::refdef::types::is_panel_ref_kind`]
 /// (canonical home since U234 tier ②; the kinds double as the def-edge
-/// coverage contract behind the graph prefilter below).
-pub use crate::refdef::types::is_whitelisted_ref_kind;
+/// coverage contract behind the graph prefilter below. U342 batch 2 turned
+/// the P1 category whitelist into an exemption list: every paired def/ref
+/// kind is admitted by default, and only the FuncParamRef fork and the
+/// enum/role registration-miss faces stay out).
+pub use crate::refdef::types::is_panel_ref_kind;
 
 /// Legacy name-based find-references (kept for `mcc refs <name>` and the
 /// name-only RPC path). Scans the workspace local symbol tables for instance
@@ -135,16 +138,14 @@ pub fn find_at(uri: &str, offset: usize, name_hint: Option<&str>) -> Vec<Value> 
     // U234 tier ②: the scan is prefiltered to the def-refgraph's file
     // projection — every file with a recorded ref-point into the def's file
     // (plus the def file itself). The projection over-approximates by
-    // construction (edge coverage = the whitelist, at RefDefMap::insert;
-    // purge is ref-point-side so a not-yet-rebuilt referencing file keeps
-    // its edges), and the exact def-key match below post-filters, so the
-    // prefilter cannot drop results. P1: the whitelist gates which ref kinds
-    // enter the panel — type-level noise is dropped here. Since U342 the
-    // panel-eligible kinds include ports and funcs (the probe showed their
-    // cross-file rows already pair; the old suppression hid paired rows),
-    // while enum values carry the registration-miss exemption: qualified
-    // uses in param/role positions register no ref row, so panel coverage
-    // there is best-effort by construction.
+    // construction (edge coverage = the panel-eligible kinds, at
+    // RefDefMap::insert; purge is ref-point-side so a not-yet-rebuilt
+    // referencing file keeps its edges), and the exact def-key match below
+    // post-filters, so the prefilter cannot drop results. U342 batch 2: the
+    // eligibility gate is an exemption list — every paired def/ref kind
+    // enters the panel (pin/param/bus-member level included), and only
+    // FuncParamRef (registration fork, latent 1:2) and the enum/role
+    // registration-miss faces stay out.
     let mut candidate_files: std::collections::HashSet<String> =
         WORKSPACE.refgraph.dependent_files_of_file(&def_uri).into_iter().collect();
     candidate_files.insert(def_uri.clone());
@@ -156,7 +157,7 @@ pub fn find_at(uri: &str, offset: usize, name_hint: Option<&str>) -> Vec<Value> 
         if let Ok(s) = entry.value().symbols.lock() {
             if let Some(m) = s.ref_def_map.as_ref() {
                 for &(rk, rid) in m.get_refs_for_def(def_kind, def_file_id, def_start, def_end) {
-                    if is_whitelisted_ref_kind(rk) {
+                    if is_panel_ref_kind(rk) {
                         refs.insert((rk as u8, rid));
                     }
                 }
@@ -217,13 +218,14 @@ pub fn find_at(uri: &str, offset: usize, name_hint: Option<&str>) -> Vec<Value> 
 mod tests {
     use super::*;
 
-    /// P1 refs whitelist regression: the panel must only ever receive
-    /// netlist-meaningful kinds. A class reference resolves to the ClassDef
-    /// and its ClassRef usage sites; the definition site is returned with
-    /// `def: true`; every item carries a whitelisted `kind`. Enum defs
-    /// resolve to their own site with no reference noise.
+    /// P1 refs-panel eligibility regression (U342 batch 2 shape): the panel
+    /// only ever receives kinds that pass the exemption list. A class
+    /// reference resolves to the ClassDef and its ClassRef usage sites; the
+    /// definition site is returned with `def: true`; every item carries an
+    /// eligible `kind`. Enum defs resolve to their own site with no
+    /// reference noise.
     #[test]
-    fn find_at_respects_refs_whitelist() {
+    fn find_at_answers_only_panel_eligible_kinds() {
         let _guard = crate::db::infra::init::MCC_TEST_PARSE_LOCK
             .lock()
             .expect("lock");
@@ -270,8 +272,8 @@ module main
         assert!(
             cap_kinds
                 .iter()
-                .all(|&k| is_whitelisted_ref_kind(SymbolKind::from_raw(k).expect("raw kind"))),
-            "every CAP ref kind must be whitelisted, got {cap_kinds:?}"
+                .all(|&k| is_panel_ref_kind(SymbolKind::from_raw(k).expect("raw kind"))),
+            "every CAP ref kind must be panel-eligible, got {cap_kinds:?}"
         );
         let cap_defs = cap_items
             .iter()
@@ -287,8 +289,8 @@ module main
             "class usage site must be reported as a reference"
         );
 
-        // Enum definition: resolves to the EnumDef site; still whitelisted
-        // and carries def=true — no type-level noise leaks in.
+        // Enum definition: resolves to the EnumDef site; still eligible and
+        // carries def=true — no registration-miss noise leaks in.
         let pkg_off = src.find("enum PKG").expect("enum PKG");
         let pkg_items = find_at(&uri, pkg_off, Some("PKG"));
         assert!(!pkg_items.is_empty(), "enum def must resolve");
@@ -299,8 +301,8 @@ module main
         assert!(
             pkg_kinds
                 .iter()
-                .all(|&k| is_whitelisted_ref_kind(SymbolKind::from_raw(k).expect("raw kind"))),
-            "every PKG kind must be whitelisted, got {pkg_kinds:?}"
+                .all(|&k| is_panel_ref_kind(SymbolKind::from_raw(k).expect("raw kind"))),
+            "every PKG kind must be panel-eligible, got {pkg_kinds:?}"
         );
         assert_eq!(
             pkg_items
@@ -314,7 +316,7 @@ module main
     /// U342: a func is panel-eligible and its declaration is a valid cursor
     /// position. Probed (U342): layer2 already pairs the cross-file call rows
     /// — pass1 mints the consumer-side FuncDef with the def file's `file_id` —
-    /// so once the whitelist lets FuncRef through, "find references" is
+    /// so with FuncRef panel-eligible, "find references" is
     /// exhaustive on both corpus call shapes (named-instance member call and
     /// inline two-pin chain). The def-site pinning leg is what makes the
     /// declaration itself answer: func names never reach the class-level name
@@ -458,6 +460,106 @@ module main
                     && it["pos"].as_u64().unwrap() as usize == def_off
             }),
             "the def site must be among the answers, items: {items:?}"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// U342 batch 2: the category gate is gone — pin-level faces are
+    /// panel-eligible by default. A cursor on a pin-name use answers the
+    /// def plus every use on the name face (PinNameDef/PinNameRef), a
+    /// cursor on a pin-id use answers the id face (PinIdDef/PinIdRef), and
+    /// the def-site cursor reaches the same answer set through the def-site
+    /// pinning leg. The remaining exemptions (FuncParamRef fork, enum/role
+    /// registration misses) keep their own locks on the quickfix face.
+    #[test]
+    fn find_at_answers_pin_level_faces_without_a_category_gate() {
+        let _guard = crate::db::infra::init::MCC_TEST_PARSE_LOCK
+            .lock()
+            .expect("lock");
+        crate::mcc_init_no_lib();
+        crate::mcc_set_system_root(std::path::Path::new(""));
+        crate::mcc_clear_workspace();
+        let dir = std::env::temp_dir().join(format!("mcc-u342b2-pin-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let def_src =
+            "component TINY\n{\n    name = \"T\"\n    pins = [\n        1 = A, \"a\"\n        2 = B, \"b\"\n    ]\n}\n";
+        let use_src = "use ./tiny.mc\n\nmodule main\n{\n    TINY t\n    TINY u\n    t.A -> u.B\n    t.1 -> u.2\n}\n";
+        std::fs::write(dir.join("tiny.mc"), def_src).unwrap();
+        std::fs::write(dir.join("main.mc"), use_src).unwrap();
+        let def_uri: McURI =
+            format!("file://{}", dir.join("tiny.mc").canonicalize().unwrap().display());
+        let main_uri: McURI =
+            format!("file://{}", dir.join("main.mc").canonicalize().unwrap().display());
+        crate::mcc_load_from_string(&def_uri, def_src);
+        crate::build::pass1::mcb_parse_all_modules();
+        crate::mcc_load_from_string(&main_uri, use_src);
+        crate::build::pass1::mcb_parse_all_modules();
+        // Bare-path cursor URI (loader key form), as this face's callers do.
+        let def_key: McURI = dir.join("tiny.mc").canonicalize().unwrap().display().to_string();
+        let main_key: McURI = dir.join("main.mc").canonicalize().unwrap().display().to_string();
+
+        // Name face: cursor on `A` in `t.A` — def plus the mirrored use.
+        let name_chain = use_src.find("t.A").unwrap();
+        let name_use = name_chain + 2;
+        let name_def = def_src.find("= A").unwrap() + 2;
+        let items = find_at(&main_key, name_use, None);
+        assert!(!items.is_empty(), "pin name use must resolve");
+        let kinds: Vec<u8> = items
+            .iter()
+            .map(|it| it["kind"].as_u64().unwrap_or(0) as u8)
+            .collect();
+        assert!(
+            kinds.contains(&(SymbolKind::PinNameDef as u8))
+                && kinds.contains(&(SymbolKind::PinNameRef as u8)),
+            "name face must answer PinNameDef+PinNameRef, got {kinds:?}"
+        );
+        assert!(
+            items.iter().any(|it| {
+                it["def"].as_bool().unwrap_or(false)
+                    && it["uri"] == def_key.as_str()
+                    && it["pos"].as_u64().unwrap() as usize == name_def
+            }),
+            "the pin name declaration must be among the answers, items: {items:?}"
+        );
+
+        // Id face: cursor on `1` in `t.1` — the id face answers, same shape.
+        let id_use = use_src.find("t.1").unwrap() + 2;
+        let id_def = def_src.find("1 = A").unwrap();
+        let items = find_at(&main_key, id_use, None);
+        assert!(!items.is_empty(), "pin id use must resolve");
+        let kinds: Vec<u8> = items
+            .iter()
+            .map(|it| it["kind"].as_u64().unwrap_or(0) as u8)
+            .collect();
+        assert!(
+            kinds.contains(&(SymbolKind::PinIdDef as u8))
+                && kinds.contains(&(SymbolKind::PinIdRef as u8)),
+            "id face must answer PinIdDef+PinIdRef, got {kinds:?}"
+        );
+        assert!(
+            items.iter().any(|it| {
+                it["def"].as_bool().unwrap_or(false)
+                    && it["uri"] == def_key.as_str()
+                    && it["pos"].as_u64().unwrap() as usize == id_def
+            }),
+            "the pin id declaration must be among the answers, items: {items:?}"
+        );
+
+        // Def-site cursor (name face): the same answer set through the
+        // def-site pinning leg — pin names never reach the class-level name
+        // index, so the leg is what makes the declaration answer. The chain
+        // use is reported on its whole-chain span (`t.A`), same law as the
+        // port face.
+        let items = find_at(&def_key, name_def, None);
+        assert!(!items.is_empty(), "pin name declaration must resolve");
+        assert!(
+            items.iter().any(|it| {
+                it["def"].as_bool().unwrap_or(true) == false
+                    && it["uri"] == main_key.as_str()
+                    && it["pos"].as_u64().unwrap() as usize == name_chain
+            }),
+            "the use site must be reported from the declaration, items: {items:?}"
         );
         std::fs::remove_dir_all(&dir).ok();
     }

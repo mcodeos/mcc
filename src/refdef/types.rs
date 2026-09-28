@@ -458,51 +458,46 @@ pub struct RefDefMap {
     /// The file this map belongs to (its canonical uri). Set once at
     /// consolidation; empty for maps built outside the loader (tests).
     /// U234 tier ②: insert() uses it as the ref-point side of the def
-    /// resolution edge it records for whitelisted ref kinds.
+    /// resolution edge it records for panel-eligible ref kinds.
     pub owner_uri: String,
 }
 
-/// P1 refs whitelist — reference kinds worth showing in the refs panel and,
+/// Refs-panel eligibility — reference kinds the refs panel admits and,
 /// since U234 tier ②, the kinds whose entries record a def resolution edge
 /// at [`RefDefMap::insert`] (the who-uses prefilter's coverage contract:
-/// every whitelisted ref in any `def_to_refs` must be edge-backed, so a
+/// every admitted ref in any `def_to_refs` must be edge-backed, so a
 /// graph-prefiltered face cannot drop it — ruling D4).
 ///
-/// Netlist-meaningful symbols: component/module classes, instances, net
-/// labels, free nets and — since U342 — ports and funcs on both the def and
-/// ref side. The U342 probe showed layer2 already pairs cross-file port/func
-/// rows (pass1 mints the consumer-side chain-hit/fcall def with the def
-/// file's `file_id`), so the old func/port suppression hid paired rows from
-/// the panel rather than papering over a pairing defect: the whitelist was
-/// the only thing keeping "find references" from being exhaustive on those
-/// faces, and it is gone.
+/// The panel admits every paired def/ref kind by default; this predicate is
+/// the **exemption list**. Two probe results back the default-admit shape:
+/// the cross-file port/func rows already pair (pass1 mints the
+/// consumer-side chain-hit/fcall def with the def file's `file_id`), and
+/// admitting the pin/param faces does not flood per-cursor answers (65
+/// pin/param defs in the hbl board fixture: median 1, max 7 refs each —
+/// only the aggregate row count grows, which is not a per-query cost).
+/// The exemptions:
 ///
-/// Enum values carry the registration-miss exemption (U342): a qualified
-/// value use in a param/role position (`diel = Grade.good`) registers no
-/// ref row at all, so EnumDef/EnumValDef panel coverage is not claimed to be
-/// exhaustive — the kinds stay whitelisted for the rows that do exist (the
-/// attribute-value face), and the quickfix face keeps its own soundness
-/// suppression. Remaining type-level noise — pin interfaces (`cap::UV.CAP`),
-/// params, bus members, the FuncParamRef catch-all — never reaches the
-/// panel, so "find references" stays on the circuit structure instead of
-/// the type system.
-pub fn is_whitelisted_ref_kind(kind: SymbolKind) -> bool {
-    matches!(
+/// - `FuncParamRef`: the funcall-argument catch-all. Its layer2 candidate
+///   list has no `NetDef`, so its own row drops and the real `NetRef` row
+///   (same id) answers instead; admitting it now would double-count the
+///   moment `NetDef` joins the candidates (latent 1:2). Re-admit when
+///   registration stops forking.
+/// - `EnumValDef`/`EnumValRef`: registration-miss exemption (U342) — a
+///   qualified value use in a param/role position (`diel = Grade.good`)
+///   registers no ref row at all, so admitting the attribute-value-face
+///   rows would claim a coverage the panel cannot honor. `EnumDef`/
+///   `EnumRef` stay admitted; the quickfix face keeps its own soundness
+///   suppression.
+/// - `RoleDef`: role values stay fix-free (no ref kind resolves to one),
+///   so a role def can only surface as a def-site answer; kept exempt
+///   alongside the enum face.
+pub fn is_panel_ref_kind(kind: SymbolKind) -> bool {
+    !matches!(
         kind,
-        SymbolKind::ClassDef
-            | SymbolKind::ClassRef
-            | SymbolKind::InstDef
-            | SymbolKind::InstRef
-            | SymbolKind::EnumDef
-            | SymbolKind::EnumRef
-            | SymbolKind::LabelDef
-            | SymbolKind::LabelRef
-            | SymbolKind::NetDef
-            | SymbolKind::NetRef
-            | SymbolKind::PortDef
-            | SymbolKind::PortRef
-            | SymbolKind::FuncDef
-            | SymbolKind::FuncRef
+        SymbolKind::FuncParamRef
+            | SymbolKind::EnumValDef
+            | SymbolKind::EnumValRef
+            | SymbolKind::RoleDef
     )
 }
 
@@ -529,10 +524,11 @@ impl RefDefMap {
         self.entries.insert((kind, ref_id), entry);
     }
 
-    /// U234 tier ②: every whitelisted ref entry records its def resolution
-    /// edge here — the single chokepoint all layer-2 ref inserts flow
+    /// U234 tier ②: every panel-eligible ref entry records its def
+    /// resolution edge here — the single chokepoint all layer-2 ref inserts
+    /// flow
     /// through, so the who-uses prefilter's coverage contract (every
-    /// whitelisted `def_to_refs` entry is edge-backed) holds by
+    /// admitted `def_to_refs` entry is edge-backed) holds by
     /// construction. `from` = the ref-point `(referenced name, owner file)`,
     /// `to` = the resolved def `(same name, def file)`; `record` dedups, so
     /// re-consolidation stays a single edge. A cross-file def's name is
@@ -540,7 +536,7 @@ impl RefDefMap {
     /// cross-file) — the edge records the empty ident, which is enough for
     /// the file-level projection the prefilter reads.
     fn record_ref_edge(&self, kind: SymbolKind, entry: &RefDefEntry) {
-        if self.owner_uri.is_empty() || !is_whitelisted_ref_kind(kind) {
+        if self.owner_uri.is_empty() || !is_panel_ref_kind(kind) {
             return;
         }
         // file_id 0 is the matching layer's sentinel for "def in the owner

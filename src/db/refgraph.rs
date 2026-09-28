@@ -34,12 +34,14 @@
 //! resolution and the consolidation/lapper span resolution via the locked
 //! wrapper, the scan-based declare-class registration, the goto-def legs,
 //! the re-entrant fallback), and tier ② closes the remaining gap: every
-//! whitelisted ref entry entering a `RefDefMap` records its edge at the
-//! `RefDefMap::insert` chokepoint (owner file × def file), so the
-//! Inst/Label/Port/Func-kind references `references::find_at` collects are
-//! all edge-backed and the who-uses face can prefilter on the graph without
-//! dropping them (ruling D4; U342 added the port/func kinds — their
-//! cross-file rows already pair, so whitelisting them extends the
+//! panel-eligible ref entry entering a `RefDefMap` records its edge at the
+//! `RefDefMap::insert` chokepoint (owner file × def file), so all the
+//! references `references::find_at` collects are edge-backed and the
+//! who-uses face can prefilter on the graph without dropping them (ruling
+//! D4; U342 extended the eligible kinds from the class/inst/label/net/enum
+//! category list to every paired def/ref kind — the probes showed the
+//! cross-file port/func rows already pair and per-cursor density stays
+//! flat at pin/param level, so exemption-list admission extends the
 //! by-construction coverage instead of creating it). Still invisible:
 //! member-level references (the edge shape has no member dimension).
 //! Enum values carry the U342 registration-miss exemption: qualified uses
