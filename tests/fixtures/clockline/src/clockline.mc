@@ -5,7 +5,8 @@
 # Purpose-built fixture for the clock-intent profile row (U112 ③):
 # three adoption shapes that claim, plus two that must never claim.
 
-# The pairing family — mutual peers with `exclusive = true`, no direction
+# The pairing family — mutual peers with inline cardinality `peer = ROLE(1)`,
+# no direction
 # words anywhere (the XTAL face's shape; the E4122 / 6054 anchor).
 interface XTF(role)
 {
@@ -15,13 +16,11 @@ interface XTF(role)
     ]
     role OSC
     {
-        peer = RES
-        exclusive = true
+        peer = RES(1)
     }
     role RES
     {
-        peer = OSC
-        exclusive = true
+        peer = OSC(1)
     }
 }
 
@@ -51,7 +50,7 @@ interface CKF(role)
 }
 
 # The mixed family — `out` TX beside `in` RX in one role: no uniform
-# direction shape, no exclusive pairing, so no family may claim its nets.
+# direction shape, no one-peer pairing, so no family may claim its nets.
 interface MBF(role)
 {
     pins = [
