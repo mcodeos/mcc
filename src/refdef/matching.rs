@@ -205,12 +205,9 @@ pub fn fill_refdef_layer2(
     // the fork (U342 batch B). Rows whose occurrence no real kind answered
     // (the catch-all's purpose — e.g. a free-net argument the collector
     // could not dispatch) still pair through the full candidate list.
-    let mut param_cast = 0usize;
-    let mut param_dedup = 0usize;
     for &(ref_kind, decl_id, ref_start, ref_stop) in &param_ref_rows {
         debug_assert_eq!(ref_kind, SymbolKind::FuncParamRef);
         if answered_spans.contains(&(decl_id, ref_start, ref_stop)) {
-            param_dedup += 1;
             continue;
         }
         let candidate_defs: &[SymbolKind] = &[
@@ -260,7 +257,6 @@ pub fn fill_refdef_layer2(
         );
         let cid = map.intern_container(&scope);
         let def_name = resolve_def_name(def_names, &def_uri_str, def_kind, decl_id);
-        param_cast += 1;
         map.insert(
             ref_kind,
             decl_id,
@@ -280,12 +276,6 @@ pub fn fill_refdef_layer2(
             },
         );
     }
-    if param_cast + param_dedup > 0 && std::env::var_os("MCC_U342_PARAM_PROBE").is_some() {
-        eprintln!(
-            "[u342b] FuncParamRef pass: cast={param_cast} deduped(same id+span)={param_dedup}"
-        );
-    }
-
     // ── PortRef generation (§3.2.2 Rule 1) ──
     // ★ A3: Use pre-collected ref_entries instead of lapper scan
     let fid = map.intern_file(file_uri);
