@@ -116,6 +116,14 @@ pub struct McComponentInst {
     /// file, so the consumer that holds the declaration site anchors the
     /// diagnostic — the same path as `cond_eval_errors` above.
     pub cond_author_errors: Vec<(u32, String)>,
+
+    /// Dead judges of the class's conditional chains (U344, `COND_NO_LIVE_INPUT`):
+    /// a chain that reached instantiation unfixed by the parse fold (a
+    /// component with no defaulted formal) and reads no live input — no
+    /// parameter, no definition key. `(code, message)` pairs, deduped by
+    /// message; the consumer that holds the declaration site anchors them,
+    /// same as `cond_author_errors` above.
+    pub cond_dead_judge_errors: Vec<(u32, String)>,
 }
 
 /// Does the formal answer to `name` in a body reference? A unit-value formal
@@ -163,6 +171,7 @@ impl McComponentInst {
             anchor: None,
             cond_eval_errors: Vec::new(),
             cond_author_errors: Vec::new(),
+            cond_dead_judge_errors: Vec::new(),
         };
 
         inst.init_pins();
@@ -191,6 +200,7 @@ impl McComponentInst {
             anchor: None,
             cond_eval_errors: Vec::new(),
             cond_author_errors: Vec::new(),
+            cond_dead_judge_errors: Vec::new(),
         }
     }
 
@@ -249,6 +259,7 @@ impl McComponentInst {
             anchor: None,
             cond_eval_errors: Vec::new(),
             cond_author_errors: Vec::new(),
+            cond_dead_judge_errors: Vec::new(),
         };
 
         inst.init_pins();
@@ -278,6 +289,7 @@ impl McComponentInst {
             anchor: None,
             cond_eval_errors: Vec::new(),
             cond_author_errors: Vec::new(),
+            cond_dead_judge_errors: Vec::new(),
         };
 
         inst.init_pins();
@@ -323,24 +335,28 @@ impl McComponentInst {
         self.init_call_pin_rows();
     }
 
-    /// ★ U52: write the call site's pin rows (`pins{6:9} = SWDBG`) onto this
-    /// instance's pin-name face — the same face the definition's conditional
-    /// pin blocks write, so `insttab` / `show` / `print` consume them with no
-    /// change. `pins` is an identity clause, not an attribute (§1.6), so this is
-    /// the one call-site argument that names pins instead of binding a formal.
+    /// ★ U52: write the call site's pin rows (`pins{6:9} = SWDBG`,
+    /// `pins{A, GND} = SWDBG`) onto this instance's pin-name face — the same
+    /// face the definition's conditional pin blocks write, so `insttab` /
+    /// `show` / `print` consume them with no change. `pins` is an identity
+    /// clause, not an attribute (§1.6), so this is the one call-site argument
+    /// that names pins instead of binding a formal.
     ///
     /// A row renames only pins the definition already has: naming an id the
     /// definition never declared does not invent a pin (Pass1 reports E4176 for
-    /// it at the call site). The row's ids expand the same way a
-    /// definition-side pin row's do (`6:9` → 6,7,8,9).
+    /// it at the call site), and a named member resolves the same way the
+    /// `this{...}` self face resolves one — every pin the definition gives that
+    /// name. The row's ids expand the same way a definition-side pin row's do
+    /// (`6:9` → 6,7,8,9).
     fn init_call_pin_rows(&mut self) {
         let rows = self.params.call_pin_rows().to_vec();
+        let (name_to_ids, _) = McParamBindings::pin_name_faces(&self.def.pins.pin_id_to_names);
         for (ids, values) in rows.iter() {
             let names: Vec<String> = values.iter().map(|v| v.to_string()).collect();
             if names.is_empty() {
                 continue;
             }
-            for pin_id in McParamBindings::expand_pin_row_ids(ids) {
+            for pin_id in McParamBindings::expand_pin_row_ids(ids, &name_to_ids) {
                 if !self.pins.contains_key(&pin_id) {
                     continue;
                 }
@@ -375,6 +391,30 @@ impl McComponentInst {
         let mut branch_dyn: Vec<dynamic::DynamicPinLine> = Vec::new();
 
         for cond_pins in &self.def.cond_pins {
+            // U344: this chain reached instantiation unfixed by the parse fold
+            // (the class holds no defaulted formal), so a dead judge — one that
+            // reads no parameter and no definition key — reports here and
+            // nowhere else. Same duty in `init_cond_attrs` / `init_cond_errors`
+            // below; a judge that keeps to literals stays silent by design.
+            let judges: Vec<&crate::semantic::basic::mc_conds::McCondition> =
+                cond_pins.if_blocks.iter().map(|(c, _)| c).collect();
+            if let Some(msg) = McConds::judges_dead_judge_message(
+                &judges,
+                CondDefCtx {
+                    pins: &self.def.pins,
+                    attrs: &self.def.attrs,
+                },
+                &self.def.params.names(),
+            ) {
+                if !self
+                    .cond_dead_judge_errors
+                    .iter()
+                    .any(|(_, m)| m == &msg)
+                {
+                    self.cond_dead_judge_errors
+                        .push((crate::errcodes::COND_NO_LIVE_INPUT, msg));
+                }
+            }
             let mut matched = false;
             let mut failure: Option<eval::EvalError> = None;
             for (condition, pins) in &cond_pins.if_blocks {
@@ -485,6 +525,28 @@ impl McComponentInst {
         };
 
         for chain in &self.def.cond_errors {
+            // U344: same dead-judge duty as `init_cond_pins` above — a dead
+            // judge in an `error()` chain would otherwise silently fall to the
+            // else clauses for every instance.
+            let judges: Vec<&crate::semantic::basic::mc_conds::McCondition> =
+                chain.if_blocks.iter().map(|(c, _)| c).collect();
+            if let Some(msg) = McConds::judges_dead_judge_message(
+                &judges,
+                CondDefCtx {
+                    pins: &self.def.pins,
+                    attrs: &self.def.attrs,
+                },
+                &self.def.params.names(),
+            ) {
+                if !self
+                    .cond_dead_judge_errors
+                    .iter()
+                    .any(|(_, m)| m == &msg)
+                {
+                    self.cond_dead_judge_errors
+                        .push((crate::errcodes::COND_NO_LIVE_INPUT, msg));
+                }
+            }
             let mut fired: Vec<CondError> = Vec::new();
             let mut matched = false;
             for (condition, errs) in &chain.if_blocks {
@@ -550,6 +612,26 @@ impl McComponentInst {
         let eval_params = self.params.to_cond_params();
 
         for cond_attrs in &self.def.cond_attrs {
+            // U344: same dead-judge duty as `init_cond_pins` above.
+            let judges: Vec<&crate::semantic::basic::mc_conds::McCondition> =
+                cond_attrs.if_blocks.iter().map(|(c, _)| c).collect();
+            if let Some(msg) = McConds::judges_dead_judge_message(
+                &judges,
+                CondDefCtx {
+                    pins: &self.def.pins,
+                    attrs: &self.def.attrs,
+                },
+                &self.def.params.names(),
+            ) {
+                if !self
+                    .cond_dead_judge_errors
+                    .iter()
+                    .any(|(_, m)| m == &msg)
+                {
+                    self.cond_dead_judge_errors
+                        .push((crate::errcodes::COND_NO_LIVE_INPUT, msg));
+                }
+            }
             let mut matched = false;
             let mut failure: Option<eval::EvalError> = None;
             for (condition, attrs) in &cond_attrs.if_blocks {

@@ -13,6 +13,7 @@ mod bitwise_cond;
 mod bom_nc_hbl;
 mod cond_duplicate;
 mod cond_judge_operand_dropped;
+mod cond_no_live_input;
 mod curly_option;
 mod diag_rpc_contract;
 mod defspace_wiring;
