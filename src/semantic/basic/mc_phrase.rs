@@ -3652,6 +3652,33 @@ impl McPhrase {
                     return Some(McPhrase::Multiple(branches));
                 }
 
+                // A construction callee's row return the fork did NOT claim —
+                // head/tail lane sources outside its canonical face (pin-row
+                // selectors `w{1,2}`, a `_` actual) — belongs to the
+                // instantiation row-replication arm, which rewrites the whole
+                // statement per lane before any wiring runs. With the eager
+                // resolution standing, the column zip check below would read
+                // the 1*1-vs-N face as a width mismatch (E4007) and drop the
+                // statement before that arm ever sees it. Reset to the
+                // receiver fallback — the exact shape this statement carried
+                // before the construction's return shape became resolvable,
+                // and the shape the replication arm's locks pin. A
+                // declared-instance receiver keeps the resolution: it cannot
+                // be cloned, and the mismatch judgment below is its honest
+                // answer.
+                if let McPhrase::FuncCall(fc) = &mut opd1 {
+                    if fc.pre_closure
+                        && fc.receiver_is_ctor
+                        && matches!(
+                            fc.resolved_return_shape,
+                            Some(ReturnShape::Node { ref left, ref right })
+                                if left.len() == 1 && right.len() == 1
+                        )
+                    {
+                        fc.resolved_return_shape = None;
+                    }
+                }
+
                 let (opd1, opd2) = infer_shape_and_upgrade(opd1, opd2, context);
                 // R3 member mode lane stretch (§10.4): a licensed member word
                 // is one lane, but a chain whose element vector is W lanes
