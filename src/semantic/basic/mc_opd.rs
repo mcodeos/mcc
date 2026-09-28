@@ -5,8 +5,8 @@
 use crate::ast::macros::*;
 use crate::ast::node::AstNode;
 use crate::db::diagnostic::diagnostic::dlog_error;
-use crate::semantic::basic::mc_ida::McIda;
 use crate::semantic::basic::mc_ids::IdsSegment;
+use crate::semantic::basic::mc_literal::McInt;
 use crate::McIds;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -50,16 +50,57 @@ impl McOpd {
                 // McExpression::new routes OPD_DOT (`a.b`) / OPD_CURLY
                 // (`a{B,C}`) / OPD_CURLY_MN directly here; letting them fall
                 // through to `_ => None` drops the expression silently. Rebuild
-                // the id chain from the sub-nodes.
+                // the id chain from the sub-nodes, structurally (U343 B1 arm 1):
+                // every element must carry a real operand reading — the old
+                // Display-text fallback pasted non-McIds subtrees (CURLY_MN's
+                // OPDS sides, unknown nodes, even `<node_type_N>` placeholders)
+                // into the chain as flat name text.
+                //
+                // Face-aware routing: a dot chain has no face grouping; a
+                // curly keeps its base ahead of one member group holding the
+                // body; a curly-MN's OPDS side wrappers are the pipe boundary
+                // and both sides fold into that one group (the value-face
+                // reading — the same ',' / '|' equivalence the ids-level
+                // reader applies).
                 let mut segments = Vec::new();
+                let mut group: Vec<IdsSegment> = Vec::new();
+                let mut first = true;
                 let mut cur = node.get_sub_node();
                 while let Some(n) = cur {
-                    if let Some(ids) = McIds::new(&n) {
-                        segments.extend(ids.segments);
-                    } else if let Some(text) = n.to_string() {
-                        segments.push(IdsSegment::Ida(Box::new(McIda::from(text.as_str()))));
+                    // A dot chain's int tail keeps its dot (`TTL.7400`,
+                    // McIds::new_with_dot): a non-first `mc_int` element is
+                    // the `.int`, not a bare name.
+                    if node_type == MCAST_OPD_DOT && !first && n.get_type() == MCAST_INT {
+                        let Some(int) = crate::semantic::basic::mc_literal::McInt::new(&n) else {
+                            return None;
+                        };
+                        segments.push(IdsSegment::DotInt(Box::new(int)));
+                        first = false;
+                        cur = n.get_next();
+                        continue;
+                    }
+                    let to_group = if node_type == MCAST_OPD_DOT {
+                        false
+                    } else if node_type == MCAST_OPD_CURLY {
+                        !first
+                    } else {
+                        n.get_type() == MCAST_OPDS
+                    };
+                    let pushed = if to_group {
+                        Self::push_group_member(&mut group, &n)
+                    } else {
+                        Self::push_chain_segments(&mut segments, &n)
+                    };
+                    first = false;
+                    if !pushed {
+                        // An element with no operand reading: reject the whole
+                        // operand instead of inventing segments from its text.
+                        return None;
                     }
                     cur = n.get_next();
+                }
+                if !group.is_empty() {
+                    segments.push(IdsSegment::Curly(group));
                 }
                 if segments.is_empty() {
                     return None;
@@ -109,6 +150,9 @@ impl McOpd {
                     .unwrap_or("this");
                 let mut selfid = McIds::from(keyword);
                 if let Some(nextnode) = snode.get_next() {
+                    // `append` walks the node and every following sibling, so
+                    // one call carries the whole tail (`this{a,b}.3` links
+                    // [this, idm, .int]).
                     selfid.append(&nextnode);
                 }
                 if keyword == "pins" {
@@ -151,6 +195,144 @@ impl McOpd {
             Some(McOpd::Id(ids))
         } else {
             None
+        }
+    }
+
+    /// Read one member of a curly group (`x{a, b}` body / curly-MN sides).
+    /// Members follow the ids-level curly reader's member law (U249): an ids
+    /// chain (`ADC.P`) stays one `Ids` member so the member count and the
+    /// expansion are single-member — a plain `McIds::new` read would spread
+    /// it into two sibling segments. An OPDS side wrapper unfolds into its
+    /// members (the keyword arms double-wrap the side list).
+    fn push_group_member(group: &mut Vec<IdsSegment>, n: &AstNode) -> bool {
+        if n.get_type() == MCAST_OPDS {
+            let mut inner = n.get_sub_node();
+            let mut any = false;
+            while let Some(m) = inner {
+                if !Self::push_group_member(group, &m) {
+                    return false;
+                }
+                any = true;
+                inner = m.get_next();
+            }
+            return any;
+        }
+        let ids_node = if n.get_type() == MCAST_OPD {
+            match n.get_sub_node() {
+                Some(sub) if sub.get_type() == MCAST_IDS => sub,
+                _ => n.clone(),
+            }
+        } else {
+            n.clone()
+        };
+        if ids_node.get_type() == MCAST_IDS {
+            return match McIds::new(&ids_node) {
+                Some(ids) => {
+                    group.push(IdsSegment::Ids(Box::new(ids)));
+                    true
+                }
+                None => false,
+            };
+        }
+        Self::push_chain_segments(group, n)
+    }
+
+    /// Read one element of a DOT/CURLY/CURLY_MN operand chain into id
+    /// segments, structurally (U343 B1 arm 1). Returns false when the node
+    /// has no operand reading, so the caller can reject the whole operand
+    /// rather than paste Display text into the name chain.
+    fn push_chain_segments(segments: &mut Vec<IdsSegment>, n: &AstNode) -> bool {
+        if let Some(mut ids) = McIds::new(n) {
+            segments.append(&mut ids.segments);
+            return true;
+        }
+        match n.get_type() {
+            // A bare integer element (`mc_phrase MCPT_DOT mc_int` keeps the
+            // int outside the ids node).
+            MCAST_INT => match McInt::new(n) {
+                Some(int) => {
+                    segments.push(IdsSegment::Int(Box::new(int)));
+                    true
+                }
+                None => false,
+            },
+            // `x.y` on a non-ids base: the dot's payload is an mc_ids or
+            // mc_int node. An int tail keeps its DotInt shape so the render
+            // keeps the dot (`TTL.7400`), same as the ids-internal reader.
+            MCAST_OPD_DOT => {
+                let Some(sub) = n.get_sub_node() else {
+                    return false;
+                };
+                if sub.get_type() == MCAST_INT {
+                    match McInt::new(&sub) {
+                        Some(int) => {
+                            segments.push(IdsSegment::DotInt(Box::new(int)));
+                            true
+                        }
+                        None => false,
+                    }
+                } else if let Some(mut ids) = McIds::new(&sub) {
+                    segments.append(&mut ids.segments);
+                    true
+                } else {
+                    false
+                }
+            }
+            // `x{a, b}` on a non-ids base: the same curly group the
+            // ids-internal reader (McIds::parse_curly) would have built.
+            MCAST_OPD_CURLY => match McIds::parse_curly(n) {
+                Some(seg) => {
+                    segments.push(seg);
+                    true
+                }
+                None => false,
+            },
+            // An OPDS wrapper (the curly-MN side list, `mca.y` wraps each
+            // `mc_opds` in one so the `|` boundary survives link3): unfold it
+            // into the caller's target vec — the CURLY_MN arm passes the
+            // member-group vec here, a plain chain element passes the top
+            // segment list. Nested wrappers (the keyword arm's
+            // `this{n|m}` double-wraps its side list) recurse the same way.
+            MCAST_OPDS => {
+                let mut inner = n.get_sub_node();
+                let mut any = false;
+                while let Some(m) = inner {
+                    if !Self::push_chain_segments(segments, &m) {
+                        return false;
+                    }
+                    any = true;
+                    inner = m.get_next();
+                }
+                any
+            }
+            // `x{a|b}` in value face (U343 B1 arm 1). The MCAST_OPDS side
+            // wrappers are the pipe boundary; a value operand reads both
+            // sides as one member group — the same ',' / '|' equivalence
+            // the ids-level reader applies. The base (any non-OPDS chain
+            // element) keeps its place ahead of the group, matching the
+            // source order the chain walk visits.
+            MCAST_OPD_CURLY_MN => {
+                let Some(sub) = n.get_sub_node() else {
+                    return false;
+                };
+                let mut group: Vec<IdsSegment> = Vec::new();
+                let mut cur = Some(sub);
+                while let Some(el) = cur {
+                    if el.get_type() == MCAST_OPDS {
+                        if !Self::push_group_member(&mut group, &el) {
+                            return false;
+                        }
+                    } else if !Self::push_chain_segments(segments, &el) {
+                        return false;
+                    }
+                    cur = el.get_next();
+                }
+                if !group.is_empty() {
+                    segments.push(IdsSegment::Curly(group));
+                }
+                true
+            }
+            _ => false,
         }
     }
 

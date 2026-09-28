@@ -76,6 +76,8 @@ mod u249_curly_chain_member;
 mod u308_ref_convergence;
 mod u54_parameter_default;
 mod vec_group_expansion_equivalence;
+mod u343_b1_operand_face;
+mod u343_b2_face_members;
 mod u343_dprec_loads;
 mod u356_whole_foot;
 mod vec_lane_chain_width;

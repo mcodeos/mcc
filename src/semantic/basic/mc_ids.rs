@@ -672,7 +672,7 @@ impl McIds {
         });
     }
 
-    fn parse_curly(node: &AstNode) -> Option<IdsSegment> {
+    pub(crate) fn parse_curly(node: &AstNode) -> Option<IdsSegment> {
         let Some(curly_subnodes) = node.get_sub_node() else {
             dlog_error(
                 crate::errcodes::NAME_MISSING_SUBNODE,

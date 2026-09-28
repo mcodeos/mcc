@@ -737,8 +737,11 @@ impl McPhrase {
                     }
                     // fallback: existing behavior
                     // ★ Ledger (resolve-gate §1.2③): D9 — a multi-segment `this.y.2`
-                    // miss (2+ dot siblings) silently becomes a literal `this.y` label
-                    // with the tail dropped. Single-segment `this.X` is the legitimate
+                    // miss (2+ dot siblings) falls back to a literal label that
+                    // carries the FULL tail text (`this.y.2`, verified by probe and
+                    // the shard3 D9 row) — nothing is truncated here; the recorded
+                    // loss is only that the miss itself reports no phrase-level
+                    // diagnostic. Single-segment `this.X` is the legitimate
                     // pin-transparency path (`this.ANODE` → component pin) — excluded.
                     let mut this_ids = McIds::from(keyword);
                     this_ids.append(&nextnode);
@@ -2902,9 +2905,12 @@ impl McPhrase {
 
                 let left_opd = Self::new(&subnode1, context)?;
                 // Grammar now allows mc_phrase (expressions) inside curly braces,
-                // not just IDAN. Extract string form for simple cases (identifiers/numbers);
-                // complex expressions return empty vec and fall through gracefully.
-                let right: Vec<String> = subnode2.to_id_or_ida_or_num();
+                // not just IDAN. The body is read through the same structural
+                // member reader as a curly-MN side list (U343 B1 arm 2): a
+                // bracket row unfolds to all its members and a dotted member
+                // keeps its tail; a body with no operand reading is reported by
+                // the reader and the empty list falls through gracefully.
+                let right: Vec<String> = Self::curly_mn_side_members(&subnode2);
 
                 let _left_kind = match &left_opd {
                     McPhrase::Endpoint(McRef::Name(ir)) => match &ir.base {
@@ -4136,15 +4142,13 @@ impl McPhrase {
     /// One side list of a curly-MN selector: id / ida / int elements, with a
     /// literal bracket row flattened into its members so both vector members
     /// reach the face (`oring{[IN1, GND] | [OUT, GND]}` keeps `GND`, matching
-    /// the canonical member-list form `oring{IN1, GND | OUT, GND}` — a
-    /// MCAST_OPD_SQUARE_VEC's `to_id_or_ida_or_num()` only returns the first
-    /// child, so the whole row is walked instead).
-    fn curly_mn_side_members(n: &AstNode) -> Vec<String> {
+    /// the canonical member-list form `oring{IN1, GND | OUT, GND}`).
+    pub(crate) fn curly_mn_side_members(n: &AstNode) -> Vec<String> {
         if n.get_type() == MCAST_OPD_SQUARE_VEC {
             let mut out: Vec<String> = Vec::new();
             if let Some(mut s) = n.get_sub_node() {
                 loop {
-                    out.extend(s.to_id_or_ida_or_num());
+                    out.extend(Self::curly_side_member(&s));
                     match s.get_next() {
                         Some(nx) => s = nx,
                         None => break,
@@ -4153,7 +4157,38 @@ impl McPhrase {
             }
             out
         } else {
-            n.to_id_or_ida_or_num()
+            Self::curly_side_member(n)
+        }
+    }
+
+    /// One face member, read structurally (U343 B1 arm 2). Every reading the
+    /// base operand reader (`McOpd::new`) supports survives: a dotted member
+    /// `IN1.1` keeps its `.1` tail — the old `to_id_or_ida_or_num` read
+    /// descended into the first sub-chain only, so an `mc_opd` member carrying
+    /// a dot sibling read as the bare head name — and a this/pins member
+    /// carries its whole tail chain. A member with no operand reading is
+    /// reported and skipped instead of silently vanishing from the face.
+    fn curly_side_member(n: &AstNode) -> Vec<String> {
+        if n.get_type() == MCAST_INT {
+            // `to_id_or_ida` has no int arm; the plain text is the member.
+            return match n.data_as_cstr().and_then(|c| c.to_str().ok()) {
+                Some(text) => vec![text.to_string()],
+                None => Vec::new(),
+            };
+        }
+        match McOpd::new(n) {
+            Some(opd) => opd.expand(),
+            None => {
+                dlog_error(
+                    crate::errcodes::PHRASE_CURLY_UNSUPPORTED_OPERAND,
+                    n,
+                    &crate::errcodes::format_msg(
+                        crate::errcodes::PHRASE_CURLY_UNSUPPORTED_OPERAND,
+                        &[],
+                    ),
+                );
+                Vec::new()
+            }
         }
     }
 }
