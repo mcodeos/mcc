@@ -36,10 +36,15 @@
 //! the re-entrant fallback), and tier ② closes the remaining gap: every
 //! whitelisted ref entry entering a `RefDefMap` records its edge at the
 //! `RefDefMap::insert` chokepoint (owner file × def file), so the
-//! Inst/Label-kind references `references::find_at` collects are all
-//! edge-backed and the who-uses face can prefilter on the graph without
-//! dropping them (ruling D4). Still invisible: member-level references
-//! (the edge shape has no member dimension).
+//! Inst/Label/Port/Func-kind references `references::find_at` collects are
+//! all edge-backed and the who-uses face can prefilter on the graph without
+//! dropping them (ruling D4; U342 added the port/func kinds — their
+//! cross-file rows already pair, so whitelisting them extends the
+//! by-construction coverage instead of creating it). Still invisible:
+//! member-level references (the edge shape has no member dimension).
+//! Enum values carry the U342 registration-miss exemption: qualified uses
+//! in param/role positions register no ref row at all, so no edge can exist
+//! for them and enum coverage is not claimed to be exhaustive.
 //!
 //! Purge is deliberately one-sided (ref-points only): a purged file's own
 //! edges go and are re-recorded by its rebuild, while edges from other

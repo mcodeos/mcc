@@ -468,11 +468,24 @@ pub struct RefDefMap {
 /// every whitelisted ref in any `def_to_refs` must be edge-backed, so a
 /// graph-prefiltered face cannot drop it — ruling D4).
 ///
-/// Netlist-meaningful symbols: component/module classes, instances, enum
-/// values and net labels (both def and ref sides). Type-level noise — pin
-/// interfaces (`cap::UV.CAP`), params, ports, funcs, bus members — never
-/// reaches the panel, so "find references" stays on the circuit structure
-/// instead of the type system.
+/// Netlist-meaningful symbols: component/module classes, instances, net
+/// labels, free nets and — since U342 — ports and funcs on both the def and
+/// ref side. The U342 probe showed layer2 already pairs cross-file port/func
+/// rows (pass1 mints the consumer-side chain-hit/fcall def with the def
+/// file's `file_id`), so the old func/port suppression hid paired rows from
+/// the panel rather than papering over a pairing defect: the whitelist was
+/// the only thing keeping "find references" from being exhaustive on those
+/// faces, and it is gone.
+///
+/// Enum values carry the registration-miss exemption (U342): a qualified
+/// value use in a param/role position (`diel = Grade.good`) registers no
+/// ref row at all, so EnumDef/EnumValDef panel coverage is not claimed to be
+/// exhaustive — the kinds stay whitelisted for the rows that do exist (the
+/// attribute-value face), and the quickfix face keeps its own soundness
+/// suppression. Remaining type-level noise — pin interfaces (`cap::UV.CAP`),
+/// params, bus members, the FuncParamRef catch-all — never reaches the
+/// panel, so "find references" stays on the circuit structure instead of
+/// the type system.
 pub fn is_whitelisted_ref_kind(kind: SymbolKind) -> bool {
     matches!(
         kind,
@@ -486,6 +499,10 @@ pub fn is_whitelisted_ref_kind(kind: SymbolKind) -> bool {
             | SymbolKind::LabelRef
             | SymbolKind::NetDef
             | SymbolKind::NetRef
+            | SymbolKind::PortDef
+            | SymbolKind::PortRef
+            | SymbolKind::FuncDef
+            | SymbolKind::FuncRef
     )
 }
 

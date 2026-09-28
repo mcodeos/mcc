@@ -77,18 +77,50 @@ pub fn find_at(uri: &str, offset: usize, name_hint: Option<&str>) -> Vec<Value> 
             None => return Vec::new(),
         };
         let hit = resolve_at(map, &sym.symbol_lapper, offset);
+        // U342 def-site leg: the cursor sits on the declaration itself. The
+        // covering interval already names the def kind, and its span is the
+        // def key every file's `def_to_refs` was keyed by — pin it directly.
+        // Func and port names never reach the class-level name index, so
+        // without this leg the panel returned nothing for a cursor on their
+        // declaration. An unpaired *ref* interval (is_ref) is not a def key —
+        // it falls through to the name hint. The file string is canonicalized
+        // the way the loader keys files (scheme-stripped real path): the
+        // workspace key form the graph projection and the def-file ids were
+        // built from.
+        let def_file = {
+            let bare = uri.strip_prefix("file://").unwrap_or(uri);
+            let canon = crate::build::pass1::canonicalize_project_uri(&McURI::from(bare));
+            if canon.is_empty() {
+                bare.to_string()
+            } else {
+                canon
+            }
+        };
         match hit {
             Some(h) => Some((h.def_kind, h.file_uri, h.byte_start, h.byte_end)),
-            None => name_hint.and_then(|n| {
-                map.get_by_name(&mc_uri, n).map(|e| {
-                    (
-                        e.def_kind,
-                        crate::semantic::common::uri_of_file_id(e.def_loc.file_id).to_string(),
-                        e.def_loc.byte_start,
-                        e.def_loc.byte_end,
-                    )
+            None => sym
+                .symbol_lapper
+                .find(offset, offset + 1)
+                .into_iter()
+                .find(|iv| iv.start <= offset && offset < iv.stop)
+                .and_then(|iv| {
+                    SymbolKind::from_raw(iv.val.kind)
+                        .filter(|kind| !kind.is_ref())
+                        .map(|kind| (kind, def_file, iv.start as u32, iv.stop as u32))
                 })
-            }),
+                .or_else(|| {
+                    name_hint.and_then(|n| {
+                        map.get_by_name(&mc_uri, n).map(|e| {
+                            (
+                                e.def_kind,
+                                crate::semantic::common::uri_of_file_id(e.def_loc.file_id)
+                                    .to_string(),
+                                e.def_loc.byte_start,
+                                e.def_loc.byte_end,
+                            )
+                        })
+                    })
+                }),
         }
     };
     let Some((def_kind, def_uri, def_start, def_end)) = def else {
@@ -106,9 +138,13 @@ pub fn find_at(uri: &str, offset: usize, name_hint: Option<&str>) -> Vec<Value> 
     // construction (edge coverage = the whitelist, at RefDefMap::insert;
     // purge is ref-point-side so a not-yet-rebuilt referencing file keeps
     // its edges), and the exact def-key match below post-filters, so the
-    // prefilter cannot drop results — including the Inst/Label refs the
-    // whitelist lets through (D4). P1: the whitelist gates which ref kinds
-    // enter the panel — type-level noise is dropped here.
+    // prefilter cannot drop results. P1: the whitelist gates which ref kinds
+    // enter the panel — type-level noise is dropped here. Since U342 the
+    // panel-eligible kinds include ports and funcs (the probe showed their
+    // cross-file rows already pair; the old suppression hid paired rows),
+    // while enum values carry the registration-miss exemption: qualified
+    // uses in param/role positions register no ref row, so panel coverage
+    // there is best-effort by construction.
     let mut candidate_files: std::collections::HashSet<String> =
         WORKSPACE.refgraph.dependent_files_of_file(&def_uri).into_iter().collect();
     candidate_files.insert(def_uri.clone());
@@ -273,5 +309,156 @@ module main
                 .count(),
             1
         );
+    }
+
+    /// U342: a func is panel-eligible and its declaration is a valid cursor
+    /// position. Probed (U342): layer2 already pairs the cross-file call rows
+    /// — pass1 mints the consumer-side FuncDef with the def file's `file_id` —
+    /// so once the whitelist lets FuncRef through, "find references" is
+    /// exhaustive on both corpus call shapes (named-instance member call and
+    /// inline two-pin chain). The def-site pinning leg is what makes the
+    /// declaration itself answer: func names never reach the class-level name
+    /// index, so the name-hint fallback cannot pin them.
+    #[test]
+    fn find_at_reaches_cross_file_func_call_sites_from_the_declaration() {
+        let _guard = crate::db::infra::init::MCC_TEST_PARSE_LOCK
+            .lock()
+            .expect("lock");
+        crate::mcc_init_no_lib();
+        crate::mcc_set_system_root(std::path::Path::new(""));
+        crate::mcc_clear_workspace();
+        let dir = std::env::temp_dir().join(format!("mcc-u342-func-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let def_src = "component TINY\n{\n    name = \"T\"\n    pins = [\n        1 = A, \"a\"\n        2 = B, \"b\"\n    ]\n\n    func enable([net1, net2])\n    {\n        net1 - this - net2\n    }\n}\n";
+        let use_src = "use ./tiny.mc\n\nmodule main\n{\n    TINY t\n    t.enable([vin, vout])\n    TINY(10k).enable([vdd, gnd])\n}\n";
+        std::fs::write(dir.join("tiny.mc"), def_src).unwrap();
+        std::fs::write(dir.join("main.mc"), use_src).unwrap();
+        let def_uri: McURI =
+            format!("file://{}", dir.join("tiny.mc").canonicalize().unwrap().display());
+        let main_uri: McURI =
+            format!("file://{}", dir.join("main.mc").canonicalize().unwrap().display());
+        crate::mcc_load_from_string(&def_uri, def_src);
+        crate::build::pass1::mcb_parse_all_modules();
+        crate::mcc_load_from_string(&main_uri, use_src);
+        crate::build::pass1::mcb_parse_all_modules();
+        // Workspace keys (and the refs answers) carry the scheme-stripped
+        // real path; this test passes bare paths as the cursor URI.
+        let def_key: McURI = dir.join("tiny.mc").canonicalize().unwrap().display().to_string();
+        let main_key: McURI = dir.join("main.mc").canonicalize().unwrap().display().to_string();
+
+        // Cursor on the declaration: the def plus both cross-file call sites.
+        let def_off = def_src.find("enable").unwrap();
+        let items = find_at(&def_key, def_off, None);
+        assert!(!items.is_empty(), "func declaration must resolve");
+        let defs: Vec<&Value> = items
+            .iter()
+            .filter(|it| it["def"].as_bool().unwrap_or(false))
+            .collect();
+        assert_eq!(defs.len(), 1, "items: {items:?}");
+        assert_eq!(defs[0]["uri"], def_key.as_str());
+        assert_eq!(defs[0]["pos"].as_u64().unwrap() as usize, def_off);
+        let ref_pos: Vec<usize> = items
+            .iter()
+            .filter(|it| it["def"].as_bool().unwrap_or(true) == false)
+            .map(|it| it["pos"].as_u64().unwrap() as usize)
+            .collect();
+        let call1 = use_src.find("t.enable").unwrap() + 2;
+        let call2 = use_src.find("(10k).enable").unwrap() + 6;
+        assert!(
+            ref_pos.contains(&call1) && ref_pos.contains(&call2),
+            "both call shapes must be reported, got {ref_pos:?}"
+        );
+
+        // Cursor on a call site: the same answer set from the ref side.
+        let items = find_at(&main_key, call1, None);
+        let defs = items
+            .iter()
+            .filter(|it| it["def"].as_bool().unwrap_or(false))
+            .count();
+        assert_eq!(defs, 1, "items: {items:?}");
+        assert!(
+            items.iter().any(|it| {
+                it["def"].as_bool().unwrap_or(false)
+                    && it["uri"] == def_key.as_str()
+                    && it["pos"].as_u64().unwrap() as usize == def_off
+            }),
+            "the def site must be among the answers, items: {items:?}"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// U342: a module port consumed through a cross-file member chain
+    /// (`psu.vin`) answers from both cursor positions — the declaration in
+    /// the def file and the member segment of the chain row in the consumer.
+    #[test]
+    fn find_at_reaches_cross_file_port_member_chain_from_the_declaration() {
+        let _guard = crate::db::infra::init::MCC_TEST_PARSE_LOCK
+            .lock()
+            .expect("lock");
+        crate::mcc_init_no_lib();
+        crate::mcc_set_system_root(std::path::Path::new(""));
+        crate::mcc_clear_workspace();
+        let dir = std::env::temp_dir().join(format!("mcc-u342-port-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let def_src = "module PSU\n{\n    in vin::DC(5V)\n    vin - VOUT\n}\n";
+        let use_src = "use ./psu.mc\n\nmodule main\n{\n    PSU psu\n    psu.vin - VOUT\n}\n";
+        std::fs::write(dir.join("psu.mc"), def_src).unwrap();
+        std::fs::write(dir.join("main.mc"), use_src).unwrap();
+        let def_uri: McURI =
+            format!("file://{}", dir.join("psu.mc").canonicalize().unwrap().display());
+        let main_uri: McURI =
+            format!("file://{}", dir.join("main.mc").canonicalize().unwrap().display());
+        crate::mcc_load_from_string(&def_uri, def_src);
+        crate::build::pass1::mcb_parse_all_modules();
+        crate::mcc_load_from_string(&main_uri, use_src);
+        crate::build::pass1::mcb_parse_all_modules();
+        // Unlike the func test, the cursor URI keeps the `file://` prefix the
+        // LSP proxy sends — the answers must not depend on the input form.
+        let def_key = dir.join("psu.mc").canonicalize().unwrap().display().to_string();
+        let main_key = dir.join("main.mc").canonicalize().unwrap().display().to_string();
+
+        // Cursor on the declaration: def plus the consumer's member segment.
+        let def_off = def_src.find("vin").unwrap();
+        let items = find_at(&def_uri, def_off, None);
+        assert!(!items.is_empty(), "port declaration must resolve");
+        let defs: Vec<&Value> = items
+            .iter()
+            .filter(|it| it["def"].as_bool().unwrap_or(false))
+            .collect();
+        assert_eq!(defs.len(), 1, "items: {items:?}");
+        assert_eq!(defs[0]["uri"], def_key);
+        assert_eq!(defs[0]["pos"].as_u64().unwrap() as usize, def_off);
+        let member_off = use_src.find("psu.vin").unwrap() + 4;
+        // The chain use is reported on its whole-chain span (`psu.vin`):
+        // the panel reports the use site, the member-segment narrowing is
+        // the rename-fix face's job (quickfix), not the panel's.
+        let chain_off = use_src.find("psu.vin").unwrap();
+        assert!(
+            items.iter().any(|it| {
+                it["def"].as_bool().unwrap_or(true) == false
+                    && it["uri"] == main_key
+                    && it["pos"].as_u64().unwrap() as usize == chain_off
+            }),
+            "the consumer's chain use must be reported, items: {items:?}"
+        );
+
+        // Cursor on the member segment: the same answer set from the ref side.
+        let items = find_at(&main_uri, member_off, None);
+        let defs = items
+            .iter()
+            .filter(|it| it["def"].as_bool().unwrap_or(false))
+            .count();
+        assert_eq!(defs, 1, "items: {items:?}");
+        assert!(
+            items.iter().any(|it| {
+                it["def"].as_bool().unwrap_or(false)
+                    && it["uri"] == def_key
+                    && it["pos"].as_u64().unwrap() as usize == def_off
+            }),
+            "the def site must be among the answers, items: {items:?}"
+        );
+        std::fs::remove_dir_all(&dir).ok();
     }
 }
