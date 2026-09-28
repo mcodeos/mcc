@@ -464,7 +464,10 @@ const KNOWN_AUDIT_REDS: &[(&str, &str)] = &[
     // ("SPK", "A17") cleared by the label drop-deepening move (U284): the
     // SPK_MUTE label's stub lengthens past the foreign member — A32's floor
     // is `SYMBOL_DROP - 1`, a longer stub is just as lawful.
-    ("SPK", "A18"),
+    // ("SPK", "A18") cleared by the component-end band split (U284): `_net11`
+    // and `_net15` took separate bands (the `spk` box needs one row per facing
+    // pin), so the migrant's lead no longer runs 40px along the `spk` box
+    // edge — the collinear run was the shared-row twin's dedupe artifact.
     // ("SPK", "A25") cleared by the A17 remediation pass (U284): the label
     // whose ink covered a foreign member moved to a clear side.
     ("SPK", "A30"),

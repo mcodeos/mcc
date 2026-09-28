@@ -422,7 +422,7 @@ pub(crate) fn single_group_net_renders_stub(net: &VizNet) -> bool {
         // crossing this layer's own boundary renders its stub even when
         // anonymous — the crossing is certified by the marker, not by the
         // name, and the frame port anchors on the stub's terminal. This is
-        // the comp inner layer's pullup shape: pin to pull-up resistor, one
+        // the comp inner layer's pull-up shape: pin to pull-up resistor, one
         // real box on the net.
         || net.boundary.is_some()
         || (net.kind == NetKind::SubModuleIO
@@ -530,7 +530,7 @@ fn build_one_topology(net: &VizNet, graph: &McVecGraph) -> Option<NetTopology> {
     // ★ expansion-provenance §3.4 stage 2: a boundary-crossing single-group net
     // terminates at the frame port. The marker's port name is the
     // projection-certified label; the net's own name may be an anonymous
-    // engine name (the comp inner layer's pullup shape: pin to pull-up
+    // engine name (the comp inner layer's pull-up shape: pin to pull-up
     // resistor). No marker, no name ⇒ no terminal, exactly as before.
     if terminals.is_empty() {
         if let Some(bi) = &net.boundary {
@@ -2410,6 +2410,18 @@ fn snap_satellite_pins_to_rows(
                     EntrySide::Left => 3,
                 };
                 let offset = dedupe_pin_offset(offset, &used[side_ix], pitch, b.h);
+                // ★ b4175 probe A (segment-model rollout, batch A): a moved
+                // twin is the A34 off-row pin — log which box/pin lost the row
+                // and by how much (SPK `_net11`×`_net15` face ④ evidence).
+                if offset != ((y - b.y) / b.h).clamp(0.0, 1.0) {
+                    crate::vlog!(
+                        "[snapprobe] twin dedupe moved pin {} on box {}: row offset {} -> {}",
+                        slot.pin_id,
+                        id,
+                        ((y - b.y) / b.h).clamp(0.0, 1.0),
+                        offset
+                    );
+                }
                 used[side_ix].push(offset);
                 slot.offset = offset;
             }
@@ -3780,6 +3792,39 @@ fn south_rail_base(n: usize, net_band: &[Option<usize>], band_y: &[f64], box_bot
 ///    net they share a NON-anchor member with, below the partner's downward
 ///    extent — decoupled from the accidental y of wherever their anchor was
 ///    placed (`moddcdc` 501←507, 506←510).
+/// ★ U284 (b4181): do two nets terminate at the same component? True when
+/// both outer ends are `EndUse::Component` (M9: a satellite's facing pin) and
+/// the two nets touch a common box other than the layer anchor — for the
+/// Phase 1 caller each net's member set holds exactly that component. This is
+/// the outer-end mirror of M15.6's same-anchor rule: two pins of one box need
+/// two rows. See `assign_rows` Phase 1.
+fn share_component_end(
+    chain: &super::equi_chain::ChainPlan,
+    topos: &[NetTopology],
+    layer_anchor: i64,
+    a: usize,
+    b: usize,
+) -> bool {
+    let is_component_end = |i: usize| {
+        matches!(
+            chain.ends.get(i).map(|e| &e.outer),
+            Some(super::equi_chain::EndUse::Component)
+        )
+    };
+    if !is_component_end(a) || !is_component_end(b) {
+        return false;
+    }
+    let boxes = |i: usize| -> std::collections::BTreeSet<i64> {
+        topos[i]
+            .groups
+            .iter()
+            .map(|g| g.box_id)
+            .filter(|&id| id != layer_anchor)
+            .collect()
+    };
+    !boxes(a).is_disjoint(&boxes(b))
+}
+
 pub(crate) fn assign_rows(
     graph: &McVecGraph,
     topos: &mut [NetTopology],
@@ -3858,22 +3903,82 @@ pub(crate) fn assign_rows(
     let east = per_side.get(&Region::East);
     let side_len = west.map_or(0, |l| l.len()).max(east.map_or(0, |l| l.len()));
     for k in 0..side_len {
+        // Band indices are slot order, not the pin index k: a split below
+        // inserts an extra band, so every later pin band shifts by one.
+        let this_band = band_nets.len();
         let mut nets = Vec::new();
         if let Some(w) = west {
             if let Some(&(_, ti, pid)) = w.get(k) {
                 nets.push(ti);
-                net_band[ti] = Some(net_band[ti].unwrap_or(k));
-                pin_band.insert(pid, k);
+                net_band[ti] = Some(net_band[ti].unwrap_or(this_band));
+                pin_band.insert(pid, this_band);
             }
         }
         if let Some(e) = east {
             if let Some(&(_, ti, pid)) = e.get(k) {
                 nets.push(ti);
-                net_band[ti] = Some(net_band[ti].unwrap_or(k));
-                pin_band.insert(pid, k);
+                net_band[ti] = Some(net_band[ti].unwrap_or(this_band));
+                pin_band.insert(pid, this_band);
             }
         }
-        band_nets.push(nets);
+        // ★ U284 (b4181, H1'): two IC-anchored nets paired by pin index whose
+        // outer ends are BOTH a satellite's facing pin (`EndUse::Component`)
+        // on the SAME box must not share a band — the box needs one row per
+        // facing pin, and the twin that shares the row is stepped off its net's
+        // row by `dedupe_pin_offset` (SPK `_net11`×`_net15`: the `spk` facing
+        // pins landed one pitch off their rows — A34/A30). The outer-end guard
+        // leaves the ordinary W/E pair untouched: a net that ends at a two-pin
+        // part reads `EndUse::Part`, not `Component`, and an anchor pin alone
+        // is never a component end. The migrant takes the band right BELOW the
+        // pair's, so the shared box stays compact around its two rows
+        // (outer-end mirror of M15.6's same-anchor rule).
+        //
+        // Which of the two migrates is decided by foreign ties: every member a
+        // net shares with a net OUTSIDE the pair keeps its position (the
+        // partner's row pins it), so after the split that member's vertical tap
+        // plunges through the stayed net's hanging-member zone. Migrate the net
+        // with fewer such members; ties keep the east migrant (SPK: `_net11`
+        // has two — `_R3`→`_net10` row 200 and `_DIO_ESD2`→ground — and its tap
+        // crossed `_net15`'s `TP1` box (A7); west-migrating `_net15` moves its
+        // own hanging members with the row and leaves `_net11` at its old
+        // geometry).
+        if nets.len() == 2 && share_component_end(&chain, topos, layer_anchor, nets[0], nets[1]) {
+            let Some(&(_, w_ti, w_pid)) = west.and_then(|l| l.get(k)) else {
+                unreachable!("nets.len() == 2 with no west entry at k");
+            };
+            let Some(&(_, e_ti, e_pid)) = east.and_then(|l| l.get(k)) else {
+                unreachable!("nets.len() == 2 with no east entry at k");
+            };
+            let foreign_ties = |ti: usize| -> usize {
+                topos[ti]
+                    .groups
+                    .iter()
+                    .filter(|g| {
+                        find_partner(topos, ti, g)
+                            .is_some_and(|(j, _)| j != w_ti && j != e_ti)
+                    })
+                    .count()
+            };
+            let (m_ti, m_pid) = if foreign_ties(e_ti) <= foreign_ties(w_ti) {
+                (e_ti, e_pid)
+            } else {
+                (w_ti, w_pid)
+            };
+            crate::vlog!(
+                "[splitprobe] W/E pair '{}' × '{}' shares component end — '{}' migrates",
+                topos[w_ti].net_name,
+                topos[e_ti].net_name,
+                topos[m_ti].net_name
+            );
+            nets.retain(|&ti| ti != m_ti);
+            band_nets.push(nets);
+            let fresh = band_nets.len();
+            net_band[m_ti] = Some(fresh);
+            pin_band.insert(m_pid, fresh);
+            band_nets.push(vec![m_ti]);
+        } else {
+            band_nets.push(nets);
+        }
     }
 
     // ★ M8.2: every net of a RUN shares the run root's band — that is what makes
@@ -4019,6 +4124,43 @@ pub(crate) fn assign_rows(
     }
     // ★ M8.2 second pass: island runs whose ROOT only just got a band.
     share_run_bands(&mut band_nets, &mut net_band, &mut sources, topos);
+
+    // ★ b4175 probe A (segment-model rollout, batch A): dump the band table so
+    // the SPK same-row-two-nets forcing function is visible — which nets share
+    // a band, and whether a Component-bounded tail segment shares its root's
+    // band (`share_run_bands`) instead of taking its own.
+    if crate::viz::log::enabled() {
+        use super::equi_chain::EndUse;
+        let end_name = |u: &EndUse| match u {
+            EndUse::Part(b) => format!("Part({})", b),
+            EndUse::Component => "Component".to_string(),
+            EndUse::AnchorPin => "AnchorPin".to_string(),
+            EndUse::Name => "Name".to_string(),
+            EndUse::Free => "Free".to_string(),
+        };
+        for (k, nets) in band_nets.iter().enumerate() {
+            let names: Vec<String> = nets
+                .iter()
+                .map(|&i| {
+                    let (inner, outer) = chain
+                        .ends
+                        .get(i)
+                        .map(|e| (end_name(&e.inner), end_name(&e.outer)))
+                        .unwrap_or_else(|| ("?".to_string(), "?".to_string()));
+                    format!(
+                        "{}({},{:?},root={},in={},out={})",
+                        topos[i].net_name,
+                        topos[i].nid,
+                        topos[i].lane.region,
+                        topos[i].run_root,
+                        inner,
+                        outer
+                    )
+                })
+                .collect();
+            crate::vlog!("[bandprobe] band {}: {}", k, names.join(", "));
+        }
+    }
 
     // ── M3.2 Phase 2: per-band corridor demand (M3.3 demand attribution) ──
     // A 2-pin passive connecting bands a < b occupies a vertical corridor of
@@ -5212,6 +5354,46 @@ fn rank_window(
         // segment boundary with a foreign beyond-segment rank edge manufactured
         // conflicts that fell back to the wrong window (hbl UC `_R5`).
         if topo.nid != owner_nid {
+            // ★ b4175 probe A (segment-model rollout, batch A — instrumentation
+            // only): count the population the rollout will re-classify — a
+            // FOREIGN net's co-endpoint that would qualify as a terminus under
+            // the b3966 predicates (same-run Series joint, non-ground) but is
+            // currently left as a rank edge. Same predicates as below; the
+            // owner fast path stays first so cost is unchanged for owner nets.
+            let foreign_qualifies = topo
+                .groups
+                .iter()
+                .find(|g| g.box_id == eid)
+                .and_then(|group| {
+                    let ebox = graph.boxes.iter().find(|b| b.id == eid)?;
+                    let p = partner_info(topos, ti, group);
+                    if !matches!(
+                        tap_role(ebox, topo, p.clone(), layer_anchor),
+                        TapRole::Series { .. }
+                    ) {
+                        return None;
+                    }
+                    let p = p?;
+                    if p.ground_column || p.kind == NetKind::Ground {
+                        return None;
+                    }
+                    if p.run_root != topo.run_root {
+                        return None;
+                    }
+                    Some(())
+                })
+                .is_some();
+            if foreign_qualifies {
+                let owner = topos.iter().find(|t| t.nid == owner_nid);
+                crate::vlog!(
+                    "[segprobe] foreign beyond-terminus rank edge: joint box {} on net '{}' \
+                     (window owner '{}', member box {})",
+                    eid,
+                    topo.net_name,
+                    owner.map_or("<none>", |t| t.net_name.as_str()),
+                    box_id
+                );
+            }
             return None;
         }
         let group = topo.groups.iter().find(|g| g.box_id == eid)?;
@@ -5435,6 +5617,24 @@ fn resolve_columns_for_side(graph: &mut McVecGraph, topos: &[NetTopology], layer
         }
     }
     let base_placed = base_placed_set(graph, &series_x, layer_anchor);
+    // ★ b4175 probe A (segment-model rollout, batch A): A24 reachability — a
+    // terminal-only net's anchor box is invisible to the allocator
+    // (`chain_origins` skips terminal-only topos, so the box never enters
+    // `series_x` and hence never `base_placed`), yet it can sit on a foreign
+    // net's row where its column would need blocking.
+    if crate::viz::log::enabled() {
+        for t in topos.iter().filter(|t| t.terminal_only) {
+            let in_placed = base_placed.contains_key(&t.anchor);
+            let b = graph.boxes.iter().find(|bx| bx.id == t.anchor);
+            crate::vlog!(
+                "[a24probe] terminal-only '{}' anchor box {}: base_placed={} box={:?}",
+                t.net_name,
+                t.anchor,
+                in_placed,
+                b.map(|bx| (bx.x, bx.y, bx.w, bx.h))
+            );
+        }
+    }
     for (ti, topo) in topos.iter().enumerate() {
         let is_east = match topo.lane.region {
             Region::West => false,
@@ -5472,6 +5672,34 @@ fn resolve_columns_for_side(graph: &mut McVecGraph, topos: &[NetTopology], layer
             .filter(|b| !own_ids.contains(&b.id))
             .map(|b| (b.x - JOG_OFFSET, b.x + b.w + JOG_OFFSET))
             .collect();
+        // ★ b4175 probe A (segment-model rollout, batch A): does a foreign
+        // terminal-only anchor box qualify for this net's `blocked` set? The
+        // UC A24 crossing is `_C2` sitting on `_C3`'s row unblocked.
+        if crate::viz::log::enabled() {
+            for t in topos.iter().filter(|t| t.terminal_only) {
+                if own_ids.contains(&t.anchor) || t.anchor == layer_anchor {
+                    continue;
+                }
+                if let Some(b) = graph.boxes.iter().find(|bx| bx.id == t.anchor) {
+                    let on_row =
+                        topo.lane.axis + 0.5 <= b.y + b.h && topo.lane.axis - 0.5 >= b.y;
+                    let row_facing = b
+                        .slots
+                        .iter()
+                        .any(|s| matches!(s.side, EntrySide::Left | EntrySide::Right));
+                    if on_row && row_facing && b.w > 0.0 && b.h > 0.0 {
+                        crate::vlog!(
+                            "[a24probe] terminal-only '{}' anchor {} lies on net '{}'s row \
+                             (axis {}) — an unblocked foreign body",
+                            t.net_name,
+                            t.anchor,
+                            topo.net_name,
+                            topo.lane.axis
+                        );
+                    }
+                }
+            }
+        }
         for (gi, group) in topo.groups.iter().enumerate().filter(|(_, g)| {
             // The layer anchor is placed by P2 — never re-allocated here.
             if g.box_id == layer_anchor {
