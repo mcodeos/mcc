@@ -102,7 +102,7 @@ fn run_local(args: &ExportArgs, target: Option<&str>) -> Result<()> {
     };
 
     // Shared local initialization: engine + libs (global config, --lib, mcode default).
-    manifest::init_local(Some(target), &mcc::cli::globals().lib);
+    let project_root = manifest::init_local(Some(target), &mcc::cli::globals().lib);
 
     // A directory target resolves to its manifest's entry file; the export
     // pipeline below consumes a single file.
@@ -136,7 +136,15 @@ fn run_local(args: &ExportArgs, target: Option<&str>) -> Result<()> {
     // not fit the single-payload `build_payload` faces; it writes its files
     // directly and reports them on stderr.
     if args.kind == ExportKind::KiCadSch {
-        return write_kicad_sch(&tree, &table, &arena, &inst_store, &top, args.flat);
+        return write_kicad_sch(
+            &tree,
+            &table,
+            &arena,
+            &inst_store,
+            &top,
+            project_root.as_deref(),
+            args.flat,
+        );
     }
 
     let kind_str = args.kind.name();
@@ -186,14 +194,17 @@ fn run_local(args: &ExportArgs, target: Option<&str>) -> Result<()> {
     Ok(())
 }
 
-/// Write the hierarchical `.kicad_sch` set: the root sheet at `-o` (or
-/// `<top>.kicad_sch` in the current directory) and every child sheet beside it.
+/// Write the hierarchical `.kicad_sch` set: the root sheet at `-o`, or with no
+/// `-o` at `<project>/build/<top>.kicad_sch` (U350 - build intermediates stay
+/// inside the project; a bare file target with no manifest keeps the old
+/// current-directory spot) and every child sheet beside it.
 fn write_kicad_sch(
     tree: &mcc::McModuleInst,
     table: &mcc::InstTable,
     arena: &mcc::NodeArena,
     inst_store: &mcc::InstanceStore,
     top: &str,
+    project_root: Option<&Path>,
     flat: bool,
 ) -> Result<()> {
     let files = export::kicad_sch::build_kicad_sch_project(tree, table, arena, inst_store, top, flat);
@@ -215,7 +226,12 @@ fn write_kicad_sch(
             format!("{}.kicad_sch", sanitize_stem(top)),
         ),
         None => (
-            PathBuf::from("."),
+            // No `-o`: default into the project's build directory (U350) so a
+            // batch export never scatters sheets over the caller's cwd. A bare
+            // file target with no manifest keeps the current directory.
+            project_root
+                .map(|r| r.join("build"))
+                .unwrap_or_else(|| PathBuf::from(".")),
             format!("{}.kicad_sch", sanitize_stem(top)),
         ),
     };

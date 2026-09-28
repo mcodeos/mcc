@@ -63,7 +63,7 @@ range (threshold 40KB).
 | `build/` | 5 | 79 KB |
 | `builder/` | 1 | 0 KB |
 | `cli/` | 8 | 129 KB |
-| `cmds/` | 28 | 527 KB |
+| `cmds/` | 28 | 528 KB |
 | `db/` | 28 | 1048 KB |
 | `eval/` | 2 | 50 KB |
 | `export/` | 7 | 185 KB |
@@ -909,8 +909,8 @@ cmds/export.rs#L54  fn effective_format
 cmds/export.rs#L65  fn emit_json
 cmds/export.rs#L77  fn rpc_mapping
 cmds/export.rs#L99  fn run_local
-cmds/export.rs#L191  fn write_kicad_sch
-cmds/export.rs#L241  fn sanitize_stem
+cmds/export.rs#L201  fn write_kicad_sch
+cmds/export.rs#L257  fn sanitize_stem
 cmds/filter.rs#L18  type CompiledFilter
 cmds/filter.rs#L21  fn compile
 cmds/filter.rs#L27  fn apply_to_names
