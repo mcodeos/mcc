@@ -1332,7 +1332,28 @@ impl McFunction {
             }
         }
         if let Some(s) = node.to_string() {
-            return s == "this";
+            // A selector-bearing this-phrase (`this{P | N}`, `this{1}`) can
+            // render as the bare keyword — the curly subtree is invisible to
+            // `to_string` — so the spelling alone cannot separate it from
+            // `return this`. Structure decides: any curly descendant means a
+            // selector face that must reach `McPhrase::new`.
+            return s == "this" && !Self::has_curly_descendant(node);
+        }
+        false
+    }
+
+    /// Whether the node itself or any descendant is a curly operand
+    /// (`{A, B}` Set / `{n | m}` named-node selector).
+    fn has_curly_descendant(node: &AstNode) -> bool {
+        if node.is_type(MCAST_OPD_CURLY) || node.is_type(MCAST_OPD_CURLY_MN) {
+            return true;
+        }
+        let mut child = node.get_sub_node();
+        while let Some(c) = child {
+            if Self::has_curly_descendant(&c) {
+                return true;
+            }
+            child = c.get_next();
         }
         false
     }

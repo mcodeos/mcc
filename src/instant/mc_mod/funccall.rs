@@ -725,6 +725,14 @@ impl InstantiationBuilder {
                 // decode it to the same point set for left and right.
                 AutoInst::ReturnPort(ep_path) => return self.decode_return_endpoint(&ep_path),
                 AutoInst::ReturnNets(names) => return self.decode_return_nets(&names),
+                // Shaped node / row return: the two sides name different
+                // faces, so each mouth resolves its own side (the symmetric
+                // `ReturnNets` decode would weld the left mouth to the right
+                // side's nets).
+                AutoInst::ReturnFace { left, right } => {
+                    let names = if side.is_left() { &left } else { &right };
+                    return self.decode_return_nets(names);
+                }
                 // ── array-form / iterated caller produces multiple instances
                 //    (left = each one's entry face, right = each one's exit face).
                 AutoInst::Array(names) => return self.decode_array_face(&names, side),

@@ -77,6 +77,16 @@ pub(super) enum AutoInst {
     ReturnPort(String),
     /// A func return naming substituted nets / net-list / group members.
     ReturnNets(Vec<String>),
+    /// A func return whose substituted operand is a non-degenerate node /
+    /// row (vec-dianlu.md §2.1): the two sides name genuinely different
+    /// faces, so the left mouth resolves `left` and the right mouth `right`
+    /// (the §8.1 contract "FuncCall ports are resolved by the return shape").
+    /// Degenerate returns (point / column) publish [`AutoInst::ReturnNets`]
+    /// instead — there the two ports coincide.
+    ReturnFace {
+        left: Vec<String>,
+        right: Vec<String>,
+    },
 }
 
 impl AutoInst {
@@ -96,7 +106,10 @@ impl AutoInst {
     /// Is this a func-return face (case ②)? Its two mouths are the same
     /// symmetric stereo node, so a face read must not duplicate it.
     pub(super) fn is_return_face(&self) -> bool {
-        matches!(self, Self::ReturnPort(_) | Self::ReturnNets(_))
+        matches!(
+            self,
+            Self::ReturnPort(_) | Self::ReturnNets(_) | Self::ReturnFace { .. }
+        )
     }
 
     /// The component instance names this entry denotes, for the
@@ -110,7 +123,7 @@ impl AutoInst {
         let names: &[String] = match self {
             Self::Name(n) => std::slice::from_ref(n),
             Self::Array(ns) => ns,
-            Self::ReturnPort(_) | Self::ReturnNets(_) => &[],
+            Self::ReturnPort(_) | Self::ReturnNets(_) | Self::ReturnFace { .. } => &[],
         };
         names.iter().map(String::as_str)
     }

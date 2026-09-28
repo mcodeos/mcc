@@ -974,16 +974,40 @@ impl InstantiationBuilder {
                 // lane against a two-lane call and the engine judged the bridge
                 // a shape mismatch (E4007). Locked by
                 // `u308__multi_lane_return_face_publishes_every_lane`.
-                let names: Vec<String> = OpdShape::of(&substituted, &*self)
-                    .port_right()
-                    .iter()
-                    .map(|b| b.name.clone())
-                    .collect();
-                if names.is_empty() {
-                    LAST_RETURN_ENDPOINT.with(|cell| cell.replace(None));
+                let shape = OpdShape::of(&substituted, &*self);
+                if shape.is_degenerate() || shape.is_unknown() {
+                    // Degenerate return (point / column): both ports coincide,
+                    // so the flat net list fully describes the face. Unknown
+                    // keeps the same flat track (its ports are empty; the
+                    // consumer's fallback handles it).
+                    let names: Vec<String> = shape
+                        .port_right()
+                        .iter()
+                        .map(|b| b.name.clone())
+                        .collect();
+                    if names.is_empty() {
+                        LAST_RETURN_ENDPOINT.with(|cell| cell.replace(None));
+                    } else {
+                        LAST_RETURN_ENDPOINT
+                            .with(|cell| cell.replace(Some(AutoInst::ReturnNets(names))));
+                    }
                 } else {
-                    LAST_RETURN_ENDPOINT
-                        .with(|cell| cell.replace(Some(AutoInst::ReturnNets(names))));
+                    // Non-degenerate return (row / node — e.g. a named
+                    // `this{n | m}` selector): the sides name different
+                    // faces. Publish both so the left mouth resolves the
+                    // left side and the right mouth the right side
+                    // (vec-dianlu.md §8.1: FuncCall ports follow the return
+                    // shape). Flattening to `port_right` here is what made a
+                    // node return answer one lane against a two-lane tail.
+                    let side_names = |buses: &[McBus]| -> Vec<String> {
+                        buses.iter().map(|b| b.name.clone()).collect()
+                    };
+                    let (left, right) = (side_names(&shape.port_left()), side_names(&shape.port_right()));
+                    if left.iter().chain(right.iter()).all(|n| n.is_empty()) {
+                        LAST_RETURN_ENDPOINT.with(|cell| cell.replace(None));
+                    } else {
+                        LAST_RETURN_ENDPOINT.with(|cell| cell.replace(Some(AutoInst::ReturnFace { left, right })));
+                    }
                 }
                 Ok(FuncCallInst::PassThrough)
             }
@@ -1607,6 +1631,7 @@ impl InstantiationBuilder {
 
         match &func_def.returns {
             McFuncReturn::Group(phrase) => {
+                eprintln!("PROBE ret=group");
                 let substituted = substitute_return(phrase);
                 let names: Vec<String> = match &substituted {
                     McPhrase::Group(g) => g
@@ -1628,6 +1653,7 @@ impl InstantiationBuilder {
                 }
             }
             McFuncReturn::Endpoint(ep) => {
+                eprintln!("PROBE ret=endpoint func={} phrase={}", func_def.name, ep);
                 let substituted = substitute_return(ep);
                 // Which face the return names is a *semantic* question, not a
                 // shape one: substitution rewrites formals into their actuals,
@@ -1663,18 +1689,45 @@ impl InstantiationBuilder {
                     LAST_RETURN_ENDPOINT
                         .with(|cell| cell.replace(Some(AutoInst::ReturnPort(ep_path))));
                 } else {
-                    let bus =
-                        crate::semantic::basic::mc_fcall::get_right_bus_from_phrase(&substituted);
-                    let names: Vec<String> = bus.iter().map(|b| b.name.clone()).collect();
-                    if names.is_empty() {
-                        LAST_RETURN_ENDPOINT.with(|cell| cell.replace(None));
+                    // Degenerate return (point / column — the comma Set
+                    // spelling): both ports coincide, so the flat net list
+                    // fully describes the face and the decode answers it at
+                    // both mouths (byte-identical to the pre-shape law).
+                    // Non-degenerate (row / node — the `this{n | m}` IDMN
+                    // spelling): the sides name different faces, so publish
+                    // both and let each mouth resolve its own side
+                    // (vec-dianlu.md §8.1: FuncCall ports follow the return
+                    // shape).
+                    let shape = OpdShape::of(&substituted, &*self);
+                    if shape.is_degenerate() || shape.is_unknown() {
+                        let bus = crate::semantic::basic::mc_fcall::get_right_bus_from_phrase(
+                            &substituted,
+                        );
+                        let names: Vec<String> = bus.iter().map(|b| b.name.clone()).collect();
+                        if names.is_empty() {
+                            LAST_RETURN_ENDPOINT.with(|cell| cell.replace(None));
+                        } else {
+                            LAST_RETURN_ENDPOINT
+                                .with(|cell| cell.replace(Some(AutoInst::ReturnNets(names))));
+                        }
                     } else {
-                        LAST_RETURN_ENDPOINT
-                            .with(|cell| cell.replace(Some(AutoInst::ReturnNets(names))));
+                        let side_names = |buses: &[McBus]| -> Vec<String> {
+                            buses.iter().map(|b| b.name.clone()).collect()
+                        };
+                        let (left, right) =
+                            (side_names(&shape.port_left()), side_names(&shape.port_right()));
+                        if left.iter().chain(right.iter()).all(|n| n.is_empty()) {
+                            LAST_RETURN_ENDPOINT.with(|cell| cell.replace(None));
+                        } else {
+                            LAST_RETURN_ENDPOINT.with(|cell| {
+                                cell.replace(Some(AutoInst::ReturnFace { left, right }))
+                            });
+                        }
                     }
                 }
             }
             McFuncReturn::Implicit | McFuncReturn::This => {
+                eprintln!("PROBE ret=this/implicit func={}", func_def.name);
                 // case ①: face = instance own default shape. Clear any stale
                 // endpoint from a previous statement.
                 LAST_RETURN_ENDPOINT.with(|cell| cell.replace(None));

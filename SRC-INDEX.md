@@ -36,11 +36,11 @@ range (threshold 40KB).
 | `semantic/component/mc_pins/mod.rs` | 242 KB | 112 |
 | `semantic/validation/nets/mod.rs` | 212 KB | 139 |
 | `db/diagnostic/errcodes.rs` | 210 KB | 470 |
-| `instant/mc_mod/stmt.rs` | 198 KB | 80 |
-| `rules.rs` | 192 KB | 83 |
+| `instant/mc_mod/stmt.rs` | 199 KB | 80 |
+| `rules.rs` | 193 KB | 83 |
 | `instant/insttab.rs` | 183 KB | 130 |
+| `instant/mc_mod/fcallinst.rs` | 164 KB | 27 |
 | `cmds/show.rs` | 164 KB | 123 |
-| `instant/mc_mod/fcallinst.rs` | 158 KB | 27 |
 | `db/defregistry.rs` | 158 KB | 182 |
 | `viz/layout/equi_audit.rs` | 139 KB | 98 |
 | `rpc/handlers/mod.rs` | 132 KB | 107 |
@@ -49,7 +49,7 @@ range (threshold 40KB).
 | `instant/mc_mod/points.rs` | 122 KB | 20 |
 | `semantic/mc_inst.rs` | 122 KB | 88 |
 | `semantic/module/mod.rs` | 119 KB | 85 |
-| `semantic/basic/mc_fcall.rs` | 112 KB | 22 |
+| `semantic/basic/mc_fcall.rs` | 116 KB | 25 |
 | `vector/graph/fromblock.rs` | 103 KB | 35 |
 | `viz/metrics/mod.rs` | 100 KB | 156 |
 
@@ -57,23 +57,23 @@ range (threshold 40KB).
 
 | Directory | Files | Size |
 |---|---|---|
-| `(root)/` | 8 | 381 KB |
+| `(root)/` | 8 | 382 KB |
 | `ast/` | 7 | 81 KB |
 | `bin/` | 2 | 37 KB |
 | `build/` | 5 | 79 KB |
 | `builder/` | 1 | 0 KB |
-| `cli/` | 8 | 128 KB |
-| `cmds/` | 28 | 522 KB |
+| `cli/` | 8 | 129 KB |
+| `cmds/` | 28 | 527 KB |
 | `db/` | 28 | 1043 KB |
 | `eval/` | 2 | 50 KB |
 | `export/` | 7 | 185 KB |
-| `instant/` | 41 | 1675 KB |
-| `lsp/` | 7 | 70 KB |
+| `instant/` | 41 | 1686 KB |
+| `lsp/` | 8 | 95 KB |
 | `output/` | 7 | 107 KB |
 | `query/` | 9 | 170 KB |
 | `refdef/` | 7 | 126 KB |
 | `rpc/` | 16 | 312 KB |
-| `semantic/` | 98 | 2886 KB |
+| `semantic/` | 98 | 2891 KB |
 | `stages/` | 19 | 408 KB |
 | `vector/` | 26 | 496 KB |
 | `viz/` | 97 | 2456 KB |
@@ -778,10 +778,10 @@ cli/mod.rs#L1337  enum ConfigAction
 cli/mod.rs#L1367  struct DefArgs
 cli/mod.rs#L1379  struct RefsArgs
 cli/mod.rs#L1401  struct FmtArgs
-cli/mod.rs#L1414  struct ErcArgs
-cli/mod.rs#L1422  struct ExplainArgs
-cli/mod.rs#L1432  struct RulesArgs
-cli/mod.rs#L1438  enum RulesAction
+cli/mod.rs#L1422  struct ErcArgs
+cli/mod.rs#L1430  struct ExplainArgs
+cli/mod.rs#L1440  struct RulesArgs
+cli/mod.rs#L1446  enum RulesAction
 cli/outlet.rs#L31  fn project_root
 cli/outlet.rs#L48  fn intermediate
 cli/outlet.rs#L54  fn ensure_parent
@@ -916,10 +916,13 @@ cmds/filter.rs#L21  fn compile
 cmds/filter.rs#L27  fn apply_to_names
 cmds/filter.rs#L41  mod tests
 cmds/filter.rs#L45  fn cli_filter__apply_to_names_only_accepts_name_key
-cmds/fmt.rs#L17  fn run
-cmds/fmt.rs#L57  fn resolve_target
-cmds/fmt.rs#L68  fn collect_targets
-cmds/fmt.rs#L80  fn format_file
+cmds/fmt.rs#L27  type RenameEdit
+cmds/fmt.rs#L29  fn run
+cmds/fmt.rs#L86  fn resolve_target
+cmds/fmt.rs#L97  fn collect_targets
+cmds/fmt.rs#L112  fn rename_edits
+cmds/fmt.rs#L176  fn format_file
+cmds/fmt.rs#L198  fn apply_edits
 cmds/impact.rs#L20  fn run
 cmds/impact.rs#L64  fn write_report
 cmds/impact.rs#L74  fn cell
@@ -3320,11 +3323,11 @@ instant/mc_mod/dump.rs#L80  impl McModuleInst
 instant/mc_mod/dump.rs#L84  fn dump_pass1_input
 instant/mc_mod/dump.rs#L200  impl InstantiationBuilder
 instant/mc_mod/dump.rs#L207  fn dump_pass2_output
-instant/mc_mod/dump.rs#L445  impl McModuleInst
-instant/mc_mod/dump.rs#L452  fn dump_pass_diff
-instant/mc_mod/dump.rs#L576  impl InstantiationBuilder
-instant/mc_mod/dump.rs#L589  fn dump_pass_summary
-instant/mc_mod/dump.rs#L602  fn iotype_str
+instant/mc_mod/dump.rs#L446  impl McModuleInst
+instant/mc_mod/dump.rs#L453  fn dump_pass_diff
+instant/mc_mod/dump.rs#L577  impl InstantiationBuilder
+instant/mc_mod/dump.rs#L590  fn dump_pass_summary
+instant/mc_mod/dump.rs#L603  fn iotype_str
 instant/mc_mod/expand.rs#L35  struct ModulePortsScope
 instant/mc_mod/expand.rs#L39  impl <'a> ModulePortsScope<'a>
 instant/mc_mod/expand.rs#L40  fn new
@@ -3391,47 +3394,47 @@ instant/mc_mod/fcallinst.rs#L71  fn collect_series
 instant/mc_mod/fcallinst.rs#L110  fn eval_nested_call_args
 instant/mc_mod/fcallinst.rs#L160  impl InstantiationBuilder
 instant/mc_mod/fcallinst.rs#L177  fn instantiate_component_construction
-instant/mc_mod/fcallinst.rs#L480  fn instantiate_module_construction
-instant/mc_mod/fcallinst.rs#L677  fn instantiate_user_func
-instant/mc_mod/fcallinst.rs#L931  fn domain_pair_named
-instant/mc_mod/fcallinst.rs#L953  fn align_vector_bindings
-instant/mc_mod/fcallinst.rs#L971  fn align_vector_bindings_reporting
-instant/mc_mod/fcallinst.rs#L1100  fn materialize_component
-instant/mc_mod/fcallinst.rs#L1133  fn materialize_declared_subinstances
-instant/mc_mod/fcallinst.rs#L1177  fn materialize_vector_groups
-instant/mc_mod/fcallinst.rs#L1229  fn materialize_deferred_subinstances
-instant/mc_mod/fcallinst.rs#L1308  fn instantiate_instance_method
-instant/mc_mod/fcallinst.rs#L1629  fn run_submodule_method
-instant/mc_mod/fcallinst.rs#L2110  fn run_component_method
-instant/mc_mod/fcallinst.rs#L2521  fn strip_host_iface_phantoms
-instant/mc_mod/fcallinst.rs#L2552  fn expand_bus_labels
-instant/mc_mod/fcallinst.rs#L2628  fn instance_declares_port
-instant/mc_mod/fcallinst.rs#L2643  fn actual_is_parent_ref
-instant/mc_mod/fcallinst.rs#L2671  fn prefix_instance_stmt_with_skip
-instant/mc_mod/fcallinst.rs#L2681  fn prefix_instance_phrase_with_skip
-instant/mc_mod/fcallinst.rs#L3017  fn prefix_instance_node_element_with_skip
-instant/mc_mod/fcallinst.rs#L3146  fn prefix_param_value_with_skip
-instant/mc_mod/fcallinst.rs#L3195  fn validate_fcall_return_shape
+instant/mc_mod/fcallinst.rs#L550  fn instantiate_module_construction
+instant/mc_mod/fcallinst.rs#L747  fn instantiate_user_func
+instant/mc_mod/fcallinst.rs#L1025  fn domain_pair_named
+instant/mc_mod/fcallinst.rs#L1047  fn align_vector_bindings
+instant/mc_mod/fcallinst.rs#L1065  fn align_vector_bindings_reporting
+instant/mc_mod/fcallinst.rs#L1194  fn materialize_component
+instant/mc_mod/fcallinst.rs#L1227  fn materialize_declared_subinstances
+instant/mc_mod/fcallinst.rs#L1271  fn materialize_vector_groups
+instant/mc_mod/fcallinst.rs#L1323  fn materialize_deferred_subinstances
+instant/mc_mod/fcallinst.rs#L1402  fn instantiate_instance_method
+instant/mc_mod/fcallinst.rs#L1752  fn run_submodule_method
+instant/mc_mod/fcallinst.rs#L2233  fn run_component_method
+instant/mc_mod/fcallinst.rs#L2644  fn strip_host_iface_phantoms
+instant/mc_mod/fcallinst.rs#L2675  fn expand_bus_labels
+instant/mc_mod/fcallinst.rs#L2751  fn instance_declares_port
+instant/mc_mod/fcallinst.rs#L2766  fn actual_is_parent_ref
+instant/mc_mod/fcallinst.rs#L2794  fn prefix_instance_stmt_with_skip
+instant/mc_mod/fcallinst.rs#L2804  fn prefix_instance_phrase_with_skip
+instant/mc_mod/fcallinst.rs#L3140  fn prefix_instance_node_element_with_skip
+instant/mc_mod/fcallinst.rs#L3269  fn prefix_param_value_with_skip
+instant/mc_mod/fcallinst.rs#L3318  fn validate_fcall_return_shape
 instant/mc_mod/funccall.rs#L40  enum FuncCallInst
 instant/mc_mod/funccall.rs#L57  enum FaceSide
 instant/mc_mod/funccall.rs#L62  impl FaceSide
 instant/mc_mod/funccall.rs#L63  fn is_left
 instant/mc_mod/funccall.rs#L68  impl InstantiationBuilder
 instant/mc_mod/funccall.rs#L78  fn instantiate_funccall
-instant/mc_mod/funccall.rs#L138  static DEPTH
-instant/mc_mod/funccall.rs#L153  struct DepthGuard
-instant/mc_mod/funccall.rs#L154  impl Drop for DepthGuard
-instant/mc_mod/funccall.rs#L155  fn drop
-instant/mc_mod/funccall.rs#L453  fn try_resolve_instance_method
-instant/mc_mod/funccall.rs#L612  fn find_user_func
-instant/mc_mod/funccall.rs#L640  fn resolve_funccall_face
-instant/mc_mod/funccall.rs#L719  fn decode_return_endpoint
-instant/mc_mod/funccall.rs#L754  fn decode_return_nets
-instant/mc_mod/funccall.rs#L765  fn decode_array_face
-instant/mc_mod/funccall.rs#L843  fn component_own_face
-instant/mc_mod/funccall.rs#L883  fn submodule_own_face
-instant/mc_mod/funccall.rs#L933  fn resolve_face_from_buses
-instant/mc_mod/funccall.rs#L1017  fn rebind_submodule_params
+instant/mc_mod/funccall.rs#L139  static DEPTH
+instant/mc_mod/funccall.rs#L154  struct DepthGuard
+instant/mc_mod/funccall.rs#L155  impl Drop for DepthGuard
+instant/mc_mod/funccall.rs#L156  fn drop
+instant/mc_mod/funccall.rs#L455  fn try_resolve_instance_method
+instant/mc_mod/funccall.rs#L614  fn find_user_func
+instant/mc_mod/funccall.rs#L642  fn resolve_funccall_face
+instant/mc_mod/funccall.rs#L775  fn decode_return_endpoint
+instant/mc_mod/funccall.rs#L810  fn decode_return_nets
+instant/mc_mod/funccall.rs#L821  fn decode_array_face
+instant/mc_mod/funccall.rs#L899  fn component_own_face
+instant/mc_mod/funccall.rs#L939  fn submodule_own_face
+instant/mc_mod/funccall.rs#L989  fn resolve_face_from_buses
+instant/mc_mod/funccall.rs#L1073  fn rebind_submodule_params
 instant/mc_mod/group.rs#L23  impl InstantiationBuilder
 instant/mc_mod/group.rs#L37  fn create_connection
 instant/mc_mod/group.rs#L488  fn make_conn_with_provenance
@@ -3440,12 +3443,12 @@ instant/mc_mod/group.rs#L765  fn trunk_from_points
 instant/mc_mod/group.rs#L811  fn refine_lane_trunk
 instant/mc_mod/iterated.rs#L23  impl InstantiationBuilder
 instant/mc_mod/iterated.rs#L46  fn check_and_expand_iterated_call
-instant/mc_mod/iterated.rs#L307  fn resolve_indexed_params
-instant/mc_mod/iterated.rs#L326  fn zip_param_lane
-instant/mc_mod/iterated.rs#L347  fn zip_slice_member
-instant/mc_mod/iterated.rs#L365  fn emit_gap1_member_set_mismatch
-instant/mc_mod/iterated.rs#L409  fn gap1_collect_slices
-instant/mc_mod/iterated.rs#L436  fn iterated_item_inst_name
+instant/mc_mod/iterated.rs#L308  fn resolve_indexed_params
+instant/mc_mod/iterated.rs#L327  fn zip_param_lane
+instant/mc_mod/iterated.rs#L348  fn zip_slice_member
+instant/mc_mod/iterated.rs#L366  fn emit_gap1_member_set_mismatch
+instant/mc_mod/iterated.rs#L410  fn gap1_collect_slices
+instant/mc_mod/iterated.rs#L437  fn iterated_item_inst_name
 instant/mc_mod/matching.rs#L26  enum WidthCheck
 instant/mc_mod/matching.rs#L42  fn check_vector_width
 instant/mc_mod/matching.rs#L70  fn positional_pairs
@@ -3466,36 +3469,36 @@ instant/mc_mod/mod.rs#L36  mod stmt
 instant/mc_mod/mod.rs#L37  mod subst
 instant/mc_mod/mod.rs#L38  mod vexpr
 instant/mc_mod/mod.rs#L71  enum AutoInst
-instant/mc_mod/mod.rs#L82  impl AutoInst
-instant/mc_mod/mod.rs#L87  fn from_instance_names
-instant/mc_mod/mod.rs#L98  fn is_return_face
-instant/mc_mod/mod.rs#L109  fn instance_names
-instant/mc_mod/mod.rs#L123  struct McModuleInst
-instant/mc_mod/mod.rs#L229  struct McVectorInst
-instant/mc_mod/mod.rs#L255  struct FailedRecord
-instant/mc_mod/mod.rs#L268  struct CurrentUriGuard
-instant/mc_mod/mod.rs#L272  impl CurrentUriGuard
-instant/mc_mod/mod.rs#L273  fn new
-instant/mc_mod/mod.rs#L282  impl Drop for CurrentUriGuard
-instant/mc_mod/mod.rs#L283  fn drop
-instant/mc_mod/mod.rs#L295  enum AutoNameKind
-instant/mc_mod/mod.rs#L304  impl McModuleInst
-instant/mc_mod/mod.rs#L311  fn resolve_def_uri
-instant/mc_mod/mod.rs#L321  fn set_nc_ports
-instant/mc_mod/mod.rs#L326  fn new
-instant/mc_mod/mod.rs#L352  fn with_params
-instant/mc_mod/mod.rs#L391  fn instantiate
-instant/mc_mod/mod.rs#L400  fn instantiate_with_store
-instant/mc_mod/mod.rs#L435  fn instantiate_with_store_in_registry
-instant/mc_mod/mod.rs#L463  fn instantiate_in_scope
-instant/mc_mod/mod.rs#L492  fn has_errors
-instant/mc_mod/mod.rs#L503  fn all_diagnostics
-instant/mc_mod/mod.rs#L517  fn is_valid_port_ref
-instant/mc_mod/mod.rs#L572  fn brace_suffix_strip
-instant/mc_mod/mod.rs#L587  impl std::fmt::Display for McModuleInst
-instant/mc_mod/mod.rs#L588  fn fmt
-instant/mc_mod/mod.rs#L653  mod tests
-instant/mc_mod/mod.rs#L672  fn mat_aname__sequence_lock
+instant/mc_mod/mod.rs#L92  impl AutoInst
+instant/mc_mod/mod.rs#L97  fn from_instance_names
+instant/mc_mod/mod.rs#L108  fn is_return_face
+instant/mc_mod/mod.rs#L122  fn instance_names
+instant/mc_mod/mod.rs#L136  struct McModuleInst
+instant/mc_mod/mod.rs#L242  struct McVectorInst
+instant/mc_mod/mod.rs#L268  struct FailedRecord
+instant/mc_mod/mod.rs#L281  struct CurrentUriGuard
+instant/mc_mod/mod.rs#L285  impl CurrentUriGuard
+instant/mc_mod/mod.rs#L286  fn new
+instant/mc_mod/mod.rs#L295  impl Drop for CurrentUriGuard
+instant/mc_mod/mod.rs#L296  fn drop
+instant/mc_mod/mod.rs#L308  enum AutoNameKind
+instant/mc_mod/mod.rs#L317  impl McModuleInst
+instant/mc_mod/mod.rs#L324  fn resolve_def_uri
+instant/mc_mod/mod.rs#L334  fn set_nc_ports
+instant/mc_mod/mod.rs#L339  fn new
+instant/mc_mod/mod.rs#L365  fn with_params
+instant/mc_mod/mod.rs#L404  fn instantiate
+instant/mc_mod/mod.rs#L413  fn instantiate_with_store
+instant/mc_mod/mod.rs#L448  fn instantiate_with_store_in_registry
+instant/mc_mod/mod.rs#L476  fn instantiate_in_scope
+instant/mc_mod/mod.rs#L505  fn has_errors
+instant/mc_mod/mod.rs#L516  fn all_diagnostics
+instant/mc_mod/mod.rs#L530  fn is_valid_port_ref
+instant/mc_mod/mod.rs#L585  fn brace_suffix_strip
+instant/mc_mod/mod.rs#L600  impl std::fmt::Display for McModuleInst
+instant/mc_mod/mod.rs#L601  fn fmt
+instant/mc_mod/mod.rs#L666  mod tests
+instant/mc_mod/mod.rs#L685  fn mat_aname__sequence_lock
 instant/mc_mod/phases.rs#L33  impl InstantiationBuilder
 instant/mc_mod/phases.rs#L144  fn instantiate_interface
 instant/mc_mod/phases.rs#L500  fn inject_port_member_labels
@@ -3566,65 +3569,65 @@ instant/mc_mod/stmt.rs#L499  fn member_refs
 instant/mc_mod/stmt.rs#L511  fn endpoint_refs
 instant/mc_mod/stmt.rs#L531  fn iref_tokens
 instant/mc_mod/stmt.rs#L549  fn process_series_members
-instant/mc_mod/stmt.rs#L814  fn is_all_placeholder_params
-instant/mc_mod/stmt.rs#L818  fn is_placeholder_param
-instant/mc_mod/stmt.rs#L830  fn phrase_contains_transposed
-instant/mc_mod/stmt.rs#L841  fn member_contains_lead
-instant/mc_mod/stmt.rs#L857  fn multiple_base_bus
-instant/mc_mod/stmt.rs#L861  fn fc_params_reference_bus_in_set
-instant/mc_mod/stmt.rs#L893  fn fc_lane_bus
-instant/mc_mod/stmt.rs#L906  fn bus_actual_name
-instant/mc_mod/stmt.rs#L917  fn bus_in_set
-instant/mc_mod/stmt.rs#L932  fn bus_lane_phrases
-instant/mc_mod/stmt.rs#L949  fn param_references_bus_in_set
-instant/mc_mod/stmt.rs#L966  fn bus_lane_of
-instant/mc_mod/stmt.rs#L987  fn substitute_bus_in_fc_params
-instant/mc_mod/stmt.rs#L999  fn substitute_bus_in_param_value
-instant/mc_mod/stmt.rs#L1033  fn member_lane_width
-instant/mc_mod/stmt.rs#L1044  fn pick_lane_point
-instant/mc_mod/stmt.rs#L1059  fn collect_lane_items
-instant/mc_mod/stmt.rs#L1073  fn collect_one_lane_item
-instant/mc_mod/stmt.rs#L1147  fn get_transposed_lane_pin
-instant/mc_mod/stmt.rs#L1158  fn try_record_bridge_passive
-instant/mc_mod/stmt.rs#L1189  fn is_same_name_component_group
-instant/mc_mod/stmt.rs#L1214  fn phrase_to_members
-instant/mc_mod/stmt.rs#L1226  fn phrase_to_members_gapped
-instant/mc_mod/stmt.rs#L1786  fn normalize_multiple_lanes
-instant/mc_mod/stmt.rs#L1803  fn expand_multi_member_buses
-instant/mc_mod/stmt.rs#L1844  fn extract_trunk_group
-instant/mc_mod/stmt.rs#L1856  fn extract_trunk_group_inner
-instant/mc_mod/stmt.rs#L1905  fn extract_pg_from_multiple_endpoint
-instant/mc_mod/stmt.rs#L1925  fn extract_pg_from_iref
-instant/mc_mod/stmt.rs#L1965  fn written_pair_name
-instant/mc_mod/stmt.rs#L2007  fn end_pair_trunk
-instant/mc_mod/stmt.rs#L2020  fn has_power_terminal
-instant/mc_mod/stmt.rs#L2032  fn member_refs_deep
-instant/mc_mod/stmt.rs#L2044  fn endpoint_refs_deep
-instant/mc_mod/stmt.rs#L2067  fn extract_trunk_kind
-instant/mc_mod/stmt.rs#L2116  fn extract_trunk_iface
-instant/mc_mod/stmt.rs#L2135  fn iface_class_of
-instant/mc_mod/stmt.rs#L2177  fn check_iface_connect_points
-instant/mc_mod/stmt.rs#L2205  fn check_net_topology
-instant/mc_mod/stmt.rs#L2216  fn check_iface_connect_net
-instant/mc_mod/stmt.rs#L2240  fn check_iface_topology
-instant/mc_mod/stmt.rs#L2282  fn iface_pair_diag
-instant/mc_mod/stmt.rs#L2417  fn iface_endpoint_of_point
-instant/mc_mod/stmt.rs#L2469  fn role_of
-instant/mc_mod/stmt.rs#L2492  fn mediator_iface_role
-instant/mc_mod/stmt.rs#L2513  fn record_chain_iface_endpoints
-instant/mc_mod/stmt.rs#L2546  fn record_chain_iface_endpoint_ep
-instant/mc_mod/stmt.rs#L2579  fn iface_attr_value_set
-instant/mc_mod/stmt.rs#L2646  fn connect_adjacent_pair
-instant/mc_mod/stmt.rs#L2695  fn normalize_branch_elem
-instant/mc_mod/stmt.rs#L2713  fn process_series_branch_inplace
-instant/mc_mod/stmt.rs#L2753  fn stash_pass_through
-instant/mc_mod/stmt.rs#L2760  fn process_member_internal
-instant/mc_mod/stmt.rs#L3717  fn assign_phrase_ids
-instant/mc_mod/stmt.rs#L3760  fn reset_phrase_ids
-instant/mc_mod/stmt.rs#L3798  fn member_key
-instant/mc_mod/stmt.rs#L3823  fn extract_caller_inst_name
-instant/mc_mod/stmt.rs#L3905  fn resolve_array_caller_to_existing
-instant/mc_mod/stmt.rs#L3967  fn phrase_contains_failed_class
+instant/mc_mod/stmt.rs#L828  fn is_all_placeholder_params
+instant/mc_mod/stmt.rs#L832  fn is_placeholder_param
+instant/mc_mod/stmt.rs#L844  fn phrase_contains_transposed
+instant/mc_mod/stmt.rs#L855  fn member_contains_lead
+instant/mc_mod/stmt.rs#L871  fn multiple_base_bus
+instant/mc_mod/stmt.rs#L875  fn fc_params_reference_bus_in_set
+instant/mc_mod/stmt.rs#L907  fn fc_lane_bus
+instant/mc_mod/stmt.rs#L920  fn bus_actual_name
+instant/mc_mod/stmt.rs#L931  fn bus_in_set
+instant/mc_mod/stmt.rs#L946  fn bus_lane_phrases
+instant/mc_mod/stmt.rs#L963  fn param_references_bus_in_set
+instant/mc_mod/stmt.rs#L980  fn bus_lane_of
+instant/mc_mod/stmt.rs#L1001  fn substitute_bus_in_fc_params
+instant/mc_mod/stmt.rs#L1013  fn substitute_bus_in_param_value
+instant/mc_mod/stmt.rs#L1047  fn member_lane_width
+instant/mc_mod/stmt.rs#L1058  fn pick_lane_point
+instant/mc_mod/stmt.rs#L1073  fn collect_lane_items
+instant/mc_mod/stmt.rs#L1087  fn collect_one_lane_item
+instant/mc_mod/stmt.rs#L1161  fn get_transposed_lane_pin
+instant/mc_mod/stmt.rs#L1172  fn try_record_bridge_passive
+instant/mc_mod/stmt.rs#L1203  fn is_same_name_component_group
+instant/mc_mod/stmt.rs#L1228  fn phrase_to_members
+instant/mc_mod/stmt.rs#L1240  fn phrase_to_members_gapped
+instant/mc_mod/stmt.rs#L1800  fn normalize_multiple_lanes
+instant/mc_mod/stmt.rs#L1817  fn expand_multi_member_buses
+instant/mc_mod/stmt.rs#L1858  fn extract_trunk_group
+instant/mc_mod/stmt.rs#L1870  fn extract_trunk_group_inner
+instant/mc_mod/stmt.rs#L1919  fn extract_pg_from_multiple_endpoint
+instant/mc_mod/stmt.rs#L1939  fn extract_pg_from_iref
+instant/mc_mod/stmt.rs#L1979  fn written_pair_name
+instant/mc_mod/stmt.rs#L2021  fn end_pair_trunk
+instant/mc_mod/stmt.rs#L2034  fn has_power_terminal
+instant/mc_mod/stmt.rs#L2046  fn member_refs_deep
+instant/mc_mod/stmt.rs#L2058  fn endpoint_refs_deep
+instant/mc_mod/stmt.rs#L2081  fn extract_trunk_kind
+instant/mc_mod/stmt.rs#L2130  fn extract_trunk_iface
+instant/mc_mod/stmt.rs#L2149  fn iface_class_of
+instant/mc_mod/stmt.rs#L2191  fn check_iface_connect_points
+instant/mc_mod/stmt.rs#L2219  fn check_net_topology
+instant/mc_mod/stmt.rs#L2230  fn check_iface_connect_net
+instant/mc_mod/stmt.rs#L2254  fn check_iface_topology
+instant/mc_mod/stmt.rs#L2296  fn iface_pair_diag
+instant/mc_mod/stmt.rs#L2431  fn iface_endpoint_of_point
+instant/mc_mod/stmt.rs#L2483  fn role_of
+instant/mc_mod/stmt.rs#L2506  fn mediator_iface_role
+instant/mc_mod/stmt.rs#L2527  fn record_chain_iface_endpoints
+instant/mc_mod/stmt.rs#L2560  fn record_chain_iface_endpoint_ep
+instant/mc_mod/stmt.rs#L2593  fn iface_attr_value_set
+instant/mc_mod/stmt.rs#L2660  fn connect_adjacent_pair
+instant/mc_mod/stmt.rs#L2709  fn normalize_branch_elem
+instant/mc_mod/stmt.rs#L2727  fn process_series_branch_inplace
+instant/mc_mod/stmt.rs#L2767  fn stash_pass_through
+instant/mc_mod/stmt.rs#L2774  fn process_member_internal
+instant/mc_mod/stmt.rs#L3732  fn assign_phrase_ids
+instant/mc_mod/stmt.rs#L3775  fn reset_phrase_ids
+instant/mc_mod/stmt.rs#L3813  fn member_key
+instant/mc_mod/stmt.rs#L3838  fn extract_caller_inst_name
+instant/mc_mod/stmt.rs#L3920  fn resolve_array_caller_to_existing
+instant/mc_mod/stmt.rs#L3982  fn phrase_contains_failed_class
 instant/mc_mod/subst.rs#L33  impl InstantiationBuilder
 instant/mc_mod/subst.rs#L40  fn param_value_to_node_elements
 instant/mc_mod/subst.rs#L47  fn param_value_to_node_elements_inner
@@ -4153,9 +4156,9 @@ lsp/completion.rs#L529  fn enumerate_interface
 lsp/completion.rs#L542  fn enumerate_enum
 lsp/diagnostics.rs#L18  fn collect
 lsp/diagnostics.rs#L32  fn diagnostic_to_json
-lsp/diagnostics.rs#L69  fn diagnostic_to_json_full
-lsp/diagnostics.rs#L108  fn level_str
-lsp/diagnostics.rs#L117  fn location_to_json
+lsp/diagnostics.rs#L75  fn diagnostic_to_json_full
+lsp/diagnostics.rs#L120  fn level_str
+lsp/diagnostics.rs#L129  fn location_to_json
 lsp/gotodef.rs#L22  fn find_def_in_refdefmap
 lsp/gotodef.rs#L49  fn find_def_by_name_raw
 lsp/gotodef.rs#L81  fn find_def_by_name_in_file
@@ -4177,8 +4180,28 @@ lsp/mod.rs#L10  mod completion
 lsp/mod.rs#L11  mod diagnostics
 lsp/mod.rs#L12  mod gotodef
 lsp/mod.rs#L13  mod hover
-lsp/mod.rs#L14  mod references
-lsp/mod.rs#L15  mod sem
+lsp/mod.rs#L14  mod quickfix
+lsp/mod.rs#L15  mod references
+lsp/mod.rs#L16  mod sem
+lsp/quickfix.rs#L38  fn fix_payload
+lsp/quickfix.rs#L54  fn corrected_spelling
+lsp/quickfix.rs#L81  fn quoted_name
+lsp/quickfix.rs#L93  fn member_span
+lsp/quickfix.rs#L109  fn def_ref_kinds
+lsp/quickfix.rs#L126  fn collect_edits
+lsp/quickfix.rs#L278  mod tests
+lsp/quickfix.rs#L283  fn gate_messages_quote_the_flagged_name
+lsp/quickfix.rs#L295  fn corrected_spelling_matches_gate_predicates
+lsp/quickfix.rs#L323  fn build_workspace
+lsp/quickfix.rs#L345  fn first_diag
+lsp/quickfix.rs#L352  fn diag_for
+lsp/quickfix.rs#L363  fn spans
+lsp/quickfix.rs#L373  fn net_label_fix_renames_every_occurrence_in_the_module
+lsp/quickfix.rs#L411  fn port_face_fix_renames_member_chain_consumers_member_segment_only
+lsp/quickfix.rs#L483  fn enum_value_stays_fix_free_until_member_chain_refs_index_consumers
+lsp/quickfix.rs#L500  fn func_stays_fix_free_until_member_chain_refs_index_call_sites
+lsp/quickfix.rs#L513  fn role_value_half_stays_fix_free
+lsp/quickfix.rs#L530  fn non_style_diagnostics_carry_no_fix
 lsp/references.rs#L31  fn find
 lsp/references.rs#L54  fn find_at
 lsp/references.rs#L181  mod tests
@@ -5117,7 +5140,7 @@ rules.rs#L2546  fn lock_ledger_projects_every_numeric_code_exactly_once
 rules.rs#L2575  fn lock_ledger_anchors_are_strong_or_documented_and_pinned
 rules.rs#L2614  fn query_rules_filters_axes_and_preserves_table_order
 rules.rs#L2689  struct PostParseRule
-rules.rs#L2750  static POSTPARSE_RULES
+rules.rs#L2773  static POSTPARSE_RULES
 semantic/basic/attr_keys.rs#L48  enum AttrFace
 semantic/basic/attr_keys.rs#L62  enum AttrValueKind
 semantic/basic/attr_keys.rs#L93  enum ElementClass
@@ -5371,17 +5394,20 @@ semantic/basic/mc_fcall.rs#L250  fn check_ctor_pin_rows
 semantic/basic/mc_fcall.rs#L280  impl McFuncCall
 semantic/basic/mc_fcall.rs#L282  fn parse
 semantic/basic/mc_fcall.rs#L404  fn is_construction
-semantic/basic/mc_fcall.rs#L415  fn caller_is_construction
-semantic/basic/mc_fcall.rs#L422  fn parse_internal
-semantic/basic/mc_fcall.rs#L1883  fn resolve_return_shape
-semantic/basic/mc_fcall.rs#L1917  fn fill_return_shape
-semantic/basic/mc_fcall.rs#L1937  fn expand_iface_port_return_face
-semantic/basic/mc_fcall.rs#L1972  fn lookup_func_returns
-semantic/basic/mc_fcall.rs#L1998  fn fill_return_shapes
-semantic/basic/mc_fcall.rs#L2049  fn check_chain_validity
-semantic/basic/mc_fcall.rs#L2091  fn root_receiver
-semantic/basic/mc_fcall.rs#L2103  fn extract_method_name
-semantic/basic/mc_fcall.rs#L2143  fn try_parse_inner_fcall
+semantic/basic/mc_fcall.rs#L421  fn pre_lanes_to_buses
+semantic/basic/mc_fcall.rs#L422  fn lane_value
+semantic/basic/mc_fcall.rs#L445  fn ids_to_lanes
+semantic/basic/mc_fcall.rs#L453  fn caller_is_construction
+semantic/basic/mc_fcall.rs#L460  fn parse_internal
+semantic/basic/mc_fcall.rs#L1963  fn resolve_return_shape
+semantic/basic/mc_fcall.rs#L1997  fn fill_return_shape
+semantic/basic/mc_fcall.rs#L2017  fn expand_iface_port_return_face
+semantic/basic/mc_fcall.rs#L2052  fn lookup_func_returns
+semantic/basic/mc_fcall.rs#L2078  fn fill_return_shapes
+semantic/basic/mc_fcall.rs#L2129  fn check_chain_validity
+semantic/basic/mc_fcall.rs#L2171  fn root_receiver
+semantic/basic/mc_fcall.rs#L2183  fn extract_method_name
+semantic/basic/mc_fcall.rs#L2223  fn try_parse_inner_fcall
 semantic/basic/mc_group.rs#L16  struct McGroup
 semantic/basic/mc_group.rs#L22  impl McGroup
 semantic/basic/mc_group.rs#L24  fn parse
@@ -6642,28 +6668,29 @@ semantic/mc_func.rs#L1188  fn body_stmts_display
 semantic/mc_func.rs#L1214  fn find_return_marker
 semantic/mc_func.rs#L1230  fn handle_return
 semantic/mc_func.rs#L1325  fn is_this_expr
-semantic/mc_func.rs#L1341  impl ShapeCtx for McFunction
-semantic/mc_func.rs#L1342  fn find_inst
-semantic/mc_func.rs#L1346  fn uri
-semantic/mc_func.rs#L1352  fn get_vector_members
-semantic/mc_func.rs#L1359  impl HasFindInst for McFunction
-semantic/mc_func.rs#L1360  fn find_inst_mut
-semantic/mc_func.rs#L1364  fn add_label_at
-semantic/mc_func.rs#L1375  fn add_label
-semantic/mc_func.rs#L1423  fn add_component
-semantic/mc_func.rs#L1431  fn add_module
-semantic/mc_func.rs#L1439  fn add_bus
-semantic/mc_func.rs#L1451  fn add_list
-semantic/mc_func.rs#L1459  fn add_bus_member
-semantic/mc_func.rs#L1463  fn add_interface_member
-semantic/mc_func.rs#L1472  fn check_bus_member
-semantic/mc_func.rs#L1476  fn is_component_bus
-semantic/mc_func.rs#L1516  fn parse_declare
-semantic/mc_func.rs#L1541  fn upgrade_label_to_bus
-semantic/mc_func.rs#L1545  fn gen_anon_name
-semantic/mc_func.rs#L1557  fn store_inst_span
-semantic/mc_func.rs#L1561  fn record_declareb_def
-semantic/mc_func.rs#L1570  fn scope_name
+semantic/mc_func.rs#L1347  fn has_curly_descendant
+semantic/mc_func.rs#L1362  impl ShapeCtx for McFunction
+semantic/mc_func.rs#L1363  fn find_inst
+semantic/mc_func.rs#L1367  fn uri
+semantic/mc_func.rs#L1373  fn get_vector_members
+semantic/mc_func.rs#L1380  impl HasFindInst for McFunction
+semantic/mc_func.rs#L1381  fn find_inst_mut
+semantic/mc_func.rs#L1385  fn add_label_at
+semantic/mc_func.rs#L1396  fn add_label
+semantic/mc_func.rs#L1444  fn add_component
+semantic/mc_func.rs#L1452  fn add_module
+semantic/mc_func.rs#L1460  fn add_bus
+semantic/mc_func.rs#L1472  fn add_list
+semantic/mc_func.rs#L1480  fn add_bus_member
+semantic/mc_func.rs#L1484  fn add_interface_member
+semantic/mc_func.rs#L1493  fn check_bus_member
+semantic/mc_func.rs#L1497  fn is_component_bus
+semantic/mc_func.rs#L1537  fn parse_declare
+semantic/mc_func.rs#L1562  fn upgrade_label_to_bus
+semantic/mc_func.rs#L1566  fn gen_anon_name
+semantic/mc_func.rs#L1578  fn store_inst_span
+semantic/mc_func.rs#L1582  fn record_declareb_def
+semantic/mc_func.rs#L1591  fn scope_name
 semantic/mc_ifs.rs#L18  struct McInterface
 semantic/mc_ifs.rs#L29  impl McInterface
 semantic/mc_ifs.rs#L30  fn new
@@ -11677,4 +11704,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-423 files, 11594 declarations.
+424 files, 11621 declarations.

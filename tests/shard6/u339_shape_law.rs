@@ -186,3 +186,105 @@ fn u339__column_head_still_bridges_both_lanes() {
         "the compliant column head is diagnosed by nothing; codes={codes:?}"
     );
 }
+
+// ── Return-face shape carrying (U339 ③ row/node half, landed part) ──
+
+/// Two-pin tie whose pins carry a named pin group `NODE{P, N}` — the shape
+/// the node-return family spells against.
+const TIE_PINS: &str = "component TIE2 {\n    pins = [ io [1,2] = NODE{P, N} ]\n";
+
+fn tie_main(func_body: &str, stmt: &str) -> String {
+    format!(
+        "{TIE_PINS}    func Pass([a, b]) {{\n{func_body}\n    }}\n}}\n\
+         module main {{\n    io A\n    io B\n    io X\n    io Y\n    TIE2 t\n{stmt}\n}}\n"
+    )
+}
+
+/// A node return (`return this{P | N}`) carries its sides: the chain legs
+/// land per mouth — left leg on the left-port member (`P` = pin 1), right
+/// leg on the right-port member (`N` = pin 2). Before the landing both
+/// mouths answered the flattened right side, so the left leg could only
+/// land by the receiver pass-through fallback.
+#[test]
+fn u339__node_return_lands_each_chain_leg_its_own_side() {
+    let src = tie_main(
+        "        return this{P | N}",
+        "    X - t.Pass([X, Y]) - Y",
+    );
+    let mut nets = nets_of(&src, "/mcc/u339-node-return-inline.mc");
+    nets.retain(|net| net.iter().any(|p| p.contains("t.")));
+    nets.sort();
+    assert_eq!(
+        nets,
+        vec![
+            vec!["X".to_string(), "t.1".to_string()],
+            vec!["Y".to_string(), "t.2".to_string()],
+        ],
+        "left leg lands the left port, right leg the right port; nets={nets:?}"
+    );
+    let codes = codes_of(&src, "/mcc/u339-node-return-inline.mc");
+    assert!(
+        !codes.contains(&4007),
+        "the per-side landing is legal; codes={codes:?}"
+    );
+}
+
+/// One-lane tail: the tail mouth is the right mouth, so it answers the
+/// right-port member (`N` = pin 2).
+#[test]
+fn u339__node_return_one_lane_tail_answers_the_right_side() {
+    let src = tie_main(
+        "        return this{P | N}",
+        "    t.Pass([X, Y]) -> X",
+    );
+    let nets = nets_of(&src, "/mcc/u339-node-return-tail.mc");
+    assert_eq!(
+        nets,
+        vec![vec!["X".to_string(), "t.2".to_string()]],
+        "the tail mouth resolves the return's right side; nets={nets:?}"
+    );
+}
+
+/// The degenerate (column) return keeps its flat pair-chaining untouched —
+/// the comma spelling answers both mouths with the same member list, so the
+/// two-lane trunk chains pair by position exactly as before the shape
+/// carrying landed.
+#[test]
+fn u339__column_return_pair_chains_unchanged() {
+    let src = tie_main(
+        "        a - this - b\n        return NODE{P, N}",
+        "    t.Pass([A, B]) -> [A, B]",
+    );
+    let mut nets = nets_of(&src, "/mcc/u339-column-return.mc");
+    nets.retain(|net| net.iter().any(|p| p.contains("t.")));
+    nets.sort();
+    assert_eq!(
+        nets,
+        vec![
+            vec!["A".to_string(), "t.1".to_string()],
+            vec!["B".to_string(), "t.2".to_string()],
+        ],
+        "the column return still pairs both lanes by position; nets={nets:?}"
+    );
+}
+
+/// A node return against a two-lane trunk still reports the shape mismatch:
+/// the per-lane ×2 replication arm is NOT landed, so this face must stay a
+/// hard error rather than silently landing one wiring or the other.
+#[test]
+fn u339__node_return_two_lane_trunk_still_reports_shape_mismatch() {
+    let src = tie_main(
+        "        a - this - b\n        return this{P | N}",
+        "    t.Pass([A, B]) -> [A, B]",
+    );
+    let nets = nets_of(&src, "/mcc/u339-node-return-trunk.mc");
+    assert!(
+        nets.iter().all(|net| !net.iter().any(|p| p.contains("t."))),
+        "no tie pin may land while the replication arm is unlanded; nets={nets:?}"
+    );
+    let codes = codes_of(&src, "/mcc/u339-node-return-trunk.mc");
+    assert!(
+        codes.contains(&4007),
+        "the unlanded row arm stays an honest E4007; codes={codes:?}"
+    );
+}

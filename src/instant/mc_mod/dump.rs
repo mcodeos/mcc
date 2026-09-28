@@ -347,6 +347,7 @@ impl InstantiationBuilder {
                 AutoInst::Array(_) => "array",
                 AutoInst::ReturnPort(_) => "return_port",
                 AutoInst::ReturnNets(_) => "return_nets",
+                AutoInst::ReturnFace { .. } => "return_face",
                 AutoInst::Name(inst_name) => {
                     if inst_name.starts_with("@?") {
                         "stub(P0-4)"
