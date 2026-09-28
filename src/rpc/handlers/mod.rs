@@ -2139,7 +2139,7 @@ pub(crate) fn inst_kind_class(inst: &crate::McInstance) -> (&'static str, String
                 ("list", name)
             }
         }
-        crate::McInstance::Unresolved { class_name } => ("unresolved", class_name.clone()),
+        crate::McInstance::Unresolved { class_name, .. } => ("unresolved", class_name.clone()),
         crate::McInstance::Pins => ("pins", "pins".into()),
         crate::McInstance::PinId(id) => ("pinid", id.clone()),
         crate::McInstance::Attr(a) => ("attr", a.to_string()),

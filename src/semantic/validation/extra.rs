@@ -467,7 +467,11 @@ fn check_instance_class_found(acc: &mut CheckAccumulator) {
             continue;
         }
         for (name, (_, inst)) in m.insts.insts() {
-            if let crate::McInstance::Unresolved { class_name } = inst {
+            if let crate::McInstance::Unresolved {
+                class_name,
+                ..
+            } = inst
+            {
                 // Anchor on the instance declaration itself (the name span
                 // registered at parse), not the whole module: `BUTTON SW1`
                 // must light up on `SW1`, not on the module name.
@@ -475,14 +479,30 @@ fn check_instance_class_found(acc: &mut CheckAccumulator) {
                     .insts
                     .get_port_span(name)
                     .unwrap_or_else(|| m.span.clone());
+                // U355 ruling (2026-09-28, diagnostic-based routing): with the
+                // system library loaded, an unresolved class is an authoring
+                // error — `net B` declares an instance of a class that does
+                // not exist anywhere. With the library absent the honest
+                // reading stays "the library may not be loaded", a warning
+                // (the U320-style fixture states must keep warning, not error).
+                use crate::db::defregistry as dr;
+                let lib_loaded = !dr::system_components().is_empty()
+                    || !dr::system_modules().is_empty()
+                    || !dr::system_interfaces().is_empty()
+                    || !dr::system_enums().is_empty();
+                let (severity, verdict) = if lib_loaded {
+                    (CheckSeverity::Error, "unknown class")
+                } else {
+                    (CheckSeverity::Warning, "class")
+                };
                 acc.push(CheckResult {
                     check_name: "extra",
-                    severity: CheckSeverity::Warning,
+                    severity,
                     uri: Some(uri.clone()),
                     span: Some(span),
                     message: format!(
-                        "Instance '{}' references class '{}' that is not loaded.",
-                        name, class_name
+                        "Instance '{}' references {} '{}' that is not loaded.",
+                        name, verdict, class_name
                     ),
                     code: crate::errcodes::INST_CLASS_NOT_LOADED,
                 });

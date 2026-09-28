@@ -1080,6 +1080,7 @@ mod tests {
             IOType::None,
             McInstance::Unresolved {
                 class_name: "U".to_string(),
+                inst_name: "U1".to_string(),
             },
         );
         insts.create("VDD", IOType::Power, McInstance::Label("VDD".to_string()));

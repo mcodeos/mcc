@@ -303,7 +303,7 @@ fn inst_kind_class(inst: &McInstance) -> (String, String) {
         McInstance::Bus(b) => b.name().to_string(),
         McInstance::BusRef { component, bus } => format!("{}.{}", component, bus),
         McInstance::List(l) => l.name().to_string(),
-        McInstance::Unresolved { class_name } => class_name.clone(),
+        McInstance::Unresolved { class_name, .. } => class_name.clone(),
         McInstance::Pins => "pins".into(),
         McInstance::PinId(id) => id.clone(),
         McInstance::Attr(a) => a.to_string(),

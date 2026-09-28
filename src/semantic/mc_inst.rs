@@ -117,9 +117,16 @@ pub enum McInstance {
     Module(Arc<Mc2Module>),
     /// Unresolved component/module reference — class definition not found in
     /// loaded scope (e.g. library not loaded). Stored as a named instance so
-    /// net connections still resolve, but flagged for diagnostics.
+    /// net connections still resolve, but flagged for diagnostics. The
+    /// instance carries the name it was DECLARED as (`inst_name`) next to the
+    /// class it failed to resolve to (`class_name`): a chain end that routes
+    /// through this variant must land on the declared name (U355) — deriving
+    /// the point from `class_name` produced ghosts labelled after the unknown
+    /// class with the instance name lost (`net B` + `B - ldo.1` used to build
+    /// the net `net` / point `net`).
     Unresolved {
         class_name: String,
+        inst_name: String,
     },
     /// "pins" keyword — transparent under pins transparency rules,
     /// but preserved for explicit index-based access (e.g. `uC.pins.8`).
@@ -162,7 +169,10 @@ impl McInstance {
             Interface(i) => i.name.to_string(),
             Component(c) => c.name.to_string(),
             Module(m) => m.name.to_string(),
-            Unresolved { class_name } => class_name.clone(),
+            // U355: the instance's own declared name — the class never
+            // resolved, so `class_name` here would mislabel every derived
+            // bus/point after the unknown class.
+            Unresolved { inst_name, .. } => inst_name.clone(),
             Pins => "pins".to_string(),
             PinId(id) => id.clone(),
             Attr(a) => a.to_string(),
@@ -213,7 +223,9 @@ impl McInstance {
             McInstance::Interface(i) => McBus::new(&i.name.to_string()),
             McInstance::Component(c) => McBus::new(&c.name.to_string()),
             McInstance::Module(m) => McBus::new(&m.name.to_string()),
-            McInstance::Unresolved { class_name } => McBus::new(class_name),
+            // U355: same law as `get_name` — the bus node names the declared
+            // instance, never the unresolved class.
+            McInstance::Unresolved { inst_name, .. } => McBus::new(inst_name),
             McInstance::Pins => McBus::new("pins"),
             McInstance::PinId(id) => McBus::new(id),
             McInstance::Attr(a) => McBus::new(&a.to_string()),
@@ -1980,6 +1992,7 @@ impl McInstances {
                         (
                             McInstance::Unresolved {
                                 class_name: class_name.clone(),
+                                inst_name: inst_name.clone(),
                             },
                             inst_name,
                         )
@@ -2496,7 +2509,16 @@ impl std::fmt::Display for McInstance {
                 write!(f, "{}[{}]", list.name, members)
             }
             McInstance::Interface(i) => write!(f, "{i:?}"),
-            McInstance::Unresolved { class_name } => write!(f, "Unresolved({class_name})"),
+            McInstance::Unresolved {
+                class_name,
+                inst_name,
+            } => {
+                if class_name == inst_name {
+                    write!(f, "Unresolved({class_name})")
+                } else {
+                    write!(f, "Unresolved({inst_name}::{class_name})")
+                }
+            }
             McInstance::Pins => write!(f, "pins"),
             McInstance::PinId(id) => write!(f, "pin:{id}"),
             McInstance::Attr(a) => write!(f, "{a}"),
