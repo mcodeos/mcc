@@ -75,6 +75,7 @@ mod u249_curly_chain_member;
 mod u308_ref_convergence;
 mod u54_parameter_default;
 mod vec_group_expansion_equivalence;
+mod u343_dprec_loads;
 mod vec_lane_chain_width;
 mod vec_net_crossnet;
 mod vec_r0_operator_encoding;
