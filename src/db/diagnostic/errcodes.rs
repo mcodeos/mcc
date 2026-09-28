@@ -609,6 +609,11 @@ pub const UNEXPECTED_CLAUSE_TYPE: u32 = 3081;
 /// A row of a module-body `expects` clause is not one of the designed forms.
 pub const EXPECTS_ROW_MALFORMED: u32 = 3082;
 
+/// A clause kind that carries no interface semantics was written in an
+/// interface body (attrs/roles/pins/conditional chains are the supported
+/// kinds; U346 ①).
+pub const INTERFACE_CLAUSE_UNSUPPORTED: u32 = 3083;
+
 // Pass1c: params / functions (3100-3149)
 
 /// Empty net in a function or module body.
@@ -2575,6 +2580,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(MODULE_METHOD_NOT_FOUND, "Function was not found in the class.", "function '{0}' not found in class '{1}'"),
     entry!(UNEXPECTED_CLAUSE_TYPE, "Module body: {0}", "module body: {0}"),
     entry!(EXPECTS_ROW_MALFORMED, "A row of this expects clause is not one of the designed forms: a class/role word, `driven`, a [low:/high:] window, or a `~` range.", "A row of this expects clause is not one of the designed forms: a class/role word, `driven`, a [low:/high:] window, or a `~` range."),
+    entry!(INTERFACE_CLAUSE_UNSUPPORTED, "This clause is not accepted in an interface body.", "This clause is not accepted in an interface body; an interface body carries attributes, roles, pin tables, and conditional pin chains only."),
     // section
     entry!(FUNC_EMPTY_NET, "Empty net in a function or module body.", "Empty NET"),
     entry!(PARAM_DECLARE_INVALID, "Invalid parameter declaration node.", "Invalid param declare node."),

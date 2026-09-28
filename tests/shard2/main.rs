@@ -34,6 +34,7 @@ mod u291_adopted_func_member;
 mod u289_component_pin_tables;
 mod u320_lib_adoption;
 mod u306_system_lib_pin_locks;
+mod u346_interface_body_clauses;
 mod u299_amp_ref_and_pair_attr;
 mod use_import_codes;
 mod vec_array_fold_equivalence;

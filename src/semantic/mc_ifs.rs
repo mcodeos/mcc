@@ -79,8 +79,28 @@ impl McInterface {
                 .filter(|x| x.is_type(MCAST_ATTRIBUTE_PIN) || x.is_type(MCAST_ATTRIBUTE_PINADD))
                 .for_each(|x| ret.pins.parse(&x));
 
-            //5. parse pin definitions in the first conditional branch
-            Self::parse_first_cond_pins(&mut ret.pins, &body_node);
+            //5. conditional chains — every branch of every chain materializes
+            // into the pin table (U346 ②): the face used to read a single
+            // branch, so chains contributed nothing (or a silent subset).
+            for child in body_subnodes.iter().filter(|x| x.is_type(MCAST_COND_IF)) {
+                Self::parse_cond_chain_pins(&mut ret.pins, child);
+            }
+
+            //6. U346 ①: `mc_body` is shared with component/module bodies, so
+            // any clause kind is grammar-legal here, but only attrs/roles/
+            // pins (and the conditional chains above) carry interface
+            // semantics. Every other clause was dropped silently — report it.
+            for child in body_subnodes.iter() {
+                if !Self::is_interface_clause(child.get_type()) {
+                    crate::db::diagnostic::diagnostic::dlog_error(
+                        crate::errcodes::INTERFACE_CLAUSE_UNSUPPORTED,
+                        child,
+                        "this clause is not accepted in an interface body — an interface \
+                         body carries attributes, roles, pin tables, and conditional pin \
+                         chains only",
+                    );
+                }
+            }
         }
 
         // ★ LSP: Scan body for references to interface parameters
@@ -100,51 +120,59 @@ impl McInterface {
         Some(ret)
     }
 
-    /// Parse pin definitions in the first conditional branch
-    fn parse_first_cond_pins(pins: &mut McPins, body_node: &AstNode) {
-        if let Some(subnodes) = body_node.get_sub_node() {
-            for child in subnodes.iter() {
-                let child_ref = &child;
-                let child_type = child_ref.get_type();
-                // Directly check if it's a COND_IF node
-                if child_type == MCAST_COND_IF {
-                    // Found COND_IF, parse its pins from the ELSE (default) branch.
-                    // COND_IF structure may be:
-                    // [cond_expr?, pins?, cond_block1?, COND_ELSE_IF*, COND_ELSE?]
-                    if let Some(cond_subnodes) = child_ref.get_sub_node() {
-                        // First pass: find the last COND_ELSE block (default branch).
-                        // If no COND_ELSE, use the last COND_BLOCK.
-                        let mut last_block: Option<AstNode> = None;
-                        let mut direct_pins: Option<AstNode> = None;
-                        for cond_child in cond_subnodes.iter() {
-                            let cond_child_type = cond_child.get_type();
-                            if cond_child_type == MCAST_COND_BLOCK
-                                || cond_child_type == MCAST_COND_ELSE
-                            {
-                                last_block = Some(cond_child.clone());
-                            } else if cond_child_type == MCAST_ATTRIBUTE_PIN
-                                || cond_child_type == MCAST_ATTRIBUTE_PINADD
-                            {
-                                direct_pins = Some(cond_child.clone());
-                            }
-                        }
-                        // Prefer the last block (ELSE/default), fallback to direct pins
-                        if let Some(ref block) = last_block {
-                            if let Some(block_subnodes) = block.get_sub_node() {
-                                for block_child in block_subnodes.iter() {
-                                    let block_child_type = block_child.get_type();
-                                    if block_child_type == MCAST_ATTRIBUTE_PIN
-                                        || block_child_type == MCAST_ATTRIBUTE_PINADD
-                                    {
-                                        pins.parse(&block_child);
-                                    }
-                                }
-                            }
-                        } else if let Some(ref dp) = direct_pins {
-                            pins.parse(dp);
-                        }
+    /// Whether a body clause kind carries interface semantics (U346 ①):
+    /// attributes (plain and `+=`), roles, pin tables, and the conditional
+    /// chains materialized above. Anything else is diagnosed, not dropped.
+    fn is_interface_clause(t: u16) -> bool {
+        t == MCAST_ATTRIBUTE
+            || t == MCAST_ATTRIBUTE_ADD
+            || t == MCAST_ROLE
+            || t == MCAST_ATTRIBUTE_PIN
+            || t == MCAST_ATTRIBUTE_PINADD
+            || t == MCAST_COND_IF
+    }
+
+    /// Parse pin rows from EVERY branch of one conditional chain (U346 ②).
+    ///
+    /// The declaration-time pin table is the union shape of the interface:
+    /// the adoption site (`Mc2Interface::with_params`) picks the branch its
+    /// parameter bindings select, so the declaration must have registered
+    /// them all. Branch blocks arrive either as a bare pin row node or as a
+    /// block/body whose direct children are pin rows (same shapes the
+    /// component face's conditional fold reads).
+    ///
+    /// The default (`else`) branch materializes FIRST: it is the branch the
+    /// def face alone used to register, so its rows keep the member
+    /// declaration order they always had (`decl_order`); the conditional
+    /// arms then extend the union. Name-expression rows that cannot resolve
+    /// against the declaration (`"VCC" + canon(volt)` with `volt` unbound)
+    /// ride the dynamic path and register at adoption, as before.
+    fn parse_cond_chain_pins(pins: &mut McPins, chain: &AstNode) {
+        let Some(conds) = McConds::new(chain) else {
+            return;
+        };
+        if let Some(block) = &conds.else_block {
+            Self::parse_cond_branch_pins(pins, block);
+        }
+        for cond in &conds.if_blocks {
+            Self::parse_cond_branch_pins(pins, &cond.block);
+        }
+    }
+
+    /// Parse the pin rows of one conditional branch block.
+    fn parse_cond_branch_pins(pins: &mut McPins, block: &AstNode) {
+        let block_type = block.get_type();
+        if block_type == MCAST_ATTRIBUTE_PIN || block_type == MCAST_ATTRIBUTE_PINADD {
+            pins.parse(block);
+            return;
+        }
+        if block_type == MCAST_BODY || block_type == MCAST_COND_BLOCK {
+            if let Some(sub) = block.get_sub_node() {
+                for inner in sub.iter() {
+                    let t = inner.get_type();
+                    if t == MCAST_ATTRIBUTE_PIN || t == MCAST_ATTRIBUTE_PINADD {
+                        pins.parse(&inner);
                     }
-                    break;
                 }
             }
         }

@@ -18,9 +18,9 @@
 //! Audit naming corrections recorded with the locks: the three-wire SPI
 //! interface is spelled `SPI.3` (`SPI.3WIRE` survives only in the ifs.mc
 //! import comment), and the dc.mc source carries three conditional headers
-//! (`volt < 0V` / `volt > 0V` / `else`) — the def face keeps the ELSE default
-//! branch (`McInterface::parse_first_cond_pins`), so `DC` locks the ELSE
-//! table (`1 = VCC`, `2 = GND`).
+//! (`volt < 0V` / `volt > 0V` / `else`) — since U346 ② the def face
+//! materializes every conditional branch, and `DC` locks the union table
+//! (`1 = VCC`, `2 = GND`).
 //!
 //! Direction words map onto `IOType` as usual (`in`→In, `out`→Out,
 //! `io`→InOut, bare/anonymous→None); peer-only roles (GPIO
