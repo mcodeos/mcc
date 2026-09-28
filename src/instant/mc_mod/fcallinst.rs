@@ -1626,7 +1626,21 @@ impl InstantiationBuilder {
             };
             let comp_opt = self.find_component(inst_name);
             let expansion_ctx = comp_opt.as_ref().map(|c| ExpansionContext::new(c));
-            Self::substitute_stmt(phrase, &subst_bindings, expansion_ctx.as_ref(), &*self)
+            let substituted =
+                Self::substitute_stmt(phrase, &subst_bindings, expansion_ctx.as_ref(), &*self);
+            // U339 row face: a bare callee-local label in the returned face
+            // (`return {n | ob}`) must land the copy's own body net — the same
+            // instance-prefix pass every body statement gets — or every
+            // lane's tail welds onto one caller-scope label net (a silent
+            // cross-lane short). Based faces (`return this{P | N}`) already
+            // carry the substituted instance prefix, and caller-scope
+            // (substituted formal) spellings are exempt by their own arm, so
+            // this only touches callee-local labels.
+            Self::prefix_instance_phrase_with_skip(
+                &substituted,
+                inst_name,
+                &std::collections::HashSet::new(),
+            )
         };
 
         match &func_def.returns {

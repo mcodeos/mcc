@@ -39,8 +39,8 @@ range (threshold 40KB).
 | `instant/mc_mod/stmt.rs` | 208 KB | 81 |
 | `rules.rs` | 193 KB | 83 |
 | `instant/insttab.rs` | 183 KB | 130 |
+| `instant/mc_mod/fcallinst.rs` | 165 KB | 27 |
 | `cmds/show.rs` | 164 KB | 123 |
-| `instant/mc_mod/fcallinst.rs` | 164 KB | 27 |
 | `db/defregistry.rs` | 158 KB | 182 |
 | `viz/layout/equi_audit.rs` | 140 KB | 98 |
 | `rpc/handlers/mod.rs` | 132 KB | 107 |
@@ -67,8 +67,8 @@ range (threshold 40KB).
 | `db/` | 28 | 1044 KB |
 | `eval/` | 2 | 50 KB |
 | `export/` | 7 | 185 KB |
-| `instant/` | 41 | 1695 KB |
-| `lsp/` | 8 | 113 KB |
+| `instant/` | 41 | 1696 KB |
+| `lsp/` | 8 | 117 KB |
 | `output/` | 7 | 107 KB |
 | `query/` | 9 | 170 KB |
 | `refdef/` | 7 | 127 KB |
@@ -3404,17 +3404,17 @@ instant/mc_mod/fcallinst.rs#L1227  fn materialize_declared_subinstances
 instant/mc_mod/fcallinst.rs#L1271  fn materialize_vector_groups
 instant/mc_mod/fcallinst.rs#L1323  fn materialize_deferred_subinstances
 instant/mc_mod/fcallinst.rs#L1402  fn instantiate_instance_method
-instant/mc_mod/fcallinst.rs#L1749  fn run_submodule_method
-instant/mc_mod/fcallinst.rs#L2230  fn run_component_method
-instant/mc_mod/fcallinst.rs#L2641  fn strip_host_iface_phantoms
-instant/mc_mod/fcallinst.rs#L2672  fn expand_bus_labels
-instant/mc_mod/fcallinst.rs#L2748  fn instance_declares_port
-instant/mc_mod/fcallinst.rs#L2763  fn actual_is_parent_ref
-instant/mc_mod/fcallinst.rs#L2791  fn prefix_instance_stmt_with_skip
-instant/mc_mod/fcallinst.rs#L2801  fn prefix_instance_phrase_with_skip
-instant/mc_mod/fcallinst.rs#L3137  fn prefix_instance_node_element_with_skip
-instant/mc_mod/fcallinst.rs#L3266  fn prefix_param_value_with_skip
-instant/mc_mod/fcallinst.rs#L3315  fn validate_fcall_return_shape
+instant/mc_mod/fcallinst.rs#L1763  fn run_submodule_method
+instant/mc_mod/fcallinst.rs#L2244  fn run_component_method
+instant/mc_mod/fcallinst.rs#L2655  fn strip_host_iface_phantoms
+instant/mc_mod/fcallinst.rs#L2686  fn expand_bus_labels
+instant/mc_mod/fcallinst.rs#L2762  fn instance_declares_port
+instant/mc_mod/fcallinst.rs#L2777  fn actual_is_parent_ref
+instant/mc_mod/fcallinst.rs#L2805  fn prefix_instance_stmt_with_skip
+instant/mc_mod/fcallinst.rs#L2815  fn prefix_instance_phrase_with_skip
+instant/mc_mod/fcallinst.rs#L3151  fn prefix_instance_node_element_with_skip
+instant/mc_mod/fcallinst.rs#L3280  fn prefix_param_value_with_skip
+instant/mc_mod/fcallinst.rs#L3329  fn validate_fcall_return_shape
 instant/mc_mod/funccall.rs#L40  enum FuncCallInst
 instant/mc_mod/funccall.rs#L57  enum FaceSide
 instant/mc_mod/funccall.rs#L62  impl FaceSide
@@ -4211,6 +4211,7 @@ lsp/references.rs#L237  enum PKG
 lsp/references.rs#L325  fn find_at_reaches_cross_file_func_call_sites_from_the_declaration
 lsp/references.rs#L397  fn find_at_reaches_cross_file_port_member_chain_from_the_declaration
 lsp/references.rs#L475  fn find_at_answers_pin_level_faces_without_a_category_gate
+lsp/references.rs#L579  fn find_at_panel_rows_are_golden_pinned
 lsp/sem.rs#L12  fn classify_token_by_symbol
 lsp/sem.rs#L73  const LANGUAGE_KEYWORDS
 lsp/sem.rs#L106  fn is_lexer_keyword
@@ -11719,4 +11720,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-424 files, 11636 declarations.
+424 files, 11637 declarations.

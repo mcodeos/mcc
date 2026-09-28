@@ -472,3 +472,46 @@ fn u339__row_return_fork_keeps_each_lane_width_honest() {
          instances; nets={nets:?}"
     );
 }
+
+// ── Row-face label scope (U339 ③, the returned face's own labels) ──
+
+/// A bare row return whose sides name the body's own nets (`{n | ob}`): per
+/// lane copy, the exit-mouth tail must land THAT copy's body net — the same
+/// instance-prefix pass body statements get. Without it every lane's tail
+/// welds onto one caller-scope label net (`ob` shared across lanes) while
+/// the copies' own exit pins strand on private nets — a silent cross-lane
+/// short. The based spelling (`this{P | N}`) is the contrast: its sides
+/// already carry the substituted instance prefix.
+#[test]
+fn u339__row_face_bare_labels_land_their_own_copy() {
+    let src = format!(
+        "{ROW_BOX}    func RowRet(n) {{\n        n - this.1\n        ob - this.2\n        return {{n | ob}}\n    }}\n}}\n\
+         module main {{\n    WIRE2 w\n    WIRE2 t\n    [w.1, w.2] => BOX().RowRet(_) -> [t.2, t.1]\n}}\n"
+    );
+    let mut nets = nets_of(&src, "/mcc/u339-row-face-labels.mc");
+    nets.retain(|net| net.iter().any(|p| p.contains("BOX")));
+    nets.sort();
+    assert_eq!(
+        nets,
+        vec![
+            vec!["_BOX1.1".to_string(), "w.1".to_string()],
+            vec![
+                "_BOX1.2".to_string(),
+                "_BOX1.ob".to_string(),
+                "t.2".to_string()
+            ],
+            vec!["_BOX2.1".to_string(), "w.2".to_string()],
+            vec![
+                "_BOX2.2".to_string(),
+                "_BOX2.ob".to_string(),
+                "t.1".to_string()
+            ],
+        ],
+        "each lane's tail lands its own copy's body net; nets={nets:?}"
+    );
+    let codes = codes_of(&src, "/mcc/u339-row-face-labels.mc");
+    assert!(
+        !codes.contains(&4007) && !codes.contains(&4180),
+        "the compliant bare-label row face is diagnosed by nothing; codes={codes:?}"
+    );
+}
