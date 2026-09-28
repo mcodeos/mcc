@@ -38,6 +38,7 @@ mod top_series_passive_kept;
 mod u339_shape_law;
 mod u343_decl_face;
 mod u343_typed_prefix;
+mod u354_comma_decl;
 mod u347_iface_adoption_conformance;
 mod u79_r3_domain_bridge;
 mod u97_declared_member_port;

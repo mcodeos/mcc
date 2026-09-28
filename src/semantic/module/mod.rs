@@ -1171,6 +1171,40 @@ impl McModule {
                     },
                 ))
             }
+            // U354: the comma spelling `LDO2 ldo{VIN, VOUT}` — the grammar
+            // yields the one-side MCAST_OPD_CURLY (the `this{a,b}` precedent)
+            // where the pipe form yields the two-side CURLY_MN. The comma is
+            // the column-vector degenerate solution, so the face is
+            // left = right = the members, exactly the OPD_DOT treatment.
+            // The tail is the raw `mc_idans` chain (bare ID/IDA/INT data
+            // nodes, no wrapper), so walk the sibling chain directly —
+            // `side_members` would find no sub-node on the first data node
+            // and read an empty member list.
+            MCAST_OPD_CURLY => {
+                let head = node.get_sub_node()?;
+                if head.get_type() != MCAST_DECLARE {
+                    return None;
+                }
+                let mut members: Vec<String> = Vec::new();
+                let mut cur = head.get_next()?;
+                loop {
+                    members.extend(cur.to_id_or_ida_or_num());
+                    match cur.get_next() {
+                        Some(nx) => cur = nx,
+                        None => break,
+                    }
+                }
+                if members.is_empty() {
+                    return None;
+                }
+                Some((
+                    head,
+                    crate::semantic::component::DeclareFace {
+                        left: members.clone(),
+                        right: members,
+                    },
+                ))
+            }
             MCAST_OPD_DOT => {
                 let head = node.get_sub_node()?;
                 if head.get_type() != MCAST_DECLARE {

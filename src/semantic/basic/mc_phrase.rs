@@ -2876,6 +2876,30 @@ impl McPhrase {
                 let subnode1 = node.get_sub_node().expect(MISSING_SUBNODE);
                 let subnode2 = subnode1.get_next().expect(MISSING_SUBNODE);
 
+                // U354: a declaration-position comma selection
+                // (`[A, G] -> LDO2 ldo{VIN, VOUT} -> [B, G]`) carries an
+                // MCAST_DECLARE head — the same shape the CURLY_MN arm
+                // unwraps for the pipe spelling. Register the declared
+                // instance and expose the degenerate face (left = right =
+                // the members) as Ports, exactly what the pipe chain-declare
+                // produces; the use-position branch below is untouched.
+                if subnode1.get_type() == MCAST_DECLARE {
+                    let declared = Self::new(&subnode1, context)?;
+                    let mut members: Vec<String> = Vec::new();
+                    let mut cur = subnode2;
+                    loop {
+                        members.extend(cur.to_id_or_ida_or_num());
+                        match cur.get_next() {
+                            Some(nx) => cur = nx,
+                            None => break,
+                        }
+                    }
+                    if members.is_empty() {
+                        return None;
+                    }
+                    return declared.curly_mn(&members, &members);
+                }
+
                 let left_opd = Self::new(&subnode1, context)?;
                 // Grammar now allows mc_phrase (expressions) inside curly braces,
                 // not just IDAN. Extract string form for simple cases (identifiers/numbers);
@@ -6521,6 +6545,23 @@ fn eval_port_elems(phrase: &McPhrase, right: bool, context: &dyn ShapeCtx) -> Ve
             ..
         })) => {
             let inst_name = c.name.to_string();
+            // U343-C2 / U354: a declared sub selection IS the instance's
+            // pass1 shape — the pipe face is its two-side view, the comma /
+            // dot face (left == right) the degenerate column. The
+            // declaration-derived defaults below only fill in for a face-less
+            // instance; for a pipe face they would coincide only by accident
+            // of the pin IO words matching the selection order.
+            if let Some(face) = &c.face {
+                let side = |members: &[String]| {
+                    members
+                        .iter()
+                        .map(|m| McBus::new(&format!("{inst_name}.{m}")))
+                        .collect::<Vec<McBus>>()
+                };
+                let l = side(&face.left);
+                let r = side(&face.right);
+                return if right { r } else { l };
+            }
             let shape = shape_defaults(c);
             match shape.kind {
                 PinShapeKind::TwoPin => {
