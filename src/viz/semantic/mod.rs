@@ -183,7 +183,6 @@ pub enum ComponentGroupKind {
     PassiveChain,
     PowerDecoupling,
     DifferentialPair,
-    PullupNetwork,
     BusCluster,
 }
 

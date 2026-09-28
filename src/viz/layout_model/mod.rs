@@ -57,8 +57,6 @@ pub struct LayoutBoxEntry {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IdiomKind {
     Decoupling,
-    Pullup,
-    Pulldown,
     DiffPair,
 }
 
@@ -175,8 +173,6 @@ impl SchematicLayoutModel {
                 .find(|i| i.satellite_box_ids.contains(&b.id) || i.anchor_box_id == b.id)
                 .map(|i| match i.kind {
                     IdiomInstanceKind::Decoupling => IdiomKind::Decoupling,
-                    IdiomInstanceKind::Pullup => IdiomKind::Pullup,
-                    IdiomInstanceKind::Pulldown => IdiomKind::Pulldown,
                     IdiomInstanceKind::DiffPair => IdiomKind::DiffPair,
                 });
 

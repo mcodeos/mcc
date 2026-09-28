@@ -13,7 +13,7 @@
 //!
 //! What this file pins, and why each case is a discriminator:
 //!
-//! 1. **a failed bind still builds** — `RX(10).Pullup(SPI)` (missing `n2`), a
+//! 1. **a failed bind still builds** — `RX(10).Pull(SPI)` (missing `n2`), a
 //!    surplus argument (E4176), and a `_` receiver: the chain's own receiver
 //!    is built and reported unwired. Neither a bind failure nor an empty
 //!    connection list may silently remove it;
@@ -55,7 +55,7 @@ use mcc::McURI;
 /// Two-pin device with **two scalar formals** — the shape the bind-failure
 /// family fills. Body mirrors the probe fixtures: wire the two nets through
 /// the device.
-const RX: &str = "component RX(res::INT) {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n    func Pullup(n1, n2) {\n        n1 - this - n2\n    }\n}\n";
+const RX: &str = "component RX(res::INT) {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n    func Pull(n1, n2) {\n        n1 - this - n2\n    }\n}\n";
 
 /// Two-pin device with **one indexed formal over two slots** — the shape the
 /// width family fills. The trailing `return` mirrors the library `CAP.Cap`
@@ -165,11 +165,11 @@ fn nets_of(src: &str, uri: &str) -> Vec<Vec<String>> {
 fn noblock__failed_bind_still_builds_the_receiver() {
     for body in [
         // Missing required formal `n2`.
-        "        RX(10).Pullup(SPI)",
+        "        RX(10).Pull(SPI)",
         // Too many arguments: 3 against 2 slots.
-        "        RX(10).Pullup(SPI, VDD, GND)",
+        "        RX(10).Pull(SPI, VDD, GND)",
         // `_` receiver: the prefix form hands the statement net to `n1` only.
-        "        SPI => RX(10).Pullup(_)",
+        "        SPI => RX(10).Pull(_)",
     ] {
         let src = src_scalar(body);
         assert_eq!(
@@ -322,7 +322,7 @@ fn noblock__unwired_declaration_is_kept() {
 /// unwired report — so "kept" cannot be misread as "kept only when broken".
 #[test]
 fn noblock__satisfiable_chain_is_built() {
-    let body = "        RX(10).Pullup(SPI, VDD)";
+    let body = "        RX(10).Pull(SPI, VDD)";
     let src = src_scalar(body);
     assert_eq!(
         devices_of(&src, "/mcc/noblock-built.mc"),

@@ -54,7 +54,7 @@ pub struct McFuncCall {
     /// (instead of the `.` used for `CLASS(x).Method(y)` calls).
     pub named_ctor: bool,
     /// The caller is a **construction** (`CAP(10uF).Cap(_)`), not an instance
-    /// receiver (`r1.Pullup(..)`). Decided in the def space when this call is
+    /// receiver (`r1.Pull(..)`). Decided in the def space when this call is
     /// built — the name resolves to a component/module class — so display
     /// reads this instead of inferring from the name's letter case.
     pub receiver_is_ctor: bool,
@@ -171,7 +171,7 @@ fn group_prefix_members(p: &McParamValue) -> Option<Vec<McParamValue>> {
 /// Replace the `_` placeholder in `p` with `prefix`, recursing into Sets so
 /// `[_, VDD]` + `I2C0` → `[I2C0, VDD]`. Returns (new_value, replaced). The
 /// caller has already established the list holds exactly one `_`, so the scan
-/// finds it wherever it sits (`.Pullup(VDD, _)` is as valid as `.Pullup(_, VDD)`).
+/// finds it wherever it sits (`.Pull([VDD, _])` is as valid as `.Pull([_, VDD])`).
 fn fold_prefix_into_uscore(p: &McParamValue, prefix: &McParamValue) -> (McParamValue, bool) {
     match p {
         McParamValue::NONE(_) => (prefix.clone(), true),
@@ -300,7 +300,7 @@ impl McFuncCall {
         //   uC.i2c(0x36)       → { instance: "uC", name: "i2c" }              — method call
         // mic(V3V3)          → { name: "mic" }                              — instance constructor
         // (has no instance child, but name IS a known instance)
-        //   RES(10kΩ).Pullup() → { instance: opd_fcall, name: "Pullup" }      — chained method call
+        //   RES(10kΩ).Pull() → { instance: opd_fcall, name: "Pull" }      — chained method call
         // Distinction: if `instance` segment is a known instance (find_inst),
         // it's a method call → skip. Otherwise it's a class → register.
         if let Some(subnodes) = node.get_sub_node() {
@@ -339,7 +339,7 @@ impl McFuncCall {
                 }
             }
             // Method call: has instance AND either (a) instance is known name
-            // in scope, or (b) instance is nested (e.g. RES(10kΩ).Pullup)
+            // in scope, or (b) instance is nested (e.g. RES(10kΩ).Pull)
             let is_method_call = has_instance
                 && (inst_name
                     .as_ref()
@@ -372,7 +372,7 @@ impl McFuncCall {
                     mcb_register_declare_class(context.uri(), &full_name_ids, full_span);
                 }
             } else if is_method_call && inst_name.is_none() {
-                // ★ Chained call: RES(100kΩ).Pullup() — register inner class name
+                // ★ Chained call: RES(100kΩ).Pull() — register inner class name
                 for child in subnodes.iter() {
                     if child.get_type() == MCAST_INSTANCE {
                         if let Some(inner) = child.get_sub_node() {
@@ -520,7 +520,7 @@ impl McFuncCall {
         let mut instance_params: Vec<McParamValue> = Vec::new();
         let mut method_name_opt: Option<McIds> = None;
         let mut method_params: Vec<McParamValue> = Vec::new();
-        // The receiver is a declared instance (`r1.Pullup(..)`), not a
+        // The receiver is a declared instance (`r1.Pull(..)`), not a
         // construction of its class — the fold must not synthesize `r1(..)`.
         let mut instance_is_receiver = false;
 
@@ -805,7 +805,7 @@ impl McFuncCall {
                 };
 
                 // Instance receiver: the caller is the declared instance
-                // itself (`r1.Pullup(..)`), not a construction `r1(..)`.
+                // itself (`r1.Pull(..)`), not a construction `r1(..)`.
                 let receiver: McPhrase = if instance_is_receiver {
                     match context.find_inst(&inst_text) {
                         Some(ident) => ident.into(),
@@ -1022,7 +1022,7 @@ impl McFuncCall {
                                         }
                                         // ── §3.3: keep the DECLARE's instance
                                         // name(s) so a construct + trailing method
-                                        // (`x[1:2]::RES(0).Pullup(...)`) materializes
+                                        // (`x[1:2]::RES(0).Pull(...)`) materializes
                                         // per-member instances instead of collapsing
                                         // to one anonymous `_R1`/`_C1` (⑫, §5 item
                                         // 15/17). Read the MCAST_INSTANCE id node
@@ -1847,7 +1847,7 @@ impl McFuncCall {
             None => "None".into(),
         };
         let fn_str = func_name.to_string();
-        if fn_str == "Cap" || fn_str == "Pullup" || fn_str == "Pulldown" {
+        if fn_str == "Cap" || fn_str == "Pull" {
             mcc_dbg!(
                 "sem::fcall",
                 "[FCALL-FINAL] func={fn_str} caller={caller_desc} params={:?}",
@@ -1914,7 +1914,7 @@ impl McFuncCall {
         }
 
         // ── §3.3: per-member distribution of a trailing method on an array
-        // construction (⑫). `x[1:2]::RES(0).Pullup(...)` has
+        // construction (⑫). `x[1:2]::RES(0).Pull(...)` has
         // caller = Multiple([x1::RES, x2::RES] named-ctor FuncCalls); dispatch
         // the method on each member — never collapse to a single anonymous
         // `_R1`/`_C1` (spec §3.3: first expand to construct and materialize

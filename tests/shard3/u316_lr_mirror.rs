@@ -26,7 +26,7 @@ use crate::common;
 
 use mcc::{McIds, McURI};
 
-const PRE: &str = "component RES(res::INT) {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n    func Pullup([n1, n2]) {\n        n1 - this - n2\n    }\n}\nmodule main {\n    io SPI{SCLK, MOSI}\n    io VDD\n    func M() {\n";
+const PRE: &str = "component RES(res::INT) {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n    func Pull([n1, n2]) {\n        n1 - this - n2\n    }\n}\nmodule main {\n    io SPI{SCLK, MOSI}\n    io VDD\n    func M() {\n";
 
 fn nets(body: &str) -> Vec<String> {
     let _lock = common::lock();
@@ -74,12 +74,12 @@ fn codes(body: &str) -> Vec<u32> {
 /// from either side.
 #[test]
 fn bare_membered_port_collapses_symmetrically_on_both_chain_faces() {
-    let l = nets("SPI - RES(1k).Pullup([_, VDD])");
-    let r = nets("RES(1k).Pullup([_, VDD]) - SPI");
+    let l = nets("SPI - RES(1k).Pull([_, VDD])");
+    let r = nets("RES(1k).Pull([_, VDD]) - SPI");
     assert_eq!(l, Vec::<String>::new(), "left-side face: deficit body is skipped, no phantom nets");
     assert_eq!(r, Vec::<String>::new(), "right-side face: deficit body is skipped, no phantom nets");
     assert!(
-        codes("SPI - RES(1k).Pullup([_, VDD])").contains(&4180),
+        codes("SPI - RES(1k).Pull([_, VDD])").contains(&4180),
         "the deficit spelling still reports the width error (E4180)"
     );
 }

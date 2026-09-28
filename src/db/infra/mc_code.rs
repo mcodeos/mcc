@@ -6208,7 +6208,7 @@ impl McCode {
                             // call chain design), NOT against the intermediate
                             // method name `i2c` that extract_class_name returns.
                             // The base instance is preferred; the old last-name
-                            // extraction stays as a fallback (e.g. `RES(...).Pullup`).
+                            // extraction stays as a fallback (e.g. `RES(...).Pull`).
                             let class_name = Self::extract_chain_base_instance(&sub)
                                 .and_then(|inst| Self::find_instance_class_name(&inst, uri))
                                 .or_else(|| Self::extract_class_name(&sub));
@@ -6361,8 +6361,8 @@ impl McCode {
 
     /// Extract the class name from an MCAST_INSTANCE inside an MCAST_OPD_FCALL.
     ///
-    /// RES(10kΩ).Pullup(uC.7, uC.VDD)
-    ///   sub = [INSTANCE, NAME("Pullup"), PARAMS]
+    /// RES(10kΩ).Pull(uC.7, uC.VDD)
+    ///   sub = [INSTANCE, NAME("Pull"), PARAMS]
     ///   → INSTANCE.get_sub_node() = inner FCall for RES(10kΩ)
     ///   → inner.children = [NAME("RES"), PARAMS("10kΩ")]
     ///   → returns Some("RES")
@@ -6399,7 +6399,7 @@ impl McCode {
     /// the base `mcu`. Chain funcs bind to the base object (funcs return
     /// `this`), so member resolution must use the base instance's class, not
     /// the intermediate method name. Returns the base instance name, or None
-    /// when the receiver is a plain class call (e.g. `RES(...).Pullup(...)`).
+    /// when the receiver is a plain class call (e.g. `RES(...).Pull(...)`).
     fn extract_chain_base_instance(sub: &Option<AstNode>) -> Option<String> {
         let mut current = sub.clone()?;
         loop {

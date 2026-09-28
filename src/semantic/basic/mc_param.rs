@@ -1819,7 +1819,7 @@ pub enum ParamBindError {
     DuplicateParameter { name: String },
 
     /// A name that matches a *member* of a bracket vector formal
-    /// (`Pullup(n1: …)` against `func Pullup([n1, n2])`). Members are
+    /// (`Pull(n1: …)` against `func Pull([n1, n2])`). Members are
     /// nameable inside the body, not at the call site: a named argument
     /// supplies the one whole-formal value (spec/10-funcs.md §7 item 12),
     /// and a Multiple formal has no whole-formal name to write.

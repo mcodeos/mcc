@@ -16,7 +16,7 @@
 //! The optimizer accepts an optional [`SoftConstraints`] struct (default empty).
 //! Phase 4's [`IdiomMatch`]es can be converted into these constraints to
 //! influence placement — decoupling caps near IC pins, diff-pair N/P symmetry,
-//! pullup orientation.  This is wired as a hard-coded empty default for now;
+//! pull-up orientation.  This is wired as a hard-coded empty default for now;
 //! Phase 6 will feed real idiom data through the API.
 
 use crate::vector::graph::McVecGraph;

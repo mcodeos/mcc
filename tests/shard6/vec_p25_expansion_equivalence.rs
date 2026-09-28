@@ -9,7 +9,7 @@
 //!
 //! ```text
 //! SPI{SCLK, MOSI}                 ; 2-member bus
-//! SPI => RES(10).Pullup([_, VDD]) ; documented form — folds to .Pullup([SPI, VDD])
+//! SPI => RES(10).Pull([_, VDD]) ; documented form — folds to .Pull([SPI, VDD])
 //! ```
 //!
 //! The `=>` prefix folds at parse time (`mc_fcall.rs` §1), so the bus lands
@@ -21,8 +21,8 @@
 //! lands exactly the partition of the handwritten per-lane form:
 //!
 //! ```text
-//! SPI.SCLK - RES(10).Pullup([SPI.SCLK, VDD])
-//! SPI.MOSI - RES(10).Pullup([SPI.MOSI, VDD])
+//! SPI.SCLK - RES(10).Pull([SPI.SCLK, VDD])
+//! SPI.MOSI - RES(10).Pull([SPI.MOSI, VDD])
 //! ```
 //!
 //! The assertion is on the net **partition** (point-sets that share a net,
@@ -41,9 +41,9 @@ use std::collections::BTreeSet;
 
 use mcc::{McIds, McURI};
 
-/// A two-pin resistor whose `Pullup` body wires `n1 - this - n2`, so a call
+/// A two-pin resistor whose `Pull` body wires `n1 - this - n2`, so a call
 /// expands into a real component with both pins landed.
-const RES: &str = "component RES(res::INT) {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n    func Pullup([n1, n2]) {\n        n1 - this - n2\n    }\n}\n";
+const RES: &str = "component RES(res::INT) {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n    func Pull([n1, n2]) {\n        n1 - this - n2\n    }\n}\n";
 
 /// Module skeleton: the bus is declared as a membered port (`io SPI{...}`),
 /// which is what registers it in the bus table.
@@ -122,13 +122,13 @@ fn net_holding<'a>(parts: &'a [Vec<String>], needle: &str) -> Option<&'a Vec<Str
         .find(|ps| ps.iter().any(|p| p.contains(needle)))
 }
 
-const DOCUMENTED: &str = "        SPI => RES(10).Pullup([_, VDD])";
-const HANDWRITTEN: &str = "        SPI.SCLK - RES(10).Pullup([SPI.SCLK, VDD])\n        SPI.MOSI - RES(10).Pullup([SPI.MOSI, VDD])";
+const DOCUMENTED: &str = "        SPI => RES(10).Pull([_, VDD])";
+const HANDWRITTEN: &str = "        SPI.SCLK - RES(10).Pull([SPI.SCLK, VDD])\n        SPI.MOSI - RES(10).Pull([SPI.MOSI, VDD])";
 
-/// A resistor whose `Pullup` declares **two scalar network formals**, so the
+/// A resistor whose `Pull` declares **two scalar network formals**, so the
 /// bus fills a scalar formal rather than a Set slot — the spelling
-/// `param-prefix-design.md` §5 writes (`Pullup(_, VDD)` → `.Pullup(I2C0, VDD)`).
-const RES_SCALAR: &str = "component RESS(res::INT) {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n    func Pullup(n1, n2) {\n        n1 - this - n2\n    }\n}\n";
+/// `param-prefix-design.md` §5 writes (`Pull(_, VDD)` → `.Pull(I2C0, VDD)`).
+const RES_SCALAR: &str = "component RESS(res::INT) {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n    func Pull(n1, n2) {\n        n1 - this - n2\n    }\n}\n";
 
 fn scalar_src_of(body: &str) -> String {
     format!("{RES_SCALAR}{HEAD}{body}\n    }}\n}}\n")
@@ -187,7 +187,7 @@ fn p25__bus_form_expands_without_diagnostics() {
 #[test]
 fn p25__whole_value_bus_actual_is_not_lane_expanded() {
     let parts = partition_of(
-        &src_of("        SPI => RES(10).Pullup(_)"),
+        &src_of("        SPI => RES(10).Pull(_)"),
         "/mcc/vec-p25-whole.mc",
     );
     assert_eq!(
@@ -199,18 +199,18 @@ fn p25__whole_value_bus_actual_is_not_lane_expanded() {
 }
 
 /// The **Set** face of the same whole-value rule: a bus alone in the Set
-/// (`Pullup([SPI])`, no sibling actual) fills the indexed formal once — the
+/// (`Pull([SPI])`, no sibling actual) fills the indexed formal once — the
 /// bus's lanes take the member slots positionally — instead of lane-expanding.
 /// This is the `Cap([BUS])` case, and it must land the partition of the
-/// handwritten two-slot form `Pullup([SPI.SCLK, SPI.MOSI])`.
+/// handwritten two-slot form `Pull([SPI.SCLK, SPI.MOSI])`.
 #[test]
 fn p25__set_form_whole_value_bus_actual_is_not_lane_expanded() {
     let whole = partition_of(
-        &src_of("        RES(10).Pullup([SPI])"),
+        &src_of("        RES(10).Pull([SPI])"),
         "/mcc/vec-p25-whole-set.mc",
     );
     let handwritten = partition_of(
-        &src_of("        RES(10).Pullup([SPI.SCLK, SPI.MOSI])"),
+        &src_of("        RES(10).Pull([SPI.SCLK, SPI.MOSI])"),
         "/mcc/vec-p25-whole-set-hand.mc",
     );
 
@@ -239,15 +239,15 @@ fn p25__set_form_whole_value_bus_actual_is_not_lane_expanded() {
 
 /// The scalar formals' handwritten counterpart of [`HANDWRITTEN`].
 const HANDWRITTEN_SCALAR: &str =
-    "        SPI.SCLK - RESS(10).Pullup(SPI.SCLK, VDD)\n        SPI.MOSI - RESS(10).Pullup(SPI.MOSI, VDD)";
+    "        SPI.SCLK - RESS(10).Pull(SPI.SCLK, VDD)\n        SPI.MOSI - RESS(10).Pull(SPI.MOSI, VDD)";
 
 /// The §5 spelling — a multi-member bus filling a **scalar** network formal
-/// (`RESS(10).Pullup(_, VDD)` folds to `.Pullup(SPI, VDD)`) — lane-expands too,
+/// (`RESS(10).Pull(_, VDD)` folds to `.Pull(SPI, VDD)`) — lane-expands too,
 /// and lands the same partition as its handwritten per-lane form.
 #[test]
 fn p25__scalar_formal_bus_spelling_agrees_too() {
     let scalar = partition_of(
-        &scalar_src_of("        SPI => RESS(10).Pullup(_, VDD)"),
+        &scalar_src_of("        SPI => RESS(10).Pull(_, VDD)"),
         "/mcc/vec-p25-scalar.mc",
     );
     let handwritten = partition_of(
@@ -266,7 +266,7 @@ fn p25__scalar_formal_bus_spelling_agrees_too() {
     );
     assert_eq!(
         codes_of(
-            &scalar_src_of("        SPI => RESS(10).Pullup(_, VDD)"),
+            &scalar_src_of("        SPI => RESS(10).Pull(_, VDD)"),
             "/mcc/vec-p25-scalar-clean.mc"
         ),
         Vec::<u32>::new(),
@@ -280,7 +280,7 @@ fn p25__scalar_formal_bus_spelling_agrees_too() {
 fn p25__chain_spelling_agrees_with_the_folded_spelling() {
     let folded = partition_of(&src_of(DOCUMENTED), "/mcc/vec-p25-agree-fold.mc");
     let chained = partition_of(
-        &src_of("        SPI - RES(10).Pullup([SPI, VDD])"),
+        &src_of("        SPI - RES(10).Pull([SPI, VDD])"),
         "/mcc/vec-p25-agree-chain.mc",
     );
     assert_eq!(
@@ -304,8 +304,8 @@ fn pair_src_of(body: &str) -> String {
 }
 
 /// A bare domain name that is *whole-referenceable* denotes its declared
-/// `[hot, ret]` pair: the call `RES(10).Pullup(DVDD)` lands exactly the
-/// partition the written `RES(10).Pullup([VDD_3V3, GND])` lands.
+/// `[hot, ret]` pair: the call `RES(10).Pull(DVDD)` lands exactly the
+/// partition the written `RES(10).Pull([VDD_3V3, GND])` lands.
 ///
 /// The assertion is on the partition, never on a diagnostic list — a code list
 /// would be satisfied by the name expanding into nothing. The two anti-false-
@@ -313,8 +313,8 @@ fn pair_src_of(body: &str) -> String {
 /// is read: the two lanes must land on two different nets.
 #[test]
 fn u79_r1__whole_referenceable_domain_name_equals_its_written_pair() {
-    let named = pair_src_of("        RES(10).Pullup(DVDD)");
-    let written = pair_src_of("        RES(10).Pullup([VDD_3V3, GND])");
+    let named = pair_src_of("        RES(10).Pull(DVDD)");
+    let written = pair_src_of("        RES(10).Pull([VDD_3V3, GND])");
     let by_name = partition_of(&named, "/mcc/u79-r1-named.mc");
     let by_pair = partition_of(&written, "/mcc/u79-r1-written.mc");
 
@@ -347,7 +347,7 @@ fn u79_r1__whole_referenceable_domain_name_equals_its_written_pair() {
 #[test]
 fn u79_r1__non_whole_referenceable_domains_behave_like_an_undeclared_name() {
     let plain = codes_of(
-        &pair_src_of("        RES(10).Pullup(ZZZ)"),
+        &pair_src_of("        RES(10).Pull(ZZZ)"),
         "/mcc/u79-r1-plain.mc",
     );
     assert!(
@@ -362,7 +362,7 @@ fn u79_r1__non_whole_referenceable_domains_behave_like_an_undeclared_name() {
         ("BARE", "declares no rail at all, so it stands for nothing"),
     ] {
         let codes = codes_of(
-            &pair_src_of(&format!("        RES(10).Pullup({dom})")),
+            &pair_src_of(&format!("        RES(10).Pull({dom})")),
             &format!("/mcc/u79-r1-{dom}.mc"),
         );
         assert_eq!(

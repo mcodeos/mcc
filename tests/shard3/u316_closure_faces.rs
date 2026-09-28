@@ -22,7 +22,7 @@ use mcc::{McIds, McURI};
 const SRC: &str = r#"
 component RES(res::INT) {
     pins = [ 1 = 1  2 = 2 ]
-    func Pullup([n1, n2]) {
+    func Pull([n1, n2]) {
         n1 - this - n2
         return [n1, n2]
     }
@@ -34,7 +34,7 @@ module top {
         DEV D
         D => |ports| {
             ports -> GND
-            R1::RES(0).Pullup([ports.1, VCC])
+            R1::RES(0).Pull([ports.1, VCC])
         }
     }
 }

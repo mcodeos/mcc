@@ -79,7 +79,7 @@ const MAIN_CHIP_KEYWORDS: &[&str] = &["MCU", "CPU", "SOC", "FPGA", "DSP"];
 /// -> `instantiate_funccall` returns `PassThrough` -> stmt.rs generates `@?ESD_N` stub
 /// -> subsequent resolve can't find `@?ESD_N.1` -> entire net lost (viz.md A1 diagnostic chain).
 ///
-/// **Note**: `Pullup` / `Pulldown` are chain-methods (caller.Pullup(...)), dispatched as
+/// **Note**: `Pull` / `Cap` are chain-methods (caller.Pull(...)), dispatched as
 /// ordinary methods, **not** in this table, otherwise it would rename the actual
 /// RES instance corresponding to the caller.
 const CLASS_ALIAS_TO_CANONICAL: &[(&str, &str)] = &[
@@ -100,7 +100,7 @@ const CLASS_ALIAS_TO_CANONICAL: &[(&str, &str)] = &[
 /// assert_eq!(canonicalize_class_alias("ESD"), Some("DIO.ESD".to_string()));
 /// assert_eq!(canonicalize_class_alias("zener"), Some("DIO.ZENER".to_string()));
 /// assert_eq!(canonicalize_class_alias("CAP"), None);  // CAP itself is already canonical
-/// assert_eq!(canonicalize_class_alias("Pullup"), None); // not a class, it's a method
+/// assert_eq!(canonicalize_class_alias("Pull"), None); // not a class, it's a method
 /// ```
 pub fn canonicalize_class_alias(class_name: &str) -> Option<String> {
     let u = class_name.to_uppercase();
@@ -110,39 +110,6 @@ pub fn canonicalize_class_alias(class_name: &str) -> Option<String> {
         }
     }
     None
-}
-
-/// ★ ITER-2: additional aliases that only take effect in "bare call" (no caller) form
-///
-/// `PULLUP` / `PULLDOWN` are essentially a specific semantic role of a resistor (RES), not
-/// independent CMIE classes. **As a chain method** (`RES(10k).Pullup(sig, V3V3)`) it's already
-/// dispatched as an ordinary method before reaching `instantiate_funccall`'s alias fallback --
-/// there **absolutely cannot** do Pullup->RES, otherwise it would create another orphan RES
-/// instance on the outer `.Pullup(...)` (this is the thing explicitly warned about in the
-/// `CLASS_ALIAS_TO_CANONICAL` comment).
-///
-/// **But** the bare call `PULLUP(10k)` (no caller, appearing alone as a 2-pin component) is
-/// another valid syntax, currently falls to the P0-4 stub path producing `@?PULLUP_N` -- this
-/// name doesn't exist in InstTable at all, the entire net is lost (the symptom of the example
-/// project's main
-/// `__net_5`, failed=["@?PULLUP_1.1"]).
-///
-/// Fix: add an additional alias fallback to `instantiate_funccall` that **only takes effect when
-/// caller is None**, redirecting `PULLUP(...)` / `PULLDOWN(...)` to `RES`, letting it go through
-/// the real `instantiate_component_construction` to create RES_N instance.
-///
-/// ```ignore
-/// assert_eq!(canonicalize_class_alias_bare_call("PULLUP"), Some("RES".to_string()));
-/// assert_eq!(canonicalize_class_alias_bare_call("Pullup"), Some("RES".to_string()));
-/// assert_eq!(canonicalize_class_alias_bare_call("PULLDOWN"), Some("RES".to_string()));
-/// assert_eq!(canonicalize_class_alias_bare_call("CAP"), None);
-/// ```
-pub fn canonicalize_class_alias_bare_call(class_name: &str) -> Option<String> {
-    let u = class_name.to_uppercase();
-    match u.as_str() {
-        "PULLUP" | "PULLDOWN" => Some("RES".to_string()),
-        _ => None,
-    }
 }
 
 /// Def-driven "is this class a 2-pin component", for parse-time routing sites
@@ -166,12 +133,9 @@ pub fn two_pin_class_from_def(
     from_uri: &McURI,
 ) -> Option<bool> {
     let raw = class_name.to_string();
-    let mut candidates = Vec::with_capacity(3);
+    let mut candidates = Vec::with_capacity(2);
     candidates.push(raw.clone());
     if let Some(c) = canonicalize_class_alias(&raw) {
-        candidates.push(c);
-    }
-    if let Some(c) = canonicalize_class_alias_bare_call(&raw) {
         candidates.push(c);
     }
     for cand in candidates {
@@ -517,8 +481,8 @@ mod tests {
         assert_eq!(canonicalize_class_alias("RES"), None);
         assert_eq!(canonicalize_class_alias("DIO.ESD"), None);
         assert_eq!(canonicalize_class_alias("IND.FERRITE"), None);
-        // Pullup / Pulldown are methods, not class aliases
-        assert_eq!(canonicalize_class_alias("Pullup"), None);
-        assert_eq!(canonicalize_class_alias("Pulldown"), None);
+        // Pull / Cap are methods, not class aliases
+        assert_eq!(canonicalize_class_alias("Pull"), None);
+        assert_eq!(canonicalize_class_alias("Cap"), None);
     }
 }

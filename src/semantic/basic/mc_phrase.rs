@@ -462,18 +462,18 @@ impl McPhrase {
     }
 
     /// §3.3 per-member distribution is N **independent statements**, not a
-    /// chain. `x[1:2]::RES(0).Pullup([NET, VCC])` means "construct `x1`, `x2`,
-    /// then dispatch `Pullup` on each" — the dispatched calls each stand alone
+    /// chain. `x[1:2]::RES(0).Pull([NET, VCC])` means "construct `x1`, `x2`,
+    /// then dispatch `Pull` on each" — the dispatched calls each stand alone
     /// and must not be wired to one another. The parse-time fan-out
     /// (`mc_fcall.rs` §3.3) can only return a single phrase, so it wraps them
     /// in a `Multiple`; flattening that as an ordinary statement joins the
     /// members with an undirected gap and shorts them together (a returnless
-    /// `Pullup` put all four pins and both nets on ONE net).
+    /// `Pull` put all four pins and both nets on ONE net).
     ///
     /// Recognised **structurally** — every member is a call on a construction
     /// receiver. Three producers make such a `Multiple`: the §3.3 array-member
-    /// fan-out (`x1::RES(0).Pullup(…)`, a named ctor), the §9 R-b `=>`
-    /// **group fork** (`(A,B) => RESS(10).Pullup(…)`, an inline ctor), and the
+    /// fan-out (`x1::RES(0).Pull(…)`, a named ctor), the §9 R-b `=>`
+    /// **group fork** (`(A,B) => RESS(10).Pull(…)`, an inline ctor), and the
     /// U339 §7.7 **row-return fork** (`[A1,A2] => RES(10k).Pull(_) -> [B1,B2]`
     /// with a `1*2` return, one per-lane series per branch). A `Multiple`
     /// that is a genuine lane stack (`[VDD, GND]`) holds plain endpoints, so
@@ -596,7 +596,7 @@ impl McPhrase {
     /// A `Multiple` produced by the §9 R-b `=>` **group fork**: every member is
     /// a call on an **inline** construction. The §3.3 array-member fan-out uses
     /// a **named** ctor receiver and stays a chain member when a chain wraps it
-    /// (`I2C0 -> res[1:2]::RES(0).Pullup(…)`), so the two must not be conflated.
+    /// (`I2C0 -> res[1:2]::RES(0).Pull(…)`), so the two must not be conflated.
     fn is_group_fork(items: &[McPhrase]) -> bool {
         items.len() > 1
             && items.iter().all(|p| {
@@ -2783,7 +2783,7 @@ impl McPhrase {
                     // method calls (`X6.setup(GND)` → "X6"), falling back to the
                     // callee name itself for ctor-style instance calls
                     // (`mic(V3V3)` → "mic") when it names a real instance.
-                    // Method names (`Cap`, `Pullup`, `setup`) never resolve, so
+                    // Method names (`Cap`, `Pull`, `setup`) never resolve, so
                     // those chains fall through unvalidated.
                     let base = base_instance_name(&left_opd).or_else(|| match &left_opd {
                         McPhrase::FuncCall(fc) => {
@@ -6422,7 +6422,7 @@ fn eval_port_elems(phrase: &McPhrase, right: bool, context: &dyn ShapeCtx) -> Ve
             // both sides). A FuncCall head without a caller (`MIC(V3V3)`)
             // falls back to its callee name when that names a real instance,
             // mirroring the MCAST_OPD_DOT validation site; method names
-            // (`Cap`, `Pullup`) never resolve and fall through.
+            // (`Cap`, `Pull`) never resolve and fall through.
             let base_name = base_instance_name(inner).or_else(|| match inner.as_ref() {
                 McPhrase::FuncCall(fc) => {
                     let name = fc.func_name.to_string();

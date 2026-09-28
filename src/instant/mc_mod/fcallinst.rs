@@ -837,7 +837,7 @@ impl InstantiationBuilder {
                 // ──
                 // Take an outer snapshot; reset before each stmt → @CAP/@RES entries
                 // from previous body stmts do not linger, preventing member_key pointer
-                // reuse that causes the next stmt's .Cap()/.Pullup() to be mis-paired
+                // reuse that causes the next stmt's .Cap()/.Pull() to be mis-paired
                 // with the previous stmt's instance (root cause of VDD/VDD_CORE short
                 // circuits); entries from outer stmts remain because they are in the
                 // snapshot (preserves the chained return `X6.setup(...).XTAL`).
@@ -2888,7 +2888,7 @@ impl InstantiationBuilder {
                         })
                     },
                     func_name: f.func_name.clone(),
-                    // ── P4: Prefix bare pin names in actuals (e.g. `_CS` in `.Pullup(_CS, V3V3)`
+                    // ── P4: Prefix bare pin names in actuals (e.g. `_CS` in `.Pull(_CS, V3V3)`
                     // → `flash._CS`). The underscore placeholder `_` (McOpd::Uscore) and
                     // the skip set (actuals / parent ports, e.g. V3V3) are protected
                     // inside the helper and are not accidentally prefixed.
@@ -3255,7 +3255,7 @@ impl InstantiationBuilder {
     }
 
     /// P4: Prefix bare pin names in method-call actuals
-    /// In actuals of `.Cap/.Pullup/.Pulldown` calls like `.Pullup(_CS, V3V3)` /
+    /// In actuals of `.Cap/.Pull` calls like `.Pull(_CS, V3V3)` /
     /// `.Cap(x)`, the component's own bare pin names (e.g. flash's
     /// `_CS`/`_WP`/`_HOLD`) must be prefixed to `flash._CS` so that
     /// `instantiate_instance_method` falls onto the instance's real pin via

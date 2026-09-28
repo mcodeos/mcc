@@ -31,7 +31,7 @@ use mcc::{McIds, McURI};
 
 /// Two-pin component whose method **returns the vector it wired**, which is
 /// what the array path reads back (resolve-gate §3.3, same origin as E3179).
-const RES: &str = "component RES(res::INT) {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n    func Pullup([n1, n2]) {\n        n1 - this - n2\n        return [n1, n2]\n    }\n}\n";
+const RES: &str = "component RES(res::INT) {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n    func Pull([n1, n2]) {\n        n1 - this - n2\n        return [n1, n2]\n    }\n}\n";
 
 /// Header with the bus to pair against and the two nets the pull-ups sit on.
 const HEAD: &str = "module main {\n    io I2C0{SCL, SDA}\n    io NET\n    io VCC\n    func M() {\n";
@@ -114,12 +114,12 @@ fn assert_pin_absent(net: &[String], instance: &str, pin: &str, what: &str) {
 #[test]
 fn range__declared_form_equals_explicit_lines() {
     let declared = nets_of(
-        &src_of("        res[1:2]::RES(10).Pullup([NET, VCC])"),
+        &src_of("        res[1:2]::RES(10).Pull([NET, VCC])"),
         "/mcc/range-declared.mc",
     );
     let explicit = nets_of(
         &src_of(
-            "        res1::RES(10).Pullup([NET, VCC])\n        res2::RES(10).Pullup([NET, VCC])",
+            "        res1::RES(10).Pull([NET, VCC])\n        res2::RES(10).Pull([NET, VCC])",
         ),
         "/mcc/range-explicit.mc",
     );
@@ -158,7 +158,7 @@ fn range__declared_form_equals_explicit_lines() {
 fn range__declared_form_expands_quietly() {
     assert_eq!(
         wiring_codes_of(
-            &src_of("        res[1:2]::RES(10).Pullup([NET, VCC])"),
+            &src_of("        res[1:2]::RES(10).Pull([NET, VCC])"),
             "/mcc/range-quiet.mc"
         ),
         Vec::<u32>::new(),
@@ -239,9 +239,9 @@ fn range__chain_array_with_rail_wires_per_lane() {
 #[test]
 #[ignore = "known defect (resolve-gate §3.3b): array path with a returnless method silently merges nets"]
 fn range__returnless_method_must_not_merge_nets() {
-    const NO_RETURN: &str = "component RES(res::INT) {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n    func Pullup([n1, n2]) {\n        n1 - this - n2\n    }\n}\n";
+    const NO_RETURN: &str = "component RES(res::INT) {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n    func Pull([n1, n2]) {\n        n1 - this - n2\n    }\n}\n";
     let src =
-        format!("{NO_RETURN}{HEAD}        res[1:2]::RES(10).Pullup([NET, VCC])\n    }}\n}}\n");
+        format!("{NO_RETURN}{HEAD}        res[1:2]::RES(10).Pull([NET, VCC])\n    }}\n}}\n");
     let parts = nets_of(&src, "/mcc/range-no-return.mc");
     assert_eq!(
         parts.len(),

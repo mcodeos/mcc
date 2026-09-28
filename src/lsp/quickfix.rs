@@ -302,10 +302,10 @@ mod tests {
         // the flagged name from each, or every fix silently disappears.
         let net = "Net/port name 'vin' is not UPPER_SNAKE; the style guide spells net labels and port faces UPPER_SNAKE (mcode-style §2 #3).";
         let role = "Role value 'osc' is not UPPER_SNAKE; the style guide spells role and enum values UPPER_SNAKE (mcode-style §2 #6).";
-        let func = "Function name 'pullup' does not start with an uppercase letter; functions are class-level behavior and take the class's uppercase-initial form (mcode-style §2 #9).";
+        let func = "Function name 'multiply' does not start with an uppercase letter; functions are class-level behavior and take the class's uppercase-initial form (mcode-style §2 #9).";
         assert_eq!(quoted_name(net).as_deref(), Some("vin"));
         assert_eq!(quoted_name(role).as_deref(), Some("osc"));
-        assert_eq!(quoted_name(func).as_deref(), Some("pullup"));
+        assert_eq!(quoted_name(func).as_deref(), Some("multiply"));
     }
 
     #[test]
@@ -323,8 +323,8 @@ mod tests {
             Some("DIP8".to_string())
         );
         assert_eq!(
-            corrected_spelling(crate::errcodes::NAME_FUNC_NOT_UPPER_INITIAL, "pullup"),
-            Some("Pullup".to_string())
+            corrected_spelling(crate::errcodes::NAME_FUNC_NOT_UPPER_INITIAL, "multiply"),
+            Some("Multiply".to_string())
         );
         // Only the first letter is judged: `loadFlash` is conformant as written.
         assert_eq!(

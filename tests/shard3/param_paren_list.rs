@@ -16,8 +16,8 @@
 //!
 //! The defect this locks (CIMP §1 U38, ruled 2026-09-15): the argument-table
 //! conversion read the group's **own face**, which exposes only `opds[0]`. So
-//! `RES(10).Pullup([(SPI.SCLK, SPI.MOSI)])` counted ONE leaf against the
-//! two-formal `Pullup`, raised E4180 — and still built a half-open component:
+//! `RES(10).Pull([(SPI.SCLK, SPI.MOSI)])` counted ONE leaf against the
+//! two-formal `Pull`, raised E4180 — and still built a half-open component:
 //! the second member was gone from the circuit with no diagnostic naming it.
 //!
 //! The load-bearing assertions are therefore the net **partition** (both
@@ -37,10 +37,10 @@ use std::collections::BTreeSet;
 
 use mcc::{McIds, McURI};
 
-/// A two-pin resistor whose `Pullup` declares **one indexed formal** over two
-/// member slots (`Pullup([n1, n2])`) — the shape every argument table in this
+/// A two-pin resistor whose `Pull` declares **one indexed formal** over two
+/// member slots (`Pull([n1, n2])`) — the shape every argument table in this
 /// file fills, and the one whose leaf count the ruling turns on.
-const RES: &str = "component RES(res::INT) {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n    func Pullup([n1, n2]) {\n        n1 - this - n2\n    }\n}\n";
+const RES: &str = "component RES(res::INT) {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n    func Pull([n1, n2]) {\n        n1 - this - n2\n    }\n}\n";
 
 /// Module skeleton: a 2-member bus port, so `SPI{SCLK, MOSI}` is a declared
 /// selection and `SPI.SCLK` / `SPI.MOSI` are its lanes.
@@ -133,9 +133,9 @@ fn net_holding<'a>(parts: &'a [Vec<String>], needle: &str) -> Option<&'a Vec<Str
 
 /// The two sibling spellings whose leaf count the ruling declares equal: the
 /// parenthesized list and the explicit curly selection.
-const PAREN: &str = "        RES(10).Pullup([(SPI.SCLK, SPI.MOSI)])";
-const CURLY: &str = "        RES(10).Pullup([SPI{SCLK, MOSI}])";
-const PLAIN: &str = "        RES(10).Pullup([SPI.SCLK, SPI.MOSI])";
+const PAREN: &str = "        RES(10).Pull([(SPI.SCLK, SPI.MOSI)])";
+const CURLY: &str = "        RES(10).Pull([SPI{SCLK, MOSI}])";
+const PLAIN: &str = "        RES(10).Pull([SPI.SCLK, SPI.MOSI])";
 
 /// §3.1: both members of the parenthesized list land — one leaf each — and the
 /// call is ONE component, so the partition is the handwritten two-slot form's.
@@ -211,8 +211,8 @@ fn paren_list__covers_the_whole_table_quietly() {
 /// the whole-table spelling.
 #[test]
 fn paren_list__with_a_sibling_is_e4180() {
-    const PAREN_SIBLING: &str = "        RES(10).Pullup([(SPI.SCLK, SPI.MOSI), VDD])";
-    const CURLY_SIBLING: &str = "        RES(10).Pullup([SPI{SCLK, MOSI}, VDD])";
+    const PAREN_SIBLING: &str = "        RES(10).Pull([(SPI.SCLK, SPI.MOSI), VDD])";
+    const CURLY_SIBLING: &str = "        RES(10).Pull([SPI{SCLK, MOSI}, VDD])";
 
     assert!(
         codes_of(&src_of(PAREN_SIBLING), "/mcc/paren-list-sibling.mc").contains(&4180),
@@ -243,7 +243,7 @@ fn paren_list__with_a_sibling_is_e4180() {
 #[test]
 fn paren_list__does_not_fork_the_statement() {
     let parts = partition_of(
-        &src_of("        RES(10).Pullup([(SPI.SCLK, SPI.MOSI), VDD])"),
+        &src_of("        RES(10).Pull([(SPI.SCLK, SPI.MOSI), VDD])"),
         "/mcc/paren-list-nofork.mc",
     );
     assert_eq!(
@@ -260,11 +260,11 @@ fn paren_list__does_not_fork_the_statement() {
 #[test]
 fn paren_list__single_member_is_the_member() {
     let one = partition_of(
-        &src_of("        RES(10).Pullup([(SPI.SCLK), VDD])"),
+        &src_of("        RES(10).Pull([(SPI.SCLK), VDD])"),
         "/mcc/paren-list-one.mc",
     );
     let bare = partition_of(
-        &src_of("        RES(10).Pullup([SPI.SCLK, VDD])"),
+        &src_of("        RES(10).Pull([SPI.SCLK, VDD])"),
         "/mcc/paren-list-one-bare.mc",
     );
 

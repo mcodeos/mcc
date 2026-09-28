@@ -13,10 +13,10 @@
 //!
 //! 1. `CLASS y[1:2](args).Method(...)` — class-first named array subinstance
 //!    → `dispatch__form1_named_subinstance_per_member`
-//! 2. declared `r[1:2]::RES(0)` + `r[1:2].Pullup([net,vcc])` — array receiver
+//! 2. declared `r[1:2]::RES(0)` + `r[1:2].Pull([net,vcc])` — array receiver
 //!    → `dispatch__form2_declared_receiver_per_member`
-//! 3. same receiver with `.Pullup` (E3179 phantom form, folded into form 2)
-//! 4. `x[1:2]::RES(0).Pullup(...)` — construct + trailing method (⑫ collapse)
+//! 3. same receiver with `.Pull` (E3179 phantom form, folded into form 2)
+//! 4. `x[1:2]::RES(0).Pull(...)` — construct + trailing method (⑫ collapse)
 //!    → `dispatch__form4_ctor_trailing_method_per_member`
 //! 5. module-level declared receiver → `dispatch__module_declared_receiver_per_member`
 
@@ -29,7 +29,7 @@ use crate::common;
 use mcc::{McIds, McURI};
 
 const CAP_COMP: &str = "component CAP(cap::INT) {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n    func Cap([net1, net2]) {\n        net1 - this - net2\n        return [net1, net2]\n    }\n}\n";
-const RES_COMP: &str = "component RES(res::INT) {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n    func Pullup([net1, net2]) {\n        net1 - this - net2\n        return [net1, net2]\n    }\n}\n";
+const RES_COMP: &str = "component RES(res::INT) {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n    func Pull([net1, net2]) {\n        net1 - this - net2\n        return [net1, net2]\n    }\n}\n";
 
 /// HOST with pins `[1,2] = NET, VCC` and a `func F()` whose body is `body`.
 const HOST_2PIN: &str = "component HOST {\n    pins = [\n        1 = NET\n        2 = VCC\n    ]\n";
@@ -167,14 +167,14 @@ fn dispatch__form1_named_subinstance_per_member() {
 }
 
 // Forms 2 + 3 — declared array receiver (separate statements)
-// `r[1:2]::RES(0)` then `r[1:2].Pullup([NET, VCC])` / `.Cap([NET, VCC])`
+// `r[1:2]::RES(0)` then `r[1:2].Pull([NET, VCC])` / `.Cap([NET, VCC])`
 
 #[test]
 fn dispatch__form2_declared_receiver_per_member() {
-    // Form 3 (the E3179 phantom form): `.Pullup` on declared RES members.
-    let pullup = host_with_body("r[1:2]::RES(0)\nr[1:2].Pullup([NET, VCC])");
-    let src = format!("{RES_COMP}{pullup}");
-    let (paths, nets, codes) = build(&src, "/mcc/tablea-f23-pullup.mc");
+    // Form 3 (the E3179 phantom form): `.Pull` on declared RES members.
+    let body = host_with_body("r[1:2]::RES(0)\nr[1:2].Pull([NET, VCC])");
+    let src = format!("{RES_COMP}{body}");
+    let (paths, nets, codes) = build(&src, "/mcc/tablea-f23-pull.mc");
     assert!(
         paths.iter().any(|p| p == "main.U1.r1"),
         "r1 materialized; got {paths:?}"
@@ -183,7 +183,7 @@ fn dispatch__form2_declared_receiver_per_member() {
         paths.iter().any(|p| p == "main.U1.r2"),
         "r2 materialized; got {paths:?}"
     );
-    assert_no_path_containing(&paths, "r[1:2]", "form2/3 Pullup");
+    assert_no_path_containing(&paths, "r[1:2]", "form2/3 Pull");
     assert!(
         !codes.contains(&mcc::errcodes::COMPONENT_PIN_NOT_FOUND),
         "no E3179; got {codes:?}"
@@ -237,12 +237,12 @@ fn dispatch__form2_declared_receiver_per_member() {
 }
 
 // Form 4 — construct + trailing method (⑫ `_R1`/`_C1` collapse)
-// `x[1:2]::RES(0).Pullup([NET, VCC])`
+// `x[1:2]::RES(0).Pull([NET, VCC])`
 
 #[test]
 fn dispatch__form4_ctor_trailing_method_per_member() {
     let src = format!(
-        "{RES_COMP}component HOST {{\n    pins = [\n        1 = NET\n        2 = VCC\n    ]\n    func F() {{\n        x[1:2]::RES(0).Pullup([NET, VCC])\n    }}\n}}\nmodule main {{\n    io VDD\n    HOST U1\n    func M() {{\n        U1.F()\n    }}\n}}\n"
+        "{RES_COMP}component HOST {{\n    pins = [\n        1 = NET\n        2 = VCC\n    ]\n    func F() {{\n        x[1:2]::RES(0).Pull([NET, VCC])\n    }}\n}}\nmodule main {{\n    io VDD\n    HOST U1\n    func M() {{\n        U1.F()\n    }}\n}}\n"
     );
     let (paths, nets, codes) = build(&src, "/mcc/tablea-f4.mc");
     assert!(
@@ -278,18 +278,18 @@ fn dispatch__form4_ctor_trailing_method_per_member() {
     assert_pin_side_exclusive(n2, ".2", "form4 VCC side");
 }
 
-/// Same two-pin resistor, but `Pullup` has **no** `return`. Per
+/// Same two-pin resistor, but `Pull` has **no** `return`. Per
 /// func-return-design §5/§6 a returnless body's connection face is the
 /// instance's own port face (implicit `this`) — *not* a bus the callee hands
 /// back. Every other fixture here returns `[net1, net2]`, i.e. a `Label`
 /// return that overrides both faces; that mask is precisely what hid the
 /// defect this lock covers (resolve-gate-design §3.3b C4).
-const RES_NORET_COMP: &str = "component RESN(res::INT) {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n    func Pullup([net1, net2]) {\n        net1 - this - net2\n    }\n}\n";
+const RES_NORET_COMP: &str = "component RESN(res::INT) {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n    func Pull([net1, net2]) {\n        net1 - this - net2\n    }\n}\n";
 
 #[test]
 fn dispatch__form4_returnless_implicit_this_per_member() {
     let src = format!(
-        "{RES_NORET_COMP}component HOST {{\n    pins = [\n        1 = NET\n        2 = VCC\n    ]\n    func F() {{\n        x[1:2]::RESN(0).Pullup([NET, VCC])\n    }}\n}}\nmodule main {{\n    io VDD\n    HOST U1\n    func M() {{\n        U1.F()\n    }}\n}}\n"
+        "{RES_NORET_COMP}component HOST {{\n    pins = [\n        1 = NET\n        2 = VCC\n    ]\n    func F() {{\n        x[1:2]::RESN(0).Pull([NET, VCC])\n    }}\n}}\nmodule main {{\n    io VDD\n    HOST U1\n    func M() {{\n        U1.F()\n    }}\n}}\n"
     );
     let (paths, nets, codes) = build(&src, "/mcc/tablea-f4-noret.mc");
     assert!(
@@ -315,8 +315,8 @@ fn dispatch__form4_returnless_implicit_this_per_member() {
         !codes.contains(&mcc::errcodes::COMPONENT_PIN_NOT_FOUND),
         "no E3179; got {codes:?}"
     );
-    // E4056 PULLUP_DEGENERATE retired (U297, 2026-09-25): the name-based
-    // Pullup/Pulldown lint contradicted the no-hardcoded-method-names
+    // E4056 is intentionally empty: the name-based rail lint retired (U297,
+    // 2026-09-25) as a contradiction of the no-hardcoded-method-names
     // doctrine, and a dispatched member between two host pins carries no rail
     // role by construction — silence is the designed behaviour here.
     assert!(
@@ -348,7 +348,7 @@ fn dispatch__form4_returnless_implicit_this_per_member() {
 #[test]
 fn dispatch__module_declared_receiver_per_member() {
     let src = format!(
-        "{RES_COMP}module main {{\n    io VDD\n    io NET\n    io VCC\n    func M() {{\n        res[1:2]::RES(0)\n        res[1:2].Pullup([NET, VCC])\n    }}\n}}\n"
+        "{RES_COMP}module main {{\n    io VDD\n    io NET\n    io VCC\n    func M() {{\n        res[1:2]::RES(0)\n        res[1:2].Pull([NET, VCC])\n    }}\n}}\n"
     );
     let (paths, nets, codes) = build(&src, "/mcc/tablea-module.mc");
     assert!(

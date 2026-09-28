@@ -33,7 +33,7 @@ pub struct IdiomInstance {
     pub satellite_box_ids: Vec<i64>,
     /// The specific pin on the anchor that this idiom relates to.
     pub anchor_pin_id: Option<i64>,
-    /// The signal net involved (for pullup/pulldown).
+    /// The signal net involved (for the idiom's signal side).
     pub signal_net_id: Option<i64>,
     /// The power net involved.
     pub power_net_id: Option<i64>,
@@ -50,10 +50,6 @@ pub struct IdiomInstance {
 pub enum IdiomInstanceKind {
     /// Decoupling capacitor: capacitor between Power and Ground.
     Decoupling,
-    /// Pullup resistor: resistor between Signal and Power.
-    Pullup,
-    /// Pulldown resistor: resistor between Signal and Ground.
-    Pulldown,
     /// Differential pair: the two faces of one interface declaration.
     DiffPair,
 }
@@ -116,7 +112,7 @@ pub enum AlignAxis {
 /// Category of placement constraint.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConstraintKind {
-    /// Place satellite near anchor (decoupling, pullup, pulldown).
+    /// Place satellite near anchor (e.g. a decoupling cap).
     NearAnchor,
     /// Align satellite with anchor on an axis.
     AlignWithAnchor,

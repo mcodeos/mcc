@@ -24,7 +24,7 @@ use super::report::{IdiomPlacementReport, IdiomPlacementSkipReason};
 /// Analyze idiom placement opportunities from semantic data.
 ///
 /// Builds an `IdiomPlacementModel` from the graph, identifying decoupling caps,
-/// pullup/pulldown resistors, and diff pairs with placement-relevant detail.
+/// resistors, and diff pairs with placement-relevant detail.
 pub fn analyze_idiom_placement(
     graph: &McVecGraph,
     protected_box_ids: &HashSet<i64>,
@@ -390,7 +390,7 @@ fn rects_overlap(ax: f64, ay: f64, aw: f64, ah: f64, bx: f64, by: f64, bw: f64, 
     ax < bx + bw && bx < ax + aw && ay < by + bh && by < ay + ah
 }
 
-/// Adjust pin side intent for a box (e.g., pullup power pin → top).
+/// Adjust pin side intent for a box (e.g., a rail-side pin → top).
 fn apply_pin_side_intent(_graph: &mut McVecGraph, _c: &PlacementConstraint) {
     // v1: only adjust pin side intent; actual entry_point placement happens in pin_place_pipeline.
     // For now, this is a no-op — the intent is recorded in the constraint for future use.

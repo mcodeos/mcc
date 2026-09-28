@@ -154,7 +154,7 @@ fn sub_layers_s1_s2_decoration_counts() {
     // Since b3679 a func's products regroup into the component's own inner
     // layer, so a func-local rail connection (the VCC_1V2 decoupling pair
     // inside US513's flash func) no longer widens the parent layer's count:
-    // MCU513 keeps one power edge (VDD_3V3 to the module-level pullup) where
+    // MCU513 keeps one power edge (VDD_3V3 to the module-level pull-up) where
     // the pre-b3679 table read two, and the new inner layers carry their own
     // counts below.
     let expect: &[(&str, usize, usize, usize, usize)] = &[
@@ -180,7 +180,7 @@ fn sub_layers_s1_s2_decoration_counts() {
         ("SPK", 0, 0, 1, 1),
         ("USB", 0, 0, 1, 0),
         // b3679 inner layers: a func's products render as the component's own
-        // layer. UC carries its flash func's pullups and decoupling (one ground
+        // layer. UC carries its flash func's pull-ups and decoupling (one ground
         // trunk, one power edge); the crystal and the flash body place no rail.
         ("UC", 0, 0, 1, 1),
         ("X6", 0, 0, 0, 0),

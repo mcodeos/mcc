@@ -70,26 +70,6 @@ impl IdiomPlacementReport {
             .get(&IdiomInstanceKind::Decoupling)
             .copied()
             .unwrap_or(0);
-        let pullup_detected = self
-            .by_kind_detected
-            .get(&IdiomInstanceKind::Pullup)
-            .copied()
-            .unwrap_or(0);
-        let pullup_applied = self
-            .by_kind_applied
-            .get(&IdiomInstanceKind::Pullup)
-            .copied()
-            .unwrap_or(0);
-        let pulldown_detected = self
-            .by_kind_detected
-            .get(&IdiomInstanceKind::Pulldown)
-            .copied()
-            .unwrap_or(0);
-        let pulldown_applied = self
-            .by_kind_applied
-            .get(&IdiomInstanceKind::Pulldown)
-            .copied()
-            .unwrap_or(0);
         let diffpair_detected = self
             .by_kind_detected
             .get(&IdiomInstanceKind::DiffPair)
@@ -104,7 +84,7 @@ impl IdiomPlacementReport {
         format!(
             "[metrics] IDIOM-PLACE: detected={} applicable={} applied={} skipped={} \
              candidates={} \
-             decoupling={}/{} pullup={}/{} pulldown={}/{} diff_pair={}/{} \
+             decoupling={}/{} diff_pair={}/{} \
              protected={} collision_skip={} reverted={} warnings={}",
             self.idioms_detected,
             self.idioms_applicable,
@@ -113,10 +93,6 @@ impl IdiomPlacementReport {
             self.candidate_count,
             decoupling_detected,
             decoupling_applied,
-            pullup_detected,
-            pullup_applied,
-            pulldown_detected,
-            pulldown_applied,
             diffpair_detected,
             diffpair_applied,
             self.protected_skips,

@@ -215,7 +215,7 @@ spelling carries no promise about what the thing is.
   `contains("power")`), in any case;
 - a shape test on the spelling — digit-letter patterns, `contains('V')` plus a
   digit count, length thresholds;
-- gating semantics on a fixed list of names (`"Cap"`, `"Pullup"`, `"GND"`,
+- gating semantics on a fixed list of names (`"Cap"`, `"Pull"`, `"GND"`,
   `POWER_PIN_NAMES`, …), in whole or in part;
 - a name-based fallback that the code reaches only when the real evidence is
   missing, and so silently decides in the gap.

@@ -139,7 +139,7 @@ impl Symbol {
     ///
     /// `InstEntry.class_name` is the resolved class-def name (`RES`, `CAP.ELEC`,
     /// `DIO.ESD`, `LED.RGB`), never a source-string shorthand — aliases (`ESD`,
-    /// `ZENER`, `PULLUP`, …) have already been rewritten to canonical form by
+    /// `ZENER`, …) have already been rewritten to canonical form by
     /// `naming::canonicalize_class_alias` before an entry reaches the vector layer.
     ///
     /// Matching takes the class **root token** (first dotted segment) and looks it

@@ -11,7 +11,7 @@
 //!   (func-return-design §6.2: return face for case ②, instance face for case ①)
 //!
 //! unified-twopin-no-builtin v2.0: there is no built-in twopin wiring path —
-//! `.Cap/.Pullup/.Pulldown` dispatch as ordinary methods onto the library funcs
+//! `.Cap/.Pull` dispatch as ordinary methods onto the library funcs
 //! (cap.mc / res.mc), whose body and return value are the only wiring source.
 //!
 //! The actual component / module / user_func / instance_method instantiation
@@ -74,7 +74,7 @@ impl InstantiationBuilder {
     /// 1. Component construction — `CAP(0.1uF)`, `Diode('SMBJ30A')`, `HDR(46)` etc.
     /// 2. Module call — `PowerDomain(V3V3)` etc. (Step 2 implementation)
     /// 3. User function — `func input(sin){...}` expansion (Step 3 implementation)
-    /// 4. Built-in function — `rc2()`, `Cap()`, `Pullup()` etc. (Step 4 implementation)
+    /// 4. Built-in function — `rc2()`, `Cap()`, `Pull()` etc. (Step 4 implementation)
     pub(super) fn instantiate_funccall(
         &mut self,
         func_name: &McIds,
@@ -195,56 +195,12 @@ impl InstantiationBuilder {
         // exactly equivalent to explicitly writing `DIO.ESD(...)` → InstTable
         // registers real Pin → resolve no longer loses points.
         //
-        // ★ ITER-2 P1 fix: bare call PULLUP/PULLDOWN → RES
-        // Regular aliases (ESD→DIO.ESD etc.) are independent of "whether there's a
-        // caller", because they are all independent CMIE classes. But PULLUP/PULLDOWN
-        // are an exception: they can be used either as chain method
-        // (`RES(10k).Pullup(sig, rail)`, which dispatches as an ordinary method and
-        // never enters this path), or as bare call (`PULLUP(10k)` standalone as 2-pin
-        // element). The latter currently all gets lost (`@?PULLUP_1.1` not found).
-        //
-        // Here we **must** gate on "caller is not FuncCall": in chain-method form
-        // (`RES(10k).Pullup(...)`) the caller is the inner RES FuncCall, and this
-        // alias path must stay off — otherwise it would construct a new isolated
-        // RES instance alongside the real one, replicating the bug we meant to fix.
-        //
-        // ★ ITER-2 fix (first-run feedback): relaxed gate
-        //
-        // The first version used `caller.is_none()` as the PULLUP→RES alias
-        // enablement condition —— but the top-level `mcu.I2C0 -> PULLUP(10k) -> V3V3`
-        // chain in an example project, after parsing, has fc.caller set to left-Endpoint (mcu.I2C0)
-        // by the parser, **not None**, so my alias fallback never activates,
-        // and `@?PULLUP_1.1` is still lost (verified: the first version's log
-        // doesn't show `[P0-2] PULLUP → RES` at all).
-        //
-        // What we should really block is **only chain-method form**
-        // (`RES(10k).PULLUP(...)`):
-        //   - That kind of fc.caller = inner FuncCall (RES construction);
-        //   - Chain-method form dispatches as an ordinary method before reaching
-        //     instantiate_funccall (unified-twopin-no-builtin v2.0: no P1-D path);
-        //   - If it did reach here, the RES alias would construct a new isolated
-        //     RES instance side by side with the already-existing RES_X
-        //     (replicating the bug) — so the gate below stays off for it.
-        //
-        // Chained connection (`A -> PULLUP(x) -> B`) has caller as Endpoint/Lead/
-        // other phrase, **not** FuncCall; in this case using the alias is safe
-        // —— no inner FuncCall real component, no double construction.
-        //
-        // Fix gate: use "caller is not FuncCall" instead of "caller is None".
-        let caller_is_funccall = matches!(caller, Some(McPhrase::FuncCall(_)));
-        // Class-alias fallback (ESD → DIO.ESD; bare PULLUP/PULLDOWN → RES).
+        // Class-alias fallback (ESD → DIO.ESD etc.). Chain methods never reach
+        // this path — they dispatch as ordinary methods before instantiation —
+        // so no caller gating is needed here.
         let alias_fallback = || {
             let raw_name = func_name.to_string();
-            // First try the regular alias (ESD→DIO.ESD etc.), no caller gating
-            let standard_alias = crate::vector::graph::naming::canonicalize_class_alias(&raw_name);
-            // Then try the bare-call-specific alias (PULLUP/PULLDOWN→RES), only
-            // enabled when caller is not FuncCall (i.e. not chain-method form)
-            let bare_alias = if !caller_is_funccall {
-                crate::vector::graph::naming::canonicalize_class_alias_bare_call(&raw_name)
-            } else {
-                None
-            };
-            match standard_alias.or(bare_alias) {
+            match crate::vector::graph::naming::canonicalize_class_alias(&raw_name) {
                 Some(canonical) => {
                     let canon_ids = crate::semantic::basic::mc_ids::McIds::from(canonical.as_str());
                     let uri = current_uri::get();
@@ -345,7 +301,7 @@ impl InstantiationBuilder {
             // member as the left endpoint (`U1.cap1`) and `func_name` as
             // the method (`Cap`) — not a class. Resolve it against the
             // caller's type before declaring the call dead; otherwise
-            // every iterated `.Cap`/`.Pullup` family degenerates to
+            // every iterated `.Cap`/`.Pull` family degenerates to
             // pass-through (§2.6 Table A, E0944 0-connection root cause).
             if let Some(fc) = self.try_resolve_instance_method(&name_str, params, left, right)? {
                 return Ok(fc);

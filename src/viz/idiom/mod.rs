@@ -5,7 +5,7 @@
 //! Phase 4 · Idiom recognition (pattern recognition) + M11 Idiom-aware Placement
 //!
 //! Analyze a laid-out `McVecGraph` to identify sub-circuit idioms (decoupling
-//! caps, diff pairs, pullups, pulldowns, etc.) and compute penalties for violations
+//! caps, diff pairs, etc.) and compute penalties for violations
 //! of conventional drawing practice. M11 extends this from read-only reporting to
 //! generating placement constraints that can be applied in FlowLayouter's pipeline.
 //!
@@ -60,10 +60,6 @@ pub enum IdiomKind {
     Decoupling,
     /// Differential pair (I6): two nets/boxes forming P/N pair.
     DiffPair,
-    /// Pullup resistor (I7): resistor between signal and power rail.
-    Pullup,
-    /// Pulldown resistor (I8): resistor between signal and ground.
-    Pulldown,
 }
 
 // Main API (legacy read-only)
@@ -82,12 +78,6 @@ pub fn analyze(graph: &McVecGraph) -> Vec<IdiomMatch> {
 
     // I6: Differential pairs
     matches.extend(detect_diff_pair(graph, &net_kind_map));
-
-    // I7: Pullup resistors
-    matches.extend(detect_pullup(graph, &connected));
-
-    // I8: Pulldown resistors
-    matches.extend(detect_pulldown(graph, &connected));
 
     matches
 }
@@ -125,20 +115,6 @@ pub fn detect_placement_instances(
         protected_box_ids,
     ));
 
-    // Pullup resistors
-    instances.extend(detect_pullup_instances(
-        graph,
-        &connected,
-        protected_box_ids,
-    ));
-
-    // Pulldown resistors
-    instances.extend(detect_pulldown_instances(
-        graph,
-        &connected,
-        protected_box_ids,
-    ));
-
     // Diff pairs
     instances.extend(detect_diff_pair_instances(
         graph,
@@ -165,36 +141,6 @@ pub fn generate_constraints(instances: &[IdiomInstance]) -> Vec<PlacementConstra
                         preferred_side: Some(model::AnchorSide::Above),
                         align_axis: Some(model::AlignAxis::Vertical),
                         distance_range: Some((40.0, 120.0)),
-                        priority: 10,
-                        hard: false,
-                    });
-                }
-            }
-            IdiomInstanceKind::Pullup => {
-                for &sat_id in &inst.satellite_box_ids {
-                    constraints.push(PlacementConstraint {
-                        kind: model::ConstraintKind::NearAnchor,
-                        source_kind: inst.kind,
-                        target_box_id: sat_id,
-                        anchor_box_id: inst.anchor_box_id,
-                        preferred_side: Some(model::AnchorSide::Above),
-                        align_axis: Some(model::AlignAxis::Vertical),
-                        distance_range: Some((40.0, 100.0)),
-                        priority: 10,
-                        hard: false,
-                    });
-                }
-            }
-            IdiomInstanceKind::Pulldown => {
-                for &sat_id in &inst.satellite_box_ids {
-                    constraints.push(PlacementConstraint {
-                        kind: model::ConstraintKind::NearAnchor,
-                        source_kind: inst.kind,
-                        target_box_id: sat_id,
-                        anchor_box_id: inst.anchor_box_id,
-                        preferred_side: Some(model::AnchorSide::Below),
-                        align_axis: Some(model::AlignAxis::Vertical),
-                        distance_range: Some((40.0, 100.0)),
                         priority: 10,
                         hard: false,
                     });
@@ -621,159 +567,6 @@ fn face_of(net: &crate::vector::graph::VizNet) -> Option<&crate::vector::model::
     net.attr.as_ref().and_then(|a| a.diff.as_ref())
 }
 
-// I7: Pullup resistor detection
-
-/// Detect pullup resistors: Resistor with one end on a signal net, one end on Power.
-fn detect_pullup(graph: &McVecGraph, connected: &HashMap<i64, Vec<NetKind>>) -> Vec<IdiomMatch> {
-    let mut matches = Vec::new();
-
-    for b in &graph.boxes {
-        if b.symbol != Symbol::Resistor {
-            continue;
-        }
-
-        let nk = connected.get(&b.id).cloned().unwrap_or_default();
-        let has_power = nk.iter().any(|k| matches!(k, NetKind::Power));
-        let has_signal = nk.iter().any(|k| matches!(k, NetKind::Signal));
-        if !has_power || !has_signal {
-            continue;
-        }
-
-        matches.push(IdiomMatch {
-            kind: IdiomKind::Pullup,
-            member_box_ids: vec![b.id],
-            symmetry_penalty: 0.0,
-            idiom_violation: false,
-        });
-    }
-
-    matches
-}
-
-/// M11: Pullup detection producing placement-ready instances.
-fn detect_pullup_instances(
-    graph: &McVecGraph,
-    connected: &HashMap<i64, Vec<NetKind>>,
-    protected: &HashSet<i64>,
-) -> Vec<IdiomInstance> {
-    let mut instances = Vec::new();
-
-    for b in &graph.boxes {
-        if b.symbol != Symbol::Resistor {
-            continue;
-        }
-        if protected.contains(&b.id) || b.geom_locked {
-            continue;
-        }
-
-        let nk = connected.get(&b.id).cloned().unwrap_or_default();
-        let has_power = nk.iter().any(|k| matches!(k, NetKind::Power));
-        let has_signal = nk.iter().any(|k| matches!(k, NetKind::Signal));
-        if !has_power || !has_signal {
-            continue;
-        }
-
-        // Find the signal net and its anchor
-        let r_nets = nets_for_box(graph, b.id);
-        let signal_net = r_nets.iter().find(|n| matches!(n.kind, NetKind::Signal));
-        let power_net = r_nets.iter().find(|n| matches!(n.kind, NetKind::Power));
-
-        let signal_anchor = signal_net.and_then(|sn| find_signal_anchor(graph, b.id, sn.nid));
-
-        if let Some((anchor_box_id, anchor_pin_id)) = signal_anchor {
-            instances.push(IdiomInstance {
-                kind: IdiomInstanceKind::Pullup,
-                anchor_box_id,
-                satellite_box_ids: vec![b.id],
-                anchor_pin_id: Some(anchor_pin_id),
-                signal_net_id: signal_net.map(|n| n.nid),
-                power_net_id: power_net.map(|n| n.nid),
-                ground_net_id: None,
-                confidence: 0.85,
-                source: InstanceSource::NetSemantic,
-            });
-        }
-    }
-
-    instances
-}
-
-// I8: Pulldown resistor detection
-
-/// Detect pulldown resistors: Resistor with one end on a signal net, one end on Ground.
-fn detect_pulldown(graph: &McVecGraph, connected: &HashMap<i64, Vec<NetKind>>) -> Vec<IdiomMatch> {
-    let mut matches = Vec::new();
-
-    for b in &graph.boxes {
-        if b.symbol != Symbol::Resistor {
-            continue;
-        }
-
-        let nk = connected.get(&b.id).cloned().unwrap_or_default();
-        let has_ground = nk.iter().any(|k| matches!(k, NetKind::Ground));
-        let has_signal = nk.iter().any(|k| matches!(k, NetKind::Signal));
-        if !has_ground || !has_signal {
-            continue;
-        }
-
-        matches.push(IdiomMatch {
-            kind: IdiomKind::Pulldown,
-            member_box_ids: vec![b.id],
-            symmetry_penalty: 0.0,
-            idiom_violation: false,
-        });
-    }
-
-    matches
-}
-
-/// M11: Pulldown detection producing placement-ready instances.
-fn detect_pulldown_instances(
-    graph: &McVecGraph,
-    connected: &HashMap<i64, Vec<NetKind>>,
-    protected: &HashSet<i64>,
-) -> Vec<IdiomInstance> {
-    let mut instances = Vec::new();
-
-    for b in &graph.boxes {
-        if b.symbol != Symbol::Resistor {
-            continue;
-        }
-        if protected.contains(&b.id) || b.geom_locked {
-            continue;
-        }
-
-        let nk = connected.get(&b.id).cloned().unwrap_or_default();
-        let has_ground = nk.iter().any(|k| matches!(k, NetKind::Ground));
-        let has_signal = nk.iter().any(|k| matches!(k, NetKind::Signal));
-        if !has_ground || !has_signal {
-            continue;
-        }
-
-        let r_nets = nets_for_box(graph, b.id);
-        let signal_net = r_nets.iter().find(|n| matches!(n.kind, NetKind::Signal));
-        let ground_net = r_nets.iter().find(|n| matches!(n.kind, NetKind::Ground));
-
-        let signal_anchor = signal_net.and_then(|sn| find_signal_anchor(graph, b.id, sn.nid));
-
-        if let Some((anchor_box_id, anchor_pin_id)) = signal_anchor {
-            instances.push(IdiomInstance {
-                kind: IdiomInstanceKind::Pulldown,
-                anchor_box_id,
-                satellite_box_ids: vec![b.id],
-                anchor_pin_id: Some(anchor_pin_id),
-                signal_net_id: signal_net.map(|n| n.nid),
-                power_net_id: None,
-                ground_net_id: ground_net.map(|n| n.nid),
-                confidence: 0.85,
-                source: InstanceSource::NetSemantic,
-            });
-        }
-    }
-
-    instances
-}
-
 // Tests
 
 #[cfg(test)]
@@ -829,7 +622,7 @@ mod tests {
     fn generated_constraints_carry_source_kind_for_reporting() {
         let instances = vec![
             IdiomInstance {
-                kind: IdiomInstanceKind::Pullup,
+                kind: IdiomInstanceKind::Decoupling,
                 anchor_box_id: 10,
                 satellite_box_ids: vec![20],
                 anchor_pin_id: Some(1),
@@ -840,7 +633,7 @@ mod tests {
                 source: InstanceSource::NetSemantic,
             },
             IdiomInstance {
-                kind: IdiomInstanceKind::Pulldown,
+                kind: IdiomInstanceKind::DiffPair,
                 anchor_box_id: 11,
                 satellite_box_ids: vec![21],
                 anchor_pin_id: Some(2),
@@ -854,8 +647,8 @@ mod tests {
 
         let constraints = generate_constraints(&instances);
         assert_eq!(constraints.len(), 2);
-        assert_eq!(constraints[0].source_kind, IdiomInstanceKind::Pullup);
-        assert_eq!(constraints[1].source_kind, IdiomInstanceKind::Pulldown);
+        assert_eq!(constraints[0].source_kind, IdiomInstanceKind::Decoupling);
+        assert_eq!(constraints[1].source_kind, IdiomInstanceKind::DiffPair);
     }
 
     #[test]
@@ -1064,121 +857,6 @@ mod tests {
             "A name is not a declaration. Matches: {:?}",
             matches
         );
-    }
-
-    #[test]
-    fn detect_pullup() {
-        let mut graph = McVecGraph::new(1, "test".into());
-
-        let r = make_box(1, "R1", Symbol::Resistor, 50.0, 50.0, 40.0, 30.0);
-
-        let net_sig = VizNet::new(
-            1,
-            "SIGNAL".into(),
-            NetKind::Signal,
-            NetRole::Signal,
-            vec![EndpointRef::new(1, 1, "1")],
-        );
-        let net_pwr = VizNet::new(
-            2,
-            "VDD_3V3".into(),
-            NetKind::Power,
-            NetRole::Signal,
-            vec![EndpointRef::new(1, 1, "2")],
-        );
-
-        graph.boxes.push(r);
-        graph.nets.push(net_sig);
-        graph.nets.push(net_pwr);
-
-        let matches = analyze(&graph);
-        let pullups: Vec<_> = matches
-            .iter()
-            .filter(|m| m.kind == IdiomKind::Pullup)
-            .collect();
-        assert!(
-            !pullups.is_empty(),
-            "Should detect pullup. Matches: {:?}",
-            matches
-        );
-        assert!(pullups[0].member_box_ids.contains(&1));
-    }
-
-    #[test]
-    fn detect_pulldown() {
-        let mut graph = McVecGraph::new(1, "test".into());
-
-        let r = make_box(1, "R1", Symbol::Resistor, 50.0, 50.0, 40.0, 30.0);
-
-        let net_sig = VizNet::new(
-            1,
-            "SIGNAL".into(),
-            NetKind::Signal,
-            NetRole::Signal,
-            vec![EndpointRef::new(1, 1, "1")],
-        );
-        let net_gnd = VizNet::new(
-            2,
-            "GND".into(),
-            NetKind::Ground,
-            NetRole::Signal,
-            vec![EndpointRef::new(1, 1, "2")],
-        );
-
-        graph.boxes.push(r);
-        graph.nets.push(net_sig);
-        graph.nets.push(net_gnd);
-
-        let matches = analyze(&graph);
-        let pulldowns: Vec<_> = matches
-            .iter()
-            .filter(|m| m.kind == IdiomKind::Pulldown)
-            .collect();
-        assert!(
-            !pulldowns.is_empty(),
-            "Should detect pulldown. Matches: {:?}",
-            matches
-        );
-        assert!(pulldowns[0].member_box_ids.contains(&1));
-    }
-
-    #[test]
-    fn pulldown_not_confused_with_pullup() {
-        let mut graph = McVecGraph::new(1, "test".into());
-
-        let r = make_box(1, "R1", Symbol::Resistor, 50.0, 50.0, 40.0, 30.0);
-
-        let net_sig = VizNet::new(
-            1,
-            "SIGNAL".into(),
-            NetKind::Signal,
-            NetRole::Signal,
-            vec![EndpointRef::new(1, 1, "1")],
-        );
-        let net_gnd = VizNet::new(
-            2,
-            "GND".into(),
-            NetKind::Ground,
-            NetRole::Signal,
-            vec![EndpointRef::new(1, 1, "2")],
-        );
-
-        graph.boxes.push(r);
-        graph.nets.push(net_sig);
-        graph.nets.push(net_gnd);
-
-        let matches = analyze(&graph);
-        // Should be pulldown, not pullup
-        let pullups: Vec<_> = matches
-            .iter()
-            .filter(|m| m.kind == IdiomKind::Pullup)
-            .collect();
-        assert!(pullups.is_empty(), "Signal+Ground should NOT be pullup");
-        let pulldowns: Vec<_> = matches
-            .iter()
-            .filter(|m| m.kind == IdiomKind::Pulldown)
-            .collect();
-        assert!(!pulldowns.is_empty(), "Signal+Ground should be pulldown");
     }
 
     #[test]
