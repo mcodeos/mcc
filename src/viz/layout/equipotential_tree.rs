@@ -2388,12 +2388,29 @@ fn snap_satellite_pins_to_rows(
         // offset — a second identical lead. Keep the first on the row, step
         // each further duplicate down by one pitch.
         let pitch = (PIN_PITCH / b.h.max(1.0)).clamp(0.0, 1.0);
-        let mut used: Vec<f64> = Vec::new();
+        // Dedup per EDGE, not per box: pins of different nets may sit at the
+        // same row on OPPOSITE edges (the `lpa` Left/Right pair both on row
+        // 100) — they share no slot point, so only same-edge twins are U164's
+        // second identical lead.
+        let mut used: [Vec<f64>; 4] = Default::default();
         for slot in b.slots.iter_mut() {
             if let Some(&(_, y)) = want.iter().find(|&&(p, _)| p == slot.pin_id) {
+                // The row offset parameterizes the VERTICAL position only on
+                // a row-facing edge. A Top/Bottom slot reaches its row by a
+                // by-design perpendicular tooth — its offset walks the box
+                // WIDTH, and writing a row-derived fraction there flings the
+                // pin sideways along the edge.
+                if !matches!(slot.side, EntrySide::Left | EntrySide::Right) {
+                    continue;
+                }
                 let offset = ((y - b.y) / b.h).clamp(0.0, 1.0);
-                let offset = dedupe_pin_offset(offset, &used, pitch, b.h);
-                used.push(offset);
+                let side_ix = match slot.side {
+                    EntrySide::Top | EntrySide::Bottom => unreachable!(),
+                    EntrySide::Right => 1,
+                    EntrySide::Left => 3,
+                };
+                let offset = dedupe_pin_offset(offset, &used[side_ix], pitch, b.h);
+                used[side_ix].push(offset);
                 slot.offset = offset;
             }
         }
@@ -7243,8 +7260,55 @@ fn remediate_label_overlaps(trees: &mut [EquiTree], graph: &McVecGraph) {
             if clear(trees, ti, si, stood) {
                 continue;
             }
-            // No clear home: restore the ORIGINAL placement — the audit must
-            // see the placement the pass settled on, not a third variant.
+            trees[ti].symbols[si].vertical = false;
+            // Move 3 (U284 face ③): deepen the drop. A32's floor is
+            // `SYMBOL_DROP - 1` — a LONGER stub is just as lawful — and the
+            // stub line stays at its anchor x, so the label keeps its place in
+            // the reading order while sliding past the box or the twin label
+            // that blocked both standing moves. The stub segment is lengthened
+            // with the label, bounded at twice the standard drop.
+            let anchor = (trees[ti].symbols[si].x, trees[ti].symbols[si].y);
+            let on = |p: f64, a: f64, b: f64| p >= a.min(b) - 0.5 && p <= a.max(b) + 0.5;
+            let stub_ix = trees[ti].segments.iter().position(|s| {
+                (s.x1 - s.x2).abs() < 0.5 && on(anchor.0, s.x1, s.x2) && on(anchor.1, s.y1, s.y2)
+            });
+            if let Some(ix) = stub_ix {
+                // The label sits at one end of the stub; the other end stays
+                // planted on the trunk while the label end follows the label.
+                let seg = &trees[ti].segments[ix];
+                let deeper = if (anchor.1 - seg.y1).abs() < (anchor.1 - seg.y2).abs() {
+                    anchor.1 - seg.y2
+                } else {
+                    anchor.1 - seg.y1
+                }
+                .signum();
+                let (sy1, sy2) = (seg.y1, seg.y2);
+                let mut settled = false;
+                for k in 1..=4 {
+                    let ny = anchor.1 + deeper * k as f64 * (SYMBOL_DROP / 2.0);
+                    trees[ti].symbols[si].y = ny;
+                    let seg = &mut trees[ti].segments[ix];
+                    if (sy1 - ny).abs() > (sy2 - ny).abs() {
+                        seg.y1 = ny;
+                    } else {
+                        seg.y2 = ny;
+                    }
+                    let cand = symbol_text_bbox(&trees[ti].symbols[si]);
+                    if clear(trees, ti, si, cand) {
+                        settled = true;
+                        break;
+                    }
+                }
+                if settled {
+                    continue;
+                }
+                // No clear depth: restore the ORIGINAL placement — the audit
+                // must see the placement the pass settled on, not a variant.
+                trees[ti].symbols[si].y = anchor.1;
+                let seg = &mut trees[ti].segments[ix];
+                seg.y1 = sy1;
+                seg.y2 = sy2;
+            }
             trees[ti].symbols[si].vertical = false;
             trees[ti].symbols[si].text_side = text_side;
         }

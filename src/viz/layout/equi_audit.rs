@@ -2144,18 +2144,43 @@ fn check_a34_every_pin_on_its_row(graph: &McVecGraph, topos: &[NetTopology]) -> 
             let Some(b) = graph.boxes.iter().find(|bb| bb.id == group.box_id) else {
                 continue;
             };
-            for &pid in &group.pin_ids {
-                let Some(s) = slot_of(b, pid) else { continue };
-                // Top/Bottom pins walk a tooth by design; only the row-facing
-                // sides owe the row their axis.
-                if !matches!(s.side, EntrySide::Left | EntrySide::Right) {
-                    continue;
-                }
-                let (px, py) = slot_point(b, s);
+            // Collect the row-facing pin points once: the sibling-drop
+            // exemption below compares a failing pin against every other pin
+            // of the same net on the same box.
+            let points: Vec<_> = group
+                .pin_ids
+                .iter()
+                .filter_map(|&pid| {
+                    let s = slot_of(b, pid)?;
+                    // Top/Bottom pins walk a tooth by design; only the
+                    // row-facing sides owe the row their axis.
+                    if !matches!(s.side, EntrySide::Left | EntrySide::Right) {
+                        return None;
+                    }
+                    let (px, py) = slot_point(b, s);
+                    Some((pid, s.side, px, py))
+                })
+                .collect();
+            for &(pid, side, px, py) in &points {
                 if (py - topo.lane.axis).abs() > 1.0 {
+                    // A second identical lead (U164 shape): a sibling pin of
+                    // the same net hangs from the same edge at the same x and
+                    // DOES sit on the row, so the off-row pin's wire is a
+                    // plain perpendicular drop off that lead — no dogleg, and
+                    // the row law's premise does not apply (LDO `ldo`
+                    // VIN.VCC twin leads at one x).
+                    let sibling_on_row = points.iter().any(|&(pid2, side2, px2, py2)| {
+                        pid2 != pid
+                            && side2 == side
+                            && (px2 - px).abs() <= 1.0
+                            && (py2 - topo.lane.axis).abs() <= 1.0
+                    });
+                    if sibling_on_row {
+                        continue;
+                    }
                     c.fail(format!(
                         "'{}' pin {} on '{}' sits at y={:.0} but the row is {:.0} (side {:?})",
-                        topo.net_name, pid, b.name, py, topo.lane.axis, s.side
+                        topo.net_name, pid, b.name, py, topo.lane.axis, side
                     ));
                 } else if px < lo - TOOTH_GAP - 1.0 || px > hi + TOOTH_GAP + 1.0 {
                     c.fail(format!(

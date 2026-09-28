@@ -365,7 +365,14 @@ const KNOWN_AUDIT_REDS: &[(&str, &str)] = &[
     // two owner nets share row 100 — in-line series member, same shape as the
     // DCDC note above.
     ("LDO", "A17"),
-    ("LDO", "A34"),
+    // ("LDO", "A34") cleared by the A34 sibling-drop exemption (U284): the
+    // `ldo` VIN.VCC twin leads hang from one edge at one x — the second
+    // identical lead drops perpendicular off the on-row lead, no dogleg.
+    // ("SPK", "A34") partially cleared the same way (`lpa` `_net6` twin,
+    // `spk` GND twin); the two remaining pins are structural: `spk` N (the
+    // `_net11` x `_net15` same-row pair, segment-model face) and `lpa` GND
+    // (author-declared pin vs the P0 row stack, box would have to swallow a
+    // live trunk interior — M15.2's box extension does not apply mid-row).
     // ("MCU513", "A7"/"A10"/"A24"/"A29") found green 2026-09-27 at the b4111
     // HEAD x the live ~/.mcode of that morning — same pre-batch drift as the
     // DCDC A7 note above; cause not bisected here.
@@ -454,7 +461,9 @@ const KNOWN_AUDIT_REDS: &[(&str, &str)] = &[
     // rows by construction.
     ("SPK", "A8"),
     ("SPK", "A10"),
-    ("SPK", "A17"),
+    // ("SPK", "A17") cleared by the label drop-deepening move (U284): the
+    // SPK_MUTE label's stub lengthens past the foreign member — A32's floor
+    // is `SYMBOL_DROP - 1`, a longer stub is just as lawful.
     ("SPK", "A18"),
     // ("SPK", "A25") cleared by the A17 remediation pass (U284): the label
     // whose ink covered a foreign member moved to a clear side.
