@@ -811,6 +811,16 @@ pub const IFACE_DYN_WIDTH_MISMATCH: u32 = 3187;
 /// lines read `@bridge`/`@couple`/`@clamp`/`@star`).
 pub const STMT_MARKER_UNKNOWN: u32 = 3188;
 
+/// An interface adoption passes more constructor arguments than the
+/// interface declares (U347 C1): the surplus rides the cond environment
+/// zip and is silently dropped.
+pub const IFACE_ARG_EXCESS: u32 = 3190;
+
+/// An interface cond branch's computed pin-row name reads a parameter no
+/// constructor argument binds at this adoption (U347 C2): the row
+/// materializes no pin and vanishes silently.
+pub const IFACE_ROW_UNBOUND_PARAM: u32 = 3191;
+
 // Pass2: connection / shape (4000-4049)
 
 /// Transposed connection size mismatch.
@@ -2639,6 +2649,8 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(DYN_WIDTH_EXPR_NEEDS_PARAM, "A width-binder name sits inside an arithmetic width expression; expression widths are never back-solved.", "Dynamic pin range '{0}' reads '{1}' inside an arithmetic expression, but '{1}' is not declared in the parameter table. An undeclared name is a width binder only as a whole range endpoint — it binds the instance subscript width; inside arithmetic it never participates in back-solving (replicated-binding-design.md §4 check 1). Declare '{1}' as a parameter and give it explicitly here, or write the range end as a bare name."),
     entry!(IFACE_DYN_WIDTH_MISMATCH, "The binding row's subscript member count disagrees with the interface's dynamic pin expansion.", "Interface binding '{0}' names {1} subscript member(s) but the interface's dynamic pin range expands to {2} pin(s). With an explicit width parameter the three counts — subscript members, dynamic expansion, physical pins — must agree (replicated-binding-design.md §4 check 2). Match the subscript to the expansion, or drop the explicit parameter and let the width binder tie the counts."),
     entry!(STMT_MARKER_UNKNOWN, "Unknown statement tail marker.", "`@{0}` is not a marker this statement line reads. Instance lines read `@ncpin(...)`; connection lines read `@bridge(a, b)` / `@couple(a, b)` / `@clamp(a)` / `@star`. A marker the line does not read is never applied — remove it or correct its spelling."),
+    entry!(IFACE_ARG_EXCESS, "An interface adoption passes more constructor arguments than the interface declares.", "Interface '{0}' declares {1} parameter(s) but this adoption passes {2}; every argument past {1} is dropped. Match the argument list to the declared parameter table."),
+    entry!(IFACE_ROW_UNBOUND_PARAM, "A cond branch's computed pin-row name reads a parameter no constructor argument binds at this interface adoption.", "The selected branch of interface '{0}' computes a pin-row name from parameter(s) [{1}], but this adoption binds none of them; the row registers no pin. Pass the arguments here (e.g. '{0}(<value>)')."),
     // section
     entry!(CONN_TRANSPOSE_SIZE_MISMATCH, "Transposed connection size mismatch.", "Transposed connection size mismatch"),
     entry!(CONN_LEFT_ARROW_SHAPE_MISMATCH, "Shape mismatch in a <- connection.", "Shape mismatch in a <- connection"),

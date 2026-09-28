@@ -2,6 +2,7 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use crate::semantic::basic::mc_conds::{CondParam, McConds};
@@ -294,6 +295,8 @@ impl std::fmt::Display for McInterface {
 
 // Mc2Interface - Interface instance wrapper
 
+use crate::db::diagnostic::diagnostic::dlog_error;
+use crate::errcodes;
 use crate::semantic::basic::mc_param::McParamValue;
 use crate::semantic::mc_inst::McInst;
 
@@ -367,6 +370,8 @@ impl Mc2Interface {
         anchor: Option<&AstNode>,
     ) -> Self {
         let param_names = base.params.names();
+        Self::report_arg_excess(name, &params, param_names.len(), anchor);
+        let raw_anchor = anchor;
         let anchor = anchor.filter(|_| Self::args_are_literals(&params, param_names.len()));
         let param_tuples: Vec<CondParam> = params
             .iter()
@@ -410,6 +415,17 @@ impl Mc2Interface {
                 }
             }
         }
+        Self::report_unbound_rows(
+            name,
+            base.as_ref(),
+            &param_names,
+            &params,
+            match &inst.parsed_pins {
+                Some(parsed) => parsed,
+                None => &base.pins,
+            },
+            raw_anchor,
+        );
 
         inst
     }
@@ -426,6 +442,9 @@ impl Mc2Interface {
         anchor: Option<&AstNode>,
     ) -> Self {
         let param_names = base.params.names();
+        let display_name = name.to_string();
+        Self::report_arg_excess(&display_name, &params, param_names.len(), anchor);
+        let raw_anchor = anchor;
         let anchor = anchor.filter(|_| Self::args_are_literals(&params, param_names.len()));
 
         let param_tuples: Vec<CondParam> = params
@@ -480,6 +499,17 @@ impl Mc2Interface {
                 }
             }
         }
+        Self::report_unbound_rows(
+            &display_name,
+            base.as_ref(),
+            &param_names,
+            &params,
+            match &inst.parsed_pins {
+                Some(parsed) => parsed,
+                None => &base.pins,
+            },
+            raw_anchor,
+        );
 
         inst
     }
@@ -505,6 +535,88 @@ impl Mc2Interface {
                 p.is_literal()
                     && !matches!(p, McParamValue::UValue(uv) if uv.is_range_or_plusminus())
             })
+    }
+
+    /// E3190 (U347 C1): constructor arguments past the declared formal table
+    /// are dropped by the cond-environment zip — report the surplus instead of
+    /// letting it vanish.
+    fn report_arg_excess(
+        name: &str,
+        params: &[McParamValue],
+        arity: usize,
+        anchor: Option<&AstNode>,
+    ) {
+        let Some(node) = anchor else {
+            return;
+        };
+        if params.len() <= arity {
+            return;
+        }
+        let passed = params.len().to_string();
+        let declared = arity.to_string();
+        dlog_error(
+            errcodes::IFACE_ARG_EXCESS,
+            node,
+            &errcodes::format_msg(
+                errcodes::IFACE_ARG_EXCESS,
+                &[&name, &declared, &passed],
+            ),
+        );
+    }
+
+    /// E3191 (U347 C2): a computed pin-row name in the effective view (the
+    /// selected cond branch, else the base table) resolves against this
+    /// adoption's arguments; a row whose parameter no argument binds lands in
+    /// the table's dynamic pins, which this face never resolves — the row
+    /// would vanish with no pin and no word. A symbolic argument
+    /// (`::DC(volt)`) is a binding as written and stays quiet; a declared
+    /// default covers its parameter.
+    fn report_unbound_rows(
+        name: &str,
+        base: &McInterface,
+        param_names: &[String],
+        params: &[McParamValue],
+        effective: &McPins,
+        anchor: Option<&AstNode>,
+    ) {
+        if effective.dynamic_pins.is_empty() {
+            return;
+        }
+        let Some(node) = anchor else {
+            return;
+        };
+        let defaults: HashSet<String> = base
+            .params
+            .get_params_with_defaults()
+            .into_iter()
+            .filter_map(|(name, _)| name.get_primary_name())
+            .collect();
+        let unbound: Vec<String> = param_names
+            .iter()
+            .enumerate()
+            .filter(|(i, n)| {
+                if defaults.contains(*n) {
+                    return false;
+                }
+                params
+                    .get(*i)
+                    .map(|p| {
+                        let s = format!("{p}");
+                        s.is_empty() || s == "_"
+                    })
+                    .unwrap_or(true)
+            })
+            .map(|(_, n)| n.clone())
+            .collect();
+        if unbound.is_empty() {
+            return;
+        }
+        let list = unbound.join(", ");
+        dlog_error(
+            errcodes::IFACE_ROW_UNBOUND_PARAM,
+            node,
+            &errcodes::format_msg(errcodes::IFACE_ROW_UNBOUND_PARAM, &[&name, &list]),
+        );
     }
 
     /// Parse an interface body's pin block. `uri` is the file that owns the
