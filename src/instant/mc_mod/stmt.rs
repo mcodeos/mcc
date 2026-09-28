@@ -2541,7 +2541,11 @@ impl InstantiationBuilder {
                         r.attrs
                             .iter()
                             .filter(|a| a.id.to_string() == "peer")
-                            .flat_map(|a| Self::iface_attr_value_set(&a.values))
+                            .flat_map(|a| {
+                                crate::semantic::basic::mc_role::peer_role_refs(&a.values)
+                                    .into_iter()
+                                    .map(|p| p.role)
+                            })
                             .collect()
                     })
                     .unwrap_or_default()

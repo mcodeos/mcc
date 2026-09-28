@@ -429,6 +429,15 @@ pub struct IfaceLane {
     /// meets one oscillator body, not two. Roles that declare nothing pair
     /// unrestricted (a multi-input receiver lane is a legal shape).
     pub exclusive: bool,
+    /// The inline peer cardinality the role declares for its first peer
+    /// (`peer = RESONATOR(1)` / `RESONATOR(1:2)`), inclusive on both ends;
+    /// `None` = the declaration states no bound (the bare spelling). The
+    /// peer-cardinality gate reads this as the lane's upper bound.
+    pub peer_span: Option<(u32, u32)>,
+    /// The declaration as written, for the gate's message — `RESONATOR(1)`
+    /// for the inline form, `exclusive = true` for the retired spelling
+    /// still honored as a one-body window.
+    pub peer_card_text: Option<String>,
     /// The adoption lane: the `NAME::` of the adoption row. One lane is one
     /// declared body — the author groups one body's terminals on one row, so
     /// two crystals on one part are two lanes (`XTAL_A::` / `XTAL_B::`).
@@ -563,10 +572,27 @@ pub(crate) fn iface_lane_of_pin(
             })
             .unwrap_or_default()
     };
-    let peer_values = first_values("peer");
-    let peer_role = peer_values.first().cloned();
-    let peer_roles = peer_values;
-    let exclusive = first_values("exclusive").iter().any(|v| v == "true");
+    let peer_refs: Vec<crate::semantic::basic::mc_role::PeerRoleRef> = role_def
+        .map(|r| {
+            r.attrs
+                .iter()
+                .filter(|a| a.id.to_string() == "peer")
+                .flat_map(|a| crate::semantic::basic::mc_role::peer_role_refs(&a.values))
+                .collect()
+        })
+        .unwrap_or_default();
+    let peer_role = peer_refs.first().map(|p| p.role.clone());
+    let peer_roles: Vec<String> = peer_refs.iter().map(|p| p.role.clone()).collect();
+    let peer_span = peer_refs.first().and_then(|p| p.card);
+    let legacy_exclusive = first_values("exclusive").iter().any(|v| v == "true");
+    let exclusive = legacy_exclusive || peer_span == Some((1, 1));
+    let peer_card_text = peer_refs
+        .first()
+        .map(|p| match p.card {
+            Some((lo, hi)) => format!("{}({}:{})", p.role, lo, hi),
+            None => p.role.clone(),
+        })
+        .or_else(|| legacy_exclusive.then(|| "exclusive = true".to_string()));
     let direction = role_def.and_then(|r| lane_dir_of_pins(&r.pins));
     let analog = role_def
         .map(|r| {
@@ -590,6 +616,8 @@ pub(crate) fn iface_lane_of_pin(
         peer_role,
         peer_roles,
         exclusive,
+        peer_span,
+        peer_card_text,
         lane: port_name.to_string(),
         direction,
         analog,

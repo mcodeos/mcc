@@ -785,34 +785,19 @@ fn is_relay_peer_decl(role: &crate::semantic::basic::mc_role::McRole) -> bool {
         >= 2
 }
 
-/// The role name(s) a `peer` attribute references.
-///
-/// `peer` accepts either a single role (`peer = Master2W`) or a set of roles
-/// (`peer = [Master, Slave]`). The set form parses as
-/// `McExpression::Set(..)`; read its items structurally instead of comparing
-/// the bracket-list display string as a whole (which never equals any single
-/// role name, so `peer = [Master, Slave]` would false-positive).
+/// The role name(s) a `peer` attribute references — the [`crate::semantic::
+/// basic::mc_role::peer_role_refs`] decode with the inline cardinality
+/// dropped (`peer = MASTER(1)` names `MASTER`, not the raw value text).
+/// `peer` accepts either a single role (`peer = Master2W`), a set of roles
+/// (`peer = [Master, Slave]`), or the inline-cardinality form (`peer =
+/// MASTER(1)`); the set form flattens to its items structurally, so the
+/// bracket-list display string as a whole is never compared (it would never
+/// equal any single role name).
 fn peer_role_names(values: &[crate::McAttrVal]) -> Vec<String> {
-    let mut out = Vec::new();
-    for val in values {
-        if let crate::McAttrVal::AttrExpr(crate::semantic::basic::mc_expr::McExpression::Set(
-            items,
-        )) = val
-        {
-            out.extend(
-                items
-                    .iter()
-                    .map(|e| e.to_string().trim().to_string())
-                    .filter(|s| !s.is_empty()),
-            );
-        } else {
-            let s = format!("{}", val).trim().to_string();
-            if !s.is_empty() {
-                out.push(s);
-            }
-        }
-    }
-    out
+    crate::semantic::basic::mc_role::peer_role_refs(values)
+        .into_iter()
+        .map(|p| p.role)
+        .collect()
 }
 
 // HW6: Component with only single-type IO pins

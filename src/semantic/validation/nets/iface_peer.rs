@@ -2,10 +2,13 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! U201 ①② — the role-anchored exclusive-peer gate
-//! (xtal-oscillator-design.md §2): one adoption lane of a role declaring
-//! `exclusive = true` must reach **one** peer-role instance across its
-//! terminals, judged over whole nets on the flat table.
+//! U201 ①② — the role-anchored peer-cardinality gate
+//! (xtal-oscillator-design.md §2, iface-peer-cardinality-design.md §1): one
+//! adoption lane of a role whose peer declaration carries a cardinality —
+//! inline `peer = X(k)` / `X(lo:hi)`, or the retired `exclusive = true`
+//! still honored as a one-body window — must reach at most that **hi**
+//! peer-role instances across its terminals, judged over whole nets on the
+//! flat table.
 //!
 //! Why whole nets and not the connection-time pair judge: the defect this
 //! gate exists for is *torn across nets* — a resonator body wired `X1` onto
@@ -39,6 +42,10 @@ struct LaneAcc {
     owner_path: String,
     role: String,
     anchor: (u32, String),
+    /// The declared peer ceiling (`peer = X(lo:hi)`'s `hi`, or 1 for the
+    /// retired `exclusive = true` spelling) — the bound the fire test
+    /// compares the reached-body count against.
+    hi: u32,
     /// Flat paths of the peer **instances** (the component entry's path, not
     /// each pin's) — the uniqueness law counts bodies, not pins.
     peers: HashSet<String>,
@@ -70,11 +77,16 @@ pub(crate) fn check_iface_exclusive_peer(table: &InstTable, results: &mut Vec<Ne
         }
 
         for (entry, carry) in &endpoints {
-            // The gate judges only what a declaration states: an exclusive
-            // role with a named peer. Everything else pairs unrestricted.
-            if !carry.exclusive {
-                continue;
-            }
+            // The gate judges only what a declaration states: a role whose
+            // peer declaration bounds the lane — inline `peer = X(k)` /
+            // `X(lo:hi)`, or the retired `exclusive = true` still honored as
+            // a one-body window. A bare `peer = X` states no bound and
+            // pairs unrestricted.
+            let hi = match carry.peer_span {
+                Some((_, hi)) => hi,
+                None if carry.exclusive => 1,
+                None => continue,
+            };
             let Some(peer_role) = &carry.peer_role else {
                 continue;
             };
@@ -108,6 +120,7 @@ pub(crate) fn check_iface_exclusive_peer(table: &InstTable, results: &mut Vec<Ne
                     owner_path: owner_path_of(entry),
                     role: carry.role.clone().unwrap_or_default(),
                     anchor: entry_pos(entry),
+                    hi,
                     peers: HashSet::new(),
                 });
             acc.peers.extend(peers);
@@ -116,7 +129,7 @@ pub(crate) fn check_iface_exclusive_peer(table: &InstTable, results: &mut Vec<Ne
 
     let mut fired: Vec<LaneAcc> = lanes
         .into_iter()
-        .filter(|(_, acc)| acc.peers.len() > 1)
+        .filter(|(_, acc)| acc.peers.len() > acc.hi as usize)
         .map(|(_, acc)| acc)
         .collect();
     fired.sort_by(|a, b| a.anchor.cmp(&b.anchor));
@@ -134,6 +147,7 @@ pub(crate) fn check_iface_exclusive_peer(table: &InstTable, results: &mut Vec<Ne
                     &acc.lane,
                     &acc.owner_path,
                     &acc.role,
+                    &acc.hi,
                     &count,
                     &peer_list.join(", "),
                 ],
