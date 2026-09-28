@@ -471,20 +471,112 @@ impl McPhrase {
     /// `Pullup` put all four pins and both nets on ONE net).
     ///
     /// Recognised **structurally** — every member is a call on a construction
-    /// receiver. Two producers make such a `Multiple`: the §3.3 array-member
-    /// fan-out (`x1::RES(0).Pullup(…)`, a named ctor) and the §9 R-b `=>`
-    /// **group fork** (`(A,B) => RESS(10).Pullup(…)`, an inline ctor). A
-    /// `Multiple` that is a genuine lane stack (`[VDD, GND]`) holds plain
-    /// endpoints, so it never matches.
+    /// receiver. Three producers make such a `Multiple`: the §3.3 array-member
+    /// fan-out (`x1::RES(0).Pullup(…)`, a named ctor), the §9 R-b `=>`
+    /// **group fork** (`(A,B) => RESS(10).Pullup(…)`, an inline ctor), and the
+    /// U339 §7.7 **row-return fork** (`[A1,A2] => RES(10k).Pull(_) -> [B1,B2]`
+    /// with a `1*2` return, one per-lane series per branch). A `Multiple`
+    /// that is a genuine lane stack (`[VDD, GND]`) holds plain endpoints, so
+    /// it never matches.
     pub fn expand_array_member_statements(&self) -> Option<Vec<McPhrase>> {
         let McPhrase::Multiple(items) = self else {
             return None;
         };
-        if Self::is_call_fanout(items) {
+        if Self::is_call_fanout(items) || Self::is_row_return_fork(items) {
             Some(items.clone())
         } else {
             None
         }
+    }
+
+    /// A `Multiple` produced by the U339 §7.7 row-return fork: every member
+    /// is a two-element `->` series of a construction-callee call and a
+    /// scalar tail endpoint (see [`Self::fork_row_return_call`]). The `=>`
+    /// group fork's members are bare calls, so the two never conflate.
+    fn is_row_return_fork(items: &[McPhrase]) -> bool {
+        items.len() > 1
+            && items.iter().all(|p| match p {
+                McPhrase::Series(elems, ConnDir::LtoR) if elems.len() == 2 => {
+                    matches!(&elems[0],
+                        McPhrase::FuncCall(fc) if fc.pre_closure && fc.receiver_is_ctor)
+                        && matches!(elems[1], McPhrase::Endpoint(_))
+                }
+                _ => false,
+            })
+    }
+
+    /// ── U339 §7.7 row arm (producer): the per-lane replication rewrite ──
+    ///
+    /// Fires only on the canonical face — the call head is a construction
+    /// callee whose return shape is a row (`1*2`: each side one member), the
+    /// folded `=>` prefix is the one actual (a Set of N>1 scalar ids), and
+    /// the tail is one column of exactly N scalar endpoints. Each branch is
+    /// the scalar statement the lane stands for
+    /// (`[A1,A2] => RES(10k).Pull(_) -> [B1,B2]` branch 1 ≡
+    /// `[A1] => RES(10k).Pull(_) -> [B1]`); per copy the ordinary one-lane
+    /// machinery applies (fresh construction, own auto name, own return-face
+    /// landing). Anything else returns `None` — the caller's shape judgment
+    /// stands (a count mismatch stays the honest E4007).
+    fn fork_row_return_call(opd1: &McPhrase, opd2: &McPhrase) -> Option<Vec<McPhrase>> {
+        let McPhrase::FuncCall(fc) = opd1 else {
+            return None;
+        };
+        if !fc.pre_closure || !fc.receiver_is_ctor {
+            return None;
+        }
+        // Row only: `1*2` — each side one member. A column/degenerate return
+        // keeps the existing lane zip (the §7.7 bridge arm, untouched).
+        if !matches!(
+            fc.resolved_return_shape,
+            Some(ReturnShape::Node { ref left, ref right }) if left.len() == 1 && right.len() == 1
+        ) {
+            return None;
+        }
+        // The folded prefix: ONE Set actual of N>1 scalar ids.
+        if fc.params.len() != 1 {
+            return None;
+        }
+        let McParamValue::Set(vs) = &fc.params[0] else {
+            return None;
+        };
+        if vs.len() <= 1 {
+            return None;
+        }
+        let mut lanes = Vec::with_capacity(vs.len());
+        for v in vs {
+            match v {
+                McParamValue::Opd(McOpd::Id(ids)) => lanes.push(ids.clone()),
+                _ => return None,
+            }
+        }
+        // The tail column must split into as many scalar lanes as the trunk.
+        let McPhrase::Multiple(tail) = opd2 else {
+            return None;
+        };
+        if tail.len() != lanes.len() {
+            return None;
+        }
+        if !tail
+            .iter()
+            .all(|t| matches!(t, McPhrase::Endpoint(McRef::Name(_))))
+        {
+            return None;
+        }
+        Some(
+            lanes
+                .iter()
+                .zip(tail.iter())
+                .map(|(lane_ids, tail_lane)| {
+                    let mut call = fc.clone();
+                    // the folded Set actual becomes this lane's scalar
+                    call.params[0] = McParamValue::Opd(McOpd::Id(lane_ids.clone()));
+                    McPhrase::Series(
+                        vec![McPhrase::FuncCall(call), tail_lane.clone()],
+                        ConnDir::LtoR,
+                    )
+                })
+                .collect(),
+        )
     }
 
     /// A `Multiple` standing for N **independent statements** rather than a lane
@@ -3543,6 +3635,21 @@ impl McPhrase {
                 // shape, exactly as before.
                 if let McPhrase::FuncCall(fc) = &mut opd1 {
                     McFuncCall::fill_return_shape(fc, context);
+                }
+
+                // ── U339 §7.7 row arm: a row return (`1*2`) on a multi-lane
+                // trunk replicates per lane. The shape law decides the
+                // connection effect by the evaluated result: a column bridges
+                // (the zip below, untouched), a row reads as one instance PER
+                // LANE, in series within its lane. The callee is a
+                // construction, so N lanes can materialize N instances — the
+                // statement rewrites into the N scalar statements it stands
+                // for and rides out as a statement fork (same expansion the
+                // call fan-outs use). A declared-instance receiver cannot
+                // fork (N instances of an existing single component cannot be
+                // materialized) and keeps the honest mismatch below.
+                if let Some(branches) = Self::fork_row_return_call(&opd1, &opd2) {
+                    return Some(McPhrase::Multiple(branches));
                 }
 
                 let (opd1, opd2) = infer_shape_and_upgrade(opd1, opd2, context);

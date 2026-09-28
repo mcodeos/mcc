@@ -2098,7 +2098,22 @@ impl McFuncCall {
             // Receiver is Bus / Label / List / Interface — has no `funcs` table.
             Some(_) => None,
             // Bare call (no receiver) or unresolvable root → surrounding scope.
-            None => scope.find_func_return(&name),
+            // An inline CONSTRUCTION receiver (`RES(10k).Pull`) also lands
+            // here: its chain bottoms out at a FuncCall, not an instance
+            // endpoint (U339). The construction's own name is the receiver
+            // type, so it resolves against that class's funcs table — the
+            // same answer an instance receiver's type gives. Unresolvable
+            // names keep the scope fallback (built-ins, bare scope funcs).
+            None => {
+                if let Some(McPhrase::FuncCall(recv)) = caller.as_deref() {
+                    if let Some(crate::semantic::common::McCMIE::Component(arc_comp)) =
+                        resolve_cmie(&DB, &recv.func_name, scope.uri())
+                    {
+                        return arc_comp.funcs.find(&name).map(|f| f.returns.clone());
+                    }
+                }
+                scope.find_func_return(&name)
+            }
         }
     }
 

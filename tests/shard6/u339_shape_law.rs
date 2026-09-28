@@ -359,3 +359,116 @@ fn u339__implicit_this_row_return_replicates_per_lane() {
         "the implicit this row replicates per lane; nets={nets:?}"
     );
 }
+
+// ── Row-return ×N per-lane replication (U339 ③-b, construction callees) ──
+
+/// Two-pin tie with a `NODE{P, N}` pin group, a scalar formal and a row
+/// return — the construction the shape law's row arm replicates one instance
+/// of per lane. `io R` (third lane) is declared for the scaling lock; the
+/// two-lane locks simply leave it unwired.
+const PULL: &str = "component RES(res::INT) {\n    pins = [ io [1,2] = NODE{P, N} ]\n    func Pull(net) {\n        net - this.1\n        return this{P | N}\n    }\n}\n";
+
+fn pull_src(body: &str) -> String {
+    format!(
+        "{PULL}module main {{\n    io P\n    io Q\n    io R\n    io X\n    io Y\n    io Z\n    \
+         func M() {{\n{body}\n    }}\n}}\n"
+    )
+}
+
+/// The §7.7 row arm on a construction callee: a `1*2` return on a two-lane
+/// trunk reads as one instance PER LANE, in series within its lane —
+/// `[P, Q] => RES(10k).Pull(_) -> [X, Y]` builds the same circuit as the two
+/// scalar statements. The column control above (`column_head_still_bridges`)
+/// is the contrast: a column return bridges one instance across both lanes.
+#[test]
+fn u339__row_return_constructor_replicates_one_instance_per_lane() {
+    let src = pull_src("        [P, Q] => RES(10k).Pull(_) -> [X, Y]");
+    let mut nets = nets_of(&src, "/mcc/u339-row-fork.mc");
+    nets.retain(|net| net.iter().any(|p| p.contains("_R")));
+    nets.sort();
+    assert_eq!(
+        nets,
+        vec![
+            vec!["P".to_string(), "_R1.1".to_string()],
+            vec!["Q".to_string(), "_R2.1".to_string()],
+            vec!["X".to_string(), "_R1.2".to_string()],
+            vec!["Y".to_string(), "_R2.2".to_string()],
+        ],
+        "one instance per lane, in series within its lane; nets={nets:?}"
+    );
+    assert_eq!(
+        devices_of(&src, "/mcc/u339-row-fork.mc"),
+        BTreeSet::from(["_R1".to_string(), "_R2".to_string()]),
+        "the row return materializes one construction per lane"
+    );
+    let codes = codes_of(&src, "/mcc/u339-row-fork.mc");
+    assert!(
+        !codes.contains(&4007) && !codes.contains(&4180),
+        "the replicated row face is legal; codes={codes:?}"
+    );
+}
+
+/// The replication scales with the trunk, not fixed at two: three head lanes
+/// materialize three instances, each bound to its own lane's tail member.
+#[test]
+fn u339__row_return_fork_scales_to_three_lanes() {
+    let src = pull_src("        [P, Q, R] => RES(10k).Pull(_) -> [X, Y, Z]");
+    assert_eq!(
+        devices_of(&src, "/mcc/u339-row-fork3.mc"),
+        BTreeSet::from([
+            "_R1".to_string(),
+            "_R2".to_string(),
+            "_R3".to_string()
+        ]),
+        "one construction per lane at any trunk width"
+    );
+    let codes = codes_of(&src, "/mcc/u339-row-fork3.mc");
+    assert!(
+        !codes.contains(&4007) && !codes.contains(&4180),
+        "the three-lane replication is legal; codes={codes:?}"
+    );
+}
+
+/// The per-lane copies inherit the ordinary binding law: a width-deficit
+/// formal (the `[n1, n2]` Set against a per-lane scalar actual) reports its
+/// E4180 once per copy, the receivers stay built, and the rejected bodies'
+/// wiring is withheld — the head lanes never reach the instances, while the
+/// exit mouth degrades to the instance terminals (the b4154 face).
+#[test]
+fn u339__row_return_fork_keeps_each_lane_width_honest() {
+    let two = PULL.replace(
+        "func Pull(net) {\n        net - this.1\n        return this{P | N}\n    }",
+        "func Pull([n1, n2]) {\n        n1 - this - n2\n        return this{P | N}\n    }",
+    );
+    let src = format!(
+        "{two}module main {{\n    io P\n    io Q\n    io X\n    io Y\n    \
+         func M() {{\n        [P, Q] => RES(10k).Pull(_) -> [X, Y]\n    }}\n}}\n"
+    );
+    let codes = codes_of(&src, "/mcc/u339-row-fork-deficit.mc");
+    assert_eq!(
+        codes.iter().filter(|c| **c == 4180).count(),
+        2,
+        "one deficit report per lane copy; codes={codes:?}"
+    );
+    assert!(
+        !codes.contains(&4007),
+        "the shape itself forks cleanly — only the width deficit reports; codes={codes:?}"
+    );
+    assert_eq!(
+        devices_of(&src, "/mcc/u339-row-fork-deficit.mc"),
+        BTreeSet::from(["_R1".to_string(), "_R2".to_string()]),
+        "an error does not block instantiation"
+    );
+    let mut nets = nets_of(&src, "/mcc/u339-row-fork-deficit.mc");
+    nets.retain(|net| net.iter().any(|p| p.contains("_R")));
+    nets.sort();
+    assert_eq!(
+        nets,
+        vec![
+            vec!["X".to_string(), "_R1.2".to_string()],
+            vec!["Y".to_string(), "_R2.2".to_string()],
+        ],
+        "the rejected body's wiring is withheld; the head lanes stay off the \
+         instances; nets={nets:?}"
+    );
+}
