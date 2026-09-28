@@ -32,7 +32,7 @@ range (threshold 40KB).
 |---|---|---|
 | `viz/layout/equipotential_tree.rs` | 460 KB | 220 |
 | `db/infra/mc_code.rs` | 399 KB | 122 |
-| `semantic/basic/mc_phrase.rs` | 362 KB | 92 |
+| `semantic/basic/mc_phrase.rs` | 363 KB | 93 |
 | `semantic/component/mc_pins/mod.rs` | 242 KB | 112 |
 | `db/diagnostic/errcodes.rs` | 213 KB | 476 |
 | `semantic/validation/nets/mod.rs` | 212 KB | 140 |
@@ -73,7 +73,7 @@ range (threshold 40KB).
 | `query/` | 9 | 170 KB |
 | `refdef/` | 7 | 134 KB |
 | `rpc/` | 16 | 312 KB |
-| `semantic/` | 99 | 2943 KB |
+| `semantic/` | 99 | 2953 KB |
 | `stages/` | 19 | 408 KB |
 | `vector/` | 26 | 494 KB |
 | `viz/` | 97 | 2483 KB |
@@ -5623,17 +5623,19 @@ semantic/basic/mc_literal.rs#L252  fn new
 semantic/basic/mc_opd.rs#L13  enum McOpd
 semantic/basic/mc_opd.rs#L20  impl McOpd
 semantic/basic/mc_opd.rs#L21  fn new
-semantic/basic/mc_opd.rs#L145  fn new_from_ids_node
-semantic/basic/mc_opd.rs#L157  fn expand
-semantic/basic/mc_opd.rs#L167  fn to_string_list
-semantic/basic/mc_opd.rs#L177  fn match_name
-semantic/basic/mc_opd.rs#L187  impl McOpd
-semantic/basic/mc_opd.rs#L188  fn to_string
-semantic/basic/mc_opd.rs#L197  fn len
-semantic/basic/mc_opd.rs#L207  impl From<&str> for McOpd
-semantic/basic/mc_opd.rs#L208  fn from
-semantic/basic/mc_opd.rs#L213  impl std::fmt::Display for McOpd
-semantic/basic/mc_opd.rs#L214  fn fmt
+semantic/basic/mc_opd.rs#L189  fn new_from_ids_node
+semantic/basic/mc_opd.rs#L207  fn push_group_member
+semantic/basic/mc_opd.rs#L244  fn push_chain_segments
+semantic/basic/mc_opd.rs#L339  fn expand
+semantic/basic/mc_opd.rs#L349  fn to_string_list
+semantic/basic/mc_opd.rs#L359  fn match_name
+semantic/basic/mc_opd.rs#L369  impl McOpd
+semantic/basic/mc_opd.rs#L370  fn to_string
+semantic/basic/mc_opd.rs#L379  fn len
+semantic/basic/mc_opd.rs#L389  impl From<&str> for McOpd
+semantic/basic/mc_opd.rs#L390  fn from
+semantic/basic/mc_opd.rs#L395  impl std::fmt::Display for McOpd
+semantic/basic/mc_opd.rs#L396  fn fmt
 semantic/basic/mc_param.rs#L26  static R05_UNRESOLVED_UNIT
 semantic/basic/mc_param.rs#L28  fn reset_r05_counter
 semantic/basic/mc_param.rs#L36  enum McParamValue
@@ -5906,71 +5908,72 @@ semantic/basic/mc_phrase.rs#L613  fn expand_options
 semantic/basic/mc_phrase.rs#L625  fn expand_group
 semantic/basic/mc_phrase.rs#L695  fn cartesian_product
 semantic/basic/mc_phrase.rs#L711  fn new
-semantic/basic/mc_phrase.rs#L4104  fn salvage_inline_ctors
-semantic/basic/mc_phrase.rs#L4108  fn collect_fcalls
-semantic/basic/mc_phrase.rs#L4142  fn curly_mn_side_members
-semantic/basic/mc_phrase.rs#L4165  struct CompPinShape
-semantic/basic/mc_phrase.rs#L4173  enum PinShapeKind
-semantic/basic/mc_phrase.rs#L4195  fn shape_defaults
-semantic/basic/mc_phrase.rs#L4255  fn is_reverse_noop_operand
-semantic/basic/mc_phrase.rs#L4285  fn as_bare_component
-semantic/basic/mc_phrase.rs#L4296  fn body_arity
-semantic/basic/mc_phrase.rs#L4310  fn check_inst_plusminus
-semantic/basic/mc_phrase.rs#L4336  fn check_body_pair_plusminus
-semantic/basic/mc_phrase.rs#L4360  fn as_bare_net
-semantic/basic/mc_phrase.rs#L4388  fn root_ident
-semantic/basic/mc_phrase.rs#L4414  fn check_net_pair_plusminus
-semantic/basic/mc_phrase.rs#L4429  impl McPhrase
-semantic/basic/mc_phrase.rs#L4434  fn reverse_is_noop
-semantic/basic/mc_phrase.rs#L4438  fn get_left
-semantic/basic/mc_phrase.rs#L4593  fn get_right
-semantic/basic/mc_phrase.rs#L4726  fn dot_or_curly
-semantic/basic/mc_phrase.rs#L5123  fn access_node_element_members
-semantic/basic/mc_phrase.rs#L5186  fn curly_mn
-semantic/basic/mc_phrase.rs#L5202  fn opd_to_node_element_vec
-semantic/basic/mc_phrase.rs#L5290  fn upgrade_new_label_or_bus
-semantic/basic/mc_phrase.rs#L5301  fn needs_paren_for_priority
-semantic/basic/mc_phrase.rs#L5320  fn needs_paren_for_series
-semantic/basic/mc_phrase.rs#L5345  fn format_series_item
-semantic/basic/mc_phrase.rs#L5353  impl std::fmt::Display for McPhrase
-semantic/basic/mc_phrase.rs#L5354  fn fmt
-semantic/basic/mc_phrase.rs#L5422  fn flatten
-semantic/basic/mc_phrase.rs#L5526  fn stretch_licensed_members
-semantic/basic/mc_phrase.rs#L5550  fn operand_is_licensed_member
-semantic/basic/mc_phrase.rs#L5566  fn operand_lane_width
-semantic/basic/mc_phrase.rs#L5574  fn infer_shape_and_upgrade
-semantic/basic/mc_phrase.rs#L5754  fn check_transpose_allowed
-semantic/basic/mc_phrase.rs#L5775  fn interface_elems
-semantic/basic/mc_phrase.rs#L5817  fn with_owner
-semantic/basic/mc_phrase.rs#L5837  fn component_port_elems
-semantic/basic/mc_phrase.rs#L5899  fn base_instance_name
-semantic/basic/mc_phrase.rs#L5918  fn module_port_elems
-semantic/basic/mc_phrase.rs#L5993  fn operand_base_member
-semantic/basic/mc_phrase.rs#L6024  fn module_member_is_internal
-semantic/basic/mc_phrase.rs#L6067  fn report_internal_member_access
-semantic/basic/mc_phrase.rs#L6099  fn group_display_form
-semantic/basic/mc_phrase.rs#L6104  fn eval_port_elems
-semantic/basic/mc_phrase.rs#L6686  impl OpdShape
-semantic/basic/mc_phrase.rs#L6693  fn of
-semantic/basic/mc_phrase.rs#L6703  fn from_sides
-semantic/basic/mc_phrase.rs#L6750  fn check_list_column_width_mixed
-semantic/basic/mc_phrase.rs#L6807  fn declared_scalar_element
-semantic/basic/mc_phrase.rs#L6830  fn list_element_elems
-semantic/basic/mc_phrase.rs#L6846  fn column_kind
-semantic/basic/mc_phrase.rs#L6876  enum ColumnKind
-semantic/basic/mc_phrase.rs#L6907  fn is_connectable
-semantic/basic/mc_phrase.rs#L6922  mod nested_subscript_tests
-semantic/basic/mc_phrase.rs#L6926  fn nested_subscript__embedded_group_splits_from_single_ida
-semantic/basic/mc_phrase.rs#L6934  fn nested_subscript__named_inner_members
-semantic/basic/mc_phrase.rs#L6942  fn nested_subscript__matrix_is_not_split
-semantic/basic/mc_phrase.rs#L6948  fn nested_subscript__curly_on_array_splits
-semantic/basic/mc_phrase.rs#L6966  fn nested_subscript__plain_curly_bus_is_not_split
-semantic/basic/mc_phrase.rs#L6987  mod r0_group_structure_tests
-semantic/basic/mc_phrase.rs#L6991  fn group
-semantic/basic/mc_phrase.rs#L7002  fn spliced_statement
-semantic/basic/mc_phrase.rs#L7017  fn r0_group_structure__inner_chain_survives_the_statement_split
-semantic/basic/mc_phrase.rs#L7037  fn r0_group_structure__display_renders_the_inner_parentheses
-semantic/basic/mc_phrase.rs#L7049  fn r0_group_structure__inner_direction_stays_under_a_different_outer
+semantic/basic/mc_phrase.rs#L4110  fn salvage_inline_ctors
+semantic/basic/mc_phrase.rs#L4114  fn collect_fcalls
+semantic/basic/mc_phrase.rs#L4146  fn curly_mn_side_members
+semantic/basic/mc_phrase.rs#L4171  fn curly_side_member
+semantic/basic/mc_phrase.rs#L4200  struct CompPinShape
+semantic/basic/mc_phrase.rs#L4208  enum PinShapeKind
+semantic/basic/mc_phrase.rs#L4230  fn shape_defaults
+semantic/basic/mc_phrase.rs#L4290  fn is_reverse_noop_operand
+semantic/basic/mc_phrase.rs#L4320  fn as_bare_component
+semantic/basic/mc_phrase.rs#L4331  fn body_arity
+semantic/basic/mc_phrase.rs#L4345  fn check_inst_plusminus
+semantic/basic/mc_phrase.rs#L4371  fn check_body_pair_plusminus
+semantic/basic/mc_phrase.rs#L4395  fn as_bare_net
+semantic/basic/mc_phrase.rs#L4423  fn root_ident
+semantic/basic/mc_phrase.rs#L4449  fn check_net_pair_plusminus
+semantic/basic/mc_phrase.rs#L4464  impl McPhrase
+semantic/basic/mc_phrase.rs#L4469  fn reverse_is_noop
+semantic/basic/mc_phrase.rs#L4473  fn get_left
+semantic/basic/mc_phrase.rs#L4628  fn get_right
+semantic/basic/mc_phrase.rs#L4761  fn dot_or_curly
+semantic/basic/mc_phrase.rs#L5158  fn access_node_element_members
+semantic/basic/mc_phrase.rs#L5221  fn curly_mn
+semantic/basic/mc_phrase.rs#L5237  fn opd_to_node_element_vec
+semantic/basic/mc_phrase.rs#L5325  fn upgrade_new_label_or_bus
+semantic/basic/mc_phrase.rs#L5336  fn needs_paren_for_priority
+semantic/basic/mc_phrase.rs#L5355  fn needs_paren_for_series
+semantic/basic/mc_phrase.rs#L5380  fn format_series_item
+semantic/basic/mc_phrase.rs#L5388  impl std::fmt::Display for McPhrase
+semantic/basic/mc_phrase.rs#L5389  fn fmt
+semantic/basic/mc_phrase.rs#L5457  fn flatten
+semantic/basic/mc_phrase.rs#L5561  fn stretch_licensed_members
+semantic/basic/mc_phrase.rs#L5585  fn operand_is_licensed_member
+semantic/basic/mc_phrase.rs#L5601  fn operand_lane_width
+semantic/basic/mc_phrase.rs#L5609  fn infer_shape_and_upgrade
+semantic/basic/mc_phrase.rs#L5789  fn check_transpose_allowed
+semantic/basic/mc_phrase.rs#L5810  fn interface_elems
+semantic/basic/mc_phrase.rs#L5852  fn with_owner
+semantic/basic/mc_phrase.rs#L5872  fn component_port_elems
+semantic/basic/mc_phrase.rs#L5934  fn base_instance_name
+semantic/basic/mc_phrase.rs#L5953  fn module_port_elems
+semantic/basic/mc_phrase.rs#L6028  fn operand_base_member
+semantic/basic/mc_phrase.rs#L6059  fn module_member_is_internal
+semantic/basic/mc_phrase.rs#L6102  fn report_internal_member_access
+semantic/basic/mc_phrase.rs#L6134  fn group_display_form
+semantic/basic/mc_phrase.rs#L6139  fn eval_port_elems
+semantic/basic/mc_phrase.rs#L6721  impl OpdShape
+semantic/basic/mc_phrase.rs#L6728  fn of
+semantic/basic/mc_phrase.rs#L6738  fn from_sides
+semantic/basic/mc_phrase.rs#L6785  fn check_list_column_width_mixed
+semantic/basic/mc_phrase.rs#L6842  fn declared_scalar_element
+semantic/basic/mc_phrase.rs#L6865  fn list_element_elems
+semantic/basic/mc_phrase.rs#L6881  fn column_kind
+semantic/basic/mc_phrase.rs#L6911  enum ColumnKind
+semantic/basic/mc_phrase.rs#L6942  fn is_connectable
+semantic/basic/mc_phrase.rs#L6957  mod nested_subscript_tests
+semantic/basic/mc_phrase.rs#L6961  fn nested_subscript__embedded_group_splits_from_single_ida
+semantic/basic/mc_phrase.rs#L6969  fn nested_subscript__named_inner_members
+semantic/basic/mc_phrase.rs#L6977  fn nested_subscript__matrix_is_not_split
+semantic/basic/mc_phrase.rs#L6983  fn nested_subscript__curly_on_array_splits
+semantic/basic/mc_phrase.rs#L7001  fn nested_subscript__plain_curly_bus_is_not_split
+semantic/basic/mc_phrase.rs#L7022  mod r0_group_structure_tests
+semantic/basic/mc_phrase.rs#L7026  fn group
+semantic/basic/mc_phrase.rs#L7037  fn spliced_statement
+semantic/basic/mc_phrase.rs#L7052  fn r0_group_structure__inner_chain_survives_the_statement_split
+semantic/basic/mc_phrase.rs#L7072  fn r0_group_structure__display_renders_the_inner_parentheses
+semantic/basic/mc_phrase.rs#L7084  fn r0_group_structure__inner_direction_stays_under_a_different_outer
 semantic/basic/mc_ref.rs#L14  struct McInstanceRef
 semantic/basic/mc_ref.rs#L18  impl McInstanceRef
 semantic/basic/mc_ref.rs#L19  fn new
@@ -6912,76 +6915,76 @@ semantic/module/mod.rs#L482  fn scan_domain_bridges
 semantic/module/mod.rs#L625  fn parse_body
 semantic/module/mod.rs#L1097  fn collect_declare_ctor_refs
 semantic/module/mod.rs#L1139  fn split_decl_face
-semantic/module/mod.rs#L1233  fn is_plain_label_candidate
-semantic/module/mod.rs#L1255  fn extract_declare_class_span
-semantic/module/mod.rs#L1303  fn register_curly_param_bus_def
-semantic/module/mod.rs#L1374  fn find_inst
-semantic/module/mod.rs#L1381  fn add_label
-semantic/module/mod.rs#L1401  fn find_member_in_anon_insts
-semantic/module/mod.rs#L1443  fn add_component
-semantic/module/mod.rs#L1456  fn add_module
-semantic/module/mod.rs#L1463  fn get_input_elements
-semantic/module/mod.rs#L1472  fn get_output_elements
-semantic/module/mod.rs#L1486  fn port_decl_span
-semantic/module/mod.rs#L1493  impl ShapeCtx for McModule
-semantic/module/mod.rs#L1494  fn find_inst
-semantic/module/mod.rs#L1498  fn uri
-semantic/module/mod.rs#L1502  fn is_declared_port
-semantic/module/mod.rs#L1510  fn interface_param_members
-semantic/module/mod.rs#L1530  fn get_vector_members
-semantic/module/mod.rs#L1537  impl HasFindInst for McModule
-semantic/module/mod.rs#L1539  fn is_declared_instance_name
-semantic/module/mod.rs#L1546  fn note_func_call_caller
-semantic/module/mod.rs#L1556  fn report_floating_label
-semantic/module/mod.rs#L1564  fn register_gate_candidate
-semantic/module/mod.rs#L1573  fn find_inst_mut
-semantic/module/mod.rs#L1578  fn find_inst_with_span
-semantic/module/mod.rs#L1593  fn declared_port_members
-semantic/module/mod.rs#L1613  fn add_label_at
-semantic/module/mod.rs#L1624  fn add_bus
-semantic/module/mod.rs#L1637  fn add_list
-semantic/module/mod.rs#L1646  fn add_bus_member
-semantic/module/mod.rs#L1731  fn add_interface_member
-semantic/module/mod.rs#L1768  fn check_bus_member
-semantic/module/mod.rs#L1779  fn is_component_bus
-semantic/module/mod.rs#L1789  fn parse_declare
-semantic/module/mod.rs#L1801  fn add_component
-semantic/module/mod.rs#L1809  fn add_module
-semantic/module/mod.rs#L1827  fn gen_anon_name
-semantic/module/mod.rs#L1833  fn store_inst_span
-semantic/module/mod.rs#L1837  fn record_declareb_def
-semantic/module/mod.rs#L1846  fn upgrade_label_to_bus
-semantic/module/mod.rs#L1867  fn find_func_return
-semantic/module/mod.rs#L1871  fn domain_pair_named
-semantic/module/mod.rs#L1881  fn declared_endpoint_named
-semantic/module/mod.rs#L1893  fn scope_name
-semantic/module/mod.rs#L1897  fn licensed_domain_member_at
-semantic/module/mod.rs#L1909  struct DomainBridgeWord
-semantic/module/mod.rs#L1921  fn collect_domain_bridge_words
-semantic/module/mod.rs#L1950  fn report_domain_bridge_code
-semantic/module/mod.rs#L1959  impl McModule
-semantic/module/mod.rs#L1965  fn collect_net_def_spans
-semantic/module/mod.rs#L2035  fn collect_net_refs_in_node
-semantic/module/mod.rs#L2168  fn has_dot_chain
-semantic/module/mod.rs#L2206  fn try_record_chain_ref
-semantic/module/mod.rs#L2302  fn collect_instance_segments
-semantic/module/mod.rs#L2320  fn collect_fcall_segments
-semantic/module/mod.rs#L2349  fn walk_chain_children
-semantic/module/mod.rs#L2401  fn collect_ident_segments
-semantic/module/mod.rs#L2461  fn collect_curly_members
-semantic/module/mod.rs#L2488  fn curly_range
-semantic/module/mod.rs#L2495  fn record_scoped_net_ref
-semantic/module/mod.rs#L2604  struct Mc2Module
-semantic/module/mod.rs#L2615  impl Mc2Module
-semantic/module/mod.rs#L2616  fn new
-semantic/module/mod.rs#L2626  fn with_params
-semantic/module/mod.rs#L2637  fn find_port
-semantic/module/mod.rs#L2672  fn get_input_ports
-semantic/module/mod.rs#L2682  fn get_output_ports
-semantic/module/mod.rs#L2692  fn get_all_ports
-semantic/module/mod.rs#L2704  impl std::fmt::Display for McModule
-semantic/module/mod.rs#L2705  fn fmt
-semantic/module/mod.rs#L2711  struct InstRow
+semantic/module/mod.rs#L1238  fn is_plain_label_candidate
+semantic/module/mod.rs#L1260  fn extract_declare_class_span
+semantic/module/mod.rs#L1308  fn register_curly_param_bus_def
+semantic/module/mod.rs#L1379  fn find_inst
+semantic/module/mod.rs#L1386  fn add_label
+semantic/module/mod.rs#L1406  fn find_member_in_anon_insts
+semantic/module/mod.rs#L1448  fn add_component
+semantic/module/mod.rs#L1461  fn add_module
+semantic/module/mod.rs#L1468  fn get_input_elements
+semantic/module/mod.rs#L1477  fn get_output_elements
+semantic/module/mod.rs#L1491  fn port_decl_span
+semantic/module/mod.rs#L1498  impl ShapeCtx for McModule
+semantic/module/mod.rs#L1499  fn find_inst
+semantic/module/mod.rs#L1503  fn uri
+semantic/module/mod.rs#L1507  fn is_declared_port
+semantic/module/mod.rs#L1515  fn interface_param_members
+semantic/module/mod.rs#L1535  fn get_vector_members
+semantic/module/mod.rs#L1542  impl HasFindInst for McModule
+semantic/module/mod.rs#L1544  fn is_declared_instance_name
+semantic/module/mod.rs#L1551  fn note_func_call_caller
+semantic/module/mod.rs#L1561  fn report_floating_label
+semantic/module/mod.rs#L1569  fn register_gate_candidate
+semantic/module/mod.rs#L1578  fn find_inst_mut
+semantic/module/mod.rs#L1583  fn find_inst_with_span
+semantic/module/mod.rs#L1598  fn declared_port_members
+semantic/module/mod.rs#L1618  fn add_label_at
+semantic/module/mod.rs#L1629  fn add_bus
+semantic/module/mod.rs#L1642  fn add_list
+semantic/module/mod.rs#L1651  fn add_bus_member
+semantic/module/mod.rs#L1736  fn add_interface_member
+semantic/module/mod.rs#L1773  fn check_bus_member
+semantic/module/mod.rs#L1784  fn is_component_bus
+semantic/module/mod.rs#L1794  fn parse_declare
+semantic/module/mod.rs#L1806  fn add_component
+semantic/module/mod.rs#L1814  fn add_module
+semantic/module/mod.rs#L1832  fn gen_anon_name
+semantic/module/mod.rs#L1838  fn store_inst_span
+semantic/module/mod.rs#L1842  fn record_declareb_def
+semantic/module/mod.rs#L1851  fn upgrade_label_to_bus
+semantic/module/mod.rs#L1872  fn find_func_return
+semantic/module/mod.rs#L1876  fn domain_pair_named
+semantic/module/mod.rs#L1886  fn declared_endpoint_named
+semantic/module/mod.rs#L1898  fn scope_name
+semantic/module/mod.rs#L1902  fn licensed_domain_member_at
+semantic/module/mod.rs#L1914  struct DomainBridgeWord
+semantic/module/mod.rs#L1926  fn collect_domain_bridge_words
+semantic/module/mod.rs#L1955  fn report_domain_bridge_code
+semantic/module/mod.rs#L1964  impl McModule
+semantic/module/mod.rs#L1970  fn collect_net_def_spans
+semantic/module/mod.rs#L2040  fn collect_net_refs_in_node
+semantic/module/mod.rs#L2173  fn has_dot_chain
+semantic/module/mod.rs#L2211  fn try_record_chain_ref
+semantic/module/mod.rs#L2307  fn collect_instance_segments
+semantic/module/mod.rs#L2325  fn collect_fcall_segments
+semantic/module/mod.rs#L2354  fn walk_chain_children
+semantic/module/mod.rs#L2406  fn collect_ident_segments
+semantic/module/mod.rs#L2466  fn collect_curly_members
+semantic/module/mod.rs#L2493  fn curly_range
+semantic/module/mod.rs#L2500  fn record_scoped_net_ref
+semantic/module/mod.rs#L2609  struct Mc2Module
+semantic/module/mod.rs#L2620  impl Mc2Module
+semantic/module/mod.rs#L2621  fn new
+semantic/module/mod.rs#L2631  fn with_params
+semantic/module/mod.rs#L2642  fn find_port
+semantic/module/mod.rs#L2677  fn get_input_ports
+semantic/module/mod.rs#L2687  fn get_output_ports
+semantic/module/mod.rs#L2697  fn get_all_ports
+semantic/module/mod.rs#L2709  impl std::fmt::Display for McModule
+semantic/module/mod.rs#L2710  fn fmt
+semantic/module/mod.rs#L2716  struct InstRow
 semantic/module/pi.rs#L57  struct McPowerDecls
 semantic/module/pi.rs#L90  impl McPowerDecls
 semantic/module/pi.rs#L91  fn new
@@ -11760,4 +11763,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-425 files, 11677 declarations.
+425 files, 11680 declarations.

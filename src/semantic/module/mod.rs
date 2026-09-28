@@ -1143,7 +1143,7 @@ impl McModule {
             let mut out: Vec<String> = Vec::new();
             if let Some(mut s) = wrapper.get_sub_node() {
                 loop {
-                    out.extend(s.to_id_or_ida_or_num());
+                    out.extend(McPhrase::curly_mn_side_members(&s));
                     match s.get_next() {
                         Some(nx) => s = nx,
                         None => break,
@@ -1163,12 +1163,17 @@ impl McModule {
                 if side1.get_type() != MCAST_OPDS || side2.get_type() != MCAST_OPDS {
                     return None;
                 }
+                let left = side_members(&side1);
+                let right = side_members(&side2);
+                if left.is_empty() || right.is_empty() {
+                    // A side that read zero members has no face to expose —
+                    // the same law the comma and dot branches apply (the
+                    // unreadable-member reports already fired in the reader).
+                    return None;
+                }
                 Some((
                     head,
-                    crate::semantic::component::DeclareFace {
-                        left: side_members(&side1),
-                        right: side_members(&side2),
-                    },
+                    crate::semantic::component::DeclareFace { left, right },
                 ))
             }
             // U354: the comma spelling `LDO2 ldo{VIN, VOUT}` — the grammar
@@ -1188,7 +1193,7 @@ impl McModule {
                 let mut members: Vec<String> = Vec::new();
                 let mut cur = head.get_next()?;
                 loop {
-                    members.extend(cur.to_id_or_ida_or_num());
+                    members.extend(McPhrase::curly_mn_side_members(&cur));
                     match cur.get_next() {
                         Some(nx) => cur = nx,
                         None => break,

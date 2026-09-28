@@ -37,6 +37,7 @@ mod single_port_representative;
 mod top_series_passive_kept;
 mod u339_shape_law;
 mod u343_decl_face;
+mod u343_decl_side_members;
 mod u343_typed_prefix;
 mod u354_comma_decl;
 mod u355_net_decl_chain;
