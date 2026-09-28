@@ -3287,7 +3287,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         severity = Info,
         domain = NamingStyle,
         host = "style",
-        doc = "Style guide §2 #3: net labels and module port faces are UPPER_SNAKE. Two faces name a net — the module header formals and the body's net labels; pins and datasheet names are exempt (§2.1). Instance names stay outside the gate: the refdes vs functional-block split needs design context no machine holds. Workspace files only; the factory corpus is conformant (b4075/b4079) and a stale live copy must not red the gate. Carries a QuickFix (U327): the diagnostics channel derives a rename-all-occurrences edit set (lsp/quickfix.rs); the port face joins by re-coupling the synthetic whole-chain defs to the pinned declaration (U341), with each chain-consumer edit narrowed to the member segment.",
+        doc = "Style guide §2 #3: net labels and module port faces are UPPER_SNAKE. Two faces name a net — the module header formals and the body's net labels; pins and datasheet names are exempt (§2.1). Instance names stay outside the gate: the refdes vs functional-block split needs design context no machine holds. Workspace files only; the factory corpus is conformant (b4075/b4079) and a stale live copy must not red the gate. Carries a QuickFix (U327) for the body net-label/free-net face: the diagnostics channel derives a rename-all-occurrences edit set (lsp/quickfix.rs). The port face stays fix-free while member-chain consumers are unindexed.",
         lock = "tests/lock_pp_naming_ports.rs",
         fix = QuickFix,
     },
@@ -3298,7 +3298,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         severity = Info,
         domain = NamingStyle,
         host = "style",
-        doc = "Style guide §2 #6: role values (the interface's role vocabulary) and enum values are UPPER_SNAKE. The @role(...) lowercase word vocabulary is a §2.1 exemption and is not judged here. No fix axis yet (U327): a rename would need member-chain consumer refs, which the pass1 ref tables do not index today.",
+        doc = "Style guide §2 #6: role values (the interface's role vocabulary) and enum values are UPPER_SNAKE. The @role(...) lowercase word vocabulary is a §2.1 exemption and is not judged here. Stays fix-free (U327/U341 probe): a qualified enum value use (`diel = Grade.good`) registers no ref row in the consuming sem and the EnumValDef span covers the whole value list, while a RoleDef registers an empty name and its consumer position (`u::IFACE(host)`) indexes no row — neither face can pin a sound rename.",
         lock = "tests/lock_pp_naming_ports.rs",
     },
     declare_post_parse_rule! {
@@ -3308,8 +3308,9 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         severity = Info,
         domain = NamingStyle,
         host = "style",
-        doc = "Style guide §2 #9: function names are uppercase-initial, library and user funcs one rule — functions are class-level behavior and take the class's form. Only the first letter is judged. No fix axis yet (U327): call sites are member chains, which the pass1 ref tables do not index today.",
+        doc = "Style guide §2 #9: function names are uppercase-initial, library and user funcs one rule — functions are class-level behavior and take the class's form. Only the first letter is judged. Carries a QuickFix (U327/U341): the call-site rows are indexed in both corpus shapes — same-file member calls pair with the real FuncDef id, cross-file ones with a synthetic id re-coupled by the alias union (lsp/quickfix.rs) — and each call-site edit sits on the member segment; an in-body `this.f(...)` call is not legal syntax, so no third consumer face exists.",
         lock = "tests/lock_pp_naming_ports.rs",
+        fix = QuickFix,
     },
     // exprs — ExprsCheck: expression-context validity and attribute values.
     declare_post_parse_rule! {

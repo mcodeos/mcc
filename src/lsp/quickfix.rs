@@ -164,14 +164,17 @@ fn collect_edits(code: u32, uri: &str, name: &str, replacement: &str) -> Option<
     // through member chains (`psu.vin`): chain rows exist and pair with a
     // synthetic whole-chain def whose def_map entry sits at the true
     // declaration's (file, span) — the alias union below re-couples those
-    // rows, so the port face carries a fix (U341). Enum values and funcs stay
-    // suppressed: their cross-file consumer faces are not indexed in a
-    // joinable shape today (a module-level `t.enable(...)` call site carries
-    // rows paired to synthetic ids outside the FuncRef join), so a rename
-    // would silently dangle them.
-    if defs.keys().any(|(kind, _)| {
-        matches!(kind, SymbolKind::EnumValDef | SymbolKind::FuncDef)
-    }) {
+    // rows, so the port face carries a fix (U341). A func face is the same
+    // shape: `inst.Enable(...)` call sites register FuncRef rows (same-file
+    // rows pair with the real FuncDef id directly, cross-file rows with a
+    // synthetic id the alias union re-couples), and the two corpus call
+    // shapes — named-instance member call and inline two-pin chain — are both
+    // indexed; an in-body `this.f(...)` call is not legal syntax (E2082), so
+    // there is no third consumer face to dangle (U341 probe). Enum values stay
+    // suppressed: a qualified value use (`diel = Grade.good`) registers no ref
+    // row at all, and the EnumValDef span covers the whole value list, so a
+    // rename could not even place the declaration edit safely.
+    if defs.keys().any(|(kind, _)| kind == &SymbolKind::EnumValDef) {
         return None;
     }
 
@@ -481,9 +484,11 @@ mod tests {
 
     #[test]
     fn enum_value_stays_fix_free_until_member_chain_refs_index_consumers() {
-        // Same soundness boundary as the port face: an enum value consumed
-        // through a qualified chain is unindexed today, so the declaration
-        // cannot be renamed in isolation.
+        // Probed (U341): a qualified value use (`diel = Grade.good` in a
+        // component header) registers no ref row at all in the consuming sem,
+        // and the EnumValDef def_map span covers the whole value list
+        // (`good,\n    bad` — two values share one span), so neither the
+        // consumers nor even the declaration edit can be placed soundly.
         let src = "enum dielectric\n{\n    x7r,\n    fast\n}\n\nmodule main\n{\n}\n";
         let _guard = build_workspace(&[("/mcc/u327_enum.mc", src)], "/mcc/u327_enum.mc");
         let diag = first_diag(
@@ -497,16 +502,60 @@ mod tests {
     }
 
     #[test]
-    fn func_stays_fix_free_until_member_chain_refs_index_call_sites() {
-        // Same soundness boundary: a func's call sites are member chains
-        // (`inst.Enable(...)`), unindexed in the pass1 ref tables today.
-        let src = "component TINY\n{\n    name = \"T\"\n    pins = [1 = A]\n\n    func enable([net1, net2])\n    {\n        net1 - this - net2\n    }\n}\n\nmodule main\n{\n}\n";
-        let _guard = build_workspace(&[("/mcc/u327_func.mc", src)], "/mcc/u327_func.mc");
-        let diag = first_diag(crate::errcodes::NAME_FUNC_NOT_UPPER_INITIAL, "/mcc/u327_func.mc");
-        assert!(
-            fix_payload(&diag).is_none(),
-            "funcs must not carry a fix while member-chain call sites are unindexed"
+    fn func_fix_renames_cross_file_call_sites_member_segment_only() {
+        // A func is consumed through member calls: same-file rows pair with
+        // the real FuncDef id, cross-file rows with a synthetic id the alias
+        // union re-couples (U341 probe). Both corpus shapes — named-instance
+        // member call and inline two-pin chain — must carry an edit, each on
+        // the member segment only. Real files on disk: `use ./tiny.mc`
+        // resolution requires the target (same constraint as the loader tests
+        // in db/infra/mc_code.rs).
+        let _guard = crate::db::infra::init::MCC_TEST_PARSE_LOCK.lock().expect("lock");
+        crate::mcc_init_no_lib();
+        crate::mcc_set_system_root(std::path::Path::new(""));
+        crate::mcc_clear_workspace();
+        let dir = std::env::temp_dir().join(format!("mcc-u341-func-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let def_src = "component TINY\n{\n    name = \"T\"\n    pins = [\n        1 = A, \"a\"\n        2 = B, \"b\"\n    ]\n\n    func enable([net1, net2])\n    {\n        net1 - this - net2\n    }\n}\n\nmodule local\n{\n    TINY t9\n    t9.enable([n1, n2])\n}\n";
+        let use_src = "use ./tiny.mc\n\nmodule main\n{\n    TINY t\n    t.enable([vin, vout])\n    TINY(10k).enable([vdd, gnd])\n}\n";
+        let def_path = dir.join("tiny.mc");
+        let main_path = dir.join("main.mc");
+        std::fs::write(&def_path, def_src).unwrap();
+        std::fs::write(&main_path, use_src).unwrap();
+        let def_uri: McURI = format!("file://{}", def_path.canonicalize().unwrap().display());
+        let main_uri: McURI = format!("file://{}", main_path.canonicalize().unwrap().display());
+        crate::mcc_load_from_string(&def_uri, def_src);
+        crate::mcc_load_from_string(&main_uri, use_src);
+        crate::mcc_build(&crate::McIds::from("main"), &main_uri).expect("build main failed");
+        crate::build::pass1::mcb_parse_all_modules();
+
+        // E5072 fires on the declaration file, which stores the bare path.
+        let diag = diag_for(
+            crate::errcodes::NAME_FUNC_NOT_UPPER_INITIAL,
+            def_path.canonicalize().unwrap().display().to_string().as_str(),
+            "enable",
         );
+        let payload = fix_payload(&diag).expect("func face carries a fix once call rows pair");
+        assert_eq!(payload["title"], "Rename 'enable' to 'Enable'");
+        let edits = payload["edits"].as_array().unwrap();
+        // Declaration + same-file call in the def file, both consumer calls in
+        // the consumer file.
+        assert_eq!(edits.len(), 4, "edits: {edits:?}");
+        let def_key = def_path.canonicalize().unwrap().display().to_string();
+        let use_key = main_path.canonicalize().unwrap().display().to_string();
+        for e in edits {
+            assert_eq!(e["replacement"], "Enable");
+            let src = if e["file"].as_str().unwrap() == def_key { def_src } else { use_src };
+            let start = e["pos"].as_u64().unwrap() as usize;
+            let end = start + e["len"].as_u64().unwrap() as usize;
+            assert_eq!(&src[start..end], "enable", "every edit sits on the member segment");
+        }
+        let per_file =
+            |key: &str| edits.iter().filter(|e| e["file"].as_str().unwrap() == key).count();
+        assert_eq!(per_file(&def_key), 2, "declaration + same-file call: {edits:?}");
+        assert_eq!(per_file(&use_key), 2, "both consumer call sites: {edits:?}");
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
