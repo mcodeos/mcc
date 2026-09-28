@@ -2624,11 +2624,622 @@ pub fn place_by_topology(graph: &mut McVecGraph, topos: &mut [NetTopology]) {
     // enveloping re-derives the trunks from the final positions.
     resolve_member_collisions(graph, topos, layer_anchor);
 
+    // ★ U284 (terminal-anchor placement): every box the fixed point left
+    // unplaced gets its real placement HERE, before the envelope — see
+    // `place_terminal_anchors` (律 A/B/C of `doc/viz/terminal-anchor-drop-design.md`).
+    place_terminal_anchors(graph, topos, layer_anchor);
+
     // P6: after members are placed, re-envelope the lane span over all tap
     // points (anchor pins + member taps) so the trunk reaches every tap.
     envelop_lanes(graph, topos);
 
     dump_layer(graph, topos, layer_anchor);
+}
+
+/// ★ U284: terminal-only anchors and every box the fixed point left unplaced
+/// get their real placement here — before `envelop_lanes`, so the layout-phase
+/// spans see their taps (slot and placement at the same instant; the MIC
+/// A2/A3/A8 stale-span faces heal because the render replay re-derives the
+/// same spans from the same rects).
+///
+/// Three laws from `doc/viz/terminal-anchor-drop-design.md`:
+///  * 律 A (pin sits on its row) — a pin whose net has a horizontal row
+///    attaches to that row; the box is the pins' follower, not their master.
+///  * 律 B (body clear of the row band) — a box whose row set is one row
+///    hangs south of that row by `LEAD`, every pin on the Top edge (the
+///    row-facing edge). That is the Bridge/Drop member shape generalized to
+///    terminal-only anchors; Top/Bottom slots are A34's by-design tooth
+///    exemption, and the realized vertical tap leaves the box edge alone
+///    (the A18 collinear-edge shape dies with the old Left/Right grant).
+///  * 律 C (two-row box stands in the corridor) — a TWO-PIN box whose pins
+///    sit on two different rows stands vertically between the rows: the top
+///    pin's row above, the bottom pin's row below, centre x = pin x, so the
+///    A22 contract (centre inside both trunk spans) holds by construction
+///    once the envelope takes the taps. A multi-pin box on two rows falls
+///    back to 律 B on ONE chosen row — ground row first (M12), the majority
+///    row as tie-break (user ruling ①).
+/// Row sets of ≥3 rows are today's stamping fallback (user ruling ③, no live
+/// instance). The same fallback holds orphans — boxes with no row at all —
+/// at the historical constants; the identical stamping block in
+/// `layout_device_layer` stays as the zero-topology safety net (this pass
+/// lives behind `place_by_topology`'s early return) and is normally dead.
+fn place_terminal_anchors(graph: &mut McVecGraph, topos: &[NetTopology], _layer_anchor: i64) {
+    let candidates: Vec<i64> = graph
+        .boxes
+        .iter()
+        .filter(|b| !b.geom_locked && b.kind != BoxKind::PowerLabel)
+        .map(|b| b.id)
+        .collect();
+    if candidates.is_empty() {
+        return;
+    }
+    crate::vlog!(
+        "[equi-tree] place_terminal_anchors: {} boxes await placement",
+        candidates.len()
+    );
+
+    // 律 A: pin → row, with the same row filter as
+    // `snap_satellite_pins_to_rows` (a horizontal, non-terminal-only net owns
+    // a row a pin can sit on).
+    let row_of_pin = |box_id: i64, pid: i64| -> Option<f64> {
+        topos
+            .iter()
+            .find(|t| {
+                t.groups
+                    .iter()
+                    .any(|g| g.box_id == box_id && g.pin_ids.contains(&pid))
+            })
+            .filter(|t| t.lane.horizontal && !t.terminal_only)
+            .map(|t| t.lane.axis)
+    };
+    let is_ground_row = |axis: f64| -> bool {
+        topos.iter().any(|t| {
+            t.lane.horizontal && !t.terminal_only && (t.lane.axis - axis).abs() < 0.5
+                && t.net_kind == NetKind::Ground
+        })
+    };
+
+    // Flow-aware x cursors, per row: a box parks BEYOND the row's outer end —
+    // the end the terminal symbols hang from (`symbol_node`) — so the row's
+    // trunk tiles westward/eastward over empty row to reach it. A tap at that
+    // x crosses nothing already on the row, whatever its length (this is what
+    // lets a multi-row body drop long teeth through the corridor for free).
+    // West rows flow west (outer end = span.0); all others flow east.
+    let mut cursor: BTreeMap<i64, f64> = BTreeMap::new();
+
+    // (west extent, east extent, flow direction) of the run owning the row at
+    // `axis`: the spans and the placed boxes of every horizontal non-terminal
+    // topo sharing its run root. The P3 seed spans still point at the anchor
+    // side (`envelop_lanes` has not run yet), so an anchor-side datum would
+    // park a body right on top of the trunk; the family extent is the run's
+    // true occupied range — and parking beyond it keeps the body clear of the
+    // ground-column branches that drop from the anchor's pins. Unplaced boxes
+    // (this pass's own candidates, still at garbage positions) are excluded.
+    let placed: BTreeMap<i64, (f64, f64)> = graph
+        .boxes
+        .iter()
+        .filter(|b| b.geom_locked)
+        .map(|b| (b.id, (b.x, b.x + b.w)))
+        .collect();
+    use crate::viz::layout::equi_column::COL_CLEAR;
+    // Vertical tap corridors: every placed member hanging by a Top/Bottom
+    // slot draws its tooth straight up/down at the slot's x, whatever nets it
+    // joins — a column a parked body must not straddle (the `mic` drop first
+    // landed across DC.GND's branch verticals and A7 saw a wire through the
+    // box). Blocked x-intervals, band-agnostic: a corridor spans rows.
+    let blocked: Vec<(f64, f64)> = graph
+        .boxes
+        .iter()
+        .filter(|b| b.geom_locked)
+        .flat_map(|b| {
+            let cx = move |off: f64| b.x + b.w * off;
+            // `connected` is still false for P4 members at this point (the
+            // realize pass sets it), so filter on the side alone.
+            b.slots
+                .iter()
+                .filter(|s| matches!(s.side, EntrySide::Top | EntrySide::Bottom))
+                .map(move |s| (cx(s.offset) - COL_CLEAR, cx(s.offset) + COL_CLEAR))
+        })
+        .collect();
+    crate::vlog!("[equi-tree]   blocked corridors: {:?}", blocked);
+    let run_extent = |axis: f64| -> Option<(f64, f64, f64)> {
+        let t0 = topos.iter().find(|t| {
+            t.lane.horizontal && !t.terminal_only && (t.lane.axis - axis).abs() < 0.5
+        })?;
+        let mut lo = f64::INFINITY;
+        let mut hi = f64::NEG_INFINITY;
+        for t in topos
+            .iter()
+            .filter(|t| t.run_root == t0.run_root && t.lane.horizontal && !t.terminal_only)
+        {
+            lo = lo.min(t.lane.span.0);
+            hi = hi.max(t.lane.span.1);
+            for g in &t.groups {
+                if let Some(&(bx, br)) = placed.get(&g.box_id) {
+                    lo = lo.min(bx);
+                    hi = hi.max(br);
+                }
+            }
+        }
+        let dir = if matches!(t0.lane.region, Region::West) {
+            -1.0
+        } else {
+            1.0
+        };
+        Some((lo, hi, dir))
+    };
+
+    // Every row axis on the layer, sorted — the band table a drop body clamps
+    // its height against.
+    let mut row_axes: Vec<f64> = topos
+        .iter()
+        .filter(|t| t.lane.horizontal && !t.terminal_only)
+        .map(|t| t.lane.axis)
+        .collect();
+    row_axes.sort_by(f64::total_cmp);
+    row_axes.dedup_by(|a, b| (*a - *b).abs() < 0.5);
+
+    // orphans keep the historical constants
+    let mut fallback_x = 500.0;
+    let fallback_y = 100.0;
+
+    for id in candidates {
+        let Some(b) = graph.boxes.iter_mut().find(|b| b.id == id) else {
+            continue;
+        };
+        // Size the box from its pins — the same rule the stamping block uses.
+        if b.has_pin_layout() {
+            let (w, h) = layout_box_dims(b);
+            b.w = w;
+            b.h = h;
+        } else {
+            let (max_per_side, label_w) = fallback_box_dims(b);
+            b.w = label_w.max(MIN_BOX_W);
+            b.h = (max_per_side as f64 * 20.0 + 2.0 * PIN_MARGIN).max(60.0);
+        }
+        let pin_ids: Vec<i64> = b.pins.iter().map(|p| p.id).collect();
+        let pin_rows: Vec<(i64, f64)> = pin_ids
+            .iter()
+            .filter_map(|&pid| row_of_pin(id, pid).map(|y| (pid, y)))
+            .collect();
+        let mut axes: Vec<f64> = pin_rows.iter().map(|r| r.1).collect();
+        axes.sort_by(f64::total_cmp);
+        axes.dedup_by(|a, b| (*a - *b).abs() < 0.5);
+
+        match axes.len() {
+            0 | 3.. => {
+                // Orphan (no row) or a ≥3-row crowd: the historical constant
+                // stamping (ruling ③). Slots get the historical synthesis so
+                // the envelope and the glyphs see connected pins.
+                b.x = fallback_x;
+                b.y = fallback_y;
+                b.geom_locked = true;
+                fallback_x += 160.0;
+                stamp_fallback_slots(b, topos);
+                crate::vlog!(
+                    "[equi-tree]   terminal-anchor fallback: '{}' id={} rows={} x={:.0}",
+                    b.name,
+                    b.id,
+                    axes.len(),
+                    b.x
+                );
+            }
+            2 if b.pins.len() == 2 => {
+                // 律 C: stand between the two rows (two-pin boxes, ruling ②).
+                // A4's orientation contract makes the body vertical (h > w) —
+                // a horizontal glyph granted Top/Bottom slots fails the check.
+                let (row_a, row_b) = (axes[0], axes[1]);
+                let (row_top, row_bot) = (row_a.min(row_b), row_a.max(row_b));
+                let corridor = row_bot - row_top - 2.0 * LEAD;
+                b.w = b.w.min(40.0).max(20.0);
+                b.h = corridor.max(b.w + 10.0);
+                if b.h <= b.w {
+                    b.w = (b.h * 0.6).max(20.0);
+                }
+                b.y = row_top + LEAD;
+                if let Some((lo, hi, dir)) = run_extent(row_top) {
+                    let outer = if dir < 0.0 { lo } else { hi };
+                    hang_beyond_outer(b, row_top, outer, dir, &mut cursor, &blocked);
+                }
+                b.geom_locked = true;
+                spread_two_row_slots(b, &pin_rows, row_top, row_bot);
+                crate::vlog!(
+                    "[equi-tree]   terminal-anchor span: '{}' id={} rows {:.0}/{:.0} at ({:.0},{:.0}) {}x{}",
+                    b.name,
+                    b.id,
+                    row_top,
+                    row_bot,
+                    b.x,
+                    b.y,
+                    b.w,
+                    b.h
+                );
+            }
+            _ => {
+                // One row, or a two-row multi-pin body (ruling ①: ground row
+                // first, majority row as tie-break, upper row wins the final
+                // tie — a body hanging south of the upper row drops its
+                // off-row teeth through the corridor, never across the row
+                // it sits on).
+                let axis = if axes.len() == 1 {
+                    axes[0]
+                } else {
+                    *axes
+                        .iter()
+                        .max_by_key(|&&a| {
+                            let count =
+                                pin_rows.iter().filter(|r| (r.1 - a).abs() < 0.5).count();
+                            (is_ground_row(a) as usize, count, -(a as i64))
+                        })
+                        .expect("two-row branch: two axes")
+                };
+                let Some((lo, hi, dir)) = run_extent(axis) else {
+                    b.geom_locked = true;
+                    continue;
+                };
+                let outer = if dir < 0.0 { lo } else { hi };
+                if b.pins.len() == 2 && b.w > b.h {
+                    // Along form (M16's terminal-hang shape): a horizontal
+                    // glyph lying ALONG the row — pins on the vertical edges
+                    // at row height, body straddling the trunk like the P4
+                    // series members do. Flipping this shape into a drop
+                    // would need h > w and the band rarely allows it (A4).
+                    b.y = axis - b.h / 2.0;
+                    hang_beyond_outer(b, axis, outer, dir, &mut cursor, &blocked);
+                    b.geom_locked = true;
+                    grant_along_slots(b, if dir < 0.0 { EntrySide::Right } else { EntrySide::Left }, pin_rows[0].0);
+                    crate::vlog!(
+                        "[equi-tree]   terminal-anchor along: '{}' id={} row={axis:.0} at ({:.0},{:.0}) {}x{}",
+                        b.name, b.id, b.x, b.y, b.w, b.h
+                    );
+                } else {
+                    // 律 B drop form: body off the row band, pins on the
+                    // row-facing edge (short vertical teeth to the row).
+                    let hang = place_drop(b, axis, &row_axes, outer, dir, &mut cursor, &blocked);
+                    b.geom_locked = true;
+                    let row_pin = pin_rows
+                        .iter()
+                        .find(|r| (r.1 - axis).abs() < 0.5)
+                        .map(|r| r.0);
+                    grant_drop_slots(b, hang, row_pin);
+                    crate::vlog!(
+                        "[equi-tree]   terminal-anchor drop: '{}' id={} row={axis:.0} hang={hang:?} at ({:.0},{:.0}) {}x{}",
+                        b.name, b.id, b.x, b.y, b.w, b.h
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// Park a box beyond the row's outer end, chaining the row cursor outward
+/// (`COL_CLEAR` gap to whatever the row already ends with, and between this
+/// pass's own boxes on the same row), then keep flowing outward past every
+/// blocked vertical-tap corridor the body would straddle.
+fn hang_beyond_outer(
+    b: &mut crate::vector::graph::McVecBox,
+    axis: f64,
+    outer: f64,
+    dir: f64,
+    cursor: &mut BTreeMap<i64, f64>,
+    blocked: &[(f64, f64)],
+) {
+    use crate::viz::layout::equi_column::COL_CLEAR;
+    let start = *cursor.entry(axis as i64).or_insert(outer);
+    if dir < 0.0 {
+        b.x = start - COL_CLEAR - b.w;
+    } else {
+        b.x = start + COL_CLEAR;
+    }
+    for _ in 0..64 {
+        let Some(&(bl, br)) = blocked
+            .iter()
+            .find(|&&(bl, br)| b.x < br && bl < b.x + b.w)
+        else {
+            break;
+        };
+        if dir < 0.0 {
+            b.x = bl - COL_CLEAR - b.w;
+        } else {
+            b.x = br + COL_CLEAR;
+        }
+    }
+    if dir < 0.0 {
+        cursor.insert(axis as i64, b.x);
+    } else {
+        cursor.insert(axis as i64, b.x + b.w);
+    }
+}
+
+/// How far south / north of `axis` a drop body may extend before touching the
+/// neighbouring row's trunk (`LEAD` clearance to the row itself, `COL_CLEAR`
+/// to the neighbour). `INFINITY` when the band is open to the canvas edge.
+fn band_clearance(row_axes: &[f64], axis: f64) -> (f64, f64) {
+    use crate::viz::layout::equi_column::COL_CLEAR;
+    let south = row_axes.iter().copied().find(|&a| a > axis + 0.5);
+    let north = row_axes.iter().rev().copied().find(|&a| a < axis - 0.5);
+    (
+        south.map_or(f64::INFINITY, |a| a - axis - LEAD - COL_CLEAR),
+        north.map_or(f64::INFINITY, |a| axis - a - LEAD - COL_CLEAR),
+    )
+}
+
+/// 律 B drop placement: clamp the body height to the band (hanging south when
+/// the band allows, north otherwise), park the body beyond the row's outer
+/// end, and report the hang side for the slot grant. A two-pin body ends up
+/// vertical — A4 pairs Top/Bottom slots with h > w.
+fn place_drop(
+    b: &mut crate::vector::graph::McVecBox,
+    axis: f64,
+    row_axes: &[f64],
+    outer: f64,
+    dir: f64,
+    cursor: &mut BTreeMap<i64, f64>,
+    blocked: &[(f64, f64)],
+) -> EntrySide {
+    let (south_budget, north_budget) = band_clearance(row_axes, axis);
+    let mut hang = EntrySide::Top;
+    if south_budget >= 40.0 {
+        if b.h > south_budget {
+            b.h = south_budget.max(40.0);
+        }
+        b.y = axis + LEAD;
+    } else if north_budget >= 40.0 {
+        if b.h > north_budget {
+            b.h = north_budget.max(40.0);
+        }
+        b.y = axis - LEAD - b.h;
+        hang = EntrySide::Bottom;
+    } else {
+        b.y = axis + LEAD;
+    }
+    if b.pins.len() == 2 && b.h <= b.w {
+        b.w = (b.h * 0.6).max(20.0);
+    }
+    hang_beyond_outer(b, axis, outer, dir, cursor, blocked);
+    hang
+}
+
+/// The stamping block's historical slot synthesis (2-pin bodies get
+/// Left/Right, multi-pin boxes face their nets' region, everything else
+/// Right), extracted verbatim for the orphan/末路 branch.
+fn stamp_fallback_slots(b: &mut crate::vector::graph::McVecBox, topos: &[NetTopology]) {
+    if !b.slots.is_empty() {
+        return; // unified layout policy: author slots win
+    }
+    let connected: Vec<(i64, EntrySide)> = b
+        .pins
+        .iter()
+        .filter_map(|p| {
+            let side = topos.iter().find_map(|t| {
+                t.groups
+                    .iter()
+                    .any(|g| g.box_id == b.id && g.pin_ids.contains(&p.id))
+                    .then(|| t.lane.region.entry_side())
+            })?;
+            Some((p.id, side))
+        })
+        .collect();
+    let pin_name = |p: &crate::vector::graph::boxdef::BoxPin| -> String {
+        if p.description.is_empty() {
+            p.pin_id.clone()
+        } else {
+            p.description.clone()
+        }
+    };
+    if !connected.is_empty() && b.pins.len() == 2 {
+        for (k, &(pid, _)) in connected.iter().enumerate() {
+            let side = if k == 0 {
+                EntrySide::Left
+            } else {
+                EntrySide::Right
+            };
+            let name = b
+                .pins
+                .iter()
+                .find(|p| p.id == pid)
+                .map(pin_name)
+                .unwrap_or_else(|| pid.to_string());
+            b.slots.push(PinSlot {
+                pin_id: pid,
+                number: k as u32,
+                name: name.clone(),
+                side,
+                offset: 0.5,
+                connected: true,
+            });
+            b.entry_points
+                .push(crate::vector::graph::boxdef::EntryPoint {
+                    pin_id: pid,
+                    pin_name: name,
+                    side,
+                    offset: 0.5,
+                });
+        }
+    } else if !connected.is_empty() {
+        let n = connected.len();
+        for (k, &(pid, side)) in connected.iter().enumerate() {
+            let offset = (k as f64 + 1.0) / (n as f64 + 1.0);
+            let name = b
+                .pins
+                .iter()
+                .find(|p| p.id == pid)
+                .map(pin_name)
+                .unwrap_or_else(|| pid.to_string());
+            b.slots.push(PinSlot {
+                pin_id: pid,
+                number: k as u32,
+                name: name.clone(),
+                side,
+                offset,
+                connected: true,
+            });
+            b.entry_points
+                .push(crate::vector::graph::boxdef::EntryPoint {
+                    pin_id: pid,
+                    pin_name: name,
+                    side,
+                    offset,
+                });
+        }
+    }
+    if b.slots.is_empty() {
+        for (i, p) in b.pins.iter().enumerate() {
+            b.slots.push(PinSlot {
+                pin_id: p.id,
+                number: i as u32,
+                name: pin_name(p),
+                side: EntrySide::Right,
+                offset: 0.5,
+                connected: true,
+            });
+        }
+    }
+}
+
+/// The along-form grant (M16 terminal-hang shape): the row-connected pin
+/// faces the run (`run_edge`), its partner faces away — both at mid-height,
+/// so both pin points sit ON the row and the taps have zero length.
+fn grant_along_slots(
+    b: &mut crate::vector::graph::McVecBox,
+    run_edge: EntrySide,
+    row_pin: i64,
+) {
+    if !b.slots.is_empty() {
+        return; // unified layout policy: author slots win
+    }
+    let away = match run_edge {
+        EntrySide::Left => EntrySide::Right,
+        _ => EntrySide::Left,
+    };
+    for (k, p) in b.pins.iter().enumerate() {
+        let side = if p.id == row_pin { run_edge } else { away };
+        let name = if p.description.is_empty() {
+            p.pin_id.clone()
+        } else {
+            p.description.clone()
+        };
+        b.slots.push(PinSlot {
+            pin_id: p.id,
+            number: k as u32,
+            name: name.clone(),
+            side,
+            offset: 0.5,
+            connected: true,
+        });
+        b.entry_points
+            .push(crate::vector::graph::boxdef::EntryPoint {
+                pin_id: p.id,
+                pin_name: name,
+                side,
+                offset: 0.5,
+            });
+    }
+}
+
+/// The drop-form grant (律 B): a two-pin body puts the row-connected pin on
+/// the hang edge and its partner on the opposite edge (A4's opposite-edge
+/// contract); every other shape spreads all pins along the hang edge with
+/// margins — vertical teeth of distinct lengths, none along a box edge.
+fn grant_drop_slots(
+    b: &mut crate::vector::graph::McVecBox,
+    hang: EntrySide,
+    row_pin: Option<i64>,
+) {
+    if !b.slots.is_empty() {
+        return; // unified layout policy: author slots win
+    }
+    let away = match hang {
+        EntrySide::Bottom => EntrySide::Top,
+        _ => EntrySide::Bottom,
+    };
+    let pin_name = |p: &crate::vector::graph::boxdef::BoxPin| -> String {
+        if p.description.is_empty() {
+            p.pin_id.clone()
+        } else {
+            p.description.clone()
+        }
+    };
+    let plan: Vec<(i64, EntrySide, f64)> = if b.pins.len() == 2 && row_pin.is_some() {
+        let other = b
+            .pins
+            .iter()
+            .find(|p| Some(p.id) != row_pin)
+            .map(|p| p.id)
+            .expect("two-pin body has a second pin");
+        vec![(row_pin.unwrap(), hang, 0.5), (other, away, 0.5)]
+    } else {
+        let n = b.pins.len();
+        b.pins
+            .iter()
+            .enumerate()
+            .map(|(k, p)| (p.id, hang, (k as f64 + 1.0) / (n as f64 + 1.0)))
+            .collect()
+    };
+    for (k, (pid, side, offset)) in plan.iter().enumerate() {
+        let name = b
+            .pins
+            .iter()
+            .find(|p| p.id == *pid)
+            .map(pin_name)
+            .unwrap_or_else(|| pid.to_string());
+        b.slots.push(PinSlot {
+            pin_id: *pid,
+            number: k as u32,
+            name: name.clone(),
+            side: *side,
+            offset: *offset,
+            connected: true,
+        });
+        b.entry_points
+            .push(crate::vector::graph::boxdef::EntryPoint {
+                pin_id: *pid,
+                pin_name: name,
+                side: *side,
+                offset: *offset,
+            });
+    }
+}
+
+/// 律 C's grant: the top-row pin on the Top edge, the bottom-row pin on the
+/// Bottom edge — both taps become short vertical teeth, and the box centre x
+/// equals both pin x (A22's proper form).
+fn spread_two_row_slots(
+    b: &mut crate::vector::graph::McVecBox,
+    pin_rows: &[(i64, f64)],
+    row_top: f64,
+    row_bot: f64,
+) {
+    if !b.slots.is_empty() {
+        return;
+    }
+    for (k, p) in b.pins.iter().enumerate() {
+        let y = pin_rows.iter().find(|r| r.0 == p.id).map(|r| r.1);
+        let side = match y {
+            Some(y) if (y - row_bot).abs() < 0.5 && (y - row_top).abs() >= 0.5 => EntrySide::Bottom,
+            _ => EntrySide::Top,
+        };
+        let name = if p.description.is_empty() {
+            p.pin_id.clone()
+        } else {
+            p.description.clone()
+        };
+        b.slots.push(PinSlot {
+            pin_id: p.id,
+            number: k as u32,
+            name: name.clone(),
+            side,
+            offset: 0.5,
+            connected: true,
+        });
+        b.entry_points
+            .push(crate::vector::graph::boxdef::EntryPoint {
+                pin_id: p.id,
+                pin_name: name,
+                side,
+                offset: 0.5,
+            });
+    }
 }
 
 /// ★ M15.3: one `[equi-dump]` line per net and per member, with everything

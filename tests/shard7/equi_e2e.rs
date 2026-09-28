@@ -378,19 +378,34 @@ const KNOWN_AUDIT_REDS: &[(&str, &str)] = &[
     ("MCU513", "A25"),
     // ("MCU513", "A34") cleared by the A34 narrowing: `_R3` hangs by its Top
     // tooth and `UC`'s GND pins face Bottom — both exempt by design.
-    ("UC", "A2"),
-    ("UC", "A3"),
+    // ("UC", "A2"/"A3") cleared by the terminal-anchor placement pass (U284):
+    // `_C2` is placed by pin truth BEFORE the envelope now, so its taps join
+    // the layout-phase spans and the lane-drift / dangling-endpoint faces heal.
     ("UC", "A8"),
     ("UC", "A17"),
-    ("UC", "A18"),
+    // ("UC", "A18") cleared by the terminal-anchor placement pass (U284): the
+    // along form straddles the row with pins on the vertical edges, so no tap
+    // runs collinear with `_C2`'s box edges any more.
     // ("UC", "A22") cleared by the A22 same-row exemption (U284): `_R4`'s two
     // owner nets share row 100 — in-line series member, same shape as the DCDC
     // note above.
 
-    // ("UC", "A10") / ("UC", "A11") / ("UC", "A29") cleared by b3962: the
-    // ground COLUMN's arm nets are now one sticky side-decision unit (no pass
-    // re-orients one arm on its own), so the column survives Pass 2.5 and the
-    // run trunks stop overlapping.
+    // ("UC", "A11") cleared by b3962: the ground COLUMN's arm nets are now one
+    // sticky side-decision unit (no pass re-orients a member arm on its own),
+    // so the column survives Pass 2.5.
+    // ("UC", "A7"/"A10"/"A21"/"A25"/"A29") re-registered 2026-09-28 at the
+    // b4154 HEAD x the live ~/.mcode + hbl fixture of that morning —
+    // pre-batch drift (the b4143-b4154 window; candidates: the hbl fixture
+    // re-pins of the U338/U339 batches), NOT the placement pass: the same
+    // five checks are red with the pass disabled. Four nets share row 100
+    // (I2C0.SCL / VDD_3V3 / _net8 / GND) with intersecting spans, the trunks
+    // run through the `UC` box, and the `VCC_1V2` label collides — the
+    // segment-model window b3966 left open. Cause not bisected here.
+    ("UC", "A7"),
+    ("UC", "A10"),
+    ("UC", "A21"),
+    ("UC", "A25"),
+    ("UC", "A29"),
     // ("UC", "A24") registered by b3962: the SAME pre-existing tear the table
     // already listed under A18 — the terminal-only net `VCC_1V2`'s anchor `_C2`
     // is fallback-stamped at (500,100) AFTER the column resolution, so the GND
@@ -399,11 +414,9 @@ const KNOWN_AUDIT_REDS: &[(&str, &str)] = &[
     // same-side lens sees the crossing too. Fix (early placement of
     // terminal-only anchors) is ledger work, not this table's job.
     ("UC", "A24"),
-    // ("UC", "A34") registered by the A34 narrowing: the old two-pin-member
-    // exemption hid it. `_C1`/`_C2`'s GND pins face Right along the GND row
-    // (row 300) but sit at y=100/140 — the terminal-only-anchor fallback
-    // family, same root as the A18/A24 entries above.
-    ("UC", "A34"),
+    // ("UC", "A34") cleared by the terminal-anchor placement pass (U284):
+    // `_C2`'s GND pin sits on its net's row by construction now (the along
+    // form puts both pin points ON the row).
     ("X6", "A4"),
     ("X6", "A10"),
     ("X6", "A14"),
@@ -415,17 +428,20 @@ const KNOWN_AUDIT_REDS: &[(&str, &str)] = &[
     // ("X6", "A34") cleared by the A34 narrowing: `_C4` hangs by its Top tooth.
     ("MIC", "A1"),
     ("MIC", "A2"),
-    ("MIC", "A3"),
     ("MIC", "A17"),
     ("MIC", "A18"),
+    // ("MIC", "A3"/"A8") cleared by the terminal-anchor placement pass (U284,
+    // timing correction D): `mic`/`C1` get their slots at placement time,
+    // before the envelope — the layout-phase spans and the render replay
+    // re-derive from the same rects, so the dangling-segment and junction-dot
+    // faces heal. The b4142 no-slot tap guard stays as an invariant.
     // ("MIC", "A8") registered by the A22 batch (U284): audit-side only. The
     // envelope no longer takes no-slot taps (the phantom (0,0) tap used to prop
     // up MIC.P~0's stale layout span), so that span is now degenerate and the
     // audit replay loses a junction dot. The render side re-envelopes fresh
     // (span (170,660)) and never drew from the stale span — same face as the
     // A2 lane-drift entry below. Root: slots authored after the layout-phase
-    // envelope; waits with the terminal-only-anchor placement piece.
-    ("MIC", "A8"),
+    // envelope; healed with the placement piece (see the A3/A8 note above).
     // ("MIC", "A22") turned green with the same span change: MIC.P~0's stale
     // layout span is degenerate now, so the check self-skips — the geometry
     // did NOT heal. `C1` remains pinned by the A34 entry (both pins off rows
@@ -433,8 +449,9 @@ const KNOWN_AUDIT_REDS: &[(&str, &str)] = &[
     // ("MIC", "A34") re-faced by the A34 narrowing: the old reds (mic/wm7121
     // GND pins on Bottom teeth) are exempt now, but dropping the two-pin
     // exemption exposed `C1` — its MIC.P~0/MIC.N~0 pins face Left/Right into
-    // rows 200/300 while the cap sits at y=140.
-    ("MIC", "A34"),
+    // rows 200/300 while the cap sits at y=140. Cleared by the placement
+    // pass (U284): `C1` stands between rows 200/300 (律 C), pins on their
+    // rows by construction.
     ("SPK", "A8"),
     ("SPK", "A10"),
     ("SPK", "A17"),
