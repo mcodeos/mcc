@@ -699,6 +699,103 @@ impl McModule {
                                 self.insts.parse(&subnode, &self.uri);
                                 continue;
                             }
+                            // U343-C2: declaration-position sub selection.
+                            // `LDO2 ldo{VIN | VOUT}` / `LDO2 ldo.VIN` wrap the
+                            // declare as the head child of an OPD_CURLY_MN /
+                            // OPD_DOT. The generic connection parse below
+                            // registers the instance but strands the selection
+                            // as a single-member statement (no adjacency to
+                            // wire), so route the declare through the
+                            // declaration path and record the selection as the
+                            // instance's default exposed face instead
+                            // (doc/vector/vec-dianlu.md §3.6).
+                            if let Some((decl, face)) = Self::split_decl_face(&subnode) {
+                                // The same LSP / marker side effects a plain
+                                // declaration statement gets (ctor args, NC
+                                // trailer, unknown tail words).
+                                self.collect_declare_ctor_refs(&decl);
+                                self.insts
+                                    .set_nc_pins(crate::semantic::nc_pin::read_nc_pins(&decl));
+                                crate::semantic::stmt_marker::check_stmt_markers(
+                                    &clause,
+                                    crate::semantic::stmt_marker::StmtLine::Instance,
+                                );
+                                let before: Vec<String> = self.insts.get_all_names();
+                                self.insts.parse(&decl, &self.uri);
+                                // The face rides every instance the declare
+                                // created (array expansions get one each; the
+                                // member names are per-instance).
+                                for name in self.insts.get_all_names() {
+                                    if before.contains(&name) {
+                                        continue;
+                                    }
+                                    if let Some(McInstance::Component(c)) =
+                                        self.insts.get_mut(&name)
+                                    {
+                                        // Validate the members against this
+                                        // class's own pins now (static, dynamic
+                                        // with the bound args, or the active
+                                        // conditional branch — `find_pin`). A
+                                        // member that resolves to nothing
+                                        // reports E3179 and is pruned, so the
+                                        // face never carries a phantom
+                                        // endpoint. The instantiation layer
+                                        // re-judges the surviving names against
+                                        // the concrete instance pins.
+                                        let mut left = Vec::new();
+                                        let mut right = Vec::new();
+                                        let mut missing: Vec<String> = Vec::new();
+                                        for member in &face.left {
+                                            if (*c).find_pin(member).is_some() {
+                                                left.push(member.clone());
+                                            } else if !missing.contains(member) {
+                                                missing.push(member.clone());
+                                            }
+                                        }
+                                        for member in &face.right {
+                                            if (*c).find_pin(member).is_some() {
+                                                right.push(member.clone());
+                                            } else if !missing.contains(member) {
+                                                missing.push(member.clone());
+                                            }
+                                        }
+                                        if !missing.is_empty() {
+                                            missing.sort();
+                                            let available: Vec<String> =
+                                                (*c).base.pins.get_all_pins().into_iter().collect();
+                                            let message = crate::errcodes::format_msg(
+                                                crate::errcodes::COMPONENT_PIN_NOT_FOUND,
+                                                &[
+                                                    &missing.join(", "),
+                                                    &name,
+                                                    &available.join(", "),
+                                                ],
+                                            );
+                                            dlog_error(
+                                                crate::errcodes::COMPONENT_PIN_NOT_FOUND,
+                                                &clause,
+                                                &message,
+                                            );
+                                        }
+                                        if left.is_empty() && right.is_empty() {
+                                            // Every member was pruned — nothing
+                                            // left to expose.
+                                            continue;
+                                        }
+                                        // The table holds the wrapper behind an
+                                        // Arc shared with already-built phrase
+                                        // refs — replace it wholesale.
+                                        let mut wrapper = (**c).clone();
+                                        wrapper.face =
+                                            Some(crate::semantic::component::DeclareFace {
+                                                left,
+                                                right,
+                                            });
+                                        *c = std::sync::Arc::new(wrapper);
+                                    }
+                                }
+                                continue;
+                            }
                             // `return` is dead syntax in a module body — only a
                             // function body has a receiver. Without this the
                             // statement dies as a generic connection-parse failure.
@@ -1029,6 +1126,70 @@ impl McModule {
                 }
                 break;
             }
+        }
+    }
+
+    /// U343-C2: unwrap a declaration-position sub selection. `LDO2
+    /// ldo{VIN | VOUT}` parses as OPD_CURLY_MN(DECLARE, OPDS, OPDS) (the
+    /// `mc_phrase{n|m}` rule wraps the declare and the two written sides);
+    /// `LDO2 ldo.VIN` parses as OPD_DOT(DECLARE, ids). Returns the declare
+    /// node with the written members. The degenerate forms repeat the same
+    /// members on both sides (the left=right subset law,
+    /// doc/vector/vec-dianlu.md §3.6).
+    fn split_decl_face(
+        node: &AstNode,
+    ) -> Option<(AstNode, crate::semantic::component::DeclareFace)> {
+        let side_members = |wrapper: &AstNode| -> Vec<String> {
+            let mut out: Vec<String> = Vec::new();
+            if let Some(mut s) = wrapper.get_sub_node() {
+                loop {
+                    out.extend(s.to_id_or_ida_or_num());
+                    match s.get_next() {
+                        Some(nx) => s = nx,
+                        None => break,
+                    }
+                }
+            }
+            out
+        };
+        match node.get_type() {
+            MCAST_OPD_CURLY_MN => {
+                let head = node.get_sub_node()?;
+                if head.get_type() != MCAST_DECLARE {
+                    return None;
+                }
+                let side1 = head.get_next()?;
+                let side2 = side1.get_next()?;
+                if side1.get_type() != MCAST_OPDS || side2.get_type() != MCAST_OPDS {
+                    return None;
+                }
+                Some((
+                    head,
+                    crate::semantic::component::DeclareFace {
+                        left: side_members(&side1),
+                        right: side_members(&side2),
+                    },
+                ))
+            }
+            MCAST_OPD_DOT => {
+                let head = node.get_sub_node()?;
+                if head.get_type() != MCAST_DECLARE {
+                    return None;
+                }
+                let tail = head.get_next()?;
+                let members = side_members(&tail);
+                if members.is_empty() {
+                    return None;
+                }
+                Some((
+                    head,
+                    crate::semantic::component::DeclareFace {
+                        left: members.clone(),
+                        right: members,
+                    },
+                ))
+            }
+            _ => None,
         }
     }
 

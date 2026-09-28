@@ -898,6 +898,19 @@ impl HasFindInst for McComponent {
     }
 }
 
+/// Declaration-position sub selection (`LDO2 ldo{VIN | VOUT}`, `LDO2 ldo.VIN`):
+/// the written members become the instance's default exposed face. A bare
+/// reference to the instance in a connection statement evaluates through the
+/// face instead of the pin-count heuristics; members are validated against the
+/// instance's own pins at instantiation (E3179). The degenerate forms (dot
+/// selection, and any single-side form) repeat the same members on both sides
+/// (the left=right subset law).
+#[derive(Clone, Debug, PartialEq)]
+pub struct DeclareFace {
+    pub left: Vec<String>,
+    pub right: Vec<String>,
+}
+
 #[derive(Debug, Clone)]
 pub struct Mc2Component {
     pub base: Arc<McComponent>,
@@ -910,6 +923,9 @@ pub struct Mc2Component {
     /// where the written identities are resolved against this instance's own
     /// declared pins; the model layer only carries them.
     pub(crate) nc_pins: Vec<crate::semantic::nc_pin::NcPinSpec>,
+    /// Declaration-position sub selection recorded as this instance's default
+    /// exposed face (see [`DeclareFace`]); `None` for a plain declaration.
+    pub face: Option<DeclareFace>,
 }
 
 // Display implementation - concise format output
@@ -938,6 +954,7 @@ impl Mc2Component {
             insts: Vec::new(),
             nc_pins: Vec::new(),
             nc: false,
+            face: None,
         }
     }
 
@@ -949,6 +966,7 @@ impl Mc2Component {
             insts: Vec::new(),
             nc_pins: Vec::new(),
             nc: is_nc,
+            face: None,
         }
     }
 
@@ -961,6 +979,7 @@ impl Mc2Component {
             insts: Vec::new(),
             nc_pins: Vec::new(),
             nc,
+            face: None,
         }
     }
 

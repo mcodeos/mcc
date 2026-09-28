@@ -1612,6 +1612,32 @@ impl InstantiationBuilder {
             })) => {
                 let inst_name = c.name.to_string();
 
+                // U343-C2: the declaration-position sub selection is this
+                // instance's default exposed face — a bare reference
+                // evaluates through the face instead of the pin-count
+                // heuristics below. The dotted members resolve through the
+                // same Ports machinery the use-position curly form rides
+                // (`ldo{VIN | VOUT}` → `ldo.VIN` / `ldo.VOUT` endpoints).
+                if let Some(face) = &c.face {
+                    let face_side = |members: &[String]| {
+                        members
+                            .iter()
+                            .map(|m| {
+                                McRef::Name(McInstanceRef::new(McInstance::Bus(McBus::new(
+                                    &format!("{inst_name}.{m}"),
+                                ))))
+                            })
+                            .collect::<Vec<McRef>>()
+                    };
+                    return (
+                        vec![McPhrase::Endpoint(McRef::Ports {
+                            left: face_side(&face.left),
+                            right: face_side(&face.right),
+                        })],
+                        Vec::new(),
+                    );
+                }
+
                 // Bare component reference like `R1` / `C1`: use pin count
                 // heuristic:
                 //   0/1 pin → single-point Bus

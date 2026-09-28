@@ -865,6 +865,51 @@ impl InstantiationBuilder {
                         &c.name.to_string(),
                     )
                     .unwrap_or(false);
+                    // U343-C2: the declaration's sub selection is validated
+                    // against this instance's own pins, once per declaration,
+                    // where the concrete pin table (conditional and dynamic
+                    // branches included) exists. Unresolvable members report
+                    // E3179 with the pins the instance does have; the face
+                    // itself stays as written, so per-member consumption
+                    // downstream judges the same names consistently.
+                    if let Some(face) = &c.face {
+                        let mut missing: Vec<String> = Vec::new();
+                        for member in face.left.iter().chain(face.right.iter()) {
+                            if super::points::declared_pin_id(&inst, member).is_none()
+                                && !missing.contains(member)
+                            {
+                                missing.push(member.clone());
+                            }
+                        }
+                        if !missing.is_empty() {
+                            missing.sort();
+                            let mut available: Vec<&str> =
+                                inst.pins.keys().map(|k| k.as_str()).collect();
+                            available.sort();
+                            let message = crate::errcodes::format_msg(
+                                crate::errcodes::COMPONENT_PIN_NOT_FOUND,
+                                &[
+                                    &missing.join(", "),
+                                    &c.name.to_string(),
+                                    &available.join(", "),
+                                ],
+                            );
+                            match self.def.insts.get_port_span(&c.name.to_string()) {
+                                Some(r) => self.record_error_at(
+                                    crate::errcodes::COMPONENT_PIN_NOT_FOUND,
+                                    message,
+                                    self.def_uri.clone(),
+                                    r.start as u32,
+                                ),
+                                None => {
+                                    self.record_error(
+                                        crate::errcodes::COMPONENT_PIN_NOT_FOUND,
+                                        message,
+                                    );
+                                }
+                            }
+                        }
+                    }
                     self.add_component(inst);
 
                     // ── P1-C5: Execute same-name constructor func ──
