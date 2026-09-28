@@ -580,7 +580,7 @@ fn group_fan__mismatch_branch_zero() {
     );
 }
 
-/// mcrule.md §10.6.3: a group `(,)` allows front AND rear operands — the rule
+/// mcode-grammar.md §10.6.3: a group `(,)` allows front AND rear operands — the rule
 /// `opd1 op1 (s1, .., sN) op2 opd2` expands to per-branch statements that share
 /// opd2 (matrix row 19). `R101 - (R102 - R103, R104 - R105) + R106` must build
 /// without a shape error, and the net layer joins R106.1 with the shared left

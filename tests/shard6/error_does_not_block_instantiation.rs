@@ -2,7 +2,7 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! `mcrule.md` §11.6 — **an error does not block the build** (2026-09-16
+//! `mcode-grammar.md` §11.6 — **an error does not block the build** (2026-09-16
 //! ruling, CIMP §1 U51 withdrawn after being landed and reverted the same
 //! day): a component reporting an **error** at instantiation is **kept**.
 //!

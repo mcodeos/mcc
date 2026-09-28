@@ -57,7 +57,7 @@ impl IOType {
 
 /// Source connection operator direction.
 ///
-/// Maps to mcrule.md §10.1:
+/// Maps to mcode-grammar.md §10.1:
 /// - `->` → [`ConnDir::LtoR`]
 /// - `<-` → [`ConnDir::RtoL`] — a first-class mirror of `LtoR`, and the
 ///   **only** thing that carries the arrow. The parser keeps the operands in
@@ -883,7 +883,7 @@ impl std::fmt::Display for Shape {
 
 /// Connection operator (eval.md §4): `-`/`->`/`<-` share series evaluation, `+` is parallel.
 ///
-/// Correspondence with [`ConnDir`] (mcrule.md §10.1):
+/// Correspondence with [`ConnDir`] (mcode-grammar.md §10.1):
 /// - `-` → `Series` + [`ConnDir::Undirected`]
 /// - `->` → `Series` + [`ConnDir::LtoR`]
 /// - `<-` → `Series` + [`ConnDir::RtoL`]

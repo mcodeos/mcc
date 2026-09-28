@@ -946,7 +946,7 @@ module main {
 /// physical pin path), a module port (port-ordinal), or a sub-module port.
 /// Every legal statement endpoint lands in the lane and net layers as a
 /// physical point; nothing is silently dropped. (A single-point broadcast into a
-/// whole slice, and group subscripts, are rejected upstream — mcrule §10.4 /
+/// whole slice, and group subscripts, are rejected upstream — mcode-grammar §10.4 /
 /// name-equivalence R-family — so they never reach the lane layer.)
 #[test]
 fn dlu_endpoint__every_form_reaches_point_id() {
@@ -2028,7 +2028,7 @@ module main {
     );
 }
 
-/// mcrule.md §10.6.3: a group `(,)` allows front AND rear operands — the rule
+/// mcode-grammar.md §10.6.3: a group `(,)` allows front AND rear operands — the rule
 /// `opd1 op1 (s1, .., sN) op2 opd2` expands to per-branch statements that
 /// share opd2. `R101 - (R102 - R103, R104 - R105) + R106` expands into two
 /// standalone chains; the shared left join is recorded once, so the tree holds

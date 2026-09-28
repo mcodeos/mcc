@@ -4,7 +4,7 @@
 
 //! C1 lock — a `(,)` group expands into **statements**, not into a new
 //! association (R0 ruling C1, `r0-implementation-design.md`
-//! §4.C1; `mcrule.md` §10.6).
+//! §4.C1; `mcode-grammar.md` §10.6).
 //!
 //! R0 (source order and operator fidelity) governs the connection-phrase
 //! representation. The `(,)` group is a **statement-separator** construct, so
@@ -334,7 +334,7 @@ fn group_expansion__multi_statement_group_expands_in_a_lane_chain() {
     );
 }
 
-/// Law 2 of `mcrule.md` §10.6: the operand written **once outside** the group
+/// Law 2 of `mcode-grammar.md` §10.6: the operand written **once outside** the group
 /// keeps **one identity** across the expanded branches. `X -> RES2(15) -> (A,
 /// B)` writes one constructor, so it must instantiate one device, and both
 /// branches leave from the net at its far pin (A and B end on ONE net).

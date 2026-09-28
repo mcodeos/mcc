@@ -76,7 +76,7 @@ impl InstantiationBuilder {
         // ── §10.6: a `(,)` group is a STATEMENT LIST, not a shape — expand it
         // into the standalone statements it stands for before anything else
         // (`R101 - (s1, s2) + R106` ≡ `R101 - s1 + R106` / `R101 - s2 + R106`).
-        // The statement split is all the group contributes (mcrule §10.6 R0,
+        // The statement split is all the group contributes (mcode-grammar §10.6 R0,
         // b4034): a parenthesized chain inside a branch survives as a nested
         // series member, and the wiring recurses into it
         // (`process_member_internal`). Expanded branches carry no group
@@ -3908,7 +3908,7 @@ impl InstantiationBuilder {
                     self.process_member_internal(p)?;
                 }
             }
-            // R0 (mcrule §10.6, b4034): a series nested as a chain element
+            // R0 (mcode-grammar §10.6, b4034): a series nested as a chain element
             // keeps its structure — `expand_group` no longer merges the
             // same-direction inner chain into the outer one. Today the
             // statement path linearizes chains before they reach here

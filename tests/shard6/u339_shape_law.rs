@@ -17,7 +17,7 @@
 //! members): the boundary reports E4180 and — since the U339 landing — the
 //! func body no longer runs on rejected bindings (the E4176 skip precedent).
 //! The receiver itself stays built: an error does not block instantiation
-//! (`mcrule.md` §11.6), it only withholds the body's wiring.
+//! (`mcode-grammar.md` §11.6), it only withholds the body's wiring.
 //!
 //! The compliant column-vector head is locked as the positive control: one
 //! instance bridging both lanes, head lane + tail member + cap pin on one

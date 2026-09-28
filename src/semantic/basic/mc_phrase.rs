@@ -439,7 +439,7 @@ impl McPhrase {
         McPhrase::ep(McInstanceRef::new(McInstance::Label(name)))
     }
 
-    /// mcrule.md §10.6 — a `(,)` group is a STATEMENT LIST, never a shape.
+    /// mcode-grammar.md §10.6 — a `(,)` group is a STATEMENT LIST, never a shape.
     /// Expand the phrase into the standalone connection statements the group
     /// stands for:
     ///   - `opd op (s1, .., sN)`              -> `opd op s1`, .., `opd op sN`
@@ -448,7 +448,7 @@ impl McPhrase {
     ///   - `(s1, .., sN)` (bare)              -> `s1`, .., `sN`
     ///
     /// The statement split is the ONLY thing the group contributes — an inner
-    /// parenthesized chain keeps its structure (mcrule.md §10.6 R0 ban: group
+    /// parenthesized chain keeps its structure (mcode-grammar.md §10.6 R0 ban: group
     /// structure is never flattened), so `R101 - (R102 - R103, R104 - R105) +
     /// R106` becomes the two statements `R101 - R102 - R103 + R106` and
     /// `R101 - R104 - R105 + R106`, each carrying the written inner chain as a
@@ -661,7 +661,7 @@ impl McPhrase {
                 Some(
                     Self::cartesian_product(groups)
                         .into_iter()
-                        // R0 (mcrule.md §10.6): the combo is the chain as
+                        // R0 (mcode-grammar.md §10.6): the combo is the chain as
                         // written — an inner same-direction series stays one
                         // nested member. The old `flatten_series_dir` merge is
                         // retired (b4034); the wiring recurses instead.
@@ -6937,7 +6937,7 @@ mod nested_subscript_tests {
     }
 }
 
-/// R0 structure locks (mcrule.md §10.6, b4034): a `(,)` group's statement
+/// R0 structure locks (mcode-grammar.md §10.6, b4034): a `(,)` group's statement
 /// split is all the group contributes — a parenthesized chain inside a branch
 /// survives as a nested series member. The retired `flatten_series_dir` merge
 /// folded it into the outer chain; these cells pin the preserved tree shape
@@ -6957,7 +6957,7 @@ mod r0_group_structure_tests {
 
     /// `R101 - (R102 - R103, R104 - R105) + R106` with `Lead` standing in for
     /// the endpoints (the expansion is leaf-agnostic). The doc example of
-    /// mcrule.md §10.6.
+    /// mcode-grammar.md §10.6.
     fn spliced_statement() -> McPhrase {
         Series(
             vec![
