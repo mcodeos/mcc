@@ -394,54 +394,15 @@ fn u306__uart_ttl_pin_tables() {
                 ],
             ),
             (
-                "DCE_1V8",
-                &[
-                    ("1", IOType::Out, &["TX"]),
-                    ("2", IOType::In, &["RX"]),
-                ],
-            ),
-            (
-                "DCE_3V3",
-                &[
-                    ("1", IOType::Out, &["TX"]),
-                    ("2", IOType::In, &["RX"]),
-                ],
-            ),
-            (
-                "DCE_5V",
-                &[
-                    ("1", IOType::Out, &["TX"]),
-                    ("2", IOType::In, &["RX"]),
-                ],
-            ),
-            (
                 "DTE",
                 &[
                     ("1", IOType::In, &["RX"]),
                     ("2", IOType::Out, &["TX"]),
                 ],
             ),
-            (
-                "DTE_1V8",
-                &[
-                    ("1", IOType::In, &["RX"]),
-                    ("2", IOType::Out, &["TX"]),
-                ],
-            ),
-            (
-                "DTE_3V3",
-                &[
-                    ("1", IOType::In, &["RX"]),
-                    ("2", IOType::Out, &["TX"]),
-                ],
-            ),
-            (
-                "DTE_5V",
-                &[
-                    ("1", IOType::In, &["RX"]),
-                    ("2", IOType::Out, &["TX"]),
-                ],
-            ),
+            // Peer-only relay face (b4199/b4208): no pin rows of its own —
+            // the flat gates count through the relay body instead.
+            ("RELAY", &[]),
         ],
     );
 }
