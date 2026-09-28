@@ -1680,13 +1680,25 @@ impl InstantiationBuilder {
                         // adoption (`IF::P2P(Rx)`); the port registers on the
                         // receiver under the base name (`IF`), same spelling
                         // law the Pass1 shape expansion applies.
-                        McInstance::Interface(_) => Some(
-                            iref.to_string()
+                        // U343-A2: the typed face now survives prefixing, so
+                        // the spelled name carries the receiver prefix
+                        // (`hb.IF`) — strip it back off; the port is declared
+                        // on the receiver under its own name.
+                        McInstance::Interface(_) => {
+                            let spelled = iref
+                                .to_string()
                                 .split("::")
                                 .next()
                                 .unwrap_or("")
-                                .to_string(),
-                        ),
+                                .to_string();
+                            let receiver_prefix = format!("{inst_name}.");
+                            Some(
+                                spelled
+                                    .strip_prefix(&receiver_prefix)
+                                    .unwrap_or(&spelled)
+                                    .to_string(),
+                            )
+                        }
                         _ => None,
                     },
                     _ => None,
@@ -3008,10 +3020,22 @@ impl InstantiationBuilder {
                 if skip.contains(&cname) || cname.starts_with(&inst_prefix) || cname.is_empty() {
                     phrase.clone()
                 } else {
+                    // ── U343-A2: keep the typed variant — the prefixed
+                    // reference stays a Component (same def, params, and
+                    // declared face), never downgraded to a bare-text bus. The
+                    // downgrade lost the type (and any face riding on it), and
+                    // the only rescue path (`expand_bus_labels`) required a
+                    // ≥2-member bus-table hit — a 1-member or unregistered face
+                    // silently resolved to 0 points with zero diagnostics.
                     let prefixed = format!("{inst_name}.{cname}");
-                    McPhrase::Endpoint(McRef::Name(McInstanceRef::new(McInstance::Bus(
-                        McBus::new(&prefixed),
-                    ))))
+                    McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
+                        McInstance::Component(Arc::new(
+                            crate::semantic::component::Mc2Component {
+                                name: crate::McIds::from(prefixed.as_str()),
+                                ..(**c).clone()
+                            },
+                        )),
+                    )))
                 }
             }
             McPhrase::Endpoint(McRef::Name(McInstanceRef {
@@ -3022,10 +3046,15 @@ impl InstantiationBuilder {
                 if skip.contains(&mname) || mname.starts_with(&inst_prefix) || mname.is_empty() {
                     phrase.clone()
                 } else {
+                    // ── U343-A2: typed Module stays a Module (mirror of the
+                    // Component arm above).
                     let prefixed = format!("{inst_name}.{mname}");
-                    McPhrase::Endpoint(McRef::Name(McInstanceRef::new(McInstance::Bus(
-                        McBus::new(&prefixed),
-                    ))))
+                    McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
+                        McInstance::Module(Arc::new(crate::semantic::module::Mc2Module {
+                            name: crate::McIds::from(prefixed.as_str()),
+                            ..(**m).clone()
+                        })),
+                    )))
                 }
             }
             // ── P3-1: List with members → prefix each member to physical pin ID ──
@@ -3060,10 +3089,17 @@ impl InstantiationBuilder {
                 if skip.contains(&iname) || iname.starts_with(&inst_prefix) || iname.is_empty() {
                     phrase.clone()
                 } else {
+                    // ── U343-A2: typed Interface stays an Interface (mirror of
+                    // the Component arm above) — the interface's own member
+                    // table and params survive prefixing instead of being
+                    // re-derived through the bus table's ≥2-member rescue gate.
                     let prefixed = format!("{inst_name}.{iname}");
-                    McPhrase::Endpoint(McRef::Name(McInstanceRef::new(McInstance::Bus(
-                        McBus::new(&prefixed),
-                    ))))
+                    McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
+                        McInstance::Interface(Arc::new(crate::semantic::mc_ifs::Mc2Interface {
+                            name: crate::McIds::from(prefixed.as_str()),
+                            ..(**i).clone()
+                        })),
+                    )))
                 }
             }
             McPhrase::Multiple(phrases) => McPhrase::Multiple(

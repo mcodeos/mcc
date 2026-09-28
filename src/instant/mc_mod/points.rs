@@ -677,12 +677,24 @@ impl InstantiationBuilder {
                 base: McInstance::Interface(iface),
                 ..
             })) => {
+                // ── U343-A2: a receiver-relative port path (the A2-prefixed
+                // `inst.port` form, per the P3-1 contract above) resolves as
+                // that port's own lanes — the same dotted-path law the healthy
+                // `XTAL.X1` spelling takes — before the dotted name can be
+                // mistaken for a one-member bus. Scalar ports (<2 members)
+                // miss here by contract and fall through to the bus spelling.
+                if iface.name.list_members().is_none() {
+                    if let Some(lanes) = self.expand_port_lanes(&iface.name.to_string()) {
+                        return Ok(lanes);
+                    }
+                }
                 let (members, prefix): (Vec<String>, Option<String>) =
                     if let Some(m) = iface.name.list_members() {
                         (m, None)
                     } else if let Some((p, m)) = iface.name.as_bus() {
                         (m, Some(p))
                     } else {
+                        let port_name = iface.name.to_string();
                         // Scalar-named interface (e.g. V3V3::DC(3.3V)): no
                         // explicit member table — the interface's own sub-pin
                         // definitions are brought over by default (a declared
@@ -699,7 +711,6 @@ impl InstantiationBuilder {
                         // BTreeMap already iterates in pin-ID order (1, 2, …),
                         // which is the canonical interface definition order.
                         if pin_names.len() >= 2 {
-                            let port_name = iface.name.to_string();
                             (pin_names, Some(port_name))
                         } else {
                             return Ok(vec![]);
@@ -1327,12 +1338,21 @@ impl InstantiationBuilder {
                 base: McInstance::Interface(iface),
                 ..
             })) => {
+                // ── U343-A2: receiver-relative port path first (mirror of the
+                // left-side arm above) — a multi-member port must not be
+                // mistaken for a one-member bus under its prefixed name.
+                if iface.name.list_members().is_none() {
+                    if let Some(lanes) = self.expand_port_lanes(&iface.name.to_string()) {
+                        return Ok(lanes);
+                    }
+                }
                 let (members, prefix): (Vec<String>, Option<String>) =
                     if let Some(m) = iface.name.list_members() {
                         (m, None)
                     } else if let Some((p, m)) = iface.name.as_bus() {
                         (m, Some(p))
                     } else {
+                        let port_name = iface.name.to_string();
                         // Scalar-named interface (e.g. V3V3::DC(3.3V)): no
                         // explicit member table — the interface's own sub-pin
                         // definitions are brought over by default (a declared
@@ -1349,7 +1369,6 @@ impl InstantiationBuilder {
                         // BTreeMap already iterates in pin-ID order (1, 2, …),
                         // which is the canonical interface definition order.
                         if pin_names.len() >= 2 {
-                            let port_name = iface.name.to_string();
                             (pin_names, Some(port_name))
                         } else {
                             return Ok(vec![]);
