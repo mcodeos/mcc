@@ -563,4 +563,104 @@ module main
         );
         std::fs::remove_dir_all(&dir).ok();
     }
+
+    /// U342 batch 3: the panel's output rows are golden-pinned — the exact
+    /// item set (file, span, kind, def flag) for three representative
+    /// cursors on one fixture: a func declaration (the cross-file call
+    /// face), a pin-name use (the PinNameDef/PinNameRef face) and a pin-id
+    /// use (the PinIdDef/PinIdRef face). The rows also pin a span-shape
+    /// split the membership locks only hinted at: a func call use reports
+    /// the member-name segment (`enable`, 87-93) while a pin member chain
+    /// reports the whole chain (`t.A`, 55-58) — both are single rows, and
+    /// member narrowing stays the quickfix face's job. Any change to
+    /// pairing, the def-site leg, the span shape or the exemption list
+    /// that moves a row must update this lock deliberately.
+    #[test]
+    fn find_at_panel_rows_are_golden_pinned() {
+        let _guard = crate::db::infra::init::MCC_TEST_PARSE_LOCK
+            .lock()
+            .expect("lock");
+        crate::mcc_init_no_lib();
+        crate::mcc_set_system_root(std::path::Path::new(""));
+        crate::mcc_clear_workspace();
+        let dir = std::env::temp_dir().join(format!("mcc-u342b3-golden-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let def_src = "component TINY\n{\n    name = \"T\"\n    pins = [\n        1 = A, \"a\"\n        2 = B, \"b\"\n    ]\n\n    func enable([net1, net2])\n    {\n        net1 - this - net2\n    }\n}\n";
+        let use_src = "use ./tiny.mc\n\nmodule main\n{\n    TINY t\n    TINY u\n    t.A -> u.B\n    t.1 -> u.2\n    t.enable([vin, vout])\n}\n";
+        std::fs::write(dir.join("tiny.mc"), def_src).unwrap();
+        std::fs::write(dir.join("main.mc"), use_src).unwrap();
+        let def_uri: McURI =
+            format!("file://{}", dir.join("tiny.mc").canonicalize().unwrap().display());
+        let main_uri: McURI =
+            format!("file://{}", dir.join("main.mc").canonicalize().unwrap().display());
+        crate::mcc_load_from_string(&def_uri, def_src);
+        crate::build::pass1::mcb_parse_all_modules();
+        crate::mcc_load_from_string(&main_uri, use_src);
+        crate::build::pass1::mcb_parse_all_modules();
+        let def_key: McURI = dir.join("tiny.mc").canonicalize().unwrap().display().to_string();
+        let main_key: McURI = dir.join("main.mc").canonicalize().unwrap().display().to_string();
+
+        // Golden rows: (file, pos, end, kind, def), sorted.
+        let rows = |items: &[Value]| -> Vec<(String, usize, usize, u8, bool)> {
+            let mut v: Vec<_> = items
+                .iter()
+                .map(|it| {
+                    (
+                        it["uri"]
+                            .as_str()
+                            .unwrap()
+                            .rsplit('/')
+                            .next()
+                            .unwrap()
+                            .to_string(),
+                        it["pos"].as_u64().unwrap() as usize,
+                        it["end"].as_u64().unwrap() as usize,
+                        it["kind"].as_u64().unwrap() as u8,
+                        it["def"].as_bool().unwrap(),
+                    )
+                })
+                .collect();
+            v.sort();
+            v
+        };
+
+        // Func face: cursor on the declaration answers the def plus the
+        // call-site rows.
+        let fdef = def_src.find("enable").unwrap();
+        let got = rows(&find_at(&def_key, fdef, None));
+        assert_eq!(
+            got,
+            vec![
+                ("main.mc".into(), 87, 93, 9, false),
+                ("tiny.mc".into(), 99, 105, 8, true),
+            ],
+            "golden(func def): file/pos/end/kind/def rows, got {got:?}"
+        );
+
+        // Pin-name face: cursor on `A` in `t.A`.
+        let name_use = use_src.find("t.A").unwrap() + 2;
+        let got = rows(&find_at(&main_key, name_use, None));
+        assert_eq!(
+            got,
+            vec![
+                ("main.mc".into(), 55, 58, 13, false),
+                ("tiny.mc".into(), 57, 58, 12, true),
+            ],
+            "golden(pin name use): file/pos/end/kind/def rows, got {got:?}"
+        );
+
+        // Pin-id face: cursor on `1` in `t.1`.
+        let id_use = use_src.find("t.1").unwrap() + 2;
+        let got = rows(&find_at(&main_key, id_use, None));
+        assert_eq!(
+            got,
+            vec![
+                ("main.mc".into(), 70, 73, 11, false),
+                ("tiny.mc".into(), 53, 54, 10, true),
+            ],
+            "golden(pin id use): file/pos/end/kind/def rows, got {got:?}"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
 }
