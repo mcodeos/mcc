@@ -1352,6 +1352,12 @@ pub const BOM_VALUE_NOT_DESCENDANT: u32 = 5067;
 /// branches b2/b3 = E5068).
 pub const BOM_KEY_NOT_SLOT: u32 = 5068;
 
+/// A clause inside a `bom` block body does not read as a `path = Class` row
+/// (U345③): a foreign clause kind, or an attribute whose value is not a
+/// single name. The overlay is data — the clause is ignored, and the row
+/// shape is what the block's grammar keeps.
+pub const BOM_BLOCK_CLAUSE_INVALID: u32 = 5069;
+
 /// Net/port name contains a lowercase letter; the style guide spells net
 /// labels UPPER_SNAKE (spec/21-mcode-style.md §2 #3). Style gate, Info.
 pub const NAME_NET_NOT_UPPER_SNAKE: u32 = 5070;
@@ -2767,6 +2773,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(ADOPTED_FUNC_AMBIGUOUS, "Two adopted recipes expose the same func name and the component does not override it.", "adopted recipes share func '{0}'; define '{0}' here to override"),
     entry!(BOM_VALUE_NOT_DESCENDANT, "A bom.mc value names a class that is not a `:` descendant of the slot's declared class.", "bom key '{0}' names '{1}', which is not a `:` descendant of the slot's declared class '{2}' — the bom block picks a variant of the declared base, it does not retype the slot. Name a variant whose `: base` chain reaches '{2}', or change the module face to declare the base the bom value derives from (param-authoring-design.md section 4)."),
     entry!(BOM_KEY_NOT_SLOT, "A bom.mc key does not designate an abstract-declared instance.", "bom key '{0}' does not designate an abstract-declared slot ({1}) — the bom block binds part selections to slots, and a slot is an instance whose module declares it on an `abstract component` base. Remove the key, or make the module face declare the base and let the bom block pick the variant (param-authoring-design.md section 4)."),
+    entry!(BOM_BLOCK_CLAUSE_INVALID, "A bom block body holds a clause that is not a `path = Class` row.", "A bom block body holds a clause that is not a `path = Class` row — the block is overlay data, and its grammar keeps only rows (a row value names a class, or the reserved word DNP). Remove the clause, or move it into the module or component body it belongs to."),
     // section
     entry!(SPEC_KEY_UNDECLARED_PARAM, "Spec key references a parameter that is not declared.", "Spec key references a parameter that is not declared."),
     entry!(REF_INTEGRITY, "Reference integrity violation.", "Reference integrity violation."),

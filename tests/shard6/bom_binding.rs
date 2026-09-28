@@ -617,3 +617,160 @@ fn bom__dnp_word_is_case_exact() {
     );
     assert_eq!(count_code(&diags, mcc::errcodes::BOM_KEY_NOT_SLOT), 0);
 }
+
+// === U345: embedded bom blocks — same face semantics as the sidecar ===
+
+/// A `bom` block embedded at a project file's top level binds exactly like
+/// the sidecar's block: the slot takes the variant, the unbound sibling
+/// stays unselected, and the overlay checks stay silent. (Before U345 the
+/// embedded block was grammar-legal dead weight — zero consumption, zero
+/// diagnostics.)
+#[test]
+fn bom__embedded_block_binds_like_the_sidecar() {
+    let board = format!(
+        "{BOARD_SRC}\nbom main {{\n    b.slot = PART.SHAPE_V2\n}}\n"
+    );
+    let (table, diags) = build_with_src(&board, None);
+    let (slot_class, slot_unselected) = row_of(&table, "main.b.slot");
+    assert_eq!(slot_class, "PART.SHAPE_V2", "the embedded row binds");
+    assert!(!slot_unselected, "the bound slot is selected");
+    assert_eq!(
+        count_code(&diags, mcc::errcodes::BOM_VALUE_NOT_DESCENDANT),
+        0
+    );
+    assert_eq!(count_code(&diags, mcc::errcodes::BOM_KEY_NOT_SLOT), 0);
+}
+
+/// An embedded DNP row routes to the device-level namespace: the part is
+/// marked not fitted, same as a sidecar DNP row.
+#[test]
+fn bom__embedded_dnp_row_marks_the_part_unfitted() {
+    let board = format!("{BOARD_SRC}\nbom main {{\n    b.slot = DNP\n}}\n");
+    let (table, diags) = build_with_src(&board, None);
+    let (_, slot_unselected) = row_of(&table, "main.b.slot");
+    assert!(
+        slot_unselected,
+        "the DNP row marks the part not fitted (U326②)"
+    );
+    assert_eq!(count_code(&diags, mcc::errcodes::BOM_KEY_NOT_SLOT), 0);
+}
+
+/// Sidecar and embedded block merge, sidecar first: a key both carriers
+/// name takes the sidecar's value and reports the conflicting duplicate
+/// (the same b2 E a conflict inside one block reports).
+#[test]
+fn bom__embedded_and_sidecar_conflict_sidecar_row_wins() {
+    let board = format!("{BOARD_SRC}\nbom main {{\n    b.slot = OTHER.V2\n}}\n");
+    let (table, diags) = build_with_src(&board, Some(&bom_block("    b.slot = PART.SHAPE_V2\n")));
+    let (slot_class, _) = row_of(&table, "main.b.slot");
+    assert_eq!(
+        slot_class, "PART.SHAPE_V2",
+        "the sidecar row speaks first and wins"
+    );
+    let key_diags: Vec<&mcc::McDiagnostic> = diags
+        .iter()
+        .filter(|d| d.code == mcc::errcodes::BOM_KEY_NOT_SLOT)
+        .collect();
+    assert_eq!(key_diags.len(), 1, "the cross-carrier conflict reports");
+    assert!(
+        matches!(key_diags[0].level, mcc::DiagnosticLevel::Error),
+        "conflicting values across carriers are an Error"
+    );
+}
+
+/// The duplicate law spans blocks of one top: two embedded blocks in one
+/// file naming the same key take the first row and report the conflict.
+#[test]
+fn bom__embedded_duplicate_rows_across_blocks_w_e() {
+    let board = format!(
+        "{BOARD_SRC}\nbom main {{\n    b.slot = PART.SHAPE_V2\n}}\nbom main {{\n    b.slot = OTHER.V2\n}}\n"
+    );
+    let (table, diags) = build_with_src(&board, None);
+    let (slot_class, _) = row_of(&table, "main.b.slot");
+    assert_eq!(slot_class, "PART.SHAPE_V2", "the first block's row wins");
+    let key_diags: Vec<&mcc::McDiagnostic> = diags
+        .iter()
+        .filter(|d| d.code == mcc::errcodes::BOM_KEY_NOT_SLOT)
+        .collect();
+    assert_eq!(key_diags.len(), 1, "the cross-block conflict reports");
+    assert!(matches!(
+        key_diags[0].level,
+        mcc::DiagnosticLevel::Error
+    ));
+}
+
+/// An embedded block whose header names a top the build does not enter
+/// dangles all its rows (the sidecar header-mismatch law, per block).
+#[test]
+fn bom__embedded_header_top_mismatch_dangles() {
+    let board = format!("{BOARD_SRC}\nbom other {{\n    b.slot = PART.SHAPE_V2\n}}\n");
+    let (_, diags) = build_with_src(&board, None);
+    let b3 = diags
+        .iter()
+        .filter(|d| d.code == mcc::errcodes::BOM_KEY_NOT_SLOT)
+        .count();
+    assert_eq!(b3, 1, "the row dangles (E5068), anchored at the embedded row");
+}
+
+/// Regression (U345 probe): an embedded row's dotted value is overlay data,
+/// not an enum `Base.Member` reference — the file-wide enum walk must leave
+/// the block subtree unvisited, and the false `INST_CLASS_UNRESOLVED` on the
+/// value's base segment is gone.
+#[test]
+fn bom__embedded_row_value_reports_no_enum_3157() {
+    let board = format!("{BOARD_SRC}\nbom main {{\n    b.slot = PART.SHAPE_V2\n}}\n");
+    let (_, diags) = build_with_src(&board, None);
+    assert_eq!(
+        count_code(&diags, mcc::errcodes::INST_CLASS_UNRESOLVED),
+        0,
+        "the bom row value never reaches the enum-ref walk"
+    );
+}
+
+/// A clause a bom block body cannot keep — a foreign clause kind
+/// (`pins = [...]`) or a value that is not one plain name (`nets = [n1]`) —
+/// reports E5069 and binds nothing. The old first-value read turned
+/// `nets = [n1]` into a phantom `nets` row.
+#[test]
+fn bom__foreign_clause_in_bom_block_reports_5069() {
+    // Embedded carrier.
+    let board = format!(
+        "{BOARD_SRC}\nbom main {{\n    pins = [\n        in 1 = A\n    ]\n    nets = [n1]\n}}\n"
+    );
+    let (_, diags) = build_with_src(&board, None);
+    assert_eq!(
+        count_code(&diags, mcc::errcodes::BOM_BLOCK_CLAUSE_INVALID),
+        2,
+        "both clauses report; neither mints a row"
+    );
+    assert_eq!(
+        count_code(&diags, mcc::errcodes::BOM_KEY_NOT_SLOT),
+        0,
+        "no phantom row dangles"
+    );
+
+    // Sidecar carrier: same judgment at the build face.
+    let (_, diags) = build_with(Some("bom main {\n    nets = [n1]\n}\n"));
+    assert_eq!(
+        count_code(&diags, mcc::errcodes::BOM_BLOCK_CLAUSE_INVALID),
+        1,
+        "the sidecar's foreign clause reports too"
+    );
+    assert_eq!(count_code(&diags, mcc::errcodes::BOM_KEY_NOT_SLOT), 0);
+}
+
+/// A multi-block sidecar keeps its blocks apart: each block's rows bind
+/// under the top that block's header names. (The old reader folded every
+/// block's rows under the first block's header.)
+#[test]
+fn bom__multi_block_sidecar_binds_each_block_top() {
+    let (_, diags) = build_with(Some(
+        "bom main {\n    b.slot = PART.SHAPE_V2\n}\nbom other {\n    b.slot = PART.SHAPE_V2\n}\n",
+    ));
+    // Entry top binds; the `other` block dangles (mismatch law).
+    let b3 = diags
+        .iter()
+        .filter(|d| d.code == mcc::errcodes::BOM_KEY_NOT_SLOT)
+        .count();
+    assert_eq!(b3, 1, "only the other-top block's row dangles");
+}

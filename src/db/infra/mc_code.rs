@@ -160,6 +160,10 @@ pub struct McCode {
         std::ops::Range<usize>,
         u8,
     )>,
+    /// The `bom` blocks embedded at this file's top level (U345①③), read
+    /// and shape-checked at pass1 next to the CMIE registration. `begin_build`
+    /// merges their rows into the overlay registry beside the sidecar's.
+    pub(crate) embedded_bom: Vec<crate::instant::bom::BomBlock>,
 }
 
 /// §11/§19: validate an unprefixed (system/third-party) `use` target against
@@ -401,6 +405,7 @@ impl McCode {
             disk_mtime,
             use_table_dirty: false,
             cross_file_targets: Vec::new(),
+            embedded_bom: Vec::new(),
         })
     }
 
@@ -422,6 +427,7 @@ impl McCode {
             disk_mtime: None,
             use_table_dirty: false,
             cross_file_targets: Vec::new(),
+            embedded_bom: Vec::new(),
         }
     }
 
@@ -445,6 +451,7 @@ impl McCode {
             disk_mtime: None,
             use_table_dirty: false,
             cross_file_targets: Vec::new(),
+            embedded_bom: Vec::new(),
         })
     }
     pub fn free(&mut self) {
@@ -1303,6 +1310,7 @@ impl McCode {
 
         //3. self file cmie definitions
         self.parse_cmie_names();
+        self.parse_bom_blocks();
         self.sync_visibility();
     }
 
@@ -1567,6 +1575,7 @@ impl McCode {
 
         // Register self's CMIE names
         self.parse_cmie_names();
+        self.parse_bom_blocks();
         self.sync_visibility();
     }
 
@@ -1639,6 +1648,29 @@ impl McCode {
     /// same-name coexistence (§2.3 of same-name-enum-component.md).
     fn is_enum_decl(decl_type: u16) -> bool {
         decl_type == MCAST_ENUM
+    }
+
+    /// Register this file's embedded `bom` blocks for the overlay face
+    /// (U345①③). The mc_top alternation always accepted a `bom` block at any
+    /// file's top level, but nothing read one — the sidecar `bom.mc` was the
+    /// only carrier. Pass1 reads each block here (next to the CMIE
+    /// registration, so the per-file records stay as fresh as the names
+    /// table): rows that read as `path = Class` land in [`Self::embedded_bom`]
+    /// for `begin_build` to merge beside the sidecar's rows, and a clause
+    /// that does not read as a row reports E5069 — the overlay is data, and
+    /// an ignored clause is a silent loss otherwise. The header top and the
+    /// key paths validate later against the live tops (the header-mismatch
+    /// rows dangle into E5068 at the build face); nothing here needs the
+    /// instance table, so no check is faked ahead of pass2.
+    pub fn parse_bom_blocks(&mut self) {
+        self.embedded_bom.clear();
+        for node in self.ast.iter() {
+            if !node.is_type(MCAST_BOM) {
+                continue;
+            }
+            let block = crate::instant::bom::read_bom_block(&node, &self.uri);
+            self.embedded_bom.push(block);
+        }
     }
 
     /// Parse current file, add all definitions to the per-world tables
@@ -5536,6 +5568,14 @@ impl McCode {
             let mut acc: Vec<AstNode> = Vec::new();
             let mut stack: Vec<AstNode> = ast.iter().collect();
             while let Some(node) = stack.pop() {
+                // U345②: a bom block's rows name classes, not enum members —
+                // the `path = Class` row values are overlay data, and walking
+                // them here reported the false `INST_CLASS_UNRESOLVED` on the
+                // value's base segment (a live class, not an enum). The block
+                // subtree is overlay-only, so it is pruned whole.
+                if node.is_type(MCAST_BOM) {
+                    continue;
+                }
                 if let Some(sub) = node.get_sub_node() {
                     for child in sub.iter() {
                         stack.push(child);

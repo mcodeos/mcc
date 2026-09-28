@@ -4,13 +4,15 @@
 
 //! BOM overlay: engineering-level part selection over abstract slots.
 //!
-//! `bom.mc` sits at a project root as a sidecar (not in the `use`
-//! topology; discovery walks up from the entry file per build). The carrier is
-//! mc grammar — one `bom <top> { path = Class }` block whose `path =
-//! Class` rows keep the row grammar of the retired `define` table, so the mc
-//! parser reads it with real
-//! lex spans and normal parse diagnostics. Keys are instance paths relative
-//! to the top module named in the header (`"LDO.ldo"`); values are component
+//! The carrier is mc grammar — `bom <top> { path = Class }` blocks whose
+//! `path = Class` rows keep the row grammar of the retired `define` table, so
+//! the mc parser reads them with real lex spans and normal parse
+//! diagnostics. Two carriers feed one registry: the `bom.mc` sidecar at a
+//! project root (not in the `use` topology; discovery walks up from the
+//! entry file per build), and blocks embedded at any project file's top
+//! level (U345②) — legal grammar the mc_top alternation always accepted,
+//! now read by the same face. Keys are instance paths relative to the top
+//! module named in the block header (`"LDO.ldo"`); values are component
 //! class names resolved against the live defs at bind time. A binding
 //! replaces the instance's class identity only — never its shape. A row
 //! whose value spells the reserved word [`DNP_WORD`] is a device-level DNP
@@ -22,7 +24,8 @@
 
 use crate::ast::node::AstNode;
 use crate::ast::{bindings::Frontend, macros::{
-    MCAST_ATT_ID, MCAST_ATT_VALUES, MCAST_ATTRIBUTE, MCAST_BODY, MCAST_NAME, MCAST_BOM,
+    MCAST_ATT_ID, MCAST_ATT_VALUES, MCAST_ATTRIBUTE, MCAST_BODY, MCAST_ID, MCAST_IDA, MCAST_IDS,
+    MCAST_NAME, MCAST_BOM, MCAST_OPD,
 }};
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::CString;
@@ -88,25 +91,53 @@ pub(crate) struct DuplicateRow {
     pub uri: String,
 }
 
+/// One `bom <top> { path = Class }` block as read off an AST: the header top
+/// it names and its rows in file order (both row kinds; the DNP word routes
+/// a row at merge time). Produced by [`read_bom_block`] for the two carriers
+/// alike — the sidecar file ([`parse_bom`]) and a block embedded in a
+/// project file (registered at pass1 into `McCode::embedded_bom` (U345①③);
+/// rows keep the carrier file's own uri and real lex spans, so overlay
+/// findings anchor at an embedded row exactly as at a sidecar row).
+#[derive(Debug, Clone, Default)]
+pub(crate) struct BomBlock {
+    pub top: Option<String>,
+    pub rows: Vec<BindingRow>,
+}
+
+/// One header-top's merged table. Every block naming the top contributes,
+/// sidecar first, then embedded blocks in canonical-uri order; within a top
+/// the two row kinds keep separate namespaces and the first row of a
+/// namespace wins on duplicates.
+#[derive(Debug, Default)]
+struct TopTable {
+    /// Selection rows in merge order; anchors read these even when the
+    /// owning sidecar failed to parse.
+    rows: Vec<BindingRow>,
+    /// Device-level DNP rows in merge order (U326②; `value_class` is always
+    /// [`DNP_WORD`]).
+    dnp_rows: Vec<BindingRow>,
+    /// bom key (top-relative instance path) -> variant class name;
+    /// first row wins on duplicates.
+    entries: BTreeMap<String, String>,
+    /// Keys carrying a DNP row.
+    dnp_entries: BTreeSet<String>,
+}
+
 #[derive(Debug, Default)]
 struct BomState {
     root: Option<PathBuf>,
     /// Canonical entry uri of the build in flight (set by [`begin_build`]).
     entry: Option<String>,
-    /// The top module the block header names.
-    header_top: Option<String>,
-    /// Rows in file order; the read face's single product.
-    rows: Vec<BindingRow>,
-    /// bom key (top-relative instance path) -> variant class name;
-    /// first row wins on duplicates.
-    entries: BTreeMap<String, String>,
-    /// Device-level DNP rows in file order (U326②; `value_class` is always
-    /// [`DNP_WORD`]) — the read face's second product, for anchors.
-    dnp_rows: Vec<BindingRow>,
-    /// Keys carrying a DNP row; first row wins on duplicates.
-    dnp_entries: BTreeSet<String>,
+    /// The top module the binds actually gate on — set by the first bind /
+    /// DNP gate that saw its block header match, so the dangling check can
+    /// tell the entry top's keys from the other tops' (whose rows all
+    /// dangle, the header-mismatch law).
+    entry_top: Option<String>,
+    /// Per header-top tables ([`TopTable`]).
+    tops: BTreeMap<String, TopTable>,
     duplicates: Vec<DuplicateRow>,
-    /// bom key -> (canonical instance path, bind outcome); per build run
+    /// bom key -> (canonical instance path, bind outcome); per build run.
+    /// Only entry-top rows ever bind, so the key alone is unambiguous.
     binds: BTreeMap<String, (String, BindOutcome)>,
     /// DNP keys a materialization consumed this build run (the dangling
     /// check's second ledger; selection keys consume through `binds`).
@@ -116,13 +147,12 @@ struct BomState {
 static BOM_STATE: LazyLock<RwLock<BomState>> =
     LazyLock::new(|| RwLock::new(BomState::default()));
 
-/// Load the overlay that owns `dir` (the nearest ancestor carrying an
-/// `BOM_FILE`), replacing whatever the registry held. No ancestor carries
-/// one, or the file does not parse, clears the registry — a build whose board
-/// has no overlay has no slots to bind. Parse failures report through the
-/// normal parse diagnostic domain (E1000 + parser dlog under the overlay
-/// file's own uri) before the registry clears.
-fn load_for_dir(dir: &Path) {
+/// The sidecar overlay that owns `dir` (the nearest ancestor carrying an
+/// [`BOM_FILE`]), read and parsed. `None` — no ancestor carries one. The
+/// bool is whether the parse came back clean: a broken carrier still yields
+/// its rows (so dup findings and row anchors survive to report), but binds
+/// nothing ([`merge_sources`] keeps its tables empty).
+fn discover_sidecar(dir: &Path) -> Option<(PathBuf, Vec<BomBlock>, bool)> {
     let mut hit: Option<(PathBuf, String)> = None;
     let mut cur = Some(dir.to_path_buf());
     while let Some(d) = cur {
@@ -133,64 +163,75 @@ fn load_for_dir(dir: &Path) {
         }
         cur = d.parent().map(|p| p.to_path_buf());
     }
-    let Some((root, text)) = hit else {
-        let mut state = BOM_STATE.write().expect("bom overlay lock");
-        state.root = None;
-        state.rows.clear();
-        state.header_top = None;
-        state.entries.clear();
-        state.dnp_rows.clear();
-        state.dnp_entries.clear();
-        state.duplicates.clear();
-        return;
-    };
+    let (root, text) = hit?;
     let uri = root.join(BOM_FILE).to_string_lossy().into_owned();
-    let (header_top, rows, dnp_rows, duplicates, parse_ok) = parse_bom(&text, &uri);
-    let mut entries = BTreeMap::new();
-    let mut dnp_entries = BTreeSet::new();
-    if parse_ok {
-        // First row wins: a duplicate never replaces the earlier selection
-        // (its own E5068 W/E fires from `duplicates` instead). The two row
-        // kinds keep separate namespaces — one key may carry both a selection
-        // row and a DNP row (a part chosen for the board and not fitted).
-        for row in &rows {
-            entries
-                .entry(row.path.clone())
-                .or_insert_with(|| row.value_class.clone());
-        }
-        for row in &dnp_rows {
-            dnp_entries.insert(row.path.clone());
+    let (blocks, parse_ok) = parse_bom(&text, &uri);
+    Some((root, blocks, parse_ok))
+}
+
+/// Merge every row source into one per-top registry, replacing whatever the
+/// state held. Order is the authority law: the sidecar block(s) first, then
+/// the pass1-registered embedded blocks in canonical-uri order (the
+/// workspace map itself iterates unordered, so the sort is what keeps
+/// first-row-wins deterministic). Within a top, first row wins on
+/// duplicates — the duplicate still reports through `duplicates` with the
+/// same b1/b2 shape as inside one block. `bindable = false` (a sidecar whose
+/// parse failed) keeps the source's rows and duplicate findings but feeds no
+/// table, so nothing binds off a broken carrier.
+fn merge_sources(
+    state: &mut BomState,
+    sources: Vec<(Option<String>, Vec<BindingRow>, bool)>,
+    root: Option<PathBuf>,
+) {
+    let mut tops: BTreeMap<String, TopTable> = BTreeMap::new();
+    let mut duplicates: Vec<DuplicateRow> = Vec::new();
+    for (top, rows, bindable) in sources {
+        // A block whose header name did not read still reports its rows
+        // under the empty top, which no build's top matches — every row
+        // dangles into the b3 domain, same as a header mismatch.
+        let t = tops.entry(top.unwrap_or_default()).or_default();
+        for row in rows {
+            // The reserved word routes the row: `DNP` lands in the
+            // device-level namespace, everything else is a selection row.
+            // Duplicates judge per namespace — a key may carry one row of
+            // each kind.
+            let is_dnp = row.value_class == DNP_WORD;
+            let ns = if is_dnp { &mut t.dnp_rows } else { &mut t.rows };
+            if let Some(first) = ns.iter().find(|r| r.path == row.path) {
+                duplicates.push(DuplicateRow {
+                    key: row.path.clone(),
+                    first_value: first.value_class.clone(),
+                    dup_value: row.value_class.clone(),
+                    span: row.span,
+                    uri: row.uri.clone(),
+                });
+            } else {
+                ns.push(row.clone());
+            }
+            if bindable {
+                if is_dnp {
+                    t.dnp_entries.insert(row.path.clone());
+                } else {
+                    t.entries
+                        .entry(row.path.clone())
+                        .or_insert_with(|| row.value_class.clone());
+                }
+            }
         }
     }
-    let mut state = BOM_STATE.write().expect("bom overlay lock");
-    state.root = Some(root);
-    state.header_top = header_top;
-    state.rows = rows;
-    state.entries = entries;
-    state.dnp_rows = dnp_rows;
-    state.dnp_entries = dnp_entries;
+    state.root = root;
+    state.entry_top = None;
+    state.tops = tops;
     state.duplicates = duplicates;
 }
 
-/// Parse one `bom.mc` through the standard C parser. Returns the
-/// header top, the rows in file order, the duplicate-key list, and whether
-/// the parse came back clean (an error token clears the registry at the
-/// caller). Diagnostics drain into the workspace under the overlay file's
-/// own uri, exactly as a circuit file's parse errors do.
-fn parse_bom(
-    text: &str,
-    uri: &str,
-) -> (
-    Option<String>,
-    Vec<BindingRow>,
-    Vec<BindingRow>,
-    Vec<DuplicateRow>,
-    bool,
-) {
-    let mut header_top = None;
-    let mut rows: Vec<BindingRow> = Vec::new();
-    let mut dnp_rows: Vec<BindingRow> = Vec::new();
-    let mut duplicates: Vec<DuplicateRow> = Vec::new();
+/// Parse one sidecar through the standard C parser. Returns its blocks (one
+/// per top-level `bom` statement, each with its own header top) and whether
+/// the parse came back clean (an error token leaves the blocks bindable =
+/// false at the caller). Diagnostics drain into the workspace under the
+/// overlay file's own uri, exactly as a circuit file's parse errors do.
+fn parse_bom(text: &str, uri: &str) -> (Vec<BomBlock>, bool) {
+    let mut blocks: Vec<BomBlock> = Vec::new();
     // reset + load + lex + parse must run under the one frontend lock; the
     // Frontend value itself is that lock, and the diagnostics drain below
     // reads the same process-global buffers before it drops.
@@ -224,48 +265,7 @@ fn parse_bom(
                     if !stmt.is_type(MCAST_BOM) {
                         continue;
                     }
-                    // bom <top> { rows }: sub = [MCAST_NAME, MCAST_BODY].
-                    // Single block per file (v1); a second block is ignored.
-                    if header_top.is_none() {
-                        header_top = stmt
-                            .get_sub_node()
-                            .filter(|n| n.is_type(MCAST_NAME))
-                            .and_then(|n| node_name(&n));
-                    }
-                    let Some(body) = stmt
-                        .get_sub_node()
-                        .and_then(|name| name.get_next())
-                        .filter(|n| n.is_type(MCAST_BODY))
-                    else {
-                        continue;
-                    };
-                    for clause in body.clause_list() {
-                        if !clause.is_type(MCAST_ATTRIBUTE) {
-                            continue;
-                        }
-                        let Some(row) = binding_row(&clause, uri) else {
-                            continue;
-                        };
-                        // The reserved word routes the row: `DNP` lands in the
-                        // device-level namespace, everything else is a
-                        // selection row. Duplicates judge per namespace — a
-                        // key may carry one row of each kind.
-                        let is_dnp = row.value_class == DNP_WORD;
-                        let ns = if is_dnp { &dnp_rows } else { &rows };
-                        if let Some(first) = ns.iter().find(|r| r.path == row.path) {
-                            duplicates.push(DuplicateRow {
-                                key: row.path.clone(),
-                                first_value: first.value_class.clone(),
-                                dup_value: row.value_class.clone(),
-                                span: row.span,
-                                uri: row.uri.clone(),
-                            });
-                        } else if is_dnp {
-                            dnp_rows.push(row);
-                        } else {
-                            rows.push(row);
-                        }
-                    }
+                    blocks.push(read_bom_block(&stmt, uri));
                 }
             }
         }
@@ -331,7 +331,65 @@ fn parse_bom(
     if !fcontent_ptr.is_null() {
         unsafe { libc::free(fcontent_ptr as *mut libc::c_void) };
     }
-    (header_top, rows, dnp_rows, duplicates, parse_ok)
+    (blocks, parse_ok)
+}
+
+/// Read one `bom <top> { rows }` statement off an AST (either carrier): the
+/// header top, and every body clause that reads as a `path = Class` row.
+/// Clauses that do not read as a row — a foreign clause kind, or an
+/// attribute whose value is not a single name (`pins = [...]`) — are the
+/// block's structural violations: the caller reports them (E5069) and the
+/// overlay ignores the clause, never guesses a row out of it.
+pub(crate) fn read_bom_block(stmt: &AstNode, uri: &str) -> BomBlock {
+    // bom <top> { rows }: sub = [MCAST_NAME, MCAST_BODY].
+    let top = stmt
+        .get_sub_node()
+        .filter(|n| n.is_type(MCAST_NAME))
+        .and_then(|n| node_name(&n));
+    let mut block = BomBlock {
+        top,
+        rows: Vec::new(),
+    };
+    let Some(body) = stmt
+        .get_sub_node()
+        .and_then(|name| name.get_next())
+        .filter(|n| n.is_type(MCAST_BODY))
+    else {
+        return block;
+    };
+    for clause in body.clause_list() {
+        if !clause.is_type(MCAST_ATTRIBUTE) {
+            report_block_violation(&clause, uri);
+            continue;
+        }
+        match binding_row(&clause, uri) {
+            Some(row) => block.rows.push(row),
+            None => report_block_violation(&clause, uri),
+        }
+    }
+    block
+}
+
+/// E5069: one clause of a bom block body does not read as a
+/// `path = Class` row. The overlay is data — the clause is ignored, and the
+/// diagnostic names the clause span so the author can fix or move it. Both
+/// callers run with the carrier file as the current uri (the sidecar under
+/// its [`UriGuard`], an embedded block inside its own file's pass1), so the
+/// `_at` anchor lands on the right file.
+fn report_block_violation(clause: &AstNode, _uri: &str) {
+    let msg = crate::errcodes::format_msg(crate::errcodes::BOM_BLOCK_CLAUSE_INVALID, &[]);
+    let span = clause.get_rlen();
+    let (pos, len) = if span > 0 {
+        (clause.get_rpos(), clause.get_rlen())
+    } else {
+        (clause.get_pos(), clause.get_len())
+    };
+    crate::db::diagnostic::diagnostic::dlog_error_at(
+        crate::errcodes::BOM_BLOCK_CLAUSE_INVALID,
+        pos,
+        len,
+        &msg,
+    );
 }
 
 /// The dotted name an id-chain node spells (`main`, `LDO.ldo`): token nodes
@@ -346,7 +404,14 @@ fn node_name(n: &AstNode) -> Option<String> {
 }
 
 /// One attribute row -> [`BindingRow`]: key = the dotted id chain, value =
-/// the first attr value's name, span = the row's real lex span.
+/// the attr value's name, span = the row's real lex span. The value must
+/// read as a single plain name — a comma list, a `[...]` attribute set, or
+/// an expression is not a row value, and the None return is what routes the
+/// clause to the E5069 violation report instead of guessing a row out of it
+/// (the old first-value read turned `nets = [n1]` into a phantom `nets`
+/// row). Values resolve by the dotted id read alone: a node the id walk
+/// cannot name has no row value (U343 §5 — the Display fallback can invent
+/// `<node_type_N>` placeholders).
 fn binding_row(attr: &AstNode, uri: &str) -> Option<BindingRow> {
     let id_node = attr.get_sub_node().filter(|n| n.is_type(MCAST_ATT_ID))?;
     let ids_node = id_node.get_sub_node()?;
@@ -356,9 +421,34 @@ fn binding_row(attr: &AstNode, uri: &str) -> Option<BindingRow> {
     let values_node = id_node
         .get_next()
         .filter(|n| n.is_type(MCAST_ATT_VALUES))?;
-    let value_class = values_node
-        .get_sub_node()
-        .and_then(|v| node_name(&v))?;
+    let first = values_node.get_sub_node()?;
+    // A row value is one plain name operand: the grammar's `mc_opd: mc_ids`
+    // head arm (MCAST_OPD) whose sub chain is pure ID/IDA/IDS. Anything else
+    // — a comma list, a `[...]` set, `this.x`, an expression — is not a row
+    // value. This shape gate is what keeps `to_id_or_ida`'s fall-through
+    // descent (`ast/node.rs` `_ =>` arm) from reading a name out of an
+    // operand's subtree and minting a phantom row (`nets = [n1]` used to
+    // become a `nets = n1` row).
+    if first.get_next().is_some() || !first.is_type(MCAST_OPD) {
+        return None;
+    }
+    let mut sub = first.get_sub_node();
+    let mut plain_name = true;
+    while let Some(n) = sub {
+        if !matches!(n.get_type(), MCAST_ID | MCAST_IDA | MCAST_IDS) {
+            plain_name = false;
+            break;
+        }
+        sub = n.get_next();
+    }
+    if !plain_name {
+        return None;
+    }
+    let dotted = first.to_id_or_ida();
+    if dotted.is_empty() {
+        return None;
+    }
+    let value_class = dotted.join(".");
     let span = attr.get_rlen();
     let (pos, len) = if span > 0 {
         (attr.get_rpos(), attr.get_rlen())
@@ -373,22 +463,47 @@ fn binding_row(attr: &AstNode, uri: &str) -> Option<BindingRow> {
     })
 }
 
-/// Open a build run: clear the bind ledger and record the build's canonical
-/// entry uri (call from the instantiation root once the entry module is
-/// resolved). The overlay is rediscovered per build from the entry file's
-/// nearest ancestor carrying one, so the overlay binds exactly the boards in
-/// the directory tree that owns it — never a registry left over from another
-/// project or a synthetic build over virtual sources.
+/// Open a build run: rebuild the registry and clear the bind ledger (call
+/// from the instantiation root once the entry module is resolved). Two row
+/// sources merge, sidecar first (U345②): the sidecar discovered from the
+/// entry file's nearest ancestor carrying one, then the `bom` blocks the
+/// project files registered at pass1 — so an overlay binds exactly the
+/// boards in the directory tree that owns it, plus whatever the project's
+/// own files embed — never a registry left over from another project or a
+/// synthetic build over virtual sources.
 pub(crate) fn begin_build(entry_uri: &str) {
     let entry = crate::build::pass1::canonicalize_project_uri(&crate::McURI::from(entry_uri));
     let parent = Path::new(&entry).parent().map(|p| p.to_path_buf());
-    if let Some(dir) = parent {
-        load_for_dir(&dir);
+    // The sidecar speaks first (the assembly authority by discovery), then
+    // the embedded blocks in canonical-uri order — the sort is what keeps
+    // first-row-wins deterministic across the unordered workspace map.
+    let mut sources: Vec<(Option<String>, Vec<BindingRow>, bool)> = Vec::new();
+    let mut root: Option<PathBuf> = None;
+    if let Some(dir) = &parent {
+        if let Some((sidecar_root, blocks, parse_ok)) = discover_sidecar(dir) {
+            root = Some(sidecar_root);
+            for b in blocks {
+                sources.push((b.top, b.rows, parse_ok));
+            }
+        }
+    }
+    let mut embedded: Vec<(String, Vec<BomBlock>)> = crate::db::cmie::tables::WORKSPACE
+            .mcodes
+            .iter()
+            .filter(|c| !c.mcbase && !c.embedded_bom.is_empty())
+            .map(|c| (c.uri.to_string(), c.embedded_bom.clone()))
+            .collect();
+    embedded.sort_by(|a, b| a.0.cmp(&b.0));
+    for (_uri, blocks) in embedded {
+        for b in blocks {
+            sources.push((b.top, b.rows, true));
+        }
     }
     let mut state = BOM_STATE.write().expect("bom overlay lock");
     state.binds.clear();
     state.dnp_binds.clear();
     state.entry = Some(entry);
+    merge_sources(&mut state, sources, root.or(parent));
 }
 
 /// The consumer gate: an overlay was discovered for the build in flight, and
@@ -428,22 +543,23 @@ pub(crate) fn apply_binding(
     uri: &crate::McURI,
 ) -> Option<std::sync::Arc<crate::semantic::component::McComponent>> {
     let key = bom_key(current_path, inst);
-    let value = {
+    let top = current_path.split('.').next();
+    let gate = {
         let state = BOM_STATE.read().expect("bom overlay lock");
         if !bom_active(&state) {
             None
         } else {
-            // The header names the top it binds; a build whose top differs
-            // consumes nothing, so every row dangles into the b3 domain.
-            let top = current_path.split('.').next();
-            let top_ok = state.header_top.as_deref().is_some_and(|t| Some(t) == top);
-            if top_ok {
-                state.entries.get(&key).cloned()
-            } else {
-                None
-            }
+            // Each block binds the top its header names; a build whose top
+            // has no block consumes nothing, so every row of the other tops
+            // dangles into the b3 domain.
+            top.and_then(|t| state.tops.get(t))
+                .map(|table| table.entries.get(&key).cloned())
         }
-    }?;
+    };
+    if gate.is_some() {
+        note_entry_top(top.as_deref().unwrap_or_default());
+    }
+    let value = gate??;
     let inst_path = format!("{current_path}.{inst}");
     if !declared.is_abstract {
         // Concrete instance under the key: same class is the duplicate form
@@ -484,6 +600,18 @@ fn record(key: String, path: String, outcome: BindOutcome) {
         .insert(key, (path, outcome));
 }
 
+/// Record the top the gates bind on — the first gate that found this top's
+/// table wins, and every gate in one build sees the same top. The dangling
+/// check reads it to exempt the entry top's unconsumed keys while the other
+/// tops' rows all dangle (the header-mismatch law, per top). Never clears:
+/// a build run notes its top, the next `begin_build` resets it.
+fn note_entry_top(top: &str) {
+    let mut state = BOM_STATE.write().expect("bom overlay lock");
+    if state.entry_top.is_none() {
+        state.entry_top = Some(top.to_string());
+    }
+}
+
 /// The overlay's device-level DNP word for one instance (U326②). The overlay
 /// is the assembly authority where it names the key: a DNP row marks the part not
 /// fitted; a selection row without a DNP row is the overlay's final word for
@@ -496,26 +624,25 @@ fn record(key: String, path: String, outcome: BindOutcome) {
 /// through `apply_binding`'s bind attempt).
 pub(crate) fn dnp_authority(current_path: &str, inst: &str) -> Option<bool> {
     let key = bom_key(current_path, inst);
-    let verdict = {
+    let top = current_path.split('.').next()?;
+    let gate = {
         let state = BOM_STATE.read().expect("bom overlay lock");
         if !bom_active(&state) {
             return None;
         }
         // Same header-top gate as `apply_binding`: a build whose top differs
         // consumes nothing.
-        let top = current_path.split('.').next();
-        let top_ok = state.header_top.as_deref().is_some_and(|t| Some(t) == top);
-        if !top_ok {
-            return None;
-        }
-        if state.dnp_entries.contains(&key) {
+        let table = state.tops.get(top)?;
+        if table.dnp_entries.contains(&key) {
             Some(true)
-        } else if state.entries.contains_key(&key) {
+        } else if table.entries.contains_key(&key) {
             Some(false)
         } else {
             None
         }
     };
+    note_entry_top(top);
+    let verdict = gate;
     if verdict == Some(true) {
         let path = format!("{current_path}.{inst}");
         BOM_STATE
@@ -574,52 +701,75 @@ pub(crate) fn bind_outcomes() -> Vec<(String, String, BindOutcome)> {
 
 /// Overlay keys that no bind attempt ever consumed (dangling paths) — both
 /// row kinds: selection keys consume through the bind ledger, DNP keys
-/// through `dnp_authority`.
+/// through `dnp_authority`. The entry top's keys dangle when unconsumed;
+/// every other top's keys dangle outright (a block whose header names a top
+/// the build does not enter never binds, the header-mismatch law per top).
 pub(crate) fn dangling_keys() -> Vec<String> {
     let state = BOM_STATE.read().expect("bom overlay lock");
     if !bom_active(&state) {
         return Vec::new();
     }
-    let mut out: BTreeSet<String> = state
-        .entries
-        .keys()
-        .filter(|k| !state.binds.contains_key(k.as_str()))
-        .cloned()
-        .collect();
-    out.extend(
-        state
-            .dnp_entries
-            .iter()
-            .filter(|k| !state.dnp_binds.contains_key(k.as_str()))
-            .cloned(),
-    );
+    let mut out: BTreeSet<String> = BTreeSet::new();
+    for (top, table) in &state.tops {
+        let is_entry_top = state.entry_top.as_deref() == Some(top.as_str());
+        if is_entry_top {
+            out.extend(
+                table
+                    .entries
+                    .keys()
+                    .filter(|k| !state.binds.contains_key(k.as_str()))
+                    .cloned(),
+            );
+            out.extend(
+                table
+                    .dnp_entries
+                    .iter()
+                    .filter(|k| !state.dnp_binds.contains_key(k.as_str()))
+                    .cloned(),
+            );
+        } else {
+            out.extend(table.entries.keys().cloned());
+            out.extend(table.dnp_entries.iter().cloned());
+        }
+    }
     out.into_iter().collect()
 }
 
-/// The class name a key maps to (for check messages).
+/// The class name a key maps to (for check messages). The entry top's table
+/// answers first; a key the entry top does not carry falls back to any top
+/// that has it (the finding then names whichever row fed it).
 pub(crate) fn bom_value(key: &str) -> Option<String> {
-    BOM_STATE
-        .read()
-        .expect("bom overlay lock")
-        .entries
-        .get(key)
+    let state = BOM_STATE.read().expect("bom overlay lock");
+    let entry_top = state.entry_top.as_deref();
+    state
+        .tops
+        .get(entry_top.unwrap_or_default())
+        .and_then(|t| t.entries.get(key))
+        .or_else(|| state.tops.values().find_map(|t| t.entries.get(key)))
         .cloned()
 }
 
 /// The read face for check anchoring: a key's row span (real lex span) and
-/// the overlay file uri, so E5067/E5068 point at the overlay row itself.
-/// Both row kinds anchor — a DNP row points as well as a selection row.
+/// the carrier file uri, so E5067/E5068 point at the overlay row itself —
+/// sidecar or embedded alike. Both row kinds anchor — a DNP row points as
+/// well as a selection row.
 pub(crate) fn row_anchor(key: &str) -> Option<((u32, u32), String)> {
     let state = BOM_STATE.read().expect("bom overlay lock");
     if !bom_active(&state) {
         return None;
     }
-    state
-        .rows
-        .iter()
-        .chain(state.dnp_rows.iter())
-        .find(|r| r.path == key)
-        .map(|r| (r.span, r.uri.clone()))
+    let entry_top = state.entry_top.as_deref();
+    let mut rows: Vec<&BindingRow> = Vec::new();
+    if let Some(t) = state.tops.get(entry_top.unwrap_or_default()) {
+        rows.extend(t.rows.iter().chain(t.dnp_rows.iter()));
+    }
+    for (top, t) in &state.tops {
+        if Some(top.as_str()) == entry_top {
+            continue;
+        }
+        rows.extend(t.rows.iter().chain(t.dnp_rows.iter()));
+    }
+    rows.into_iter().find(|r| r.path == key).map(|r| (r.span, r.uri.clone()))
 }
 
 /// Duplicate keys inside one overlay block, in file order.
