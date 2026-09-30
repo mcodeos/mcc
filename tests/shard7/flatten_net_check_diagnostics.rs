@@ -822,3 +822,102 @@ fn dlu_flatchk__level_window_role_adopted_pins_fire() {
         hits[0].3
     );
 }
+
+// ── U365: the active-low flag (`_`-prefixed pin name, pin-semantics §2.8)
+// gains its consuming pass. Two judgment legs — the floating-input warning
+// words the assert-spuriously hazard and its remedy, the level-window
+// mismatch names the asserted level — plus the role-adoption resolution
+// path. The comparison laws themselves stay polarity-independent; the flag
+// only shapes wording. Every test runs the bare-spelled control next to the
+// `_`-prefixed fixture so the wording delta is provably the flag's.
+
+const CS_FLOAT: &str = "component FLASH {\n    pins = [\n        in 1 = CS\n    ]\n}\nmodule main {\n    FLASH f\n}\n";
+
+fn e4108(src: &str) -> Vec<String> {
+    build_flat_diags(src)
+        .into_iter()
+        .filter(|d| d.0 == 4108)
+        .map(|d| d.3)
+        .collect()
+}
+
+#[test]
+fn dlu_flatchk__floating_active_low_input_words_the_hazard() {
+    let prefixed = CS_FLOAT.replacen("= CS", "= _CS", 1);
+    let msgs = e4108(&prefixed);
+    assert_eq!(msgs.len(), 1, "{msgs:?}");
+    assert!(
+        msgs[0].starts_with("Active-low input 'main.f.1' is not connected to any net;"),
+        "message: {}",
+        msgs[0]
+    );
+    assert!(
+        msgs[0].contains("can assert spuriously") && msgs[0].contains("Tie it to its inactive level"),
+        "message: {}",
+        msgs[0]
+    );
+    // Control: the same pad spelled bare keeps the plain wording.
+    let msgs = e4108(CS_FLOAT);
+    assert_eq!(msgs.len(), 1, "{msgs:?}");
+    assert_eq!(
+        msgs[0], "Input 'main.f.1' is not connected to any net.",
+        "message: {}",
+        msgs[0]
+    );
+}
+
+/// The adopted-pin shape: the component adopts `_CS` through the interface
+/// role, so the flag lives on the role member row, not on the component's
+/// own (anonymous-lane) row.
+const CS_IFACE: &str = "interface SPIIF(role) {\n    pins = [\n        1 = _\n    ]\n    role TGT {\n        pins = [\n            in 1 = _CS, voltage:[low:0V ~ 0.8V]\n        ]\n    }\n    role CTL {\n        pins = [\n            out 1 = CS, voltage:[low:0V ~ 0.4V]\n        ]\n    }\n}\ncomponent SLAVE {\n    pins = [\n        [1] = SPIIF::SPIIF(TGT)\n    ]\n}\ncomponent MASTER {\n    pins = [\n        [1] = SPIIF::SPIIF(CTL)\n    ]\n}\n";
+
+#[test]
+fn dlu_flatchk__floating_active_low_resolves_through_role_adoption() {
+    // The slave alone: its adopted `_CS` pad floats, and the flag must be
+    // read through the role member row.
+    let src = format!("{CS_IFACE}module main {{\n    SLAVE s\n}}");
+    let msgs = e4108(&src);
+    assert_eq!(msgs.len(), 1, "{msgs:?}");
+    assert!(
+        msgs[0].starts_with("Active-low input 'main.s.1' is not connected to any net;"),
+        "message: {}",
+        msgs[0]
+    );
+}
+
+#[test]
+fn dlu_flatchk__level_window_active_low_receiver_names_asserted_level() {
+    // Open-collector shape with an active-low receiver: the low key is the
+    // asserted level, and the mismatch message must say so.
+    let src = "component D {\n    pins = [\n        out 1 = A, voltage:[low:0V ~ 0.8V]\n    ]\n}\ncomponent R {\n    pins = [\n        in 1 = _B, voltage:[low:0V ~ 0.4V]\n    ]\n}\nmodule main {\n    D d\n    R r\n    d.A -> r._B\n}";
+    let hits = e4124(src);
+    assert_eq!(hits.len(), 1, "low 0V ~ 0.8V not inside 0V ~ 0.4V: {hits:?}");
+    assert!(
+        hits[0].3.ends_with("'main.r.1' is active-low: its low band is the asserted level."),
+        "message: {}",
+        hits[0].3
+    );
+    // Control: the same bands on a bare receiver carry no polarity note.
+    let bare = src.replace("= _B,", "= B,").replace("r._B", "r.B");
+    let hits = e4124(&bare);
+    assert_eq!(hits.len(), 1, "{hits:?}");
+    assert!(
+        !hits[0].3.contains("active-low"),
+        "control must stay unannotated: {}",
+        hits[0].3
+    );
+}
+
+#[test]
+fn dlu_flatchk__level_window_active_low_driver_names_asserted_level() {
+    // The flag on the driver side annotates too: an active-low output's low
+    // band is what asserts the far end's (inactive-high) input.
+    let src = "component D {\n    pins = [\n        out 1 = _A, voltage:[low:0V ~ 0.8V]\n    ]\n}\ncomponent R {\n    pins = [\n        in 1 = B, voltage:[low:0V ~ 0.4V]\n    ]\n}\nmodule main {\n    D d\n    R r\n    d._A -> r.B\n}";
+    let hits = e4124(src);
+    assert_eq!(hits.len(), 1, "{hits:?}");
+    assert!(
+        hits[0].3.ends_with("'main.d.1' is active-low: its low band is the asserted level."),
+        "message: {}",
+        hits[0].3
+    );
+}

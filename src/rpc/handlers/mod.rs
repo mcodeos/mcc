@@ -2078,6 +2078,13 @@ pub fn pins_json(pins: &crate::McPins) -> Value {
             if !pin.attrs.is_empty() {
                 j["attrs"] = json!(pin.attrs.iter().map(|a| a.to_string()).collect::<Vec<_>>());
             }
+            // §2.8 active-low flag, shown only when set (same conditional
+            // idiom as `description`/`values`/`attrs` above): the `_` prefix
+            // is already visible in `names`, the field states that the
+            // polarity is machine-read, not prose.
+            if pin.active_low {
+                j["active_low"] = json!(true);
+            }
             j
         })
         .collect();

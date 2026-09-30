@@ -196,7 +196,7 @@ pub(crate) use iface_role_peers::check_iface_role_peers;
 // is computed, not spelled into role names". Definition-space decode like
 // E4105; an endpoint that is no volt scalar is unknown and stays silent.
 mod level_window;
-pub(crate) use level_window::check_level_window_mismatch;
+pub(crate) use level_window::{check_level_window_mismatch, entry_active_low};
 
 /// Run all electrical net checks and return diagnostics.
 ///
@@ -736,10 +736,22 @@ pub(crate) fn check_floating_inputs(table: &InstTable, results: &mut Vec<NetChec
             && !entry.synthetic
         {
             let (pos, uri) = entry_pos(entry);
+            // U365 polarity leg: an un-driven active-low input (`_`-prefixed
+            // name, §2.8) does not merely float — its asserted level is the
+            // one nobody drives, so the consuming part may assert spuriously.
+            // Same code, the flag only shapes the wording and the remedy.
+            let message = if entry_active_low(table, entry) {
+                format!(
+                    "Active-low input '{}' is not connected to any net; left floating it can assert spuriously. Tie it to its inactive level through a resistor.",
+                    entry.path
+                )
+            } else {
+                format!("Input '{}' is not connected to any net.", entry.path)
+            };
             results.push(NetCheckResult {
                 check: "floating-input",
                 severity: "warning",
-                message: format!("Input '{}' is not connected to any net.", entry.path),
+                message,
                 net_name: entry.path.clone(),
                 code: crate::errcodes::NET_INPUT_UNCONNECTED,
                 pos,

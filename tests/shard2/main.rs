@@ -8,6 +8,7 @@
 #[path = "../common/mod.rs"]
 pub mod common;
 
+mod active_low_flag_faces;
 mod attr_as_endpoint_e4025;
 mod attr_key_duplicate;
 mod attr_value_vocabulary;

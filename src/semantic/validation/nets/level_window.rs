@@ -159,6 +159,69 @@ fn adopted_windows(
     w.has_any().then_some(w)
 }
 
+/// Whether an interface-adopted pin's role member row carries the active-low
+/// flag (§2.8): the entry's pin id resolves through `PORT.MEMBER` to the
+/// member name, the member names into the role's pin table. A roleless
+/// adoption or a member that names no role pin answers nothing.
+fn adopted_active_low(def: &McComponent, pin_id: &str, lane: &IfaceLane) -> Option<bool> {
+    let role_name = lane.role.as_ref()?;
+    let names = def.pins.pin_id_to_names.get(pin_id)?;
+    let mut segs = names.first()?.split('.');
+    let port_name = segs.next()?;
+    if port_name.is_empty() {
+        return None;
+    }
+    let member = segs.next()?;
+    let port = def.pins.names_to_id.get(port_name)?;
+    let McPinPort::Interface(iface) = port else {
+        return None;
+    };
+    let role = iface
+        .base
+        .roles
+        .iter()
+        .find(|r| &r.name.to_string() == role_name)?;
+    let rp = role
+        .pins
+        .pins
+        .values()
+        .find(|p| p.names.iter().any(|n| n == member))?;
+    Some(rp.active_low)
+}
+
+/// Whether a flat entry's pin is active-low (§2.8), resolved in definition
+/// space with the same walk as [`entry_level_windows`]: an adopted pin reads
+/// its role member's row, a plain pin its own row. A pin that resolves to no
+/// row is simply not active-low — the flag shapes wording only, it never
+/// opens a question the row did not declare.
+pub(crate) fn entry_active_low(table: &InstTable, entry: &InstEntry) -> bool {
+    let Some(comp_entry) = entry.parent_id.and_then(|pid| table.get_entry(pid)) else {
+        return false;
+    };
+    if comp_entry.class_name.is_empty() {
+        return false;
+    }
+    let comps = crate::definition_space().workspace_components();
+    let Some(def) = comps
+        .iter()
+        .find(|(sn, _)| sn.ident.to_string() == comp_entry.class_name)
+        .map(|(_, c)| c)
+    else {
+        return false;
+    };
+    let pin_id = entry.path.rsplit('.').next().unwrap_or("");
+    if let Some(lane) = entry.iface_lane.as_ref() {
+        if let Some(al) = adopted_active_low(def, pin_id, lane) {
+            return al;
+        }
+    }
+    def.pins
+        .pins
+        .get(pin_id)
+        .map(|p| p.active_low)
+        .unwrap_or(false)
+}
+
 /// The windows a flat entry declares, resolved in definition space: an
 /// adopted pin reads its role member's row, a plain pin its own row.
 /// Component pins only (E4105's guard) — module-port members resolve through
@@ -205,8 +268,9 @@ fn band_text(b: LevelBand) -> String {
 pub(crate) fn check_level_window_mismatch(table: &InstTable, results: &mut Vec<NetCheckResult>) {
     const EPS: f64 = 1e-9;
     for net in table.get_nets() {
-        // (path, direction, declared windows) for signal pins on this net
-        let mut ends: Vec<(String, IOType, LevelWindows)> = Vec::new();
+        // (path, direction, declared windows, active-low) for signal pins on
+        // this net
+        let mut ends: Vec<(String, IOType, LevelWindows, bool)> = Vec::new();
         for &pid in &net.points {
             let Some(entry) = table.get_entry(pid) else {
                 continue;
@@ -220,13 +284,18 @@ pub(crate) fn check_level_window_mismatch(table: &InstTable, results: &mut Vec<N
             let Some(w) = entry_level_windows(table, entry) else {
                 continue;
             };
-            ends.push((entry.path.clone(), entry.io_type.clone(), w));
+            ends.push((
+                entry.path.clone(),
+                entry.io_type.clone(),
+                w,
+                entry_active_low(table, entry),
+            ));
         }
-        for (dp, d_io, d_w) in &ends {
+        for (dp, d_io, d_w, d_al) in &ends {
             if *d_io != IOType::Out {
                 continue;
             }
-            for (rp, r_io, r_w) in &ends {
+            for (rp, r_io, r_w, r_al) in &ends {
                 if *r_io != IOType::In || rp == dp {
                     continue;
                 }
@@ -240,19 +309,33 @@ pub(crate) fn check_level_window_mismatch(table: &InstTable, results: &mut Vec<N
                     if rb.lo - EPS <= db.lo && db.hi <= rb.hi + EPS {
                         continue;
                     }
+                    // U365 polarity arm: an active-low receiver reads its low
+                    // band as the asserted level, so the same mismatch means
+                    // "the signal cannot assert" there. The comparison law is
+                    // polarity-independent (bands judge as written); the flag
+                    // only shapes the wording. Severity modulation (asserted
+                    // vs inactive level) waits for logic-state semantics.
+                    let polarity = if *r_al {
+                        format!(" '{rp}' is active-low: its low band is the asserted level.")
+                    } else if *d_al {
+                        format!(" '{dp}' is active-low: its low band is the asserted level.")
+                    } else {
+                        String::new()
+                    };
                     let (pos, uri) = best_pos(table, &net.points);
                     results.push(NetCheckResult {
                         check: "level-window-mismatch",
                         severity: "error",
                         message: format!(
-                            "Net '{}': '{}' drives {} {} outside '{}' accepted {} band {}.",
+                            "Net '{}': '{}' drives {} {} outside '{}' accepted {} band {}.{}",
                             net.name,
                             dp,
                             key,
                             band_text(db),
                             rp,
                             key,
-                            band_text(rb)
+                            band_text(rb),
+                            polarity
                         ),
                         net_name: net.name.clone(),
                         code: crate::errcodes::LEVEL_WINDOW_MISMATCH,

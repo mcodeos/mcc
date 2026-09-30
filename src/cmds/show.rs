@@ -3940,7 +3940,16 @@ fn render_pins_table(pins: &Value) -> String {
             .and_then(|v| v.as_array())
             .map(|a| a.iter().filter_map(iface_display).collect())
             .unwrap_or_default();
-        rows.push((id, io, names.join(", "), ifaces.join(" | ")));
+        // §2.8: mark the active-low flag only where it is set, so the table
+        // (and every golden built on it) changes only for flagged pins.
+        let mut names_cell = names.join(", ");
+        if p.get("active_low").and_then(|v| v.as_bool()) == Some(true) {
+            if !names_cell.is_empty() {
+                names_cell.push(' ');
+            }
+            names_cell.push_str("(active-low)");
+        }
+        rows.push((id, io, names_cell, ifaces.join(" | ")));
     }
 
     let id_w = rows.iter().map(|r| r.0.len()).max().unwrap_or(4).max(4);
