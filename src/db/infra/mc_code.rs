@@ -6207,10 +6207,15 @@ impl McCode {
                             // (mod.sub — chain funcs return `this`, see the function
                             // call chain design), NOT against the intermediate
                             // method name `i2c` that extract_class_name returns.
-                            // The base instance is preferred; the old last-name
-                            // extraction stays as a fallback (e.g. `RES(...).Pull`).
+                            // The base instance is preferred; an anonymous chain
+                            // (`P1(5V).F1().F2()`) resolves through the chain-bottom
+                            // constructor's class (U362 — extract_class_name's
+                            // first-NAME search would pick the method name `F1`);
+                            // the old last-name extraction stays as the last
+                            // fallback (single-segment `RES(...).Pull`).
                             let class_name = Self::extract_chain_base_instance(&sub)
                                 .and_then(|inst| Self::find_instance_class_name(&inst, uri))
+                                .or_else(|| Self::extract_chain_ctor_class(&sub))
                                 .or_else(|| Self::extract_class_name(&sub));
                             if let (Some(class_name), Some(method_name)) = (
                                 class_name,
@@ -6447,6 +6452,58 @@ impl McCode {
                 return name_ids.and_then(|n| McIds::new(&n)).map(|i| i.to_string());
             }
             return McIds::new(&ids).map(|i| i.to_string());
+        }
+    }
+
+    /// Anonymous chain bottom: walk the `MCAST_INSTANCE` receiver chain down
+    /// to the base constructor fcall and return the class NAME it carries.
+    ///
+    /// `P1(5V).F1().F2()` — the outer INSTANCE wraps the `.F2()` fcall, whose
+    /// receiver INSTANCE wraps the `.F1()` fcall, whose receiver INSTANCE
+    /// wraps the plain constructor `P1(5V)`. The chain bottom is the
+    /// constructor, and its first NAME is the class — not a method name,
+    /// which is what `extract_class_name`'s first-NAME search picks up on a
+    /// chain (`F1` for the shape above, U362). Reached only when
+    /// `extract_chain_base_instance` + `find_instance_class_name` missed, so
+    /// a bottom that is a named instance (their route) never lands here with
+    /// a method name in hand.
+    fn extract_chain_ctor_class(sub: &Option<AstNode>) -> Option<String> {
+        let mut current = sub.clone()?;
+        loop {
+            if current.get_type() != MCAST_INSTANCE {
+                return None;
+            }
+            let Some(inner) = current.get_sub_node() else {
+                return None;
+            };
+            if inner.get_type() == MCAST_OPD_FCALL {
+                // Every call is an OPD_FCALL — the constructor `P1(5V)` too;
+                // the dot structure lives in the children, so a link is an
+                // OPD_FCALL with an INSTANCE receiver and the chain bottom
+                // is an OPD_FCALL without one. Descend through the link,
+                // stop on the bottom.
+                let receiver = inner
+                    .get_sub_node()
+                    .and_then(|s2| s2.iter().find(|c| c.get_type() == MCAST_INSTANCE));
+                if let Some(receiver) = receiver {
+                    current = receiver;
+                    continue;
+                }
+            }
+            // Chain bottom — the constructor fcall (`P1(5V)`). The first
+            // child may be MCAST_PARAMS_PRE (from `pre => Class(...)`
+            // shapes) rather than MCAST_NAME, so search rather than take
+            // child 0 (mirrors `extract_class_name`).
+            let first = inner.get_sub_node()?;
+            let name_node = if first.get_type() == MCAST_NAME {
+                first
+            } else {
+                first.iter().find(|n| n.get_type() == MCAST_NAME)?
+            };
+            return name_node
+                .get_sub_node()
+                .and_then(|ids| McIds::new(&ids))
+                .map(|i| i.to_string());
         }
     }
 

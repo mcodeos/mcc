@@ -2103,12 +2103,25 @@ impl McFuncCall {
             // Bare call (no receiver) or unresolvable root → surrounding scope.
             // An inline CONSTRUCTION receiver (`RES(10k).Pull`) also lands
             // here: its chain bottoms out at a FuncCall, not an instance
-            // endpoint (U339). The construction's own name is the receiver
-            // type, so it resolves against that class's funcs table — the
-            // same answer an instance receiver's type gives. Unresolvable
-            // names keep the scope fallback (built-ins, bare scope funcs).
+            // endpoint (U339). The chain's BOTTOM FuncCall is the
+            // constructor, so its name is the receiver type — resolve
+            // against that class's funcs table, the same answer an instance
+            // receiver's type gives. The direct caller is not enough: for
+            // `P1(5V).FE().F1()` the outer link's direct caller is `FE`,
+            // a method name, not a class (U362 mirror — the miss silenced
+            // the endpoint gate for anonymous roots). Unresolvable names
+            // keep the scope fallback (built-ins, bare scope funcs).
             None => {
-                if let Some(McPhrase::FuncCall(recv)) = caller.as_deref() {
+                let mut bottom = caller.as_deref();
+                while let Some(McPhrase::FuncCall(fc)) = bottom {
+                    match fc.caller.as_deref() {
+                        Some(McPhrase::FuncCall(_)) => {
+                            bottom = fc.caller.as_deref();
+                        }
+                        _ => break,
+                    }
+                }
+                if let Some(McPhrase::FuncCall(recv)) = bottom {
                     if let Some(crate::semantic::common::McCMIE::Component(arc_comp)) =
                         resolve_cmie(&DB, &recv.func_name, scope.uri())
                     {
@@ -2173,7 +2186,7 @@ impl McFuncCall {
     ///     scope via `context.find_func_return`.
     ///   * No record found anywhere → silently skip (built-in, unknown
     ///     external function, etc. — we can't authoritatively say).
-    ///   * Found `Endpoint(_)` return → emit error 1316.
+    ///   * Found `Endpoint(_)` return → emit E3135.
     fn check_chain_validity(
         caller: &Option<Box<McPhrase>>,
         outer_method: &McIds,
