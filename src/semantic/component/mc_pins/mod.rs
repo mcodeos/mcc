@@ -3428,6 +3428,17 @@ impl McPinNames {
                     myself.push_option(McPinPort::NC, err_node);
                 }
 
+                MCAST_OPD_SQUARE_VEC => {
+                    // U366: `nc [5, 6] = [NC, NC]` — the spelled-out group
+                    // form. NC is not reachable from mc_phrase, so the
+                    // vector cannot derive through the MCAST_EXPRESSION arm;
+                    // the grammar lands it bare under MCAST_PIN_NAME. NC is
+                    // position-free, so one group option covers every pinid
+                    // on the row's id side — the same reading the single
+                    // `= NC` arm gives the whole group.
+                    myself.push_option(McPinPort::NC, err_node);
+                }
+
                 MCAST_INT => {
                     if let Some(pname) = McInt::new(&sub_node) {
                         myself.push_option(McPinPort::Single(pname.to_string()), err_node);

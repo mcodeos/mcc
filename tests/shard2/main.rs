@@ -31,6 +31,7 @@ mod pins_self_face_phrase;
 mod resolve_policy;
 mod u249_curly_dot_chain;
 mod u362_anon_chain_returns;
+mod u366_nc_list_rhs;
 mod u368_dotted_chain_ctor;
 mod u332_entry_resolution;
 mod u291_adopted_func_member;
