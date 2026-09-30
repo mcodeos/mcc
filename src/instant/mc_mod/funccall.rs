@@ -209,6 +209,52 @@ impl InstantiationBuilder {
                 None => None,
             }
         };
+        // ★ U368: dotted construction in a chain (`V33 - IND.FB(600Ω) - AGND`).
+        // The parser lowers a qualified class call in chain position to a
+        // receiver chain — func_name "FB" over a lone Label endpoint "IND" —
+        // and every lookup above only sees "FB", so the call fell through to
+        // the instance-method path, dead-ended there ("scope chain 'IND' does
+        // not resolve to any declared instance", E0944) and was silently
+        // dropped as a failed class: no part, no diagnostics, and the net lost
+        // its branch. Join the head label with the func name and retry the
+        // table when the head cannot be an instance: not a declared
+        // component/submodule, not a port, not a bus — exactly the
+        // caller_unknown guard set of P2-7-XTAL (stmt.rs). On a hit the
+        // existing P2-7 arm below sees label+func == comp_def.name, discards
+        // the label, and auto-names the part — byte-identical to the same
+        // construction written with the dotted class outside a chain.
+        // Instance methods keep their precedence: a head that IS a declared
+        // instance (`uC.Power(...)`) never reaches the join.
+        //
+        // Component only: a dotted *module* construction would need the
+        // dotted name in the Module arm below (which still receives the bare
+        // func_name); no corpus shape exercises it, so leave that arm alone.
+        let dotted_candidate = caller.and_then(|c| match c {
+            McPhrase::Endpoint(McRef::Name(iref)) => match &iref.base {
+                McInstance::Label(s) => {
+                    if self.find_submodule(s).is_some()
+                        || self.find_component(s).is_some()
+                        || self.is_port(s)
+                        || self.is_bus(s)
+                    {
+                        None
+                    } else {
+                        let dotted = format!("{s}.{func_name}");
+                        Self::is_registered_class_name(&dotted).then_some(dotted)
+                    }
+                }
+                _ => None,
+            },
+            _ => None,
+        });
+        let dotted_fallback = || {
+            dotted_candidate.as_deref().and_then(|dotted| {
+                match mcb_get_cmie(&McIds::from(dotted), &current_uri::get()) {
+                    Some(c @ McCMIE::Component(_)) => Some(c),
+                    _ => None,
+                }
+            })
+        };
         let cmie_raw = mcb_get_cmie(func_name, &current_uri::get());
         // Only use direct lookup if it's a Component or Module; otherwise
         // fall through to alias fallback (e.g. "ESD" → "DIO.ESD").
@@ -225,10 +271,10 @@ impl InstantiationBuilder {
             Some(McCMIE::Enum(_)) => {
                 match crate::db::resolve::policy::Resolver::resolve_system(func_name) {
                     Some(c @ McCMIE::Component(_)) | Some(c @ McCMIE::Module(_)) => Some(c),
-                    _ => alias_fallback(),
+                    _ => alias_fallback().or_else(dotted_fallback),
                 }
             }
-            _ => alias_fallback(),
+            _ => alias_fallback().or_else(dotted_fallback),
         };
         if let Some(cmie) = cmie {
             match cmie {

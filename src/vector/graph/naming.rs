@@ -89,8 +89,8 @@ const CLASS_ALIAS_TO_CANONICAL: &[(&str, &str)] = &[
     ("SCHOTTKY", "DIO.SCHOTTKY"),
     ("VARISTOR", "DIO.VARISTOR"),
     ("LED", "DIO.LED"),
-    ("FERRITE", "IND.FERRITE"),
-    ("FB", "IND.FERRITE"),
+    ("FERRITE", "IND.FB"),
+    ("FB", "IND.FB"),
 ];
 
 /// Normalize shorthand class name to the canonical name actually registered in CMIE,
