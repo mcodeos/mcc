@@ -482,7 +482,9 @@ module main {
 // adoption resolve at the dot-access face: `flash_i.SPI.CS` is a real member
 // of the adopted port, not an unknown pin. Pre-fix the member face could fall
 // onto the anonymous conductor view `_(1..4)` and reject the role/written
-// name outright.
+// name outright. U365: the library member is `_CS` now, so the right side
+// addresses the canonical name while the left keeps the local written alias
+// — both faces must resolve.
 #[test]
 fn audit_u150_respell_member_access() {
     let p = probe(
@@ -501,7 +503,7 @@ component M {
 module main {
     F flash_i()
     M inst_m()
-    flash_i.SPI.CS -> inst_m.SPI.CS
+    flash_i.SPI.CS -> inst_m.SPI._CS
 }
 "#,
     );
@@ -513,7 +515,7 @@ module main {
     );
     assert!(
         p.paths.contains("flash_i.1") && p.paths.contains("inst_m.4"),
-        "member access SPI.CS must reach the CS pin on both sides (flash pin 1, master pin 4), got {:?}",
+        "member access must reach the CS pin on both sides (flash pin 1, master pin 4), got {:?}",
         p.paths
     );
 }

@@ -239,7 +239,7 @@ fn u306__spi_family_pin_tables() {
                     ("1", IOType::Out, &["SCLK"]),
                     ("2", IOType::Out, &["MOSI"]),
                     ("3", IOType::In, &["MISO"]),
-                    ("4", IOType::Out, &["CS"]),
+                    ("4", IOType::Out, &["_CS"]),
                 ],
             ),
             (
@@ -248,7 +248,7 @@ fn u306__spi_family_pin_tables() {
                     ("1", IOType::In, &["SCLK"]),
                     ("2", IOType::In, &["SI"]),
                     ("3", IOType::Out, &["SO"]),
-                    ("4", IOType::In, &["CS"]),
+                    ("4", IOType::In, &["_CS"]),
                 ],
             ),
         ],
@@ -258,7 +258,7 @@ fn u306__spi_family_pin_tables() {
         "SPI.3",
         &uri,
         &[
-            ("1", IOType::None, &["CS"]),
+            ("1", IOType::None, &["_CS"]),
             ("2", IOType::None, &["SCLK"]),
             ("3", IOType::None, &["SDA"]),
         ],
@@ -266,7 +266,7 @@ fn u306__spi_family_pin_tables() {
             (
                 "MASTER",
                 &[
-                    ("1", IOType::Out, &["CS"]),
+                    ("1", IOType::Out, &["_CS"]),
                     ("2", IOType::Out, &["SCLK"]),
                     ("3", IOType::InOut, &["SDA"]),
                 ],
@@ -274,7 +274,7 @@ fn u306__spi_family_pin_tables() {
             (
                 "SLAVE",
                 &[
-                    ("1", IOType::In, &["CS"]),
+                    ("1", IOType::In, &["_CS"]),
                     ("2", IOType::In, &["SCLK"]),
                     ("3", IOType::InOut, &["SDA"]),
                 ],
@@ -286,7 +286,7 @@ fn u306__spi_family_pin_tables() {
         "SPI.QUAD",
         &uri,
         &[
-            ("1", IOType::None, &["CS"]),
+            ("1", IOType::None, &["_CS"]),
             ("2", IOType::None, &["SCLK"]),
             ("3", IOType::None, &["IO0"]),
             ("4", IOType::None, &["IO1"]),
@@ -297,7 +297,7 @@ fn u306__spi_family_pin_tables() {
             (
                 "MASTER",
                 &[
-                    ("1", IOType::Out, &["CS"]),
+                    ("1", IOType::Out, &["_CS"]),
                     ("2", IOType::Out, &["SCLK"]),
                     ("3", IOType::InOut, &["IO0"]),
                     ("4", IOType::InOut, &["IO1"]),
@@ -308,7 +308,7 @@ fn u306__spi_family_pin_tables() {
             (
                 "SLAVE",
                 &[
-                    ("1", IOType::In, &["CS"]),
+                    ("1", IOType::In, &["_CS"]),
                     ("2", IOType::In, &["SCLK"]),
                     ("3", IOType::InOut, &["IO0"]),
                     ("4", IOType::InOut, &["IO1"]),

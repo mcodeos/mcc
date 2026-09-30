@@ -156,7 +156,7 @@ fn u289_c3__gd25q32e_full_pin_table() {
         "FLASH.GD25Q32E",
         &uri,
         &[
-            ("1", IOType::In, &["SPI.CS", "_CS"]),
+            ("1", IOType::In, &["SPI._CS", "_CS"]),
             ("2", IOType::Out, &["IO1", "SO", "SPI.SO"]),
             ("3", IOType::None, &["IO2", "_WP"]),
             ("4", IOType::None, &["VSS"]),
