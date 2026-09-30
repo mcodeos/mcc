@@ -27,7 +27,6 @@
 use crate::db::diagnostic::diagnostic::DiagnosticManager;
 use crate::db::infra::mc_code::McCode;
 use crate::semantic::recipe::McRecipe;
-use crate::semantic::mc_meta::McMetaDef;
 use crate::semantic::component::McComponent;
 use crate::semantic::mc_enum::McEnumDef;
 use crate::semantic::mc_ifs::McInterface;
@@ -131,7 +130,6 @@ struct WorkspaceSnapshot {
     interfaces: DashMap<McSpaceName, Arc<McInterface>>,
     enums: DashMap<McSpaceName, Arc<McEnumDef>>,
     recipes: DashMap<McSpaceName, Arc<McRecipe>>,
-    metas: DashMap<McSpaceName, Arc<McMetaDef>>,
     diagnostics: DiagnosticManager,
     // §12.1 DefinitionSpace manifest (loaded source domains + lib boundary).
     sources: DashMap<McURI, crate::db::defspace::SourceDomain>,
@@ -159,10 +157,6 @@ pub struct WorkspaceManager {
     pub(crate) interfaces: DashMap<McSpaceName, Arc<McInterface>>,
     pub(crate) enums: DashMap<McSpaceName, Arc<McEnumDef>>,
     pub(crate) recipes: DashMap<McSpaceName, Arc<McRecipe>>,
-    /// Meta declaration schemas (meta grammar batch 1a). Not a defregistry
-    /// kind — see `mc_meta.rs` for why the chart-of-accounts rows stay out
-    /// of the definition space.
-    pub(crate) metas: DashMap<McSpaceName, Arc<McMetaDef>>,
     pub(crate) diagnostics: Mutex<DiagnosticManager>,
 
     /// The active world. Its `root` is the identity — see [`world_key`].
@@ -219,7 +213,6 @@ impl WorkspaceManager {
             interfaces: DashMap::new(),
             enums: DashMap::new(),
             recipes: DashMap::new(),
-            metas: DashMap::new(),
             diagnostics: Mutex::new(DiagnosticManager::new()),
             meta: Mutex::new(WorkspaceMeta::default()),
             saved: Mutex::new(HashMap::new()),
@@ -309,7 +302,6 @@ impl WorkspaceManager {
         self.interfaces.clear();
         self.enums.clear();
         self.recipes.clear();
-        self.metas.clear();
         self.lsp.class_table.lock().unwrap().clear();
         self.diagnostics.lock().unwrap().clear();
         self.sources.clear();
@@ -416,7 +408,6 @@ impl WorkspaceManager {
         let interfaces = clone_and_clear(&self.interfaces);
         let enums = clone_and_clear(&self.enums);
         let recipes = clone_and_clear(&self.recipes);
-        let metas = clone_and_clear(&self.metas);
         let sources = clone_and_clear(&self.sources);
         let libs = clone_and_clear(&self.libs);
         let blibs = clone_and_clear(&self.blibs);
@@ -437,7 +428,6 @@ impl WorkspaceManager {
             interfaces,
             enums,
             recipes,
-            metas,
             diagnostics,
             sources,
             libs,
@@ -462,7 +452,6 @@ impl WorkspaceManager {
         fill_dashmap(&self.interfaces, snap.interfaces);
         fill_dashmap(&self.enums, snap.enums);
         fill_dashmap(&self.recipes, snap.recipes);
-        fill_dashmap(&self.metas, snap.metas);
         fill_dashmap(&self.sources, snap.sources);
         fill_dashmap(&self.libs, snap.libs);
         fill_dashmap(&self.blibs, snap.blibs);
@@ -633,35 +622,6 @@ mod tests {
 
         // Two worlds parked under two distinct keys, not one.
         assert_eq!(mgr.list().len(), 3);
-    }
-
-    /// Meta schemas follow the world like every other definition table:
-    /// a switch drops them, and the parked snapshot brings them back
-    /// (meta grammar batch 1a — the `metas` table rides the same
-    /// snapshot/restore cycle as `enums` / `recipes`).
-    #[test]
-    fn def_cmie__metas_follow_the_world() {
-        let mgr = WorkspaceManager::new();
-
-        let uri = McURI::from("mcode/meta/power.mc");
-        let sn = McSpaceName {
-            ident: "current_draw".into(),
-            uri: crate::semantic::common::uri_intern(&uri),
-        };
-        let def = std::sync::Arc::new(crate::semantic::mc_meta::McMetaDef {
-            name: sn.ident.clone(),
-            span: [0, 12],
-            uri,
-            rows: Vec::new(),
-        });
-        mgr.metas.insert(sn, def);
-        assert_eq!(mgr.metas.len(), 1);
-
-        mgr.switch_to(root("/projects/other"), WorkspaceKind::Project);
-        assert_eq!(mgr.metas.len(), 0, "other world inherited the meta");
-
-        mgr.switch_to(None, WorkspaceKind::Project);
-        assert_eq!(mgr.metas.len(), 1, "snapshot lost the meta");
     }
 
     #[test]

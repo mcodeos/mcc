@@ -275,9 +275,6 @@
 #define MCAST_IOTYPE_PSRC              339 // power-source direction word (psrc) — pin/rail source side
 #define MCAST_IOTYPE_PSNK              340 // power-sink direction word (psnk) — pin/rail sink side
 #define MCAST_IOTYPE_PSBI              341 // power-bidirectional (psbi) — charge = sink, discharge = source
-//1g. top-level meta declaration (meta grammar batch 1a): `meta <name> { rows }` —
-//    MCAST_NAME + MCAST_BODY, the bom node shape; rows are ordinary attributes
-#define MCAST_META                      342
 
 
 //---------------------------
