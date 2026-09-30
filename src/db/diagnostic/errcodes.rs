@@ -112,6 +112,9 @@ pub const DUP_MODULE: u32 = 1004;
 /// A recipe with the same name already exists in this file.
 pub const DUP_RECIPE: u32 = 1006;
 
+/// A meta declaration with the same name already exists in this file.
+pub const DUP_META: u32 = 1007;
+
 // Pass1a: definition structure / CMIE load (1050-1099)
 
 /// Definition already exists.
@@ -2487,6 +2490,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(DUP_ENUM, "An enum with the same name already exists in this file.", "Duplicate enum"),
     entry!(DUP_MODULE, "A module with the same name already exists in this file.", "Duplicate module"),
     entry!(DUP_RECIPE, "A recipe with the same name already exists in this file.", "Duplicate recipe"),
+    entry!(DUP_META, "A meta declaration with the same name already exists in this file.", "Duplicate meta"),
     // section
     entry!(DEF_ALREADY_EXISTS, "Definition already exists.", "Definition already exists"),
     entry!(INST_MISSING_SUBNODE, "Missing subnode in an instance declaration.", "Missing subnode in an instance declaration."),

@@ -93,6 +93,7 @@ use crate::db::diagnostic::errcodes;
 use crate::db::infra::mc_use::{McUse, McUsePrefix};
 use crate::semantic::common::uri_intern;
 use crate::semantic::mc_enum::McEnumDef;
+use crate::semantic::mc_meta::McMetaDef;
 use crate::semantic::mc_ifs::McInterface;
 use crate::{ast::macros::*, ast::node::AstNode};
 use crate::{current_uri, McComponent, McIds, McModule, McSpaceName, McURI};
@@ -1591,6 +1592,7 @@ impl McCode {
                 || node.is_type(MCAST_COMPONENT)
                 || node.is_type(MCAST_MODULE)
                 || node.is_type(MCAST_ENUM)
+                || node.is_type(MCAST_META)
                 || node.is_type(MCAST_RECIPE)
             {
                 let decl_type = node.get_type();
@@ -1876,6 +1878,35 @@ impl McCode {
                         }
                     }
                 }
+                MCAST_META => {
+                    // Meta declaration schema (meta grammar batch 1a): like
+                    // the recipe, declaration-only — no add_global_class, not
+                    // instantiable. Unlike the recipe it stays out of the
+                    // defregistry entirely (no DefKind: it never enters the
+                    // name index or the enumeration walk, and promoting it
+                    // would trip the §2.5 member-boundary audit for zero
+                    // readers — see mc_meta.rs) and lands in the workspace
+                    // `metas` table. Same-file duplicates are caught by
+                    // parse_cmie_names (DEF_ALREADY_EXISTS); a re-insert on
+                    // the same identity is the cross-file DUP_META.
+                    if let Some(def) = McMetaDef::new(&node, &self.uri) {
+                        let space_name = McSpaceName {
+                            ident: def.name.clone(),
+                            uri: crate::semantic::common::uri_intern(&self.uri),
+                        };
+                        if workspace::WORKSPACE
+                            .metas
+                            .insert(space_name, Arc::new(def))
+                            .is_some()
+                        {
+                            dlog_error(
+                                crate::errcodes::DUP_META,
+                                &node,
+                                &crate::errcodes::format_msg(crate::errcodes::DUP_META, &[]),
+                            );
+                        }
+                    }
+                }
                 _ => {} // MCAST_MODULE handled in the second phase
             }
         }
@@ -1886,6 +1917,7 @@ impl McCode {
                 || node.is_type(MCAST_COMPONENT)
                 || node.is_type(MCAST_MODULE)
                 || node.is_type(MCAST_ENUM)
+                || node.is_type(MCAST_META)
                 || node.is_type(MCAST_RECIPE)
             {
                 if let Some(subnodes) = node.get_sub_node() {

@@ -575,6 +575,7 @@ void check_to_print_endl(mc_value* value)
         value->type == MCAST_FUNCTION ||          
         value->type == MCAST_ENUM ||
         value->type == MCAST_BOM ||
+        value->type == MCAST_META ||
         value->type == MCAST_RECIPE ||
         value->type == MCAST_BODY ||
         value->type == MCAST_NET ||               
