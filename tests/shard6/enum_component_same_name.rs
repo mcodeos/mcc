@@ -8,7 +8,7 @@
 //
 // Regression: `parse_cmie_names` collected all declaration names into a single
 // list without tracking their types, so `enum CAP` + `component CAP` (as in
-// mcode/cap.mc) triggered the duplicate-name error even though the design doc
+// mcode/passive/cap.mc) triggered the duplicate-name error even though the design doc
 // (same-name-enum-component.md §2.3) allows enum+component namespace merging.
 
 // Family naming `{family}__{essence}` deliberately doubles the underscore to
