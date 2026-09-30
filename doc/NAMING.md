@@ -280,3 +280,26 @@ the mcode parser:
 | TRS | Tip-Ring-Sleeve |
 | WTB | Wire-to-Board |
 | B2B | Board-to-Board |
+
+---
+
+## 6. Pin Member Naming
+
+Sections 1–5 govern **class names** (component, interface, enum). The member
+names inside `pins = [...]` follow their own rules; the canonical text is
+pin-semantics-and-usage-design.md §2.8 (mcd). The rules:
+
+1. **Active-low signals carry the `_` prefix, kept in the registered name** —
+   `_CS`, `_WP`, `_HOLD`. mcc derives `McPin.n = true` from the prefix
+   automatically (semantic/component/mc_pins), so the polarity is machine-
+   readable, not prose. The logical name stays plain: LOGIC inverting outputs
+   are `_AB`/`_A` while the logical name stays `Y` (ifs/logic.mc).
+2. **The bare `_` is not a name.** In a role-less conductor view (interface-
+   level `pins` table) `_` is the anonymous lane of conductor-view R-CV1 — it
+   asserts a lane, never a name. `_CS` (prefix + name) and `_` (anonymous
+   lane) are distinct forms.
+3. **Prose polarity markers are legacy.** Describing polarity in the
+   description string ("active low") or using other prefixes (`nRST`) does not
+   set `n`; such corpus is pending migration with its consuming ERC polarity
+   pass (U365), so the rename lands together with the checker that reads it.
+
