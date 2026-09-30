@@ -55,7 +55,7 @@ fn def_sysreload__reload_keeps_global_tables() {
     assert!(before.is_empty(), "probe must be clean on baseline");
 
     // 2) Load cap.mc as a NON-system project file (the suspect trigger).
-    let cap_uri = sys_root.join("mcode/passive/cap.mc").to_string_lossy().into_owned();
+    let cap_uri = sys_root.join("mcode/comp/cap.mc").to_string_lossy().into_owned();
     mcc::mcc_load_project(&cap_uri.into());
 
     // 3) Re-parse the probe: CAP lookup must still succeed (global entries kept).
@@ -63,7 +63,7 @@ fn def_sysreload__reload_keeps_global_tables() {
     let after_cap = count_bad();
 
     // 4) Load res.mc as project file too.
-    let res_uri = sys_root.join("mcode/passive/res.mc").to_string_lossy().into_owned();
+    let res_uri = sys_root.join("mcode/comp/res.mc").to_string_lossy().into_owned();
     mcc::mcc_load_project(&res_uri.into());
     mcc::mcc_load_from_string(&probe_uri.into(), cap_src);
     let after_res = count_bad();

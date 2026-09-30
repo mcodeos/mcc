@@ -330,7 +330,7 @@ fn find_def(name: &str) -> Option<mcc::McCMIE> {
 
 /// Find a component definition by name, bypassing the RefDefMap ambiguity
 /// that arises when a component and an enum share the same name+URI
-/// (e.g. `enum CAP` + `component CAP` in mcode/passive/cap.mc, P0-3).
+/// (e.g. `enum CAP` + `component CAP` in mcode/comp/cap.mc, P0-3).
 fn find_component_def(name: &str) -> Option<mcc::McCMIE> {
     for (n, u) in mcc::mcb_iter_components() {
         if n == name {

@@ -13,7 +13,7 @@
 //! are the same two roots the loader searches, project first:
 //!
 //! - `<project-root>/src/hbl.mc`  → `src/hbl.mc`
-//! - `<system-root>/mcode/passive/cap.mc` → `mcode/passive/cap.mc` (the `mcode/` segment
+//! - `<system-root>/mcode/comp/cap.mc` → `mcode/comp/cap.mc` (the `mcode/` segment
 //!   survives: it names the library, exactly as the use-path does)
 //!
 //! A URI under neither root (an out-of-tree file) has no root to name and
@@ -112,11 +112,11 @@ mod tests {
     #[test]
     fn system_member_keeps_the_library_segment() {
         let out = display_with(
-            "/data-root/mcode/passive/cap.mc",
+            "/data-root/mcode/comp/cap.mc",
             Path::new("/no/project"),
             Path::new("/data-root"),
         );
-        assert_eq!(out, "mcode/passive/cap.mc");
+        assert_eq!(out, "mcode/comp/cap.mc");
     }
 
     /// A path outside both roots is none of theirs to name and stays put.
@@ -149,11 +149,11 @@ mod tests {
     #[test]
     fn resolve_prefers_project_then_system() {
         let dir = scratch("srcuri-res");
-        std::fs::create_dir_all(dir.join("mcode").join("passive")).unwrap();
-        std::fs::write(dir.join("mcode").join("passive").join("cap.mc"), "lib").unwrap();
+        std::fs::create_dir_all(dir.join("mcode").join("comp")).unwrap();
+        std::fs::write(dir.join("mcode").join("comp").join("cap.mc"), "lib").unwrap();
 
         // Not under the project root → falls through to the system root side.
-        let hit = resolve("mcode/passive/cap.mc", Path::new("/no/such/project"));
+        let hit = resolve("mcode/comp/cap.mc", Path::new("/no/such/project"));
         assert!(hit.ends_with("cap.mc"), "{}", hit.display());
 
         std::fs::remove_dir_all(&dir).ok();

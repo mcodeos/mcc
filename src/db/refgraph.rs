@@ -305,7 +305,7 @@ mod tests {
     fn def_refgraph__records_out_and_rev_edges() {
         let g = DefRefGraph::new();
         let from = sn("LED", "proj/a.mc");
-        let to = sn("LED", "mcode/discrete/led.mc");
+        let to = sn("LED", "mcode/comp/led.mc");
 
         g.record(&from, &to);
         // Duplicate record is deduplicated.
@@ -338,15 +338,15 @@ mod tests {
         let g = DefRefGraph::new();
         let from_a = sn("LED", "proj/a.mc");
         let from_b = sn("LED", "proj/b.mc");
-        let to_led = sn("LED", "mcode/discrete/led.mc");
-        let to_res = sn("RES", "mcode/passive/res.mc");
+        let to_led = sn("LED", "mcode/comp/led.mc");
+        let to_res = sn("RES", "mcode/comp/res.mc");
 
         g.record(&from_a, &to_led);
         g.record(&from_a, &to_res);
         g.record(&from_b, &to_led);
 
         // Purge ref-point file a: a's edges go everywhere; b's edge into
-        // mcode/discrete/led.mc survives untouched.
+        // mcode/comp/led.mc survives untouched.
         g.purge_file("proj/a.mc");
         assert!(g.referenced(&from_a).is_empty(), "out key a is gone");
         assert_eq!(g.referenced(&from_b), vec![to_led.clone()]);
@@ -357,21 +357,21 @@ mod tests {
         );
         assert!(!g.has_dependents(&to_res), "no empty shell for res");
         assert_eq!(
-            g.dependent_files_of_file("mcode/discrete/led.mc"),
+            g.dependent_files_of_file("mcode/comp/led.mc"),
             vec!["proj/b.mc".to_string()],
             "projection drops the purged ref file, keeps the survivor"
         );
         assert!(
-            g.dependent_files_of_file("mcode/passive/res.mc").is_empty(),
+            g.dependent_files_of_file("mcode/comp/res.mc").is_empty(),
             "projection never keeps an empty bucket"
         );
 
-        // Purge def file mcode/discrete/led.mc: b's edge INTO it stays (b has not
+        // Purge def file mcode/comp/led.mc: b's edge INTO it stays (b has not
         // been rebuilt; its map still holds the same ref).
-        g.purge_file("mcode/discrete/led.mc");
+        g.purge_file("mcode/comp/led.mc");
         assert_eq!(g.referenced(&from_b), vec![to_led.clone()], "incoming edge survives");
         assert_eq!(
-            g.dependent_files_of_file("mcode/discrete/led.mc"),
+            g.dependent_files_of_file("mcode/comp/led.mc"),
             vec!["proj/b.mc".to_string()],
             "projection keeps the referencing file"
         );
@@ -384,15 +384,15 @@ mod tests {
         let g = DefRefGraph::new();
         let from_proj = sn("LED", "proj/a.mc");
         let from_lib = sn("SUB", "mclibs/sub.mc");
-        let to_led = sn("LED", "mcode/discrete/led.mc");
+        let to_led = sn("LED", "mcode/comp/led.mc");
         let to_sub = sn("SUB", "mcode/sub.mc");
-        let to_keep = sn("RES", "mcode/passive/res.mc");
+        let to_keep = sn("RES", "mcode/comp/res.mc");
 
         g.record(&from_proj, &to_led);
         g.record(&from_proj, &to_keep);
         g.record(&from_lib, &to_sub);
 
-        let uris: HashSet<String> = ["mcode/discrete/led.mc", "mclibs/sub.mc"]
+        let uris: HashSet<String> = ["mcode/comp/led.mc", "mclibs/sub.mc"]
             .into_iter()
             .map(String::from)
             .collect();
@@ -403,7 +403,7 @@ mod tests {
         assert!(g.referenced(&from_lib).is_empty(), "lib-internal ref-point purged");
         assert_eq!(g.dependents(&to_keep), vec![from_proj]);
         assert_eq!(
-            g.dependent_files_of_file("mcode/discrete/led.mc"),
+            g.dependent_files_of_file("mcode/comp/led.mc"),
             vec!["proj/a.mc".to_string()]
         );
     }
@@ -415,14 +415,14 @@ mod tests {
         let g = DefRefGraph::new();
         let from_a = sn("LED", "proj/a.mc");
         let from_a2 = sn("LED2", "proj/a.mc");
-        let to_led = sn("LED", "mcode/discrete/led.mc");
+        let to_led = sn("LED", "mcode/comp/led.mc");
 
         g.record(&from_a, &to_led);
         g.record(&from_a2, &to_led);
         g.record(&from_a, &to_led);
 
         assert_eq!(
-            g.dependent_files_of_file("mcode/discrete/led.mc"),
+            g.dependent_files_of_file("mcode/comp/led.mc"),
             vec!["proj/a.mc".to_string()],
             "one row per referencing file, however many ref-points"
         );
