@@ -67,7 +67,7 @@ range (threshold 40KB).
 | `db/` | 28 | 1050 KB |
 | `eval/` | 2 | 50 KB |
 | `export/` | 7 | 185 KB |
-| `instant/` | 41 | 1717 KB |
+| `instant/` | 41 | 1720 KB |
 | `lsp/` | 8 | 118 KB |
 | `output/` | 7 | 107 KB |
 | `query/` | 9 | 170 KB |
@@ -3439,16 +3439,16 @@ instant/mc_mod/funccall.rs#L139  static DEPTH
 instant/mc_mod/funccall.rs#L154  struct DepthGuard
 instant/mc_mod/funccall.rs#L155  impl Drop for DepthGuard
 instant/mc_mod/funccall.rs#L156  fn drop
-instant/mc_mod/funccall.rs#L411  fn try_resolve_instance_method
-instant/mc_mod/funccall.rs#L570  fn find_user_func
-instant/mc_mod/funccall.rs#L598  fn resolve_funccall_face
-instant/mc_mod/funccall.rs#L731  fn decode_return_endpoint
-instant/mc_mod/funccall.rs#L766  fn decode_return_nets
-instant/mc_mod/funccall.rs#L777  fn decode_array_face
-instant/mc_mod/funccall.rs#L855  fn component_own_face
-instant/mc_mod/funccall.rs#L895  fn submodule_own_face
-instant/mc_mod/funccall.rs#L945  fn resolve_face_from_buses
-instant/mc_mod/funccall.rs#L1029  fn rebind_submodule_params
+instant/mc_mod/funccall.rs#L457  fn try_resolve_instance_method
+instant/mc_mod/funccall.rs#L616  fn find_user_func
+instant/mc_mod/funccall.rs#L644  fn resolve_funccall_face
+instant/mc_mod/funccall.rs#L777  fn decode_return_endpoint
+instant/mc_mod/funccall.rs#L812  fn decode_return_nets
+instant/mc_mod/funccall.rs#L823  fn decode_array_face
+instant/mc_mod/funccall.rs#L901  fn component_own_face
+instant/mc_mod/funccall.rs#L941  fn submodule_own_face
+instant/mc_mod/funccall.rs#L991  fn resolve_face_from_buses
+instant/mc_mod/funccall.rs#L1075  fn rebind_submodule_params
 instant/mc_mod/group.rs#L23  impl InstantiationBuilder
 instant/mc_mod/group.rs#L37  fn create_connection
 instant/mc_mod/group.rs#L488  fn make_conn_with_provenance
