@@ -198,7 +198,13 @@ fn actual_of(
 
 fn scalar_of(value: Option<&McParamValue>) -> Option<(f64, Option<McUnit>, String)> {
     match value? {
+        // A paired value (`10A@5V`, U371) rates on its quantity half; the
+        // condition half is reference data, not a rating.
         McParamValue::UValue(uval) => Some((uval.value(), Some(uval.unit().clone()), uval.to_string())),
+        McParamValue::UValueAt(at) => {
+            let uv = &at.left;
+            Some((uv.value(), Some(uv.unit().clone()), uv.to_string()))
+        }
         McParamValue::Int(i) => Some((i.value as f64, None, i.to_string())),
         McParamValue::Hex(h) => Some((h.value as f64, None, h.to_string())),
         McParamValue::Float(f) => Some((f.value, None, f.to_string())),

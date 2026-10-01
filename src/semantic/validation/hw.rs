@@ -136,11 +136,10 @@ fn check_power_pin_no_voltage(acc: &mut CheckAccumulator) {
         let has_voltage_iface = comp.pins.names_to_id.values().any(|port| {
             if let crate::semantic::component::mc_pins::McPinPort::Interface(ref iface) = port {
                 return iface.params.iter().any(|p| {
-                    matches!(
-                        p,
-                        crate::semantic::basic::mc_param::McParamValue::UValue(uv)
-                            if matches!(uv.unit(), crate::semantic::basic::mc_uval::McUnit::Volt)
-                    )
+                    // A paired value (`3.3V@25°C`, U371) counts on its
+                    // quantity half.
+                    p.uvalue()
+                        .is_some_and(|uv| matches!(uv.unit(), crate::semantic::basic::mc_uval::McUnit::Volt))
                 });
             }
             false

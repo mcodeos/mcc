@@ -1021,7 +1021,8 @@ pub(crate) fn pin_declared_voltages(table: &InstTable, entry: &InstEntry) -> Opt
             continue;
         }
         for p in &iface.params {
-            if let McParamValue::UValue(uv) = p {
+            // A pair (`3.3V@25°C`, U371) feeds its quantity half.
+            if let Some(uv) = p.uvalue() {
                 if matches!(uv.unit(), McUnit::Volt) && !uv.is_range_or_plusminus() {
                     out.push(uv.value());
                 }

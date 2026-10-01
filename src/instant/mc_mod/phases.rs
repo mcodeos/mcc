@@ -2565,7 +2565,8 @@ fn bindable_formals<'a>(def: Option<&McModule>, ports: &'a [PortInst]) -> Vec<&'
 fn declared_volt_of_params(params: &[McParamValue]) -> Option<f64> {
     let mut found: Option<f64> = None;
     for p in params {
-        let McParamValue::UValue(uv) = p else {
+        // A pair (`3.3V@25°C`, U371) pairs on its quantity half.
+        let Some(uv) = p.uvalue() else {
             continue;
         };
         if uv.unit() != &McUnit::Volt || uv.is_range_or_plusminus() {

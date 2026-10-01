@@ -39,6 +39,14 @@ impl McUnitValueAt {
     }
 }
 
+// A pair echoes whole (`10A@5V`, U371) — the same spelling McExpression's
+// UnitValueAt arm prints, so every echo path agrees.
+impl std::fmt::Display for McUnitValueAt {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}@{}", self.left, self.right)
+    }
+}
+
 // McExpression enum
 #[derive(Debug, Clone)]
 pub enum McExpression {

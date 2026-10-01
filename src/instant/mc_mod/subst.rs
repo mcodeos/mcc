@@ -478,6 +478,8 @@ impl InstantiationBuilder {
             McParamValue::Float(v) => McPhrase::label(v.to_string()),
             McParamValue::String(v) => McPhrase::label(v.to_string()),
             McParamValue::UValue(v) => McPhrase::label(v.to_string()),
+            // A pair substitutes whole (U371): the label keeps `10A@5V`.
+            McParamValue::UValueAt(at) => McPhrase::label(at.to_string()),
             McParamValue::NONE(name) | McParamValue::NC(name) => McPhrase::label(name.clone()),
             // Opd(Uscore) is not buildable any more (U316 site 3) — `_`
             // arrives as NONE and matched the arm above; the spelling here

@@ -736,7 +736,8 @@ pub(crate) fn declared_ac_face_of_params(
     let mut one = |unit: &'static crate::semantic::basic::mc_uval::McUnit| -> Option<f64> {
         let mut found: Option<f64> = None;
         for p in params {
-            let crate::semantic::basic::mc_param::McParamValue::UValue(uv) = p else {
+            // A pair (`3.3V@25°C`, U371) decodes on its quantity half.
+            let Some(uv) = p.uvalue() else {
                 continue;
             };
             if uv.unit() != unit || uv.is_range_or_plusminus() {

@@ -170,7 +170,9 @@ fn check_param_arg_compat(unit_type: &str, arg: &crate::McParamValue) -> Option<
             _ => None,
         },
         expected_unit => match arg {
-            McParamValue::UValue(value) => {
+            // A pair (`10A@5V`, U371) is type-checked on its quantity half.
+            McParamValue::UValue(_) | McParamValue::UValueAt(_) => {
+                let value = arg.uvalue().expect("uvalue() mirrors the match arms");
                 let actual_unit = format!("{:?}", value.unit());
                 (actual_unit != expected_unit).then(|| {
                     format!(

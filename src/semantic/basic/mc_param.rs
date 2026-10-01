@@ -13,7 +13,7 @@ use crate::semantic::mc_func::HasFindInst;
 use crate::{
     ast::{macros::*, node::AstNode},
     semantic::{
-        basic::mc_expr::McExpression,
+        basic::mc_expr::{McExpression, McUnitValueAt},
         basic::mc_group::McGroup,
         basic::mc_literal::{McConst, McHex, McLiteral, McString},
         basic::mc_phrase::McPhrase,
@@ -42,6 +42,10 @@ pub enum McParamValue {
     Float(McFloat),
     String(McString),
     UValue(McUnitValue),
+    /// A paired unit value (`10A@5V`, U371): the left half is the recorded
+    /// quantity, the right half the condition reference. Kept whole — the
+    /// condition half is data for later computation, never dropped.
+    UValueAt(McUnitValueAt),
 
     Ids(McIds),
     Opd(McOpd),
@@ -62,7 +66,7 @@ impl McParamValue {
         match self {
             McParamValue::String(_) => CondFamily::Quoted,
             McParamValue::Int(_) | McParamValue::Hex(_) | McParamValue::Float(_)
-            | McParamValue::UValue(_) => CondFamily::Numeric,
+            | McParamValue::UValue(_) | McParamValue::UValueAt(_) => CondFamily::Numeric,
             _ => CondFamily::Bare,
         }
     }
@@ -191,6 +195,12 @@ impl McParamValue {
     /// children → `X~Y` (TILDE) or `X±Y` (RANGE_PLUSMINUS).
     pub(crate) fn uvalue_or_range(node: &AstNode) -> Option<Self> {
         let t = node.get_type();
+        // A paired value (`10A@5V`, U371) is kept whole — `McUnitValue::new`
+        // below would read only the first child (the left half) and drop the
+        // condition half.
+        if t == MCAST_UVALUE_AT {
+            return McUnitValueAt::new(node).map(McParamValue::UValueAt);
+        }
         if t == MCAST_RANGE_PLUSMINUS || t == MCAST_OPD_TILDE {
             if let Some(left) = node.get_sub_node() {
                 let l = left.to_string().unwrap_or_default();
@@ -235,7 +245,31 @@ impl McParamValue {
                 | McParamValue::Float(_)
                 | McParamValue::String(_)
                 | McParamValue::UValue(_)
+                | McParamValue::UValueAt(_)
         )
+    }
+
+    /// The quantity half of a unit-valued argument (U371): the value itself
+    /// for a plain [`McParamValue::UValue`], the **left** half for a pair
+    /// (`10A@5V` → `10A`). Scalar readers (unit claiming, ratings, nominal
+    /// decode) all consume through this — the condition half never leaks into
+    /// existing numeric paths.
+    pub fn uvalue(&self) -> Option<&McUnitValue> {
+        match self {
+            McParamValue::UValue(uv) => Some(uv),
+            McParamValue::UValueAt(at) => Some(&at.left),
+            _ => None,
+        }
+    }
+
+    /// The condition half of a paired value (`10A@5V` → `5V`): the reference
+    /// under which the quantity was recorded (canon §4.5). `None` for every
+    /// other form. This is the read endpoint later computation passes use.
+    pub fn at_condition(&self) -> Option<&McUnitValue> {
+        match self {
+            McParamValue::UValueAt(at) => Some(&at.right),
+            _ => None,
+        }
     }
 
     /// Parse an attribute block argument `{ cap = 1uF; volt = 50V }` into an
@@ -462,7 +496,7 @@ fn expr_to_param_value(expr: &McExpression) -> McParamValue {
         McExpression::Float(f) => McParamValue::Float(f.clone()),
         McExpression::String(s) => McParamValue::String(s.clone()),
         McExpression::UnitValue(u) => McParamValue::UValue(u.clone()),
-        McExpression::UnitValueAt(u) => McParamValue::UValue(u.left.clone()),
+        McExpression::UnitValueAt(u) => McParamValue::UValueAt(u.clone()),
         McExpression::Const(c) => McParamValue::Const(c.clone()),
         McExpression::Variable(opd) => match opd {
             McOpd::Id(ids) => McParamValue::Ids(ids.clone()),
@@ -506,6 +540,8 @@ impl std::fmt::Display for McParamValue {
             McParamValue::Float(mc_float) => write!(f, "{mc_float}"),
             McParamValue::String(s) => write!(f, "{}", s.value),
             McParamValue::UValue(mc_unit_value) => write!(f, "{mc_unit_value}"),
+            // A pair echoes whole (U371): `10A@5V`, never the bare left half.
+            McParamValue::UValueAt(at) => write!(f, "{at}"),
             McParamValue::Ids(ids) => write!(f, "{ids}"),
             McParamValue::Opd(opd) => write!(f, "{opd}"),
             McParamValue::InlineAttrs(attrs) => {
@@ -1314,7 +1350,7 @@ impl McParamBindings {
         // For each positional arg with a unit, try to claim a formal slot
         // whose declared unit matches the argument's unit.
         for (pi, pos_val) in positional_values.iter().enumerate() {
-            if let McParamValue::UValue(uval) = pos_val {
+            if let Some(uval) = pos_val.uvalue() {
                 let arg_unit = uval.unit();
                 let mut claimed = false;
                 for (di, declare) in declares.iter().enumerate() {
@@ -1339,7 +1375,10 @@ impl McParamBindings {
                     // an unrelated parameter).
                     R05_UNRESOLVED_UNIT.fetch_add(1, Ordering::Relaxed);
                     return Err(ParamBindError::TypeMismatch {
-                        param_name: uval.to_string(),
+                        // Echo the argument as written — a pair keeps its
+                        // whole spelling (`10A@5V`, U371), only the unit
+                        // claim reads the quantity half.
+                        param_name: pos_val.to_string(),
                         expected: format!("a parameter declared with unit {arg_unit:?}"),
                         got: "no matching unit declaration".to_string(),
                     });
