@@ -541,3 +541,122 @@ fn conn_law__multi_element_reverse_keeps_warning_and_merges() {
         "the merge face is the existing behavior; got {nets:?}"
     );
 }
+
+/// L12 括号透明律, wrapper side (design doc §10 edge 1) — U372 leg6: a
+/// one-element group is pure parenthesization, so a wrapper composed with it
+/// must land exactly like the bare wrapped spelling. The Group shell used to
+/// stop the leg1 wrapper walk in both orders — `(D2{A,K})'` (apost outside)
+/// wired the plain zip silently and `(D2{A,K}')` (apost inside) did the same
+/// — while the explicit list under the same shells always transposed.
+#[test]
+fn conn_law__bracket_group_is_transparent_to_the_wrappers() {
+    for (tag, reference, grouped) in [
+        // member-vector transpose: E4007 (a column against a row) and zero
+        // wiring — the statement is rejected as a whole.
+        (
+            "apost_outside",
+            "    D1{A,K} - D2{A,K}'",
+            "    D1{A,K} - (D2{A,K})'",
+        ),
+        (
+            "apost_inside",
+            "    D1{A,K} - D2{A,K}'",
+            "    D1{A,K} - (D2{A,K}')",
+        ),
+        (
+            "caret_outside",
+            "    D1{A,K} - D2{A,K}^",
+            "    D1{A,K} - (D2{A,K})^",
+        ),
+        (
+            "caret_inside",
+            "    D1{A,K} - D2{A,K}^",
+            "    D1{A,K} - (D2{A,K}^)",
+        ),
+        (
+            "composed",
+            "    D1{A,K} - D2{A,K}^'",
+            "    D1{A,K} - (D2{A,K})^'",
+        ),
+    ] {
+        let (ref_codes, ref_nets) = build(reference);
+        let (grp_codes, grp_nets) = build(grouped);
+        assert_eq!(
+            (&ref_codes, &ref_nets),
+            (&grp_codes, &grp_nets),
+            "{tag}: the grouped spelling must be byte-equivalent to the bare one; got {grp_codes:?}/{grp_nets:?} vs {ref_codes:?}/{ref_nets:?}"
+        );
+    }
+    // The transpose is real, not silently dropped: the grouped spellings sit
+    // on the rejected side (E4007, nothing wired), the plain zip would wire.
+    let (codes, nets) = build("    D1{A,K} - (D2{A,K})'");
+    assert!(
+        codes.contains(&mcc::errcodes::CONN_SERIES_SHAPE_MISMATCH) && nets.is_empty(),
+        "the group-transparent transpose must reject like the bare spelling; got {codes:?}/{nets:?}"
+    );
+}
+
+/// L12 括号透明律, bare side (protects the leg6 adoption criterion): a group
+/// with no operator inside stays ONE operand — `(D2{A,K})` zips exactly like
+/// the bare spelling. Splicing the dissolved members into the outer chain
+/// would rewrite `- (D2{A,K})` into `- D2.A - D2.K` (a series, not a vector).
+#[test]
+fn conn_law__bare_group_stays_one_operand() {
+    let (plain_codes, plain_nets) = build("    D1{A,K} - D2{A,K}");
+    let (grp_codes, grp_nets) = build("    D1{A,K} - (D2{A,K})");
+    assert_eq!(
+        (&plain_codes, &plain_nets),
+        (&grp_codes, &grp_nets),
+        "the bare group must keep the plain zip; got {grp_codes:?}/{grp_nets:?} vs {plain_codes:?}/{plain_nets:?}"
+    );
+    assert!(
+        wired(&grp_nets, "D1.1", "D2.1") && wired(&grp_nets, "D1.2", "D2.2"),
+        "zip pairs near-with-near; got {grp_nets:?}"
+    );
+}
+
+/// L3/L20 via the group (leg6): `(_)'` sheds to the bare lead exactly like
+/// `_'` — no `(lead)` wire element incubates (the pre-leg1 disease, reached
+/// here through the Group shell before the walk saw the placeholder).
+#[test]
+fn conn_law__grouped_placeholder_sheds_like_the_bare_lead() {
+    // The minted lead name carries the `_` token's source offset (issuance
+    // discipline), so the parentheses legitimately shift the suffix —
+    // normalize `(lead)_<offset>` to `(lead)` before comparing.
+    fn bare_lead_name(nets: &[Vec<String>]) -> Vec<Vec<String>> {
+        nets.iter()
+            .map(|n| {
+                n.iter()
+                    .map(|p| p.split("_").next().map(|h| h.to_string()).unwrap_or_default())
+                    .collect::<Vec<_>>()
+            })
+            .collect()
+    }
+    for (tag, bare, grouped) in [
+        ("apost", "    L1 - D1 - _'", "    L1 - D1 - (_)'"),
+        ("caret", "    L1 - D1 - _^", "    L1 - D1 - (_)^"),
+    ] {
+        let (bare_codes, bare_nets) = build(bare);
+        let (grp_codes, grp_nets) = build(grouped);
+        assert_eq!(
+            (&bare_codes, &bare_lead_name(&bare_nets)),
+            (&grp_codes, &bare_lead_name(&grp_nets)),
+            "{tag}: the grouped placeholder must shed to the bare lead; got {grp_codes:?}/{grp_nets:?} vs {bare_codes:?}/{bare_nets:?}"
+        );
+        assert!(
+            wired(&grp_nets, "L1", "D1.1"),
+            "{tag}: D1.1 wires to L1; got {grp_nets:?}"
+        );
+        // The ideal-wire incubation is the placeholder's own L20 semantics
+        // (net_store-visible, edge 10): both spellings carry exactly one
+        // `(lead)` net pairing D1.2 — never a bridge-passive structure.
+        assert_eq!(
+            grp_nets
+                .iter()
+                .filter(|n| n.iter().any(|p| p.starts_with("(lead)")))
+                .count(),
+            1,
+            "{tag}: exactly one lead net incubates; got {grp_nets:?}"
+        );
+    }
+}
