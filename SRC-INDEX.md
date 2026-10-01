@@ -34,7 +34,7 @@ range (threshold 40KB).
 | `db/infra/mc_code.rs` | 404 KB | 124 |
 | `semantic/basic/mc_phrase.rs` | 364 KB | 93 |
 | `semantic/component/mc_pins/mod.rs` | 243 KB | 112 |
-| `instant/mc_mod/stmt.rs` | 217 KB | 83 |
+| `instant/mc_mod/stmt.rs` | 219 KB | 84 |
 | `semantic/validation/nets/mod.rs` | 216 KB | 140 |
 | `db/diagnostic/errcodes.rs` | 215 KB | 478 |
 | `rules.rs` | 195 KB | 83 |
@@ -67,13 +67,13 @@ range (threshold 40KB).
 | `db/` | 28 | 1065 KB |
 | `eval/` | 2 | 53 KB |
 | `export/` | 7 | 185 KB |
-| `instant/` | 41 | 1731 KB |
+| `instant/` | 41 | 1733 KB |
 | `lsp/` | 8 | 118 KB |
 | `output/` | 7 | 107 KB |
 | `query/` | 9 | 170 KB |
 | `refdef/` | 7 | 134 KB |
 | `rpc/` | 16 | 313 KB |
-| `semantic/` | 101 | 3000 KB |
+| `semantic/` | 101 | 3002 KB |
 | `stages/` | 19 | 408 KB |
 | `vector/` | 26 | 494 KB |
 | `viz/` | 97 | 2483 KB |
@@ -3053,101 +3053,101 @@ instant/insttab.rs#L725  fn is_ac_family
 instant/insttab.rs#L733  fn declared_ac_face_of_params
 instant/insttab.rs#L762  struct AcFaceCarryVolts
 instant/insttab.rs#L794  fn element_class_of
-instant/insttab.rs#L850  fn spec_quantity_of
-instant/insttab.rs#L890  fn declared_member_of_pin
-instant/insttab.rs#L905  fn declared_member_of_role
-instant/insttab.rs#L923  enum InstOrigin
-instant/insttab.rs#L947  impl PartialEq for InstOrigin
-instant/insttab.rs#L948  fn eq
-instant/insttab.rs#L968  impl Eq for InstOrigin
-instant/insttab.rs#L970  impl Default for InstOrigin
-instant/insttab.rs#L971  fn default
-instant/insttab.rs#L988  enum ProtectionKind
-instant/insttab.rs#L1007  enum DriveKind
-instant/insttab.rs#L1017  struct InstEntry
-instant/insttab.rs#L1256  impl InstEntry
-instant/insttab.rs#L1259  fn power_face
-instant/insttab.rs#L1266  fn power_spelling
-instant/insttab.rs#L1274  fn rail_identity
-instant/insttab.rs#L1280  fn wired_at
-instant/insttab.rs#L1286  fn unwired
-instant/insttab.rs#L1294  fn anchor_pos
-instant/insttab.rs#L1312  struct NetEntry
-instant/insttab.rs#L1338  struct InstTable
-instant/insttab.rs#L1430  impl InstTable
-instant/insttab.rs#L1432  fn new
-instant/insttab.rs#L1454  fn root_span
-instant/insttab.rs#L1461  fn net_table
-instant/insttab.rs#L1470  fn power_decls
-instant/insttab.rs#L1477  fn block_parts_of
-instant/insttab.rs#L1485  fn net_origin
-instant/insttab.rs#L1493  fn member_pin_of
-instant/insttab.rs#L1510  fn from_module_inst
-instant/insttab.rs#L1530  fn from_module_inst_with_arena
-instant/insttab.rs#L1559  fn register
-instant/insttab.rs#L1722  fn set_member_info
-instant/insttab.rs#L1732  fn set_identity
-instant/insttab.rs#L1757  fn set_point
-instant/insttab.rs#L1765  fn set_pwr_dir
-instant/insttab.rs#L1773  fn set_pwr_nom
-instant/insttab.rs#L1781  fn set_exposed
-instant/insttab.rs#L1790  fn set_expectations
-instant/insttab.rs#L1799  fn set_iface_lane
-instant/insttab.rs#L1808  fn set_ac_face
-instant/insttab.rs#L1816  fn set_pwr_member
-instant/insttab.rs#L1824  fn set_drive
-instant/insttab.rs#L1835  fn record_member_pin_sem
-instant/insttab.rs#L1866  fn set_pin_count
-instant/insttab.rs#L1879  fn mark_nc
-instant/insttab.rs#L1890  fn set_vector_info
-instant/insttab.rs#L1901  fn mark_alias
-instant/insttab.rs#L1937  fn declared_member_port_of
-instant/insttab.rs#L1970  fn fold_alias
-instant/insttab.rs#L1990  fn vector_member_paths
-instant/insttab.rs#L2012  fn mark_synthetic_by_path_prefix
-instant/insttab.rs#L2023  fn register_simple
-instant/insttab.rs#L2045  fn get_id_by_path
-instant/insttab.rs#L2050  fn get_entry
-instant/insttab.rs#L2067  fn class_def_of
-instant/insttab.rs#L2080  fn children_of
-instant/insttab.rs#L2088  fn iter
-instant/insttab.rs#L2093  fn len
-instant/insttab.rs#L2098  fn is_empty
-instant/insttab.rs#L2103  fn is_bridge_passive
-instant/insttab.rs#L2110  fn get_nets
-instant/insttab.rs#L2115  fn get_net
-instant/insttab.rs#L2124  fn get_net_of
-instant/insttab.rs#L2132  fn nets_of
-instant/insttab.rs#L2140  fn get_components
-instant/insttab.rs#L2152  fn iter_entries
-instant/insttab.rs#L2159  fn get_modules
-instant/insttab.rs#L2167  fn get_pins_of
-instant/insttab.rs#L2175  fn get_ports_of
-instant/insttab.rs#L2183  fn net_count
-instant/insttab.rs#L2210  fn backfill_port_decl_pos
-instant/insttab.rs#L2228  fn port_decl_span_of
-instant/insttab.rs#L2236  fn flatten_module
-instant/insttab.rs#L3393  fn flatten_nets
-instant/insttab.rs#L3598  fn resolve_netpoint_path
-instant/insttab.rs#L3634  fn resolve_single_path
-instant/insttab.rs#L3681  fn dump
-instant/insttab.rs#L3766  fn write_known_missing
-instant/insttab.rs#L3815  fn collect_failed_records
-instant/insttab.rs#L3849  fn expand_bracket_list
-instant/insttab.rs#L3880  mod tests
-instant/insttab.rs#L3884  fn mat_insttab__register_and_lookup
-instant/insttab.rs#L3899  fn mat_insttab__no_duplicate_registration
-instant/insttab.rs#L3920  fn mat_insttab__children_of
-instant/insttab.rs#L3956  fn mat_insttab__id_uniqueness
-instant/insttab.rs#L3976  fn mat_insttab__resolve_bus_member_path_fallback
-instant/insttab.rs#L4011  fn mat_insttab__resolve_plain_dot_path_still_works
-instant/insttab.rs#L4041  fn mat_insttab__resolve_top_level_port_no_prefix
-instant/insttab.rs#L4064  fn mat_insttab__resolve_bracket_list_expands
-instant/insttab.rs#L4102  fn mat_insttab__resolve_bracket_partial_miss
-instant/insttab.rs#L4133  fn mat_insttab__resolve_missing_path_returns_empty
-instant/insttab.rs#L4148  fn mat_insttab__expand_bracket_list_syntax
-instant/insttab.rs#L4178  fn mat_insttab__element_class_comes_from_the_definition_spec_table
-instant/insttab.rs#L4180  const SRC
+instant/insttab.rs#L843  fn spec_quantity_of
+instant/insttab.rs#L881  fn declared_member_of_pin
+instant/insttab.rs#L896  fn declared_member_of_role
+instant/insttab.rs#L914  enum InstOrigin
+instant/insttab.rs#L938  impl PartialEq for InstOrigin
+instant/insttab.rs#L939  fn eq
+instant/insttab.rs#L959  impl Eq for InstOrigin
+instant/insttab.rs#L961  impl Default for InstOrigin
+instant/insttab.rs#L962  fn default
+instant/insttab.rs#L979  enum ProtectionKind
+instant/insttab.rs#L998  enum DriveKind
+instant/insttab.rs#L1008  struct InstEntry
+instant/insttab.rs#L1247  impl InstEntry
+instant/insttab.rs#L1250  fn power_face
+instant/insttab.rs#L1257  fn power_spelling
+instant/insttab.rs#L1265  fn rail_identity
+instant/insttab.rs#L1271  fn wired_at
+instant/insttab.rs#L1277  fn unwired
+instant/insttab.rs#L1285  fn anchor_pos
+instant/insttab.rs#L1303  struct NetEntry
+instant/insttab.rs#L1329  struct InstTable
+instant/insttab.rs#L1421  impl InstTable
+instant/insttab.rs#L1423  fn new
+instant/insttab.rs#L1445  fn root_span
+instant/insttab.rs#L1452  fn net_table
+instant/insttab.rs#L1461  fn power_decls
+instant/insttab.rs#L1468  fn block_parts_of
+instant/insttab.rs#L1476  fn net_origin
+instant/insttab.rs#L1484  fn member_pin_of
+instant/insttab.rs#L1501  fn from_module_inst
+instant/insttab.rs#L1521  fn from_module_inst_with_arena
+instant/insttab.rs#L1550  fn register
+instant/insttab.rs#L1713  fn set_member_info
+instant/insttab.rs#L1723  fn set_identity
+instant/insttab.rs#L1748  fn set_point
+instant/insttab.rs#L1756  fn set_pwr_dir
+instant/insttab.rs#L1764  fn set_pwr_nom
+instant/insttab.rs#L1772  fn set_exposed
+instant/insttab.rs#L1781  fn set_expectations
+instant/insttab.rs#L1790  fn set_iface_lane
+instant/insttab.rs#L1799  fn set_ac_face
+instant/insttab.rs#L1807  fn set_pwr_member
+instant/insttab.rs#L1815  fn set_drive
+instant/insttab.rs#L1826  fn record_member_pin_sem
+instant/insttab.rs#L1857  fn set_pin_count
+instant/insttab.rs#L1870  fn mark_nc
+instant/insttab.rs#L1881  fn set_vector_info
+instant/insttab.rs#L1892  fn mark_alias
+instant/insttab.rs#L1928  fn declared_member_port_of
+instant/insttab.rs#L1961  fn fold_alias
+instant/insttab.rs#L1981  fn vector_member_paths
+instant/insttab.rs#L2003  fn mark_synthetic_by_path_prefix
+instant/insttab.rs#L2014  fn register_simple
+instant/insttab.rs#L2036  fn get_id_by_path
+instant/insttab.rs#L2041  fn get_entry
+instant/insttab.rs#L2058  fn class_def_of
+instant/insttab.rs#L2071  fn children_of
+instant/insttab.rs#L2079  fn iter
+instant/insttab.rs#L2084  fn len
+instant/insttab.rs#L2089  fn is_empty
+instant/insttab.rs#L2094  fn is_bridge_passive
+instant/insttab.rs#L2101  fn get_nets
+instant/insttab.rs#L2106  fn get_net
+instant/insttab.rs#L2115  fn get_net_of
+instant/insttab.rs#L2123  fn nets_of
+instant/insttab.rs#L2131  fn get_components
+instant/insttab.rs#L2143  fn iter_entries
+instant/insttab.rs#L2150  fn get_modules
+instant/insttab.rs#L2158  fn get_pins_of
+instant/insttab.rs#L2166  fn get_ports_of
+instant/insttab.rs#L2174  fn net_count
+instant/insttab.rs#L2201  fn backfill_port_decl_pos
+instant/insttab.rs#L2219  fn port_decl_span_of
+instant/insttab.rs#L2227  fn flatten_module
+instant/insttab.rs#L3384  fn flatten_nets
+instant/insttab.rs#L3589  fn resolve_netpoint_path
+instant/insttab.rs#L3625  fn resolve_single_path
+instant/insttab.rs#L3672  fn dump
+instant/insttab.rs#L3757  fn write_known_missing
+instant/insttab.rs#L3806  fn collect_failed_records
+instant/insttab.rs#L3840  fn expand_bracket_list
+instant/insttab.rs#L3871  mod tests
+instant/insttab.rs#L3875  fn mat_insttab__register_and_lookup
+instant/insttab.rs#L3890  fn mat_insttab__no_duplicate_registration
+instant/insttab.rs#L3911  fn mat_insttab__children_of
+instant/insttab.rs#L3947  fn mat_insttab__id_uniqueness
+instant/insttab.rs#L3967  fn mat_insttab__resolve_bus_member_path_fallback
+instant/insttab.rs#L4002  fn mat_insttab__resolve_plain_dot_path_still_works
+instant/insttab.rs#L4032  fn mat_insttab__resolve_top_level_port_no_prefix
+instant/insttab.rs#L4055  fn mat_insttab__resolve_bracket_list_expands
+instant/insttab.rs#L4093  fn mat_insttab__resolve_bracket_partial_miss
+instant/insttab.rs#L4124  fn mat_insttab__resolve_missing_path_returns_empty
+instant/insttab.rs#L4139  fn mat_insttab__expand_bracket_list_syntax
+instant/insttab.rs#L4169  fn mat_insttab__element_class_comes_from_the_definition_spec_table
+instant/insttab.rs#L4171  const SRC
 instant/island.rs#L45  enum NetRole
 instant/island.rs#L60  impl NetRole
 instant/island.rs#L61  fn as_str
@@ -3615,49 +3615,50 @@ instant/mc_mod/stmt.rs#L1234  fn member_lane_width
 instant/mc_mod/stmt.rs#L1245  fn pick_lane_point
 instant/mc_mod/stmt.rs#L1260  fn collect_lane_items
 instant/mc_mod/stmt.rs#L1274  fn collect_one_lane_item
-instant/mc_mod/stmt.rs#L1348  fn get_transposed_lane_pin
-instant/mc_mod/stmt.rs#L1359  fn try_record_bridge_passive
-instant/mc_mod/stmt.rs#L1390  fn is_same_name_component_group
-instant/mc_mod/stmt.rs#L1425  fn resolve_multi_member_bus
-instant/mc_mod/stmt.rs#L1498  fn normalize_wrapper_operands
-instant/mc_mod/stmt.rs#L1533  fn phrase_to_members
-instant/mc_mod/stmt.rs#L1545  fn phrase_to_members_gapped
-instant/mc_mod/stmt.rs#L2134  fn normalize_multiple_lanes
-instant/mc_mod/stmt.rs#L2151  fn expand_multi_member_buses
-instant/mc_mod/stmt.rs#L2192  fn extract_trunk_group
-instant/mc_mod/stmt.rs#L2204  fn extract_trunk_group_inner
-instant/mc_mod/stmt.rs#L2253  fn extract_pg_from_multiple_endpoint
-instant/mc_mod/stmt.rs#L2273  fn extract_pg_from_iref
-instant/mc_mod/stmt.rs#L2313  fn written_pair_name
-instant/mc_mod/stmt.rs#L2355  fn end_pair_trunk
-instant/mc_mod/stmt.rs#L2368  fn has_power_terminal
-instant/mc_mod/stmt.rs#L2380  fn member_refs_deep
-instant/mc_mod/stmt.rs#L2392  fn endpoint_refs_deep
-instant/mc_mod/stmt.rs#L2415  fn extract_trunk_kind
-instant/mc_mod/stmt.rs#L2464  fn extract_trunk_iface
-instant/mc_mod/stmt.rs#L2483  fn iface_class_of
-instant/mc_mod/stmt.rs#L2525  fn check_iface_connect_points
-instant/mc_mod/stmt.rs#L2553  fn check_net_topology
-instant/mc_mod/stmt.rs#L2564  fn check_iface_connect_net
-instant/mc_mod/stmt.rs#L2588  fn check_iface_topology
-instant/mc_mod/stmt.rs#L2630  fn iface_pair_diag
-instant/mc_mod/stmt.rs#L2781  fn iface_endpoint_of_point
-instant/mc_mod/stmt.rs#L2833  fn role_of
-instant/mc_mod/stmt.rs#L2856  fn mediator_iface_role
-instant/mc_mod/stmt.rs#L2877  fn record_chain_iface_endpoints
-instant/mc_mod/stmt.rs#L2910  fn record_chain_iface_endpoint_ep
-instant/mc_mod/stmt.rs#L2943  fn iface_attr_value_set
-instant/mc_mod/stmt.rs#L3010  fn connect_adjacent_pair
-instant/mc_mod/stmt.rs#L3059  fn normalize_branch_elem
-instant/mc_mod/stmt.rs#L3077  fn process_series_branch_inplace
-instant/mc_mod/stmt.rs#L3117  fn stash_pass_through
-instant/mc_mod/stmt.rs#L3124  fn process_member_internal
-instant/mc_mod/stmt.rs#L4102  fn assign_phrase_ids
-instant/mc_mod/stmt.rs#L4145  fn reset_phrase_ids
-instant/mc_mod/stmt.rs#L4183  fn member_key
-instant/mc_mod/stmt.rs#L4208  fn extract_caller_inst_name
-instant/mc_mod/stmt.rs#L4290  fn resolve_array_caller_to_existing
-instant/mc_mod/stmt.rs#L4352  fn phrase_contains_failed_class
+instant/mc_mod/stmt.rs#L1365  fn get_transposed_lane_pin
+instant/mc_mod/stmt.rs#L1381  fn is_bridge_passive_core
+instant/mc_mod/stmt.rs#L1392  fn try_record_bridge_passive
+instant/mc_mod/stmt.rs#L1423  fn is_same_name_component_group
+instant/mc_mod/stmt.rs#L1458  fn resolve_multi_member_bus
+instant/mc_mod/stmt.rs#L1531  fn normalize_wrapper_operands
+instant/mc_mod/stmt.rs#L1566  fn phrase_to_members
+instant/mc_mod/stmt.rs#L1578  fn phrase_to_members_gapped
+instant/mc_mod/stmt.rs#L2167  fn normalize_multiple_lanes
+instant/mc_mod/stmt.rs#L2184  fn expand_multi_member_buses
+instant/mc_mod/stmt.rs#L2225  fn extract_trunk_group
+instant/mc_mod/stmt.rs#L2237  fn extract_trunk_group_inner
+instant/mc_mod/stmt.rs#L2286  fn extract_pg_from_multiple_endpoint
+instant/mc_mod/stmt.rs#L2306  fn extract_pg_from_iref
+instant/mc_mod/stmt.rs#L2346  fn written_pair_name
+instant/mc_mod/stmt.rs#L2388  fn end_pair_trunk
+instant/mc_mod/stmt.rs#L2401  fn has_power_terminal
+instant/mc_mod/stmt.rs#L2413  fn member_refs_deep
+instant/mc_mod/stmt.rs#L2425  fn endpoint_refs_deep
+instant/mc_mod/stmt.rs#L2448  fn extract_trunk_kind
+instant/mc_mod/stmt.rs#L2497  fn extract_trunk_iface
+instant/mc_mod/stmt.rs#L2516  fn iface_class_of
+instant/mc_mod/stmt.rs#L2558  fn check_iface_connect_points
+instant/mc_mod/stmt.rs#L2586  fn check_net_topology
+instant/mc_mod/stmt.rs#L2597  fn check_iface_connect_net
+instant/mc_mod/stmt.rs#L2621  fn check_iface_topology
+instant/mc_mod/stmt.rs#L2663  fn iface_pair_diag
+instant/mc_mod/stmt.rs#L2814  fn iface_endpoint_of_point
+instant/mc_mod/stmt.rs#L2866  fn role_of
+instant/mc_mod/stmt.rs#L2889  fn mediator_iface_role
+instant/mc_mod/stmt.rs#L2910  fn record_chain_iface_endpoints
+instant/mc_mod/stmt.rs#L2943  fn record_chain_iface_endpoint_ep
+instant/mc_mod/stmt.rs#L2976  fn iface_attr_value_set
+instant/mc_mod/stmt.rs#L3043  fn connect_adjacent_pair
+instant/mc_mod/stmt.rs#L3092  fn normalize_branch_elem
+instant/mc_mod/stmt.rs#L3110  fn process_series_branch_inplace
+instant/mc_mod/stmt.rs#L3150  fn stash_pass_through
+instant/mc_mod/stmt.rs#L3157  fn process_member_internal
+instant/mc_mod/stmt.rs#L4135  fn assign_phrase_ids
+instant/mc_mod/stmt.rs#L4178  fn reset_phrase_ids
+instant/mc_mod/stmt.rs#L4216  fn member_key
+instant/mc_mod/stmt.rs#L4241  fn extract_caller_inst_name
+instant/mc_mod/stmt.rs#L4323  fn resolve_array_caller_to_existing
+instant/mc_mod/stmt.rs#L4385  fn phrase_contains_failed_class
 instant/mc_mod/subst.rs#L33  impl InstantiationBuilder
 instant/mc_mod/subst.rs#L40  fn param_value_to_node_elements
 instant/mc_mod/subst.rs#L47  fn param_value_to_node_elements_inner
@@ -6332,20 +6333,20 @@ semantic/component/mc_attr.rs#L151  impl std::fmt::Display for McAttrVal
 semantic/component/mc_attr.rs#L152  fn fmt
 semantic/component/mc_attr.rs#L167  struct McAttribute
 semantic/component/mc_attr.rs#L192  fn collect_key_names
-semantic/component/mc_attr.rs#L229  fn key_formal
-semantic/component/mc_attr.rs#L250  fn report_fused_subscript_key
-semantic/component/mc_attr.rs#L307  fn report_duplicate_key
-semantic/component/mc_attr.rs#L345  fn report_value_outside_vocabulary
-semantic/component/mc_attr.rs#L410  impl McAttribute
-semantic/component/mc_attr.rs#L411  fn new
-semantic/component/mc_attr.rs#L499  fn parse_square_vec_kvs
-semantic/component/mc_attr.rs#L509  fn extract_kvs_from_iter
-semantic/component/mc_attr.rs#L514  fn new_attr_values
-semantic/component/mc_attr.rs#L639  impl PartialEq for McAttribute
-semantic/component/mc_attr.rs#L640  fn eq
-semantic/component/mc_attr.rs#L645  impl std::fmt::Display for McAttribute
-semantic/component/mc_attr.rs#L646  fn fmt
-semantic/component/mc_attr.rs#L656  impl Eq for McAttribute
+semantic/component/mc_attr.rs#L232  fn key_formal
+semantic/component/mc_attr.rs#L253  fn report_fused_subscript_key
+semantic/component/mc_attr.rs#L310  fn report_duplicate_key
+semantic/component/mc_attr.rs#L348  fn report_value_outside_vocabulary
+semantic/component/mc_attr.rs#L413  impl McAttribute
+semantic/component/mc_attr.rs#L414  fn new
+semantic/component/mc_attr.rs#L502  fn parse_square_vec_kvs
+semantic/component/mc_attr.rs#L512  fn extract_kvs_from_iter
+semantic/component/mc_attr.rs#L517  fn new_attr_values
+semantic/component/mc_attr.rs#L642  impl PartialEq for McAttribute
+semantic/component/mc_attr.rs#L643  fn eq
+semantic/component/mc_attr.rs#L648  impl std::fmt::Display for McAttribute
+semantic/component/mc_attr.rs#L649  fn fmt
+semantic/component/mc_attr.rs#L659  impl Eq for McAttribute
 semantic/component/mc_attr_view.rs#L68  enum AttrView
 semantic/component/mc_attr_view.rs#L89  impl AttrView
 semantic/component/mc_attr_view.rs#L95  fn tag
@@ -6355,13 +6356,13 @@ semantic/component/mc_attr_view.rs#L147  fn leaf_reads
 semantic/component/mc_attr_view.rs#L156  fn key_signal
 semantic/component/mc_attr_view.rs#L175  fn collect
 semantic/component/mc_attr_view.rs#L212  fn opens_table
-semantic/component/mc_attr_view.rs#L218  fn read_values
-semantic/component/mc_attr_view.rs#L239  fn written
-semantic/component/mc_attr_view.rs#L243  fn read_one
-semantic/component/mc_attr_view.rs#L256  fn literal_view
-semantic/component/mc_attr_view.rs#L268  fn literal_text
-semantic/component/mc_attr_view.rs#L276  fn expr_view
-semantic/component/mc_attr_view.rs#L302  fn named_pair
+semantic/component/mc_attr_view.rs#L217  fn read_values
+semantic/component/mc_attr_view.rs#L238  fn written
+semantic/component/mc_attr_view.rs#L242  fn read_one
+semantic/component/mc_attr_view.rs#L255  fn literal_view
+semantic/component/mc_attr_view.rs#L267  fn literal_text
+semantic/component/mc_attr_view.rs#L275  fn expr_view
+semantic/component/mc_attr_view.rs#L301  fn named_pair
 semantic/component/mc_layout.rs#L25  struct McLayout
 semantic/component/mc_layout.rs#L32  impl McLayout
 semantic/component/mc_layout.rs#L33  fn new
@@ -6897,24 +6898,30 @@ semantic/meta/mod.rs#L87  fn normalize_opd
 semantic/meta/mod.rs#L97  fn normalize_expr
 semantic/meta/mod.rs#L128  fn normalize_rows
 semantic/meta/mod.rs#L134  fn normalize_kvs
-semantic/meta/mod.rs#L149  struct NamedValue
-semantic/meta/mod.rs#L157  fn read_values
-semantic/meta/mod.rs#L173  fn read_attr
-semantic/meta/mod.rs#L182  fn resolve_path
-semantic/meta/mod.rs#L193  fn resolve_segs
-semantic/meta/mod.rs#L216  mod tests
-semantic/meta/mod.rs#L226  fn set_face_reads_nameless_through_one_api
-semantic/meta/mod.rs#L243  fn record_face_reads_named_rows_through_one_api
-semantic/meta/mod.rs#L264  fn kvs_reads_as_named_pair
-semantic/meta/mod.rs#L283  fn undetermined_normalizes_from_uscore
-semantic/meta/mod.rs#L290  fn dotted_and_table_spellings_resolve_to_one_leaf
-semantic/meta/mod.rs#L314  fn range_and_expr_read_as_modeled
-semantic/meta/mod.rs#L349  fn uval
-semantic/meta/mod.rs#L353  fn word
-semantic/meta/mod.rs#L357  fn range_val
-semantic/meta/mod.rs#L364  fn word_ids
-semantic/meta/mod.rs#L368  fn ida
-semantic/meta/mod.rs#L375  fn attr
+semantic/meta/mod.rs#L150  fn record_rows
+semantic/meta/mod.rs#L151  const NONE
+semantic/meta/mod.rs#L159  fn has_records
+semantic/meta/mod.rs#L164  fn record_names
+semantic/meta/mod.rs#L170  fn record_row
+semantic/meta/mod.rs#L178  struct NamedValue
+semantic/meta/mod.rs#L186  fn read_values
+semantic/meta/mod.rs#L202  fn read_attr
+semantic/meta/mod.rs#L211  fn resolve_path
+semantic/meta/mod.rs#L222  fn resolve_segs
+semantic/meta/mod.rs#L243  mod tests
+semantic/meta/mod.rs#L253  fn set_face_reads_nameless_through_one_api
+semantic/meta/mod.rs#L270  fn record_face_reads_named_rows_through_one_api
+semantic/meta/mod.rs#L292  fn record_face_primitives_read_rows_names_and_exact_row
+semantic/meta/mod.rs#L311  fn kvs_reads_as_named_pair
+semantic/meta/mod.rs#L330  fn undetermined_normalizes_from_uscore
+semantic/meta/mod.rs#L337  fn dotted_and_table_spellings_resolve_to_one_leaf
+semantic/meta/mod.rs#L361  fn range_and_expr_read_as_modeled
+semantic/meta/mod.rs#L394  fn uval
+semantic/meta/mod.rs#L398  fn word
+semantic/meta/mod.rs#L402  fn range_val
+semantic/meta/mod.rs#L409  fn word_ids
+semantic/meta/mod.rs#L413  fn ida
+semantic/meta/mod.rs#L420  fn attr
 semantic/mod.rs#L5  mod basic
 semantic/mod.rs#L6  mod recipe
 semantic/mod.rs#L7  mod common
@@ -11836,4 +11843,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-427 files, 11753 declarations.
+427 files, 11760 declarations.
