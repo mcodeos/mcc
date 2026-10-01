@@ -37,6 +37,7 @@ mod u127_boundary_point_naming;
 mod u168_block_frames;
 mod u304_flat_curly_pins;
 mod u31_positional_fallback;
+mod u363_line_annotations;
 mod u372_curly_wrapper_transpose;
 mod use_statement_diagnostics;
 mod vec_parallel_transposed_bridge;
