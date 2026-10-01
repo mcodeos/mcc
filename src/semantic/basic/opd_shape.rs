@@ -155,13 +155,23 @@ impl OpdShape {
                     Ok(self.clone())
                 }
             }
-            OpdShape::Node(_, _) => {
+            OpdShape::Node(l, r) => {
                 // Each side column transposes to a row vector; a row vector is
                 // only connectable when its width is <= 2 (vec-arch.md §5.2).
                 let lw = self.size_left();
                 let rw = self.size_right();
                 if lw > 2 || rw > 2 {
                     Err(lw.max(rw))
+                } else if lw == 2 && rw == 2 {
+                    // U372 leg3 (L6 节点转置换 lane 律): a 2×2 node transpose
+                    // really swaps the lanes — the new face columns are the old
+                    // *rows*: `{A,C|B,D}' ≡ {A,B|C,D}` (curly-wrapper-transpose-
+                    // design.md §5 L6). The previous self-clone made `{...}'` a
+                    // silent no-op on the node form.
+                    Ok(OpdShape::Node(
+                        vec![l[0].clone(), r[0].clone()],
+                        vec![l[1].clone(), r[1].clone()],
+                    ))
                 } else {
                     Ok(self.clone())
                 }

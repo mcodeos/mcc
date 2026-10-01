@@ -210,6 +210,64 @@ fn conn_law__pipenode_selection_is_the_node_equation_truth() {
     );
 }
 
+/// L6 节点转置换 lane 律 (#16): transposing a pipe node really swaps the
+/// lanes — the new face columns are the old rows: `{L1,L2|L3,L4}'` must wire
+/// exactly like `{L1,L3|L2,L4}` (and the mirror `{L1,L3|L2,L4}'` like
+/// `{L1,L2|L3,L4}`). Before U372 leg3 the suffix was a silent no-op.
+#[test]
+fn conn_law__node_transpose_swaps_lanes() {
+    let untransposed_12_34 = build("    D1{A,K} - {L1,L2|L3,L4}").1;
+    let untransposed_13_24 = build("    D1{A,K} - {L1,L3|L2,L4}").1;
+    assert_ne!(
+        untransposed_12_34, untransposed_13_24,
+        "sanity: the two pipe spellings wire differently"
+    );
+    let (codes, nets) = build("    D1{A,K} - {L1,L2|L3,L4}'");
+    assert_eq!(
+        nets, untransposed_13_24,
+        "{{L1,L2|L3,L4}}' ≡ {{L1,L3|L2,L4}} (L6); got {nets:?}"
+    );
+    assert!(
+        !codes.contains(&mcc::errcodes::CONN_SERIES_SHAPE_MISMATCH),
+        "the transposed node pairs clean against 2 lanes; got {codes:?}"
+    );
+    let (_, nets2) = build("    D1{A,K} - {L1,L3|L2,L4}'");
+    assert_eq!(
+        nets2, untransposed_12_34,
+        "{{L1,L3|L2,L4}}' ≡ {{L1,L2|L3,L4}} (L6 mirror); got {nets2:?}"
+    );
+}
+
+/// L6 嵌套形正则等式 (#14, #15) — U372 leg3: the stacked directed-row node is
+/// a real node, so the outer transpose composes (壳序复合):
+/// `[[L1,L2]',[L3,L4]']'` ≡ `{L1,L2|L3,L4}` and the untransposed stack
+/// `[[L1,L2]',[L3,L4]']` ≡ `{L1,L3|L2,L4}` (near faces into column 1, far
+/// faces into column 2). Row faces never short (L4); before leg3 this spelling
+/// debug-panicked on a flat width-4 column whose transpose is unrepresentable.
+#[test]
+fn conn_law__nested_rowstack_transpose_equals_pipe_node() {
+    let pipe_12_34 = build("    D1{A,K} - {L1,L2|L3,L4}").1;
+    let pipe_13_24 = build("    D1{A,K} - {L1,L3|L2,L4}").1;
+    let (codes, nets) = build("    D1{A,K} - [[L1,L2]',[L3,L4]']'");
+    assert_eq!(
+        nets, pipe_12_34,
+        "#14: nested stack + outer transpose ≡ the pipe node; got {nets:?}"
+    );
+    assert!(
+        !codes.contains(&mcc::errcodes::CONN_SERIES_SHAPE_MISMATCH),
+        "the nested form is a legal chain member; got {codes:?}"
+    );
+    let (_, nets15) = build("    D1{A,K} - [[L1,L2]',[L3,L4]']");
+    assert_eq!(
+        nets15, pipe_13_24,
+        "#15: the untransposed stack ≡ the transposed pipe node; got {nets15:?}"
+    );
+    assert_ne!(
+        nets, nets15,
+        "the outer transpose is not a no-op: #14 and #15 wire differently"
+    );
+}
+
 /// L5 嵌套叠加律 (#17, #18, #19): same-orientation list members stack
 /// vertically (column+column → N×1), mixed layers flatten — all three
 /// spellings are the same 4×1 vector and zip 1:1 against a 4-wide row.

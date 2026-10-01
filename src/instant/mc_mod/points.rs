@@ -1194,8 +1194,16 @@ impl InstantiationBuilder {
 
                 // non-FuncCall Transposed: strict math transpose (vec-arch.md
                 // §5.2 / §6.2) — the transposed shape's right side is expanded.
-                let shape = OpdShape::from_sides(inner_line.get_left(), inner_line.get_right());
-                // §6.1 drift guard (mirror get_left_points Transposed branch).
+                //
+                // U372 leg3: read the shape from the value face
+                // ([`OpdShape::of`]) exactly like the mirrored get_left_points
+                // arm (U308). The previous context-free
+                // `from_sides(get_left, get_right)` view kept the §6.1 drift
+                // alive on this side: a stacked-row operand concatenated its
+                // members into a flat width-4 column here, whose transpose is
+                // unrepresentable — the debug_assert open edge (design doc
+                // §10 edge 11).
+                let shape = OpdShape::of(inner_line, &*self);
                 debug_assert!(
                     shape.transpose().is_ok(),
                     "unrepresentable transpose reached Pass2: {shape:?}"
@@ -1204,9 +1212,9 @@ impl InstantiationBuilder {
                     Ok(t) => t.port_right(),
                     Err(_) => {
                         // Unreachable for a validated operand; fall back to the
-                        // previous full-width column merge for robustness.
-                        let mut all = inner_line.get_left();
-                        all.extend(inner_line.get_right());
+                        // full-width column merge of both faces for robustness.
+                        let mut all = shape.port_left();
+                        all.extend(shape.port_right());
                         all
                     }
                 };
