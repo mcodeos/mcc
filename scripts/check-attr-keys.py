@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Ledger reconciliation gate for the attribute key registry.
 
-The ledger has two copies: the authoritative table in `mcd/spec/07-attrs.md`
-section 3.1, and its mirror `ATTR_KEYS` in `src/semantic/basic/attr_keys.rs`.
+The ledger has two copies: the authoritative table in `doc/NAMING.md`
+section 8.3, and its mirror `ATTR_KEYS` in `src/semantic/basic/attr_keys.rs`.
 This scanner reads both and fails when a row disagrees, so the two cannot
 drift.
 
@@ -10,12 +10,7 @@ Usage:
     python3 scripts/check-attr-keys.py [FILE ...]
 
 With no arguments both sides are read. With arguments (the pre-commit form)
-the scan runs only when the mirror is among them; the doc lives in a sibling
-repository and is never staged here.
-
-The doc is located at `<repo>/../mcd/spec/07-attrs.md`, overridable with
-`MCC_ATTR_KEYS_DOC`. When it is absent -- a CI checkout holds one repository
-only -- the scan reports the skip and exits 0.
+the scan runs when either side is among them.
 
 Exit 0 clean, 1 on a mismatch.
 """
@@ -28,9 +23,8 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 MIRROR = REPO / "src" / "semantic" / "basic" / "attr_keys.rs"
 MIRROR_REL = "src/semantic/basic/attr_keys.rs"
-DOC = Path(
-    os.environ.get("MCC_ATTR_KEYS_DOC", str(REPO.parent / "mcd" / "spec" / "07-attrs.md"))
-)
+DOC = REPO / "doc" / "NAMING.md"
+DOC_REL = "doc/NAMING.md"
 
 # The ledger table is located by an ASCII marker line in the doc, never by its
 # header text: this repository is English-only, so a scanner may not carry the
@@ -217,7 +211,7 @@ def read_doc():
     marker = next((i for i, line in enumerate(lines) if DOC_MARKER in line), None)
     if marker is None:
         sys.stderr.write(
-            "attr-keys: no ledger marker in %s; section 3.1 must carry a line "
+            "attr-keys: no ledger marker in %s; section 8.3 must carry a line "
             "containing %r above its table\n" % (DOC, DOC_MARKER)
         )
         sys.exit(1)
@@ -251,11 +245,13 @@ def describe(row):
 
 
 def main(argv):
-    if argv and not any(os.path.normpath(a) == MIRROR_REL for a in argv):
+    if argv and not any(
+        os.path.normpath(a) in (MIRROR_REL, DOC_REL) for a in argv
+    ):
         return 0
     if not DOC.is_file():
-        print("skip: ledger doc not found at %s (sibling checkout required)" % DOC)
-        return 0
+        sys.stderr.write("attr-keys: ledger doc not found at %s\n" % DOC_REL)
+        return 1
 
     mirror = {r["key"]: r for r in read_mirror()}
     doc = {r["key"]: r for r in read_doc()}

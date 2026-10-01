@@ -58,11 +58,11 @@ if ! git diff --cached --name-only --diff-filter=ACM -z \
 fi
 
 # ── 5. Ledger reconciliation: doc table ↔ ATTR_KEYS ─────────────────────────
-# The mirror is the only side in this repository; the scanner reports a skip
-# when the sibling `mcd` checkout is absent.
+# Both sides live in this repository (doc/NAMING.md §8.3 and the mirror), so
+# the scan runs for real whenever either side is staged.
 if ! git diff --cached --name-only --diff-filter=ACM -z \
     | xargs -0 -r python3 "$ROOT/scripts/check-attr-keys.py"; then
-    echo "pre-commit: the ledger doc and ATTR_KEYS disagree (mcd/spec/07-attrs.md)." >&2
+    echo "pre-commit: the ledger doc and ATTR_KEYS disagree (doc/NAMING.md §8.3)." >&2
     exit 1
 fi
 

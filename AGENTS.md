@@ -153,7 +153,7 @@ not a proof: a comparison written by hand
 ## Rule: the attribute key ledger has one authority
 
 Every attribute key decision reads the ledger, and the ledger has one
-authoritative text: the table in `mcd/manual/07-attrs.md` §3.1. The `ATTR_KEYS`
+authoritative text: the table in `doc/NAMING.md` §8.3. The `ATTR_KEYS`
 table in `src/semantic/basic/attr_keys.rs` is its mirror — the same rows and
 columns, one row per key. A row exists because a consumer has a question to
 ask, never to enumerate a device's parameters: the vocabulary is open (any key
@@ -163,7 +163,7 @@ meaning, and no consumer guesses one).
 This is enforced mechanically:
 
 - Pre-commit hook (`.githooks/pre-commit`) reconciles the two when the staged
-  set touches the mirror.
+  set touches the ledger doc or the mirror.
 - CI workflow (`.github/workflows/check-attr-keys.yml`) runs the scan on every
   push / pull request.
 - Local scanner: `python3 scripts/check-attr-keys.py` — exit 0 clean, 1 otherwise.

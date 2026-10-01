@@ -4,10 +4,9 @@ on:
   push:
   pull_request:
 
-# The authoritative ledger table lives in `mcd/spec/07-attrs.md`, a sibling
-# repository this workflow does not check out, so the scan reports a skip and
-# passes here. The gate is enforced locally, where both checkouts exist
-# (pre-commit and scripts/check.sh).
+# The authoritative ledger table (doc/NAMING.md §8.3) and its mirror
+# (ATTR_KEYS) both live in this checkout, so the scan runs for real on every
+# push / pull request.
 jobs:
   scan:
     runs-on: ubuntu-latest

@@ -8,7 +8,7 @@
 // The identity-axis keys (`role`, `class`, `nature`, `noise`, `exposed`,
 // `bind_role`), the protection gate (`protect`) and the flag `star` state a
 // *classification word*, and the words are the ledger's closed sets (the word
-// column of `spec/07-attrs.md` §3.1). Their
+// column of `doc/NAMING.md` §8.3). Their
 // readers see a word or nothing, so a misspelling used to read as "no
 // declaration at all" and every rule on that axis went quiet. The check sits in
 // `McAttributes::parse`, the funnel every source-fed list goes through, so a
