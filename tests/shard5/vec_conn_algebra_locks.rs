@@ -31,12 +31,18 @@ const FIXTURE: &str = "component T { pins = [ 1 = A\n    2 = K ] }\nmodule main 
 /// `vec_r0_operator_fidelity`: net names are synthesized, the **grouping of
 /// points** is the claim.
 fn build(statements: &str) -> (Vec<u32>, Vec<Vec<String>>) {
+    build_src(&FIXTURE.replace("{}", statements))
+}
+
+/// The full-source variant of [`build`] — for locks whose statements must sit
+/// at a body position the shared fixture cannot offer (e.g. a true statement
+/// start, before the instance rows).
+fn build_src(src: &str) -> (Vec<u32>, Vec<Vec<String>>) {
     let _lock = common::lock();
     common::reset();
-    let src = FIXTURE.replace("{}", statements);
     let uri = "/mcc/u372-conn-law.mc";
     let u = McURI::from(uri);
-    mcc::mcc_load_from_string(&u, &src);
+    mcc::mcc_load_from_string(&u, src);
     let (_, _, _, net_store) = mcc::mcc_build_with_nets(&McIds::from("main"), &u).expect("build");
     let mut codes: Vec<u32> = mcc::mcc_diagnose_all().iter().map(|d| d.code).collect();
     codes.sort_unstable();
@@ -274,6 +280,129 @@ fn conn_law__adjacent_involution_matches_group_spelling_in_chains() {
             "the involution wires like the bare operand; got {dbl_nets:?} vs {bare_nets:?}"
         );
     }
+}
+
+/// L14 brace ≡ list law (#40, #41, #42) — U372 leg5: the bare comma brace
+/// opens as a member vector, the SAME tree as the bracket list (ruling ⑦),
+/// so the two spellings diagnose and wire identically in every position the
+/// two share: the rhs operand, and the group face (where the list already
+/// refuses E3136, the brace inherits the same verdict). Before leg5 the brace
+/// died E2082 at `{` (no statement-level production; the pipe form `{a|b}`
+/// always had its bare arm, U339).
+///
+/// The statement-start position is NOT shared: there the `{` is claimed by
+/// the declaration-position member face (`T D2 {L1,L2}`, U343-C2, bison arm
+/// `@phr.dcla1{,}`) — the vector arm never competes with it, at HEAD or with
+/// leg5. That boundary has its own lock below.
+#[test]
+fn conn_law__bare_curly_equals_bracket_list() {
+    for (tag, list, brace) in [
+        ("rhs", "    [P,Q] - [L1,L2]", "    [P,Q] - {L1,L2}"),
+        ("group", "    ([L1,L2]) - [P,Q]", "    ({L1,L2}) - [P,Q]"),
+    ] {
+        let (list_codes, list_nets) = build(list);
+        let (brace_codes, brace_nets) = build(brace);
+        assert_eq!(
+            (&list_codes, &list_nets),
+            (&brace_codes, &brace_nets),
+            "{tag}: the bare brace ≡ the bracket list; got {brace_codes:?} vs {list_codes:?}"
+        );
+    }
+}
+
+/// L14 边界（面二相）: at statement start a `{` line is the
+/// declaration-position member face, not a vector — the instance row before
+/// it absorbs the brace whether the two are spelled on one line or across
+/// the newline (the face grammar is newline-insensitive; verified identical
+/// bison traces `@phr.dcla1{,}` at HEAD and with leg5). The vector spelling
+/// never competes for that position, so the absorbed form is the same
+/// statement however it is laid out.
+#[test]
+fn conn_law__rowstart_brace_is_the_declaration_face() {
+    // D1 once as a plain row, then the face spelling — D1 declared twice
+    // (E5151) is part of the absorbed reading, exactly as for the inline
+    // declaration face.
+    let (inline_codes, inline_nets) = build("    T D1 {L1,L2} - [P,Q]");
+    for (tag, stmt) in [("next_line", "    T D1\n    {L1,L2} - [P,Q]")] {
+        let (codes, nets) = build(stmt);
+        assert_eq!(
+            (&codes, &nets),
+            (&inline_codes, &inline_nets),
+            "{tag}: the brace line after an instance row is the declaration face; got {codes:?} vs {inline_codes:?}"
+        );
+        assert!(
+            codes.contains(&mcc::errcodes::INST_DECLARED_MULTIPLE),
+            "{tag}: the absorbed reading redeclares D1 (E5151); got {codes:?}"
+        );
+    }
+}
+
+/// L14 边界（真行首）: at a true statement start — no instance row before the
+/// brace — the port-row face still owns `{` (E4023, wiring stays empty), and
+/// the vector arm does not compete; the bracket list at the same position
+/// opens as a vector and wires. This asymmetry is the 面二相 law of the brace
+/// at row start, byte-identical to HEAD (leg5 opens operand positions only);
+/// lifting it would be a follow-up ruling against the port-row face.
+#[test]
+fn conn_law__rowstart_brace_stays_on_the_port_row_face() {
+    // The shared fixture declares the instances before the body tail, so a
+    // brace statement there would be absorbed by the declaration face (the
+    // lock above). This lock needs a TRUE statement start: io rows only, the
+    // statements, the instances after.
+    let head = "component T { pins = [ 1 = A\n    2 = K ] }\nmodule main {\n    io L1\n    io P\n    io Q\n";
+    let (brace_codes, brace_nets) =
+        build_src(&format!("{head}    {{L1,L2}} - [P,Q]\n    T D1\n    T D2\n}}\n"));
+    assert!(
+        brace_codes.contains(&mcc::errcodes::PORT_ROW_WITH_CONNECTION),
+        "the brace at a true statement start stays on the port-row face (E4023); got {brace_codes:?}"
+    );
+    assert!(
+        brace_nets.is_empty(),
+        "the port-row refusal wires nothing; got {brace_nets:?}"
+    );
+    let (_, list_nets) =
+        build_src(&format!("{head}    [L1,L2] - [P,Q]\n    T D1\n    T D2\n}}\n"));
+    assert_eq!(
+        list_nets,
+        vec![
+            vec!["L1".to_string(), "P".to_string()],
+            vec!["L2".to_string(), "Q".to_string()],
+        ],
+        "the bracket list at the same position opens as a vector; got {list_nets:?}"
+    );
+}
+
+/// L14, suffix face: the brace takes suffix operators on the same terms as
+/// the list — `{L1,L2}'` refuses against two lanes exactly like `[L1,L2]'`
+/// (the transposed column is 2×1, the same E4007), and the device
+/// member-vector list keeps its shape-limit verdict (L9) under both
+/// spellings.
+#[test]
+fn conn_law__bare_curly_takes_suffixes_like_the_list() {
+    for (tag, list, brace) in [
+        (
+            "transposed_labels",
+            "    [P,Q] - [L1,L2]'",
+            "    [P,Q] - {L1,L2}'",
+        ),
+        (
+            "overwide_transpose",
+            "    [D1{A,K},D2{A,K}]'",
+            "    {D1{A,K},D2{A,K}}'",
+        ),
+    ] {
+        let (list_codes, _) = build(list);
+        let (brace_codes, _) = build(brace);
+        assert_eq!(
+            list_codes, brace_codes,
+            "{tag}: the brace takes suffixes on the list's terms; got {brace_codes:?} vs {list_codes:?}"
+        );
+    }
+    let (codes, _) = build("    {D1{A,K},D2{A,K}}'");
+    assert!(
+        codes.contains(&mcc::errcodes::SHAPE_TRANSPOSE_LIMIT),
+        "the overwide brace transpose must still report E2902; got {codes:?}"
+    );
 }
 
 /// L22 三端选择律 (#16): the pipe-node form is the node-equation truth —
