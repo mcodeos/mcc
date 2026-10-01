@@ -6213,10 +6213,11 @@ impl McCode {
                             // first-NAME search would pick the method name `F1`);
                             // the old last-name extraction stays as the last
                             // fallback (single-segment `RES(...).Pull`).
-                            let class_name = Self::extract_chain_base_instance(&sub)
-                                .and_then(|inst| Self::find_instance_class_name(&inst, uri))
-                                .or_else(|| Self::extract_chain_ctor_class(&sub))
-                                .or_else(|| Self::extract_class_name(&sub));
+                            let base_inst = Self::extract_chain_base_instance(&sub)
+                                .and_then(|inst| Self::find_instance_class_name(&inst, uri));
+                            let ctor_class = Self::extract_chain_ctor_class(&sub);
+                            let legacy_class = Self::extract_class_name(&sub);
+                            let class_name = base_inst.clone().or(ctor_class.clone()).or(legacy_class.clone());
                             if let (Some(class_name), Some(method_name)) = (
                                 class_name,
                                 func_name.as_ref().map(|s| s.as_str().to_string()),
@@ -6467,6 +6468,23 @@ impl McCode {
     /// `extract_chain_base_instance` + `find_instance_class_name` missed, so
     /// a bottom that is a named instance (their route) never lands here with
     /// a method name in hand.
+    /// The identifier a dotted-qualifier receiver carries (`INSTANCE` over
+    /// `OPD → IDS → ID`): the first NAME or IDS node in the subtree, read as
+    /// one dotted-or-plain spelling. U360's qualifier arm only.
+    fn first_qualifier_ids(node: &AstNode) -> Option<String> {
+        if node.get_type() == MCAST_NAME || node.get_type() == MCAST_IDS {
+            return McIds::new(node).map(|i| i.to_string());
+        }
+        let mut cur = node.get_sub_node();
+        while let Some(c) = cur {
+            if let Some(s) = Self::first_qualifier_ids(&c) {
+                return Some(s);
+            }
+            cur = c.get_next();
+        }
+        None
+    }
+
     fn extract_chain_ctor_class(sub: &Option<AstNode>) -> Option<String> {
         let mut current = sub.clone()?;
         loop {
@@ -6486,6 +6504,39 @@ impl McCode {
                     .get_sub_node()
                     .and_then(|s2| s2.iter().find(|c| c.get_type() == MCAST_INSTANCE));
                 if let Some(receiver) = receiver {
+                    // ★ U360: a receiver that wraps another call is the
+                    // previous chain link — descend to it (the U362 walk). A
+                    // receiver that wraps a bare name is the parser's
+                    // lowering of a *qualified* class call (`DIO.TVS(...)`
+                    // → OPD_FCALL func=TVS over INSTANCE label `DIO`): the
+                    // class is the two segments joined. Recombine only when
+                    // the joined name is a registered class, so an unknown
+                    // instance's chain keeps the old descend-and-fail shape.
+                    let receiver_is_link = receiver.get_sub_node().is_some_and(|r| {
+                        r.get_type() == MCAST_OPD_FCALL
+                            || r.iter().any(|c| c.get_type() == MCAST_OPD_FCALL)
+                    });
+                    if !receiver_is_link {
+                        let call_name = inner.get_sub_node().and_then(|s2| {
+                            s2.iter()
+                                .find(|c| c.get_type() == MCAST_NAME)
+                                .and_then(|n| n.get_sub_node())
+                                .and_then(|ids| McIds::new(&ids))
+                        });
+                        let qual = receiver.get_sub_node().and_then(|r| Self::first_qualifier_ids(&r));
+                        if let (Some(q), Some(n)) = (qual, call_name) {
+                            let dotted = format!("{q}.{n}");
+                            if matches!(
+                                crate::db::cmie::cmie::mcb_get_cmie(
+                                    &McIds::from(dotted.as_str()),
+                                    &current_uri::get()
+                                ),
+                                Some(crate::semantic::common::McCMIE::Component(_))
+                            ) {
+                                return Some(dotted);
+                            }
+                        }
+                    }
                     current = receiver;
                     continue;
                 }
