@@ -20,6 +20,7 @@ mod defspace_golden;
 mod dynamic_pin_expansion;
 mod export_spice_refdes;
 mod ground_net_unification;
+mod ident_lex_utf;
 mod lead_classification;
 mod lock_pp_duplicates;
 mod lock_pp_extra;
