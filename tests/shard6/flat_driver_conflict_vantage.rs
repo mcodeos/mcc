@@ -139,3 +139,49 @@ fn dlv_drvconf__two_parallel_groups_short_still_fires() {
         "two instances' bonded outputs shorted are two real drivers"
     );
 }
+
+/// U360: `@drive(od)` rows never enter the driver count — two open-drain
+/// outputs on one net wire-AND legally (two reset outputs under a common
+/// pull-up), so the pair must stay silent.
+#[test]
+fn dlv_drvconf__open_drain_rows_wire_and_silently() {
+    let src = format!(
+        "component ODEV {{\n    pins = [\n        out 1 = A @drive(od)\n        out 2 = Y @drive(od)\n    ]\n}}\nmodule main {{\n    ODEV d\n    d.A + d.Y\n}}"
+    );
+    assert!(
+        driver_conflict_msgs(&src).is_empty(),
+        "two @drive(od) outputs on one net are a legal wired-AND"
+    );
+}
+
+/// The exemption is the declaration, not the shape: the same two named
+/// outputs without `@drive` are two push-pull drivers and keep firing.
+#[test]
+fn dlv_drvconf__undeclared_drive_pair_still_fires() {
+    let src = format!(
+        "component ODEV {{\n    pins = [\n        out 1 = A\n        out 2 = Y\n    ]\n}}\nmodule main {{\n    ODEV d\n    d.A + d.Y\n}}"
+    );
+    assert_eq!(
+        driver_conflict_msgs(&src).len(),
+        1,
+        "without @drive the pair is two push-pull drivers"
+    );
+}
+
+/// `@drive(od)` never counts against a counted driver: an open-drain row
+/// beside a push-pull row reads one driver and stays silent, while two
+/// declared `@drive(pp)` rows still conflict.
+#[test]
+fn dlv_drvconf__od_beside_pushpull_silent_pp_pair_fires() {
+    let one_od = "component MIX {\n    pins = [\n        out 1 = A @drive(od)\n        out 2 = Y @drive(pp)\n    ]\n}\nmodule main {\n    MIX d\n    d.A + d.Y\n}";
+    assert!(
+        driver_conflict_msgs(&one_od).is_empty(),
+        "an od row is exempt; one counted driver is no conflict"
+    );
+    let two_pp = "component MIX {\n    pins = [\n        out 1 = A @drive(pp)\n        out 2 = Y @drive(pp)\n    ]\n}\nmodule main {\n    MIX d\n    d.A + d.Y\n}";
+    assert_eq!(
+        driver_conflict_msgs(&two_pp).len(),
+        1,
+        "two declared push-pull rows still conflict"
+    );
+}

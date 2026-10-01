@@ -589,6 +589,22 @@ pub(crate) fn check_driver_conflict(table: &InstTable, results: &mut Vec<NetChec
             .filter(|e| matches!(e.io_type, IOType::Out))
             .map(|e| e.id)
             .collect();
+        // Open-drain outputs (U360, `@drive(od)`) never enter the count: an
+        // open-drain stage pulls one rail and releases the other, so several
+        // of them on one net wire-AND legally (two reset outputs under a
+        // common pull-up) — counting them misjudges every wired-AND line as a
+        // short. An `od` stage fighting a counted driver stays silent for the
+        // same reason: the gate's granularity is the static declaration, not
+        // the dynamic level either side drives. Rows without `@drive` (and
+        // `@drive(pp)` rows) count as before.
+        let out_ids: Vec<u32> = out_ids
+            .into_iter()
+            .filter(|&id| {
+                table
+                    .get_entry(id)
+                    .is_none_or(|e| e.drive != Some(crate::instant::insttab::DriveKind::OpenDrain))
+            })
+            .collect();
         // Vantage dedupe (rule-registry design §4-a): in the A' flat model a
         // module-boundary `out` port is a junction — the exit of the net segment
         // inside its own module instance. When that exit's net already carries an

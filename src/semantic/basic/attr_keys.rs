@@ -263,6 +263,13 @@ pub(crate) const KEY_BOND: &str = "bond";
 /// signal. The group name is the interface author's own identifier, so the
 /// row registers Open like its barrier/bond siblings.
 pub(crate) const KEY_PAIR: &str = "pair";
+/// The driver-type axis (U360): whether a pin row's output stage is push-pull
+/// (`pp`) or open-drain (`od`). The multi-driver gate (E4101) is its consumer:
+/// open-drain outputs wire-AND legally, so they are not counted as conflicting
+/// drivers — without the declaration the gate misjudges every wired-AND line
+/// (two reset outputs under a common pull-up) as a short. PinRow face only:
+/// the drive type is a statement about one component's pin row.
+pub(crate) const KEY_DRIVE: &str = "drive";
 
 /// The words of the closed sets the rows below register. `role` and `bind_role`
 /// share one set, which is what the canon says of them: `bind_role` takes the
@@ -289,6 +296,10 @@ pub(crate) const WORD_ESD_AIR: &str = "esd_air";
 pub(crate) const WORD_EFT: &str = "eft";
 pub(crate) const WORD_SURGE: &str = "surge";
 pub(crate) const WORD_LIGHTNING: &str = "lightning";
+/// The driver-type words (U360): push-pull (`pp`) and open-drain (`od`), the
+/// closed set `@drive(...)` takes on a pin row.
+pub(crate) const WORD_PP: &str = "pp";
+pub(crate) const WORD_OD: &str = "od";
 
 const ROLE_WORDS: &[&str] = &[
     WORD_MAIN,
@@ -308,6 +319,7 @@ const EXPOSED_WORDS: &[&str] = &[
     WORD_LIGHTNING,
 ];
 const PROTECT_WORDS: &[&str] = &[WORD_SHUNT, WORD_SERIES];
+const DRIVE_WORDS: &[&str] = &[WORD_PP, WORD_OD];
 
 /// The dictionary. Rows are added when a consumer needs them; a key with no
 /// registered row is not yet known to the compiler, not rejected.
@@ -362,6 +374,11 @@ pub(crate) const ATTR_KEYS: &[AttrKeyDef] = &[
     vocab_row(KEY_BIND_ROLE, BODY, true, AttrVocab::Words(ROLE_WORDS)),
     vocab_row(KEY_STAR, BODY, true, AttrVocab::Flag),
     vocab_row(KEY_PROTECT, BODY, true, AttrVocab::Words(PROTECT_WORDS)),
+    // The driver-type axis (U360): a pin row's output stage shape. The words
+    // are a closed pair, so a misspelled value is reportable; the multi-driver
+    // gate (E4101) is the one consumer — an `od` row is exempt from the
+    // conflict count because open-drain outputs wire-AND legally.
+    vocab_row(KEY_DRIVE, PIN, false, AttrVocab::Words(DRIVE_WORDS)),
     // The barrier axis (barrier-design.md §3, contract-design.md §1.8's open
     // ruling): the value is a group name the component's author coins, so no
     // word set exists — `Open` judges the presence of the identifier, never

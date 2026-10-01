@@ -354,6 +354,28 @@ pub(crate) fn exposed_of_pin(
         .unwrap_or_default()
 }
 
+/// The declared output-stage shape of one component pin (U360), read from the
+/// pin's own declaration row (`out 3 = RO_1 @drive(od)`) — see
+/// [`InstEntry::drive`] and [`DriveKind`]. The same per-pin attr reader as
+/// [`exposed_of_pin`], so a conditional-branch variant row and an adoption row
+/// carry their words exactly like a direct row. A row with no `@drive` — or a
+/// value that is neither registered word — answers `None`, and the
+/// multi-driver gate then counts the pin like any push-pull output.
+pub(crate) fn drive_of_pin(
+    comp: &crate::instant::mc_comp::McComponentInst,
+    pin_name: &str,
+) -> Option<DriveKind> {
+    use crate::semantic::basic::attr_keys;
+    let texts = comp.attrs_of_pin(pin_name).map(|attrs| {
+        crate::semantic::module::pi::attr_texts(attrs, attr_keys::KEY_DRIVE)
+    })?;
+    match texts.first().map(String::as_str) {
+        Some(attr_keys::WORD_PP) => Some(DriveKind::PushPull),
+        Some(attr_keys::WORD_OD) => Some(DriveKind::OpenDrain),
+        _ => None,
+    }
+}
+
 /// The pin-row expectation words on the two axes (pin-expectation v0.3 §4):
 /// `@role(...)` for the return-identity axis, `@class(...)` for the
 /// signal-class axis. Read through the instance's materialized pins
@@ -970,6 +992,25 @@ pub enum ProtectionKind {
     Series,
 }
 
+/// The declared output-stage shape of one pin row (U360): the `@drive(...)`
+/// word decoded for the flat carry ([`InstEntry::drive`]).
+///
+/// The declaration is the only witness (world-axioms §1 A1): an `out` pin with
+/// no `@drive` row is push-pull by construction (every output drives both
+/// rails unless the row says otherwise), so `None` — not [`DriveKind::PushPull`]
+/// — is how an undeclared row reads, and the multi-driver gate treats `None`
+/// and `PushPull` alike. Only [`DriveKind::OpenDrain`] changes a verdict: an
+/// open-drain output pulls one rail and releases the other, so two of them on
+/// a net wire-AND legally and are not a short.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DriveKind {
+    /// The row declared `@drive(pp)` — a push-pull (totem-pole) output.
+    PushPull,
+    /// The row declared `@drive(od)` — an open-drain output; needs an external
+    /// or shared pull-up to read the released level.
+    OpenDrain,
+}
+
 /// Single instance record
 #[derive(Debug, Clone)]
 pub struct InstEntry {
@@ -1082,6 +1123,15 @@ pub struct InstEntry {
     /// `None` = ordinary pass element (the unmarked default), which no PWR-5
     /// half adjudicates.
     pub protection: Option<ProtectionKind>,
+    /// ★ U360: the pin row's own `@drive(...)` word — the declared output-stage
+    /// shape (`pp` push-pull / `od` open-drain), decoded once at flatten time
+    /// through the same per-pin attr reader the `@exposed`/`@role` carries use
+    /// ([`drive_of_pin`]), never inferred from a direction word or a pin shape.
+    /// The multi-driver gate (E4101) is the consumer: an `OpenDrain` entry is
+    /// exempt from the conflict count because open-drain outputs wire-AND
+    /// legally. `None` = the row declares no drive type — an `out` row drives
+    /// both rails by construction, and the gate counts it.
+    pub drive: Option<DriveKind>,
     /// ★ PWR-6 (exposed-protection-design.md §8.4): the declared transient
     /// boundary of this endpoint — the `@exposed(<level>)` levels its own
     /// declaration row carries. Non-empty on exactly two kinds of entry: a
@@ -1645,6 +1695,7 @@ impl InstTable {
             nc_marked: false,
             unselected: false,
             protection: None,
+            drive: None,
             exposed: Vec::new(),
             exp_role: Vec::new(),
             exp_class: Vec::new(),
@@ -1764,6 +1815,14 @@ impl InstTable {
     pub fn set_pwr_member(&mut self, id: u32, member: crate::semantic::pwrid::DeclaredMember) {
         if let Some(entry) = self.entries.get_mut(&id) {
             entry.pwr_member = Some(member);
+        }
+    }
+
+    /// Set the declared output-stage shape of a pin entry by ID
+    /// ([`InstEntry::drive`]). Only the declaration side calls this.
+    pub fn set_drive(&mut self, id: u32, drive: DriveKind) {
+        if let Some(entry) = self.entries.get_mut(&id) {
+            entry.drive = Some(drive);
         }
     }
 
@@ -2750,6 +2809,14 @@ impl InstTable {
                         self.set_exposed(pin_id, exposed);
                     }
 
+                    // ★ U360: the pin row's own `@drive` word rides the flat
+                    // pin entry the same way, so the multi-driver gate reads
+                    // the instance's materialized row — a conditional-branch
+                    // variant and an adoption row included.
+                    if let Some(drive) = drive_of_pin(comp, pin_name) {
+                        self.set_drive(pin_id, drive);
+                    }
+
                     // ★ pin-expectation v0.3: the row's `@role`/`@class` words
                     // ride the flat pin entry the same way, so the ERC gate
                     // reads the instance's materialized row — a
@@ -3033,6 +3100,14 @@ impl InstTable {
                     let exposed = exposed_of_pin(comp, pin_name);
                     if !exposed.is_empty() {
                         self.set_exposed(pin_id, exposed);
+                    }
+
+                    // ★ U360: the pin row's own `@drive` word rides the flat
+                    // pin entry the same way, so the multi-driver gate reads
+                    // the instance's materialized row — a conditional-branch
+                    // variant and an adoption row included.
+                    if let Some(drive) = drive_of_pin(comp, pin_name) {
+                        self.set_drive(pin_id, drive);
                     }
 
                     // ★ pin-expectation v0.3: `@role`/`@class` carry
