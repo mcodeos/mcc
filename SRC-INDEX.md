@@ -35,7 +35,7 @@ range (threshold 40KB).
 | `semantic/basic/mc_phrase.rs` | 363 KB | 93 |
 | `semantic/component/mc_pins/mod.rs` | 243 KB | 112 |
 | `semantic/validation/nets/mod.rs` | 216 KB | 140 |
-| `db/diagnostic/errcodes.rs` | 214 KB | 477 |
+| `db/diagnostic/errcodes.rs` | 215 KB | 478 |
 | `instant/mc_mod/stmt.rs` | 210 KB | 81 |
 | `rules.rs` | 195 KB | 83 |
 | `instant/insttab.rs` | 190 KB | 134 |
@@ -64,7 +64,7 @@ range (threshold 40KB).
 | `builder/` | 1 | 0 KB |
 | `cli/` | 8 | 129 KB |
 | `cmds/` | 28 | 528 KB |
-| `db/` | 28 | 1060 KB |
+| `db/` | 28 | 1061 KB |
 | `eval/` | 2 | 53 KB |
 | `export/` | 7 | 185 KB |
 | `instant/` | 41 | 1724 KB |
@@ -73,7 +73,7 @@ range (threshold 40KB).
 | `query/` | 9 | 170 KB |
 | `refdef/` | 7 | 134 KB |
 | `rpc/` | 16 | 313 KB |
-| `semantic/` | 99 | 2973 KB |
+| `semantic/` | 100 | 2983 KB |
 | `stages/` | 19 | 408 KB |
 | `vector/` | 26 | 494 KB |
 | `viz/` | 97 | 2483 KB |
@@ -1984,111 +1984,112 @@ db/diagnostic/errcodes.rs#L1542  const ATTR_KEY_DUPLICATE
 db/diagnostic/errcodes.rs#L1546  const ATTR_VALUE_NOT_IN_VOCABULARY
 db/diagnostic/errcodes.rs#L1550  const RATING_PARAM_OUT_OF_RANGE
 db/diagnostic/errcodes.rs#L1553  const RATING_KEY_NOT_A_PARAM
-db/diagnostic/errcodes.rs#L1558  const ENUM_DUPLICATE_VALUE
-db/diagnostic/errcodes.rs#L1561  const ENUM_MEMBER_DOT
-db/diagnostic/errcodes.rs#L1564  const ENUM_MEMBER_LEADING_DIGIT
-db/diagnostic/errcodes.rs#L1567  const ENUM_MEMBER_RESERVED
-db/diagnostic/errcodes.rs#L1570  const ATTR_INFINITE_FLOAT
-db/diagnostic/errcodes.rs#L1573  const ATTR_LARGE_INT
-db/diagnostic/errcodes.rs#L1576  const RANGE_REVERSED
-db/diagnostic/errcodes.rs#L1579  const RANGE_SINGLE_ELEMENT
-db/diagnostic/errcodes.rs#L1582  const IDX_MULTIPLE_SLICE_SPEC
-db/diagnostic/errcodes.rs#L1585  const EXPR_THIS_TOP_LEVEL
-db/diagnostic/errcodes.rs#L1588  const EXPR_PLACEHOLDER_ONLY
-db/diagnostic/errcodes.rs#L1591  const ATTR_SELF_REFERENTIAL
-db/diagnostic/errcodes.rs#L1594  const EVAL_DIVIDE_BY_ZERO
-db/diagnostic/errcodes.rs#L1600  const EVAL_OPERAND_NOT_NUMERIC
-db/diagnostic/errcodes.rs#L1603  const EVAL_OVERFLOW
-db/diagnostic/errcodes.rs#L1607  const EVAL_ERROR_EXPRESSION
-db/diagnostic/errcodes.rs#L1612  const COND_EMPTY_BODY
-db/diagnostic/errcodes.rs#L1615  const COND_IF_WITHOUT_ELSE
-db/diagnostic/errcodes.rs#L1618  const PIN_NC_COMPONENT_LEVEL
-db/diagnostic/errcodes.rs#L1621  const POWER_PIN_NO_VOLTAGE
-db/diagnostic/errcodes.rs#L1624  const PIN_IO_MIX_IN_OUT
-db/diagnostic/errcodes.rs#L1627  const PIN_IO_MIX_OUTPUT_POWER
-db/diagnostic/errcodes.rs#L1633  const PARAM_PIN_NAME_SHADOW
-db/diagnostic/errcodes.rs#L1636  const MODULE_STUB
-db/diagnostic/errcodes.rs#L1640  const COND_DUPLICATE
-db/diagnostic/errcodes.rs#L1646  const COND_JUDGE_OPERAND_DROPPED
-db/diagnostic/errcodes.rs#L1652  const COND_FAMILY_MISMATCH
-db/diagnostic/errcodes.rs#L1657  const HW_PIN_NUMBER_GAP
-db/diagnostic/errcodes.rs#L1660  const HW_PIN_COUNT_HIGH
-db/diagnostic/errcodes.rs#L1663  const HW_ZERO_PINS_WITH_PARAMS
-db/diagnostic/errcodes.rs#L1666  const HW_IFACE_PEER_DANGLING
-db/diagnostic/errcodes.rs#L1669  const HW_ALL_SAME_IO_TYPE
-db/diagnostic/errcodes.rs#L1672  const HW_IFACE_PEER_NOT_MUTUAL
-db/diagnostic/errcodes.rs#L1675  const HW_IFACE_PEER_WIDTH_MISMATCH
-db/diagnostic/errcodes.rs#L1678  const HW_FUNC_PARAM_SHADOWS_PIN
-db/diagnostic/errcodes.rs#L1682  const IFACE_DIR_CONFLICT
-db/diagnostic/errcodes.rs#L1686  const HW_IFACE_PAIR_NOT_TWO
-db/diagnostic/errcodes.rs#L1690  const HW_IFACE_DIFF_PAIR_RETIRED
-db/diagnostic/errcodes.rs#L1695  const HW_PAIR_CONSTRAINT_NOT_LENGTH
-db/diagnostic/errcodes.rs#L1700  const HW_PAIR_CONSTRAINT_MISMATCH
-db/diagnostic/errcodes.rs#L1704  const HW_PAIR_CONSTRAINT_ORPHAN
-db/diagnostic/errcodes.rs#L1709  const TYPE_INCOMPATIBLE
-db/diagnostic/errcodes.rs#L1714  const UNUSED_PARAM_OR_PORT
-db/diagnostic/errcodes.rs#L1717  const PORT_NEVER_USED
-db/diagnostic/errcodes.rs#L1720  const UNTYPED_PARAM
-db/diagnostic/errcodes.rs#L1727  const PINS_ROOT_KEY_BODY_UNUSED
-db/diagnostic/errcodes.rs#L1732  const ABSTRACT_PART_UNSELECTED
-db/diagnostic/errcodes.rs#L1743  const VARIANT_SPEC_UNSET
-db/diagnostic/errcodes.rs#L1747  const POWER_BRIDGE_LOOP
-db/diagnostic/errcodes.rs#L1751  const CLAMP_REF_NOT_PROTECTIVE
-db/diagnostic/errcodes.rs#L1757  const POWER_RAIL_DECODE
-db/diagnostic/errcodes.rs#L1762  const POWER_RAIL_TWO_ROOTS
-db/diagnostic/errcodes.rs#L1772  const POWER_SINK_NOMINAL_MISMATCH
-db/diagnostic/errcodes.rs#L1781  const POWER_PIN_DECODE
-db/diagnostic/errcodes.rs#L1791  const POWER_SOURCE_CONTENTION
-db/diagnostic/errcodes.rs#L1803  const ISOLATED_DC_BRIDGE
-db/diagnostic/errcodes.rs#L1812  const PROTECTIVE_MULTI_BRIDGE
-db/diagnostic/errcodes.rs#L1822  const EARTH_DC_LEAK
-db/diagnostic/errcodes.rs#L1834  const REFERENCE_ISLAND_ROOT
-db/diagnostic/errcodes.rs#L1844  const ROLE_REF_MISSING_BRIDGE
-db/diagnostic/errcodes.rs#L1855  const SINK_NET_NO_SOURCE
-db/diagnostic/errcodes.rs#L1863  const COMBINE_OUTPUT_TOL
-db/diagnostic/errcodes.rs#L1872  const NET_BUDGET_EXCEEDED
-db/diagnostic/errcodes.rs#L1885  const RETURN_LEG_UNDECLARED
-db/diagnostic/errcodes.rs#L1895  const POWER_CONVERTER_GATE
-db/diagnostic/errcodes.rs#L1904  const POWER_SINK_WINDOW_MISMATCH
-db/diagnostic/errcodes.rs#L1916  const POWER_CONVERTER_SPEC_INCOMPLETE
-db/diagnostic/errcodes.rs#L1927  const POWER_CONVERTER_OUTPUT_RAIL_WINDOW
-db/diagnostic/errcodes.rs#L1945  const DEVICE_RETURN_SPAN_UNDECLARED
-db/diagnostic/errcodes.rs#L1957  const DC_BINDING_DIR_MISMATCH
-db/diagnostic/errcodes.rs#L1961  const PORT_BIND_ROLE_MISMATCH
-db/diagnostic/errcodes.rs#L1974  const POWER_PIN_RETURN_MISSING
-db/diagnostic/errcodes.rs#L1986  const EXPOSED_NET_NO_CLAMP
-db/diagnostic/errcodes.rs#L1997  const PROTECT_SHUNT_NO_REFERENCE
-db/diagnostic/errcodes.rs#L2010  const PROTECT_SERIES_NOT_IN_PATH
-db/diagnostic/errcodes.rs#L2022  const RAIL_NATURE_MISMATCH
-db/diagnostic/errcodes.rs#L2057  const BRIDGE_LOAD_DECOUPLING_MISSING
-db/diagnostic/errcodes.rs#L2076  const SHUNT_DISSIPATION_OVER_RATING
-db/diagnostic/errcodes.rs#L2101  const DECOUPLING_RETURN_MISMATCH
-db/diagnostic/errcodes.rs#L2128  const SINK_PIN_NO_DECOUPLING
-db/diagnostic/errcodes.rs#L2153  const SENSITIVE_RETURN_ON_NOISY
-db/diagnostic/errcodes.rs#L2176  const ANALOG_RETURN_MISMATCH
-db/diagnostic/errcodes.rs#L2210  const SHARED_RETURN_BRIDGE
-db/diagnostic/errcodes.rs#L2244  const FILTER_SUBFACE_OVERREACH
-db/diagnostic/errcodes.rs#L2280  const EXPOSED_NET_DOWNSTREAM_UNPROTECTED
-db/diagnostic/errcodes.rs#L2294  const DOMAIN_ENDPOINT_NAME_COLLISION
-db/diagnostic/errcodes.rs#L2309  const PIN_COPPER_EXPECTATION_MISMATCH
-db/diagnostic/errcodes.rs#L2319  const PIN_COPPER_EXPECTATION_UNANCHORED
-db/diagnostic/errcodes.rs#L2334  const CROSS_BARRIER_NET
-db/diagnostic/errcodes.rs#L2345  const IFACE_EXCLUSIVE_PEER_CONFLICT
-db/diagnostic/errcodes.rs#L2357  const AC_FACE_RETURN_MISSING
-db/diagnostic/errcodes.rs#L2366  const AC_NOMINAL_CONFLICT
-db/diagnostic/errcodes.rs#L2375  const PROTECTIVE_PIN_NO_COPPER
-db/diagnostic/errcodes.rs#L2384  const IFACE_CHAIN_SOURCE_UNREACHED
-db/diagnostic/errcodes.rs#L2395  const IFACE_ROLE_PEER_CONFLICT
-db/diagnostic/errcodes.rs#L2406  const POLARITY_REVERSED
-db/diagnostic/errcodes.rs#L2419  const DOMAIN_NET_MIXED_BRIDGE
-db/diagnostic/errcodes.rs#L2432  const DOMAIN_BRIDGE_DIRECTION_REVERSED
-db/diagnostic/errcodes.rs#L2444  const DOMAIN_BRIDGE_LEG_INCONSISTENT
-db/diagnostic/errcodes.rs#L2455  const DOMAIN_BRIDGE_DANGLING
-db/diagnostic/errcodes.rs#L2469  const EXPECTATION_TARGET_MISSING
-db/diagnostic/errcodes.rs#L2475  const EXPECTATION_CLASS_MISMATCH
-db/diagnostic/errcodes.rs#L2480  const EXPECTATION_NOT_DRIVEN
-db/diagnostic/errcodes.rs#L2484  const EXPECTATION_VALUE_OUT_OF_WINDOW
-db/diagnostic/errcodes.rs#L2486  static ALL_CODES
+db/diagnostic/errcodes.rs#L1562  const COND_AXIS_MIXED
+db/diagnostic/errcodes.rs#L1567  const ENUM_DUPLICATE_VALUE
+db/diagnostic/errcodes.rs#L1570  const ENUM_MEMBER_DOT
+db/diagnostic/errcodes.rs#L1573  const ENUM_MEMBER_LEADING_DIGIT
+db/diagnostic/errcodes.rs#L1576  const ENUM_MEMBER_RESERVED
+db/diagnostic/errcodes.rs#L1579  const ATTR_INFINITE_FLOAT
+db/diagnostic/errcodes.rs#L1582  const ATTR_LARGE_INT
+db/diagnostic/errcodes.rs#L1585  const RANGE_REVERSED
+db/diagnostic/errcodes.rs#L1588  const RANGE_SINGLE_ELEMENT
+db/diagnostic/errcodes.rs#L1591  const IDX_MULTIPLE_SLICE_SPEC
+db/diagnostic/errcodes.rs#L1594  const EXPR_THIS_TOP_LEVEL
+db/diagnostic/errcodes.rs#L1597  const EXPR_PLACEHOLDER_ONLY
+db/diagnostic/errcodes.rs#L1600  const ATTR_SELF_REFERENTIAL
+db/diagnostic/errcodes.rs#L1603  const EVAL_DIVIDE_BY_ZERO
+db/diagnostic/errcodes.rs#L1609  const EVAL_OPERAND_NOT_NUMERIC
+db/diagnostic/errcodes.rs#L1612  const EVAL_OVERFLOW
+db/diagnostic/errcodes.rs#L1616  const EVAL_ERROR_EXPRESSION
+db/diagnostic/errcodes.rs#L1621  const COND_EMPTY_BODY
+db/diagnostic/errcodes.rs#L1624  const COND_IF_WITHOUT_ELSE
+db/diagnostic/errcodes.rs#L1627  const PIN_NC_COMPONENT_LEVEL
+db/diagnostic/errcodes.rs#L1630  const POWER_PIN_NO_VOLTAGE
+db/diagnostic/errcodes.rs#L1633  const PIN_IO_MIX_IN_OUT
+db/diagnostic/errcodes.rs#L1636  const PIN_IO_MIX_OUTPUT_POWER
+db/diagnostic/errcodes.rs#L1642  const PARAM_PIN_NAME_SHADOW
+db/diagnostic/errcodes.rs#L1645  const MODULE_STUB
+db/diagnostic/errcodes.rs#L1649  const COND_DUPLICATE
+db/diagnostic/errcodes.rs#L1655  const COND_JUDGE_OPERAND_DROPPED
+db/diagnostic/errcodes.rs#L1661  const COND_FAMILY_MISMATCH
+db/diagnostic/errcodes.rs#L1666  const HW_PIN_NUMBER_GAP
+db/diagnostic/errcodes.rs#L1669  const HW_PIN_COUNT_HIGH
+db/diagnostic/errcodes.rs#L1672  const HW_ZERO_PINS_WITH_PARAMS
+db/diagnostic/errcodes.rs#L1675  const HW_IFACE_PEER_DANGLING
+db/diagnostic/errcodes.rs#L1678  const HW_ALL_SAME_IO_TYPE
+db/diagnostic/errcodes.rs#L1681  const HW_IFACE_PEER_NOT_MUTUAL
+db/diagnostic/errcodes.rs#L1684  const HW_IFACE_PEER_WIDTH_MISMATCH
+db/diagnostic/errcodes.rs#L1687  const HW_FUNC_PARAM_SHADOWS_PIN
+db/diagnostic/errcodes.rs#L1691  const IFACE_DIR_CONFLICT
+db/diagnostic/errcodes.rs#L1695  const HW_IFACE_PAIR_NOT_TWO
+db/diagnostic/errcodes.rs#L1699  const HW_IFACE_DIFF_PAIR_RETIRED
+db/diagnostic/errcodes.rs#L1704  const HW_PAIR_CONSTRAINT_NOT_LENGTH
+db/diagnostic/errcodes.rs#L1709  const HW_PAIR_CONSTRAINT_MISMATCH
+db/diagnostic/errcodes.rs#L1713  const HW_PAIR_CONSTRAINT_ORPHAN
+db/diagnostic/errcodes.rs#L1718  const TYPE_INCOMPATIBLE
+db/diagnostic/errcodes.rs#L1723  const UNUSED_PARAM_OR_PORT
+db/diagnostic/errcodes.rs#L1726  const PORT_NEVER_USED
+db/diagnostic/errcodes.rs#L1729  const UNTYPED_PARAM
+db/diagnostic/errcodes.rs#L1736  const PINS_ROOT_KEY_BODY_UNUSED
+db/diagnostic/errcodes.rs#L1741  const ABSTRACT_PART_UNSELECTED
+db/diagnostic/errcodes.rs#L1752  const VARIANT_SPEC_UNSET
+db/diagnostic/errcodes.rs#L1756  const POWER_BRIDGE_LOOP
+db/diagnostic/errcodes.rs#L1760  const CLAMP_REF_NOT_PROTECTIVE
+db/diagnostic/errcodes.rs#L1766  const POWER_RAIL_DECODE
+db/diagnostic/errcodes.rs#L1771  const POWER_RAIL_TWO_ROOTS
+db/diagnostic/errcodes.rs#L1781  const POWER_SINK_NOMINAL_MISMATCH
+db/diagnostic/errcodes.rs#L1790  const POWER_PIN_DECODE
+db/diagnostic/errcodes.rs#L1800  const POWER_SOURCE_CONTENTION
+db/diagnostic/errcodes.rs#L1812  const ISOLATED_DC_BRIDGE
+db/diagnostic/errcodes.rs#L1821  const PROTECTIVE_MULTI_BRIDGE
+db/diagnostic/errcodes.rs#L1831  const EARTH_DC_LEAK
+db/diagnostic/errcodes.rs#L1843  const REFERENCE_ISLAND_ROOT
+db/diagnostic/errcodes.rs#L1853  const ROLE_REF_MISSING_BRIDGE
+db/diagnostic/errcodes.rs#L1864  const SINK_NET_NO_SOURCE
+db/diagnostic/errcodes.rs#L1872  const COMBINE_OUTPUT_TOL
+db/diagnostic/errcodes.rs#L1881  const NET_BUDGET_EXCEEDED
+db/diagnostic/errcodes.rs#L1894  const RETURN_LEG_UNDECLARED
+db/diagnostic/errcodes.rs#L1904  const POWER_CONVERTER_GATE
+db/diagnostic/errcodes.rs#L1913  const POWER_SINK_WINDOW_MISMATCH
+db/diagnostic/errcodes.rs#L1925  const POWER_CONVERTER_SPEC_INCOMPLETE
+db/diagnostic/errcodes.rs#L1936  const POWER_CONVERTER_OUTPUT_RAIL_WINDOW
+db/diagnostic/errcodes.rs#L1954  const DEVICE_RETURN_SPAN_UNDECLARED
+db/diagnostic/errcodes.rs#L1966  const DC_BINDING_DIR_MISMATCH
+db/diagnostic/errcodes.rs#L1970  const PORT_BIND_ROLE_MISMATCH
+db/diagnostic/errcodes.rs#L1983  const POWER_PIN_RETURN_MISSING
+db/diagnostic/errcodes.rs#L1995  const EXPOSED_NET_NO_CLAMP
+db/diagnostic/errcodes.rs#L2006  const PROTECT_SHUNT_NO_REFERENCE
+db/diagnostic/errcodes.rs#L2019  const PROTECT_SERIES_NOT_IN_PATH
+db/diagnostic/errcodes.rs#L2031  const RAIL_NATURE_MISMATCH
+db/diagnostic/errcodes.rs#L2066  const BRIDGE_LOAD_DECOUPLING_MISSING
+db/diagnostic/errcodes.rs#L2085  const SHUNT_DISSIPATION_OVER_RATING
+db/diagnostic/errcodes.rs#L2110  const DECOUPLING_RETURN_MISMATCH
+db/diagnostic/errcodes.rs#L2137  const SINK_PIN_NO_DECOUPLING
+db/diagnostic/errcodes.rs#L2162  const SENSITIVE_RETURN_ON_NOISY
+db/diagnostic/errcodes.rs#L2185  const ANALOG_RETURN_MISMATCH
+db/diagnostic/errcodes.rs#L2219  const SHARED_RETURN_BRIDGE
+db/diagnostic/errcodes.rs#L2253  const FILTER_SUBFACE_OVERREACH
+db/diagnostic/errcodes.rs#L2289  const EXPOSED_NET_DOWNSTREAM_UNPROTECTED
+db/diagnostic/errcodes.rs#L2303  const DOMAIN_ENDPOINT_NAME_COLLISION
+db/diagnostic/errcodes.rs#L2318  const PIN_COPPER_EXPECTATION_MISMATCH
+db/diagnostic/errcodes.rs#L2328  const PIN_COPPER_EXPECTATION_UNANCHORED
+db/diagnostic/errcodes.rs#L2343  const CROSS_BARRIER_NET
+db/diagnostic/errcodes.rs#L2354  const IFACE_EXCLUSIVE_PEER_CONFLICT
+db/diagnostic/errcodes.rs#L2366  const AC_FACE_RETURN_MISSING
+db/diagnostic/errcodes.rs#L2375  const AC_NOMINAL_CONFLICT
+db/diagnostic/errcodes.rs#L2384  const PROTECTIVE_PIN_NO_COPPER
+db/diagnostic/errcodes.rs#L2393  const IFACE_CHAIN_SOURCE_UNREACHED
+db/diagnostic/errcodes.rs#L2404  const IFACE_ROLE_PEER_CONFLICT
+db/diagnostic/errcodes.rs#L2415  const POLARITY_REVERSED
+db/diagnostic/errcodes.rs#L2428  const DOMAIN_NET_MIXED_BRIDGE
+db/diagnostic/errcodes.rs#L2441  const DOMAIN_BRIDGE_DIRECTION_REVERSED
+db/diagnostic/errcodes.rs#L2453  const DOMAIN_BRIDGE_LEG_INCONSISTENT
+db/diagnostic/errcodes.rs#L2464  const DOMAIN_BRIDGE_DANGLING
+db/diagnostic/errcodes.rs#L2478  const EXPECTATION_TARGET_MISSING
+db/diagnostic/errcodes.rs#L2484  const EXPECTATION_CLASS_MISMATCH
+db/diagnostic/errcodes.rs#L2489  const EXPECTATION_NOT_DRIVEN
+db/diagnostic/errcodes.rs#L2493  const EXPECTATION_VALUE_OUT_OF_WINDOW
+db/diagnostic/errcodes.rs#L2495  static ALL_CODES
 db/diagnostic/mod.rs#L2  mod diagnostic
 db/diagnostic/mod.rs#L3  mod errcodes
 db/diagnostic/mod.rs#L4  mod override_store
@@ -7428,6 +7429,20 @@ semantic/validation/body.rs#L248  fn collect_referenced_names
 semantic/validation/body.rs#L299  fn collect_net_label_names
 semantic/validation/body.rs#L325  fn collect_endpoint_names
 semantic/validation/body.rs#L344  fn collect_param_names
+semantic/validation/cond_axis.rs#L44  struct CondAxisCheck
+semantic/validation/cond_axis.rs#L46  impl ValidationCheck for CondAxisCheck
+semantic/validation/cond_axis.rs#L47  fn name
+semantic/validation/cond_axis.rs#L50  fn phase
+semantic/validation/cond_axis.rs#L53  fn default_severity
+semantic/validation/cond_axis.rs#L57  fn run_post_parse
+semantic/validation/cond_axis.rs#L64  struct AxisRow
+semantic/validation/cond_axis.rs#L75  fn check_attr_rows
+semantic/validation/cond_axis.rs#L98  fn walk_attr_rows
+semantic/validation/cond_axis.rs#L137  fn collect_expr_halves
+semantic/validation/cond_axis.rs#L163  fn push_half
+semantic/validation/cond_axis.rs#L174  fn check_param_sets
+semantic/validation/cond_axis.rs#L233  fn judge_param_value
+semantic/validation/cond_axis.rs#L265  fn judge_row
 semantic/validation/conds.rs#L16  struct CondsCheck
 semantic/validation/conds.rs#L18  impl ValidationCheck for CondsCheck
 semantic/validation/conds.rs#L19  fn name
@@ -7728,37 +7743,38 @@ semantic/validation/mod.rs#L107  struct CheckRegistry
 semantic/validation/mod.rs#L111  impl CheckRegistry
 semantic/validation/mod.rs#L112  fn new
 semantic/validation/mod.rs#L116  fn with_defaults
-semantic/validation/mod.rs#L144  fn register
-semantic/validation/mod.rs#L148  fn run_post_parse
-semantic/validation/mod.rs#L161  mod adopt
-semantic/validation/mod.rs#L162  mod attrs
-semantic/validation/mod.rs#L163  mod body
-semantic/validation/mod.rs#L164  mod conds
-semantic/validation/mod.rs#L165  mod defs
-semantic/validation/mod.rs#L166  mod duplicate
-semantic/validation/mod.rs#L167  mod dupwithin
-semantic/validation/mod.rs#L168  mod enums
-semantic/validation/mod.rs#L169  mod exprs
-semantic/validation/mod.rs#L170  mod extra
-semantic/validation/mod.rs#L171  mod finding
-semantic/validation/mod.rs#L172  mod floating
-semantic/validation/mod.rs#L173  mod gate
-semantic/validation/mod.rs#L174  mod hw
-semantic/validation/mod.rs#L175  mod iface_role_arg
-semantic/validation/mod.rs#L176  mod imports
-semantic/validation/mod.rs#L177  mod insts
-semantic/validation/mod.rs#L178  mod expectation
-semantic/validation/mod.rs#L179  mod interface
-semantic/validation/mod.rs#L180  mod ledger
-semantic/validation/mod.rs#L181  mod naming
-semantic/validation/mod.rs#L182  mod nets
-semantic/validation/mod.rs#L183  mod pins
-semantic/validation/mod.rs#L184  mod ports
-semantic/validation/mod.rs#L185  mod pwrflow
-semantic/validation/mod.rs#L186  mod ratings
-semantic/validation/mod.rs#L187  mod refs
-semantic/validation/mod.rs#L188  mod style
-semantic/validation/mod.rs#L189  mod types
+semantic/validation/mod.rs#L145  fn register
+semantic/validation/mod.rs#L149  fn run_post_parse
+semantic/validation/mod.rs#L162  mod adopt
+semantic/validation/mod.rs#L163  mod attrs
+semantic/validation/mod.rs#L164  mod body
+semantic/validation/mod.rs#L165  mod conds
+semantic/validation/mod.rs#L166  mod defs
+semantic/validation/mod.rs#L167  mod duplicate
+semantic/validation/mod.rs#L168  mod dupwithin
+semantic/validation/mod.rs#L169  mod enums
+semantic/validation/mod.rs#L170  mod exprs
+semantic/validation/mod.rs#L171  mod extra
+semantic/validation/mod.rs#L172  mod finding
+semantic/validation/mod.rs#L173  mod floating
+semantic/validation/mod.rs#L174  mod gate
+semantic/validation/mod.rs#L175  mod hw
+semantic/validation/mod.rs#L176  mod iface_role_arg
+semantic/validation/mod.rs#L177  mod imports
+semantic/validation/mod.rs#L178  mod insts
+semantic/validation/mod.rs#L179  mod expectation
+semantic/validation/mod.rs#L180  mod interface
+semantic/validation/mod.rs#L181  mod ledger
+semantic/validation/mod.rs#L182  mod naming
+semantic/validation/mod.rs#L183  mod nets
+semantic/validation/mod.rs#L184  mod pins
+semantic/validation/mod.rs#L185  mod ports
+semantic/validation/mod.rs#L186  mod pwrflow
+semantic/validation/mod.rs#L187  mod cond_axis
+semantic/validation/mod.rs#L188  mod ratings
+semantic/validation/mod.rs#L189  mod refs
+semantic/validation/mod.rs#L190  mod style
+semantic/validation/mod.rs#L191  mod types
 semantic/validation/naming.rs#L16  struct NamingCheck
 semantic/validation/naming.rs#L18  impl ValidationCheck for NamingCheck
 semantic/validation/naming.rs#L19  fn name
@@ -11790,4 +11806,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-425 files, 11707 declarations.
+426 files, 11723 declarations.
