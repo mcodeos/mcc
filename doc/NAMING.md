@@ -1,10 +1,10 @@
 # mcode Class Naming Convention
 
-> **Version**: v1.0
-> **Date**: 2026-07-17
+> **Version**: v1.1
+> **Date**: 2026-10-01
 >
 > This document defines the naming rules for all class definitions (component, interface, enum)
-> in the mcode standard component library.
+> in the mcode standard component library, and for instance designators (§7).
 
 ---
 
@@ -302,4 +302,103 @@ pin-semantics-and-usage-design.md §2.8 (mcd). The rules:
    description string ("active low") or using other prefixes (`nRST`) does not
    set `n`; such corpus is pending migration with its consuming ERC polarity
    pass (U365), so the rename lands together with the checker that reads it.
+
+---
+
+## 7. Instance Designator Naming
+
+Sections 1–5 govern class names and §6 pin member names. This section governs
+the **instance designator** — the name an instance carries in the module body:
+author-written names (`R1`, `Q101`, `R[123:131]`) and the auto names of
+anonymous constructions (`_C1`, `_TP2`).
+
+### 7.1 Designator Form
+
+An instance designator is **`PREFIX` + `DIGITS`** — one to three uppercase
+letters (the designator prefix) glued to a contiguous decimal number:
+`R1`, `C12`, `Q101`, `TP3`, `J4`. No separators (`R_1` is wrong), no zero
+padding (`R001` is wrong), no unit-letter suffixes (`R1a` is not supported).
+The rule holds for **both named and anonymous** instances; an anonymous
+instance carries the same form behind the `_` anonymous-lane prefix (§7.4).
+
+### 7.2 Designator Prefix
+
+The prefix follows the family's industry reference-designator letter:
+
+1. **Single letter first** — the family's own initial when it is the industry
+   letter: `RES→R`, `CAP→C`, `DIO→D`, `FUSE→F`.
+2. **Conventional letter where industry usage differs** — `IND→L` (`I` is
+   reserved for current), `RELAY→K`, `XFR→T`, `XTAL→Y`, `TRANS→Q`.
+3. **Family letter + variant letter when two families contest one letter** —
+   `FET→QF`, `AUDIO→JA`, `VIDEO→JV`, `DC→PS`, `OSC→XO`, `FILTER→FL`;
+   a few keep the industry multi-letter form (`LED`, `TP`).
+4. **`M` is reserved** for the module segment of a projected refdes — no
+   prefix may start with `M`.
+
+The **one authoritative prefix table** is `REFDES_PREFIXES` in
+`src/instant/refdes.rs`; this section deliberately does not duplicate it.
+Lookup is by the **root segment of the resolved class name** (`CAP.MLCC` →
+`C`, `FET.MOSFET.N` → `QF`); a class with no table row has no prefix, and no
+consumer may derive one from the spelling. Representative rows:
+
+| Family | Prefix | Family | Prefix |
+|---|---|---|---|
+| `RES` | `R` | `TRANS` | `Q` |
+| `CAP` | `C` | `FET` | `QF` |
+| `IND` | `L` | `RELAY` | `K` |
+| `DIO` | `D` | `XTAL` / `XTAL2` / `XTAL4` | `Y` |
+| `LED` | `LED` | `TP` | `TP` |
+
+### 7.3 Numbering — Named Instances
+
+1. **The author chooses the number.** Any decimal number is legal; gaps are
+   legal (`R5` with no `R1`–`R4`); deleting an instance never obliges
+   renumbering, and no other instance is auto-assigned a freed number.
+2. **Recommended sequence** — in a fresh module, number contiguously from 1
+   in reading (source) order. On multi-sheet designs the accepted
+   alternative is **sheet-block numbering**: `R1xx` on sheet 1, `R2xx` on
+   sheet 2, so the hundred digit names the sheet.
+3. **Uniqueness scope is the module.** Two instances of one module may not
+   carry the same designator (name binding); design-wide uniqueness is a
+   BOM-time concern and is not a parse error.
+4. **Prefix match is part of the convention** — a capacitor named `R5`
+   parses, but its prefix disagrees with the family row (§7.2) and should
+   be renamed.
+5. **The range form follows the same law** — `R[123:131]` declares
+   `R123`…`R131`; every member is `PREFIX` + `DIGITS`.
+
+### 7.4 Numbering — Anonymous Constructions
+
+An anonymous inline construction (`CAP(0.1uF)`, `TP()*2`,
+`[VDD,GND]::DC(1.8V)`) receives an auto name in the **underscore anonymous
+lane**:
+
+1. **Form**: `_` + designator prefix + digits — `_C1`, `_R2`, `_TP1`. The
+   `_` marks the anonymous lane — the same lane marker §6 rule 2 reserves on
+   pin names — so an auto name can never collide with a named designator:
+   `_R1` and `R1` coexist. A class with no table row falls back to its full
+   class name, dots as underscores (`DIO.ESD` → `_DIO_ESD1`).
+2. **The counter is independent.** It is keyed by `(module, prefix)`, starts
+   at 1, and counts only anonymous instances: it neither skips nor fills
+   numbers used by named instances, and named numbering is unaffected by
+   anonymous constructions.
+3. **Assignment order is spelling-position order** — statement order in the
+   module body, left-to-right within a statement, block order for `*N` and
+   list expansions.
+4. **Auto names are not identity keys.** The spelled name is a pure function
+   of the current source: inserting or removing an anonymous construction
+   can renumber later anonymous instances of the same prefix. Registration
+   is anchored by the construction site (`AutoAnchor`), not by the name, so
+   the identity survives an edit even where the spelling does not — never
+   reference an anonymous instance by its auto name in anything that must
+   survive an edit.
+
+### 7.5 Boundary: Instance Name vs Projected Refdes
+
+The instance designator (this section) lives in the source. A separate
+display refdes for BOM / schematic cross-checking — `M1C1`: module segment +
+class prefix + in-class ordinal — is allocated at the end of the build from
+the frozen circuit; see refdes-design.md (mcd, doc/world). The two naming
+systems coexist and may be shown side by side; neither is ever written back
+into the source.
 
