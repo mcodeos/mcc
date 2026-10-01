@@ -4,7 +4,7 @@
 
 //! Connection-algebra law locks (U372, `curly-wrapper-transpose-design.md` §5).
 //!
-//! The design doc's law tables (L1–L23) carry a 现状 column: 已对齐 faces are
+//! The design doc's law tables (L1–L23) carry a status column: aligned faces are
 //! locked here **green**, on the net partition, so every law cell that the
 //! engine already honors has an executable anchor. Cells whose current state
 //! is a **leg target** (leg1 wrapper dissolution, leg2 label-row face order,
@@ -70,9 +70,9 @@ fn wired(nets: &[Vec<String>], a: &str, b: &str) -> bool {
         .any(|n| n.iter().any(|p| p == a) && n.iter().any(|p| p == b))
 }
 
-/// L18 zip 位配对律 (#1, #4): a member vector zips **positionally** against the
+/// L18 zip positional pairing (#1, #4): a member vector zips **positionally** against the
 /// other side — `{A,K}` lanes pair 1:1, they do not merge onto one endpoint.
-/// The explicit-list spelling is the same vector (L14 基挂形).
+/// The explicit-list spelling is the same vector (the L14 anchored form).
 #[test]
 fn conn_law__member_vector_zips_positionally() {
     for (tag, stmt) in [
@@ -95,7 +95,7 @@ fn conn_law__member_vector_zips_positionally() {
     }
 }
 
-/// L10 基数配对律 (#3): a transposed explicit list is a **row** (1×2); against
+/// L10 cardinality pairing (#3): a transposed explicit list is a **row** (1×2); against
 /// a two-lane vector the cardinality refuses with E4007 and nothing wires.
 #[test]
 fn conn_law__transposed_list_row_vs_two_lanes_is_refused() {
@@ -111,7 +111,7 @@ fn conn_law__transposed_list_row_vs_two_lanes_is_refused() {
     );
 }
 
-/// L4 面序律, device side (#22): a row operand is a **directed two-terminal** —
+/// L4 face order, device side (#22): a row operand is a **directed two-terminal** —
 /// series concatenation touches only the near face; the far face continues the
 /// chain. `L0 - D1 - L9` wires L0→D1's left face (pin 1) and L9→its right face
 /// (pin 2), and the two faces never short together.
@@ -129,7 +129,7 @@ fn conn_law__device_row_series_touches_only_near_faces() {
     );
 }
 
-/// L4 面序律, label-row side (#21) — U372 leg2: a row operand between scalars
+/// L4 face order, label-row side (#21) — U372 leg2: a row operand between scalars
 /// is still a **directed two-terminal**, exactly like the device row of the
 /// cell above. `L0 - [L1,L2]' - L9` touches the near face (L1) with L0 and
 /// lets the far face (L2) continue the chain to L9; the row's two faces never
@@ -155,7 +155,7 @@ fn conn_law__label_row_series_touches_only_near_faces() {
     );
 }
 
-/// L3 单点恒等律, spelling side (#23, #27, #28): the transpose wrapper and the
+/// L3 single-point identity, spelling side (#23, #27, #28): the transpose wrapper and the
 /// group form on a single-point label are the identity — and (unlike the `^`
 /// spellings, whose E2903 noise leg1 narrows) these spellings are already
 /// silent.
@@ -188,7 +188,7 @@ fn conn_law__single_pin_transpose_is_identity() {
     );
 }
 
-/// L2 对合律, group spelling (#9): `(X')'` composes back to the baseline — the
+/// L2 involution, group spelling (#9): `(X')'` composes back to the baseline — the
 /// group-machine path is the reference truth for the involution (the adjacent
 /// spelling `X''` is leg4's grammar leg).
 #[test]
@@ -205,7 +205,7 @@ fn conn_law__group_involution_composes_to_baseline() {
     );
 }
 
-/// L2 对合律, adjacent spelling (#47) — U372 leg4: the lexer now reads `''`
+/// L2 involution, adjacent spelling (#47) — U372 leg4: the lexer now reads `''`
 /// as two transpose suffixes (the old rule lexed the pair as an empty
 /// single-quoted string and swallowed the rest of the line), so the
 /// involution composes on the operand face exactly like the group spelling:
@@ -310,7 +310,7 @@ fn conn_law__bare_curly_equals_bracket_list() {
     }
 }
 
-/// L14 边界（面二相）: at statement start a `{` line is the
+/// L14 boundary (the two face phases): at statement start a `{` line is the
 /// declaration-position member face, not a vector — the instance row before
 /// it absorbs the brace whether the two are spelled on one line or across
 /// the newline (the face grammar is newline-insensitive; verified identical
@@ -337,10 +337,10 @@ fn conn_law__rowstart_brace_is_the_declaration_face() {
     }
 }
 
-/// L14 边界（真行首）: at a true statement start — no instance row before the
+/// L14 boundary (true row start): at a true statement start — no instance row before the
 /// brace — the port-row face still owns `{` (E4023, wiring stays empty), and
 /// the vector arm does not compete; the bracket list at the same position
-/// opens as a vector and wires. This asymmetry is the 面二相 law of the brace
+/// opens as a vector and wires. This asymmetry is the two-phase law of the brace
 /// at row start, byte-identical to HEAD (leg5 opens operand positions only);
 /// lifting it would be a follow-up ruling against the port-row face.
 #[test]
@@ -405,7 +405,7 @@ fn conn_law__bare_curly_takes_suffixes_like_the_list() {
     );
 }
 
-/// L22 三端选择律 (#16): the pipe-node form is the node-equation truth —
+/// L22 three-terminal selection (#16): the pipe-node form is the node-equation truth —
 /// `{L1,L3|L2,L4}` assigns the written row pairs as node memberships.
 #[test]
 fn conn_law__pipenode_selection_is_the_node_equation_truth() {
@@ -416,7 +416,7 @@ fn conn_law__pipenode_selection_is_the_node_equation_truth() {
     );
 }
 
-/// L6 节点转置换 lane 律 (#16): transposing a pipe node really swaps the
+/// L6 node-transpose lane law (#16): transposing a pipe node really swaps the
 /// lanes — the new face columns are the old rows: `{L1,L2|L3,L4}'` must wire
 /// exactly like `{L1,L3|L2,L4}` (and the mirror `{L1,L3|L2,L4}'` like
 /// `{L1,L2|L3,L4}`). Before U372 leg3 the suffix was a silent no-op.
@@ -444,8 +444,8 @@ fn conn_law__node_transpose_swaps_lanes() {
     );
 }
 
-/// L6 嵌套形正则等式 (#14, #15) — U372 leg3: the stacked directed-row node is
-/// a real node, so the outer transpose composes (壳序复合):
+/// L6 nested-form regular equation (#14, #15) — U372 leg3: the stacked directed-row node is
+/// a real node, so the outer transpose composes (shell-order composition):
 /// `[[L1,L2]',[L3,L4]']'` ≡ `{L1,L2|L3,L4}` and the untransposed stack
 /// `[[L1,L2]',[L3,L4]']` ≡ `{L1,L3|L2,L4}` (near faces into column 1, far
 /// faces into column 2). Row faces never short (L4); before leg3 this spelling
@@ -474,7 +474,7 @@ fn conn_law__nested_rowstack_transpose_equals_pipe_node() {
     );
 }
 
-/// L5 嵌套叠加律 (#17, #18, #19): same-orientation list members stack
+/// L5 nested stacking law (#17, #18, #19): same-orientation list members stack
 /// vertically (column+column → N×1), mixed layers flatten — all three
 /// spellings are the same 4×1 vector and zip 1:1 against a 4-wide row.
 #[test]
@@ -514,7 +514,7 @@ fn conn_law__stacked_column_vs_two_lanes_is_refused() {
     );
 }
 
-/// L9 形状超限律 (#45): a transpose over a row-stacked 2×2-of-rows operand
+/// L9 shape overflow law (#45): a transpose over a row-stacked 2×2-of-rows operand
 /// exceeds the admitted shapes — E2902 fires (list spelling reports at parse
 /// phase; the test asserts the code, not the phase).
 #[test]
@@ -526,15 +526,15 @@ fn conn_law__overwide_transpose_reports_shape_limit() {
     );
 }
 
-/// L8 退化反向律, multi-element side (#48): `^` on a multi-element list is the
-/// merge face (并网) and keeps its E2903 — the narrowing that leg1 performs
+/// L8 degenerate reverse law, multi-element side (#48): `^` on a multi-element list is the
+/// merge face (net merge) and keeps its E2903 — the narrowing that leg1 performs
 /// exempts only single points, never this shape.
 #[test]
 fn conn_law__multi_element_reverse_keeps_warning_and_merges() {
     let (codes, nets) = build("    L1 - [VCC,GND]^");
     assert!(
         codes.contains(&mcc::errcodes::SHAPE_REVERSE_NOOP),
-        "multi-element退化 ^ keeps E2903 after the leg1 narrowing; got {codes:?}"
+        "multi-element degenerate ^ keeps E2903 after the leg1 narrowing; got {codes:?}"
     );
     assert!(
         wired(&nets, "L1", "VCC") && wired(&nets, "L1", "GND"),
@@ -542,7 +542,7 @@ fn conn_law__multi_element_reverse_keeps_warning_and_merges() {
     );
 }
 
-/// L12 括号透明律, wrapper side (design doc §10 edge 1) — U372 leg6: a
+/// L12 bracket transparency, wrapper side (design doc §10 edge 1) — U372 leg6: a
 /// one-element group is pure parenthesization, so a wrapper composed with it
 /// must land exactly like the bare wrapped spelling. The Group shell used to
 /// stop the leg1 wrapper walk in both orders — `(D2{A,K})'` (apost outside)
@@ -578,6 +578,11 @@ fn conn_law__bracket_group_is_transparent_to_the_wrappers() {
             "    D1{A,K} - D2{A,K}^'",
             "    D1{A,K} - (D2{A,K})^'",
         ),
+        // §4 matrix, plain-two-pin row: the parenthesized spelling claims the
+        // same face as the bare one (`(...)'` = "same as `'`"). The keep-shell
+        // rule hands this core to the shape face, so the claim holds only
+        // because the shape face itself is transparent for a Point — lock it.
+        ("plain_device", "    L0 - D1'", "    L0 - (D1)'"),
     ] {
         let (ref_codes, ref_nets) = build(reference);
         let (grp_codes, grp_nets) = build(grouped);
@@ -596,7 +601,7 @@ fn conn_law__bracket_group_is_transparent_to_the_wrappers() {
     );
 }
 
-/// L12 括号透明律, bare side (protects the leg6 adoption criterion): a group
+/// L12 bracket transparency, bare side (protects the leg6 adoption criterion): a group
 /// with no operator inside stays ONE operand — `(D2{A,K})` zips exactly like
 /// the bare spelling. Splicing the dissolved members into the outer chain
 /// would rewrite `- (D2{A,K})` into `- D2.A - D2.K` (a series, not a vector).
