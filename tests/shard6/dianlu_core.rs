@@ -2128,6 +2128,7 @@ fn scalar_trunk(
                 target: mcc::PointGroup::One(*b),
             })
             .collect(),
+        defects: Vec::new(),
     }
 }
 
@@ -2422,4 +2423,31 @@ fn description_layer_records_a_group_site_per_group() {
         "the port is a header line, which is not a statement, so it has no \
          wiring site of its own: {iface:?}"
     );
+}
+
+/// U373 (source level, green lock): `cap[1:2].1 -> res[1:2].1` at equal width
+/// records ZERO lane defects and ZERO lane-layer diagnostics — the width gate
+/// and the member-loss warning must stay silent on every legal form (the
+/// topology half of the same statement is `vec_series_rowzip::
+/// series_eq__membercol_to_membercol`).
+#[test]
+fn u373_zip__equal_width_slice_pair_records_no_lane_defects() {
+    let _lock = common::lock();
+    common::reset();
+    let src = "component CAP {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n}\n\
+              module main {\n    cap[1:2]::CAP()\n    res[1:2]::CAP()\n    cap[1:2].1 -> res[1:2].1\n}";
+    let mut dl = build_dianlu(src);
+    assert!(
+        dl.lane_diags().is_empty(),
+        "equal width is quiet: {:?}",
+        dl.lane_diags()
+    );
+    assert!(
+        dl.lanes()
+            .iter()
+            .all(|t| t.defects.is_empty()),
+        "no recorded defects: {:?}",
+        dl.lanes().iter().flat_map(|t| t.defects.iter()).collect::<Vec<_>>()
+    );
+    assert_eq!(dl.nets().len(), 2, "two positional nets, as locked");
 }
