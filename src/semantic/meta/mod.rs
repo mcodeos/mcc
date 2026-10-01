@@ -298,6 +298,39 @@ pub fn eq_norm(a: &McMetaValue, b: &McMetaValue) -> Compare {
     }
 }
 
+/// The numeric tolerance one comparison owns (design doc §3.3): magnitudes
+/// closer than this read equal, so decimal-text round trips (`0.1+0.2` vs
+/// `0.3`) and float parsing noise stay out of the verdict.
+pub const APPROX_EPSILON: f64 = 1e-9;
+
+/// Case-folded wordish equality — the loose reading of a written word
+/// (`res1` ≡ `RES1`, ASCII fold only). Word/Text pair in any mix by their
+/// folded written form; pending propagates; every other pair reads False.
+pub fn eq_fold(a: &McMetaValue, b: &McMetaValue) -> Compare {
+    match (a, b) {
+        (McMetaValue::Undetermined, _) | (_, McMetaValue::Undetermined) => Compare::Pending,
+        (McMetaValue::Word(x) | McMetaValue::Text(x), McMetaValue::Word(y) | McMetaValue::Text(y)) => {
+            decided(x.eq_ignore_ascii_case(y))
+        }
+        _ => Compare::False,
+    }
+}
+
+/// Approximate magnitude equality — same unit family, magnitudes within
+/// [`APPROX_EPSILON`] ([`eq_norm`]'s exact twin with tolerance). Pending
+/// propagates; non-magnitude arms read False.
+pub fn eq_approx(a: &McMetaValue, b: &McMetaValue) -> Compare {
+    match (a, b) {
+        (McMetaValue::Undetermined, _) | (_, McMetaValue::Undetermined) => Compare::Pending,
+        _ => match (magnitude(a), magnitude(b)) {
+            (Some((x, ux)), Some((y, uy))) => {
+                decided(ux == uy && (x - y).abs() < APPROX_EPSILON)
+            }
+            _ => Compare::False,
+        },
+    }
+}
+
 /// One element comparison behind [`member`] and [`overlap`]: numeric arms
 /// pair through [`eq_norm`], everything else through [`exact`].
 fn element_eq(a: &McMetaValue, b: &McMetaValue) -> Compare {
@@ -615,6 +648,61 @@ mod tests {
         );
         // Pending propagates.
         assert_eq!(eq_norm(&McMetaValue::Undetermined, &uval(1.0, ohm())), Compare::Pending);
+    }
+
+    // Follow-up 2 (b4398) — the fold/approx pair. The query DSL is a caller;
+    // these tests own the criteria so the dsl face stays behavior-locked.
+    #[test]
+    fn eq_fold_reads_word_and_text_ascii_folded() {
+        // Word and Text are one family for fold equality; case folds.
+        assert_eq!(
+            eq_fold(&McMetaValue::Word("TO-220".into()), &McMetaValue::Text("to-220".into())),
+            Compare::True
+        );
+        assert_eq!(
+            eq_fold(&McMetaValue::Text("SOT23".into()), &McMetaValue::Text("sot23".into())),
+            Compare::True
+        );
+        assert_eq!(
+            eq_fold(&McMetaValue::Word("abc".into()), &McMetaValue::Text("abd".into())),
+            Compare::False
+        );
+        // Cross-family (numeric vs wordish) does not decode.
+        assert_eq!(
+            eq_fold(&McMetaValue::Num(1.0, "1".into()), &McMetaValue::Text("1".into())),
+            Compare::False
+        );
+        // Pending propagates.
+        assert_eq!(eq_fold(&McMetaValue::Undetermined, &McMetaValue::Text("x".into())), Compare::Pending);
+        assert_eq!(eq_fold(&McMetaValue::Word("x".into()), &McMetaValue::Undetermined), Compare::Pending);
+    }
+
+    #[test]
+    fn eq_approx_reads_magnitudes_within_epsilon() {
+        let uval = |v: f64, unit: McUnit| McMetaValue::Unit(McUnitValue::from_normalized(v, unit, None));
+        // Inside the epsilon window (query-face 1e-9 exactness migrates intact).
+        assert_eq!(
+            eq_approx(&McMetaValue::Num(1.0, "1".into()), &McMetaValue::Num(1.0 + 5e-10, "".into())),
+            Compare::True
+        );
+        // Same magnitude, different unit family: not approximate-equal.
+        assert_eq!(
+            eq_approx(&uval(1.0, McUnit::Ohm), &uval(1.0, McUnit::Volt)),
+            Compare::False
+        );
+        // Dimensionless numbers and unit-family quantities in the same family
+        // compare (mirrors eq_norm's family rule).
+        assert_eq!(
+            eq_approx(&McMetaValue::Num(3.3, "3.3".into()), &uval(3.3, McUnit::Float)),
+            Compare::True
+        );
+        // Wordish operands carry no magnitude.
+        assert_eq!(
+            eq_approx(&McMetaValue::Word("1".into()), &McMetaValue::Num(1.0, "1".into())),
+            Compare::False
+        );
+        // Pending propagates.
+        assert_eq!(eq_approx(&McMetaValue::Undetermined, &McMetaValue::Num(1.0, "1".into())), Compare::Pending);
     }
 
     #[test]
