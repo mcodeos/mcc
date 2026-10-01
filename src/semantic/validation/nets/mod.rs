@@ -2461,6 +2461,17 @@ pub(crate) fn check_undriven_sink_net(table: &InstTable, results: &mut Vec<NetCh
         // module-local rules, so the Port point exempts the net. The top
         // module's own `io` labels are NOT boundaries — they alias ordinary
         // copper nets and stay in PWR-1's scope.
+        //
+        // U360: a *direction-word* power port of the top module itself is a
+        // declared inlet the same way. `module ln(psnk pwr::DC(5V))` states
+        // that power enters there from the instantiation context — a context
+        // PWR-1's net-local kernel cannot see, and which does not exist at all
+        // when a module book file is evaluated as its own (implicit) top. The
+        // `IOType::Power` io type is the direction word's flat residue
+        // (`psnk`/`psrc`/`psbi` all take it, power-intent §5.2), so a top-level
+        // Port point carrying it is a declared boundary, not an ordinary copper
+        // alias — the same adjudication the sub-module arm makes, extended to
+        // the one module that arm by construction never sees.
         let top_id = table
             .iter()
             .find(|(_, e)| matches!(e.kind, InstKind::Module) && e.parent_id.is_none())
@@ -2473,13 +2484,17 @@ pub(crate) fn check_undriven_sink_net(table: &InstTable, results: &mut Vec<NetCh
             if !matches!(e.kind, InstKind::Port) {
                 continue;
             }
-            let is_sub = e.parent_id.is_some_and(|par| {
-                par != top_id.unwrap_or(u32::MAX)
-                    && table
-                        .get_entry(par)
-                        .is_some_and(|p| matches!(p.kind, InstKind::Module))
-            });
-            if is_sub {
+            let is_top = e.parent_id.is_some_and(|par| Some(par) == top_id);
+            let is_sub = !is_top
+                && e.parent_id.is_some_and(|par| {
+                    par != top_id.unwrap_or(u32::MAX)
+                        && table
+                            .get_entry(par)
+                            .is_some_and(|p| matches!(p.kind, InstKind::Module))
+                });
+            if is_sub
+                || (is_top && matches!(e.io_type, IOType::Power))
+            {
                 has_submodule_boundary = true;
                 break;
             }

@@ -6877,3 +6877,45 @@ fn sysroot_contract_carries_only_when_adopted() {
     );
     mcc::cli::config::set_include_system_contracts(false);
 }
+
+/// U360: a module book file evaluated as its own (implicit) top must not
+/// fire PWR-1 through its own declared `psnk` inlet — the port states that
+/// power enters from the instantiation context, which a definition preview
+/// does not have. The top-module arm of the boundary exemption reads the
+/// direction word's flat residue (`IOType::Power` on the Port point).
+#[test]
+fn pwr1__top_module_psnk_port_is_a_boundary() {
+    let src = format!(
+        "{SINK3}\nmodule book(psnk pwr::DC(3.3V)) {{\n    SINK3 s\n    pwr -> [s.VDD, s.GND]\n}}\n"
+    );
+    let _lock = common::lock();
+    common::reset();
+    let uri: McURI = "/mcc/power-intent-l1.mc".to_string();
+    mcc::mcc_load_from_string(&uri, &src);
+    let _ = mcc::mcc_build_flat(&McIds::from("book"), &uri, 1000).expect("flat build");
+    let codes: Vec<u32> = mcc::mcc_diagnose_all().iter().map(|d| d.code).collect();
+    assert!(
+        !codes.contains(&mcc::errcodes::SINK_NET_NO_SOURCE),
+        "a top module's own psnk inlet is a declared boundary, not a forgotten face; got codes: {codes:?}"
+    );
+}
+
+/// The exemption is the direction word, not the port shape: a plain `io`
+/// label of the top module still aliases ordinary copper and stays in
+/// PWR-1's scope — sinks fed only from it keep firing 6019.
+#[test]
+fn pwr1__top_module_io_label_is_still_adjudicated() {
+    let src = format!(
+        "{SINK3}\nmodule book {{\n    io pwr\n    SINK3 s\n    s.VDD -> pwr\n    s.GND -> GND\n}}\n"
+    );
+    let _lock = common::lock();
+    common::reset();
+    let uri: McURI = "/mcc/power-intent-l1.mc".to_string();
+    mcc::mcc_load_from_string(&uri, &src);
+    let _ = mcc::mcc_build_flat(&McIds::from("book"), &uri, 1000).expect("flat build");
+    let codes: Vec<u32> = mcc::mcc_diagnose_all().iter().map(|d| d.code).collect();
+    assert!(
+        codes.contains(&mcc::errcodes::SINK_NET_NO_SOURCE),
+        "a top module's plain io label is not a boundary; got codes: {codes:?}"
+    );
+}
