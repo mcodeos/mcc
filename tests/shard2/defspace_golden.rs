@@ -1349,28 +1349,9 @@ abstract component CBad2 : ABase
     );
 
     common::reset();
-    let bad3 = "/virtual/p13_lock_both.mc".to_string();
-    let src3 = r#"
-recipe SomeCap
-{
-    io VA
-}
-
-component CBad3 : ABase :: SomeCap
-{
-}
-"#;
-    // Needs the abstract base too, so include it.
-    let src3 = format!("{src2}{src3}");
-    mcc::mcc_load_from_string(&bad3, &src3);
-    assert!(
-        any_code(
-            &mcc::mcc_diagnose(&bad3),
-            mcc::errcodes::VARIANT_ADOPTS,
-            |d| d.code
-        ),
-        "`:` + `::` together reports VARIANT_ADOPTS"
-    );
+    // U375 (b4384): `:` + `::` now compose on one head — the old
+    // VARIANT_ADOPTS (5062) lock is retired; the compose locks live in
+    // def_defspace__p13b_variant_adoption_compose below.
 
     // ── VARIANT_BASE_NON_ABSTRACT: `: Concrete` (and the hint fires).
     common::reset();
@@ -1405,6 +1386,137 @@ component WVariant : RealR
     assert!(
         m4.contains("WVariant"),
         "VARIANT_BASE_NON_ABSTRACT names the variant; got: {m4}"
+    );
+}
+
+/// P13b (U375 b4384): `:` and `::` compose on one variant head. The base's
+/// adoptions ride the materialized clone and the child's own `::` list
+/// appends (base order first, duplicates skipped); the variant's own
+/// adoptions may not silently shadow a func inherited from the base
+/// (VARIANT_ADOPT_FUNC_CLASH — the child has no override path). Head order
+/// stays grammar-fixed (`: Base :: Caps`); `::` before `:` is a parse error.
+#[test]
+fn def_defspace__p13b_variant_adoption_compose() {
+    let _lock = common::lock();
+
+    // ── Cell 1/2/5 — green compose: base carries `:: Pull`, the variant adds
+    //    `:: Diff` (and re-listing `Pull` dedups); the merged ledger reads
+    //    [Pull, Diff] in base-first order and no adoption diagnostic fires.
+    common::reset();
+    let uri = "/virtual/p13b_compose.mc".to_string();
+    let src = r#"
+recipe Pull
+{
+    psnk VCC
+}
+
+recipe Diff
+{
+    io EN
+}
+
+abstract component ABase(v::UV.VOLT) :: Pull
+{
+    pins = [
+        psnk 1 = VCC
+        io 2 = EN
+        psnk 3 = GND
+    ]
+}
+
+component CVariant : ABase :: Pull, Diff
+{
+    partno = "CV-1"
+}
+"#;
+    mcc::mcc_load_from_string(&uri, src);
+    let d = mcc::mcc_diagnose(&uri);
+    assert!(
+        !any_code(&d, mcc::errcodes::VARIANT_ADOPT_FUNC_CLASH, |x| x.code)
+            && !any_code(&d, mcc::errcodes::RECIPE_SIGNAL_MISSING, |x| x.code)
+            && !any_code(&d, mcc::errcodes::ADOPTED_FUNC_AMBIGUOUS, |x| x.code)
+            && !any_code(&d, mcc::errcodes::ADOPTS_NON_RECIPE, |x| x.code)
+            && !any_code(&d, mcc::errcodes::VARIANT_BASE_NON_ABSTRACT, |x| x.code),
+        "a composing variant is adoption-clean; got {:?}",
+        d.iter().map(|x| (x.code, x.msg.clone())).collect::<Vec<_>>()
+    );
+    let sn = |name: &str| mcc::McSpaceName::new(&mcc::McIds::from(name), uri.clone());
+    let pull_id = mcc::def_id(&sn("Pull"), mcc::DefKind::Recipe).expect("Pull def id");
+    let diff_id = mcc::def_id(&sn("Diff"), mcc::DefKind::Recipe).expect("Diff def id");
+    let cvar_id = mcc::def_id(&sn("CVariant"), mcc::DefKind::Component).expect("CVariant def id");
+    assert_eq!(
+        mcc::adopted_recipes_of(cvar_id),
+        vec![pull_id, diff_id],
+        "merged adopt ledger = base's [Pull] + own [Diff], the re-listed Pull dedups"
+    );
+
+    // ── Cell 4 — clash: the variant's own adopted recipe func collides with
+    //    a func inherited from the base; the child cannot override (data
+    //    lock), so it reports VARIANT_ADOPT_FUNC_CLASH.
+    common::reset();
+    let bad_uri = "/virtual/p13b_clash.mc".to_string();
+    let bad_src = r#"
+recipe Clasher
+{
+    psnk VCC
+    func Route(a, b)
+    {
+        a - b
+    }
+}
+
+abstract component ABase2(v::UV.VOLT)
+{
+    pins = [
+        psnk 1 = VCC
+    ]
+    func Route(a, b)
+    {
+        a - b
+    }
+}
+
+component CVariant2 : ABase2 :: Clasher
+{
+    partno = "CV2-1"
+}
+"#;
+    mcc::mcc_load_from_string(&bad_uri, bad_src);
+    let bd = mcc::mcc_diagnose(&bad_uri);
+    assert!(
+        any_code(&bd, mcc::errcodes::VARIANT_ADOPT_FUNC_CLASH, |x| x.code),
+        "a variant's own adoption clashing with an inherited func reports \
+         VARIANT_ADOPT_FUNC_CLASH; got {:?}",
+        bd.iter().map(|x| (x.code, x.msg.clone())).collect::<Vec<_>>()
+    );
+
+    // ── Cell 3 — head order is grammar-fixed: `::` before `:` is not a
+    //    component head (E2081 invalid top-level declaration).
+    common::reset();
+    let ord_uri = "/virtual/p13b_order.mc".to_string();
+    let ord_src = r#"
+recipe Pull
+{
+    psnk VCC
+}
+
+abstract component ABase3(v::UV.VOLT)
+{
+    pins = [
+        psnk 1 = VCC
+    ]
+}
+
+component CBad3 :: Pull : ABase3
+{
+}
+"#;
+    mcc::mcc_load_from_string(&ord_uri, ord_src);
+    let od = mcc::mcc_diagnose(&ord_uri);
+    assert!(
+        any_code(&od, mcc::errcodes::PARSER_TOP_INVALID, |x| x.code),
+        "`::` before `:` on one head is a parse-level rejection; got {:?}",
+        od.iter().map(|x| (x.code, x.msg.clone())).collect::<Vec<_>>()
     );
 }
 

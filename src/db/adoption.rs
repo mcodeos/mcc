@@ -176,7 +176,9 @@ fn classify_variant_base(sn: &McSpaceName) -> VariantBaseTarget {
 /// the variant child's own *data* surface. The result is a concrete,
 /// self-sufficient component def — same pins/params/funcs/spec *values* and
 /// `::` adoption as the base, with the child's top-level attribute overrides
-/// (`partno`/`vendor`/`spec.*` — the "data-only" diff) applied on top.
+/// (`partno`/`vendor`/`spec.*` — the "data-only" diff) applied on top. The
+/// child's own `::` adoptions compose onto the base's (U375): base's first,
+/// child's own appended, duplicates skipped.
 ///
 /// The child's own pins/params/funcs are never merged: the parse-time data
 /// lock (`VARIANT_REDECLARES_PINS_PARAMS_FUNCS`) already made writing them an
@@ -220,10 +222,79 @@ pub fn materialize_variant(base: &McComponent, child: &McComponent) -> McCompone
             }
         }
     }
-    // adopts ride the base clone (inherited §7.2); a child self-listing `::`
-    // is already the parse-time VARIANT_ADOPTS data lock.
+    // Adopts compose (U375): the base's adoptions ride the clone (inherited
+    // §7.2) and the child's own `::` list appends after them — base-order
+    // first, so an effective-funcs first-claim reads base capabilities before
+    // child extensions. A name the base already adopts is not re-listed.
+    for adopt in &child.adopts {
+        if !mat.adopts.iter().any(|a| a == adopt) {
+            mat.adopts.push(adopt.clone());
+        }
+    }
     apply_attr_overrides(&mut mat.attrs, &child.attrs);
     mat
+}
+
+/// U375 ruling ② — func-name clashes between the variant's *own* `::`
+/// adoptions and the surface inherited from the base.
+///
+/// `comp` is a live (materialized) variant def: `adopts` is the merged list
+/// (base's first, child's own appended — see [`materialize_variant`]) and
+/// `funcs` is entirely base-inherited (the data lock forbids a child from
+/// declaring funcs, so it has no override path — a clash here can never be
+/// resolved from the variant's side and reports instead of silently
+/// shadowing). Returns one entry per clashing (recipe, func) pair, sorted.
+pub fn variant_adopt_clashes(comp: &McComponent) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = Vec::new();
+    let Some(base_name) = &comp.variant_base else {
+        return out;
+    };
+    let from_uri = comp.uri.clone();
+    let base = match resolve_variant_base(&from_uri, base_name) {
+        VariantBaseTarget::AbstractComponent(id) => {
+            match live_entry_by_id(id) {
+                Some((_, DefValue::Component(base))) => base,
+                _ => return out,
+            }
+        }
+        _ => return out,
+    };
+    // The child's own adoptions = merged names not present on the base.
+    let base_adopts: std::collections::HashSet<String> = base
+        .adopts
+        .iter()
+        .map(|a| a.to_string())
+        .collect();
+    let own_adopts: Vec<&crate::McIds> = comp
+        .adopts
+        .iter()
+        .filter(|a| !base_adopts.contains(&a.to_string()))
+        .collect();
+    if own_adopts.is_empty() {
+        return out;
+    }
+    // Inherited func names: the base's own funcs plus the constructor as it
+    // reads on the materialized def (renamed to the child's short name, U333).
+    let mut inherited: std::collections::HashSet<String> =
+        base.funcs.iter().map(|f| f.name.to_string()).collect();
+    if let Some(short) = comp.name.to_string().rsplit('.').next() {
+        inherited.insert(short.to_string());
+    }
+    for name in own_adopts {
+        if let AdoptTarget::Recipe(id) = resolve_recipe_name(&from_uri, name) {
+            if let Some((_, DefValue::Recipe(cap))) = live_entry_by_id(id) {
+                for f in cap.funcs.iter() {
+                    let fname = f.name.to_string();
+                    if inherited.contains(&fname) {
+                        out.push((name.to_string(), fname));
+                    }
+                }
+            }
+        }
+    }
+    out.sort();
+    out.dedup();
+    out
 }
 
 /// Overlay child top-level attributes onto `base` by full dotted id: a child

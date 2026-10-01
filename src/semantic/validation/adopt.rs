@@ -55,34 +55,54 @@ impl ValidationCheck for AdoptionCheck {
             if super::is_test_file(&uri) {
                 continue;
             }
-            if comp.adopts.is_empty() {
-                // P4 §7.1 — a `: Base` variant whose declared base is not an
-                // abstract component. The registry seam leaves the child
-                // un-materialized for such a base, so this is the user-facing
-                // half of that same link verdict.
-                if let Some(base_name) = &comp.variant_base {
-                    let host = comp.name.to_string();
-                    let from_uri = crate::McURI::from(sn.uri_string().as_ref());
-                    if matches!(
-                        resolve_variant_base(&from_uri, base_name),
-                        VariantBaseTarget::NonAbstract(_)
-                    ) {
-                        let msg =
-                            errcodes::format_msg(errcodes::VARIANT_BASE_NON_ABSTRACT, &[&host]);
-                        acc.push(CheckResult {
-                            check_name: self.name(),
-                            severity: CheckSeverity::Error,
-                            uri: Some(uri.clone()),
-                            span: None,
-                            message: msg,
-                            code: errcodes::VARIANT_BASE_NON_ABSTRACT,
-                        });
-                    }
+            // P4 §7.1 — a `: Base` variant whose declared base is not an
+            // abstract component. The registry seam leaves the child
+            // un-materialized for such a base, so this is the user-facing
+            // half of that same link verdict. Runs regardless of adoption:
+            // since U375 a variant head may compose `: Base :: Cap`, and the
+            // kind check must not hinge on the adopts list being empty.
+            if let Some(base_name) = &comp.variant_base {
+                let host = comp.name.to_string();
+                let from_uri = crate::McURI::from(sn.uri_string().as_ref());
+                if matches!(
+                    resolve_variant_base(&from_uri, base_name),
+                    VariantBaseTarget::NonAbstract(_)
+                ) {
+                    let msg = errcodes::format_msg(errcodes::VARIANT_BASE_NON_ABSTRACT, &[&host]);
+                    acc.push(CheckResult {
+                        check_name: self.name(),
+                        severity: CheckSeverity::Error,
+                        uri: Some(uri.clone()),
+                        span: None,
+                        message: msg,
+                        code: errcodes::VARIANT_BASE_NON_ABSTRACT,
+                    });
                 }
+            }
+            if comp.adopts.is_empty() {
                 continue;
             }
             let f = analyze_host_adoption(comp);
             let host = comp.name.to_string();
+
+            // U375 ruling ② — the variant's own adoptions vs the inherited
+            // func surface. A materialized variant has no override path (the
+            // data lock forbids child funcs), so a clash reports instead of
+            // silently shadowing.
+            for (recipe, func) in crate::db::adoption::variant_adopt_clashes(comp) {
+                let msg = errcodes::format_msg(
+                    errcodes::VARIANT_ADOPT_FUNC_CLASH,
+                    &[&host, &recipe, &func],
+                );
+                acc.push(CheckResult {
+                    check_name: self.name(),
+                    severity: CheckSeverity::Error,
+                    uri: Some(uri.clone()),
+                    span: None,
+                    message: msg,
+                    code: errcodes::VARIANT_ADOPT_FUNC_CLASH,
+                });
+            }
 
             for name in &f.non_recipes {
                 let msg = errcodes::format_msg(errcodes::ADOPTS_NON_RECIPE, &[&name]);

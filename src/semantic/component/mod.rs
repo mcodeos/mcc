@@ -389,14 +389,6 @@ impl McComponent {
                 &msg,
             );
         }
-        if is_variant && !adopts.is_empty() {
-            let msg = crate::errcodes::format_msg(crate::errcodes::VARIANT_ADOPTS, &[]);
-            crate::db::diagnostic::diagnostic::dlog_error(
-                crate::errcodes::VARIANT_ADOPTS,
-                &node,
-                &msg,
-            );
-        }
         if is_variant {
             let mut written: Vec<&str> = Vec::new();
             if !new_comp.params.is_empty() {

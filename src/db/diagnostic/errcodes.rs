@@ -1351,8 +1351,10 @@ pub const VARIANT_REDECLARES_PINS_PARAMS_FUNCS: u32 = 5060;
 /// abstract component may not carry a variant base `:` (no variant chain).
 pub const ABSTRACT_DERIVES_ABSTRACT: u32 = 5061;
 
-/// `:` (variant) and `::` (recipe adoption) are mutually exclusive.
-pub const VARIANT_ADOPTS: u32 = 5062;
+/// 5062 retired (U375 b4384): `:` and `::` now compose on one head —
+/// `component CHILD : BASE :: CAP` materializes the base (adoptions included)
+/// and appends the child's own adoptions; func clashes with the inherited
+/// surface report VARIANT_ADOPT_FUNC_CLASH (5645).
 
 /// `:` target is not an abstract component.
 pub const VARIANT_BASE_NON_ABSTRACT: u32 = 5063;
@@ -1734,6 +1736,12 @@ pub const UNTYPED_PARAM: u32 = 5643;
 /// the instance's pin-name face — while a definition body consumes nothing,
 /// so the row stays a silent orphan without this info hint.
 pub const PINS_ROOT_KEY_BODY_UNUSED: u32 = 5644;
+
+/// U375: a variant's own `::` adoption exposes a func whose name collides with
+/// a func inherited from the abstract base (incl. the renamed constructor).
+/// The variant cannot redeclare funcs (data lock), so the clash has no
+/// override path — it reports instead of silently shadowing.
+pub const VARIANT_ADOPT_FUNC_CLASH: u32 = 5645;
 
 // ERC (electrical rule check) (6000-6099)
 
@@ -2806,7 +2814,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(RECIPE_FUNC_UNRESOLVED_REF, "recipe func references a name that is not a declared signal, parameter, or func-local instance.", "'{0}' is not a declared signal, parameter, or local in this recipe func"),
     entry!(VARIANT_REDECLARES_PINS_PARAMS_FUNCS, "A variant may not declare pins, construction params, or funcs — they are inherited from the abstract base.", "variant '{0}' may not declare pins, params, or funcs (inherited from the base)"),
     entry!(ABSTRACT_DERIVES_ABSTRACT, "An abstract component may not carry a variant base — abstract inherits abstract is forbidden.", "abstract component may not derive with ':' (no variant chain)"),
-    entry!(VARIANT_ADOPTS, "Variant inheritance (':') and recipe adoption ('::') are mutually exclusive.", "':' and '::' are mutually exclusive on one component"),
+    // 5062 VARIANT_ADOPTS retired (U375 b4384): ':' and '::' compose.
     entry!(VARIANT_BASE_NON_ABSTRACT, "A variant base must be an abstract component.", "'{0}' is not an abstract component — use '::' to adopt a recipe"),
     entry!(ADOPTS_NON_RECIPE, "Adoption target must be a recipe.", "'{0}' is not a recipe — use ':' to derive a variant from an abstract component"),
     entry!(RECIPE_SIGNAL_MISSING, "An adopting component must declare every recipe signal (name + direction + interface).", "'{0}' is missing recipe signal '{1}'; {2}"),
@@ -2919,6 +2927,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(PORT_NEVER_USED, "Port is declared but never used in any net connection.", "Port '{0}' in '{1}' is declared but never used in any net connection."),
     entry!(UNTYPED_PARAM, "Parameter has no inferred type.", "Parameter has no inferred type."),
     entry!(PINS_ROOT_KEY_BODY_UNUSED, "A definition-body pins-rooted key is not consumed here.", "pins root key '{0}' only takes effect at call sites (the argument position); a definition body consumes nothing"),
+    entry!(VARIANT_ADOPT_FUNC_CLASH, "A variant's own adopted recipe func collides with a func inherited from the base.", "variant '{0}' adopts '{1}' whose func '{2}' collides with a func inherited from the base — drop the adoption or rename the recipe func"),
     // section
     entry!(ABSTRACT_PART_UNSELECTED, "Placed abstract component has no selected part (partno unset).", "abstract component instance '{0}' is unselected (no partno); BOM must pick a variant"),
     entry!(VARIANT_SPEC_UNSET, "Variant still carries an unset inherited spec item.", "variant '{0}' leaves spec item '{1}' unset (±0/empty)"),

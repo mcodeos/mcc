@@ -1735,8 +1735,9 @@ impl RegistryState {
         let ds = crate::definition_space();
 
         // ── P4 §4.2/§7.1: `: Base` variant materialization FIRST — a variant's
-        //    effective surface (pins/params/funcs/adopts) is its abstract
-        //    base's, so the adopts/effective-funcs rebuild below must read the
+        //    effective surface (pins/params/funcs) is its abstract base's and
+        //    its adopts compose (base's ride the clone, the child's own append,
+        //    U375), so the adopts/effective-funcs rebuild below must read the
         //    materialized def, not the parsed (empty-shell) child.
         let comps = ds.workspace_components();
         for (sn, comp) in comps.iter() {
@@ -1763,9 +1764,9 @@ impl RegistryState {
             };
             // A `::` target resolves from the adopting def's own file scope
             // (P3 own file → P4 use chain → P5 system), exactly like a class
-            // reference in the same header. A variant inherits the base's
-            // adopts via materialization, so this loop sees it the same way it
-            // sees any adopting component.
+            // reference in the same header. A variant's merged adopt list
+            // (base's + own, U375) arrives via materialization, so this loop
+            // sees it the same way it sees any adopting component.
             let from_uri = crate::McURI::from(sn.uri_string().as_ref());
             let mut cap_ids: Vec<DefId> = Vec::with_capacity(comp.adopts.len());
             for name in &comp.adopts {
