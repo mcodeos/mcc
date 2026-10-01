@@ -2840,18 +2840,10 @@ impl InstantiationBuilder {
                     if set0.is_empty() || set.is_empty() {
                         continue;
                     }
-                    // Compatibility = the two declared sets share one value:
-                    // the meta engine's set-overlap operator (U377 leg2).
-                    // The values are exact word strings here, so overlap
-                    // decides True/False and never sees pending.
-                    let words = |vs: &[String]| {
-                        crate::semantic::meta::McMetaValue::Set(
-                            vs.iter().map(|v| crate::semantic::meta::McMetaValue::Word(v.clone())).collect(),
-                        )
-                    };
-                    if crate::semantic::meta::overlap(&words(&set0), &words(&set))
-                        == crate::semantic::meta::Compare::True
-                    {
+                    // Compatibility = the two declared sets share one value.
+                    // The values are exact word strings, so the intersection
+                    // is plain equality and never sees a pending arm.
+                    if set0.iter().any(|v| set.contains(v)) {
                         continue;
                     }
                     let lvals = set0.join(", ");

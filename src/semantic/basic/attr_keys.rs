@@ -172,6 +172,75 @@ pub(crate) enum AttrVocab {
     Open,
 }
 
+/// The semantic shape of a key's value — how it is judged, not what it is
+/// ([`AttrValueKind`] keeps D5: the kind says the unit, the shape says the
+/// comparison law). Five arms, exhaustive and closed
+/// (`mcd/doc/ee/data-authoring-design.md` §4, `electrical-paradigm-design.md`
+/// §2). A value that fits no arm — free text — is never judged (N4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ValueShape {
+    /// One normalized quantity (`5V`, `1200m`); compares `≤ / ≥ / =` after
+    /// unit normalization (`eval/units.rs` is the one authority).
+    Scalar,
+    /// A tolerance declaration (`[low:, high:]`, `3.3V ± 5%`, `±15V`). Its
+    /// only comparison is subset containment with the 1e-9 slop — the
+    /// E4124 / `PwrWindow::covers` law; a numeric comparison stays
+    /// forbidden (contract D2).
+    Window,
+    /// Alternative capability/demand bands (`[1.8V, 3.3V, 5V]`): membership
+    /// and non-empty intersection.
+    Set,
+    /// A word from a closed vocabulary (`full duplex`). A key whose judgement
+    /// binds this shape carries `AttrVocab::Words` — asserted by the
+    /// self-check below, so the word set keeps one source, not two.
+    Enum,
+    /// A value @ a condition axis (`1Mbps@0.5m`): a working point is inside
+    /// the envelope. The corpus writes the shape (`uart.mc`'s `maxspeed`), no
+    /// parse evaluates it yet (G2) — the arm is live the day the envelope
+    /// lands, and the registry must not say the question is closed.
+    CondEnv,
+}
+
+/// Which of the five judgement primitives adjudicates this key
+/// (`electrical-paradigm-design.md` §6.2 — exhaustive, not open). The
+/// primitive rides the row, never the value: two keys written identically
+/// judge differently (`maxspeed` vs `voltage`, §6.3-1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum JudgePrimitive {
+    /// `a ⊆ b` — window/set containment.
+    Covers,
+    /// Non-empty intersection.
+    Intersect,
+    /// `a ≤ b` after unit normalization.
+    Leq,
+    /// Working point ∈ condition envelope. No reader evaluates it yet (G2);
+    /// the binding is an annotation until then.
+    InEnv,
+    /// Closed-vocabulary compatibility (E4122's generalization). No row
+    /// binds it yet — the word tables are G6's body, and an `Enum` shape
+    /// without a closed word set judges nothing.
+    #[allow(dead_code)]
+    Voc,
+}
+
+/// One judged carrier of a key: the shape its value takes on `face`, and the
+/// primitive that adjudicates a demand against a supply there. The columns
+/// are per-face because one key is honestly different shapes on different
+/// carriers: `voltage` is a set on an interface body, a window on a pin row,
+/// and no judgement at all on a component body.
+///
+/// An empty `judgements` slice is the lazily-legal default — the key is
+/// written and read, nothing judges it; so is a face absent from a key's
+/// slice. No reader acts on a binding yet: landing the columns is G1,
+/// wiring readers onto them is G3/G4 — until then a binding is an
+/// annotation, not a gate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct JudgeBinding {
+    pub(crate) face: AttrFace,
+    pub(crate) shape: ValueShape,
+    pub(crate) judge: JudgePrimitive,
+}
+
 /// One row of the dictionary: a key path and its columns.
 pub(crate) struct AttrKeyDef {
     pub(crate) key: &'static str,
@@ -204,6 +273,10 @@ pub(crate) struct AttrKeyDef {
     /// ([`ElementClass`]); `None` for every key that does not answer "what is
     /// this element". [`element_of_spec_key`] is its reader.
     pub(crate) element: Option<ElementClass>,
+    /// The judged carriers of this key ([`JudgeBinding`]; empty = lazily
+    /// legal, the default for every key whose value no gate adjudicates).
+    /// [`judgement_of`] is its reader.
+    pub(crate) judgements: &'static [JudgeBinding],
 }
 
 /// Does `key` name a supply voltage, written in `face`?
@@ -563,6 +636,7 @@ const fn row(key: &'static str, faces: &'static [AttrFace], general: bool) -> At
         supply_voltage: false,
         arity: AttrKeyArity::Single,
         element: None,
+        judgements: &[],
     }
 }
 
@@ -586,6 +660,7 @@ const fn vocab_row(
         supply_voltage: false,
         arity: AttrKeyArity::Single,
         element: None,
+        judgements: &[],
     }
 }
 
@@ -604,6 +679,7 @@ const fn value_row(
         supply_voltage: false,
         arity: AttrKeyArity::Single,
         element: None,
+        judgements: &[],
     }
 }
 
@@ -627,6 +703,7 @@ const fn open_row(
         supply_voltage: false,
         arity: AttrKeyArity::Single,
         element: None,
+        judgements: &[],
     }
 }
 
@@ -649,6 +726,7 @@ const fn element_row(
         supply_voltage: false,
         arity: AttrKeyArity::Single,
         element: Some(element),
+        judgements: &[],
     }
 }
 
@@ -667,6 +745,7 @@ const fn voltage_row(
         supply_voltage: true,
         arity: AttrKeyArity::Single,
         element: None,
+        judgements: &[],
     }
 }
 
@@ -686,6 +765,7 @@ const fn contract_row(
         supply_voltage: false,
         arity: AttrKeyArity::Single,
         element: None,
+        judgements: &[],
     }
 }
 

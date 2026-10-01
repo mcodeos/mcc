@@ -31,7 +31,6 @@
 //! - Top-level defs have no `class` field, so `class=...` is always false.
 //! - NO short-circuit evaluation in v1.
 
-use crate::semantic::meta::{eq_approx, eq_fold, Compare, McMetaValue};
 use crate::McIds;
 use anyhow::{anyhow, Result};
 use regex::Regex;
@@ -325,30 +324,30 @@ fn value_match(c: &Comparison, lhs: Option<&str>) -> bool {
     match c.op {
         ComparisonOp::Eq => match &c.value {
             QueryValue::Number { value, .. } => match lhs.and_then(|s| s.parse::<f64>().ok()) {
-                Some(n) => num_eq(n, *value),
+                Some(n) => approx_eq(n, *value),
                 None => false,
             },
             QueryValue::String(s) => match c.matcher.as_ref() {
                 Some(re) => lhs.map(|l| re.is_match(l)).unwrap_or(false),
-                None => lhs.map(|l| str_eq(l, s)).unwrap_or(false),
+                None => lhs.map(|l| l.eq_ignore_ascii_case(s)).unwrap_or(false),
             },
             QueryValue::Bareword(s) => match c.matcher.as_ref() {
                 Some(re) => lhs.map(|l| re.is_match(l)).unwrap_or(false),
-                None => lhs.map(|l| str_eq(l, s)).unwrap_or(false),
+                None => lhs.map(|l| l.eq_ignore_ascii_case(s)).unwrap_or(false),
             },
         },
         ComparisonOp::Ne => match &c.value {
             QueryValue::Number { value, .. } => match lhs.and_then(|s| s.parse::<f64>().ok()) {
-                Some(n) => !num_eq(n, *value),
+                Some(n) => !approx_eq(n, *value),
                 None => false, // missing field → != is false (per spec)
             },
             QueryValue::String(s) => match c.matcher.as_ref() {
                 Some(re) => lhs.map(|l| !re.is_match(l)).unwrap_or(false),
-                None => lhs.map(|l| !str_eq(l, s)).unwrap_or(false),
+                None => lhs.map(|l| !l.eq_ignore_ascii_case(s)).unwrap_or(false),
             },
             QueryValue::Bareword(s) => match c.matcher.as_ref() {
                 Some(re) => lhs.map(|l| !re.is_match(l)).unwrap_or(false),
-                None => lhs.map(|l| !str_eq(l, s)).unwrap_or(false),
+                None => lhs.map(|l| !l.eq_ignore_ascii_case(s)).unwrap_or(false),
             },
         },
         ComparisonOp::Regex => {
@@ -370,24 +369,16 @@ fn value_match(c: &Comparison, lhs: Option<&str>) -> bool {
             match c.op {
                 ComparisonOp::Gt => haystack > needle,
                 ComparisonOp::Lt => haystack < needle,
-                ComparisonOp::Ge => haystack >= needle || num_eq(haystack, needle),
-                ComparisonOp::Le => haystack <= needle || num_eq(haystack, needle),
+                ComparisonOp::Ge => haystack >= needle || approx_eq(haystack, needle),
+                ComparisonOp::Le => haystack <= needle || approx_eq(haystack, needle),
                 _ => unreachable!(),
             }
         }
     }
 }
 
-/// The comparison criteria live in one place — the meta engine's fold/approx
-/// operators (U377 follow-up 2); the query face is a string-domain caller.
-fn str_eq(a: &str, b: &str) -> bool {
-    eq_fold(&McMetaValue::Text(a.to_string()), &McMetaValue::Text(b.to_string()))
-        == Compare::True
-}
-
-fn num_eq(a: f64, b: f64) -> bool {
-    eq_approx(&McMetaValue::Num(a, String::new()), &McMetaValue::Num(b, String::new()))
-        == Compare::True
+fn approx_eq(a: f64, b: f64) -> bool {
+    (a - b).abs() < 1e-9
 }
 
 /// For JSON-record filtering (extract/show). Reads name/kind/class/uri from

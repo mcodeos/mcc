@@ -196,14 +196,14 @@ fn collect_key_names(
     out: &mut Vec<crate::semantic::basic::mc_param::AttrKeyName>,
 ) {
     use crate::semantic::basic::mc_param::AttrKeyName;
-    // The record face is the meta engine's (U377): a table value is the one
-    // carrying `Attributes` rows, and the descent walks `record_rows`, which
-    // is empty on every other arm — both spellings keep yielding the same
-    // leaf names (G2).
     for attr in attrs {
         let mut path = prefix.clone();
         path.push(attr.id.to_string());
-        if !crate::semantic::meta::has_records(&attr.values) {
+        let is_table = attr
+            .values
+            .iter()
+            .any(|v| matches!(v, McAttrVal::Attributes(_)));
+        if !is_table {
             let name = path
                 .last()
                 .and_then(|key| key.rsplit('.').next())
@@ -216,12 +216,9 @@ fn collect_key_names(
             });
         }
         for val in attr.values.iter() {
-            collect_key_names(
-                crate::semantic::meta::record_rows(val),
-                &mut path,
-                declares,
-                out,
-            );
+            if let McAttrVal::Attributes(rows) = val {
+                collect_key_names(rows, &mut path, declares, out);
+            }
         }
     }
 }
@@ -366,28 +363,7 @@ fn report_value_outside_vocabulary(attribute: &McAttribute, node: &AstNode) {
                 );
                 return;
             };
-            // Ruling ④ (U377): a pending declaration (`dropout = _`) claims
-            // nothing yet and is backfilled on the BOM face — comparison
-            // propagates pending, and pending is not a violation.
-            if attribute
-                .values
-                .first()
-                .map(crate::semantic::meta::normalize)
-                .is_some_and(|v| matches!(v, crate::semantic::meta::McMetaValue::Undetermined))
-            {
-                return;
-            }
-            // The word set is the registry's criterion; the membership
-            // compare is the meta engine's exact-compare operator (U377
-            // leg2) — same exact, no-case-folding law as before.
-            let set = crate::semantic::meta::McMetaValue::Set(
-                words.iter().map(|w| crate::semantic::meta::McMetaValue::Word(w.to_string())).collect(),
-            );
-            if crate::semantic::meta::member(
-                &crate::semantic::meta::McMetaValue::Word(written.to_string()),
-                &set,
-            ) == crate::semantic::meta::Compare::False
-            {
+            if !words.contains(&written) {
                 dlog_error(
                     crate::errcodes::ATTR_VALUE_NOT_IN_VOCABULARY,
                     node,

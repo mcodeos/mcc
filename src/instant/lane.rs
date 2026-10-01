@@ -93,6 +93,42 @@ pub struct Lane {
     pub target: PointGroup,
 }
 
+/// One thing a statement asked the lane layer for that could not be honored
+/// as written (U373). The lane layer is a pure function with no diagnostic
+/// channel, so defects are recorded on the trunk they belong to and the
+/// DianLu assembly converts them to diagnostics on the net-diag face.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LaneDefect {
+    /// A vector member the statement's bundle was assembling is not
+    /// resolvable to a physical point — the declared member name finds no
+    /// component in the scope, or that component owns no arena node. The
+    /// member is left out of its slice, so a positional zip pairs the
+    /// remaining members by declared order: a mid-slice loss shifts every
+    /// later pairing. Warning, never silent (U373 hidden B).
+    MemberLost {
+        /// The statement that assembled the bundle.
+        span: Option<SourcePos>,
+        /// The vector's declared base name (`"c"` for `c[1:2]`).
+        vector: String,
+        /// The declared member name that does not resolve.
+        member: String,
+    },
+    /// A both-sides slice pair (`c[1:2].1 -> d[1:2].1`) whose two ordered
+    /// member lists differ in length after resolution. The lane is withheld —
+    /// pairing unequal slices positionally would silently truncate the longer
+    /// side or misalign every member past the first loss — and the mismatch
+    /// is reported (E4181; the written form is already rejected at Pass1 by
+    /// the shape gate, so reaching the lane layer means member drift).
+    PairWidth {
+        /// The slice-pairing statement.
+        span: Option<SourcePos>,
+        /// Resolvable member count on the left side.
+        left: usize,
+        /// Resolvable member count on the right side.
+        right: usize,
+    },
+}
+
 /// Statement-level trunk: one structured trunk per source connection
 /// statement (design §4 / §11.3 ③).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -113,6 +149,9 @@ pub struct Trunk {
     pub points: Vec<(PointId, Option<String>)>,
     /// Directed point-group pairs in written order.
     pub lanes: Vec<Lane>,
+    /// Things the statement asked for that could not be honored as written
+    /// ([`LaneDefect`]) — reported by the DianLu assembly, never silent.
+    pub defects: Vec<LaneDefect>,
 }
 
 /// Collect the lane layer from a frozen tree: one [`Trunk`] per source
@@ -194,6 +233,7 @@ fn trunk_from_connections(
     let mut seen: HashSet<PointId> = HashSet::new();
     let mut points: Vec<(PointId, Option<String>)> = Vec::new();
     let mut lanes: Vec<Lane> = Vec::new();
+    let mut defects: Vec<LaneDefect> = Vec::new();
 
     // Vector-row aggregation (design §4 / §11.3 ③, plan §9 D item ①):
     // member endpoints of the same (vector node, member pin) collapse into
@@ -310,7 +350,8 @@ fn trunk_from_connections(
     for key in bundle_order {
         let acc = &bundles[&key];
         let (vec_node, pin) = key;
-        let members = order_members(inst, vec_node, &acc.members, view);
+        let (members, lost) = order_members(inst, vec_node, &acc.members, view);
+        record_lost(&mut defects, span.clone(), inst, vec_node, lost);
         let make_slice = |members: Vec<PointId>| PointGroup::Slice {
             base: PointId {
                 node: vec_node,
@@ -365,27 +406,41 @@ fn trunk_from_connections(
 
     // Both-sides-member alignment: one `Slice -> Slice` lane per bundle pair.
     // Member order follows each side's declared member-set order, so the
-    // positional zip in `derive_nets` aligns c1.1↔d1.1, c2.1↔d2.1.
+    // positional zip in `derive_nets` aligns c1.1↔d1.1, c2.1↔d2.1. A pair
+    // whose resolved widths differ is withheld and reported (U373): the
+    // written form is rejected at Pass1, so reaching here with unequal widths
+    // means a member was lost after acceptance — zipping would truncate or
+    // misalign.
     for (src_key, tgt_key) in slice_pairs {
         let (src_vec, src_pin) = src_key;
         let (tgt_vec, tgt_pin) = tgt_key;
-        let src_slice = PointGroup::Slice {
-            base: PointId {
-                node: src_vec,
-                pin: src_pin,
-            },
-            members: order_members(inst, src_vec, &bundles[&src_key].members, view),
-        };
-        let tgt_slice = PointGroup::Slice {
-            base: PointId {
-                node: tgt_vec,
-                pin: tgt_pin,
-            },
-            members: order_members(inst, tgt_vec, &bundles[&tgt_key].members, view),
-        };
+        let (src_members, src_lost) = order_members(inst, src_vec, &bundles[&src_key].members, view);
+        let (tgt_members, tgt_lost) = order_members(inst, tgt_vec, &bundles[&tgt_key].members, view);
+        record_lost(&mut defects, span.clone(), inst, src_vec, src_lost);
+        record_lost(&mut defects, span.clone(), inst, tgt_vec, tgt_lost);
+        if src_members.len() != tgt_members.len() {
+            defects.push(LaneDefect::PairWidth {
+                span: span.clone(),
+                left: src_members.len(),
+                right: tgt_members.len(),
+            });
+            continue;
+        }
         lanes.push(Lane {
-            source: src_slice,
-            target: tgt_slice,
+            source: PointGroup::Slice {
+                base: PointId {
+                    node: src_vec,
+                    pin: src_pin,
+                },
+                members: src_members,
+            },
+            target: PointGroup::Slice {
+                base: PointId {
+                    node: tgt_vec,
+                    pin: tgt_pin,
+                },
+                members: tgt_members,
+            },
         });
     }
 
@@ -394,6 +449,40 @@ fn trunk_from_connections(
         stmt_span: span,
         points,
         lanes,
+        defects,
+    }
+}
+
+/// Record the members [`order_members`] could not resolve as
+/// [`LaneDefect::MemberLost`] under `vector`'s declared base name.
+fn record_lost(
+    defects: &mut Vec<LaneDefect>,
+    span: Option<SourcePos>,
+    inst: &McModuleInst,
+    vec_node: NodeId,
+    lost: Vec<String>,
+) {
+    if lost.is_empty() {
+        return;
+    }
+    let vector = inst
+        .vectors
+        .iter()
+        .find(|v| v.node_id == Some(vec_node))
+        .map(|v| v.base.clone())
+        .unwrap_or_default();
+    for member in lost {
+        let defect = LaneDefect::MemberLost {
+            span: span.clone(),
+            vector: vector.clone(),
+            member,
+        };
+        // The same bundle can be ordered twice in one trunk (the fan face
+        // and the slice-pair face each call `order_members`); one loss is
+        // one report per statement.
+        if !defects.contains(&defect) {
+            defects.push(defect);
+        }
     }
 }
 
@@ -409,30 +498,45 @@ fn bundle_entry<'a>(
 }
 
 /// Reorder member points by the vector's declared member-set order (strict
-/// written order, never sorted — §11.2 ordering contract).
+/// written order, never sorted — §11.2 ordering contract). Returns the
+/// ordered members plus the declared member names whose component lookup
+/// fails (no component under the declared name, or the component owns no
+/// arena node) — the caller reports them, never silently dropping one (U373
+/// hidden B). A declared member the statement simply did not touch is absent
+/// from `members` by construction and is not a loss; only a member the
+/// declaration names but the scope cannot resolve is.
 fn order_members(
     inst: &McModuleInst,
     vec_node: NodeId,
     members: &[PointId],
     view: &TreeView,
-) -> Vec<PointId> {
+) -> (Vec<PointId>, Vec<String>) {
     let Some(vec) = inst.vectors.iter().find(|v| v.node_id == Some(vec_node)) else {
-        return members.to_vec();
+        return (members.to_vec(), Vec::new());
     };
     let mut by_node: HashMap<NodeId, PointId> = HashMap::new();
     for m in members {
         by_node.insert(m.node, *m);
     }
-    vec.member_ids
-        .iter()
-        .filter_map(|mid| {
-            let node = view
-                .components(inst)
-                .find(|c| c.name == mid.as_str())?
-                .node_id?;
-            by_node.get(&node).copied()
-        })
-        .collect()
+    let mut ordered = Vec::new();
+    let mut lost = Vec::new();
+    for mid in &vec.member_ids {
+        let node = view
+            .components(inst)
+            .find(|c| c.name == mid.as_str())
+            .and_then(|c| c.node_id);
+        match node {
+            Some(node) => {
+                if let Some(pid) = by_node.get(&node).copied() {
+                    ordered.push(pid);
+                }
+            }
+            // The declaration names an instance the scope cannot resolve:
+            // the member can never join a bundle — report, don't drop silent.
+            None => lost.push(mid.clone()),
+        }
+    }
+    (ordered, lost)
 }
 
 /// Whether a point expands to a bundle, so the statement must wait for
@@ -827,4 +931,399 @@ pub fn finalize_net_ids(nets: &mut [Net], registry: &mut IdentityRegistry) {
     }
     let active: HashSet<String> = nets.iter().filter_map(|n| n.label.clone()).collect();
     registry.reconcile_net_labels(&active);
+}
+
+// ── U373 locks: hand-built fixture + lane-defect tests ──────────────────────
+// The arena/store mutators are `pub(crate)`, so the fixture lives in-crate.
+// The module def comes from a parsed empty `main` (`McModule` has private
+// fields and no literal constructor); the rest — vector nodes, component
+// instances, connections — is laid down directly, mirroring the Phase C
+// construction-time pattern (insert each node, then `add_child_grouped`).
+
+#[cfg(test)]
+pub(crate) mod test_fixture {
+    use super::*;
+    use crate::instant::arena::{Node, NodeKind};
+    use crate::instant::inststore::NodeInstance;
+    use crate::semantic::basic::mc_paramd::McParamDeclares;
+    use crate::semantic::common::{ConnOp, IOType};
+    use crate::semantic::component::mc_attr::McAttributes;
+    use crate::semantic::component::mc_layout::McLayout;
+    use crate::semantic::component::mc_pins::{McPin, McPins};
+    use crate::semantic::component::McComponent;
+    use crate::semantic::mc_func::McFunctions;
+    use crate::semantic::mc_inst::McInstances;
+    use crate::McIds;
+    use std::rc::Rc;
+    use std::sync::{Arc, OnceLock};
+
+    pub(crate) const TEST_URI: &str = "/mcc/lane-fixture.mc";
+
+    /// The parsed empty `main` def (parse once, share across tests).
+    pub(crate) fn main_def() -> Arc<crate::semantic::module::McModule> {
+        static DEF: OnceLock<Arc<crate::semantic::module::McModule>> = OnceLock::new();
+        DEF.get_or_init(|| {
+            let _guard = crate::db::infra::init::MCC_TEST_PARSE_LOCK
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            crate::mcc_set_system_root(&crate::cli::datadir::data_root());
+            crate::mcc_init();
+            let uri: crate::McURI = TEST_URI.into();
+            crate::mcc_load_from_string(&uri, "module main {}\n");
+            crate::definition_space()
+                .workspace_modules()
+                .into_iter()
+                .find(|(sn, _)| sn.ident.to_string() == "main")
+                .expect("module 'main' parsed")
+                .1
+        })
+        .clone()
+    }
+
+    /// A two-pin CAP def (`1`, `2` in declaration order; unregistered in the
+    /// def registry, so pin ids resolve through the `decl_order` fallback —
+    /// the same fallback lane.rs applies to unregistered defs).
+    fn cap_def() -> Arc<McComponent> {
+        let mut pins = McPins::new();
+        for pid in ["1", "2"] {
+            pins.pins.insert(
+                pid.to_string(),
+                McPin {
+                    iotype: IOType::In,
+                    id: pid.to_string(),
+                    names: vec![pid.to_string()],
+                    values: Arc::new(vec![]),
+                    active_low: false,
+                    is_nc: false,
+                    attrs: McAttributes::new(),
+                },
+            );
+            pins.decl_order.push(pid.to_string());
+        }
+        Arc::new(McComponent {
+            name: McIds::from("CAP"),
+            params: McParamDeclares::new(),
+            pins,
+            attrs: McAttributes::new(),
+            funcs: McFunctions::new(),
+            insts: McInstances::new(),
+            layout: McLayout {
+                left: vec![],
+                right: vec![],
+                top: vec![],
+                bottom: vec![],
+            },
+            uri: crate::McURI::from("/mcc/cap-def.mc"),
+            cond_pins: vec![],
+            cond_attrs: vec![],
+            cond_errors: Vec::new(),
+            span: 0..0,
+            anon_counter: 0,
+            is_abstract: false,
+            variant_base: None,
+            adopts: Vec::new(),
+        })
+    }
+
+    /// A component instance named `name` at arena node `node`.
+    pub(crate) fn comp(name: &str, node: NodeId) -> (NodeId, NodeInstance) {
+        let mut inst = McComponentInst::new(name, cap_def());
+        inst.node_id = Some(node);
+        (node, NodeInstance::Component(Rc::new(inst)))
+    }
+
+    /// A vector grouping node over `member_ids`.
+    pub(crate) fn vector(
+        node: NodeId,
+        base: &str,
+        member_ids: &[&str],
+    ) -> crate::instant::mc_mod::McVectorInst {
+        crate::instant::mc_mod::McVectorInst {
+            base: base.to_string(),
+            member_names: member_ids.iter().map(|m| m.to_string()).collect(),
+            member_ids: member_ids.iter().map(|m| m.to_string()).collect(),
+            shape: None,
+            node_id: Some(node),
+        }
+    }
+
+    /// One exploded per-member connection `a -> b` (`a`/`b` are
+    /// `owner.pin` paths), carrying `span` so the collector groups the
+    /// per-member connections back into one statement trunk.
+    pub(crate) fn conn(id: u32, a: &str, b: &str, offset: u32) -> ConnectionInst {
+        let mut pa = NetPoint::new(a, IOType::In, None);
+        let mut pb = NetPoint::new(b, IOType::In, None);
+        pa.owner = Some(a.split('.').next().unwrap_or(a).to_string());
+        pb.owner = Some(b.split('.').next().unwrap_or(b).to_string());
+        let mut c = ConnectionInst::new(id, vec![pa, pb]);
+        c.op = Some(ConnOp::Series);
+        c.source_span = Some(SourcePos::new(TEST_URI, offset));
+        c
+    }
+
+    /// The frozen tree + companion arena/store. `c_members` / `d_members` are
+    /// the vector member sets; every listed member gets a component instance
+    /// in the store EXCEPT the names in `missing` (the U373 drift: a declared
+    /// member that never materialized). `conns` are the exploded per-member
+    /// connections of one statement.
+    pub(crate) fn build(
+        c_members: &[&str],
+        d_members: &[&str],
+        missing: &[&str],
+        conns: Vec<ConnectionInst>,
+    ) -> (
+        McModuleInst,
+        NodeArena,
+        InstanceStore,
+        std::collections::HashMap<String, NodeId>,
+    ) {
+        let root = NodeId(1);
+        let vec_c = NodeId(2);
+        let vec_d = NodeId(3);
+        let mut next = 10u32;
+        let mut members: Vec<NodeId> = Vec::new();
+        let mut contents: Vec<(NodeId, NodeInstance)> = Vec::new();
+        let mut nodes_of: std::collections::HashMap<String, NodeId> =
+            std::collections::HashMap::new();
+        for name in c_members.iter().chain(d_members.iter()) {
+            if missing.contains(name) {
+                continue; // declared but never materialized — the drift
+            }
+            let node = NodeId(next);
+            next += 1;
+            members.push(node);
+            nodes_of.insert(name.to_string(), node);
+            contents.push(comp(name, node));
+        }
+
+        let mut arena = NodeArena::new(root);
+        arena.insert(Node {
+            id: root,
+            kind: NodeKind::Module,
+            parent: None,
+            children: Vec::new(),
+            name: "main".to_string(),
+        });
+        arena.insert(Node {
+            id: vec_c,
+            kind: NodeKind::Vector,
+            parent: Some(root),
+            children: Vec::new(),
+            name: "c".to_string(),
+        });
+        arena.insert(Node {
+            id: vec_d,
+            kind: NodeKind::Vector,
+            parent: Some(root),
+            children: Vec::new(),
+            name: "d".to_string(),
+        });
+        arena.add_child_grouped(root, vec_c, NodeKind::Vector);
+        arena.add_child_grouped(root, vec_d, NodeKind::Vector);
+        for (i, node) in members.iter().enumerate() {
+            arena.insert(Node {
+                id: *node,
+                kind: NodeKind::Device,
+                parent: Some(root),
+                children: Vec::new(),
+                name: if i < c_members.len() {
+                    c_members[i].to_string()
+                } else {
+                    d_members[i - c_members.len()].to_string()
+                },
+            });
+            arena.add_child_grouped(root, *node, NodeKind::Device);
+        }
+
+        let mut store = InstanceStore::default();
+        for (id, inst) in contents {
+            store.insert(id, inst);
+        }
+
+        let mut tree = McModuleInst::new("main", main_def());
+        tree.node_id = Some(root);
+        tree.vectors = vec![vector(vec_c, "c", c_members), vector(vec_d, "d", d_members)];
+        tree.connections = conns;
+        (tree, arena, store, nodes_of)
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::test_fixture::{build, conn, TEST_URI};
+    use super::{
+        collect_stmt_trunks, derive_nets, ConnectionInst, LaneDefect, PointGroup, PointId, Trunk,
+        Net,
+    };
+    use crate::instant::identity::NodeId;
+
+    /// One exploded statement (`c[1:2].1 -> d[1:2].1`): every per-member
+    /// connection shares the statement span, so the collector groups them
+    /// back into one trunk. Returns the trunk, the derived nets, and the
+    /// member-name → arena-node map.
+    fn member_pair_trunk(
+        c_members: &[&str],
+        d_members: &[&str],
+        missing: &[&str],
+    ) -> (Trunk, Vec<Net>, std::collections::HashMap<String, NodeId>) {
+        let conns: Vec<ConnectionInst> = c_members
+            .iter()
+            .zip(d_members.iter())
+            .enumerate()
+            .map(|(i, (c, d))| conn(i as u32, &format!("{c}.1"), &format!("{d}.1"), 100))
+            .collect();
+        let (tree, arena, store, nodes) = build(c_members, d_members, missing, conns);
+        let trunks = collect_stmt_trunks(&tree, &arena, &store);
+        assert_eq!(trunks.len(), 1, "one statement span → one trunk");
+        let nets = derive_nets(&trunks);
+        (trunks.into_iter().next().unwrap(), nets, nodes)
+    }
+
+    /// U373 grid 1 (green lock): `c[1:2].1 -> d[1:2].1` with every member
+    /// materialized — one positional Slice→Slice lane, zero defects, two
+    /// 2-point nets, never a cross product.
+    #[test]
+    fn member_lane__equal_width_slice_pair_is_quiet_and_positional() {
+        let (trunk, nets, nodes) = member_pair_trunk(&["c1", "c2"], &["d1", "d2"], &[]);
+        assert!(
+            trunk.defects.is_empty(),
+            "equal width records nothing: {:?}",
+            trunk.defects
+        );
+        assert_eq!(trunk.lanes.len(), 1, "one Slice→Slice lane");
+        let (src, tgt) = match (&trunk.lanes[0].source, &trunk.lanes[0].target) {
+            (PointGroup::Slice { members: s, .. }, PointGroup::Slice { members: t, .. }) => (s, t),
+            other => panic!("expected Slice→Slice, got {other:?}"),
+        };
+        assert_eq!(src.len(), 2);
+        assert_eq!(tgt.len(), 2);
+        assert_eq!(nets.len(), 2, "two 2-point nets: {nets:?}");
+        let (c1, d1) = (nodes["c1"], nodes["d1"]);
+        let joined = nets
+            .iter()
+            .find(|n| n.points.contains(&PointId { node: c1, pin: src[0].pin }))
+            .expect("c1's net");
+        assert!(
+            joined
+                .points
+                .iter()
+                .any(|p| p.node == d1 && p.pin == tgt[0].pin),
+            "c1.1 pairs d1.1, positionally: {joined:?}"
+        );
+        assert_eq!(joined.points.len(), 2, "no cross product: {joined:?}");
+    }
+
+    /// U373 hidden B (the fix): a declared member whose component never
+    /// materialized is REPORTED (`MemberLost`), not silently dropped. The
+    /// unequal widths the loss produces also fire the width gate
+    /// (`PairWidth`) and the lane is WITHHELD — the old zip would have
+    /// truncated `d2` silently.
+    #[test]
+    fn member_lane__lost_member_is_reported_and_lane_withheld() {
+        let (trunk, nets, nodes) = member_pair_trunk(&["c1", "c2"], &["d1", "d2"], &["c2"]);
+        assert!(
+            trunk.defects.iter().any(|d| matches!(d,
+                LaneDefect::MemberLost { vector, member, .. }
+                if vector == "c" && member == "c2")),
+            "the lost member is reported: {:?}",
+            trunk.defects
+        );
+        assert!(
+            trunk.defects.iter().any(|d| matches!(d,
+                LaneDefect::PairWidth { left: 1, right: 2, .. })),
+            "the width drift is reported: {:?}",
+            trunk.defects
+        );
+        assert!(
+            !trunk
+                .lanes
+                .iter()
+                .any(|l| matches!(l.source, PointGroup::Slice { .. })),
+            "no lane at unequal width: {:?}",
+            trunk.lanes
+        );
+        // Fail open: no c-side point shares a net with any d-side point —
+        // the downstream unconnected-pin checks report the hanging ends.
+        let (c1, d1, d2) = (nodes["c1"], nodes["d1"], nodes["d2"]);
+        for net in &nets {
+            let c_side = net.points.iter().any(|p| p.node == c1);
+            let d_side = net.points.iter().any(|p| p.node == d1 || p.node == d2);
+            assert!(
+                !(c_side && d_side),
+                "withheld lane merges nothing: {net:?}"
+            );
+        }
+    }
+
+    /// U373 hidden B, the misalignment case: the MIDDLE member lost. The old
+    /// positional zip would pair `c3.1 ↔ d2.1` (one step off — miswiring).
+    /// Now: `MemberLost` + `PairWidth`, and the lane is withheld.
+    #[test]
+    fn member_lane__mid_slice_loss_cannot_misalign() {
+        let (trunk, nets, _nodes) =
+            member_pair_trunk(&["c1", "c2", "c3"], &["d1", "d2", "d3"], &["c2"]);
+        assert!(
+            trunk.defects.iter().any(|d| matches!(d,
+                LaneDefect::MemberLost { vector, member, .. }
+                if vector == "c" && member == "c2")),
+            "middle loss reported: {:?}",
+            trunk.defects
+        );
+        assert!(
+            trunk.defects.iter().any(|d| matches!(d,
+                LaneDefect::PairWidth { left: 2, right: 3, .. })),
+            "2 vs 3 drift reported: {:?}",
+            trunk.defects
+        );
+        for net in &nets {
+            assert_eq!(
+                net.points.len(),
+                1,
+                "no pairing survives the gate — c3.1 must not meet d2.1: {net:?}"
+            );
+        }
+    }
+
+    /// A member the statement simply did not touch is absent from its bundle
+    /// by construction and is NOT a loss: a single-member statement stays
+    /// quiet and still pairs positionally at width 1.
+    #[test]
+    fn member_lane__untouched_member_is_not_a_loss() {
+        let conns = vec![conn(0, "c1.1", "d1.1", 100)];
+        let (tree, arena, store, _nodes) = build(&["c1", "c2"], &["d1", "d2"], &[], conns);
+        let trunks = collect_stmt_trunks(&tree, &arena, &store);
+        assert!(
+            trunks.iter().all(|t| t.defects.is_empty()),
+            "an untouched member is not a loss: {:?}",
+            trunks[0].defects
+        );
+        let nets = derive_nets(&trunks);
+        assert_eq!(nets.len(), 1, "width 1 pairs positionally: {nets:?}");
+        assert_eq!(nets[0].points.len(), 2);
+    }
+
+    /// The recorded span is the statement's: a lost member's diagnostic can
+    /// cite the defecting statement (AGENTS rule: a diagnostic cites a real
+    /// source location).
+    #[test]
+    fn member_lane__defects_carry_the_statement_span() {
+        let (tree, arena, store, _nodes) = build(
+            &["c1", "c2"],
+            &["d1", "d2"],
+            &["c2"],
+            vec![conn(0, "c1.1", "d1.1", 100), conn(1, "c2.1", "d2.1", 100)],
+        );
+        let trunks = collect_stmt_trunks(&tree, &arena, &store);
+        let trunk = &trunks[0];
+        assert_eq!(trunk.defects.len(), 2, "one loss + one width: {trunk:?}");
+        for d in &trunk.defects {
+            let span = match d {
+                LaneDefect::MemberLost { span, .. } | LaneDefect::PairWidth { span, .. } => span,
+            };
+            let sp = span.as_ref().expect("the statement span is carried");
+            assert_eq!(sp.uri.to_string(), TEST_URI);
+            assert_eq!(sp.offset, 100);
+        }
+    }
 }

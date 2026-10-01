@@ -25,10 +25,13 @@
 use super::arena::NodeArena;
 use super::descriptions::DescriptionLayer;
 use super::insttab::InstTable;
-use super::lane::{collect_stmt_trunks, derive_nets, finalize_net_ids, Net, NetId, PointId, Trunk};
+use super::lane::{
+    collect_stmt_trunks, derive_nets, finalize_net_ids, LaneDefect, Net, NetId, PointId, Trunk,
+};
 use super::mc_mod::McModuleInst;
 use super::overlays::Overlays;
-use crate::db::diagnostic::diagnostic::Diagnostic;
+use crate::db::diagnostic::diagnostic::{Diagnostic, DiagnosticLevel, Location};
+use crate::errcodes::{format_msg, VECTOR_MEMBER_LOST, VECTOR_PAIR_WIDTH_DRIFT};
 use crate::instant::identity::{anchored_child_key, CircuitKey, IdentityRegistry};
 use crate::instant::inststore::{InstanceStore, TreeView};
 use crate::instant::nettab::NetTableStore;
@@ -53,6 +56,9 @@ pub struct DianLu {
     /// lazy carrier as `table`, same per-build discipline as `overlays`:
     /// derived, no counter, never persisted, never an identity).
     reverse: Option<ReverseIndex>,
+    /// Lane-layer defects (U373) recorded on the trunks, converted to
+    /// diagnostics at assembly — visible before and after `flatten()`.
+    lane_diags: Vec<Diagnostic>,
     /// Flat electrical net-check diagnostics (§11.4), produced once by
     /// `flatten()` and returned to the caller for logging (Phase A: DianLu
     /// never writes to the workspace diagnostic manager itself).
@@ -190,6 +196,14 @@ impl DianLu {
         // Phase C: the incremental arena the builder laid down during
         // construction is the sole structural store.
         let lanes = collect_stmt_trunks(&tree, &arena, &store);
+        // Lane-layer defects (U373): the trunk face records what a statement
+        // asked for that could not be honored as written; the conversion to
+        // diagnostics happens here, the one place that owns the net-diag face.
+        let lane_diags: Vec<Diagnostic> = lanes
+            .iter()
+            .flat_map(|t| t.defects.iter())
+            .map(lane_defect_to_diagnostic)
+            .collect();
         let mut nets = derive_nets(&lanes);
         finalize_net_ids(&mut nets, identity);
         // §11.5.2 read API reverse index: built after `finalize_net_ids` so the
@@ -210,6 +224,7 @@ impl DianLu {
             start_id,
             table: None,
             reverse: None,
+            lane_diags,
             net_diags: Vec::new(),
             net_results: Vec::new(),
             identity,
@@ -332,6 +347,15 @@ impl DianLu {
         self.reverse.as_ref()
     }
 
+    /// The lane-layer defect diagnostics (U373), produced at assembly from
+    /// the trunks' recorded defects — a statement asked for something the
+    /// lane layer could not honor as written (a lost vector member, an
+    /// unequal-width slice pair). Also prefixed to [`Self::net_diags`] once
+    /// `flatten` has run.
+    pub fn lane_diags(&self) -> &[Diagnostic] {
+        &self.lane_diags
+    }
+
     /// The flat electrical net-check diagnostics (§11.4), cached by the first
     /// `flatten` and returned to the caller who owns logging. Empty until the
     /// projection has run. Read here instead of re-calling `flatten` when the
@@ -377,9 +401,15 @@ impl DianLu {
             }
             // Flat electrical checks run once during the projection (§11.4
             // flat entry); their diagnostics are returned, never logged here.
+            // The lane-layer defects (U373) prefix them: the statement-level
+            // cause (lost member, width drift) reads before the flat checks'
+            // downstream symptoms (unconnected pins).
             let results = crate::semantic::validation::nets::run_net_checks(&table);
-            self.net_diags =
-                crate::semantic::validation::nets::net_results_to_diagnostics(&results);
+            let mut diags = self.lane_diags.clone();
+            diags.extend(crate::semantic::validation::nets::net_results_to_diagnostics(
+                &results,
+            ));
+            self.net_diags = diags;
             self.net_results = results;
             // Design §9.6: the reverse index is derived from the projection, in
             // the same step, so "which rows exist" has one answer per build.
@@ -388,6 +418,35 @@ impl DianLu {
         }
         self.net_diags.clone()
     }
+}
+
+/// One recorded trunk defect → its net-diag face (U373). The message comes
+/// from the central catalog template ([`errcodes::format_msg`]); the location
+/// is the defecting statement's span, falling back to the empty uri (the
+/// caller's `current_uri` at log time — the same fallback
+/// `log_net_check_diagnostics` applies).
+fn lane_defect_to_diagnostic(d: &LaneDefect) -> Diagnostic {
+    let (code, level, args, span) = match d {
+        LaneDefect::MemberLost { span, vector, member } => (
+            VECTOR_MEMBER_LOST,
+            DiagnosticLevel::Warning,
+            vec![vector.clone(), member.clone()],
+            span,
+        ),
+        LaneDefect::PairWidth { span, left, right } => (
+            VECTOR_PAIR_WIDTH_DRIFT,
+            DiagnosticLevel::Error,
+            vec![left.to_string(), right.to_string()],
+            span,
+        ),
+    };
+    let (uri, pos) = match span {
+        Some(sp) => (sp.uri.clone(), sp.offset),
+        None => (crate::McURI::from(""), 0),
+    };
+    let arg_refs: Vec<&dyn std::fmt::Display> =
+        args.iter().map(|a| a as &dyn std::fmt::Display).collect();
+    Diagnostic::new(code, level, Location::new(uri, pos, 0), format_msg(code, &arg_refs))
 }
 
 /// Rebuild the per-build identity registry from a frozen tree's companion
@@ -441,5 +500,61 @@ fn resume_module(reg: &mut IdentityRegistry, path: &str, module: &McModuleInst, 
             reg.resume(&key, id);
         }
         resume_module(reg, &sub_path, sub, view);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// U373: a recorded trunk defect converts to its net-diag face —
+    /// MemberLost → VECTOR_MEMBER_LOST (warning), PairWidth →
+    /// VECTOR_PAIR_WIDTH_DRIFT (error), message from the central catalog
+    /// template, span carried as the diagnostic location.
+    #[test]
+    fn dlu_lane_diag__defect_conversion_uses_catalog_templates() {
+        use super::lane_defect_to_diagnostic;
+        use crate::db::diagnostic::diagnostic::DiagnosticLevel;
+        use crate::errcodes::{VECTOR_MEMBER_LOST, VECTOR_PAIR_WIDTH_DRIFT};
+        use crate::instant::lane::LaneDefect;
+        use crate::semantic::common::SourcePos;
+
+        let span = Some(SourcePos::new("/mcc/dl.mc", 42));
+        let lost = lane_defect_to_diagnostic(&LaneDefect::MemberLost {
+            span: span.clone(),
+            vector: "c".to_string(),
+            member: "c2".to_string(),
+        });
+        assert_eq!(lost.code, VECTOR_MEMBER_LOST);
+        assert_eq!(lost.level, DiagnosticLevel::Warning);
+        assert_eq!(lost.loc.uri.to_string(), "/mcc/dl.mc");
+        assert_eq!(lost.loc.pos, 42);
+        assert!(
+            lost.msg.contains("'c'") && lost.msg.contains("'c2'"),
+            "catalog template filled: {}",
+            lost.msg
+        );
+
+        let width = lane_defect_to_diagnostic(&LaneDefect::PairWidth {
+            span,
+            left: 1,
+            right: 2,
+        });
+        assert_eq!(width.code, VECTOR_PAIR_WIDTH_DRIFT);
+        assert_eq!(width.level, DiagnosticLevel::Error);
+        assert!(
+            width.msg.contains('1') && width.msg.contains('2'),
+            "catalog template filled: {}",
+            width.msg
+        );
+
+        // A span-less defect falls back to the empty uri (the caller's
+        // `current_uri` at log time) — the same fallback
+        // `log_net_check_diagnostics` applies.
+        let bare = lane_defect_to_diagnostic(&LaneDefect::MemberLost {
+            span: None,
+            vector: "c".to_string(),
+            member: "c2".to_string(),
+        });
+        assert!(bare.loc.uri.is_empty());
+        assert_eq!(bare.loc.pos, 0);
     }
 }
