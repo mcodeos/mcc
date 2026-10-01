@@ -1304,10 +1304,18 @@ impl InstantiationBuilder {
                             }
                         }
                         McPhrase::Transposed(inner) => {
-                            if let Some(pin) = self.get_transposed_lane_pin(stmt, lane) {
-                                items.push((member_idx, LaneItem::Bridge(pin)));
+                            // U372 leg2 (L4): same device/operand split as the
+                            // standalone arm — a non-device row inside the
+                            // parallel group is a two-terminal series item,
+                            // never a cross-lane bridge.
+                            if self.is_bridge_passive_core(inner) {
+                                if let Some(pin) = self.get_transposed_lane_pin(stmt, lane) {
+                                    items.push((member_idx, LaneItem::Bridge(pin)));
+                                }
+                                self.try_record_bridge_passive(inner);
+                            } else {
+                                items.push((member_idx, LaneItem::Series(stmt)));
                             }
-                            self.try_record_bridge_passive(inner);
                         }
                         _ => {
                             // ── P2-7-XTAL fix: assign each Parallel stmt to its matching lane ──
@@ -1323,11 +1331,20 @@ impl InstantiationBuilder {
                 }
             }
             McPhrase::Transposed(inner) => {
-                // M11.4: standalone Transposed in chain acts as bridge passive
-                if let Some(pin) = self.get_transposed_lane_pin(member, lane) {
-                    items.push((member_idx, LaneItem::Bridge(pin)));
+                // U372 leg2 (L4 面序律): only a **device** core keeps the
+                // M11.4 standalone-Transposed shunt bridge (L11 — the bridge
+                // passive spans the lanes). A label/pin row core is a plain
+                // operand: its row is a *directed two-terminal* — series
+                // touches only its near face, the far face continues the
+                // chain, and the two faces never short into one harness net.
+                if self.is_bridge_passive_core(inner) {
+                    if let Some(pin) = self.get_transposed_lane_pin(member, lane) {
+                        items.push((member_idx, LaneItem::Bridge(pin)));
+                    }
+                    self.try_record_bridge_passive(inner);
+                } else {
+                    items.push((member_idx, LaneItem::Series(member)));
                 }
-                self.try_record_bridge_passive(inner);
             }
             // Every other member — a whole-DC-pair curly face (model A §5.3),
             // a multi-pin bus endpoint (P2-7), or a plain scalar — occupies
@@ -1352,6 +1369,22 @@ impl InstantiationBuilder {
         } else {
             None
         }
+    }
+
+    /// Is this Transposed core a **device** (bridge-passive) core?
+    ///
+    /// U372 leg2 (L4 面序律): the shunt-bridge treatment is a device's — a
+    /// component instance resolved at Pass1 (`Endpoint(Component)`) or a func
+    /// call the lane pre-pass instantiated (`auto_inst_map`). Any other core
+    /// (a label row, a pin row) is a plain operand: a directed two-terminal
+    /// that wires as a series member, never as a cross-lane bridge.
+    fn is_bridge_passive_core(&self, inner: &McPhrase) -> bool {
+        if let McPhrase::Endpoint(McRef::Name(iref)) = inner {
+            if matches!(iref.base, McInstance::Component(_)) {
+                return true;
+            }
+        }
+        self.auto_inst_map.contains_key(&Self::member_key(inner))
     }
 
     /// Record bridge passive instance names from a Transposed inner phrase.

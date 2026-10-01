@@ -123,6 +123,32 @@ fn conn_law__device_row_series_touches_only_near_faces() {
     );
 }
 
+/// L4 面序律, label-row side (#21) — U372 leg2: a row operand between scalars
+/// is still a **directed two-terminal**, exactly like the device row of the
+/// cell above. `L0 - [L1,L2]' - L9` touches the near face (L1) with L0 and
+/// lets the far face (L2) continue the chain to L9; the row's two faces never
+/// short into one harness net.
+#[test]
+fn conn_law__label_row_series_touches_only_near_faces() {
+    let (codes, nets) = build("    L0 - [L1,L2]' - L9");
+    assert!(
+        !codes.contains(&mcc::errcodes::CONN_SERIES_SHAPE_MISMATCH),
+        "scalar - row - scalar is a legal two-terminal chain; got {codes:?}"
+    );
+    assert!(
+        wired(&nets, "L0", "L1") && wired(&nets, "L2", "L9"),
+        "the chain must touch the near face and continue from the far face; got {nets:?}"
+    );
+    assert!(
+        !wired(&nets, "L1", "L2"),
+        "the row's two faces must not short together; got {nets:?}"
+    );
+    assert!(
+        !wired(&nets, "L0", "L9"),
+        "the row must not harness its neighbors into one net; got {nets:?}"
+    );
+}
+
 /// L3 单点恒等律, spelling side (#23, #27, #28): the transpose wrapper and the
 /// group form on a single-point label are the identity — and (unlike the `^`
 /// spellings, whose E2903 noise leg1 narrows) these spellings are already

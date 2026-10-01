@@ -213,7 +213,7 @@ fn series_lane__lane_face_comes_from_the_chains_last_member() {
         "the lane face must come from the chain's last member; got {nets:?}"
     );
     assert!(
-        !nets.iter().any(|n| n.iter().any(|p| p == "R101.2")),
+        !has("R101.2", "R104.1"),
         "the chain's first member must not become the lane face; got {nets:?}"
     );
 }
