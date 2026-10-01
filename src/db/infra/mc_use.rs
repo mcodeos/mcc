@@ -267,6 +267,17 @@ impl McUse {
         // filename.mc
         let mut final_filename = self.uri.clone();
         if let Some(ver) = &self.version {
+            // `./`/`../` paths are sliced verbatim from the source (step 2
+            // above), so the text already carries the `@ver` tail — and its
+            // `.mc` — that this step re-appends. Strip it first or the
+            // target doubles (`./led@1.0.0` → `led@1.0.0@1.0.0.mc`).
+            let tag = format!("@{ver}");
+            if let Some(at) = final_filename.rfind(&tag) {
+                final_filename.truncate(at);
+                if final_filename.ends_with(".mc") {
+                    final_filename.truncate(final_filename.len() - ".mc".len());
+                }
+            }
             final_filename.push('@');
             final_filename.push_str(ver);
         }
@@ -309,6 +320,62 @@ impl McUse {
                 return;
             }
         };
+
+        // 6b. Containment gate: canonicalize() follows symlinks and the
+        // relative prefixes climb, so without this check a committed
+        // `link.mc -> /anywhere` symlink — or a chain of per-file `../`
+        // climbs — lands the use target outside every root the prefix law
+        // defines. The system face is always gated by the system root
+        // (data_root(), always configured). The relative/project faces are
+        // gated by the project root only in project mode AND only when the
+        // using file itself lives under that root — a system library's own
+        // internal `./` uses resolve under the system root, not the project,
+        // and must not be measured against it. View mode (root unset) keeps
+        // the historical permissive behavior.
+        let boundary = match self.prefix {
+            McUsePrefix::PathSystem => {
+                let root = mcb_get_system_root();
+                if root.as_os_str().is_empty() {
+                    None
+                } else {
+                    Some(root.canonicalize().unwrap_or(root))
+                }
+            }
+            McUsePrefix::PathProject | McUsePrefix::PathCurrent | McUsePrefix::PathParent => {
+                let root = mcb_get_project_root();
+                if root.as_os_str().is_empty() {
+                    None
+                } else {
+                    let root_canon = root.canonicalize().unwrap_or_else(|_| root);
+                    // Both sides canonical: /tmp vs /private/tmp on macOS
+                    // would otherwise false-positive on a string prefix.
+                    let here_canon = current_path
+                        .canonicalize()
+                        .unwrap_or_else(|_| current_path.to_path_buf());
+                    if here_canon.starts_with(&root_canon) {
+                        Some(root_canon)
+                    } else {
+                        None
+                    }
+                }
+            }
+        };
+        if let Some(root_canon) = boundary {
+            if !canonical_abs_path.starts_with(&root_canon) {
+                if let Some(fnode) = file_node {
+                    let file_display = canonical_abs_path.display();
+                    dlog_warning(
+                        crate::db::diagnostic::errcodes::USE_TARGET_ESCAPES_ROOT,
+                        fnode,
+                        &crate::db::diagnostic::errcodes::format_msg(
+                            crate::db::diagnostic::errcodes::USE_TARGET_ESCAPES_ROOT,
+                            &[&file_display],
+                        ),
+                    );
+                }
+                return;
+            }
+        }
 
         // 7. Update final absolute path into self.uri
         // Convert PathBuf to string, then update McURI
@@ -357,19 +424,50 @@ mod tests {
         }
     }
 
-    /// Test system-library prefix prepending `mcode/`.
-    /// Verifies `use $::mcode.gpio` → `mcode/gpio/gpio`.
+    /// Test system-library filename assembly.
+    /// Verifies the system root already IS the library root, so the assembled
+    /// filename gets no extra `mcode/` segment (`use $::mcode.gpio` resolves
+    /// under the system root directly).
     #[test]
     fn def_mcuse__system_lib_prefix() {
         let prefix = McUsePrefix::PathSystem;
         let mut final_filename = "gpio/gpio".to_string();
 
-        // Apply system-library prefix logic
+        // The system root already points at the library directory — no
+        // `mcode/` prefix is prepended (update_abs_path step 4).
         if prefix == McUsePrefix::PathSystem {
-            final_filename = format!("mcode/{}", final_filename);
+            // no prefix
         }
 
-        assert_eq!(final_filename, "mcode/gpio/gpio");
+        assert_eq!(final_filename, "gpio/gpio");
+    }
+
+    /// Test versioned relative-path tail stripping (U369 ①).
+    /// Verifies `./led@1.0.0` assembles `led@1.0.0.mc`, not the doubled
+    /// `led@1.0.0@1.0.0.mc` — the verbatim slice already carries the
+    /// `@ver` tail that step 3 re-appends.
+    #[test]
+    fn def_mcuse__versioned_relative_tail_stripped_once() {
+        for (raw, want) in [
+            ("parts/led@1.0.0", "parts/led@1.0.0.mc"),
+            ("parts/led@1.0.0.mc", "parts/led@1.0.0.mc"),
+        ] {
+            let mut final_filename = raw.to_string();
+            let ver = "1.0.0";
+            let tag = format!("@{ver}");
+            if let Some(at) = final_filename.rfind(&tag) {
+                final_filename.truncate(at);
+                if final_filename.ends_with(".mc") {
+                    final_filename.truncate(final_filename.len() - ".mc".len());
+                }
+            }
+            final_filename.push('@');
+            final_filename.push_str(ver);
+            if !final_filename.ends_with(".mc") {
+                final_filename.push_str(".mc");
+            }
+            assert_eq!(final_filename, want, "raw form: {raw}");
+        }
     }
 
     /// Test project-root path NOT prepending `mcode/`.

@@ -234,6 +234,9 @@ pub const USE_REEXPORT_SYMBOL_NOT_FOUND: u32 = 2008;
 /// Unexpected trailing node in a USE statement; it is ignored.
 pub const USE_TRAILING_NODE: u32 = 2010;
 
+/// The use target resolves outside the root that governs its prefix.
+pub const USE_TARGET_ESCAPES_ROOT: u32 = 2011;
+
 // Pass1b: use-stage diagnostics (2050-2079)
 
 /// Use of an undeclared dependency — add it to project.toml [dependencies] or load via --lib.
@@ -2522,6 +2525,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(USE_IMPORT_SYMBOL_NOT_FOUND, "A symbol listed in use import(...) was not found in the target file.", "A symbol listed in use import(...) was not found in the target file."),
     entry!(USE_REEXPORT_SYMBOL_NOT_FOUND, "A symbol in pub use import(...) was not found and cannot be re-exported.", "A symbol in pub use import(...) was not found and cannot be re-exported."),
     entry!(USE_TRAILING_NODE, "Unexpected trailing node in a USE statement; it is ignored.", "unexpected trailing node {0} in USE statement; it is ignored"),
+    entry!(USE_TARGET_ESCAPES_ROOT, "The use target resolves outside the root that governs its prefix.", "use target escapes the project/system root: {0}"),
     // section
     entry!(USE_DEP_NOT_DECLARED, "Use of an undeclared dependency — add it to project.toml [dependencies] or load via --lib.", "use of undeclared dependency '{0}': add it to project.toml [dependencies] or load via --lib"),
     entry!(USE_LIB_NOT_FOUND, "The library is not installed in the system root — install it with `mcc lib install` or load it with --lib.", "library '{0}' not found in the system root; install it with `mcc lib install` or load it with --lib"),

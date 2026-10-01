@@ -16,6 +16,7 @@
 //! | 2007 USE_IMPORT_SYMBOL_NOT_FOUND | `use ./tgt.mc : NOPE`, tgt exports only BETA | 2007+2071 |
 //! | 2008 USE_REEXPORT_SYMBOL_NOT_FOUND | same but `pub use` | +2007/2071 |
 //! | 2071 USE_IMPORTED_NOT_FOUND | load-time parse_nsp miss on the colon import | +2007 |
+//! | 2011 USE_TARGET_ESCAPES_ROOT | symlinked use target canonicalizes outside the project root | project mode only |
 //!
 //! 2061 USE_SYMBOL_CONFLICT needs a temp `MCC_SYSTEM_ROOT` resolved before the
 //! process's first mcc init, so it lives in its own single-test binary
@@ -159,6 +160,49 @@ fn sem_useimp__imported_not_found_reports_2071() {
     assert!(
         c.contains(&mcc::errcodes::USE_IMPORTED_NOT_FOUND),
         "load-time parse_nsp miss must report 2071; got codes: {c:?}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 2011 USE_TARGET_ESCAPES_ROOT (mc_use.rs containment gate): in project mode
+/// a use target that canonicalizes outside the project root is refused even
+/// though it exists on disk — here via a symlink pointing at a sibling of the
+/// project root. The project-root global is saved and restored around the
+/// test (rpc::handlers does the same around its own root swaps).
+#[test]
+fn sem_useimp__target_outside_project_root_reports_2011() {
+    let _lock = common::lock();
+    common::reset();
+
+    let dir = fresh_dir("2011");
+    // proj/ is the project root; outside/ sits beside it, NOT under it.
+    let proj = dir.join("proj");
+    let outside = dir.join("outside");
+    std::fs::create_dir_all(&proj).unwrap();
+    std::fs::create_dir_all(&outside).unwrap();
+    let _ = load_real(&outside, "secret.mc", SRC_TGT);
+    let link = proj.join("link.mc");
+    std::os::unix::fs::symlink(outside.join("secret.mc"), &link).unwrap();
+    // Written to disk only — NOT mcc_load_from_string'd. The use statement
+    // resolves at load time, so it must still be un-loaded when the project
+    // root is set below, or the gate sees an empty root and skips.
+    std::fs::write(
+        proj.join("main.mc"),
+        "use ./link.mc\n\nmodule main {\n    io VDD\n}\n",
+    )
+    .unwrap();
+
+    mcc::mcc_set_project_root(&proj);
+    let uri = proj.join("main.mc").canonicalize().unwrap().to_string_lossy().to_string();
+    mcc::mcc_load_project(&uri);
+    let c = codes();
+    // Restore the process-global root before asserting — the tests in this
+    // binary share the global, and a panic mid-assert would otherwise leave
+    // this project root behind for the next test.
+    mcc::mcc_set_project_root(Path::new(""));
+    assert!(
+        c.contains(&mcc::errcodes::USE_TARGET_ESCAPES_ROOT),
+        "symlinked use target outside the project root must report 2011; got codes: {c:?}"
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
