@@ -35,6 +35,7 @@ mod single_member_range;
 mod u12_value_pairing_hbl;
 mod u63_call_arg_binding;
 mod vec_body_portcount;
+mod vec_conn_algebra_locks;
 mod vec_r0_operator_fidelity;
 mod vec_series_rowzip;
 mod u337_bare_literal_cond;
