@@ -801,22 +801,15 @@ pub(crate) fn element_class_of(
             continue;
         }
         // A dotted key keeps its sub-key in the remaining segments; the table
-        // form keeps it in the id of each inner attribute.
+        // form keeps it in the id of each inner attribute. The record face is
+        // the meta engine's (U377): `record_names` reads the row ids of every
+        // bracket-record value, empty on any other arm.
         let subs: Vec<String> = if let Some(sub) = attr.id.sub_path() {
             vec![sub]
         } else {
             attr.values
                 .iter()
-                .filter_map(|v| match v {
-                    crate::semantic::component::mc_attr::McAttrVal::Attributes(inner) => Some(
-                        inner
-                            .iter()
-                            .map(|row| row.id.to_string())
-                            .collect::<Vec<_>>(),
-                    ),
-                    _ => None,
-                })
-                .flatten()
+                .flat_map(crate::semantic::meta::record_names)
                 .collect()
         };
         for sub in subs {
@@ -852,18 +845,16 @@ pub(crate) fn spec_quantity_of(
     spec_key: &str,
     family: &crate::semantic::basic::mc_uval::McUnit,
 ) -> Option<f64> {
-    use crate::semantic::component::mc_attr::{attr_values_text, McAttrVal};
+    use crate::semantic::component::mc_attr::attr_values_text;
     let (ns, sub) = spec_key.split_once('.')?;
     for attr in comp.resolved_attrs.iter() {
         let segs = &attr.id.segments;
         let text = if segs.len() == 1 && segs[0].to_string() == ns {
+            // The record row for `sub` is the meta engine's exact-name lookup
+            // (U377 `record_row`); the text extraction stays the U42 reading.
             attr.values
                 .iter()
-                .filter_map(|v| match v {
-                    McAttrVal::Attributes(inner) => inner.iter().find(|r| r.id.to_string() == sub),
-                    _ => None,
-                })
-                .next()
+                .find_map(|v| crate::semantic::meta::record_row(v, sub))
                 .and_then(|row| attr_values_text(row.values.iter()))
         } else if segs.len() > 1
             && segs[0].to_string() == ns

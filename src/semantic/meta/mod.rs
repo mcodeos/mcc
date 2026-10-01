@@ -142,6 +142,35 @@ fn normalize_kvs(kvs: &McKVS) -> (String, McMetaValue) {
     (kvs.key.to_string(), value)
 }
 
+/// The Record face of one value: the bracket-record rows when the value is
+/// `McAttrVal::Attributes`, empty for every other arm. The scattered consumers
+/// (mc_attr.rs `collect_key_names`, insttab.rs record selection, the
+/// mc_attr_view walk) iterate through here instead of matching the arm
+/// themselves — the wrong-arm-reads-empty trap closes by shape (§2.4 gap 1).
+pub fn record_rows(val: &McAttrVal) -> &[McAttribute] {
+    const NONE: &[McAttribute] = &[];
+    match val {
+        McAttrVal::Attributes(rows) => rows,
+        _ => NONE,
+    }
+}
+
+/// Does any value on this list carry the Record face (`[ id = ... ]`)?
+pub fn has_records(values: &[McAttrVal]) -> bool {
+    values.iter().any(|v| matches!(v, McAttrVal::Attributes(_)))
+}
+
+/// The id of every row on one value's Record face, in written order.
+pub fn record_names(val: &McAttrVal) -> Vec<String> {
+    record_rows(val).iter().map(|row| row.id.to_string()).collect()
+}
+
+/// The record row whose id is exactly `name`, on one value's Record face —
+/// the exact-name comparison the insttab record selection does by hand.
+pub fn record_row<'a>(val: &'a McAttrVal, name: &str) -> Option<&'a McAttribute> {
+    record_rows(val).iter().find(|row| row.id.to_string() == name)
+}
+
 /// One value as the unified read API hands it out (ruling ②). `name` is
 /// `Some(record-id)` only for Record rows; everything on the Set face and
 /// every scalar reads nameless, so consumers iterate once instead of
@@ -204,9 +233,7 @@ fn resolve_segs<'a>(
             continue;
         }
         for val in &attr.values {
-            if let McAttrVal::Attributes(rows) = val {
-                out.extend(resolve_segs(rows.iter(), &segs[1..]));
-            }
+            out.extend(resolve_segs(record_rows(val).iter(), &segs[1..]));
         }
     }
     out
@@ -257,6 +284,26 @@ mod tests {
             }
             other => panic!("expected record, got {other:?}"),
         }
+    }
+
+    // The Record-face primitives the scattered consumers delegate to: empty
+    // on every other arm (the wrong-arm-reads-empty trap closes by shape).
+    #[test]
+    fn record_face_primitives_read_rows_names_and_exact_row() {
+        let record = McAttrVal::Attributes(vec![
+            attr("a", vec![word("80mΩ")]),
+            attr("b", vec![word("100mΩ")]),
+        ]);
+        assert!(has_records(std::slice::from_ref(&record)));
+        assert_eq!(record_names(&record), vec!["a".to_string(), "b".to_string()]);
+        assert_eq!(record_row(&record, "b").map(|r| r.id.to_string()), Some("b".into()));
+        assert_eq!(record_row(&record, "c"), None);
+        // The Set face and scalars read as zero rows, never as a panic.
+        let set = McAttrVal::AttrExpr(McExpression::Set(vec![]));
+        assert!(!has_records(std::slice::from_ref(&set)));
+        assert!(record_rows(&set).is_empty());
+        assert!(record_names(&set).is_empty());
+        assert_eq!(record_row(&set, "a"), None);
     }
 
     // KVS entry: `Vgs:-10V` reads as a named pair with a unit value.

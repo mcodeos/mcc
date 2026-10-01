@@ -196,14 +196,14 @@ fn collect_key_names(
     out: &mut Vec<crate::semantic::basic::mc_param::AttrKeyName>,
 ) {
     use crate::semantic::basic::mc_param::AttrKeyName;
+    // The record face is the meta engine's (U377): a table value is the one
+    // carrying `Attributes` rows, and the descent walks `record_rows`, which
+    // is empty on every other arm — both spellings keep yielding the same
+    // leaf names (G2).
     for attr in attrs {
         let mut path = prefix.clone();
         path.push(attr.id.to_string());
-        let is_table = attr
-            .values
-            .iter()
-            .any(|v| matches!(v, McAttrVal::Attributes(_)));
-        if !is_table {
+        if !crate::semantic::meta::has_records(&attr.values) {
             let name = path
                 .last()
                 .and_then(|key| key.rsplit('.').next())
@@ -216,9 +216,12 @@ fn collect_key_names(
             });
         }
         for val in attr.values.iter() {
-            if let McAttrVal::Attributes(rows) = val {
-                collect_key_names(rows, &mut path, declares, out);
-            }
+            collect_key_names(
+                crate::semantic::meta::record_rows(val),
+                &mut path,
+                declares,
+                out,
+            );
         }
     }
 }

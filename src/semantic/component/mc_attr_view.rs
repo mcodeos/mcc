@@ -191,9 +191,9 @@ fn collect<'a>(
         if opens_table(&key, &attr.values) {
             let inner = format!("{key}.");
             for val in attr.values.iter() {
-                if let McAttrVal::Attributes(rows) = val {
-                    collect(rows.iter(), &inner, out);
-                }
+                // The record face is the meta engine's (U377); the view only
+                // descends into it.
+                collect(crate::semantic::meta::record_rows(val).iter(), &inner, out);
             }
             continue;
         }
@@ -210,8 +210,7 @@ fn collect<'a>(
 /// register rows *under* the key, which is what makes the rows keys rather than
 /// fields of a record.
 fn opens_table(key: &str, values: &[McAttrVal]) -> bool {
-    values.iter().any(|v| matches!(v, McAttrVal::Attributes(_)))
-        && attr_keys::is_table_namespace(key)
+    crate::semantic::meta::has_records(values) && attr_keys::is_table_namespace(key)
 }
 
 /// The value read of one key's written value list.
