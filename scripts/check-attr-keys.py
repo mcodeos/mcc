@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """Ledger reconciliation gate for the attribute key registry.
 
-The ledger has two copies: the authoritative table in `doc/NAMING.md`
-section 8.3, and its mirror `ATTR_KEYS` in `src/semantic/basic/attr_keys.rs`.
-This scanner reads both and fails when a row disagrees, so the two cannot
-drift.
+The ledger has two copies: the authoritative tables in `doc/NAMING.md`
+section 8.3 (the language-core keys, one table per admission), and the
+mirror `ATTR_KEYS` in `src/semantic/basic/attr_keys.rs` (which also
+carries the domain keys until the metadata batch takes them). The scan
+is a subset check: every doc row must exist in the mirror with the same
+faces, value, admission, and words; mirror-only rows are reported, not
+failed, so the two cannot drift on what the doc does carry.
 
 Usage:
     python3 scripts/check-attr-keys.py [FILE ...]
@@ -38,7 +41,11 @@ DOC_MARKER = "attr-keys-ledger:"
 # `face_constants` resolves the face argument.
 ROW_KINDS = ("row", "value_row", "voltage_row", "contract_row", "element_row", "vocab_row", "open_row")
 
-COLUMNS = ("key", "faces", "value", "contract", "admission", "arity", "supply", "vocab")
+# Columns compared between doc and mirror. The doc tables cover the
+# language-core keys only (domain keys live mirror-only until the metadata
+# batch), so admission — which table a row sits in — is doc-side state, and
+# the mirror's contract / supply / arity fields are outside the comparison.
+COLUMNS = ("key", "faces", "value", "admission", "vocab")
 
 # The four states the word column carries. The words themselves are named by
 # constants on the mirror side (`WORD_SHUNT`), so the column is only comparable
@@ -130,10 +137,7 @@ def empty_row(key):
         "key": key,
         "faces": "",
         "value": "-",
-        "contract": "Plain",
         "admission": "general",
-        "arity": "Single",
-        "supply": "no",
         "vocab": VOCAB_UNREGISTERED,
     }
 
@@ -205,38 +209,66 @@ def read_mirror():
 
 
 def read_doc():
-    """Parse the ledger table of section 3.1 into the same rows."""
+    """Parse the ledger tables of section 8.3 into the same rows.
+
+    Section 8.3 carries two tables, one per admission: each sits under a
+    `attr-keys-ledger-table: <admission>` comment token, and the admission
+    is carried by which table a row sits in, not by a cell. Each token
+    owns the table that follows it (a prose heading may sit between);
+    the first non-table line after the table closes the block.
+    """
     lines = DOC.read_text(encoding="utf-8").splitlines()
 
     marker = next((i for i, line in enumerate(lines) if DOC_MARKER in line), None)
     if marker is None:
         sys.stderr.write(
             "attr-keys: no ledger marker in %s; section 8.3 must carry a line "
-            "containing %r above its table\n" % (DOC, DOC_MARKER)
+            "containing %r above its tables\n" % (DOC, DOC_MARKER)
         )
         sys.exit(1)
 
-    header = next(
-        (i for i in range(marker, len(lines)) if lines[i].startswith("|")), None
-    )
-    if header is None:
-        sys.stderr.write("attr-keys: no table follows the ledger marker in %s\n" % DOC)
-        sys.exit(1)
+    table_marker = "attr-keys-ledger-table:"
+    admissions = ("reserved", "general")
 
     rows = []
-    for line in lines[header + 2 :]:
-        if not line.startswith("|"):
-            break
-        cells = [c.strip() for c in line.strip().strip("|").split("|")]
-        if len(cells) != len(COLUMNS):
-            sys.stderr.write(
-                "attr-keys: the ledger table in %s has %d columns, expected %d: %s\n"
-                % (DOC, len(cells), len(COLUMNS), line)
-            )
-            sys.exit(1)
-        row = dict(zip(COLUMNS, cells))
-        row["key"] = row["key"].strip("`")
-        rows.append(row)
+    current = None
+    seen_row = False
+    for line in lines[marker + 1 :]:
+        if line.startswith("### "):
+            break  # the section ends at the next heading
+        if table_marker in line:
+            current = line.split(table_marker, 1)[1].strip()
+            current = current.split("-->")[0].strip()
+            if current not in admissions:
+                sys.stderr.write(
+                    "attr-keys: %r in %s is not one of %s\n"
+                    % (current, DOC, ", ".join(admissions))
+                )
+                sys.exit(1)
+            seen_row = False
+            continue
+        if line.startswith("|"):
+            cells = [c.strip() for c in line.strip().strip("|").split("|")]
+            if not cells[0].startswith("`"):
+                continue  # a header, a separator, or a foreign table
+            if current is None:
+                sys.stderr.write(
+                    "attr-keys: a ledger row in %s appears before any %s token: %s\n"
+                    % (DOC, table_marker, line)
+                )
+                sys.exit(1)
+            if len(cells) != len(COLUMNS) - 1:
+                sys.stderr.write(
+                    "attr-keys: the ledger table in %s has %d columns, expected %d: %s\n"
+                    % (DOC, len(cells), len(COLUMNS) - 1, line)
+                )
+                sys.exit(1)
+            row = dict(zip(COLUMNS, cells[:3] + [current] + cells[3:]))
+            row["key"] = row["key"].strip("`")
+            rows.append(row)
+            seen_row = True
+        elif current is not None and seen_row:
+            current = None  # the first non-table line closes the block
     return rows
 
 
@@ -257,17 +289,16 @@ def main(argv):
     doc = {r["key"]: r for r in read_doc()}
 
     problems = []
-    for key in sorted(set(doc) | set(mirror)):
+    for key in sorted(doc):
         if key not in mirror:
             problems.append("'%s' is in the doc table but not in ATTR_KEYS" % key)
-        elif key not in doc:
-            problems.append("'%s' is in ATTR_KEYS but not in the doc table" % key)
         elif describe(doc[key]) != describe(mirror[key]):
             problems.append(
                 "'%s': doc says '%s', ATTR_KEYS says '%s'"
                 % (key, describe(doc[key]), describe(mirror[key]))
             )
 
+    mirror_only = sorted(set(mirror) - set(doc))
     if problems:
         sys.stderr.write(
             "attr-keys: the ledger doc and ATTR_KEYS disagree (%d row(s)):\n" % len(problems)
@@ -275,11 +306,15 @@ def main(argv):
         for p in problems:
             sys.stderr.write("  %s\n" % p)
         sys.stderr.write(
-            "attr-keys: %s is authoritative; %s is its mirror.\n" % (DOC, MIRROR_REL)
+            "attr-keys: %s is authoritative for the core keys; %s carries the"
+            " domain rows (metadata batch pending).\n" % (DOC, MIRROR_REL)
         )
         return 1
 
-    print("attr-keys: %d rows agree" % len(mirror))
+    print(
+        "attr-keys: %d doc rows agree; %d mirror-only rows (domain keys,"
+        " metadata batch pending)" % (len(doc), len(mirror_only))
+    )
     return 0
 
 

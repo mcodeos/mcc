@@ -1,10 +1,10 @@
-# mcode Class Naming Convention
+# MCode Class Naming Convention
 
 > **Version**: v1.1
 > **Date**: 2026-10-01
 >
 > This document defines the naming rules for all class definitions (component, interface, enum)
-> in the mcode standard component library, and for instance designators (§7).
+> in the MCode standard component library, and for instance designators (§7).
 
 ---
 
@@ -409,11 +409,12 @@ into the source.
 
 Attribute rows (`key = value` in a component / module body), pin-row value
 keys (`volt: 1.2V`), and interface-body rows share one key vocabulary. This
-section is that vocabulary's **single authority**: which keys exist, which
-face each is written on, what its value means, which contract half it
-carries, and which words its value may take. The row *syntax* is grammar and
-stays with the spec canon (mcode-grammar.md §7.1, mcd); everything
-registered *about a key* is registered here and nowhere else.
+section is the **single authority for the language-core keys**: which
+keys exist, which face each is written on, what its value means, and
+which words its value may take. The row *syntax* is grammar and stays
+with the spec canon (mcode-grammar.md §7.1, mcd); everything registered
+*about a core key* is registered here and nowhere else, and domain keys
+are registered in the mirror until the metadata table takes them (§8.3).
 
 The machine mirror is `ATTR_KEYS` in `src/semantic/basic/attr_keys.rs` —
 the same rows and columns, one row per key. `scripts/check-attr-keys.py`
@@ -433,10 +434,10 @@ pre-commit hook, and CI.
 
 | Consumer | Question | Column read |
 |---|---|---|
-| ERC / admission (N1, N2, N7) | is this word reserved at attribute positions? | Admission |
+| ERC / admission (N1, N2, N7) | is this word reserved at attribute positions? | Table (reserved) |
 | Value semantics (D5, constructor-param type inference) | what quantity does this key carry? | Value |
-| Parameter matching (demand ↔ supply) | which half is this key? | Contract |
-| Table discipline (HW1, simulation) | is this key a supply voltage? on which face? | Supply + Faces |
+| Parameter matching (demand ↔ supply) | which half is this key? | Mirror (`AttrContract`), metadata table pending |
+| Table discipline (HW1, simulation) | is this key a supply voltage? on which face? | Faces; supply flag in the mirror |
 | Word admission (`E5360`) | which words may this key's value take? | Words |
 
 3. **A key is a name: exact, full-path, case-sensitive.** `spec.Capacitance`
@@ -458,105 +459,78 @@ pre-commit hook, and CI.
 
 <!-- attr-keys-ledger: reconciled with src/semantic/basic/attr_keys.rs by scripts/check-attr-keys.py -->
 
-| Key | Faces | Value | Contract | Admission | Arity | Supply | Words |
-|---|---|---|---|---|---|---|---|
-| `this` | Body | - | Plain | reserved | Single | no | - |
-| `pins` | Body | - | Plain | reserved | Single | no | - |
-| `role` | Body, PinRow | - | Plain | reserved | Single | no | `main`, `quiet`, `protective`, `earth`, `isolated` |
-| `func` | Body | - | Plain | reserved | Single | no | - |
-| `return` | Body | - | Plain | reserved | Single | no | - |
-| `in` | Body | - | Plain | reserved | Single | no | - |
-| `out` | Body | - | Plain | reserved | Single | no | - |
-| `io` | Body | - | Plain | reserved | Single | no | - |
-| `psrc` | Body | - | Plain | reserved | Single | no | - |
-| `psnk` | Body | - | Plain | reserved | Single | no | - |
-| `psbi` | Body | - | Plain | reserved | Single | no | - |
-| `nc` | Body | - | Plain | reserved | Single | no | - |
-| `if` | Body | - | Plain | reserved | Single | no | - |
-| `else` | Body | - | Plain | reserved | Single | no | - |
-| `spec` | Body | - | Plain | general | Single | no | - |
-| `name` | Body | Text | Plain | general | Single | no | - |
-| `description` | Body | Text | Plain | general | Single | no | - |
-| `partno` | Body | Text | Plain | general | Single | no | - |
-| `package` | Body | Text | Plain | general | Single | no | - |
-| `manufacturer` | Body | Text | Plain | general | Single | no | - |
-| `class` | Body, PinRow | - | Plain | general | Single | no | `digital`, `analog`, `radio` |
-| `nature` | Body | - | Plain | general | Single | no | `ac`, `dc` |
-| `noise` | Body | - | Plain | general | Single | no | `noisy`, `quiet`, `sensitive` |
-| `exposed` | Body, PinRow | - | Plain | general | Single | no | `esd_contact`, `esd_air`, `eft`, `surge`, `lightning` |
-| `bind_role` | Body | - | Plain | general | Single | no | `main`, `quiet`, `protective`, `earth`, `isolated` |
-| `protect` | Body | - | Plain | general | Single | no | `shunt`, `series` |
-| `drive` | PinRow | - | Plain | reserved | Single | no | `pp`, `od` |
-| `star` | Body | - | Plain | general | Single | no | flag |
-| `barrier` | PinRow | Text | Plain | reserved | Single | no | open |
-| `bond` | PinRow | Text | Plain | reserved | Single | no | open |
-| `pair` | PinRow | Text | Plain | reserved | Single | no | open |
-| `voltage` | Body, PinRow, Interface | Quantity(Volt) | Plain | general | Single | yes | - |
-| `volt` | PinRow | Quantity(Volt) | Plain | general | Single | yes | - |
-| `power` | Body | Quantity(Wat) | Plain | general | Single | yes | - |
-| `vcc` | Body | - | Plain | general | Single | yes | - |
-| `vdd` | Body | - | Plain | general | Single | yes | - |
-| `vss` | Body | - | Plain | general | Single | yes | - |
-| `supply` | Body | - | Plain | general | Single | yes | - |
-| `operating_voltage` | Body | - | Plain | general | Single | yes | - |
-| `input_voltage` | Body | - | Plain | general | Single | yes | - |
-| `output_voltage` | Body | - | Plain | general | Single | yes | - |
-| `vrange` | Body | - | Plain | general | Single | yes | - |
-| `spec.resistance` | Spec | Quantity(Ohm) | Plain | general | Single | no | - |
-| `spec.impedance` | Spec | Quantity(Ohm) | Plain | general | Single | no | - |
-| `spec.esr` | Spec | Quantity(Ohm) | Plain | general | Single | no | - |
-| `spec.voltage` | Spec | Quantity(Volt) | Plain | general | Single | no | - |
-| `spec.HBM` | Spec | Quantity(Volt) | Plain | general | Single | no | - |
-| `spec.capacitance` | Spec | Quantity(Cap) | Plain | general | Single | no | - |
-| `spec.inductance` | Spec | Quantity(Ind) | Plain | general | Single | no | - |
-| `spec.current` | Spec | Quantity(Amp) | Plain | general | Single | no | - |
-| `spec.rated_current` | Spec | Quantity(Amp) | Plain | general | Single | no | - |
-| `spec.sat_current` | Spec | Quantity(Amp) | Plain | general | Single | no | - |
-| `spec.ripple_rated` | Spec | Quantity(Amp) | Plain | general | Single | no | - |
-| `spec.frequency` | Spec | Quantity(Hz) | Plain | general | Single | no | - |
-| `spec.test_frequency` | Spec | Quantity(Hz) | Plain | general | Single | no | - |
-| `spec.power` | Spec | Quantity(Wat) | Plain | general | Single | no | - |
-| `spec.power_rated` | Spec | Quantity(Wat) | Plain | general | Single | no | - |
-| `spec.capacity` | Spec | Quantity(Charge) | Plain | general | Single | no | - |
-| `spec.tolerance` | Spec | Quantity(Percent) | Plain | general | Single | no | - |
-| `spec.accuracy` | Spec | Quantity(Percent) | Plain | general | Single | no | - |
-| `spec.temp_min` | Spec | Quantity(Temp) | Plain | general | Single | no | - |
-| `spec.temp_max` | Spec | Quantity(Temp) | Plain | general | Single | no | - |
-| `spec.life_hours` | Spec | Quantity(Time) | Plain | general | Single | no | - |
-| `spec.length` | Spec | Quantity(Len) | Plain | general | Single | no | - |
-| `spec.dielectric` | Spec | Text | Plain | general | Single | no | - |
-| `spec.construction` | Spec | Text | Plain | general | Single | no | - |
-| `spec.polarized` | Spec | Text | Plain | general | Single | no | - |
-| `spec.safety_class` | Spec | Text | Plain | general | Single | no | - |
-| `spec.rohs` | Spec | Text | Plain | general | Single | no | - |
-| `spec.derating_note` | Spec | Text | Plain | general | Single | no | - |
-| `spec.input_req` | Spec | Quantity(Volt) | Demand | general | Single | no | - |
-| `spec.output` | Spec | Quantity(Volt) | Supply | general | Single | no | - |
-| `receiver` | Interface | Quantity(Volt) | Demand | general | Single | no | - |
-| `output` | Interface | Quantity(Volt) | Supply | general | Single | no | - |
+The tables cover the **language-core keys** — the words the grammar
+reserves at attribute positions, and the identity keys every component
+carries. Domain keys (the voltage family, the `spec.*` data keys, the
+contract halves) stay registered in the mirror `ATTR_KEYS`, which is
+where today's consumers read them (vocabulary judging, element
+classification, quantity loading); their naming and registry move to
+the metadata table (metadata-engine-design.md, mcd doc/meta) and are
+decided there. The gate therefore reads these tables as a **subset of
+the mirror**: every row here must exist in the mirror with the same
+faces, value, admission, and words; mirror-only rows are reported,
+not failed. A key listed nowhere is handled by §8.5 — but note that
+"not in these tables" is not "unknown to the compiler" while the
+mirror still carries it.
+
+<!-- attr-keys-ledger-table: reserved -->
+**Reserved words** (the grammar reserves the word at attribute
+positions, N1):
+
+| Key | Faces | Value | Words |
+|---|---|---|---|
+| `this` | Body | - | - |
+| `pins` | Body | - | - |
+| `role` | Body, PinRow | - | `main`, `quiet`, `protective`, `earth`, `isolated` |
+| `func` | Body | - | - |
+| `return` | Body | - | - |
+| `in` | Body | - | - |
+| `out` | Body | - | - |
+| `io` | Body | - | - |
+| `psrc` | Body | - | - |
+| `psnk` | Body | - | - |
+| `psbi` | Body | - | - |
+| `nc` | Body | - | - |
+| `if` | Body | - | - |
+| `else` | Body | - | - |
+| `drive` | PinRow | - | `pp`, `od` |
+| `barrier` | PinRow | Text | open |
+| `bond` | PinRow | Text | open |
+| `pair` | PinRow | Text | open |
+
+<!-- attr-keys-ledger-table: general -->
+**General keys** (usable as ordinary attribute keys):
+
+| Key | Faces | Value | Words |
+|---|---|---|---|
+| `name` | Body | Text | - |
+| `description` | Body | Text | - |
+| `partno` | Body | Text | - |
+| `package` | Body | Text | - |
+| `manufacturer` | Body | Text | - |
+| `spec` | Body | - | - |
 
 Column semantics:
 
-- **Faces** (`AttrFace`) — the namespace the key is written in. One spelling
-  may register on several faces (`voltage` on Body, PinRow, and Interface);
-  that is still one row, while two keys that share a name across namespaces
-  (`output` / `spec.output`) are two rows.
+- **Faces** (`AttrFace`) — the namespace the key is written in. One
+  spelling may register on several faces (`voltage` on Body, PinRow,
+  and Interface); that is still one row, while two keys that share a
+  name across namespaces (`output` / `spec.output`) are two rows.
 - **Value** (D5) — `Quantity(unit)` / `Text` / `Number`; `-` means no
   registered semantics.
-- **Contract** — `Plain` (not matched) / `Demand` (what this part needs from
-  the outside) / `Supply` (what this part guarantees to the outside).
-  Direction comes only from this column, never from the key name.
-  Comparison operators (≥, range containment, enum hits) have no column:
-  no consumer asks for them.
-- **Admission** — `general` (usable as an ordinary attribute key) /
-  `reserved` (the grammar reserves the word at attribute positions, N1).
-- **Arity** (U43) — `Single` (at most once per attribute list) / `Set`
-  (accumulating). No row declares `Set` today.
-- **Supply** (HW1) — `yes` means the key names the supply voltage of the
-  thing it is written on. Readers test this column; they never substring-
-  match the name (`contains("volt")` is the bug this column exists to
-  prevent).
 - **Words** — the shape of the key's value vocabulary (§8.4).
+
+**Admission is not a column** — it is which table the row sits in:
+`reserved` (the grammar reserves the word at attribute positions, N1)
+or `general` (usable as an ordinary attribute key).
+
+**Contract, Supply, and Arity are not columns either.** `AttrContract`
+(`Plain` / `Demand` / `Supply` — the demand↔supply half the parameter
+matcher will read), the HW1 supply flag, and `AttrKeyArity` (U43 —
+every row `Single` today, no `Set` row exists) all live in the mirror;
+the rows that carry non-default values there are domain keys, and
+they come back to a table with the metadata batch.
+
 
 ### 8.4 Value Words
 
