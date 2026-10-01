@@ -73,7 +73,7 @@ range (threshold 40KB).
 | `query/` | 9 | 170 KB |
 | `refdef/` | 7 | 134 KB |
 | `rpc/` | 16 | 313 KB |
-| `semantic/` | 100 | 2985 KB |
+| `semantic/` | 101 | 3000 KB |
 | `stages/` | 19 | 408 KB |
 | `vector/` | 26 | 494 KB |
 | `viz/` | 97 | 2483 KB |
@@ -6889,6 +6889,32 @@ semantic/mc_inst.rs#L2490  impl std::fmt::Display for McInstance
 semantic/mc_inst.rs#L2491  fn fmt
 semantic/mc_inst.rs#L2537  impl std::fmt::Display for McInstances
 semantic/mc_inst.rs#L2538  fn fmt
+semantic/meta/mod.rs#L24  enum McMetaValue
+semantic/meta/mod.rs#L59  fn normalize
+semantic/meta/mod.rs#L70  fn normalize_values
+semantic/meta/mod.rs#L74  fn normalize_literal
+semantic/meta/mod.rs#L87  fn normalize_opd
+semantic/meta/mod.rs#L97  fn normalize_expr
+semantic/meta/mod.rs#L128  fn normalize_rows
+semantic/meta/mod.rs#L134  fn normalize_kvs
+semantic/meta/mod.rs#L149  struct NamedValue
+semantic/meta/mod.rs#L157  fn read_values
+semantic/meta/mod.rs#L173  fn read_attr
+semantic/meta/mod.rs#L182  fn resolve_path
+semantic/meta/mod.rs#L193  fn resolve_segs
+semantic/meta/mod.rs#L216  mod tests
+semantic/meta/mod.rs#L226  fn set_face_reads_nameless_through_one_api
+semantic/meta/mod.rs#L243  fn record_face_reads_named_rows_through_one_api
+semantic/meta/mod.rs#L264  fn kvs_reads_as_named_pair
+semantic/meta/mod.rs#L283  fn undetermined_normalizes_from_uscore
+semantic/meta/mod.rs#L290  fn dotted_and_table_spellings_resolve_to_one_leaf
+semantic/meta/mod.rs#L314  fn range_and_expr_read_as_modeled
+semantic/meta/mod.rs#L349  fn uval
+semantic/meta/mod.rs#L353  fn word
+semantic/meta/mod.rs#L357  fn range_val
+semantic/meta/mod.rs#L364  fn word_ids
+semantic/meta/mod.rs#L368  fn ida
+semantic/meta/mod.rs#L375  fn attr
 semantic/mod.rs#L5  mod basic
 semantic/mod.rs#L6  mod recipe
 semantic/mod.rs#L7  mod common
@@ -6899,13 +6925,14 @@ semantic/mod.rs#L11  mod mc_enum
 semantic/mod.rs#L12  mod mc_func
 semantic/mod.rs#L13  mod mc_ifs
 semantic/mod.rs#L14  mod mc_inst
-semantic/mod.rs#L15  mod module
-semantic/mod.rs#L16  mod nc_pin
-semantic/mod.rs#L17  mod opcheck
-semantic/mod.rs#L18  mod pwrid
-semantic/mod.rs#L19  mod scope
-semantic/mod.rs#L20  mod stmt_marker
-semantic/mod.rs#L21  mod validation
+semantic/mod.rs#L15  mod meta
+semantic/mod.rs#L16  mod module
+semantic/mod.rs#L17  mod nc_pin
+semantic/mod.rs#L18  mod opcheck
+semantic/mod.rs#L19  mod pwrid
+semantic/mod.rs#L20  mod scope
+semantic/mod.rs#L21  mod stmt_marker
+semantic/mod.rs#L22  mod validation
 semantic/module/expects.rs#L21  struct Ledger
 semantic/module/expects.rs#L27  struct Row
 semantic/module/expects.rs#L39  enum Kind
@@ -8860,9 +8887,9 @@ vector/graph/fromblock.rs#L2146  fn layout_post_adjust_borders
 vector/graph/fromblock.rs#L2198  mod tests
 vector/graph/fromblock.rs#L2203  fn pos
 vector/graph/fromblock.rs#L2207  fn pin_entry
-vector/graph/fromblock.rs#L2251  fn g16_pin_src_span_prefers_wiring_site_over_decl_site
-vector/graph/fromblock.rs#L2259  fn g16_pin_src_span_falls_back_to_decl_site_when_unwired
-vector/graph/fromblock.rs#L2267  fn g16_placeholder_pins_carry_no_src_span
+vector/graph/fromblock.rs#L2252  fn g16_pin_src_span_prefers_wiring_site_over_decl_site
+vector/graph/fromblock.rs#L2260  fn g16_pin_src_span_falls_back_to_decl_site_when_unwired
+vector/graph/fromblock.rs#L2268  fn g16_placeholder_pins_carry_no_src_span
 vector/graph/graphdef.rs#L25  struct McVecGraph
 vector/graph/graphdef.rs#L117  enum LayerStyle
 vector/graph/graphdef.rs#L124  enum GeomStage
@@ -11809,4 +11836,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-426 files, 11726 declarations.
+427 files, 11753 declarations.
