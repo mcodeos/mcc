@@ -1407,6 +1407,124 @@ impl InstantiationBuilder {
         pids.iter().all(|(m, _)| m == first)
     }
 
+    /// Resolve a bus endpoint to its statement-boundary form (U372 leg1).
+    ///
+    /// Multi-member buses (curly member form `dc{VDD, GND}`, bus-table names
+    /// `I2C0`, keyword-base member forms `this{PA, PK}`) expand to a
+    /// per-member `Multiple` so lane-by-lane wiring can handle each lane
+    /// independently. Inline members take priority; a named bus with no
+    /// inline members falls back to the bus table (P2-5). A same-name
+    /// component pin group (`psnk [19,32,48,64] = VDD`) is ONE lane, not N
+    /// (same-name-pin-group.md §2): it collapses back to a name-only bus so
+    /// point resolution routes it through expand_port_lanes. Everything else
+    /// passes through unchanged.
+    ///
+    /// The wrapper normalization (`normalize_wrapper_operands`) and the bare
+    /// Bus arm below both ride this helper, so the wrapped spelling
+    /// (`D2{A,K}'`) and the bare spelling (`D2{A,K}`) can never drift.
+    fn resolve_multi_member_bus(&self, data: &McBus) -> McPhrase {
+        // ── P2-5: inline members first, then the bus table for named buses ──
+        let members: Vec<String> = if data.member.len() > 1 {
+            data.member.clone()
+        } else if data.member.is_empty() && !data.name.is_empty() {
+            self.buses
+                .get(&data.name)
+                .map(|b| b.members.clone())
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        if members.len() > 1 && !self.is_same_name_component_group(&data.name) {
+            mcc_dbg!(
+                "inst::mod",
+                "[P2-5-BUS] module='{}' expanding bus '{}' to Multiple with members {:?}",
+                self.name,
+                data.name,
+                members
+            );
+            let inner: Vec<McPhrase> = members
+                .iter()
+                .map(|m| {
+                    // P2-6: when bus name is empty (anonymous DC bus), use
+                    // member name directly without dot prefix.
+                    // e.g. [VDD_3V3,GND]::DC() → VDD_3V3, GND (not .VDD_3V3, .GND)
+                    let path = if data.name.is_empty() {
+                        m.clone()
+                    } else {
+                        format!("{}.{}", data.name, m)
+                    };
+                    McPhrase::Endpoint(McRef::Name(McInstanceRef::new(McInstance::Bus(
+                        McBus::new(&path),
+                    ))))
+                })
+                .collect();
+            return McPhrase::Multiple(inner);
+        }
+        if members.len() > 1 {
+            // Same-name component pin group: ONE lane, not N. Keep the bare
+            // bus name only — point resolution collapses the group to a
+            // single logical point carrying the pads.
+            return McPhrase::from(McInstance::Bus(McBus::new(&data.name)));
+        }
+        McPhrase::from(McInstance::Bus(data.clone()))
+    }
+
+    /// U372 leg1: statement-boundary wrapper normalization.
+    ///
+    /// `D2{A,K}` parses as `Endpoint(Bus{member:[A,K]})` — a *single* bus
+    /// whose face shapes as `OpdShape::Point`, so a `'`/`^` wrapper riding on
+    /// it wrapped "one point" and evaluated to an identity (the silent no-op
+    /// U372 filed). The bare spelling reaches the Bus arm and dissolves into
+    /// per-member lanes; the wrapped spelling never got there because the
+    /// wrapper arms kept the whole member.
+    ///
+    /// Fix: strip `Transposed`/`Reversed` shells down to the core; when the
+    /// core is a multi-member bus, dissolve it to the same per-member
+    /// `Multiple` the Bus arm produces (`resolve_multi_member_bus`), then
+    /// rebuild the shells in written order — `D2{A,K}^'` normalizes to
+    /// `Transposed(Reversed(Multiple([D2.A, D2.K])))`, and downstream (shape
+    /// gate, points.rs, vexpr fold) treats it exactly like the explicit list
+    /// spelling `[D2.A, D2.K]^'`. §2.4.4 (an operator is encoded, never
+    /// rewritten at parse time) is preserved: this rewrite happens here, at
+    /// the Pass2 statement boundary, on the evaluation result.
+    ///
+    /// A `Lead` core (`_'` / `_^`) normalizes to the bare lead: a placeholder
+    /// has no faces to swap (L20 占位律), and the kept wrapper would ride the
+    /// bridge-passive path and incubate a `(lead)` wire element (probe
+    /// `L1 - D1 - _'` → `(lead): D1.2 (lead)`, design doc §2.4 #32).
+    ///
+    /// Returns the normalized phrase plus the dissolved lane count (0 = the
+    /// core was not a dissolvable multi-member bus; nothing changed).
+    fn normalize_wrapper_operands(&self, phrase: &McPhrase) -> (McPhrase, usize) {
+        match phrase {
+            McPhrase::Transposed(inner) => {
+                let (core, lanes) = self.normalize_wrapper_operands(inner);
+                (McPhrase::Transposed(Box::new(core)), lanes)
+            }
+            McPhrase::Reversed(inner) => {
+                let (core, lanes) = self.normalize_wrapper_operands(inner);
+                (McPhrase::Reversed(Box::new(core)), lanes)
+            }
+            McPhrase::Endpoint(McRef::Name(McInstanceRef {
+                base: McInstance::Bus(data),
+                ..
+            })) => {
+                let dissolved = self.resolve_multi_member_bus(data);
+                let lanes = match &dissolved {
+                    McPhrase::Multiple(lanes) => lanes.len(),
+                    _ => 0,
+                };
+                if lanes > 0 {
+                    (dissolved, lanes)
+                } else {
+                    (phrase.clone(), 0)
+                }
+            }
+            McPhrase::Lead(_) => (phrase.clone(), 0),
+            _ => (phrase.clone(), 0),
+        }
+    }
+
     /// Convert McPhrase to expanded McPhrase list (flat member projection).
     /// Series is recursively expanded to individual member McPhrases.
     /// Directions are dropped: this is the member-only view used by the
@@ -1581,14 +1699,68 @@ impl InstantiationBuilder {
                 debug_assert_eq!(gaps.len(), result.len().saturating_sub(1));
                 (result, gaps)
             }
-            McPhrase::Parallel(phrases) => (vec![McPhrase::Parallel(phrases.clone())], Vec::new()),
+            McPhrase::Parallel(phrases) => {
+                // U372 leg1: `+` operands ride the same wrapper normalization —
+                // `+ (D2{A,K}')`-style shunt arms dissolve their curly member
+                // form exactly like the bare spelling (design doc §6 ruling 2).
+                let mapped: Vec<McPhrase> = phrases
+                    .iter()
+                    .map(|p| self.normalize_wrapper_operands(p).0)
+                    .collect();
+                (vec![McPhrase::Parallel(mapped)], Vec::new())
+            }
             McPhrase::Closure(c) => (vec![McPhrase::Closure(c.clone())], Vec::new()),
             McPhrase::FuncCall(f) => (vec![McPhrase::FuncCall(f.clone())], Vec::new()),
             McPhrase::Group(g) => (vec![McPhrase::Group(g.clone())], Vec::new()),
-            McPhrase::Transposed(inner) => (
-                vec![McPhrase::Transposed(Box::new((**inner).clone()))],
-                Vec::new(),
-            ),
+            McPhrase::Transposed(inner) => {
+                // U372 leg1: a `'` riding a curly member form / bus-table name
+                // (`D2{A,K}'`, `U1.I2C0'`, `this{PA,PK}'`) dissolves the core
+                // to the per-member Multiple first, so the transpose applies
+                // to the member vector exactly like the explicit list spelling
+                // `[D2.A, D2.K]'` (member-vector transpose law L7). Without
+                // this the wrapper sat on a single Point-shaped bus and was a
+                // silent no-op while the list form truly transposed.
+                let (normalized, lanes) = self.normalize_wrapper_operands(inner);
+                if matches!(normalized, McPhrase::Lead(_)) {
+                    // L20: a placeholder has no faces to swap — `_'` is the
+                    // bare lead, never a bridge passive (see
+                    // normalize_wrapper_operands).
+                    return (vec![normalized], Vec::new());
+                }
+                if lanes > 2 {
+                    // Shape-limit law L9: transpose accepts 1*1 / 1*2 / 2*1 /
+                    // 2*2. Report E2902 and keep the old keep-whole behavior —
+                    // a Transposed Multiple wider than 2 would trip the
+                    // points.rs shape debug_asserts in debug builds. The list
+                    // spelling reports the same code at parse time; only the
+                    // phase differs, so tests assert the code, not the phase.
+                    if let Some((uri, pos)) =
+                        self.global_diag_site(crate::errcodes::SHAPE_TRANSPOSE_LIMIT)
+                    {
+                        let msg = crate::errcodes::format_msg(
+                            crate::errcodes::SHAPE_TRANSPOSE_LIMIT,
+                            &[&lanes],
+                        );
+                        crate::db::diagnostic::diagnostic::diagnostic_log_at(
+                            crate::errcodes::SHAPE_TRANSPOSE_LIMIT,
+                            crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
+                            uri,
+                            pos,
+                            1,
+                            &msg,
+                            &[],
+                        );
+                    }
+                    return (
+                        vec![McPhrase::Transposed(Box::new((**inner).clone()))],
+                        Vec::new(),
+                    );
+                }
+                (
+                    vec![McPhrase::Transposed(Box::new(normalized))],
+                    Vec::new(),
+                )
+            }
             // §2.4.5: `^` is a view, not a tree rewrite. Walk the operand's
             // chain the other way — the member list reverses and every
             // directed gap flips — and re-wrap each member so its own faces
@@ -1598,7 +1770,19 @@ impl InstantiationBuilder {
             // (parallel / transposed) passes through unchanged because the
             // wrapper's face accessors are no-ops for it.
             McPhrase::Reversed(inner) => {
-                let (members, gaps) = self.phrase_to_members_gapped(inner);
+                // U372 leg1: normalize first — `D2{A,K}^` then rides the same
+                // recursion as `[D2.A, D2.K]^` (per-member Reversed + flipped
+                // gaps). Before, the undissolved bus under the wrapper took
+                // the lane-Bridge path and merged all endpoints into one net
+                // (design doc §2.1 curly_rev / curly_double_caret). E2903 is
+                // still the parse-phase gate's job; no new code here.
+                let (normalized, _lanes) = self.normalize_wrapper_operands(inner);
+                if matches!(normalized, McPhrase::Lead(_)) {
+                    // L20: a placeholder has no faces to swap — `_^` is the
+                    // bare lead.
+                    return self.phrase_to_members_gapped(&normalized);
+                }
+                let (members, gaps) = self.phrase_to_members_gapped(&normalized);
                 let members: Vec<McPhrase> = members
                     .into_iter()
                     .rev()
@@ -1788,77 +1972,14 @@ impl InstantiationBuilder {
                 // expand to Multiple so lane-by-lane wiring can handle each
                 // lane independently.  Single-member buses stay as-is.
                 //
-                // ── P2-5: also check bus table for named buses (e.g. I2C0) ──
-                // When data.member is empty but the bus table has members,
-                // expand using the bus table members.
-                let members: Vec<String> = if data.member.len() > 1 {
-                    data.member.clone()
-                } else if data.member.is_empty() && !data.name.is_empty() {
-                    let from_bus = self
-                        .buses
-                        .get(&data.name)
-                        .map(|b| b.members.clone())
-                        .unwrap_or_default();
-                    mcc_dbg!("inst::mod", 
-                        "[P2-5-BUS-LOOKUP] module='{}' bus='{}' data.member={:?} from_bus_table={:?}",
-                        self.name, data.name, data.member, from_bus
-                    );
-                    from_bus
-                } else {
-                    Vec::new()
-                };
-
-                if members.len() > 1 {
-                    // ── Same-name component pin group: ONE lane, not N ──
-                    // `U1B.VDD` with members [19,32,48,64] are the physical pads
-                    // of a same-name pin group (`psnk [19,32,48,64] = VDD`): every
-                    // pad carries the same member name "VDD". In vector circuits
-                    // a same-name pin is taken once, not once per pad
-                    // (same-name-pin-group.md §2) — that is the basic rule for
-                    // shape computation (vec-dianlu.md §5.2). Do NOT expand to a
-                    // Multiple of pin lanes; keep the bare Bus so point resolution
-                    // routes it through expand_port_lanes, which collapses the
-                    // group to a single logical point carrying the pads.
-                    if self.is_same_name_component_group(&data.name) {
-                        return (
-                            vec![McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
-                                McInstance::Bus(McBus::new(&data.name)),
-                            )))],
-                            Vec::new(),
-                        );
-                    }
-                    mcc_dbg!(
-                        "inst::mod",
-                        "[P2-5-BUS] module='{}' expanding bus '{}' to Multiple with members {:?}",
-                        self.name,
-                        data.name,
-                        members
-                    );
-                    let inner: Vec<McPhrase> = members
-                        .iter()
-                        .map(|m| {
-                            // P2-6: when bus name is empty (anonymous DC bus),
-                            // use member name directly without dot prefix.
-                            // e.g. [VDD_3V3,GND]::DC() → VDD_3V3, GND (not .VDD_3V3, .GND)
-                            let path = if data.name.is_empty() {
-                                m.clone()
-                            } else {
-                                format!("{}.{}", data.name, m)
-                            };
-                            McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
-                                McInstance::Bus(McBus::new(&path)),
-                            )))
-                        })
-                        .collect();
-                    (vec![McPhrase::Multiple(inner)], Vec::new())
-                } else {
-                    (
-                        vec![McPhrase::Endpoint(McRef::Name(McInstanceRef::new(
-                            McInstance::Bus(data.clone()),
-                        )))],
-                        Vec::new(),
-                    )
-                }
+                // ── P2-5: named buses (e.g. I2C0) fall back to the bus table ──
+                //
+                // U372 leg1: the member resolution + same-name guard + dotted
+                // mapping live in `resolve_multi_member_bus`, shared with the
+                // wrapper normalization (Transposed/Reversed/Parallel arms) so
+                // the wrapped spelling (`D2{A,K}'`) and this bare spelling
+                // expand identically.
+                (vec![self.resolve_multi_member_bus(data)], Vec::new())
             }
             McPhrase::Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::Label(label),
@@ -3148,6 +3269,19 @@ impl InstantiationBuilder {
                             self.bridge_passive_names.extend(names);
                         }
                     }
+                    McPhrase::Multiple(items) => {
+                        // U372: a dissolved member vector (`D2{A,K}'` ≡
+                        // `[D2.A, D2.K]'`) is instantiated in place, lane by
+                        // lane — never re-entered as a standalone statement,
+                        // which would chain its members into a synthesized net
+                        // (the spurious `_net0: D2.1 D2.2`). The connection
+                        // face is wired by the lane path
+                        // (get_transposed_lane_pin / LaneItem::Bridge) reading
+                        // these very pointers.
+                        for it in items {
+                            self.process_member_internal(it)?;
+                        }
+                    }
                     _ => {
                         self.process_stmt(inner)?;
                     }
@@ -3167,6 +3301,13 @@ impl InstantiationBuilder {
                 | McPhrase::Lead(_)
                 | McPhrase::Member(_, _) => {
                     self.process_member_internal(inner)?;
+                }
+                McPhrase::Multiple(items) => {
+                    // U372: same law as the Transposed arm above — a dissolved
+                    // member vector instantiates in place, never chains.
+                    for it in items {
+                        self.process_member_internal(it)?;
+                    }
                 }
                 _ => {
                     self.process_stmt(inner)?;

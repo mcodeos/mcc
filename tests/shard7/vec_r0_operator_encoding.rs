@@ -301,11 +301,10 @@ fn caret__on_orderless_operand_still_wraps() {
     // other one is two one-pin bodies.
     // Two endpoint references of the one bare label `A` are the via-label
     // idiom — under the unified usage-count matrix (U154 ruling, 2026-09-21)
-    // the pair stays silent, so only E2903 is expected here.
-    assert_eq!(
-        only_with("(A + A)^", &[2903]),
-        "Reversed(Group[Parallel[A, A]])"
-    );
+    // the pair stays silent. U372 narrowed E2903 to multi-element degenerate
+    // columns, and a point-valued operand is the exempt single-point case, so
+    // the wrap is now fully quiet.
+    assert_eq!(only("(A + A)^"), "Reversed(Group[Parallel[A, A]])");
     // `C1'` is a column (`2*1`) — left face == right face.
     assert_eq!(only_with("C1'^", &[2903]), "Reversed(Transposed(C1))");
 }
@@ -373,8 +372,10 @@ fn caret__on_transposed_operand_follows_the_transposed_shape() {
         "Reversed(Transposed(Group[Parallel[R101, R102]]))"
     );
     // Point -> Point: orderless (`A` is a bare label; the E3136 it raises as an
-    // undeclared func-body label is incidental to this cell).
-    assert_eq!(only_with("A'^", &[2903, 3136]), "Reversed(Transposed(A))");
+    // undeclared func-body label is incidental to this cell). U372 narrowed
+    // E2903 to multi-element degenerate columns — the point-valued operand is
+    // the exempt single-point case, so only E3136 remains.
+    assert_eq!(only_with("A'^", &[3136]), "Reversed(Transposed(A))");
     // Column -> Row: genuinely two-faced, so the reversal is real. `VCC` /
     // `GND` are bare labels, so they raise E3136 — incidental to this cell, as
     // the comment above already records for `A`.

@@ -321,16 +321,17 @@ fn def_ercode__list_literal_transpose_node_connects() {
     );
 }
 
-/// E2903 (SHAPE_REVERSE_NOOP): reverse `^` on a vector operand is a hint
-/// (eval.md §9 / examples L180). Parallel operands carry no order to reverse.
+/// E2903 (SHAPE_REVERSE_NOOP): reverse `^` on a **multi-element degenerate
+/// column** is a hint (eval.md §9 / examples L180). U372 narrowed the gate:
+/// a point-valued operand — a bare label, a parallel of one-pin bodies — is
+/// the exempt single-point class and stays silent; only a Column of two or
+/// more elements warns.
 #[test]
 fn def_ercode__reverse_noop_hint_on_parallel_operand() {
     let _lock = common::lock();
 
-    // Reverse on a parallel vector is a no-op → hint. The parallel has to be
-    // two equal-port *bodies*: two distinct bare labels are no longer a legal
-    // `+` at all -- they name two different nets (CONN_NET_CROSSNET) -- and two
-    // two-pin parts would give the node two distinct faces, making `^` real.
+    // Point-valued parallel (two one-pin bodies collapse to one point): the
+    // exempt class — silent, same as `(A + A)^` in shard7.
     let src = "component ONEPIN { pins = [ 1 = 1 ] }\n\
                module main { ONEPIN P1\n    ONEPIN P2\n    (P1 + P2)^\n}";
     common::reset();
@@ -339,8 +340,22 @@ fn def_ercode__reverse_noop_hint_on_parallel_operand() {
     let _ = mcc::mcc_build(&mcc::McIds::from("main"), &uri);
     let codes: HashSet<u32> = mcc::mcc_diagnose_all().iter().map(|d| d.code).collect();
     assert!(
+        !codes.contains(&mcc::errcodes::SHAPE_REVERSE_NOOP),
+        "point-valued parallel is the exempt single-point class; got codes: {codes:?}"
+    );
+
+    // Multi-element degenerate column (a two-element list literal): the hint
+    // stays — a reverse that swaps nothing yet carries two elements is a
+    // miswritten row.
+    let src = "module main { [VCC, GND]^ }";
+    common::reset();
+    let uri = "/mcc/reverse-noop-col.mc".to_string();
+    mcc::mcc_load_from_string(&uri, src);
+    let _ = mcc::mcc_build(&mcc::McIds::from("main"), &uri);
+    let codes: HashSet<u32> = mcc::mcc_diagnose_all().iter().map(|d| d.code).collect();
+    assert!(
         codes.contains(&mcc::errcodes::SHAPE_REVERSE_NOOP),
-        "E2903 not emitted for reverse on a parallel vector; got codes: {codes:?}"
+        "multi-element degenerate column keeps E2903; got codes: {codes:?}"
     );
 
     // Reverse on a series chain is a meaningful order flip → no hint.

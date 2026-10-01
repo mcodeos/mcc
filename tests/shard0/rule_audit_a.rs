@@ -1172,7 +1172,12 @@ module main {
     );
 }
 
-/// Sec 9.3: reverse `^` on a column vector (N*1) is a no-op => E2903.
+/// Sec 9.3: reverse `^` on a bare multi-pin instance. U372 narrowed E2903 to
+/// multi-element degenerate **columns**: the parse-shape face classifies a bare
+/// instance reference as a single point, so the wrap is exempt and silent —
+/// the same exemption that covers labels, `_` and `pins.N` (ruling 2 of the
+/// curly-wrapper design). The reversal itself still evaluates downstream (the
+/// shape mismatch against the 3-wide row remains E4007).
 #[test]
 fn audit_s9_reverse_noop_col() {
     let p = probe(
@@ -1192,8 +1197,13 @@ module main {
     );
     report("s9-reverse-noop", &p);
     assert!(
-        has(&p, 2903),
-        "E2903 expected for reverse on column vector, got {:?}",
+        !has(&p, 2903),
+        "E2903 is exempt on a bare-instance point at the parse gate, got {:?}",
+        codes(&p)
+    );
+    assert!(
+        has(&p, 4007),
+        "the downstream shape mismatch must survive; got {:?}",
         codes(&p)
     );
 }

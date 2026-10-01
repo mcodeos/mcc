@@ -3356,18 +3356,28 @@ impl McPhrase {
             MCAST_OPD_CARET => {
                 let opd1_node = node.get_sub_node().expect(MISSING_SUBNODE);
                 let opd1 = McPhrase::new(&opd1_node, context)?;
-                // ── P5: E2903 — reverse `^` on a vector operand is a no-op ──
-                // The judgement is the **shape** one (vec-dianlu.md §6.3 /
-                // eval.md §5.6): `^` swaps the operand's two faces, so it is a
-                // no-op exactly when they are the same element list —
-                // `Point` / `Column`. It is deliberately *not* a syntactic
-                // test on the node kind: `A + B` (two bare labels) collapses to
-                // a point and is a no-op, while `R101 + R102` (two two-pin
+                // ── P5: E2903 — reverse `^` on a multi-element degenerate
+                // operand is a no-op ── (U372 narrowed per ruling 2 of the
+                // curly-wrapper design: the warning fires only when the
+                // operand is a `Column` of two or more elements — a reverse
+                // that swaps nothing yet carries more than one element is
+                // almost always a miswritten row, so it stays audible.) A
+                // single-point operand (`label`, `_`, `pins.N`) is exempt and
+                // silent: its faces are trivially equal and wrapping it is an
+                // explicit identity. The judgement is the **shape** one
+                // (vec-dianlu.md §6.3 / eval.md §5.6): `^` swaps the operand's
+                // two faces, so it is a no-op exactly when they are the same
+                // element list. It is deliberately *not* a syntactic test on
+                // the node kind: `A + B` (two bare labels) collapses to a
+                // point and is a no-op, while `R101 + R102` (two two-pin
                 // parts) stacks into a `1*2` node whose faces differ and whose
                 // reversal is real. The no-op itself is applied at eval, where
                 // `Reversed` passes such an operand through unchanged (§2.4.5 —
                 // semantics act on the evaluation result).
-                if OpdShape::of(&opd1, context).is_degenerate() {
+                if matches!(
+                    OpdShape::of(&opd1, context),
+                    OpdShape::Column(v) if v.len() >= 2
+                ) {
                     dlog_warning(
                         crate::errcodes::SHAPE_REVERSE_NOOP,
                         node,
