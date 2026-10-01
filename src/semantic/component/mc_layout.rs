@@ -110,14 +110,15 @@ fn attr_id(att_id: &AstNode) -> Option<String> {
     McIds::new(&ids).map(|m| m.to_string())
 }
 
-/// Edge alias map: `up`/`down` are synonyms for `top`/`bottom` (legacy mcpub
-/// content, e.g. tc275 uses them).
+/// The four edge names. The former `up`/`down` aliases are retired (b4410,
+/// corpus migrated to `top`/`bottom`): they now fall through to the unknown
+/// edge warning, like any other non-edge name.
 fn canonical_edge(name: &str) -> Option<&'static str> {
     match name {
         "left" => Some("left"),
         "right" => Some("right"),
-        "top" | "up" => Some("top"),
-        "bottom" | "down" => Some("bottom"),
+        "top" => Some("top"),
+        "bottom" => Some("bottom"),
         _ => None,
     }
 }
@@ -155,7 +156,13 @@ fn parse_edge(edge: &AstNode, ret: &mut McLayout) {
     let canonical = match canonical_edge(&name) {
         Some(c) => c,
         None => {
-            warn(edge, crate::errcodes::LAYOUT_EDGE_INVALID);
+            // The name rides the message so a retired alias (`up`, `down`)
+            // points its author at the canonical set.
+            dlog_warning(
+                crate::errcodes::LAYOUT_EDGE_INVALID,
+                edge,
+                &crate::errcodes::format_msg(crate::errcodes::LAYOUT_EDGE_INVALID, &[&name]),
+            );
             return;
         }
     };

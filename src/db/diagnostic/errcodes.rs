@@ -2765,7 +2765,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(LAYOUT_CONST_MISSING_INT, "CONST node is missing its INT subnode.", "CONST node missing subnode INT"),
     entry!(LAYOUT_PIN_NUMBER_PARSE, "Parse error in a layout pin number.", "Parse error in layout pin number"),
     entry!(LAYOUT_EDGE_NAME_ID_MISSING_SUBNODE, "Layout edge name id is missing a subnode.", "Missing subnode for layout edge name id"),
-    entry!(LAYOUT_EDGE_INVALID, "Invalid layout edge.", "Invalid edge. Edges should be one of: \"left\", \"right\", \"top\", \"bottom\""),
+    entry!(LAYOUT_EDGE_INVALID, "Invalid layout edge.", "Invalid layout edge \"{0}\". Edges should be one of: \"left\", \"right\", \"top\", \"bottom\""),
     entry!(LAYOUT_EDGE_NAME_NOT_ID, "Retired: no producer.", "Retired - no producer. Superseded by 4088 and 4096."),
     // section
     entry!(NET_MULTI_DRIVE, "Net has multiple drivers — possible short circuit.", "Net has multiple drivers — possible short circuit."),

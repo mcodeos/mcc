@@ -10,9 +10,9 @@
 //! shape, so every `comp.layout` stayed empty and the feature was inert. These
 //! tests lock the *semantic* outcome end-to-end from source text: each edge
 //! becomes the exact list of member strings — numbers, `[a:b]` ranges
-//! (ascending and descending), and function/port names — with `up`/`down`
-//! accepted as aliases for `top`/`bottom`. A module body accepts `layout`
-//! without E3081; a non-layout edge name is a warning, not a hard error.
+//! (ascending and descending), and function/port names. A module body accepts
+//! `layout` without E3081; a non-layout edge name is a warning, not a hard
+//! error — and the retired `up`/`down` aliases warn like any unknown edge.
 
 use crate::common;
 
@@ -76,10 +76,11 @@ component CHIP9
     assert_eq!(l.bottom, vec!["8", "7", "6"]);
 }
 
-/// Module: a `layout` clause is accepted in the module body (no E3081) and the
-/// edge aliases `up` / `down` map to `top` / `bottom`.
+/// Module: a `layout` clause is accepted in the module body (no E3081), and
+/// the retired `up` / `down` aliases warn like any unknown edge name (b4410)
+/// without blocking the remaining edges.
 #[test]
-fn mod_layout_accepted_with_up_down_aliases() {
+fn mod_layout_accepted_with_retired_alias_warning() {
     let _lock = common::lock();
     common::reset();
     let diags = load_codes(
@@ -90,7 +91,9 @@ module PMOD
         left = [EN]
         up = [LED1, LED2]
         right = [3:1]
+        top = [LED1, LED2]
         down = [VCC, GND]
+        bottom = [VCC, GND]
     ]
 }
 "#,
@@ -102,11 +105,19 @@ module PMOD
             .any(|(c, _)| *c == mcc::errcodes::UNEXPECTED_CLAUSE_TYPE),
         "module layout must not raise E3081, got {diags:?}"
     );
+    for retired in ["up", "down"] {
+        assert!(
+            diags
+                .iter()
+                .any(|(c, m)| *c == mcc::errcodes::LAYOUT_EDGE_INVALID && m.contains(retired)),
+            "retired alias `{retired}` must warn LAYOUT_EDGE_INVALID, got {diags:?}"
+        );
+    }
     let l = module("PMOD").layout;
     assert_eq!(l.left, vec!["EN"]);
-    assert_eq!(l.top, vec!["LED1", "LED2"], "`up` aliases to `top`");
+    assert_eq!(l.top, vec!["LED1", "LED2"], "canonical `top` parses");
     assert_eq!(l.right, vec!["3", "2", "1"]);
-    assert_eq!(l.bottom, vec!["VCC", "GND"], "`down` aliases to `bottom`");
+    assert_eq!(l.bottom, vec!["VCC", "GND"], "canonical `bottom` parses");
 }
 
 /// Real-content shape: hbl USB.MINI_B uses `right = [4, 3, 2, 5, 1]` and
