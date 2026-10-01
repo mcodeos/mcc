@@ -741,6 +741,62 @@ mod tests {
         assert!(matches!(div(&volt(1.0), &McMetaValue::Undetermined), Some(McMetaValue::Undetermined)));
     }
 
+    // The value-shape alignment lock (U377 follow-up 3): every McExpression
+    // variant reads as one fixed normalized arm. The compiler already forces
+    // an arm to exist (no `_` fallback here); this table forces the *group*
+    // membership to be a conscious ruling — a variant joins the verbatim
+    // group only by amending this table with its reason and upgrade path.
+    #[test]
+    fn value_shape_table_locks_judgable_and_verbatim_arms() {
+        use crate::semantic::basic::mc_expr::McUnitValueAt;
+        use crate::semantic::basic::mc_literal::McString;
+        let int = || McExpression::Int(McInt { value: 8 });
+        // The judgable group: a modeled McMetaValue arm answers.
+        let judgable: Vec<(&str, McExpression)> = vec![
+            ("Int", int()),
+            ("Float", McExpression::Float(McFloat { value: 0.5 })),
+            ("String", McExpression::String(McString { value: "x".into() })),
+            ("UnitValue", McExpression::UnitValue(uval(1.0, "1V"))),
+            ("UnitValueAt", McExpression::UnitValueAt(McUnitValueAt {
+                left: uval(1.0, "1Mbps"),
+                right: uval(0.5, "0.5m"),
+            })),
+            ("Const", McExpression::Const(McConst("FAST".into()))),
+            // `_` reads pending; an Id opd reads Ref — both judgable.
+            ("Variable", McExpression::Variable(McOpd::Uscore)),
+            ("Range", McExpression::Range(Box::new(int()), Box::new(int()))),
+            ("Set", McExpression::Set(vec![int()])),
+        ];
+        for (name, expr) in &judgable {
+            assert!(
+                !matches!(normalize_expr(expr), McMetaValue::Expr(_)),
+                "{name} must stay judgable"
+            );
+        }
+        // The verbatim group (the no-evaluation boundary, canon §7): a slice
+        // is a shape, not a quantity; arithmetic has no runtime unit algebra
+        // (U377 leg3 — a family table belongs to the model/params batch);
+        // a call keeps its written source. Upgrading any of these to a
+        // modeled arm is a design ruling, never a drive-by arm edit.
+        let verbatim: Vec<(&str, McExpression)> = vec![
+            ("Slice", McExpression::Slice(Box::new(int()), Box::new(int()))),
+            ("Plus", McExpression::Plus(Box::new(int()), Box::new(int()))),
+            ("Minus", McExpression::Minus(Box::new(int()), Box::new(int()))),
+            ("Multiply", McExpression::Multiply(Box::new(int()), Box::new(int()))),
+            ("Divide", McExpression::Divide(Box::new(int()), Box::new(int()))),
+            ("Call", McExpression::Call { name: "f".into(), args: vec![] }),
+        ];
+        for (name, expr) in &verbatim {
+            assert!(
+                matches!(normalize_expr(expr), McMetaValue::Expr(_)),
+                "{name} must stay verbatim"
+            );
+        }
+        // 9 + 6 = 15, the whole enum: a new variant compiles only with an
+        // arm, and lands here only with a ruling.
+        assert_eq!(judgable.len() + verbatim.len(), 15);
+    }
+
     // KVS entry: `Vgs:-10V` reads as a named pair with a unit value.
     #[test]
     fn kvs_reads_as_named_pair() {
