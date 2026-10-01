@@ -39,6 +39,7 @@ mod u304_flat_curly_pins;
 mod u31_positional_fallback;
 mod u363_body_row_annotations;
 mod u363_line_annotations;
+mod u363_list_items;
 mod u372_curly_wrapper_transpose;
 mod u374_fan_computation_law;
 mod use_statement_diagnostics;
