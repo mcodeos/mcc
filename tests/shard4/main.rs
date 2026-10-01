@@ -39,6 +39,7 @@ mod u304_flat_curly_pins;
 mod u31_positional_fallback;
 mod u363_line_annotations;
 mod u372_curly_wrapper_transpose;
+mod u374_fan_computation_law;
 mod use_statement_diagnostics;
 mod vec_parallel_transposed_bridge;
 mod vec_range_declare_equivalence;
