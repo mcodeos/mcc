@@ -386,7 +386,7 @@ pub fn overlap(a: &McMetaValue, b: &McMetaValue) -> Compare {
     match (a, b) {
         (McMetaValue::Undetermined, _) | (_, McMetaValue::Undetermined) => Compare::Pending,
         (McMetaValue::Range(l_lo, l_hi), McMetaValue::Range(r_lo, r_hi)) => {
-            let end = |e: &Option<Box<McMetaValue>>| e.as_deref().map(magnitude);
+            let end = |e: &Option<Box<McMetaValue>>| e.as_deref().map(|v| magnitude(&v));
             // Closed intervals are disjoint iff one known hi < one known lo;
             // each direction alone can decide False. Unbounded ends and
             // pending endpoints leave the answer pending unless disjointness
@@ -430,6 +430,89 @@ pub fn overlap(a: &McMetaValue, b: &McMetaValue) -> Compare {
             }
         }
         _ => Compare::False,
+    }
+}
+
+// --- leg3: the computation family (design doc §3.3) ---
+//
+// Arithmetic returns values, not verdicts: a pending operand yields a
+// pending result (ruling ④), arms with no arithmetic reading yield `None`.
+// The unit laws mirror the parse-time composite construction (U370): a
+// denominator is a unit label only — no factor, no offset ("composites have
+// no algebra", doc/eval/composite-unit-tempco-design.md) — exactly one
+// temperature denominator folds to [`McUnit::TempCo`], anything else to a
+// right-nested [`McUnit::Composite`].
+
+/// The two halves of a `quantity @ condition` pair (`1Mbps@0.5m`):
+/// magnitude first, condition second. `None` on every other arm — the
+/// wrong-arm-reads-none trap closes by shape, as on the record face.
+pub fn pair_halves(v: &McMetaValue) -> Option<(&McMetaValue, &McMetaValue)> {
+    match v {
+        McMetaValue::Pair(a, b) => Some((a, b)),
+        _ => None,
+    }
+}
+
+/// The magnitude half of a pair (`1Mbps` of `1Mbps@0.5m`) — the half the
+/// rating and type faces quote (ratings.rs `scalar_of`).
+pub fn pair_magnitude(v: &McMetaValue) -> Option<&McMetaValue> {
+    pair_halves(v).map(|(a, _)| a)
+}
+
+/// The condition half of a pair (`0.5m` of `1Mbps@0.5m`) — reference data,
+/// the half the condition-axis face judges (cond_axis.rs).
+pub fn pair_condition(v: &McMetaValue) -> Option<&McMetaValue> {
+    pair_halves(v).map(|(_, b)| b)
+}
+
+/// Quantity times a dimensionless factor (`unit algebra keeps the family`).
+/// Dimensionless numbers scale too; a pending operand stays pending.
+pub fn scale(v: &McMetaValue, k: f64) -> Option<McMetaValue> {
+    match v {
+        McMetaValue::Undetermined => Some(McMetaValue::Undetermined),
+        McMetaValue::Unit(u) => {
+            Some(McMetaValue::Unit(McUnitValue::from_normalized(u.value() * k, u.unit().clone(), None)))
+        }
+        McMetaValue::Num(n, _) => Some(McMetaValue::Num(n * k, format!("{}", n * k))),
+        _ => None,
+    }
+}
+
+/// Quantity divided by a quantity: the magnitudes divide, the units compose
+/// per the parse law above. A dimensionless denominator leaves the numerator
+/// family unchanged; a dimensionless numerator has no derived family to
+/// compose into (`None` — no algebra is invented). A zero denominator is not
+/// a quantity (`None`); a pending operand divides to pending.
+pub fn div(a: &McMetaValue, b: &McMetaValue) -> Option<McMetaValue> {
+    match (a, b) {
+        (McMetaValue::Undetermined, _) | (_, McMetaValue::Undetermined) => {
+            Some(McMetaValue::Undetermined)
+        }
+        _ => match (magnitude(a), magnitude(b)) {
+            (Some((x, ux)), Some((y, uy))) if y != 0.0 => {
+                let unit = match (&ux, &uy) {
+                    // Dimensionless denominator: the family stands.
+                    (_, McUnit::Float) => Some(ux),
+                    // Dimensionless numerator: no derived family is invented.
+                    (McUnit::Float, _) => None,
+                    // Exactly one temperature denominator: per-degree drift.
+                    (_, McUnit::Temp) => Some(McUnit::TempCo {
+                        numerator: Box::new(ux),
+                        denominator: Box::new(McUnit::Temp),
+                    }),
+                    (_, other) => Some(McUnit::Composite {
+                        numerator: Box::new(ux),
+                        denominator: Box::new(other.clone()),
+                    }),
+                };
+                let q = x / y;
+                unit.map(|u| match u {
+                    McUnit::Float => McMetaValue::Num(q, format!("{q}")),
+                    u => McMetaValue::Unit(McUnitValue::from_normalized(q, u, None)),
+                })
+            }
+            _ => None,
+        },
     }
 }
 
@@ -589,6 +672,73 @@ mod tests {
         let set = |ws: &[&str]| McMetaValue::Set(ws.iter().map(|w| word(w)).collect());
         assert_eq!(overlap(&set(&["a", "b"]), &set(&["b", "c"])), Compare::True);
         assert_eq!(overlap(&set(&["a"]), &set(&["c"])), Compare::False);
+    }
+
+    // The pair-read primitives (leg3): halves split, wrong arms read None.
+    #[test]
+    fn pair_read_splits_halves_and_rejects_other_arms() {
+        let at = McExpression::UnitValueAt(crate::semantic::basic::mc_expr::McUnitValueAt {
+            left: uval(1.0, "1Mbps"),
+            right: uval(0.5, "0.5m"),
+        });
+        let pair = normalize(&McAttrVal::AttrExpr(at));
+        assert_eq!(pair_magnitude(&pair).map(|v| magnitude(&v)), Some(Some((1.0, McUnit::Float))));
+        assert_eq!(pair_condition(&pair).map(|v| magnitude(&v)), Some(Some((0.5, McUnit::Float))));
+        // Wrong arms read None, never a panic (the record-face law again).
+        assert!(pair_halves(&McMetaValue::Undetermined).is_none());
+        assert!(pair_halves(&McMetaValue::Num(8.0, "8".into())).is_none());
+        assert!(pair_magnitude(&McMetaValue::Undetermined).is_none());
+        assert!(pair_condition(&McMetaValue::Undetermined).is_none());
+    }
+
+    // The computation family (leg3): pending in, pending out; unit laws
+    // mirror the parse-time composite construction (U370).
+    #[test]
+    fn computation_operators_scale_divide_and_propagate_pending() {
+        let volt = |v: f64| McMetaValue::Unit(McUnitValue::from_normalized(v, McUnit::Volt, None));
+        let num = |n: f64| McMetaValue::Num(n, format!("{n}"));
+        // Scale keeps the family; dimensionless scales too.
+        assert_eq!(scale(&volt(3.3), 2.0).map(|v| magnitude(&v)), Some(Some((6.6, McUnit::Volt))));
+        assert_eq!(scale(&num(8.0), 0.5).map(|v| magnitude(&v)), Some(Some((4.0, McUnit::Float))));
+        // Pending scales to pending; wordish arms have no arithmetic.
+        assert!(matches!(scale(&McMetaValue::Undetermined, 2.0), Some(McMetaValue::Undetermined)));
+        assert!(scale(&McMetaValue::Text("x".into()), 2.0).is_none());
+        // Division composes: per-degree drift folds to TempCo, a general
+        // denominator nests a Composite, a dimensionless denominator keeps
+        // the family, two dimensionless numbers divide plainly.
+        let ppm = McMetaValue::Unit(McUnitValue::from_normalized(100.0, McUnit::Ppm, None));
+        let deg = McMetaValue::Unit(McUnitValue::from_normalized(1.0, McUnit::Temp, None));
+        match div(&ppm, &deg) {
+            Some(McMetaValue::Unit(u)) => assert_eq!(
+                *u.unit(),
+                McUnit::TempCo {
+                    numerator: Box::new(McUnit::Ppm),
+                    denominator: Box::new(McUnit::Temp)
+                }
+            ),
+            other => panic!("expected TempCo, got {other:?}"),
+        }
+        let amp = McMetaValue::Unit(McUnitValue::from_normalized(1.0, McUnit::Amp, None));
+        match div(&volt(3.3), &amp) {
+            Some(McMetaValue::Unit(u)) => assert_eq!(
+                *u.unit(),
+                McUnit::Composite {
+                    numerator: Box::new(McUnit::Volt),
+                    denominator: Box::new(McUnit::Amp)
+                }
+            ),
+            other => panic!("expected Composite, got {other:?}"),
+        }
+        let floaty = McMetaValue::Unit(McUnitValue::from_normalized(2.0, McUnit::Float, None));
+        assert_eq!(div(&volt(3.3), &floaty).map(|v| magnitude(&v)), Some(Some((1.65, McUnit::Volt))));
+        assert_eq!(div(&num(8.0), &num(4.0)).map(|v| magnitude(&v)), Some(Some((2.0, McUnit::Float))));
+        // No algebra is invented: dimensionless numerator over a family.
+        assert!(div(&num(8.0), &amp).is_none());
+        // A zero denominator is not a quantity.
+        assert!(div(&volt(3.3), &volt(0.0)).is_none());
+        // Pending divides to pending on either side.
+        assert!(matches!(div(&McMetaValue::Undetermined, &amp), Some(McMetaValue::Undetermined)));
+        assert!(matches!(div(&volt(1.0), &McMetaValue::Undetermined), Some(McMetaValue::Undetermined)));
     }
 
     // KVS entry: `Vgs:-10V` reads as a named pair with a unit value.
