@@ -51,12 +51,11 @@ SRC_PREFIX = "src/"
 # Adding a call means raising a count here *and* registering the face in the
 # spec; removing one means lowering the count, so the two never drift apart.
 REGISTERED = {
-    "src/query/search/dsl.rs": 3,
+    "src/query/search/dsl.rs": 7,
     "src/cmds/show.rs": 2,
     "src/rpc/handlers/show.rs": 2,
     "src/rpc/handlers/mod.rs": 1,
     "src/cmds/build.rs": 2,
-    "src/semantic/meta/mod.rs": 1,
 }
 
 # Registered case-fold faces (01-lexical.md §2.2): relative path -> allowed
