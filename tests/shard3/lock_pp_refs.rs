@@ -4,7 +4,8 @@
 
 //! Locks three PostParse semantic rules from the `refs` validation host
 //! (src/semantic/validation/refs.rs, RefIntegrityCheck::run_post_parse):
-//!   E5103 FUNC_PARAMS_NO_BODY       - component func with params but an empty body
+//!   E5103 FUNC_PARAMS_NO_BODY       - component func with params but an empty body;
+//!                                     U361 absence lock: a cond-only body is not empty
 //!   E5102 REF_INTEGRITY             - component param left with an unknown type
 //!   E5101 SPEC_KEY_UNDECLARED_PARAM - spec key value references an undeclared param
 //! Each lock runs `mcc parse --code <src> ... -f json` through the real
@@ -69,6 +70,47 @@ module main
         "expected E5103 FUNC_PARAMS_NO_BODY: {}",
         result["result"]["pass0"]["diagnostics"]
     );
+}
+
+// E5103 absence lock (U361): a func with parameters whose body holds only
+// if/else blocks is not a stub — the blocks parse into `McFunction.conds`
+// and the matched branches execute at instantiation time. `sel` is only
+// mentioned under `&` (JUDGE_BITAND, unclassified), the mention shape the
+// E5641 usage walk used to miss, so the lock also pins E5641's absence.
+#[test]
+fn lock_pp_refs__func_cond_only_body_no_5103() {
+    let source = r#"component C_MASK_FUNC
+{
+    name = "Mask func"
+    pins = [
+        in 1 = A
+        in 2 = B
+    ]
+    func Pick(sel)
+    {
+        if (sel & 1) A -> B else B -> A
+    }
+}
+module main
+{
+    C_MASK_FUNC U1
+}
+"#;
+    let result = parse(source);
+    assert_eq!(
+        result["result"]["summary"]["errors"].as_u64(),
+        Some(0),
+        "cond-only func snippet must parse without errors; diagnostics: {}",
+        result["result"]["pass0"]["diagnostics"]
+    );
+    for code in [5103, 5641] {
+        assert!(
+            !has_code(&result, code),
+            "E{} must not fire for a cond-only func body; diagnostics: {}",
+            code,
+            result["result"]["pass0"]["diagnostics"]
+        );
+    }
 }
 
 #[test]

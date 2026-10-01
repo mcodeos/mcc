@@ -20,7 +20,8 @@
 //!   * 5205 PARAM_FLOAT_DEFAULT_INVALID   - extra.rs:623 ::FLOAT default overflows to inf (Error)
 //!   * 5206 PARAM_NEGATIVE_DEFAULT        - extra.rs:607 ::INT default is negative
 //!   * 5251 PARAM_RESERVED_KEYWORD        - extra.rs:539 currently UNREACHABLE (guarded below)
-//!   * 5252 FUNC_EMPTY_BODY               - extra.rs:131 (module func) and :155 (component func)
+//!   * 5252 FUNC_EMPTY_BODY               - extra.rs:131 (module func) and :155 (component func);
+//!     U361 absence lock: a cond-only body is not empty
 //!   * 5253 COMPONENT_EMPTY               - extra.rs:258 component with no params/pins/attrs/funcs
 //!   * 5254 COMPONENT_NO_PINS             - extra.rs:269 component with content but no pins
 //!   * 5255 INTERFACE_EMPTY               - extra.rs:290 interface with no pins or roles
@@ -299,6 +300,59 @@ fn lock_pp_extra__func_empty_body_module_5252_fires() {
 }
 "#;
     assert_fires_clean(5252, source);
+}
+
+// E5252 absence lock (U361): a func body of only if/else blocks parses into
+// `McFunction.conds` and the matched branches execute at instantiation time,
+// so a cond-only body is an implementation, not a stub. Both empty-body arms
+// (module and component) and E5103/E5641 must stay silent. `sel` is only
+// mentioned under `&` (JUDGE_BITAND, unclassified), which is exactly the
+// mention shape the usage walk used to miss.
+#[test]
+fn lock_pp_extra__func_cond_only_body_5252_absent() {
+    let component = r#"component C_MASK_FUNC
+{
+    name = "Mask func"
+    pins = [
+        in 1 = A
+        in 2 = B
+    ]
+    func Pick(sel)
+    {
+        if (sel & 1) A -> B else B -> A
+    }
+}
+module main
+{
+    C_MASK_FUNC U1
+}
+"#;
+    let module = r#"module main
+{
+    io VDD
+    func Pick(sel)
+    {
+        if (sel & 1) VDD -> VDD else VDD -> VDD
+    }
+}
+"#;
+    for source in [component, module] {
+        let result = parse(source);
+        assert_eq!(
+            result["result"]["summary"]["errors"].as_u64(),
+            Some(0),
+            "cond-only func snippet must parse without errors; diagnostics: {}",
+            result["result"]["pass0"]["diagnostics"]
+        );
+        for code in [5252, 5103, 5641] {
+            assert!(
+                !has_code(&result, code),
+                "E{} must not fire for a cond-only func body; diagnostics: {}",
+                code,
+                result["result"]["pass0"]["diagnostics"]
+            );
+        }
+    }
 }
 
 // E5253 COMPONENT_EMPTY (extra.rs:258 check_component_structure M1): a

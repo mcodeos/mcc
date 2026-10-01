@@ -55,6 +55,10 @@ pub enum UsageKind {
     Assignment(String), // the RHS literal
     /// `P` referenced as a member: `P.member`
     MemberAccess,
+    /// `P` as a bare identifier leaf under a node no classified arm covers
+    /// (e.g. the `&` of `if (P & 0x01)` rides JUDGE_BITAND). Proves the name
+    /// is used, but carries no type signal — aggregate counts it as nothing.
+    BareIdent,
 }
 
 // Inference Engine
@@ -170,6 +174,18 @@ fn collect_usages_recursive(param_name: &str, node: &AstNode, usages: &mut Vec<U
                     collect_usages_recursive(param_name, &n, usages);
                 }
                 _ => {
+                    // A leaf identifier whose text is the param name is a
+                    // usage even when no classified wrapper arm saw it: the
+                    // `&` of `if (P & 0x01)` rides JUDGE_BITAND, which no arm
+                    // classifies, and plain recursion would reach the leaf
+                    // and record nothing (U361). A leaf gives no type signal,
+                    // so the site only proves use.
+                    if n.get_sub_node().is_none() && n.to_string().as_deref() == Some(param_name) {
+                        usages.push(UsageSite {
+                            kind: UsageKind::BareIdent,
+                            pos,
+                        });
+                    }
                     // Recurse into sub-nodes for other types
                     collect_usages_recursive(param_name, &n, usages);
                 }
@@ -328,6 +344,9 @@ pub fn aggregate_usages(usages: &[UsageSite]) -> InferenceResult {
                 // Can't determine type from argument/return position alone —
                 // need callee signature info. Don't count as numeric to avoid
                 // incorrectly inferring params that only appear in function calls.
+            }
+            UsageKind::BareIdent => {
+                // Proves use, no type signal (see UsageKind::BareIdent).
             }
             UsageKind::MemberAccess => {
                 label_count += 1;
@@ -506,6 +525,52 @@ mod tests {
     fn sem_paraminfer__unused_finder() {
         // Placeholder: needs actual AST
         // Test that unused detection works with empty body
+    }
+
+    #[test]
+    fn sem_paraminfer__bare_ident_proves_use_without_signal() {
+        // U361: a bare-ident leaf site proves the param is used (so
+        // find_unused_params stays silent) but carries no type signal (so
+        // aggregate stays at unknown/0.0 — never feeds a count).
+        let usages = vec![
+            UsageSite {
+                kind: UsageKind::BareIdent,
+                pos: 0,
+            },
+            UsageSite {
+                kind: UsageKind::BareIdent,
+                pos: 10,
+            },
+        ];
+        let result = aggregate_usages(&usages);
+        assert_eq!(result.usage_count, 2);
+        assert_eq!(result.confidence, 0.0);
+        assert_eq!(result.param_type.kind, McParamTypeKind::Unknown);
+    }
+
+    #[test]
+    fn sem_paraminfer__bare_ident_never_wins_a_vote() {
+        // Bare-ident sites carry no vote: with no classified majority the
+        // aggregate stays unknown even though usages exist (used-but-untyped),
+        // and the sites can never outvote a classified kind.
+        let usages = vec![
+            UsageSite {
+                kind: UsageKind::BareIdent,
+                pos: 0,
+            },
+            UsageSite {
+                kind: UsageKind::BareIdent,
+                pos: 1,
+            },
+            UsageSite {
+                kind: UsageKind::Conditional,
+                pos: 2,
+            },
+        ];
+        let result = aggregate_usages(&usages);
+        assert_eq!(result.usage_count, 3);
+        assert_eq!(result.confidence, 0.0);
+        assert_eq!(result.param_type.kind, McParamTypeKind::Unknown);
     }
 
     #[test]

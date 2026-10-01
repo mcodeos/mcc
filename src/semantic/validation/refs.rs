@@ -28,8 +28,8 @@ impl ValidationCheck for RefIntegrityCheck {
 }
 
 /// B1: component functions that declare parameters but have an empty body
-/// (no stmts, no instances). The function signature exists but no implementation
-/// is provided — likely incomplete or stub code.
+/// (no stmts, no instances, no conditional blocks). The function signature
+/// exists but no implementation is provided — likely incomplete or stub code.
 fn check_comp_func_unused_params(acc: &mut CheckAccumulator) {
     let comps = crate::definition_space().workspace_components();
     for (sn, comp) in comps.iter() {
@@ -39,7 +39,14 @@ fn check_comp_func_unused_params(acc: &mut CheckAccumulator) {
         }
         let comp_name = sn.ident.to_string();
         for func in comp.funcs.iter() {
-            if !func.params.is_empty() && func.stmts.is_empty() && func.insts.is_empty() {
+            // U361: a body of only if/else blocks parses into `conds` (and
+            // executes the matched branches at instantiation), so a func
+            // with cond content is not a stub.
+            if !func.params.is_empty()
+                && func.stmts.is_empty()
+                && func.insts.is_empty()
+                && func.conds.is_empty()
+            {
                 let param_names = func.params.names().join(", ");
                 let func_span = func.span.clone().unwrap_or(comp.span.start..comp.span.end);
                 acc.push(CheckResult {

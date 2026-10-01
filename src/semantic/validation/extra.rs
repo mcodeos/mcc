@@ -163,8 +163,11 @@ fn check_empty_functions(acc: &mut CheckAccumulator) {
         for func in m.funcs.iter() {
             // U300 M9b: a bare `return <expr>` body is not empty — the return
             // clause never lands in `stmts`, so judge the parsed return kind.
+            // U361: the same for a body of only if/else blocks — those parse
+            // into `conds` and execute the matched branches at instantiation.
             if func.stmts.is_empty()
                 && func.insts.is_empty()
+                && func.conds.is_empty()
                 && matches!(func.returns, crate::semantic::mc_func::McFuncReturn::Implicit)
             {
                 let func_span = func.span.clone().unwrap_or(m.span.start..m.span.end);
@@ -189,6 +192,7 @@ fn check_empty_functions(acc: &mut CheckAccumulator) {
         for func in comp.funcs.iter() {
             if func.stmts.is_empty()
                 && func.insts.is_empty()
+                && func.conds.is_empty()
                 && matches!(func.returns, crate::semantic::mc_func::McFuncReturn::Implicit)
             {
                 let func_span = func.span.clone().unwrap_or(comp.span.start..comp.span.end);
