@@ -181,6 +181,34 @@ pub struct McAttribute {
     /// from the node type — structure, not the key name (§1.7) — and recorded
     /// here, where the binder can act on it.
     pub pins_ids: Option<Vec<crate::semantic::basic::mc_ids::IdsSegment>>,
+    /// Trailing `@attr(...)` bags of one row (U363 gap 3a: `vin = f(2V)
+    /// @ds(p=4)`). Kept OUT of `values` so every value-position reader —
+    /// binding `values.first()`, whole-text vocabulary matching,
+    /// `collect_key_names`' table test — sees the stream an unannotated row
+    /// produces. A sole or leading `Attributes` entry is NOT one of these:
+    /// the tattr named-argument form (`@ds(p=4)`) wraps its pairs in exactly
+    /// one bag, and that bag is the attribute's whole payload.
+    pub annotations: Vec<McAttribute>,
+}
+
+/// Split one row's value stream into its values and its trailing tattr bags
+/// (U363 gap 3a). Every `Attributes` entry that follows at least one real
+/// value is a trailing `@attr(...)` run, not table data — it moves (flattened)
+/// into `annotations`. A leading or sole `Attributes` entry stays a value.
+fn split_trailing_annotations(values: Vec<McAttrVal>) -> (Vec<McAttrVal>, Vec<McAttribute>) {
+    let mut vals = Vec::new();
+    let mut annotations = Vec::new();
+    let mut seen_value = false;
+    for val in values {
+        match val {
+            McAttrVal::Attributes(rows) if seen_value => annotations.extend(rows),
+            other => {
+                seen_value = true;
+                vals.push(other);
+            }
+        }
+    }
+    (vals, annotations)
 }
 
 /// Collect the bindable name of every leaf attribute key, one level at a time.
@@ -491,6 +519,7 @@ impl McAttribute {
                 no: 0,
                 id: attr_id,
                 values: Vec::new(),
+                annotations: Vec::new(),
                 key_span,
                 pins_ids,
             });
@@ -505,16 +534,20 @@ impl McAttribute {
                     no: 0,
                     id: attr_id,
                     values: kvs_values,
+                    annotations: Vec::new(),
                     key_span,
                     pins_ids,
                 });
             }
         }
 
+        let (values, annotations) =
+            split_trailing_annotations(McAttribute::new_attr_values(&subnode2)?);
         Some(Self {
             no: 0,
             id: attr_id,
-            values: McAttribute::new_attr_values(&subnode2)?,
+            values,
+            annotations,
             key_span,
             pins_ids,
         })

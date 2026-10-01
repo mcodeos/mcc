@@ -1010,6 +1010,7 @@ mod tests {
             values,
             key_span: None,
             pins_ids: None,
+            annotations: Vec::new(),
         }
     }
 }

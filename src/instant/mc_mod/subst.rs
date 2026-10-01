@@ -911,6 +911,7 @@ mod tests {
             }))],
             key_span: None,
             pins_ids: None,
+            annotations: Vec::new(),
         };
         let value = McParamValue::InlineAttrs(vec![attr]);
         let elems = InstantiationBuilder::param_value_to_node_elements(&value, &NoScope::default());

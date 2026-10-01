@@ -997,6 +997,7 @@ mod tests {
             values: vec![McAttrVal::AttrLiteral(McLiteral::Int(McInt { value: 10 }))],
             key_span: Some(7..13),
             pins_ids: None,
+            annotations: Vec::new(),
         });
         let hit = AttrsScope::new(&attrs).resolve("partno").unwrap();
         assert!(matches!(hit.inst, McInstance::Attr(_)));

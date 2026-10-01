@@ -2073,6 +2073,7 @@ mod tests {
             values: vec![McAttrVal::AttrLiteral(McLiteral::Int(McInt { value }))],
             key_span: None,
             pins_ids: None,
+            annotations: Vec::new(),
         }
     }
 
