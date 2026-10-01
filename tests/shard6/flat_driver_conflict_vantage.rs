@@ -110,3 +110,32 @@ fn dlv_drvconf__module_out_shorts_sibling_pin_fires() {
         ["Net '_net0' has 2 drivers: main.s1.Y, main.b0.2. Possible short circuit."]
     );
 }
+
+/// U360: one declaration row can bond several physical pins after one label
+/// (`out [2,3] = SW` — an internal parallel-output node). The declaration says
+/// they are one logical node, so both pins on a net are one driver, not a
+/// short — the group must not fire E4101 against itself.
+#[test]
+fn dlv_drvconf__parallel_output_group_is_one_driver() {
+    let src = format!(
+        "{BUF}component DSW {{\n    pins = [\n        out [2,3] = SW\n    ]\n}}\nmodule main {{\n    DSW d1\n    BUF b\n    d1.SW -> b.A\n}}"
+    );
+    assert!(
+        driver_conflict_msgs(&src).is_empty(),
+        "a declared parallel-output group is one logical driver"
+    );
+}
+
+/// The group exemption is per instance: two DSW instances' parallel groups
+/// shorted together are still two real drivers — E4101 keeps firing.
+#[test]
+fn dlv_drvconf__two_parallel_groups_short_still_fires() {
+    let src = format!(
+        "{BUF}component DSW {{\n    pins = [\n        out [2,3] = SW\n    ]\n}}\nmodule main {{\n    DSW d1\n    DSW d2\n    d1.SW -> d2.SW\n}}"
+    );
+    assert_eq!(
+        driver_conflict_msgs(&src).len(),
+        1,
+        "two instances' bonded outputs shorted are two real drivers"
+    );
+}

@@ -599,10 +599,27 @@ pub(crate) fn check_driver_conflict(table: &InstTable, results: &mut Vec<NetChec
         // port still counts when no interior driver shares the net — two out
         // ports on a parent net (`s1.Y -> s2.Y`) are two different modules' real
         // drivers shorted, exactly what E4101 exists to catch.
+        // Parallel-output groups (U360): one declaration row can name several
+        // physical pins after one label (`out [26,27] = SW` — the internal
+        // switch node's two bonded pins). The declaration itself says they are
+        // the same logical node inside the device, so they are one driver, not
+        // a short: entries that share both a parent instance and a non-empty
+        // declared pin name (`class_name`, carried from `pin_id_to_names` at
+        // flatten) collapse to the first. Two separately named outputs of the
+        // same instance, or two instances' outputs, keep counting — the gate
+        // must still see those shorts.
+        let mut seen_groups: std::collections::HashSet<(Option<u32>, &str)> =
+            std::collections::HashSet::new();
         let drivers: Vec<&InstEntry> = out_ids
             .iter()
             .filter(|&&id| !is_module_out_port_exit(table, id, &out_ids))
             .filter_map(|id| table.get_entry(*id))
+            .filter(|e| {
+                if e.class_name.is_empty() {
+                    return true;
+                }
+                seen_groups.insert((e.parent_id, e.class_name.as_str()))
+            })
             .collect();
         if drivers.len() > 1 {
             let names: Vec<_> = drivers.iter().map(|e| e.path.as_str()).collect();
