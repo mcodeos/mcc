@@ -1552,6 +1552,15 @@ pub const RATING_PARAM_OUT_OF_RANGE: u32 = 5361;
 /// A `ratings` entry key names no constructor parameter of its class.
 pub const RATING_KEY_NOT_A_PARAM: u32 = 5362;
 
+/// Paired values under one key (`10A@5V`, U371 leg4) carry condition halves
+/// written against more than one unit family — the rows cannot share one
+/// condition axis, so a later working-point pass (ruling 20, case c) could
+/// never select among them coherently. Rows sharing one axis *point* are not
+/// judged: the K form is a point *set* (membership, not a function), so
+/// alternative capabilities at one point (`25MHz@0.1m, 50MHz@0.1m, …`) are
+/// the corpus's own spelling of speed grades.
+pub const COND_AXIS_MIXED: u32 = 5363;
+
 // Pass3: enum / expression checks (5400-5449)
 
 /// Enum has a duplicate value.
@@ -2857,6 +2866,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(ATTR_VALUE_NOT_IN_VOCABULARY, "Attribute value is outside the key's registered word set.", "Attribute value is outside the key's registered word set."),
     entry!(RATING_PARAM_OUT_OF_RANGE, "An instance parameter value falls outside the interval its class's ratings clause declares.", "Instance '{0}' of component '{1}': parameter '{2}' = {3} violates its ratings ({4} {5}). Set the value within the declared bounds or choose a part whose ratings admit it."),
     entry!(RATING_KEY_NOT_A_PARAM, "A ratings entry key names no constructor parameter of its class.", "Ratings key '{0}' in component '{1}' names no constructor parameter. Key each entry with a parameter declared in the class signature."),
+    entry!(COND_AXIS_MIXED, "Paired values under one key carry condition halves on more than one unit family.", "Key '{0}' pairs its values on more than one condition axis ({1}). The rows of one key share one axis — a working-point declaration (ruling 20, case c) selects rows by that axis, and mixed families leave no coherent selection. Write every condition half in one unit family, or drop the '@' half from rows that carry no condition."),
     // section
     entry!(ENUM_DUPLICATE_VALUE, "Enum has a duplicate value.", "Enum has a duplicate value."),
     entry!(ENUM_MEMBER_DOT, "Enum member contains a dot.", "Enum member contains a dot."),
