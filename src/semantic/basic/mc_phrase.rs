@@ -4091,6 +4091,28 @@ impl McPhrase {
                 Self::salvage_inline_ctors(node, context)
             }
 
+            // A literal reached phrase construction — only possible as a
+            // connection operand (`a + 0` in a func body, U376). A literal is
+            // a value, not a terminal: report the user-facing "not a
+            // terminal" diagnostic instead of the internal catch-all E4009,
+            // anchored at the literal itself. Same literal family the value
+            // engine groups (mc_attr / mc_layout).
+            MCAST_INT | MCAST_HEX | MCAST_FLOAT | MCAST_STRING | MCAST_CONST
+            | MCAST_UVALUE => {
+                let text = node
+                    .to_string()
+                    .unwrap_or_else(|| node.get_type().to_string());
+                dlog_error(
+                    crate::errcodes::PHRASE_LITERAL_NOT_TERMINAL,
+                    node,
+                    &crate::errcodes::format_msg(
+                        crate::errcodes::PHRASE_LITERAL_NOT_TERMINAL,
+                        &[&text as &dyn std::fmt::Display],
+                    ),
+                );
+                None
+            }
+
             _ => {
                 dlog_error(
                     crate::errcodes::PHRASE_AST_TYPE_UNEXPECTED,
