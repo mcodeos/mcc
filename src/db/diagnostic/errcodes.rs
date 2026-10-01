@@ -1239,34 +1239,6 @@ pub const MEDIATOR_IFACE_ROLE: u32 = 4187;
 /// check lives at func-method expansion (`fcallinst::run_component_method`).
 pub const INST_FUNC_FORMAL_MEMBER_AMBIGUOUS: u32 = 4188;
 
-/// A declared vector member in a connection statement does not resolve to a
-/// physical instance point (no component under the declared name, or the
-/// component owns no arena node) and is left out of the connection slice.
-/// The lane layer reports the loss instead of dropping the member silently
-/// (U373 hidden B): a mid-slice loss shifts every later positional pairing
-/// (`c[1:2].1 -> d[1:2].1` losing `c2` would pair `c1↔d1` only; losing the
-/// MIDDLE member would pair the tail one step off — miswiring, worse than a
-/// dropped lead). Warning, never an error: the surviving pairings stay
-/// electrically real; the unequal-width slice pair that can result is
-/// reported separately as VECTOR_ZIP_WIDTH_MISMATCH (4181) and its lane is
-/// withheld. Emitted by the DianLu assembly from the trunk's recorded
-/// defects (`instant::lane::LaneDefect::MemberLost`).
-pub const VECTOR_MEMBER_LOST: u32 = 4189;
-
-/// A both-sides slice pair (`c[1:2].1 -> d[1:2].1`) whose two ordered member
-/// lists differ in length after resolution. The written form is rejected at
-/// Pass1 by the shape gate (E4007), so reaching the lane layer with unequal
-/// widths means a member was lost after acceptance — positional zipping
-/// would silently truncate the longer side or misalign every member past the
-/// first loss (U373 hidden A/C). The lane is withheld (no pairing at unequal
-/// width — fail open, the downstream unconnected-pin checks report the
-/// hanging ends) and the drift is reported. The member loss itself is
-/// reported as VECTOR_MEMBER_LOST (4189); the per-member dispatch face has
-/// its own width gate (VECTOR_ZIP_WIDTH_MISMATCH, 4181). Emitted by the
-/// DianLu assembly from the trunk's recorded defects
-/// (`instant::lane::LaneDefect::PairWidth`).
-pub const VECTOR_PAIR_WIDTH_DRIFT: u32 = 4190;
-
 // Pass2: AssemblyGate netlist health — R-series report rows (4200-4249)
 //
 // The netcheck Tier-0 report (instant::netcheck) registers every R-series row
@@ -2726,8 +2698,6 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(PHRASE_RESERVED_WORD_SUBSCRIBED, "A subscript is glued onto a reserved word, which addresses nothing.", "name carries a subscript in the reserved word '{0}', where a subscript selects nothing: write '{0}{...}' or '{0}.N'"),
     entry!(ATTR_VALUE_NOT_A_TERMINAL, "An attribute used as a connection endpoint.", "'{0}' is an attribute key: it holds a value, not a terminal, so it cannot be a connection endpoint; connect a pin, a port, or a net instead"),
     entry!(PIN_VALUE_KEY_NOT_FOUND, "A pin value key was not found.", "'{0}' has no value key '{1}'; declared keys: [{2}]"),
-    entry!(VECTOR_MEMBER_LOST, "A declared vector member in a connection statement does not resolve to a physical instance point; it is left out of the connection slice (reported, never silent).", "Vector '{0}': declared member '{1}' does not resolve to a physical instance point and is left out of the connection slice (vec-dianlu §5.3.5) — every member after it pairs one step off. Fix the declaration or the member instance so the name resolves."),
-    entry!(VECTOR_PAIR_WIDTH_DRIFT, "A both-sides slice pair whose resolved member widths differ; the positional lane is withheld.", "Slice pair width drift: left side resolves to {0} member(s), right side to {1}; the positional pairing lane is withheld (equal widths only, vec-dianlu §5.3.5). A member was lost after the shape gate accepted the statement — see VECTOR_MEMBER_LOST (4189)."),
     // section
     entry!(GHOST_PORT_BOX, "A box has a placeholder pin not mapped to any real component pin.", "GHOST_PORT: box '{0}' (id={1}) has placeholder pin '{2}' (id={3}) that is not mapped to any real component pin. The component declared only an estimated pin count (pins = N) without actual pin definitions."),
     entry!(NET_MERGED_SHORT, "Multiple points resolve to the same node — possible short circuit.", "MERGED_SHORT: net '{0}' (module '{1}') has {2} point(s) resolving to the same node (id={3}). Paths: {4}. This may indicate a bracket expansion duplicate or a port declared without bit width causing signal merging."),

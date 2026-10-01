@@ -134,9 +134,21 @@ impl InstantiationBuilder {
         if matches!(inner, McPhrase::FuncCall(_)) {
             return self.vexpr_reduce(member);
         }
-        let shape = OpdShape::from_sides(inner.get_left(), inner.get_right());
-        let Ok(transposed) = shape.transpose() else {
-            return self.vexpr_reduce(member);
+        // U372 leg4 (design doc §10 edge 13): read the shape from the value
+        // face ([`OpdShape::of`]), the same read the mirrored Pass2 arms use
+        // since U308/leg3. The previous symbol-level `from_sides(get_left,
+        // get_right)` view disagrees about a *composed* operand — on the
+        // involution `X''` (Transposed(Transposed(_))) it miscounted the
+        // width and the fold refused the whole leg with E4007.
+        let shape = OpdShape::of(inner, &*self);
+
+        debug_assert!(
+            shape.transpose().is_ok(),
+            "unrepresentable transpose reached Pass2: {shape:?}"
+        );
+        let transposed = match shape.transpose() {
+            Ok(t) => t,
+            Err(_) => return self.vexpr_reduce(member),
         };
         let left = self.vexpr_expand_elems(&transposed.port_left())?;
         let right = self.vexpr_expand_elems(&transposed.port_right())?;

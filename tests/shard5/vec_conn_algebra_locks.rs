@@ -199,6 +199,83 @@ fn conn_law__group_involution_composes_to_baseline() {
     );
 }
 
+/// L2 对合律, adjacent spelling (#47) — U372 leg4: the lexer now reads `''`
+/// as two transpose suffixes (the old rule lexed the pair as an empty
+/// single-quoted string and swallowed the rest of the line), so the
+/// involution composes on the operand face exactly like the group spelling:
+/// `X''` diagnoses and wires exactly like X.
+#[test]
+fn conn_law__adjacent_involution_composes_to_baseline() {
+    let (baseline_codes, baseline_nets) = build("    L1 - D2{A,K}");
+    let (codes, nets) = build("    L1 - D2{A,K}''");
+    assert_eq!(
+        codes, baseline_codes,
+        "the involution must diagnose exactly like the baseline"
+    );
+    assert_eq!(
+        nets, baseline_nets,
+        "X'' must wire exactly like X; got {nets:?} vs {baseline_nets:?}"
+    );
+    // and the adjacent spelling ≡ the group spelling `(X')'` (the group
+    // machine path is the reference truth, L2).
+    let (grp_codes, grp_nets) = build("    L1 - (D2{A,K}')'");
+    assert_eq!(
+        (&codes, &nets),
+        (&grp_codes, &grp_nets),
+        "the adjacent spelling ≡ the group spelling; got {nets:?} vs {grp_nets:?}"
+    );
+}
+
+/// L2, label side: `''` between labels is two transpose suffixes composing to
+/// the identity, and the old empty-string cascade (E2082/E2115) is gone.
+#[test]
+fn conn_law__adjacent_involution_label_is_identity() {
+    let (codes, nets) = build("    L1'' - L2");
+    assert!(
+        !codes.contains(&mcc::errcodes::PARSER_CLAUSE_INVALID)
+            && !codes.contains(&mcc::errcodes::PARSER_EMPTY_BODY),
+        "the empty-string cascade must not fire; got {codes:?}"
+    );
+    assert!(
+        wired(&nets, "L1", "L2"),
+        "the label involution must be the identity; got {nets:?}"
+    );
+}
+
+/// L2, chain side: `X''` ≡ `(X')'` byte-for-byte inside a chain, and both
+/// wire like the bare operand. (The transposed spellings *diagnose* one
+/// E4007 where the bare operand diagnoses two: the transpose-bridge
+/// withholding the whole chain is shared by every transposed spelling,
+/// including the pre-existing group form — not an involution cell.)
+#[test]
+fn conn_law__adjacent_involution_matches_group_spelling_in_chains() {
+    for (bare, dbl, grp) in [
+        (
+            "    L0 - D2{A,K} - L9",
+            "    L0 - D2{A,K}'' - L9",
+            "    L0 - (D2{A,K}')' - L9",
+        ),
+        (
+            "    L0 - [L1,L2] - L9",
+            "    L0 - [L1,L2]'' - L9",
+            "    L0 - ([L1,L2]')' - L9",
+        ),
+    ] {
+        let (dbl_codes, dbl_nets) = build(dbl);
+        let (grp_codes, grp_nets) = build(grp);
+        assert_eq!(
+            (&dbl_codes, &dbl_nets),
+            (&grp_codes, &grp_nets),
+            "adjacent ≡ group in a chain; got {dbl_codes:?} vs {grp_codes:?}"
+        );
+        let (_, bare_nets) = build(bare);
+        assert_eq!(
+            &dbl_nets, &bare_nets,
+            "the involution wires like the bare operand; got {dbl_nets:?} vs {bare_nets:?}"
+        );
+    }
+}
+
 /// L22 三端选择律 (#16): the pipe-node form is the node-equation truth —
 /// `{L1,L3|L2,L4}` assigns the written row pairs as node memberships.
 #[test]
