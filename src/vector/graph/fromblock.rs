@@ -2228,6 +2228,7 @@ mod tests {
             not_fitted: false,
             nc_marked: false,
             unselected: false,
+            drive: None,
             protection: None,
             exposed: Vec::new(),
             element_class: None,
