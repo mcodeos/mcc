@@ -16,7 +16,7 @@ use crate::semantic::basic::mc_expr::McExpression;
 use crate::semantic::basic::mc_kvs::{KVSValue, McKVS};
 use crate::semantic::basic::mc_literal::McLiteral;
 use crate::semantic::basic::mc_opd::McOpd;
-use crate::semantic::basic::mc_uval::McUnitValue;
+use crate::semantic::basic::mc_uval::{McUnit, McUnitValue};
 use crate::semantic::component::mc_attr::{McAttrVal, McAttribute, McAttributes};
 
 /// The normalized value model (ruling ①: `McMetaValue`).
@@ -239,6 +239,200 @@ fn resolve_segs<'a>(
     out
 }
 
+/// The three-valued comparison result (ruling ④). `Pending` is the `_`
+/// propagation: a comparison that touches an undetermined value is itself
+/// undetermined — never a violation. The vocabulary gate stays silent on a
+/// pending declaration (canon §7.1: a `_` value is backfilled later, on the
+/// BOM face), and arithmetic through a `_` yields `_` (leg3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Compare {
+    True,
+    False,
+    Pending,
+}
+
+fn decided(b: bool) -> Compare {
+    if b {
+        Compare::True
+    } else {
+        Compare::False
+    }
+}
+
+/// Word-exact comparison. Word/Text/Ref arms compare by their exact written
+/// form — no case folding, the vocabulary gate's law. Numeric and unit arms
+/// are not words (they compare through [`eq_norm`]); any other arm pair reads
+/// False, and a pending operand propagates pending.
+pub fn exact(a: &McMetaValue, b: &McMetaValue) -> Compare {
+    match (a, b) {
+        (McMetaValue::Undetermined, _) | (_, McMetaValue::Undetermined) => Compare::Pending,
+        (McMetaValue::Word(x), McMetaValue::Word(y))
+        | (McMetaValue::Text(x), McMetaValue::Text(y)) => decided(x == y),
+        (McMetaValue::Ref(x), McMetaValue::Ref(y)) => decided(x == y),
+        _ => Compare::False,
+    }
+}
+
+/// The comparable magnitude of one value: a unit quantity reads its
+/// prefix-normalized magnitude with its unit family (the mc_uval suffix table
+/// folds `80mΩ` into `0.08` Ohm at parse), a plain number reads dimensionless.
+/// Every other arm has no magnitude.
+fn magnitude(v: &McMetaValue) -> Option<(f64, McUnit)> {
+    match v {
+        McMetaValue::Unit(u) => Some((u.value(), u.unit().clone())),
+        McMetaValue::Num(n, _) => Some((*n, McUnit::Float)),
+        _ => None,
+    }
+}
+
+/// Unit-normalized numeric equality (`80mΩ` ≡ `0.08Ω`, dimensionless `8` ≡
+/// `8.0`). Both operands must carry a magnitude in the same unit family;
+/// anything wordish, textual or structural reads False, pending propagates.
+pub fn eq_norm(a: &McMetaValue, b: &McMetaValue) -> Compare {
+    match (a, b) {
+        (McMetaValue::Undetermined, _) | (_, McMetaValue::Undetermined) => Compare::Pending,
+        _ => match (magnitude(a), magnitude(b)) {
+            (Some((x, ux)), Some((y, uy))) => decided(ux == uy && x == y),
+            _ => Compare::False,
+        },
+    }
+}
+
+/// One element comparison behind [`member`] and [`overlap`]: numeric arms
+/// pair through [`eq_norm`], everything else through [`exact`].
+fn element_eq(a: &McMetaValue, b: &McMetaValue) -> Compare {
+    match (a, b) {
+        (McMetaValue::Unit(_), _)
+        | (_, McMetaValue::Unit(_))
+        | (McMetaValue::Num(..), _)
+        | (_, McMetaValue::Num(..)) => eq_norm(a, b),
+        _ => exact(a, b),
+    }
+}
+
+/// Set membership — is `item` one of `set`'s elements (∃-Kleene)? A definite
+/// match decides True even when other elements are pending; no match with a
+/// pending element present stays Pending. A `Range` set reads as interval
+/// membership (closed, unbounded where an arm is absent); a non-collection
+/// set reads as direct comparison.
+pub fn member(item: &McMetaValue, set: &McMetaValue) -> Compare {
+    match set {
+        McMetaValue::Undetermined => Compare::Pending,
+        McMetaValue::Set(items) => {
+            let mut pending = false;
+            for e in items {
+                match element_eq(item, e) {
+                    Compare::True => return Compare::True,
+                    Compare::Pending => pending = true,
+                    Compare::False => {}
+                }
+            }
+            if pending {
+                Compare::Pending
+            } else {
+                Compare::False
+            }
+        }
+        McMetaValue::Range(lo, hi) => {
+            let Some((x, ux)) = magnitude(item) else {
+                return Compare::False;
+            };
+            // One closed-interval bound: satisfied (True), violated (False),
+            // undecidable (Pending — the endpoint is `_`), or trivially
+            // satisfied because the interval is unbounded on this side.
+            let bound = |end: &Option<Box<McMetaValue>>, inside: bool| match end.as_deref() {
+                // Absent arm: the interval is unbounded on this side.
+                None => Compare::True,
+                // A `_` endpoint is undecidable, never violating (ruling ④).
+                Some(McMetaValue::Undetermined) => Compare::Pending,
+                Some(v) => match magnitude(v) {
+                    None => Compare::False,
+                    Some((v, vy)) => {
+                        if vy != ux {
+                            Compare::False
+                        } else {
+                            decided(if inside {
+                                x <= v
+                            } else {
+                                x >= v
+                            })
+                        }
+                    }
+                },
+            };
+            let lo_cmp = bound(lo, false);
+            let hi_cmp = bound(hi, true);
+            if matches!(lo_cmp, Compare::False) || matches!(hi_cmp, Compare::False) {
+                Compare::False
+            } else if matches!(lo_cmp, Compare::True) && matches!(hi_cmp, Compare::True) {
+                Compare::True
+            } else {
+                Compare::Pending
+            }
+        }
+        other => exact(item, other),
+    }
+}
+
+/// Containment — [`member`] with the arguments in set order.
+pub fn contains(set: &McMetaValue, item: &McMetaValue) -> Compare {
+    member(item, set)
+}
+
+/// Range intersection (the level-window family's low-level operator) and
+/// set-element overlap (∃∃-Kleene: a definite common element decides True,
+/// pending pairs keep the answer Pending). Non-comparable shapes read False.
+pub fn overlap(a: &McMetaValue, b: &McMetaValue) -> Compare {
+    match (a, b) {
+        (McMetaValue::Undetermined, _) | (_, McMetaValue::Undetermined) => Compare::Pending,
+        (McMetaValue::Range(l_lo, l_hi), McMetaValue::Range(r_lo, r_hi)) => {
+            let end = |e: &Option<Box<McMetaValue>>| e.as_deref().map(magnitude);
+            // Closed intervals are disjoint iff one known hi < one known lo;
+            // each direction alone can decide False. Unbounded ends and
+            // pending endpoints leave the answer pending unless disjointness
+            // is already proven.
+            let disjoint = |hi: &Option<Box<McMetaValue>>, lo: &Option<Box<McMetaValue>>| {
+                match (end(hi), end(lo)) {
+                    (Some(Some((h, uh))), Some(Some((l, ul)))) => Some(uh == ul && h < l),
+                    _ => None,
+                }
+            };
+            if disjoint(l_hi, r_lo) == Some(true) || disjoint(r_hi, l_lo) == Some(true) {
+                return Compare::False;
+            }
+            let four = [l_lo, l_hi, r_lo, r_hi];
+            // Every end decidable: absent (unbounded) or known. Only a `_`
+            // endpoint leaves the intersection undetermined (ruling ④).
+            if four.iter().all(|e| !matches!(end(e), Some(None))) {
+                let inside = |hi: &Option<Box<McMetaValue>>, lo: &Option<Box<McMetaValue>>| {
+                    !matches!(disjoint(hi, lo), Some(true))
+                };
+                decided(inside(l_hi, r_lo) && inside(r_hi, l_lo))
+            } else {
+                Compare::Pending
+            }
+        }
+        (McMetaValue::Set(xs), McMetaValue::Set(ys)) => {
+            let mut pending = false;
+            for x in xs {
+                for y in ys {
+                    match element_eq(x, y) {
+                        Compare::True => return Compare::True,
+                        Compare::Pending => pending = true,
+                        Compare::False => {}
+                    }
+                }
+            }
+            if pending {
+                Compare::Pending
+            } else {
+                Compare::False
+            }
+        }
+        _ => Compare::False,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -304,6 +498,97 @@ mod tests {
         assert!(record_rows(&set).is_empty());
         assert!(record_names(&set).is_empty());
         assert_eq!(record_row(&set, "a"), None);
+    }
+
+    // Leg2 — the comparison family. Ruling ④: `_` propagates as pending,
+    // never a violation.
+    #[test]
+    fn exact_compares_wordish_arms_and_propagates_pending() {
+        let word = |w: &str| McMetaValue::Word(w.into());
+        assert_eq!(exact(&word("main"), &word("main")), Compare::True);
+        assert_eq!(exact(&word("Main"), &word("main")), Compare::False);
+        assert_eq!(exact(&word("x"), &McMetaValue::Text("x".into())), Compare::False);
+        assert_eq!(
+            exact(&McMetaValue::Undetermined, &word("main")),
+            Compare::Pending
+        );
+        assert_eq!(exact(&word("main"), &McMetaValue::Undetermined), Compare::Pending);
+    }
+
+    #[test]
+    fn eq_norm_reads_prefix_normalized_quantities() {
+        let uval = |v: f64, unit: McUnit| McMetaValue::Unit(McUnitValue::from_normalized(v, unit, None));
+        let ohm = || McUnit::Ohm;
+        // `80mΩ` parses to (0.08, Ohm); it equals `0.08Ω`, not `80Ω`.
+        assert_eq!(eq_norm(&uval(0.08, ohm()), &uval(0.08, ohm())), Compare::True);
+        assert_eq!(eq_norm(&uval(80.0, ohm()), &uval(0.08, ohm())), Compare::False);
+        // A dimensionless number and its unit-family quantity compare equal.
+        assert_eq!(eq_norm(&uval(8.0, McUnit::Float), &McMetaValue::Num(8.0, "8".into())), Compare::True);
+        // Cross-family and wordish operands do not decode.
+        assert_eq!(eq_norm(&uval(1.0, McUnit::Ohm), &uval(1.0, McUnit::Volt)), Compare::False);
+        assert_eq!(
+            eq_norm(&McMetaValue::Word("80mΩ".into()), &uval(0.08, ohm())),
+            Compare::False
+        );
+        // Pending propagates.
+        assert_eq!(eq_norm(&McMetaValue::Undetermined, &uval(1.0, ohm())), Compare::Pending);
+    }
+
+    #[test]
+    fn member_and_contains_read_sets_ranges_and_pending() {
+        let word = |w: &str| McMetaValue::Word(w.into());
+        let set = |ws: &[&str]| McMetaValue::Set(ws.iter().map(|w| word(w)).collect());
+        assert_eq!(member(&word("shunt"), &set(&["shunt", "series"])), Compare::True);
+        assert_eq!(member(&word("serise"), &set(&["shunt", "series"])), Compare::False);
+        assert_eq!(contains(&set(&["shunt", "series"]), &word("series")), Compare::True);
+        // ∃-Kleene: a definite match decides; otherwise pending infects.
+        let mixed = McMetaValue::Set(vec![word("a"), McMetaValue::Undetermined]);
+        assert_eq!(member(&word("a"), &mixed), Compare::True);
+        assert_eq!(member(&word("b"), &mixed), Compare::Pending);
+        // Interval membership: closed, unbounded where an arm is absent.
+        let range = |lo: Option<f64>, hi: Option<f64>| {
+            let end = |v: Option<f64>| {
+                v.map(|x| Box::new(McMetaValue::Unit(McUnitValue::from_normalized(x, McUnit::Volt, None))))
+            };
+            McMetaValue::Range(end(lo), end(hi))
+        };
+        let three = McMetaValue::Unit(McUnitValue::from_normalized(3.6, McUnit::Volt, None));
+        assert_eq!(member(&three, &range(Some(3.3), Some(5.5))), Compare::True);
+        assert_eq!(member(&three, &range(Some(4.0), None)), Compare::False);
+        assert_eq!(member(&three, &range(None, Some(5.5))), Compare::True);
+        // A pending endpoint leaves membership pending, never false.
+        let pending_end = McMetaValue::Range(
+            Some(Box::new(McMetaValue::Undetermined)),
+            Some(Box::new(McMetaValue::Unit(McUnitValue::from_normalized(5.5, McUnit::Volt, None)))),
+        );
+        assert_eq!(member(&three, &pending_end), Compare::Pending);
+    }
+
+    #[test]
+    fn overlap_reads_range_intersection_and_set_commons() {
+        let vr = |lo: f64, hi: f64| {
+            let end = |v: f64| {
+                Box::new(McMetaValue::Unit(McUnitValue::from_normalized(v, McUnit::Volt, None)))
+            };
+            McMetaValue::Range(Some(end(lo)), Some(end(hi)))
+        };
+        assert_eq!(overlap(&vr(3.0, 5.5), &vr(4.5, 6.0)), Compare::True);
+        assert_eq!(overlap(&vr(3.0, 3.4), &vr(4.5, 6.0)), Compare::False);
+        // Touching closed intervals share an endpoint.
+        assert_eq!(overlap(&vr(3.0, 4.5), &vr(4.5, 6.0)), Compare::True);
+        // An unbounded end decides; a `_` endpoint stays pending.
+        let unbounded = McMetaValue::Range(None, Some(Box::new(McMetaValue::Unit(McUnitValue::from_normalized(5.5, McUnit::Volt, None)))));
+        assert_eq!(overlap(&unbounded, &vr(1.0, 2.0)), Compare::True);
+        let pending_hi = McMetaValue::Range(
+            Some(Box::new(McMetaValue::Unit(McUnitValue::from_normalized(1.0, McUnit::Volt, None)))),
+            Some(Box::new(McMetaValue::Undetermined)),
+        );
+        assert_eq!(overlap(&pending_hi, &vr(4.0, 6.0)), Compare::Pending);
+        // Set overlap: a common element decides, pending pairs keep pending.
+        let word = |w: &str| McMetaValue::Word(w.into());
+        let set = |ws: &[&str]| McMetaValue::Set(ws.iter().map(|w| word(w)).collect());
+        assert_eq!(overlap(&set(&["a", "b"]), &set(&["b", "c"])), Compare::True);
+        assert_eq!(overlap(&set(&["a"]), &set(&["c"])), Compare::False);
     }
 
     // KVS entry: `Vgs:-10V` reads as a named pair with a unit value.

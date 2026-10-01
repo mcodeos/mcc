@@ -34,7 +34,7 @@ range (threshold 40KB).
 | `db/infra/mc_code.rs` | 404 KB | 124 |
 | `semantic/basic/mc_phrase.rs` | 364 KB | 93 |
 | `semantic/component/mc_pins/mod.rs` | 243 KB | 112 |
-| `instant/mc_mod/stmt.rs` | 219 KB | 84 |
+| `instant/mc_mod/stmt.rs` | 220 KB | 84 |
 | `semantic/validation/nets/mod.rs` | 216 KB | 140 |
 | `db/diagnostic/errcodes.rs` | 215 KB | 478 |
 | `rules.rs` | 195 KB | 83 |
@@ -67,13 +67,13 @@ range (threshold 40KB).
 | `db/` | 28 | 1065 KB |
 | `eval/` | 2 | 53 KB |
 | `export/` | 7 | 185 KB |
-| `instant/` | 41 | 1733 KB |
+| `instant/` | 41 | 1734 KB |
 | `lsp/` | 8 | 118 KB |
 | `output/` | 7 | 107 KB |
 | `query/` | 9 | 170 KB |
 | `refdef/` | 7 | 134 KB |
 | `rpc/` | 16 | 313 KB |
-| `semantic/` | 101 | 3002 KB |
+| `semantic/` | 101 | 3016 KB |
 | `stages/` | 19 | 408 KB |
 | `vector/` | 26 | 494 KB |
 | `viz/` | 97 | 2483 KB |
@@ -3642,23 +3642,23 @@ instant/mc_mod/stmt.rs#L2586  fn check_net_topology
 instant/mc_mod/stmt.rs#L2597  fn check_iface_connect_net
 instant/mc_mod/stmt.rs#L2621  fn check_iface_topology
 instant/mc_mod/stmt.rs#L2663  fn iface_pair_diag
-instant/mc_mod/stmt.rs#L2814  fn iface_endpoint_of_point
-instant/mc_mod/stmt.rs#L2866  fn role_of
-instant/mc_mod/stmt.rs#L2889  fn mediator_iface_role
-instant/mc_mod/stmt.rs#L2910  fn record_chain_iface_endpoints
-instant/mc_mod/stmt.rs#L2943  fn record_chain_iface_endpoint_ep
-instant/mc_mod/stmt.rs#L2976  fn iface_attr_value_set
-instant/mc_mod/stmt.rs#L3043  fn connect_adjacent_pair
-instant/mc_mod/stmt.rs#L3092  fn normalize_branch_elem
-instant/mc_mod/stmt.rs#L3110  fn process_series_branch_inplace
-instant/mc_mod/stmt.rs#L3150  fn stash_pass_through
-instant/mc_mod/stmt.rs#L3157  fn process_member_internal
-instant/mc_mod/stmt.rs#L4135  fn assign_phrase_ids
-instant/mc_mod/stmt.rs#L4178  fn reset_phrase_ids
-instant/mc_mod/stmt.rs#L4216  fn member_key
-instant/mc_mod/stmt.rs#L4241  fn extract_caller_inst_name
-instant/mc_mod/stmt.rs#L4323  fn resolve_array_caller_to_existing
-instant/mc_mod/stmt.rs#L4385  fn phrase_contains_failed_class
+instant/mc_mod/stmt.rs#L2825  fn iface_endpoint_of_point
+instant/mc_mod/stmt.rs#L2877  fn role_of
+instant/mc_mod/stmt.rs#L2900  fn mediator_iface_role
+instant/mc_mod/stmt.rs#L2921  fn record_chain_iface_endpoints
+instant/mc_mod/stmt.rs#L2954  fn record_chain_iface_endpoint_ep
+instant/mc_mod/stmt.rs#L2987  fn iface_attr_value_set
+instant/mc_mod/stmt.rs#L3054  fn connect_adjacent_pair
+instant/mc_mod/stmt.rs#L3103  fn normalize_branch_elem
+instant/mc_mod/stmt.rs#L3121  fn process_series_branch_inplace
+instant/mc_mod/stmt.rs#L3161  fn stash_pass_through
+instant/mc_mod/stmt.rs#L3168  fn process_member_internal
+instant/mc_mod/stmt.rs#L4146  fn assign_phrase_ids
+instant/mc_mod/stmt.rs#L4189  fn reset_phrase_ids
+instant/mc_mod/stmt.rs#L4227  fn member_key
+instant/mc_mod/stmt.rs#L4252  fn extract_caller_inst_name
+instant/mc_mod/stmt.rs#L4334  fn resolve_array_caller_to_existing
+instant/mc_mod/stmt.rs#L4396  fn phrase_contains_failed_class
 instant/mc_mod/subst.rs#L33  impl InstantiationBuilder
 instant/mc_mod/subst.rs#L40  fn param_value_to_node_elements
 instant/mc_mod/subst.rs#L47  fn param_value_to_node_elements_inner
@@ -6337,16 +6337,16 @@ semantic/component/mc_attr.rs#L232  fn key_formal
 semantic/component/mc_attr.rs#L253  fn report_fused_subscript_key
 semantic/component/mc_attr.rs#L310  fn report_duplicate_key
 semantic/component/mc_attr.rs#L348  fn report_value_outside_vocabulary
-semantic/component/mc_attr.rs#L413  impl McAttribute
-semantic/component/mc_attr.rs#L414  fn new
-semantic/component/mc_attr.rs#L502  fn parse_square_vec_kvs
-semantic/component/mc_attr.rs#L512  fn extract_kvs_from_iter
-semantic/component/mc_attr.rs#L517  fn new_attr_values
-semantic/component/mc_attr.rs#L642  impl PartialEq for McAttribute
-semantic/component/mc_attr.rs#L643  fn eq
-semantic/component/mc_attr.rs#L648  impl std::fmt::Display for McAttribute
-semantic/component/mc_attr.rs#L649  fn fmt
-semantic/component/mc_attr.rs#L659  impl Eq for McAttribute
+semantic/component/mc_attr.rs#L434  impl McAttribute
+semantic/component/mc_attr.rs#L435  fn new
+semantic/component/mc_attr.rs#L523  fn parse_square_vec_kvs
+semantic/component/mc_attr.rs#L533  fn extract_kvs_from_iter
+semantic/component/mc_attr.rs#L538  fn new_attr_values
+semantic/component/mc_attr.rs#L663  impl PartialEq for McAttribute
+semantic/component/mc_attr.rs#L664  fn eq
+semantic/component/mc_attr.rs#L669  impl std::fmt::Display for McAttribute
+semantic/component/mc_attr.rs#L670  fn fmt
+semantic/component/mc_attr.rs#L680  impl Eq for McAttribute
 semantic/component/mc_attr_view.rs#L68  enum AttrView
 semantic/component/mc_attr_view.rs#L89  impl AttrView
 semantic/component/mc_attr_view.rs#L95  fn tag
@@ -6908,20 +6908,33 @@ semantic/meta/mod.rs#L186  fn read_values
 semantic/meta/mod.rs#L202  fn read_attr
 semantic/meta/mod.rs#L211  fn resolve_path
 semantic/meta/mod.rs#L222  fn resolve_segs
-semantic/meta/mod.rs#L243  mod tests
-semantic/meta/mod.rs#L253  fn set_face_reads_nameless_through_one_api
-semantic/meta/mod.rs#L270  fn record_face_reads_named_rows_through_one_api
-semantic/meta/mod.rs#L292  fn record_face_primitives_read_rows_names_and_exact_row
-semantic/meta/mod.rs#L311  fn kvs_reads_as_named_pair
-semantic/meta/mod.rs#L330  fn undetermined_normalizes_from_uscore
-semantic/meta/mod.rs#L337  fn dotted_and_table_spellings_resolve_to_one_leaf
-semantic/meta/mod.rs#L361  fn range_and_expr_read_as_modeled
-semantic/meta/mod.rs#L394  fn uval
-semantic/meta/mod.rs#L398  fn word
-semantic/meta/mod.rs#L402  fn range_val
-semantic/meta/mod.rs#L409  fn word_ids
-semantic/meta/mod.rs#L413  fn ida
-semantic/meta/mod.rs#L420  fn attr
+semantic/meta/mod.rs#L248  enum Compare
+semantic/meta/mod.rs#L254  fn decided
+semantic/meta/mod.rs#L266  fn exact
+semantic/meta/mod.rs#L280  fn magnitude
+semantic/meta/mod.rs#L291  fn eq_norm
+semantic/meta/mod.rs#L303  fn element_eq
+semantic/meta/mod.rs#L318  fn member
+semantic/meta/mod.rs#L378  fn contains
+semantic/meta/mod.rs#L385  fn overlap
+semantic/meta/mod.rs#L437  mod tests
+semantic/meta/mod.rs#L447  fn set_face_reads_nameless_through_one_api
+semantic/meta/mod.rs#L464  fn record_face_reads_named_rows_through_one_api
+semantic/meta/mod.rs#L486  fn record_face_primitives_read_rows_names_and_exact_row
+semantic/meta/mod.rs#L506  fn exact_compares_wordish_arms_and_propagates_pending
+semantic/meta/mod.rs#L519  fn eq_norm_reads_prefix_normalized_quantities
+semantic/meta/mod.rs#L538  fn member_and_contains_read_sets_ranges_and_pending
+semantic/meta/mod.rs#L568  fn overlap_reads_range_intersection_and_set_commons
+semantic/meta/mod.rs#L596  fn kvs_reads_as_named_pair
+semantic/meta/mod.rs#L615  fn undetermined_normalizes_from_uscore
+semantic/meta/mod.rs#L622  fn dotted_and_table_spellings_resolve_to_one_leaf
+semantic/meta/mod.rs#L646  fn range_and_expr_read_as_modeled
+semantic/meta/mod.rs#L679  fn uval
+semantic/meta/mod.rs#L683  fn word
+semantic/meta/mod.rs#L687  fn range_val
+semantic/meta/mod.rs#L694  fn word_ids
+semantic/meta/mod.rs#L698  fn ida
+semantic/meta/mod.rs#L705  fn attr
 semantic/mod.rs#L5  mod basic
 semantic/mod.rs#L6  mod recipe
 semantic/mod.rs#L7  mod common
@@ -11843,4 +11856,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-427 files, 11760 declarations.
+427 files, 11773 declarations.

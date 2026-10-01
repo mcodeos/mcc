@@ -366,7 +366,28 @@ fn report_value_outside_vocabulary(attribute: &McAttribute, node: &AstNode) {
                 );
                 return;
             };
-            if !words.contains(&written) {
+            // Ruling ④ (U377): a pending declaration (`dropout = _`) claims
+            // nothing yet and is backfilled on the BOM face — comparison
+            // propagates pending, and pending is not a violation.
+            if attribute
+                .values
+                .first()
+                .map(crate::semantic::meta::normalize)
+                .is_some_and(|v| matches!(v, crate::semantic::meta::McMetaValue::Undetermined))
+            {
+                return;
+            }
+            // The word set is the registry's criterion; the membership
+            // compare is the meta engine's exact-compare operator (U377
+            // leg2) — same exact, no-case-folding law as before.
+            let set = crate::semantic::meta::McMetaValue::Set(
+                words.iter().map(|w| crate::semantic::meta::McMetaValue::Word(w.to_string())).collect(),
+            );
+            if crate::semantic::meta::member(
+                &crate::semantic::meta::McMetaValue::Word(written.to_string()),
+                &set,
+            ) == crate::semantic::meta::Compare::False
+            {
                 dlog_error(
                     crate::errcodes::ATTR_VALUE_NOT_IN_VOCABULARY,
                     node,
