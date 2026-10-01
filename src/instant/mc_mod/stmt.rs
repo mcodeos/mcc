@@ -1532,10 +1532,23 @@ impl InstantiationBuilder {
         match phrase {
             McPhrase::Transposed(inner) => {
                 let (core, lanes) = self.normalize_wrapper_operands(inner);
+                if matches!(core, McPhrase::Lead(_)) {
+                    // L20: the recursion stripped a placeholder core out of a
+                    // group (`(_)'`) — rebuilding the wrapper here would hand
+                    // the caller a `Transposed(Lead)` whose Lead strip (the
+                    // caller's L20 check) can no longer see, and the kept
+                    // wrapper rides the bridge-passive path and incubates the
+                    // `(lead)` wire element.
+                    return (core, lanes);
+                }
                 (McPhrase::Transposed(Box::new(core)), lanes)
             }
             McPhrase::Reversed(inner) => {
                 let (core, lanes) = self.normalize_wrapper_operands(inner);
+                if matches!(core, McPhrase::Lead(_)) {
+                    // L20: same no-rebuild rule as the Transposed arm (`(_)^`).
+                    return (core, lanes);
+                }
                 (McPhrase::Reversed(Box::new(core)), lanes)
             }
             McPhrase::Endpoint(McRef::Name(McInstanceRef {
@@ -1549,6 +1562,26 @@ impl InstantiationBuilder {
                 };
                 if lanes > 0 {
                     (dissolved, lanes)
+                } else {
+                    (phrase.clone(), 0)
+                }
+            }
+            // U372 leg6 (L12 括号透明律, design doc §10 edge 1): a one-element
+            // group is pure parenthesization — `(X)'` must normalize exactly
+            // like `X'`. Before this arm the Group shell stopped the walk:
+            // `(D2{A,K})'` kept a Point-shaped core under the wrapper and the
+            // transpose was a silent no-op wiring the plain zip, and `(_)'`
+            // incubated the `(lead)` wire element leg1 removed for the bare
+            // spelling. Recurse through the shell; adopt the recursion result
+            // when it changed something (a dissolved multi-member bus, or a
+            // Lead core for the L20 strip), keep the shell otherwise so an
+            // undissolvable core (`(R101)'`) rides the shape face exactly as
+            // before. A multi-element group is a statement list — it never
+            // reaches this walk (`expand_group_statements` splits it first).
+            McPhrase::Group(g) if g.opds.len() == 1 => {
+                let (core, lanes) = self.normalize_wrapper_operands(&g.opds[0]);
+                if lanes > 0 || matches!(core, McPhrase::Lead(_)) {
+                    (core, lanes)
                 } else {
                     (phrase.clone(), 0)
                 }
@@ -1744,6 +1777,29 @@ impl InstantiationBuilder {
             }
             McPhrase::Closure(c) => (vec![McPhrase::Closure(c.clone())], Vec::new()),
             McPhrase::FuncCall(f) => (vec![McPhrase::FuncCall(f.clone())], Vec::new()),
+            // U372 leg6 (L12 括号透明律, second half): a group wrapping a
+            // wrapper — `(D2{A,K}')` parses as Group(Transposed(bus)) — must
+            // hand the chain the same member the bare spelling produces. Run
+            // the single operand through the wrapper walk and adopt the core
+            // when it dissolved (or a Lead core surfaced, L20); otherwise keep
+            // the shell so an ordinary parenthesized operand still occupies
+            // exactly one chain member (R0: the group never flattens the
+            // chain it wraps).
+            McPhrase::Group(g) if g.opds.len() == 1 => {
+                let (core, lanes) = self.normalize_wrapper_operands(&g.opds[0]);
+                // Adopt only a core that kept (or shed into) a wrapper: a
+                // dissolved bare bus under the shell — `(D2{A,K})` with no
+                // operator — must stay ONE operand (splicing its members into
+                // the outer chain would rewrite `- (D2{A,K})` into
+                // `- D2.A - D2.K`), while a wrapped core rides the same
+                // member/gap walk as the bare wrapped spelling.
+                let wrapped = matches!(core, McPhrase::Transposed(_) | McPhrase::Reversed(_));
+                if (lanes > 0 && wrapped) || matches!(core, McPhrase::Lead(_)) {
+                    self.phrase_to_members_gapped(&core)
+                } else {
+                    (vec![McPhrase::Group(g.clone())], Vec::new())
+                }
+            }
             McPhrase::Group(g) => (vec![McPhrase::Group(g.clone())], Vec::new()),
             McPhrase::Transposed(inner) => {
                 // U372 leg1: a `'` riding a curly member form / bus-table name
