@@ -437,6 +437,42 @@ pub fn parse_text(text: &str) -> Option<(f64, McUnit)> {
     Some((normalize(entry, value), entry.unit.clone()))
 }
 
+/// Text -> (normalized value, family) for a `/`-composite (`100ppm/°C`,
+/// `1mV/°C`, `m/s`). Same table, stem-wise: the numerator normalizes exactly
+/// like [`parse_text`], every stem must resolve, and the denominators fold
+/// structurally — exactly one temperature denominator yields
+/// [`McUnit::TempCo`], anything else folds into [`McUnit::Composite`]. A
+/// denominator is a unit label only: no factor, no offset (composites have
+/// no algebra). `None` when the text is not a composite, so the caller can
+/// fall back to [`parse_text`].
+pub fn split_composite(text: &str) -> Option<(f64, McUnit)> {
+    let (value, tail) = split_number(text)?;
+    if !tail.contains('/') {
+        return None;
+    }
+    let mut stems = tail.split('/');
+    let numerator = any_family(stems.next()?)?;
+    let mut denominators = Vec::new();
+    for stem in stems {
+        denominators.push(any_family(stem)?.unit.clone());
+    }
+    let numerator_unit = numerator.unit.clone();
+    let unit = if denominators.len() == 1 && denominators[0] == McUnit::Temp {
+        McUnit::TempCo {
+            numerator: Box::new(numerator_unit),
+            denominator: Box::new(McUnit::Temp),
+        }
+    } else {
+        denominators.into_iter().fold(numerator_unit, |acc, den| {
+            McUnit::Composite {
+                numerator: Box::new(acc),
+                denominator: Box::new(den),
+            }
+        })
+    };
+    Some((normalize(numerator, value), unit))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -512,6 +548,49 @@ mod tests {
                 "canonical symbol {text:?} is not re-readable"
             );
         }
+    }
+
+    #[test]
+    fn eval__composite_splits_stem_wise() {
+        // The corpus form: TempCo family, numerator kept in its own base.
+        let (v, u) = split_composite("100ppm/°C").unwrap();
+        assert_eq!(v, 100.0);
+        assert_eq!(
+            u,
+            McUnit::TempCo {
+                numerator: Box::new(McUnit::Ppm),
+                denominator: Box::new(McUnit::Temp),
+            }
+        );
+        // The numerator scales; the denominator is a label only (composites
+        // have no algebra — the per-degree magnitude is never converted).
+        let (v, u) = split_composite("1mV/°C").unwrap();
+        assert_eq!(v, 1e-3);
+        assert_eq!(
+            u,
+            McUnit::TempCo {
+                numerator: Box::new(McUnit::Volt),
+                denominator: Box::new(McUnit::Temp),
+            }
+        );
+        // Same degree size, different spelling: structurally equal.
+        assert_eq!(
+            split_composite("100ppm/℃").map(|(_, u)| u),
+            split_composite("100ppm/degC").map(|(_, u)| u),
+        );
+        // A non-temperature denominator folds into a plain Composite.
+        assert_eq!(
+            split_composite("9m/s").map(|(_, u)| u),
+            Some(McUnit::Composite {
+                numerator: Box::new(McUnit::Len),
+                denominator: Box::new(McUnit::Time),
+            })
+        );
+        // An unknown stem is refused, not guessed.
+        assert_eq!(split_composite("100ppm/parsec"), None);
+        // Not a composite: left to the caller (parse_text / bare number).
+        assert_eq!(split_composite("100ppm"), None);
+        assert_eq!(split_composite("42"), None);
     }
 
     #[test]

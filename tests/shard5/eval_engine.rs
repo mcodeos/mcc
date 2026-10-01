@@ -581,3 +581,42 @@ fn eval__unreduced_instance_arg_condition_is_not_reported() {
         );
     }
 }
+
+/// A `/`-composite text (U370) decodes through the same suffix table the AST
+/// path uses: the numerator scales into its own canonical base, the degree
+/// denominator is a structural label only, and the family is `TempCo` —
+/// so `1mV/°C` and `100ppm/°C` land as quantities, never as raw strings.
+#[test]
+fn eval__composite_text_decodes_to_the_tempco_family() {
+    let _lock = common::lock();
+    common::reset();
+
+    let (value, unit) = mcc::eval::units::split_composite("1mV/°C").expect("mV/°C is a composite");
+    assert_eq!(value, 1e-3, "the numerator scales, the degree does not");
+    assert_eq!(
+        unit,
+        mcc::eval::units::split_composite("1mV/℃").expect("mV/℃ is a composite").1,
+        "same degree size, different spelling: structurally equal"
+    );
+
+    // Through the text door (Value::from_text) the composite lands as a
+    // quantity with the TempCo family and raw keeps the author's spelling.
+    let quantity = mcc::eval::Value::from_text("100ppm/°C");
+    match quantity {
+        mcc::eval::Value::Quantity(q) => {
+            let (_, tempco) = mcc::eval::units::split_composite("100ppm/°C").unwrap();
+            assert_eq!(q.unit(), &tempco, "the text door and the table agree");
+            assert!(
+                format!("{:?}", q.unit()).starts_with("TempCo"),
+                "the family is the TempCo composite, not a bare leaf; got {:?}",
+                q.unit()
+            );
+            assert_eq!(
+                q.to_string(),
+                "100ppm/°C",
+                "raw round-trips verbatim; got {q}"
+            );
+        }
+        other => panic!("100ppm/°C must decode to a quantity, got {other:?}"),
+    }
+}

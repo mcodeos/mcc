@@ -35,6 +35,7 @@ mod u362_anon_chain_returns;
 mod u366_nc_list_rhs;
 mod u360_anon_dotted_method;
 mod u368_dotted_chain_ctor;
+mod u370_composite_unit_lex;
 mod u332_entry_resolution;
 mod u291_adopted_func_member;
 mod u289_component_pin_tables;

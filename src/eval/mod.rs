@@ -244,7 +244,7 @@ impl Value {
         if let Some(n) = int_literal(t) {
             return Value::Int(n);
         }
-        if let Some((value, unit)) = units::parse_text(t) {
+        if let Some((value, unit)) = units::split_composite(t).or_else(|| units::parse_text(t)) {
             // Keep the author's notation for display, exactly as the AST path
             // does; it is never read back for semantics.
             return Value::Quantity(McUnitValue::from_normalized(

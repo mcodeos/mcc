@@ -141,6 +141,7 @@ pub const MCAST_UVAL_BFIELD: u16 = 225;
 pub const MCAST_UVAL_SLEW: u16 = 226;
 pub const MCAST_UVAL_NOISE: u16 = 227;
 pub const MCAST_UVAL_CHARGE: u16 = 228;
+pub const MCAST_UVAL_COMPOSITE: u16 = 229;
 pub const MCAST_UNIT_INT: u16 = 301;
 pub const MCAST_UNIT_HEX: u16 = 302;
 pub const MCAST_UNIT_FLOAT: u16 = 303;

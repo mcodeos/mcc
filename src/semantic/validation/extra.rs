@@ -407,7 +407,7 @@ fn check_default_type_mismatch(acc: &mut CheckAccumulator) {
                         unit,
                         default_unit: Some(written),
                         ..
-                    } if written != unit => {
+                    } if !written.matches_declared(unit) => {
                         let unit_name = format!("{:?}", unit);
                         acc.push(CheckResult {
                             check_name: "extra", severity: CheckSeverity::Warning,

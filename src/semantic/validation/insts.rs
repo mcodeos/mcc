@@ -525,6 +525,13 @@ fn check_non_constant_default(acc: &mut CheckAccumulator) {
                 continue;
             }
             if let Some(def_val) = d.param_type.default_value() {
+                // A `/`-composite unit literal (`100ppm/°C`, `5nV/√Hz`) is a
+                // constant, not an expression: every stem resolves through
+                // the unit suffix table (U370). Genuine arithmetic like
+                // `3.3/2` has no resolvable stems and stays an expression.
+                if crate::eval::units::split_composite(def_val).is_some() {
+                    continue;
+                }
                 // Heuristic: if default contains arithmetic/logic operators,
                 // it's likely a non-constant expression.
                 let is_expression = def_val.contains('+')

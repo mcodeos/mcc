@@ -220,6 +220,7 @@
 #define MCAST_UVAL_SLEW                 226
 #define MCAST_UVAL_NOISE                227
 #define MCAST_UVAL_CHARGE               228
+#define MCAST_UVAL_COMPOSITE            229
 
 //. units
 #define MCAST_UNIT_INT                  301

@@ -43,6 +43,46 @@ pub enum McUnit {
     Slew,
     Noise,
     Charge,
+    /// Per-degree drift composite: `100ppm/°C`, `1mV/°C`, `5%/°C` — the
+    /// denominator is a temperature family. Composites have no algebra
+    /// (doc/eval/composite-unit-tempco-design.md): only structural equality
+    /// is offered, and the per-degree magnitude is never converted.
+    TempCo {
+        numerator: Box<McUnit>,
+        denominator: Box<McUnit>,
+    },
+    /// Any other `/`-composite (`m/s`, `V/K`) — structure kept symbolically.
+    Composite {
+        numerator: Box<McUnit>,
+        denominator: Box<McUnit>,
+    },
+}
+
+impl McUnit {
+    /// True for the `/`-composite families (`TempCo`, `Composite`).
+    pub fn is_composite(&self) -> bool {
+        matches!(self, McUnit::TempCo { .. } | McUnit::Composite { .. })
+    }
+
+    /// The dimension-carrying family of a composite: the numerator's own
+    /// head family (`ppm/°C` → `Ppm`, `V/K/m` → `Volt`). A leaf is its own
+    /// head.
+    pub fn head_family(&self) -> &McUnit {
+        match self {
+            McUnit::TempCo { numerator, .. } | McUnit::Composite { numerator, .. } => {
+                numerator.head_family()
+            }
+            other => other,
+        }
+    }
+
+    /// Equivalence seam for written-vs-declared units (U370): a composite
+    /// written value matches a leaf declaration through its head family
+    /// (`100ppm/°C` fits `::UV.PPM`); every other case is plain structural
+    /// equality.
+    pub fn matches_declared(&self, declared: &McUnit) -> bool {
+        self == declared || (self.is_composite() && !declared.is_composite() && self.head_family() == declared)
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -208,6 +248,7 @@ impl McUnitValue {
             MCAST_UVAL_SLEW => parse_slew_unit(&child_node, data_str),
             MCAST_UVAL_NOISE => parse_noise_unit(&child_node, data_str),
             MCAST_UVAL_CHARGE => parse_charge_unit(&child_node, data_str),
+            MCAST_UVAL_COMPOSITE => parse_composite_unit(&child_node, data_str),
             _ => {
                 dlog_error(
                     crate::errcodes::UVAL_VALUE_TYPE_INVALID,
@@ -289,6 +330,7 @@ impl McUnitValue {
             MCAST_UVAL_SLEW => parse_slew_unit(node, data),
             MCAST_UVAL_NOISE => parse_noise_unit(node, data),
             MCAST_UVAL_CHARGE => parse_charge_unit(node, data),
+            MCAST_UVAL_COMPOSITE => parse_composite_unit(node, data),
             _ => None,
         };
         let mut value = parsed?;
@@ -368,6 +410,74 @@ fn extract_value_and_unit<'a>(node: &'a AstNode, data: &'a str) -> Option<(f64, 
         return None;
     };
     Some((value, unit_str.as_str()))
+}
+
+/// General `/`-composite unit (U370): every stem resolves through the
+/// single-truth-source suffix table (`eval::units`); an unknown stem is a
+/// real diagnostic anchored at the literal. Exactly one temperature
+/// denominator makes the family a `TempCo`; anything else folds into a
+/// nested `Composite`. The value normalizes into the numerator family's
+/// canonical base — composites have no algebra, so each denominator is a
+/// unit label only (no factor, no offset applied).
+fn parse_composite_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
+    let (value, unit_str) = extract_value_and_unit(node, data)?;
+    let mut stems = unit_str.split('/');
+
+    let Some((num_entry, denominators)) = (|| {
+        let numerator = stems.next().unwrap_or_default();
+        let Some(num_entry) = crate::eval::units::any_family(numerator) else {
+            dlog_error(
+                crate::errcodes::UVAL_UNIT_UNSUPPORTED,
+                node,
+                &crate::errcodes::format_msg(
+                    crate::errcodes::UVAL_UNIT_UNSUPPORTED,
+                    &[&numerator],
+                ),
+            );
+            return None;
+        };
+        let mut denominators = Vec::new();
+        for stem in stems {
+            match crate::eval::units::any_family(stem) {
+                Some(entry) => denominators.push(entry.unit.clone()),
+                None => {
+                    dlog_error(
+                        crate::errcodes::UVAL_UNIT_UNSUPPORTED,
+                        node,
+                        &crate::errcodes::format_msg(
+                            crate::errcodes::UVAL_UNIT_UNSUPPORTED,
+                            &[&stem],
+                        ),
+                    );
+                    return None;
+                }
+            }
+        }
+        Some((num_entry, denominators))
+    })() else {
+        return None;
+    };
+
+    let numerator_unit = num_entry.unit.clone();
+    let unit = if denominators.len() == 1 && denominators[0] == McUnit::Temp {
+        McUnit::TempCo {
+            numerator: Box::new(numerator_unit),
+            denominator: Box::new(McUnit::Temp),
+        }
+    } else {
+        denominators.into_iter().fold(numerator_unit, |acc, den| {
+            McUnit::Composite {
+                numerator: Box::new(acc),
+                denominator: Box::new(den),
+            }
+        })
+    };
+
+    Some(McUnitValue {
+        value: crate::eval::units::normalize(num_entry, value),
+        unit,
+        raw: None,
+    })
 }
 
 fn parse_volt_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
@@ -916,6 +1026,8 @@ impl McUnit {
             McUnit::Slew => "Volt per microsecond (V/μs)",
             McUnit::Noise => "Noise Density",
             McUnit::Charge => "Ampere-hour (Ah)",
+            McUnit::TempCo { .. } => "Composite (per degree)",
+            McUnit::Composite { .. } => "Composite",
         }
     }
 
@@ -995,6 +1107,14 @@ impl std::fmt::Display for McUnit {
             McUnit::Slew => write!(f, "V/μs"),
             McUnit::Noise => write!(f, "nV/√Hz"),
             McUnit::Charge => write!(f, "Ah"),
+            McUnit::TempCo {
+                numerator,
+                denominator,
+            } => write!(f, "{numerator}/{denominator}"),
+            McUnit::Composite {
+                numerator,
+                denominator,
+            } => write!(f, "{numerator}/{denominator}"),
         }
     }
 }

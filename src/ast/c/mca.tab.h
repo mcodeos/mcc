@@ -196,10 +196,11 @@ extern int mca_debug;
     MCUVAL_SLEW = 394,             /* MCUVAL_SLEW  */
     MCUVAL_NOISE = 395,            /* MCUVAL_NOISE  */
     MCUVAL_CHARGE = 396,           /* MCUVAL_CHARGE  */
-    MC_WS = 397,                   /* MC_WS  */
-    MC_SINGLE_COMMENT = 398,       /* MC_SINGLE_COMMENT  */
-    MC_MULTI_COMMENT = 399,        /* MC_MULTI_COMMENT  */
-    IDA_BASE_PREC = 400            /* IDA_BASE_PREC  */
+    MCUVAL_COMPOSITE = 397,        /* MCUVAL_COMPOSITE  */
+    MC_WS = 398,                   /* MC_WS  */
+    MC_SINGLE_COMMENT = 399,       /* MC_SINGLE_COMMENT  */
+    MC_MULTI_COMMENT = 400,        /* MC_MULTI_COMMENT  */
+    IDA_BASE_PREC = 401            /* IDA_BASE_PREC  */
   };
   typedef enum mca_tokentype mca_token_kind_t;
 #endif

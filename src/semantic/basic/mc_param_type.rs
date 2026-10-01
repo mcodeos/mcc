@@ -337,7 +337,11 @@ impl McParamType {
             | McUnit::Bfield
             | McUnit::Slew
             | McUnit::Noise
-            | McUnit::Charge => {
+            | McUnit::Charge
+            // Composite quantity units (U370): the head family carries the
+            // dimension, so they classify like any other physical unit.
+            | McUnit::TempCo { .. }
+            | McUnit::Composite { .. } => {
                 if default_val.is_some() {
                     Self {
                         kind: McParamTypeKind::UnitValueDefault {
