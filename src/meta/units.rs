@@ -473,6 +473,56 @@ pub fn split_composite(text: &str) -> Option<(f64, McUnit)> {
     Some((normalize(numerator, value), unit))
 }
 
+/// One derived-family synthesis row (U383 leg2, case B): `(lhs, op, rhs)` is
+/// registered as producing `out`. Pure algebra, no judge semantics — the
+/// engine-static home ruled by value-computation-design.md §3, beside the
+/// suffix table and the family ban laws (same shape, same single-truth-source
+/// role). Division rows are directional; multiplication rows are matched in
+/// both operand orders. A lookup miss is a compile-face rejection
+/// (`EVAL_NO_DERIVED_FAMILY`), never a silent structureless composite.
+pub struct DerivedRow {
+    pub lhs: McUnit,
+    pub op: super::Op,
+    pub rhs: McUnit,
+    pub out: McUnit,
+}
+
+/// The registered products. The survey (U383 leg1 §3) found zero live
+/// quantity×quantity rows in the four libraries — the R10 consumers wait for
+/// exactly this one tier (`V×A→W`, `Ω×A→V`, `V/A→Ω`, same-family ratio), so
+/// the table stays minimal and grows only when a consumer shows up. Same-family
+/// division is not a row: it is the bare-scalar ratio (the ratio-reader
+/// precedent), handled before the lookup. Multiplication rows are written in
+/// canonical order; [`lookup_derived`] matches them in both operand orders.
+pub static DERIVED_FAMILIES: &[DerivedRow] = &[
+    // Volt · Amp → Watt (power)
+    DerivedRow { lhs: McUnit::Volt, op: super::Op::Mul, rhs: McUnit::Amp, out: McUnit::Wat },
+    // Ohm · Amp → Volt (the resistor drop)
+    DerivedRow { lhs: McUnit::Ohm, op: super::Op::Mul, rhs: McUnit::Amp, out: McUnit::Volt },
+    // Volt / Amp → Ohm
+    DerivedRow { lhs: McUnit::Volt, op: super::Op::Div, rhs: McUnit::Amp, out: McUnit::Ohm },
+    // Volt / Ohm → Amp
+    DerivedRow { lhs: McUnit::Volt, op: super::Op::Div, rhs: McUnit::Ohm, out: McUnit::Amp },
+    // Watt / Volt → Amp, Watt / Amp → Volt (the budget inverses)
+    DerivedRow { lhs: McUnit::Wat, op: super::Op::Div, rhs: McUnit::Volt, out: McUnit::Amp },
+    DerivedRow { lhs: McUnit::Wat, op: super::Op::Div, rhs: McUnit::Amp, out: McUnit::Volt },
+];
+
+/// Look a quantity×quantity product up in the derived-family table. `Mul` is
+/// matched in both orders (multiplication is commutative); `Div` is
+/// directional. `None` = not registered — the caller rejects.
+pub fn lookup_derived(op: super::Op, lhs: &McUnit, rhs: &McUnit) -> Option<McUnit> {
+    let hits = DERIVED_FAMILIES.iter().find(|row| {
+        row.op == op
+            && if op == super::Op::Mul {
+                (row.lhs == *lhs && row.rhs == *rhs) || (row.lhs == *rhs && row.rhs == *lhs)
+            } else {
+                row.lhs == *lhs && row.rhs == *rhs
+            }
+    });
+    hits.map(|row| row.out.clone())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

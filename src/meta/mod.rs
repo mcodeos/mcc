@@ -137,6 +137,15 @@ pub enum EvalError {
     /// under the strict family reading the two never meet, and the mismatch
     /// is reported rather than silently decided by text.
     FamilyMismatch { lhs: String, rhs: String },
+    /// A quantity×quantity product hit no registered derived family (U383
+    /// leg2, case B): the families are arithmetically well-formed but the
+    /// product has no name, so it is rejected at the compile face instead of
+    /// silently becoming a structureless composite.
+    NoDerivedFamily {
+        op: String,
+        lhs: String,
+        rhs: String,
+    },
 }
 
 impl EvalError {
@@ -147,6 +156,7 @@ impl EvalError {
             EvalError::OperandNotNumeric { .. } => crate::errcodes::EVAL_OPERAND_NOT_NUMERIC,
             EvalError::Overflow { .. } => crate::errcodes::EVAL_OVERFLOW,
             EvalError::FamilyMismatch { .. } => crate::errcodes::COND_FAMILY_MISMATCH,
+            EvalError::NoDerivedFamily { .. } => crate::errcodes::EVAL_NO_DERIVED_FAMILY,
         }
     }
 
@@ -160,6 +170,9 @@ impl EvalError {
             }
             EvalError::FamilyMismatch { lhs, rhs } => {
                 crate::errcodes::format_msg(self.code(), &[lhs, rhs])
+            }
+            EvalError::NoDerivedFamily { op, lhs, rhs } => {
+                crate::errcodes::format_msg(self.code(), &[op, lhs, rhs])
             }
         }
     }
@@ -404,12 +417,11 @@ fn numeric_apply(
     match (&lhs, &rhs) {
         (Num::Int(a), Num::Int(b)) => int_apply(op, *a, *b, lhs_value, rhs_value),
         (Num::Dim(a), Num::Dim(b)) => {
-            // Two dimensioned operands must share a family, and the result of
-            // `*` or `/` would be a derived unit this domain does not have.
-            if a.unit() != b.unit() || matches!(op, Op::Mul | Op::Div) {
-                return Err(not_numeric(op.symbol(), lhs_value, rhs_value));
+            if matches!(op, Op::Mul | Op::Div) {
+                return quantity_mul_div(op, a, b, lhs_value, rhs_value);
             }
-            if !family_ops(a.unit()).allows(op) {
+            // Two dimensioned operands of `+`/`-` must share a family.
+            if a.unit() != b.unit() || !family_ops(a.unit()).allows(op) {
                 return Err(not_numeric(op.symbol(), lhs_value, rhs_value));
             }
             let value = real_apply(op, a.value(), b.value(), lhs_value, rhs_value)?;
@@ -432,6 +444,81 @@ fn numeric_apply(
         (Num::Float(a), Num::Float(b)) => {
             Ok(Value::Float(real_apply(op, *a, *b, lhs_value, rhs_value)?))
         }
+    }
+}
+
+/// Quantity×quantity `*` and `/` (U383 leg2, case B). Three doors, in order:
+///
+/// 1. the family ban laws (`Temp` has no product, `Db`/`Noise` no algebra) —
+///    rejected as an undefined operator, as before;
+/// 2. same-family division is a dimensionless ratio — a bare scalar (the
+///    ratio-reader precedent), never a unitless family;
+/// 3. the derived-family table ([`units::lookup_derived`]), with composite
+///    synthesis mirroring the U370 parse law (`50mV/A * 3A` cancels the
+///    denominator and yields the numerator family).
+///
+/// A lookup miss is a compile-face rejection (`EVAL_NO_DERIVED_FAMILY`) — a
+/// silent structureless composite would be the value-loss shape again.
+fn quantity_mul_div(
+    op: Op,
+    a: &McUnitValue,
+    b: &McUnitValue,
+    lhs_value: &Value,
+    rhs_value: &Value,
+) -> Result<Value, EvalError> {
+    if !family_ops(a.unit()).allows(op) || !family_ops(b.unit()).allows(op) {
+        return Err(not_numeric(op.symbol(), lhs_value, rhs_value));
+    }
+    let (x, y) = (a.value(), b.value());
+    if op == Op::Div && a.unit() == b.unit() {
+        if y == 0.0 {
+            return Err(EvalError::DivideByZero);
+        }
+        return Ok(Value::Float(x / y));
+    }
+    if op == Op::Mul {
+        if let Some(out) = composite_cancel(a.unit(), b.unit()) {
+            return Ok(Value::Quantity(McUnitValue::from_normalized(
+                x * y,
+                out,
+                None,
+            )));
+        }
+    }
+    match units::lookup_derived(op, a.unit(), b.unit()) {
+        Some(out) => {
+            if op == Op::Div && y == 0.0 {
+                return Err(EvalError::DivideByZero);
+            }
+            let value = real_apply(op, x, y, lhs_value, rhs_value)?;
+            Ok(Value::Quantity(McUnitValue::from_normalized(
+                value,
+                out,
+                None,
+            )))
+        }
+        None => Err(EvalError::NoDerivedFamily {
+            op: op.symbol().to_string(),
+            lhs: class_of(lhs_value),
+            rhs: class_of(rhs_value),
+        }),
+    }
+}
+
+/// Composite synthesis, the mirror of the U370 parse law: `Composite { N, D }`
+/// multiplied by `D` cancels the denominator and yields `N` (`mV/A · A → V`),
+/// in either operand order. Only the structural `/`-composite cancels —
+/// `TempCo` stays algebra-free (its design note: no conversion of the
+/// per-degree magnitude).
+fn composite_cancel(a: &McUnit, b: &McUnit) -> Option<McUnit> {
+    match (a, b) {
+        (McUnit::Composite { numerator, denominator }, other) if **denominator == *other => {
+            Some((**numerator).clone())
+        }
+        (other, McUnit::Composite { numerator, denominator }) if *other == **denominator => {
+            Some((**numerator).clone())
+        }
+        _ => None,
     }
 }
 
@@ -802,9 +889,12 @@ mod tests {
         assert_eq!(sum.unit(), Some(&McUnit::Volt));
         let diff = apply(Op::Sub, &v("2V"), &v("500mV")).unwrap();
         assert_eq!(diff.number(), Some(1.5));
-        // Two dimensioned operands never produce a derived unit here.
+        // A product with no registered derived family is refused; V/A is
+        // registered and lands Ohm (the leg2 derived table).
         assert!(apply(Op::Mul, &v("2V"), &v("3V")).is_err());
-        assert!(apply(Op::Div, &v("2V"), &v("1A")).is_err());
+        let r = apply(Op::Div, &v("2V"), &v("1A")).unwrap();
+        assert_eq!(r.number(), Some(2.0));
+        assert_eq!(r.unit(), Some(&McUnit::Ohm));
         // Families do not meet.
         assert!(apply(Op::Add, &v("1V"), &v("1A")).is_err());
         assert!(satisfies(Compare::Eq, &v("1V"), &v("1A")).is_err());
@@ -897,5 +987,90 @@ mod tests {
         );
         assert!(!EvalError::DivideByZero.message().is_empty());
         assert!(not_numeric("+", &v("1V"), &v("x")).message().contains('+'));
+    }
+
+    #[test]
+    fn eval__quantity_times_quantity_lands_the_derived_family() {
+        // 12V * 3A -> 36W: the survey's zero-live-witness tier becomes
+        // evaluable (U383 leg2, case B derived table).
+        let p = apply(Op::Mul, &v("12V"), &v("3A")).unwrap();
+        assert_eq!(p.number(), Some(36.0));
+        assert_eq!(p.unit(), Some(&McUnit::Wat));
+        // Multiplication is commutative at the lookup.
+        let p2 = apply(Op::Mul, &v("3A"), &v("12V")).unwrap();
+        assert_eq!(p2.unit(), Some(&McUnit::Wat));
+        // 10Ω * 2A -> 20V (the resistor drop).
+        let drop = apply(Op::Mul, &v("10Ω"), &v("2A")).unwrap();
+        assert_eq!(drop.number(), Some(20.0));
+        assert_eq!(drop.unit(), Some(&McUnit::Volt));
+    }
+
+    #[test]
+    fn eval__quantity_division_ratio_and_inverses() {
+        // Same-family division is a bare scalar (the W/W ruling): no
+        // dimensionless family, no Percent scale.
+        let ratio = apply(Op::Div, &v("36W"), &v("40W")).unwrap();
+        assert_eq!(ratio.number(), Some(0.9));
+        assert_eq!(ratio.unit(), None);
+        // 5V / 2A -> 2.5Ω.
+        let r = apply(Op::Div, &v("5V"), &v("2A")).unwrap();
+        assert_eq!(r.number(), Some(2.5));
+        assert_eq!(r.unit(), Some(&McUnit::Ohm));
+        // 36W / 12V -> 3A (the budget inverse).
+        let i = apply(Op::Div, &v("36W"), &v("12V")).unwrap();
+        assert_eq!(i.number(), Some(3.0));
+        assert_eq!(i.unit(), Some(&McUnit::Amp));
+    }
+
+    #[test]
+    fn eval__composite_cancellation_mirrors_the_parse_law() {
+        // 50mV/A * 3A -> 150mV (0.15 V canonical): the denominator cancels,
+        // the numerator family carries the result.
+        let d = apply(Op::Mul, &v("50mV/A"), &v("3A")).unwrap();
+        // 0.05 * 3 picks up a trailing binary error; compare with an epsilon.
+        assert!((d.number().unwrap() - 0.15).abs() < 1e-12);
+        assert_eq!(d.unit(), Some(&McUnit::Volt));
+        // Either operand order.
+        let d2 = apply(Op::Mul, &v("3A"), &v("50mV/A")).unwrap();
+        assert_eq!(d2.unit(), Some(&McUnit::Volt));
+    }
+
+    #[test]
+    fn eval__unregistered_products_are_rejected_not_silent() {
+        // No registered family: compile-face rejection (EVAL_NO_DERIVED_FAMILY).
+        let err = apply(Op::Mul, &v("3Hz"), &v("1V")).unwrap_err();
+        assert_eq!(err.code(), crate::errcodes::EVAL_NO_DERIVED_FAMILY);
+        assert!(err.message().contains("derived family"));
+        // Same-family multiplication has no row either (V*V is not a product
+        // the language names).
+        assert!(matches!(
+            apply(Op::Mul, &v("3V"), &v("2V")),
+            Err(EvalError::NoDerivedFamily { .. })
+        ));
+        // Banned families keep the operator-defined rejection, not the
+        // table-miss one: temperature has no product by law.
+        assert!(matches!(
+            apply(Op::Mul, &v("3°C"), &v("2V")),
+            Err(EvalError::OperandNotNumeric { .. })
+        ));
+        assert!(matches!(
+            apply(Op::Mul, &v("3dB"), &v("2V")),
+            Err(EvalError::OperandNotNumeric { .. })
+        ));
+    }
+
+    #[test]
+    fn eval__same_family_add_sub_keeps_the_dimension() {
+        // The pre-leg2 same-family arithmetic is untouched.
+        let s = apply(Op::Add, &v("1.2V"), &v("2.8V")).unwrap();
+        assert_eq!(s.number(), Some(4.0));
+        assert_eq!(s.unit(), Some(&McUnit::Volt));
+        // Mixed-family addition still rejects.
+        assert!(apply(Op::Add, &v("3V"), &v("2A")).is_err());
+        // Division by zero keeps its own code on the ratio path.
+        assert_eq!(
+            apply(Op::Div, &v("1W"), &v("0W")).unwrap_err(),
+            EvalError::DivideByZero
+        );
     }
 }

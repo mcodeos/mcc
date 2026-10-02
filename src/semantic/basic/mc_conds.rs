@@ -1200,3 +1200,44 @@ impl McFuncConds {
         (&self.else_stmts, &self.else_stmt_offsets)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::meta;
+
+    /// `12V * 2A == 24W` judges true: the derived-family table makes the
+    /// quantity product evaluable, so the judge decides instead of reading
+    /// as unsatisfied (the leg2 red→green promise at the conds door).
+    #[test]
+    fn cond__quantity_product_judge_decides() {
+        let cond = McCondition::Eq {
+            left: McCondOperand::Expr {
+                op: meta::Op::Mul,
+                left: Box::new(McCondOperand::Literal("12V".into())),
+                right: Box::new(McCondOperand::Literal("2A".into())),
+            },
+            right: McCondOperand::Literal("24W".into()),
+        };
+        let verdict = McConds::check_condition_result(&cond, &[], None);
+        assert!(verdict.unwrap());
+    }
+
+    /// `3Hz * 1V` has no registered derived family: the judge carries the
+    /// engine's rejection out (5417) instead of deciding — the caller holding
+    /// the declaration site anchors the compile-time report.
+    #[test]
+    fn cond__unregistered_product_carries_the_rejection_out() {
+        let cond = McCondition::Gt {
+            left: McCondOperand::Expr {
+                op: meta::Op::Mul,
+                left: Box::new(McCondOperand::Literal("3Hz".into())),
+                right: Box::new(McCondOperand::Literal("1V".into())),
+            },
+            right: McCondOperand::Literal("2V".into()),
+        };
+        let err = McConds::check_condition_result(&cond, &[], None).unwrap_err();
+        assert_eq!(err.code(), crate::errcodes::EVAL_NO_DERIVED_FAMILY);
+        assert!(err.message().contains("Hz"));
+    }
+}
