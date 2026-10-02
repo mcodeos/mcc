@@ -93,7 +93,6 @@ const LANGUAGE_KEYWORDS: &[&str] = &[
     "psrc",
     "pub",
     "return",
-    "rf",
     "role",
     "string",
     "this",

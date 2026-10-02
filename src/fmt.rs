@@ -541,7 +541,7 @@ fn normalize_blank_lines(lines: &mut Vec<Line>) -> bool {
 /// pin block. A closed list of grammar terminals, not a list of user names.
 const DECL_KEYWORDS: &[&str] = &[
     "conduit", "domain", "in", "io", "label", "nc", "out", "pins", "psbi", "psnk", "psrc", "rail",
-    "ref", "rf",
+    "ref",
 ];
 
 /// R12: a line that declares something rather than stating a connection. A
