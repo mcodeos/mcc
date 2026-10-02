@@ -10,7 +10,8 @@ use crate::semantic::mc_ifs::McInterface;
 use crate::semantic::module::McModule;
 use crate::{
     MCAST_BODY, MCAST_IOTYPE, MCAST_IOTYPE_IN, MCAST_IOTYPE_IO, MCAST_IOTYPE_NC, MCAST_IOTYPE_OUT,
-    MCAST_IOTYPE_PSBI, MCAST_IOTYPE_PSNK, MCAST_IOTYPE_PSRC, MCAST_IOTYPE_RETURN, MCAST_PARTITION,
+    MCAST_IOTYPE_PSBI, MCAST_IOTYPE_PSNK, MCAST_IOTYPE_PSRC, MCAST_IOTYPE_RF, MCAST_IOTYPE_RETURN,
+    MCAST_PARTITION,
     McIds,
 };
 use std::collections::HashMap;
@@ -46,6 +47,10 @@ impl IOType {
                     // it cannot ride on the single IOType value.
                     return Some(IOType::Power);
                 }
+                // rf (b4475, ruling R1): the RF pin is a signal terminal — net model
+                // walks it as plain io; the RF identity (single-ended vs
+                // differential) rides the iface type, the pairing key (ruling 19).
+                MCAST_IOTYPE_RF => return Some(IOType::InOut),
                 MCAST_IOTYPE_RETURN => return Some(IOType::Return),
                 MCAST_IOTYPE_NC => return Some(IOType::NonCon),
                 _ => return Some(IOType::None),
