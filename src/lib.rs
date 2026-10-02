@@ -93,9 +93,10 @@ pub use db::infra::params_dump::{ParamsDump, RowDump};
 pub mod eval;
 pub mod export;
 pub mod fmt;
-// The computation core (U383): dimension algebra, unit synthesis and the
-// value arithmetic face. `eval` above is its compatibility shim.
-pub mod quantity;
+// The meta domain module (U383): compute half (dimension algebra, unit
+// synthesis, the value arithmetic face) + read half (McMetaValue, U377).
+// `eval` above and `quantity` are compatibility shims.
+pub mod meta;
 pub mod refdef;
 // ── Stage readout (stage-readout-design.md §3/§5.3): `stage.p2` / `stage.vec`
 // / `stage.viz` as data instead of `MC_*_DUMP` stderr prose. Lives in the

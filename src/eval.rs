@@ -2,9 +2,10 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! Compatibility shim (U383 module restructure): the computation core moved to
-//! the top-level [`crate::quantity`] module. Every existing `crate::eval::`
-//! path keeps resolving through these re-exports; consumer migration lands
-//! with each consuming batch, and the shim retires when the last one moves.
+//! Compatibility shim (U383 module consolidation): the computation core lives
+//! in the top-level [`crate::meta`] module — one meta-domain module for the
+//! read half and the compute half. Every existing `crate::eval::` path keeps
+//! resolving through this re-export; consumer migration lands with each
+//! consuming batch, and the shim retires when the last one moves.
 
-pub use crate::quantity::*;
+pub use crate::meta::*;

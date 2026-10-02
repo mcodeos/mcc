@@ -2,7 +2,10 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! The meta engine (U377) — the value layer beneath the attribute system.
+//! The meta read half (U377) — the value layer beneath the attribute system.
+//!
+//! Formerly `semantic/meta`; consolidated into the top-level [`crate::meta`]
+//! module (U383, b4439) so the domain keeps one module aligned with doc/meta/.
 //!
 //! Reception: normalize the five [`McAttrVal`] arms into [`McMetaValue`]
 //! (doc/meta/metadata-engine-design.md §3.1). Read: one iteration API over

@@ -12,7 +12,6 @@ pub(crate) mod mc_enum;
 pub(crate) mod mc_func;
 pub(crate) mod mc_ifs;
 pub(crate) mod mc_inst;
-pub(crate) mod meta;
 pub(crate) mod module;
 pub(crate) mod nc_pin;
 pub(crate) mod opcheck;

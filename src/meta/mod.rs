@@ -2,22 +2,27 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! The computation core — the top-level quantity module (U383).
+//! The meta domain module (U383) — aligned 1:1 with doc/meta/.
 //!
 //! One value domain, one suffix table, one operator law. Everything that needs
 //! to read a number out of the language — conditions, expression arithmetic,
 //! pin-id expansion, power-intent decoders — goes through here, so "what does
 //! `3000mV == 3V` mean" has exactly one answer (it is true).
 //!
+//! Two halves, one module:
+//!   - the compute half is this file plus [`units`] (suffix tables, family
+//!     gates, and — with U383 leg2 — dimension algebra and unit synthesis);
+//!   - the read half is [`read`] (U377: `McMetaValue` reception, normalize,
+//!     dotted-chain resolve), formerly `semantic/meta`.
+//!
 //! Home of the value-face computation campaign (design draft
-//! doc/meta/value-computation-design.md): layer 1 (dimension algebra and unit
-//! synthesis, `units`) and the `Value` arithmetic face live here; layer 2
-//! (`McMetaValue` operators) hangs off the same module when it lands. The
-//! checker faces (conditions, instantiation resolve, require judgments) are
+//! doc/meta/value-computation-design.md). The checker faces (conditions,
+//! instantiation resolve, require judgments) are
 //! the only doors in — every piece added here must have a consuming pass.
 //!
-//! `crate::eval` remains as a compatibility shim re-exporting this module, so
-//! existing `crate::eval::` paths keep resolving while consumers migrate.
+//! `crate::eval` and `crate::quantity` remain as compatibility shims
+//! re-exporting this module, so existing paths keep resolving while consumers
+//! migrate.
 //!
 //! Laws (doc/eval §2):
 //!   - V1 first-class values: a value is a value whatever door it came through;
@@ -33,6 +38,7 @@
 //!     [`EvalError`], and [`report`] turns it into the registered code.
 
 pub mod units;
+pub mod read;
 
 use std::cmp::Ordering;
 
