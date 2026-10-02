@@ -115,6 +115,15 @@ pub enum McParamTypeKind {
     Label,
     /// A2: indexed identifier — {curly named} or [square range], unified
     Idx,
+    /// A5: bare identifier at a terminal-default site — a module/func head
+    /// bare ID defaults to an ENDPOINT, not a value (U384, N5-a site default:
+    /// "端子被理解为数值参数，这不合理"). component/interface heads keep the
+    /// value reading (`Unknown` until usage inference), and a bare ID that
+    /// carries a default (`x = 5`) or a type annotation (`x::INT`) still
+    /// lands in the value channel. The instant face mints this kind into a
+    /// boundary port (`PortInst.terminal`); the symbol face upgrades it to
+    /// `SymbolKind::PortDef`.
+    Terminal,
     // Explicitly Annotated
     /// A3: interface-typed — `id::ClassName(params)`
     Interface {
@@ -607,16 +616,20 @@ impl McParamType {
                 | McParamTypeKind::Idx
                 | McParamTypeKind::Interface { .. }
                 | McParamTypeKind::InterfaceWithRole { .. }
+                // U384: the bare module/func formal IS a connection point —
+                // that is the whole point of the flip.
+                | McParamTypeKind::Terminal
         )
     }
 
     /// Whether this parameter has an explicit type annotation (`::TYPE`).
-    /// Bare identifiers (A1, B3, Unknown) return false.
+    /// Bare identifiers (A1, A5, B3, Unknown) return false.
     pub fn is_explicitly_typed(&self) -> bool {
         !matches!(
             self.kind,
             McParamTypeKind::Label
                 | McParamTypeKind::Idx
+                | McParamTypeKind::Terminal
                 | McParamTypeKind::BareNumeric
                 | McParamTypeKind::EnumValue
                 | McParamTypeKind::Unknown
@@ -630,6 +643,7 @@ impl McParamType {
             McParamTypeKind::Idx => "A2-IDX",
             McParamTypeKind::Interface { .. } => "A3-Interface",
             McParamTypeKind::InterfaceWithRole { .. } => "A4-Interface+Role",
+            McParamTypeKind::Terminal => "A5-Terminal",
             McParamTypeKind::UnitValue { .. } => "B1-UnitValue",
             McParamTypeKind::UnitValueDefault { .. } => "B2-UnitValue+Default",
             McParamTypeKind::CompoundUnit { .. } => "B4-CompoundUnit",

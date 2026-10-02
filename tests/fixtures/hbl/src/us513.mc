@@ -58,7 +58,7 @@ component MCU.US513_20_F
         AVDD09_CAP - CAP(1uF, ±10%, CAP.X5R, 10V) - GND
     }
 
-    func I2C(address)
+    func I2C(address::INT)
     {
 
         if address == 0x36

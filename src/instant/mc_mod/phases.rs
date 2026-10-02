@@ -411,7 +411,13 @@ impl InstantiationBuilder {
                 pd.param_type.kind,
                 McParamTypeKind::Interface { .. } | McParamTypeKind::InterfaceWithRole { .. }
             );
-            if !is_interface_port {
+            // ── U384 ── a bare module head formal (`module M(x)`) is an
+            // ENDPOINT by the N5-a site default. Before the flip it stayed a
+            // value param no instantiation face ever saw, so a caller's
+            // positional argument tripped E4151; materialize it as a
+            // direction-less terminal port so the binder can find it.
+            let is_terminal_param = matches!(pd.param_type.kind, McParamTypeKind::Terminal);
+            if !is_interface_port && !is_terminal_param {
                 continue;
             }
 
@@ -419,12 +425,18 @@ impl InstantiationBuilder {
             if already_registered.contains(port_name.as_str()) {
                 continue;
             }
-            let iotype = match pd.param_type.direction {
-                Some(McIoTy::Input) => IOType::In,
-                Some(McIoTy::Output) => IOType::Out,
-                Some(McIoTy::InOut) => IOType::InOut,
-                Some(McIoTy::NotConnected) => IOType::NonCon,
-                None => IOType::InOut,
+            let iotype = if is_terminal_param {
+                // The bare formal states no direction — `None` is the honest
+                // answer, and `terminal` below is the bindable evidence.
+                IOType::None
+            } else {
+                match pd.param_type.direction {
+                    Some(McIoTy::Input) => IOType::In,
+                    Some(McIoTy::Output) => IOType::Out,
+                    Some(McIoTy::InOut) => IOType::InOut,
+                    Some(McIoTy::NotConnected) => IOType::NonCon,
+                    None => IOType::InOut,
+                }
             };
 
             // Extract bus members — §11: keep source declaration order.
@@ -458,6 +470,7 @@ impl InstantiationBuilder {
             let port_id = self.identity_mut().intern(&port_path);
             let port = PortInst::with_members(&port_name, iotype.clone(), bus_members.clone());
             let mut port = port;
+            port.terminal = is_terminal_param;
             port.volt = match &pd.param_type.kind {
                 McParamTypeKind::Interface { params, .. } => declared_volt_of_texts(params),
                 _ => None,
@@ -1408,10 +1421,14 @@ impl InstantiationBuilder {
             return false;
         }
         // 1. Boundary face: a port row (direct, or as a member of an aggregate
-        //    port) — the port's direction is the ticket.
+        //    port) — the port's direction is the ticket. U384: a bare head
+        //    formal (`module M(pin)`) is a DECLARED boundary endpoint even
+        //    though it states no direction word — the head itself is the
+        //    ticket, and the through-instance access the flip exists to
+        //    enable must not read as module-internal.
         for p in &sub.ports {
             if port_base_name(&p.name) == base || p.bus_members.iter().any(|m| m == base) {
-                return !exportable(&p.iotype);
+                return !(exportable(&p.iotype) || p.terminal);
             }
         }
         // 2. Def-store fallback: a bare `label X` row (or a direction-less bus
@@ -2521,7 +2538,12 @@ fn port_members(port: &PortInst) -> Vec<String> {
 /// positional fallback could land a caller's rail on a signal bus with zero
 /// diagnostics (CIMP §1 U31).
 fn is_power_terminal(p: &PortInst) -> bool {
-    matches!(p.iotype, IOType::Power) || p.dc_pair.is_some() || p.volt.is_some()
+    matches!(p.iotype, IOType::Power)
+        || p.dc_pair.is_some()
+        || p.volt.is_some()
+        // U384: the bare head formal is an endpoint by the site default —
+        // the whole point of the flip is that a caller's argument binds to it.
+        || p.terminal
 }
 
 /// Candidate formals for an argument list, in **declaration order**.

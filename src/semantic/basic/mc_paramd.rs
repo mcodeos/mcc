@@ -12,6 +12,57 @@ use crate::{ast::macros::*, ast::node::AstNode};
 use std::collections::HashMap;
 use std::ops::Range;
 
+/// Which container head a parameter list belongs to (U384, N5-a site default).
+///
+/// The bare-ID shape — `mc_pard: mc_ids` — is the one ambiguous formal: the
+/// same spelling is a TERMINAL default at module/func heads and a VALUE
+/// default at component/interface heads. The grammar cannot carry the site
+/// (all four heads embed the shared `mc_paramds` subtree, and the emitted
+/// `MCAST_PARAM(MCAST_IDS)` is site-agnostic), so the four semantic walkers
+/// stamp the site here and the classification arm dispatches on it
+/// (log/10.2.u384-leg2-leg5-evidence.md §1 — semantic-layer-only, zero mcast
+/// change).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HeadSite {
+    /// module head — bare ID defaults to an endpoint.
+    Module,
+    /// func head — bare ID defaults to an endpoint (legalizes the existing
+    /// position-by-use behavior, terminal-formal-design §5.6).
+    Func,
+    /// component head — bare ID defaults to a value. Carries the enclosing
+    /// class name for scoped enum resolution (the legacy
+    /// `enclosing_component_name` payload, "CAP" for `component CAP`,
+    /// "CAP.CER" for `component CAP.CER`).
+    Component(Option<McIds>),
+    /// interface head — bare ID defaults to a value (type parameters).
+    Interface,
+}
+
+// The default site is a component head with no enclosing name — i.e. exactly
+// the legacy shape: every walker that has not been stamped falls back to the
+// value channel, so un-stamped construction sites keep today's behavior.
+impl Default for HeadSite {
+    fn default() -> Self {
+        Self::Component(None)
+    }
+}
+
+impl HeadSite {
+    /// The bare-ID default channel at this site: `true` = endpoint,
+    /// `false` = value.
+    pub fn bare_is_terminal(&self) -> bool {
+        matches!(self, Self::Module | Self::Func)
+    }
+
+    /// The enclosing component class name, when this is a component head.
+    pub fn component_name(&self) -> Option<&McIds> {
+        match self {
+            Self::Component(name) => name.as_ref(),
+            _ => None,
+        }
+    }
+}
+
 /// Parameter declaration list
 #[derive(Debug, Clone, Default)]
 pub struct McParamDeclares {
@@ -24,9 +75,11 @@ pub struct McParamDeclares {
     port_spans: HashMap<String, Vec<Range<usize>>>,
     /// Port reference spans from net stmts (for LSP goto-definition)
     net_ref_spans: Vec<(Range<usize>, String, String)>, // (span, port_name, scope)
-    /// Name of the enclosing component/module, used for scoped enum resolution.
-    /// e.g., "CAP" for `component CAP`, "CAP.CER" for `component CAP.CER`.
-    pub enclosing_component_name: Option<McIds>,
+    /// Which container head this list belongs to — drives the bare-ID default
+    /// channel (U384 N5-a). Defaults to a component head (value default =
+    /// the legacy behavior) so ad-hoc containers keep reading bare IDs as
+    /// values.
+    pub head_site: HeadSite,
 }
 
 impl McParamDeclares {
@@ -36,8 +89,17 @@ impl McParamDeclares {
             def_spans: HashMap::new(),
             port_spans: HashMap::new(),
             net_ref_spans: Vec::new(),
-            enclosing_component_name: None,
+            head_site: HeadSite::default(),
         }
+    }
+
+    /// Container at a known head site (U384): the four declaration walkers
+    /// construct through this so the bare-ID default channel dispatches on
+    /// the site. Everything else keeps the legacy value default.
+    pub fn with_site(site: HeadSite) -> Self {
+        let mut params = Self::new();
+        params.head_site = site;
+        params
     }
 
     /// Parse parameter declaration list from AST node
@@ -81,7 +143,7 @@ impl McParamDeclares {
                         // volt::UV.VOLT = 5V — the name precedes the DECLARE_UV
                         // node by name.len() + 2 bytes (for the "::" separator).
                         if let Some(paramd) =
-                            McParamDeclare::new(&inner, self.enclosing_component_name.as_ref())
+                            McParamDeclare::new(&inner, &self.head_site)
                         {
                             if let Some(name) = paramd.get_primary_name() {
                                 let inner_pos = inner.get_pos() as usize;
@@ -152,7 +214,7 @@ impl McParamDeclares {
                             if matches!(op_type, MCAST_ID | MCAST_IDA | MCAST_IDS) {
                                 if let Some(paramd) = McParamDeclare::new(
                                     current,
-                                    self.enclosing_component_name.as_ref(),
+                                    &self.head_site,
                                 ) {
                                     if let Some(name) = paramd.get_primary_name() {
                                         let span = (current.get_pos() as usize)
@@ -184,7 +246,7 @@ impl McParamDeclares {
                                 };
                                 if let Some(paramd) = McParamDeclare::new(
                                     &inner,
-                                    self.enclosing_component_name.as_ref(),
+                                    &self.head_site,
                                 ) {
                                     let span = (current.get_pos() as usize)
                                         ..((current.get_pos() + current.get_len()) as usize);
@@ -215,7 +277,7 @@ impl McParamDeclares {
 
                 // Also parse as formal parameter
                 if let Some(paramd) =
-                    McParamDeclare::new(&param_node, self.enclosing_component_name.as_ref())
+                    McParamDeclare::new(&param_node, &self.head_site)
                 {
                     self.declares.push(paramd);
                 }
@@ -231,7 +293,7 @@ impl McParamDeclares {
     /// point records the name (with its span) so the closure body and the
     /// floating-label pass see it as a declared face.
     pub fn push_closure_formal(&mut self, node: &AstNode) {
-        if let Some(paramd) = McParamDeclare::new(node, self.enclosing_component_name.as_ref()) {
+        if let Some(paramd) = McParamDeclare::new(node, &self.head_site) {
             if let Some(name) = paramd.get_primary_name() {
                 let span = (node.get_pos() as usize)
                     ..((node.get_pos() + node.get_len()) as usize);
@@ -244,7 +306,7 @@ impl McParamDeclares {
     /// Register a `name::Class(args)` parameter declaration: the name text
     /// precedes the DECLARE node, square-vec members get their own spans.
     fn register_declare_param(&mut self, inner: &AstNode) {
-        if let Some(paramd) = McParamDeclare::new(inner, self.enclosing_component_name.as_ref()) {
+        if let Some(paramd) = McParamDeclare::new(inner, &self.head_site) {
             if let Some(name) = paramd.get_primary_name() {
                 let inner_pos = inner.get_pos() as usize;
                 let prefix_len = name.len() + 2; // "name::"
@@ -760,7 +822,7 @@ struct WrittenDefault {
 
 impl McParamDeclare {
     /// Create parameter declaration from AST node, with syntactic type classification.
-    pub fn new(node: &AstNode, enclosing_comp_name: Option<&McIds>) -> Option<Self> {
+    pub fn new(node: &AstNode, head_site: &HeadSite) -> Option<Self> {
         let subnode = if node.get_type() == MCAST_PARAM {
             let mut unwrapped = node.get_sub_node()?;
             // Unwrap extra MCAST_PARAM layer (from mc_pard: mc_declare_b rules)
@@ -830,7 +892,7 @@ impl McParamDeclare {
                                     // Prefer the same-named enum (namespace merging) when
                                     // available.
                                     let prefer_class =
-                                        enclosing_comp_name.and_then(|n| n.root_name());
+                                        head_site.component_name().and_then(|n| n.root_name());
                                     if let Some(class_name) =
                                         crate::db::cmie::cmie::resolve_bare_enum_value(
                                             &default_str,
@@ -868,6 +930,19 @@ impl McParamDeclare {
                             // the text (U144 residual 3).
                             written_default = Some(WrittenDefault { text, quoted });
                         }
+                    }
+                    // U384 N5-a site default: a TRULY bare ID (no written
+                    // default, no type annotation — both land above and keep
+                    // the value channel) at a module/func head is an ENDPOINT,
+                    // not a value. component/interface heads and bus/list
+                    // shapes keep the legacy classification.
+                    if written_default.is_none()
+                        && head_site.bare_is_terminal()
+                        && !name_ids.is_bus()
+                        && !name_ids.is_list()
+                        && !name_ids.is_square_only()
+                    {
+                        param_type.kind = crate::semantic::basic::mc_param_type::McParamTypeKind::Terminal;
                     }
                     McParamDeclareKind::Single(name_ids)
                 } else {

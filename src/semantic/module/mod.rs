@@ -21,7 +21,7 @@ use crate::semantic::context::resolve_cmie;
 use crate::semantic::mc_func::McFuncReturn;
 use crate::{
     ast::{macros::*, node::AstNode},
-    semantic::basic::mc_param::McParamDeclares,
+    semantic::basic::mc_param::HeadSite, semantic::basic::mc_param::McParamDeclares,
     semantic::common::BlockPartitions,
     IOType, McCMIE, McIds, McParamValue, McURI, SymbolKind,
 };
@@ -132,7 +132,7 @@ impl McModule {
             let end = start + ids_node.get_len() as usize;
             let mut module = Self {
                 name: module_name,
-                params: McParamDeclares::new(),
+                params: McParamDeclares::with_site(HeadSite::Module),
                 layout: McLayout::default(),
                 expects: Ledger::default(),
                 funcs: McFunctions::new(),

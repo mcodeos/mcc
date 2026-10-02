@@ -17,7 +17,7 @@ use crate::{
     ast::macros::*,
     ast::node::AstNode,
     semantic::basic::form::{classify, reference_parts, Form, RefVerdict},
-    semantic::basic::mc_param::McParamDeclares,
+    semantic::basic::mc_param::HeadSite, semantic::basic::mc_param::McParamDeclares,
 };
 
 // McFuncReturn — function return-value kind (parse-time)
@@ -812,7 +812,7 @@ impl McFunction {
             (ids_node.get_pos() as usize)..((ids_node.get_pos() + ids_node.get_len()) as usize);
         let mut ret = Self {
             name: McIds::new(&ids_node)?,
-            params: McParamDeclares::new(),
+            params: McParamDeclares::with_site(HeadSite::Func),
             returns: McFuncReturn::Implicit,
             insts: McInstances::new(),
             stmts: Vec::new(),

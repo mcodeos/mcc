@@ -9,7 +9,8 @@ use crate::semantic::basic::mc_conds::{CondParam, McConds};
 use crate::{
     ast::{macros::*, node::AstNode},
     semantic::{
-        basic::mc_param::McParamDeclares, basic::mc_phrase::McPhrase, basic::mc_role::McRole,
+        basic::mc_param::HeadSite, basic::mc_param::McParamDeclares, basic::mc_phrase::McPhrase,
+        basic::mc_role::McRole,
         component::mc_attr::McAttributes, component::mc_pins::McPins, mc_func::{HasFindInst, ShapeCtx},
     },
     McIds, McInstance, McURI,
@@ -42,7 +43,7 @@ impl McInterface {
 
         let mut ret = Self {
             name: McIds::new_with_dot(&name_node.get_sub_node()?)?,
-            params: McParamDeclares::new(),
+            params: McParamDeclares::with_site(HeadSite::Interface),
             attrs: McAttributes::new(),
             pins: McPins::new(),
             roles: Vec::new(),

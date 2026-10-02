@@ -3471,7 +3471,10 @@ impl McCode {
             match k {
                 McParamTypeKind::Label | McParamTypeKind::Idx => SymbolKind::LabelDef,
                 McParamTypeKind::Interface { .. }
-                | McParamTypeKind::InterfaceWithRole { .. } => SymbolKind::PortDef,
+                | McParamTypeKind::InterfaceWithRole { .. }
+                // U384: a bare module/func formal is an endpoint — its symbol
+                // is a port, not a value parameter.
+                | McParamTypeKind::Terminal => SymbolKind::PortDef,
                 McParamTypeKind::Unknown => SymbolKind::UnknownDef,
                 _ => SymbolKind::ParamDef,
             }

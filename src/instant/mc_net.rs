@@ -487,6 +487,16 @@ pub struct PortInst {
     /// IO direction
     pub iotype: IOType,
 
+    /// U384: this port is a bare module/func head formal (`module M(x)`) —
+    /// an endpoint by the N5-a site default, not a value. The declaration
+    /// states no direction, so `iotype` stays `None`; this flag is the
+    /// declaration-borne evidence (same family as `dc_pair`/`volt`) that
+    /// lets `is_power_terminal` admit the row as a bindable formal — a
+    /// caller's positional argument lands on it instead of tripping E4151.
+    /// Set only at `instantiate_interface`, from the signature param's
+    /// classification (`McParamTypeKind::Terminal`); never name-borne.
+    pub terminal: bool,
+
     /// Corresponding network point
     pub net_point: NetPoint,
 
@@ -601,6 +611,7 @@ impl PortInst {
             name: name.to_string(),
             iotype,
             net_point,
+            terminal: false,
             bus_members: Vec::new(),
             node_id: None,
             dc_pair: None,
@@ -620,6 +631,7 @@ impl PortInst {
             name: name.to_string(),
             iotype,
             net_point,
+            terminal: false,
             bus_members: members,
             node_id: None,
             dc_pair: None,

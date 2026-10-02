@@ -16,6 +16,7 @@ use super::{
     basic::mc_conds::{CondDefCtx, McCondition, McConds},
     basic::mc_ref::{McRef, McInstanceRef},
     basic::mc_expr::McExpression,
+    basic::mc_param::HeadSite,
     basic::mc_param::McParamDeclares,
     basic::mc_phrase::McPhrase,
     mc_func::{HasFindInst, ShapeCtx},
@@ -284,7 +285,7 @@ impl McComponent {
         let end = start + ids_node.get_len() as usize;
         let mut new_comp = Self {
             name: comp_name.clone(),
-            params: McParamDeclares::new(),
+            params: McParamDeclares::with_site(HeadSite::Component(None)),
             attrs: McAttributes::new(),
             pins: McPins::new(),
             funcs: McFunctions::new(),
@@ -302,7 +303,7 @@ impl McComponent {
         };
 
         //2. param
-        new_comp.params.enclosing_component_name = Some(comp_name.clone());
+        new_comp.params.head_site = HeadSite::Component(Some(comp_name.clone()));
         let _ = &subnodes
             .iter()
             .find(|x| x.is_type(MCAST_PARAMS))
