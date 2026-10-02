@@ -455,11 +455,15 @@ fn u300corpus__i5_bare_uv_at_uv_scalar_attr_folds_silently() {
     );
 }
 
-// I6 — E2083 line-level recovery shapes in pins rows
+// I6 — E2083 line-level recovery shapes in pins rows. The old second shape
+// `1+1 = A` graduated when U292 step 2 narrowed the signed-number fat token:
+// the name position always accepted expression rows (`1*1`, `1/1` parse
+// silently since before the lock), and `+`/`-` were blocked only by the fat
+// lexeme. A dangling-operator row keeps exercising the recovery path.
 
 #[test]
 fn u300corpus__i6_pin_row_recovery_shapes_report_2083() {
-    for row in ["1 = {1:3}", "1+1 = A"] {
+    for row in ["1 = {1:3}", "1+ = A"] {
         let codes = codes(&build_diags(&format!(
             "component C\n{{\n    pins = [\n        {row}\n    ]\n}}\n"
         )));
