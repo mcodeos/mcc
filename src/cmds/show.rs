@@ -102,6 +102,7 @@ fn run_local(args: &ShowArgs) -> Result<()> {
         ShowTarget::Attrs => drill_attrs(require_name(args), args),
         ShowTarget::Funcs => drill_funcs(require_name(args), args),
         ShowTarget::Params => drill_params(require_name(args), args),
+        ShowTarget::ParamTable => show_param_table(require_name(args), args),
         ShowTarget::Roles => drill_roles(require_name(args), args),
         ShowTarget::Values => drill_values(require_name(args), args),
     }
@@ -823,6 +824,50 @@ fn show_component(name: &str, args: &ShowArgs) -> Result<()> {
     data["name"] = json!(name);
     data["uri"] = json!(comp.uri.to_string());
     emit_show(args.target, &data, args.span)
+}
+
+/// `show param-table <COMPONENT>` — the parameter-table dump face (U364
+/// batch A): faces × rows × value slots × cond × datasheet provenance, the
+/// wire shape mce's transcriber consumes (binding contract §2.1). Decode
+/// lives in [`mcc::dump_component`].
+fn show_param_table(name: &str, args: &ShowArgs) -> Result<()> {
+    let cmie = component_def_or_exit(name);
+    let mcc::McCMIE::Component(comp) = cmie else {
+        die!("mcc::show", 1, "'{}' is not a Component", name);
+    };
+    let comp_name = comp.name.to_string();
+    // The rows are typed only in the parse tree, and `prepare` already
+    // parsed the target — same re-parse rule as `show ast` (U93): drop the
+    // entry and load it again with JSON capture on, then read the entry
+    // file's own tree.
+    let uri_str = comp.uri.to_string();
+    let mc_uri = McURI::from(uri_str.as_str());
+    mcc::set_ast_visit_json(true);
+    mcc::set_trace_stdout_suppressed(true);
+    mcc::mcc_remove(&mc_uri);
+    mcc::mcb_reset_ast_visit_flag();
+    mcc::clear_ast_visit_json();
+    mcc::mcc_load_project(&mc_uri);
+    let tree = mcc::take_ast_visit_json_for(&uri_str).unwrap_or_else(|| {
+        die!(
+            "mcc::show",
+            1,
+            "no parse tree for '{}' — load its file with -F (or --lib) first",
+            name
+        )
+    });
+    match mcc::dump_component(&comp_name, &tree) {
+        Some(dump) => {
+            let data = serde_json::to_value(&dump)?;
+            emit_show(args.target, &data, args.span)
+        }
+        None => die!(
+            "mcc::show",
+            1,
+            "'{}' carries no parameter rows in its parsed source",
+            name
+        ),
+    }
 }
 
 fn show_module(name: &str, args: &ShowArgs) -> Result<()> {

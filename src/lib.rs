@@ -88,7 +88,8 @@ pub use db::defspace::{
 // Model profile cards (worldmodel-design §7 W3), re-exported out of the
 // private db::infra path for the CLI and RPC faces that read them.
 pub use db::infra::model_profile;
-pub mod eval;
+pub use db::infra::params_dump::dump_component;
+pub use db::infra::params_dump::{ParamsDump, RowDump};pub mod eval;
 pub mod export;
 pub mod fmt;
 pub mod refdef;

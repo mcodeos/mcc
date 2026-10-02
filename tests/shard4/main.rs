@@ -41,6 +41,7 @@ mod u363_body_row_annotations;
 mod u363_line_annotations;
 mod u292_signed_numbers;
 mod u363_list_items;
+mod u364_params_dump;
 mod u372_curly_wrapper_transpose;
 mod u374_fan_computation_law;
 mod use_statement_diagnostics;

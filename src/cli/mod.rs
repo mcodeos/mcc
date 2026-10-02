@@ -729,6 +729,10 @@ pub enum ShowTarget {
     // Parameter declarations of a component / module / interface / func
     // (funcs are dot-qualified `OWNER.FUNC`)
     Params,
+    // Parameter-table dump of a component (U364 batch A): faces × rows ×
+    // value slots × cond × datasheet provenance, the mce binding-contract
+    // wire shape
+    ParamTable,
     // Roles of an interface
     Roles,
     // Values of an enum
@@ -775,6 +779,7 @@ impl ShowTarget {
             Self::Attrs => "attrs",
             Self::Funcs => "funcs",
             Self::Params => "params",
+            Self::ParamTable => "param-table",
             Self::Roles => "roles",
             Self::Values => "values",
         }
