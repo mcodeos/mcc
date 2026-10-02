@@ -14,9 +14,18 @@
 //! top_module = "main"         # Default top-level module
 //!
 //! [dependencies]
-//! mcode = "*"                 # Base library, always required
-//! infineon = "2.1.0"          # Third-party library
+//! mcode = "*"                 # Base library; "*" = any installed version
+//! infineon = "2.1"            # Third-party library, exact pin
 //! ```
+//!
+//! ## Version pins
+//!
+//! A `[dependencies]` value pins which installed copy a project uses:
+//! `"*"` (or empty) means any/highest; anything else is an exact match
+//! against the installed `<name>@<version>` directory. Versions are two
+//! segment `MAJOR.MINOR` (e.g. `0.1`); legacy three-segment values are
+//! read tolerantly but never written. An unmet exact pin is a warning
+//! with an install hint, not a silent version swap.
 //!
 //! Lives in the lib (not the binary's `cmds/`) because the batch entry resolver
 //! ([`crate::build::loader::discover_entries`]) runs on the RPC side too. One
@@ -127,5 +136,13 @@ mcode = "*"
         cli_override
             .map(|s| s.to_string())
             .or_else(|| self.project.top_module.clone())
+    }
+
+    /// The version requirement pinned for `name`, if any.
+    ///
+    /// `"*"` = any/highest installed copy; anything else is an exact pin.
+    /// See the module docs ("Version pins").
+    pub fn dep(&self, name: &str) -> Option<&str> {
+        self.dependencies.get(name).map(String::as_str)
     }
 }

@@ -136,7 +136,7 @@ pub fn validate_structure(pack: &PackToml) -> Result<()> {
     }
     if !valid_semver(&pack.package.version) {
         bail!(
-            "pack.toml [package] version `{}` is not an x.y.z semver",
+            "pack.toml [package] version `{}` is not an x.y (or legacy x.y.z) version",
             pack.package.version
         );
     }
@@ -202,7 +202,7 @@ pub fn validate_structure(pack: &PackToml) -> Result<()> {
             bail!("[variants] `{}` has an empty base", vname);
         }
         if !valid_semver(&v.since) {
-            bail!("[variants] `{}` since `{}` is not an x.y.z semver", vname, v.since);
+            bail!("[variants] `{}` since `{}` is not an x.y (or legacy x.y.z) version", vname, v.since);
         }
     }
 
@@ -250,11 +250,13 @@ pub fn validate(pack: &PackToml, dir: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Loose semver: `x.y.z`, three non-empty numeric segments (no prerelease/metadata — device
-/// packs never need them).
+/// Loose version: two numeric segments `MAJOR.MINOR` (no prerelease/metadata —
+/// device packs never need them); a legacy three-segment `x.y.z` still
+/// validates — reading is tolerant, writing is canonical two.
 fn valid_semver(v: &str) -> bool {
     let parts: Vec<&str> = v.split('.').collect();
-    parts.len() == 3 && parts.iter().all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
+    (parts.len() == 2 || parts.len() == 3)
+        && parts.iter().all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
 }
 
 /// `sha256:<64 lowercase hex chars>`.
@@ -271,9 +273,11 @@ mod tests {
 
     #[test]
     fn semver_shape() {
+        // Two segments are the canonical law; three-segment legacy reads.
+        assert!(valid_semver("0.1"));
+        assert!(valid_semver("1.20"));
         assert!(valid_semver("0.1.0"));
         assert!(valid_semver("1.20.3"));
-        assert!(!valid_semver("0.1"));
         assert!(!valid_semver("0.1.0-beta"));
         assert!(!valid_semver("a.b.c"));
     }

@@ -22,6 +22,7 @@ use crate::db::cmie::tables as workspace;
 use crate::db::defspace::LibBoundary;
 use crate::db::infra::mc_code::McCode;
 use crate::McIds;
+use anyhow::Context as _;
 use std::collections::HashSet;
 use std::path::Path;
 use tracing::{debug, info, warn};
@@ -93,6 +94,36 @@ impl Drop for LibLoadGuard {
 /// libraries match versioned directories (`<name>@<version>`), then a bare
 /// `<name>` directory.
 pub fn resolve_lib_root(name: &str) -> Option<std::path::PathBuf> {
+    let proj = crate::builder::mcb_get_project_root();
+    let project_root = if proj.as_os_str().is_empty() {
+        None
+    } else {
+        Some(proj.as_path())
+    };
+    resolve_lib_root_req(name, &VersionReq::Any, project_root)
+}
+
+/// Resolve a library root honoring a version requirement and the project tier.
+///
+/// Precedence: the project's `<root>/libs` directory (never consulted for
+/// mcode — the official library is global-only), then the global roots
+/// (sticky system root, then the data root). An `Exact` pin only matches the
+/// `<name>@<version>` directory spelling the pin; it never silently falls
+/// back to a different version. `Any` keeps every legacy fallback.
+pub fn resolve_lib_root_req(
+    name: &str,
+    req: &VersionReq,
+    project_root: Option<&Path>,
+) -> Option<std::path::PathBuf> {
+    if let Some(proj) = project_root {
+        if name != "mcode" {
+            let libs = crate::cli::datadir::project_libs_dir(proj);
+            if let Some(found) = find_lib_dir_pinned(&libs, name, req) {
+                return Some(found);
+            }
+        }
+    }
+
     let mut roots: Vec<std::path::PathBuf> = Vec::new();
     let sys = crate::builder::mcb_get_system_root();
     if !sys.as_os_str().is_empty() {
@@ -103,11 +134,60 @@ pub fn resolve_lib_root(name: &str) -> Option<std::path::PathBuf> {
         roots.push(data);
     }
     for root in roots {
-        if let Some(found) = find_lib_dir(&root, name) {
+        if let Some(found) = find_lib_dir_pinned(&root, name, req) {
             return Some(found);
         }
     }
     None
+}
+
+/// A `[dependencies]` version requirement from a project manifest.
+///
+/// `"*"` (or empty) = any installed copy; anything else is an exact pin.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum VersionReq {
+    Any,
+    Exact(String),
+}
+
+/// Parse a raw pin string into a [`VersionReq`].
+pub fn parse_version_req(s: &str) -> VersionReq {
+    match s.trim() {
+        "" | "*" => VersionReq::Any,
+        v => VersionReq::Exact(v.to_string()),
+    }
+}
+
+/// Search a single root directory for a library honoring a version
+/// requirement. See [`resolve_lib_root_req`] for the tiering.
+pub fn find_lib_dir_pinned(
+    root: &Path,
+    name: &str,
+    req: &VersionReq,
+) -> Option<std::path::PathBuf> {
+    match req {
+        VersionReq::Exact(v) => {
+            let pinned = root.join(format!("{name}@{v}"));
+            if pinned.is_dir() {
+                return Some(pinned);
+            }
+            // mcode keeps the legacy unversioned layout as an exact-pin
+            // fallback: the bare working-copy mcode satisfies any pin rather
+            // than failing the load.
+            if name == "mcode" {
+                let bare = root.join("mcode");
+                if bare.exists() {
+                    return Some(bare);
+                }
+                let sibling = root.join("..").join("mcode");
+                if sibling.exists() {
+                    return Some(sibling);
+                }
+            }
+            None
+        }
+        VersionReq::Any => find_lib_dir(root, name),
+    }
 }
 
 /// Search a single root directory for a library by name.
@@ -124,14 +204,9 @@ fn find_lib_dir(root: &Path, name: &str) -> Option<std::path::PathBuf> {
         return None;
     }
     if root.exists() {
-        let prefix = format!("{name}@");
-        if let Ok(entries) = std::fs::read_dir(root) {
-            for e in entries.flatten() {
-                let fname = e.file_name().to_string_lossy().to_string();
-                if fname.starts_with(&prefix) && e.path().is_dir() {
-                    return Some(e.path());
-                }
-            }
+        // Highest versioned copy first (deterministic), then bare `<name>`.
+        if let Some(found) = highest_versioned_dir(root, name) {
+            return Some(found);
         }
         let bare = root.join(name);
         if bare.exists() {
@@ -501,21 +576,33 @@ pub fn mcb_lib_info(name: &str) -> Option<LibInfo> {
 /// path does not exist. Shared by the CLI and the RPC layer so that
 /// non-project builds honor the global mcc.yaml [libs].load list.
 pub fn mcb_load_lib_by_name(lib_name: &str) {
+    let _ = mcb_load_lib_by_name_pinned(lib_name, &VersionReq::Any);
+}
+
+/// Load a single library by name, honoring a manifest version pin.
+///
+/// Same resolution as [`mcb_load_lib_by_name`] plus the `Exact` pin from a
+/// project's `[dependencies]`. When the exact pin is unmet but *some* copy
+/// resolves, the copy loads with a warning carrying the install hint — an
+/// unmet pin degrades loudly, never to a silent version swap. Returns the
+/// human-readable warning when one fired, for callers that surface load
+/// diagnostics on stderr (the CLI); `None` when the load was clean.
+pub fn mcb_load_lib_by_name_pinned(lib_name: &str, req: &VersionReq) -> Option<String> {
     let system_root = crate::mcb_get_system_root();
     let data_root = crate::cli::datadir::data_root();
 
     // Determine the actual root to use. Path-like names (absolute paths,
     // `a/b` forms, `.mc` files) resolve against the system root directly.
-    // Bare library names go through the version-aware `resolve_lib_root`
-    // (system root first, then data root; `<name>@<version>` directories are
-    // matched before the bare `<name>` directory) so third-party libraries
-    // installed as versioned directories load correctly. Both fall back to
-    // data_root (never a hardcoded ~/.mcode) so discovery stays on the
-    // unified data root (use-design §19.10 D4).
+    // Bare library names go through the version-aware `resolve_lib_root_req`
+    // (project libs first, then system root, then data root) so vendored
+    // project libraries and versioned global installs both load correctly.
+    // Both fall back to data_root (never a hardcoded ~/.mcode) so discovery
+    // stays on the unified data root (use-design §19.10 D4).
     let is_path_like = lib_name.contains('/')
         || lib_name.contains('\\')
         || lib_name.ends_with(".mc")
         || std::path::Path::new(lib_name).is_absolute();
+    let mut warning: Option<String> = None;
     let lib_path = if is_path_like {
         if system_root.as_os_str().is_empty() {
             data_root.join(lib_name)
@@ -528,7 +615,39 @@ pub fn mcb_load_lib_by_name(lib_name: &str) {
             }
         }
     } else {
-        resolve_lib_root(lib_name).unwrap_or_else(|| data_root.join(lib_name))
+        let proj = crate::builder::mcb_get_project_root();
+        let project_root = if proj.as_os_str().is_empty() {
+            None
+        } else {
+            Some(proj.as_path())
+        };
+        match resolve_lib_root_req(lib_name, req, project_root) {
+            Some(found) => found,
+            None => {
+                // Pin unmet: fall back to any installed copy, loudly.
+                let fallback = resolve_lib_root(lib_name);
+                if let (VersionReq::Exact(v), Some(found)) = (req, fallback) {
+                    let warn = format!(
+                        "project pins {lib_name}@{v} but it is not installed; using {}. \
+                         Run `mcc lib install {lib_name} --from <path>` (or set the pin to \"*\")",
+                        found.display()
+                    );
+                    tracing::warn!(target: "mcc::lib", lib = lib_name, pin = v, "{}", warn);
+                    warning = Some(warn);
+                    found
+                } else if let VersionReq::Exact(v) = req {
+                    let warn = format!(
+                        "library {lib_name}@{v} is not installed anywhere; \
+                         run `mcc lib install {lib_name} --from <path>` (or set the pin to \"*\")"
+                    );
+                    tracing::warn!(target: "mcc::lib", lib = lib_name, pin = v, "{}", warn);
+                    warning = Some(warn);
+                    data_root.join(lib_name)
+                } else {
+                    data_root.join(lib_name)
+                }
+            }
+        }
     };
 
     // Normalize: if lib_name is a .mc file path, extract the library name
@@ -563,13 +682,106 @@ pub fn mcb_load_lib_by_name(lib_name: &str) {
             lib = name,
             "library not found in system root");
     }
+    warning
 }
 
 // Internal helper functions
 
+/// Install-scope guard: the global data root is official-library territory.
+/// mcode installs there (as a versioned copy); third-party libraries vendor
+/// into a project's `libs/` and never the other way round. Lives in the lib
+/// crate so the RPC handlers and the CLI enforce one law.
+pub fn ensure_install_scope(name: &str, target_root: &Path) -> anyhow::Result<()> {
+    let global = target_root == crate::cli::datadir::data_root();
+    if name == "mcode" && !global {
+        anyhow::bail!(
+            "lib install: mcode is the official library and installs into the global data \
+             root; it is never vendored into a project"
+        );
+    }
+    if name != "mcode" && global {
+        anyhow::bail!(
+            "lib install: the global data root is reserved for mcode; third-party \
+             libraries install into <project>/libs (run inside a project)"
+        );
+    }
+    Ok(())
+}
+
+/// Pure bare-directory install: copy library dir into `target_root` as
+/// `<name>@<version>`. Returns (name@version, target path). The single
+/// install core shared by the CLI (`cmds::lib`) and the RPC `lib.install`
+/// handler; .mcl archives go through `cmds::pack::install_mcl_at`, which
+/// reuses [`ensure_install_scope`] after pack.toml names the pack. Versions
+/// normalize to the canonical two-segment `MAJOR.MINOR`.
+pub fn install_lib_at(
+    target_root: &Path,
+    name: &str,
+    from: &str,
+    version: Option<&str>,
+) -> anyhow::Result<(String, std::path::PathBuf)> {
+    ensure_install_scope(name, target_root)?;
+    let src = std::path::PathBuf::from(from);
+    if !src.exists() {
+        anyhow::bail!("lib install: source path does not exist '{}'", from);
+    }
+
+    let ver = crate::cli::datadir::normalize_version(version.unwrap_or("0.0.0"));
+    let lib_name_ver = format!("{}@{}", name, ver);
+    // Flat layout: install into <root>/<name>@<ver>
+    let target = target_root.join(&lib_name_ver);
+
+    if target.exists() {
+        anyhow::bail!(
+            "lib install: {} is already installed ({}). Run `uninstall` first to reinstall.",
+            lib_name_ver,
+            target.display()
+        );
+    }
+
+    std::fs::create_dir_all(target_root).with_context(|| {
+        format!(
+            "lib install: cannot create install root {}",
+            target_root.display()
+        )
+    })?;
+    copy_dir_recursive(&src, &target).with_context(|| {
+        format!(
+            "lib install: failed to copy {} → {}",
+            from,
+            target.display()
+        )
+    })?;
+
+    // The index only covers the global data root; project tiers list by scan.
+    if target_root == crate::cli::datadir::data_root() {
+        let _ = crate::cli::datadir::rebuild_index();
+    }
+
+    Ok((lib_name_ver, target))
+}
+
+fn copy_dir_recursive(
+    src: &std::path::Path,
+    dst: &std::path::Path,
+) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let src_path = entry.path();
+        let dst_path = dst.join(entry.file_name());
+        if src_path.is_dir() {
+            copy_dir_recursive(&src_path, &dst_path)?;
+        } else {
+            std::fs::copy(&src_path, &dst_path)?;
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
-    use super::find_lib_dir;
+    use super::{find_lib_dir, find_lib_dir_pinned, parse_version_req, resolve_lib_root_req, VersionReq};
     use std::path::PathBuf;
 
     /// Build a temp root populated with a bare `acme` lib and a versioned one.
@@ -621,6 +833,83 @@ mod tests {
     fn def_libmgr__find_lib_dir_absent_returns_none() {
         let root = temp_root("absent");
         assert_eq!(find_lib_dir(&root, "nosuchlib"), None);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Build a temp project with a `libs/` tier holding one library.
+    fn temp_project(tag: &str, lib: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("mcc-proj-{}-{}", tag, std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("libs").join(lib)).unwrap();
+        dir
+    }
+
+    #[test]
+    fn def_libmgr__parse_version_req_any_and_exact() {
+        assert_eq!(parse_version_req("*"), VersionReq::Any);
+        assert_eq!(parse_version_req(""), VersionReq::Any);
+        assert_eq!(parse_version_req(" 0.1 "), VersionReq::Exact("0.1".into()));
+    }
+
+    #[test]
+    fn def_libmgr__pinned_exact_selects_pinned_copy() {
+        let root = temp_root("pin-exact");
+        std::fs::create_dir_all(root.join("acme@1.0")).unwrap();
+        // temp_root already made acme@2.0; the exact pin must beat it.
+        let found = find_lib_dir_pinned(&root, "acme", &VersionReq::Exact("1.0".into()));
+        assert_eq!(found, Some(root.join("acme@1.0")));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn def_libmgr__pinned_exact_miss_never_swaps_version() {
+        let root = temp_root("pin-miss");
+        // Only acme@2.0 exists; pinning 9.9 must NOT return acme@2.0.
+        let found = find_lib_dir_pinned(&root, "acme", &VersionReq::Exact("9.9".into()));
+        assert_eq!(found, None);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn def_libmgr__pinned_mcode_falls_back_to_bare() {
+        let root = temp_root("pin-mcode");
+        std::fs::remove_dir_all(root.join("mcode")).unwrap();
+        std::fs::create_dir_all(root.join("mcode")).unwrap();
+        // No mcode@0.5 dir; the legacy bare working copy satisfies the pin.
+        let found = find_lib_dir_pinned(&root, "mcode", &VersionReq::Exact("0.5".into()));
+        assert_eq!(found, Some(root.join("mcode")));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn def_libmgr__project_libs_tier_precedes_global() {
+        // Unique name so the real ~/.mcode on this machine cannot interfere.
+        let proj = temp_project("tier", "zztest_acme@1.0");
+        let found = resolve_lib_root_req(
+            "zztest_acme",
+            &VersionReq::Exact("1.0".into()),
+            Some(&proj),
+        );
+        assert_eq!(found, Some(proj.join("libs").join("zztest_acme@1.0")));
+        // mcode is global-only: a project-tier mcode dir is never consulted.
+        let proj2 = temp_project("tier-mcode", "mcode@0.5");
+        let found2 = resolve_lib_root_req("mcode", &VersionReq::Any, Some(&proj2));
+        if let Some(p) = found2 {
+            assert!(
+                !p.starts_with(proj2.join("libs")),
+                "mcode must not resolve from the project tier"
+            );
+        }
+        let _ = std::fs::remove_dir_all(&proj);
+        let _ = std::fs::remove_dir_all(&proj2);
+    }
+
+    #[test]
+    fn def_libmgr__any_resolves_highest_version() {
+        let root = temp_root("any-high");
+        std::fs::create_dir_all(root.join("acme@1.0")).unwrap();
+        let found = find_lib_dir_pinned(&root, "acme", &VersionReq::Any);
+        assert_eq!(found, Some(root.join("acme@2.0")), "Any picks the highest");
         let _ = std::fs::remove_dir_all(&root);
     }
 }

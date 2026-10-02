@@ -36,6 +36,10 @@ pub struct LoadContext {
     pub project_root: Option<PathBuf>,
     /// Manifest `[dependencies]` names (Project mode only).
     pub deps: Vec<String>,
+    /// Manifest `[dependencies]` version pins (name → raw requirement,
+    /// Project mode only). `"*"` = any installed copy; anything else is an
+    /// exact pin honored at load time (see `libmgr::VersionReq`).
+    pub pins: std::collections::BTreeMap<String, String>,
     /// `--lib` (or the RPC request list) names.
     pub cli_libs: Vec<String>,
     /// Global/project config `[libs].load` names.
@@ -56,9 +60,19 @@ impl LoadContext {
         }
     }
 
-    /// The load order: config ∪ deps ∪ cli ∪ system, first occurrence
-    /// wins. Deduplication is by exact name, config-first, so a name
+    /// The load order: system ∪ config ∪ deps ∪ cli, first occurrence
+    /// wins. Deduplication is by exact name, system-first, so a name
     /// given twice across channels loads once.
+    ///
+    /// The system library loads FIRST, not last: pack libraries load as
+    /// libraries (`use <part>.<part>` → a dependency), and their entry
+    /// files rely on the mcode stdlib's auto-visibility — interface
+    /// adoption rows like `SPI::SPI(SLAVE)` and `PKG.*` package refs
+    /// carry no `use mcode` line. Loading mcode after the packs left
+    /// every pack interface registered member-less (bare port name,
+    /// wrong kind), which collapsed bus connects into illegal scalar
+    /// shapes (E4007). A foundation layer precedes everything that
+    /// builds on it.
     pub fn lib_names(&self) -> Vec<String> {
         let mut out: Vec<String> = Vec::new();
         let push = |name: &str, out: &mut Vec<String>| {
@@ -66,6 +80,9 @@ impl LoadContext {
                 out.push(name.to_string());
             }
         };
+        for s in &self.system_libs {
+            push(s, &mut out);
+        }
         for l in &self.config_libs {
             push(l, &mut out);
         }
@@ -75,9 +92,6 @@ impl LoadContext {
         for l in &self.cli_libs {
             push(l, &mut out);
         }
-        for s in &self.system_libs {
-            push(s, &mut out);
-        }
         out
     }
 }
@@ -86,20 +100,22 @@ impl LoadContext {
 /// explicit library names (design §19.10 D6 construct 1).
 ///
 /// This is the CLI's canonical union policy, extracted verbatim from the
-/// former `cmds::manifest::collect_libs`: global/project config
+/// former `cmds::manifest::collect_libs`: the mcode default first (unless
+/// `libs.disable_mcode` suppresses it), then global/project config
 /// `[libs].load`, then manifest `[dependencies]`, then the explicit
-/// names, each deduplicated against the accumulated list, then the
-/// mcode default unless `libs.disable_mcode` suppresses it.
+/// names, each deduplicated against the accumulated list.
 pub fn resolve_load_context(project_root: Option<&Path>, cli_libs: &[String]) -> LoadContext {
     let config_libs = crate::cli::config::get_libs_load_list(project_root).to_vec();
     let mut deps: Vec<String> = Vec::new();
+    let mut pins: std::collections::BTreeMap<String, String> = Default::default();
     if let Some(root) = project_root {
         if let Some(path) = crate::cli::manifest::Manifest::find_in(root) {
             if let Ok(manifest) = crate::cli::manifest::Manifest::load(&path) {
-                for dep in manifest.dependencies.keys() {
+                for (dep, req) in &manifest.dependencies {
                     if !config_libs.contains(dep) {
                         deps.push(dep.clone());
                     }
+                    pins.insert(dep.clone(), req.clone());
                 }
             }
         }
@@ -118,6 +134,7 @@ pub fn resolve_load_context(project_root: Option<&Path>, cli_libs: &[String]) ->
         workspace_kind,
         project_root: project_root.map(|p| p.to_path_buf()),
         deps,
+        pins,
         cli_libs: cli_libs.to_vec(),
         config_libs,
         system_libs,
@@ -127,12 +144,22 @@ pub fn resolve_load_context(project_root: Option<&Path>, cli_libs: &[String]) ->
 /// Load exactly the context's libraries, in [`LoadContext::lib_names`]
 /// order, through the shared name loader (design §19.10 D6 construct 2).
 ///
-/// `mcb_load_lib_by_name` skips libraries that are already loaded, so a
-/// repeated context is idempotent.
-pub fn load_all(ctx: &LoadContext) {
+/// Manifest pins ride along: a `[dependencies]` pin resolves the exact
+/// installed copy. Returns the human-readable pin warnings (unmet exact
+/// pins degrade loudly) for the caller to print; `mcb_load_lib_by_name`
+/// skips libraries that are already loaded, so a repeated context is
+/// idempotent.
+pub fn load_all(ctx: &LoadContext) -> Vec<String> {
+    let mut warnings = Vec::new();
     for name in ctx.lib_names() {
-        crate::db::infra::libmgr::mcb_load_lib_by_name(&name);
+        let req = crate::db::infra::libmgr::parse_version_req(
+            ctx.pins.get(&name).map(String::as_str).unwrap_or("*"),
+        );
+        if let Some(warn) = crate::db::infra::libmgr::mcb_load_lib_by_name_pinned(&name, &req) {
+            warnings.push(warn);
+        }
     }
+    warnings
 }
 
 /// Walk up from `target` (a file or a directory) to the nearest ancestor
@@ -201,8 +228,8 @@ mod tests {
         };
         assert_eq!(
             ctx.lib_names(),
-            vec!["a", "b", "c", "d", "mcode"],
-            "config first, deps next, cli last, each name once"
+            vec!["mcode", "a", "b", "c", "d"],
+            "system (foundation) first, then config, deps, cli — each name once"
         );
     }
 
@@ -291,5 +318,29 @@ mod tests {
             !is_lib_visible("definitely-not-loaded-lib"),
             "an unloaded library is not visible"
         );
+    }
+
+    #[test]
+    fn cli_loadctx__pins_flow_from_manifest() {
+        let base = std::env::temp_dir().join(format!("mcc-loadctx-pins-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        std::fs::write(
+            base.join("project.toml"),
+            "[project]\nname = \"p\"\nversion = \"0.1\"\nentry = \"src/main.mc\"\n\n\
+             [dependencies]\nmcode = \"*\"\nhc32l110 = \"0.1\"\n",
+        )
+        .unwrap();
+
+        let ctx = resolve_load_context(Some(&base), &[]);
+        assert_eq!(ctx.pins.get("mcode").map(String::as_str), Some("*"));
+        assert_eq!(ctx.pins.get("hc32l110").map(String::as_str), Some("0.1"));
+        assert!(ctx.deps.contains(&"hc32l110".to_string()));
+
+        // A name without a manifest entry carries no pin (global semantics).
+        let anon = LoadContext::from_resolved(vec!["x".into()]);
+        assert!(!anon.pins.contains_key("x"));
+
+        let _ = std::fs::remove_dir_all(&base);
     }
 }

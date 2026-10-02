@@ -52,7 +52,15 @@ pub fn handle_project_info(params: Option<Value>) -> RpcResult {
 
 // === handle_library_list (lines 124-196 in original) ===
 
-pub fn handle_library_list(_params: Option<Value>) -> RpcResult {
+pub fn handle_library_list(params: Option<Value>) -> RpcResult {
+    // Client-resolved project root: its `libs/` tier merges into `installed`
+    // (origin "project"); absent → global face only.
+    let project_root = params
+        .as_ref()
+        .and_then(|v| v.get("project_root"))
+        .and_then(|v| v.as_str())
+        .map(PathBuf::from);
+
     let mut libs = Vec::new();
     // Memory-loaded libraries
     let loaded = crate::mcb_loaded_libs();
@@ -121,6 +129,22 @@ pub fn handle_library_list(_params: Option<Value>) -> RpcResult {
                     installed.push(json!({"name":name,"version":version,"loaded":false}));
                 }
             }
+        }
+    }
+    // Project tier: scanned directly (index.json stays a global-root face).
+    if let Some(proj) = &project_root {
+        for lib in crate::cli::datadir::scan_lib_dir(&crate::cli::datadir::project_libs_dir(proj))
+        {
+            if loaded.contains(&lib.name) {
+                continue;
+            }
+            installed.push(json!({
+                "name": lib.name,
+                "version": lib.version,
+                "loaded": false,
+                "origin": "project",
+                "path": lib.path.to_string_lossy(),
+            }));
         }
     }
     Ok(json!({"loaded": libs, "installed": installed}))

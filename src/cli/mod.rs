@@ -1123,6 +1123,7 @@ pub struct ImportArgs {
     /// join by net name — no hierarchical sheets, no long cross-module wires.
     #[arg(long)]
     pub flat: bool,
+
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
@@ -1229,6 +1230,12 @@ pub enum LibAction {
         /// Version number (optional; an .mcl archive takes it from pack.toml)
         #[arg(long)]
         version: Option<String>,
+
+        /// Install into the global data root instead of <project>/libs.
+        /// Only meaningful for mcode — the global store is official-library
+        /// territory; third-party libraries are vendored into the project.
+        #[arg(long)]
+        global: bool,
     },
 
     /// Pack a library directory into .mcl archives (thin + full)
@@ -1279,6 +1286,11 @@ pub enum LibAction {
         /// Force uninstall (even if loaded into memory)
         #[arg(long)]
         force: bool,
+
+        /// Remove the global data-root copy (default resolves the project
+        /// `libs/` copy first). mcode always targets the global root.
+        #[arg(long)]
+        global: bool,
     },
 }
 

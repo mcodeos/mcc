@@ -4,17 +4,27 @@
 
 //! `mcc lib` — system library management
 //!
-//! - `mcc lib list` — list loaded system libraries
-//! - `mcc lib install <name> --from <path>` — install to data_dir/system/public/
+//! - `mcc lib list` — list loaded + installed libraries (project and global)
+//! - `mcc lib install <name> --from <path>` — vendor into `<project>/libs/`
+//!   (mcode installs into the global data root as `mcode@<version>`)
+//! - `mcc lib install mcode --from <path>` — global official-library install
 //! - `mcc lib load <name>` — load into memory
 //! - `mcc lib unload <name>` — unload from memory
 //! - `mcc lib show <name>` — show library details
 //! - `mcc lib search <pat>` — search installed libraries
-//! - `mcc lib uninstall <name>` — remove an installed library
+//! - `mcc lib uninstall <name>` — remove an installed library (project copy
+//!   first; `--global` removes the data-root copy)
+//!
+//! Layout model (cargo-like): third-party libraries are vendored into the
+//! project's `libs/` directory — self-contained, git-committable,
+//! environment-independent. The global data root is official-library
+//! territory only (mcode, multi-version `mcode@<MAJOR.MINOR>`). Version
+//! pins in `project.toml [dependencies]` select which installed copy a
+//! project loads; resolution is project tier first, then global.
 
 use crate::output;
 use anyhow::{Context, Result};
-use mcc::cli::{datadir, LibAction, OutputFormat};
+use mcc::cli::{datadir, manifest::Manifest, LibAction, OutputFormat};
 use serde::Serialize;
 use serde_json::Value;
 use std::fmt;
@@ -40,6 +50,9 @@ pub struct InstalledLib {
     pub name: String,
     pub version: String,
     pub path: String,
+    /// Where this copy lives: `"project"` (`<root>/libs`) or `"global"`
+    /// (the data root).
+    pub origin: String,
 }
 
 impl fmt::Display for LibListReport {
@@ -55,7 +68,34 @@ impl fmt::Display for LibListReport {
         if !self.installed.is_empty() {
             writeln!(f, "\nInstalled (disk):")?;
             for lib in &self.installed {
-                writeln!(f, "  {}@{} → {}", lib.name, lib.version, lib.path)?;
+                writeln!(
+                    f,
+                    "  {:20} {:6} {:8} {}",
+                    format!("{}@{}", lib.name, lib.version),
+                    "",
+                    lib.origin,
+                    lib.path
+                )?;
+            }
+        }
+        // Same name in both tiers: resolution picks the project copy — say so.
+        let mut names: Vec<&str> = self.installed.iter().map(|l| l.name.as_str()).collect();
+        names.sort_unstable();
+        names.dedup();
+        for name in names {
+            let copies: Vec<&InstalledLib> = self
+                .installed
+                .iter()
+                .filter(|l| l.name == name)
+                .collect();
+            if copies.iter().any(|l| l.origin == "project")
+                && copies.iter().any(|l| l.origin == "global")
+            {
+                writeln!(
+                    f,
+                    "warning: '{name}' exists in both <project>/libs and the system root; \
+                     the project copy wins"
+                )?;
             }
         }
         Ok(())
@@ -105,28 +145,55 @@ fn call_and_emit(
 }
 
 pub fn run(action: &LibAction, format: OutputFormat) -> Result<()> {
+    // Project awareness for the in-process faces (load/show/search resolve
+    // through mcc::resolve_lib_root's project tier): the lib commands do not
+    // run init_local, so seed the project root from the cwd manifest walk.
+    if let Some(root) = client_project_root() {
+        mcc::mcc_set_project_root(&root);
+    }
+
     let client = mcc::cli::rpcclient::RpcClient::probe();
 
     match action {
         LibAction::List => match &client {
-            Some(c) => call_and_emit(c, "lib.list", serde_json::json!({}), format),
+            Some(c) => {
+                let mut params = serde_json::json!({});
+                if let Some(root) = client_project_root() {
+                    params["project_root"] = serde_json::json!(root.to_string_lossy());
+                }
+                call_and_emit(c, "lib.list", params, format)
+            }
             None => cmd_list(format),
         },
         LibAction::Install {
             name,
             from,
             version,
-        } => match (&client, name) {
-            // .mcl 档自带坐标，纯本地路径，没有守护面；裸目录安装维持既有 RPC 委派。
-            (Some(c), Some(name)) => call_and_emit(
-                c,
-                "lib.install",
-                serde_json::json!({ "name": name, "from": from, "version": version }),
-                format,
-            ),
-            _ => cmd_install(name.as_deref(), from, version.as_deref(), format),
-        },
-        // pack/inspect 离线工具，无守护面（U90 先例），恒走进程内。
+            global,
+        } => {
+            // Resolve the install root client-side: the daemon cannot see
+            // this cwd, so the project tier must travel in the params.
+            // .mcl archives keep the in-process face (pack/inspect precedent,
+            // U90): their coordinates come from pack.toml, read locally.
+            let is_mcl = from.ends_with(".mcl") && Path::new(from).is_file();
+            match resolve_install_target(name.as_deref(), *global) {
+                Err(e) => Err(e),
+                Ok(target_root) => match (&client, is_mcl) {
+                    (Some(c), false) => call_and_emit(
+                        c,
+                        "lib.install",
+                        serde_json::json!({
+                            "name": name, "from": from, "version": version,
+                            "target_root": target_root.to_string_lossy(),
+                        }),
+                        format,
+                    ),
+                    _ => cmd_install(name.as_deref(), from, version.as_deref(), &target_root),
+                },
+            }
+        }
+        // pack/inspect are offline tools with no daemon face (the U90
+        // precedent) — always in-process.
         LibAction::Pack { dir, out } => crate::cmds::pack::cmd_pack(dir, out.as_deref(), format),
         LibAction::Inspect { file } => crate::cmds::pack::cmd_inspect(file, format),
         LibAction::Load { name } => match &client {
@@ -142,24 +209,85 @@ pub fn run(action: &LibAction, format: OutputFormat) -> Result<()> {
             None => cmd_show(name, format),
         },
         LibAction::Search { pattern } => match &client {
-            Some(c) => call_and_emit(
-                c,
-                "lib.search",
-                serde_json::json!({ "pattern": pattern }),
-                format,
-            ),
+            Some(c) => {
+                let mut params = serde_json::json!({ "pattern": pattern });
+                if let Some(root) = client_project_root() {
+                    params["project_root"] = serde_json::json!(root.to_string_lossy());
+                }
+                call_and_emit(c, "lib.search", params, format)
+            }
             None => cmd_search(pattern, format),
         },
-        LibAction::Uninstall { name, force } => match &client {
-            Some(c) => call_and_emit(
-                c,
-                "lib.uninstall",
-                serde_json::json!({ "name": name, "force": force }),
-                format,
-            ),
-            None => cmd_uninstall(name, *force, format),
-        },
+        LibAction::Uninstall { name, force, global } => {
+            // Project-tier copy resolved client-side (cwd owner); mcode and
+            // --global always target the data root.
+            let project_copy = if *global || name == "mcode" {
+                None
+            } else {
+                client_project_root().and_then(|root| {
+                    find_installed_copy(&datadir::project_libs_dir(&root), name)
+                })
+            };
+            match &client {
+                Some(c) => {
+                    let mut params =
+                        serde_json::json!({ "name": name, "force": force });
+                    if let Some(dir) = &project_copy {
+                        params["target_dir"] = serde_json::json!(dir.to_string_lossy());
+                    }
+                    call_and_emit(c, "lib.uninstall", params, format)
+                }
+                None => cmd_uninstall(name, *force, project_copy, format),
+            }
+        }
     }
+}
+
+/// The client-side project root for the project-aware lib faces.
+fn client_project_root() -> Option<PathBuf> {
+    std::env::current_dir()
+        .ok()
+        .and_then(|cwd| Manifest::nearest_root(&cwd))
+}
+
+/// First `<name>@<ver>` directory under `root`, then a bare `<name>`.
+fn find_installed_copy(root: &Path, name: &str) -> Option<PathBuf> {
+    let prefix = format!("{name}@");
+    if let Ok(entries) = std::fs::read_dir(root) {
+        for e in entries.flatten() {
+            let fname = e.file_name().to_string_lossy().to_string();
+            if fname.starts_with(&prefix) && e.path().is_dir() {
+                return Some(e.path());
+            }
+        }
+    }
+    let bare = root.join(name);
+    bare.is_dir().then_some(bare)
+}
+
+/// Resolve the install root: mcode (and `--global`) → the data root;
+/// everything else vendors into `<project>/libs` and needs a project.
+fn resolve_install_target(name: Option<&str>, global: bool) -> Result<PathBuf> {
+    if name == Some("mcode") {
+        // The official library installs into the global data root, as a
+        // versioned mcode@<MAJOR.MINOR> copy.
+        return Ok(datadir::data_root());
+    }
+    if global {
+        anyhow::bail!(
+            "lib install: --global is reserved for mcode; the global data root is the \
+             official library store. Third-party libraries vendor into <project>/libs — \
+             run inside a project"
+        );
+    }
+    let cwd = std::env::current_dir().context("lib install: cannot read the current directory")?;
+    let root = Manifest::nearest_root(&cwd).ok_or_else(|| {
+        anyhow::anyhow!(
+            "lib install: no project.toml found above the current directory; run inside a \
+             project (third-party libraries vendor into <project>/libs)"
+        )
+    })?;
+    Ok(datadir::project_libs_dir(&root))
 }
 
 // list
@@ -178,11 +306,37 @@ fn cmd_list(format: OutputFormat) -> Result<()> {
         })
         .collect();
 
-    // Scan libraries installed on disk
-    let installed = scan_installed_libs();
+    // Scan libraries installed on disk: project tier first, then global.
+    let installed = scan_installed_merged();
 
     let report = LibListReport { loaded, installed };
     output::emit(&report, format, None)
+}
+
+/// Merged install scan: `<project>/libs` (origin "project") first, then the
+/// data root (origin "global"). One scanner for both tiers
+/// ([`datadir::scan_lib_dir`]) so the skip rules cannot drift.
+fn scan_installed_merged() -> Vec<InstalledLib> {
+    let mut result = Vec::new();
+    if let Some(root) = client_project_root() {
+        for lib in datadir::scan_lib_dir(&datadir::project_libs_dir(&root)) {
+            result.push(InstalledLib {
+                name: lib.name,
+                version: lib.version,
+                path: lib.path.to_string_lossy().to_string(),
+                origin: "project".into(),
+            });
+        }
+    }
+    for lib in datadir::scan_lib_dir(&datadir::data_root()) {
+        result.push(InstalledLib {
+            name: lib.name,
+            version: lib.version,
+            path: lib.path.to_string_lossy().to_string(),
+            origin: "global".into(),
+        });
+    }
+    result
 }
 
 // install
@@ -191,58 +345,36 @@ fn cmd_install(
     name: Option<&str>,
     from: &str,
     version: Option<&str>,
-    _format: OutputFormat,
+    target_root: &Path,
 ) -> Result<()> {
     let (lib_name_ver, target) = if from.ends_with(".mcl") && Path::new(from).is_file() {
-        // .mcl 档：按 zstd 帧指纹识别内容，坐标/版本取自 pack.toml。
-        crate::cmds::pack::install_mcl(Path::new(from), name)?
+        // An .mcl archive: identify the content by its zstd frame
+        // fingerprint; the coordinates/version come from pack.toml.
+        crate::cmds::pack::install_mcl_at(Path::new(from), name, target_root)?
     } else {
         let name = name.ok_or_else(|| {
             anyhow::anyhow!(
                 "lib install: bare directory source requires <name> (.mcl archives carry their own)"
             )
         })?;
-        do_install(name, from, version)?
+        do_install_at(target_root, name, from, version)?
     };
     eprintln!("✓ installed {} → {}", lib_name_ver, target.display());
     Ok(())
 }
 
-/// Pure bare-directory install: copy library dir into data_root. Returns
-/// (name@version, target path). Shared by RPC (`lib.install`) and by the CLI
-/// for directory sources; .mcl archives go through `cmds::pack::install_mcl`.
-pub fn do_install(name: &str, from: &str, version: Option<&str>) -> Result<(String, PathBuf)> {
-    let src = PathBuf::from(from);
-    if !src.exists() {
-        anyhow::bail!("lib install: source path does not exist '{}'", from);
-    }
-
-    let ver = version.unwrap_or("0.0.0");
-    let lib_name_ver = format!("{}@{}", name, ver);
-    // Flat layout: install into <root>/<name>@<ver>
-    let target = datadir::data_root().join(&lib_name_ver);
-
-    if target.exists() {
-        anyhow::bail!(
-            "lib install: {} is already installed ({}). Run `uninstall` first to reinstall.",
-            lib_name_ver,
-            target.display()
-        );
-    }
-
-    // Copy directory
-    copy_dir_recursive(&src, &target).with_context(|| {
-        format!(
-            "lib install: failed to copy {} → {}",
-            from,
-            target.display()
-        )
-    })?;
-
-    // Refresh index.json so `lib list` sees the new install.
-    let _ = datadir::rebuild_index();
-
-    Ok((lib_name_ver, target))
+/// Pure bare-directory install: copy library dir into `target_root` as
+/// `<name>@<version>`. Returns (name@version, target path). Thin delegate to
+/// the lib-crate core ([`mcc::db::infra::libmgr::install_lib_at`]) so the
+/// RPC `lib.install` handler and this CLI face enforce one law; .mcl
+/// archives go through `cmds::pack::install_mcl_at`.
+pub fn do_install_at(
+    target_root: &Path,
+    name: &str,
+    from: &str,
+    version: Option<&str>,
+) -> Result<(String, PathBuf)> {
+    mcc::install_lib_at(target_root, name, from, version)
 }
 
 // load
@@ -337,60 +469,9 @@ fn resolve_lib_root(name: &str) -> Result<PathBuf> {
     })
 }
 
-/// Scan third-party libraries installed on disk.
+/// Scan libraries installed on disk (search/list faces).
 fn scan_installed_libs() -> Vec<InstalledLib> {
-    let tp = datadir::data_root();
-    let mut result = Vec::new();
-
-    // mcode (always present if system dir exists)
-    if datadir::mcode_dir().exists() {
-        result.push(InstalledLib {
-            name: "mcode".into(),
-            version: "*".into(),
-            path: datadir::mcode_dir().to_string_lossy().to_string(),
-        });
-    }
-
-    // Skip system directories
-    let system_dirs = ["logs", "config"];
-
-    if let Ok(entries) = std::fs::read_dir(&tp) {
-        for entry in entries.flatten() {
-            let fname = entry.file_name().to_string_lossy().to_string();
-            if entry.path().is_dir() && !system_dirs.contains(&fname.as_str()) {
-                let (name, version) = if let Some(at_pos) = fname.find('@') {
-                    (fname[..at_pos].to_string(), fname[at_pos + 1..].to_string())
-                } else {
-                    (fname, "0.0.0".into())
-                };
-                // Skip mcode (handled separately above)
-                if name == "mcode" {
-                    continue;
-                }
-                result.push(InstalledLib {
-                    name,
-                    version,
-                    path: entry.path().to_string_lossy().to_string(),
-                });
-            }
-        }
-    }
-    result
-}
-
-fn copy_dir_recursive(src: &PathBuf, dst: &PathBuf) -> Result<()> {
-    std::fs::create_dir_all(dst)?;
-    for entry in std::fs::read_dir(src)? {
-        let entry = entry?;
-        let src_path = entry.path();
-        let dst_path = dst.join(entry.file_name());
-        if src_path.is_dir() {
-            copy_dir_recursive(&src_path, &dst_path)?;
-        } else {
-            std::fs::copy(&src_path, &dst_path)?;
-        }
-    }
-    Ok(())
+    scan_installed_merged()
 }
 
 // search
@@ -446,15 +527,23 @@ pub fn do_search(pattern: &str) -> LibSearchReport {
 
 // uninstall
 
-fn cmd_uninstall(name: &str, force: bool, _format: OutputFormat) -> Result<()> {
-    let lib_dir = do_uninstall(name, force)?;
+fn cmd_uninstall(
+    name: &str,
+    force: bool,
+    project_copy: Option<PathBuf>,
+    _format: OutputFormat,
+) -> Result<()> {
+    let lib_dir = do_uninstall(name, force, project_copy)?;
     eprintln!("✓ uninstalled '{}' (deleted {})", name, lib_dir.display());
     Ok(())
 }
 
-/// Pure uninstall: unload if loaded (force), then delete the install dir. Returns deleted path.
-/// Shared by CLI (`mcc lib uninstall`) and RPC (`lib.uninstall`) for local/server parity.
-pub fn do_uninstall(name: &str, force: bool) -> Result<PathBuf> {
+/// Pure uninstall: unload if loaded (force), then delete the install dir.
+/// `project_copy` (the client-resolved project-tier directory) wins when
+/// present; otherwise the global data root is scanned — legacy global
+/// installs and mcode live there. Returns the deleted path. Shared by CLI
+/// (`mcc lib uninstall`) and RPC (`lib.uninstall`) for local/server parity.
+pub fn do_uninstall(name: &str, force: bool, project_copy: Option<PathBuf>) -> Result<PathBuf> {
     // First check whether it has already been loaded into memory
     let loaded = mcc::mcb_loaded_libs();
     let is_loaded = loaded.contains(&name.to_string());
@@ -472,8 +561,11 @@ pub fn do_uninstall(name: &str, force: bool) -> Result<PathBuf> {
         anyhow::bail!("lib uninstall: failed to unload '{}' from memory", name);
     }
 
-    // Resolve the library directory
-    let lib_dir = resolve_lib_uninstall_dir(name)?;
+    // Resolve the library directory: project tier first, then the data root.
+    let lib_dir = match project_copy {
+        Some(dir) => dir,
+        None => resolve_lib_uninstall_dir(name)?,
+    };
 
     if !lib_dir.exists() {
         anyhow::bail!("lib uninstall: '{}' is not installed", name);
@@ -483,12 +575,17 @@ pub fn do_uninstall(name: &str, force: bool) -> Result<PathBuf> {
     std::fs::remove_dir_all(&lib_dir)
         .with_context(|| format!("lib uninstall: failed to delete {}", lib_dir.display()))?;
 
-    // Refresh index.json so `lib list` no longer shows the deleted install.
-    let _ = datadir::rebuild_index();
+    // Refresh index.json (global-root face) so `lib list` no longer shows
+    // the deleted install; project tiers list by scan.
+    if lib_dir.starts_with(datadir::data_root()) {
+        let _ = datadir::rebuild_index();
+    }
 
     Ok(lib_dir)
 }
 
+/// Resolve the uninstall directory in the global data root: the first
+/// `<name>@<ver>` entry, then the bare directory, then the legacy mcode dir.
 fn resolve_lib_uninstall_dir(name: &str) -> Result<PathBuf> {
     // Flat layout: scan data_root for <name>@<ver> entries.
     let root = datadir::data_root();

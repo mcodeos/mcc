@@ -111,10 +111,16 @@ fn fixture(tag: &str) -> (PathBuf, PathBuf, PathBuf) {
 
 /// Run `mcc --local <args…>` with `MCC_SYSTEM_ROOT=<root>`.
 fn run_mcc(root: &Path, args: &[&str]) -> (String, String, bool) {
+    run_mcc_in(&std::env::temp_dir(), root, args)
+}
+
+/// Run `mcc --local <args…>` from an explicit cwd (the project tier is a
+/// cwd fact — install resolves the project from where the client stands).
+fn run_mcc_in(cwd: &Path, root: &Path, args: &[&str]) -> (String, String, bool) {
     let mut full: Vec<String> = vec!["--local".to_string()];
     full.extend(args.iter().map(|s| s.to_string()));
     let out = Command::new(env!("CARGO_BIN_EXE_mcc"))
-        .current_dir(std::env::temp_dir())
+        .current_dir(cwd)
         .env("MCC_SYSTEM_ROOT", root)
         .args(&full)
         .output()
@@ -124,6 +130,20 @@ fn run_mcc(root: &Path, args: &[&str]) -> (String, String, bool) {
         String::from_utf8_lossy(&out.stderr).to_string(),
         out.status.success(),
     )
+}
+
+/// A minimal project root (manifest + entry) inside the fixture base.
+fn with_project(base: &Path, tag: &str) -> PathBuf {
+    let proj = base.join(format!("proj-{tag}"));
+    std::fs::create_dir_all(proj.join("src")).unwrap();
+    std::fs::write(
+        proj.join("project.toml"),
+        "[project]\nname = \"p\"\nversion = \"0.1\"\nentry = \"src/main.mc\"\n\n\
+         [dependencies]\nmcode = \"*\"\n",
+    )
+    .unwrap();
+    std::fs::write(proj.join("src/main.mc"), "module main()\n{\n}\n").unwrap();
+    proj
 }
 
 fn first_line(stderr: &str) -> String {
@@ -219,22 +239,28 @@ fn pack_first(root: &Path, pack: &Path, out: &Path) -> PathBuf {
 fn install__lands_name_at_version_and_reindexes() {
     let (pack, root, out) = fixture("install");
     let full = pack_first(&root, &pack, &out);
+    let proj = with_project(out.parent().unwrap(), "install");
 
-    // No <name> argument: an .mcl carries its own coordinates.
-    let (stdout, stderr, ok) = run_mcc(&root, &["lib", "install", "--from", full.to_str().unwrap()]);
+    // No <name> argument: an .mcl carries its own coordinates. Third-party
+    // packs vendor into the project's libs/ — the project tier is a cwd fact.
+    let (stdout, stderr, ok) =
+        run_mcc_in(&proj, &root, &["lib", "install", "--from", full.to_str().unwrap()]);
     assert!(ok, "install failed: {stderr}");
-    assert!(stdout.contains("packtest@0.1.0") || stderr.contains("packtest@0.1.0"),
+    assert!(stdout.contains("packtest@0.1") || stderr.contains("packtest@0.1"),
             "reports the coordinates: {stdout}{stderr}");
 
-    let landed = root.join("packtest@0.1.0");
+    // Landed dir normalizes to the canonical two-segment version.
+    let landed = proj.join("libs").join("packtest@0.1");
     assert!(landed.join("packtest.mc").is_file(), "entry lands");
     assert!(landed.join("datasheet.txt").is_file(), "attachments land");
     assert!(landed.join("pack.toml").is_file(), "manifest lands");
+    // index.json stays a global-root face: project tiers list by scan.
     let index = std::fs::read_to_string(root.join("index.json")).unwrap();
-    assert!(index.contains("\"packtest\""), "index lists the pack: {index}");
+    assert!(!index.contains("\"packtest\""), "project installs stay out of the global index: {index}");
 
     // A contradicting caller-supplied name must not install over it.
-    let (_, stderr, ok) = run_mcc(
+    let (_, stderr, ok) = run_mcc_in(
+        &proj,
         &root,
         &["lib", "install", "othername", "--from", full.to_str().unwrap()],
     );
@@ -248,10 +274,11 @@ fn install__thin_lands_entry_without_attachments() {
     let (_, stderr, ok) = run_mcc(&root, &["lib", "pack", pack.to_str().unwrap(), "--out", out.to_str().unwrap()]);
     assert!(ok, "pack failed: {stderr}");
     let thin = out.join("packtest-0.1.0.thin.mcl");
+    let proj = with_project(out.parent().unwrap(), "thin");
 
-    let (_, stderr, ok) = run_mcc(&root, &["lib", "install", "--from", thin.to_str().unwrap()]);
+    let (_, stderr, ok) = run_mcc_in(&proj, &root, &["lib", "install", "--from", thin.to_str().unwrap()]);
     assert!(ok, "thin install failed: {stderr}");
-    let landed = root.join("packtest@0.1.0");
+    let landed = proj.join("libs").join("packtest@0.1");
     assert!(landed.join("packtest.mc").is_file(), "entry lands");
     assert!(landed.join("pack.toml").is_file(), "manifest lands");
     assert!(!landed.join("datasheet.txt").exists(), "thin carries no attachments");
@@ -261,19 +288,20 @@ fn install__thin_lands_entry_without_attachments() {
 fn install__refuses_tampered_archive() {
     let (pack, root, out) = fixture("tamper");
     let full = pack_first(&root, &pack, &out);
+    let proj = with_project(out.parent().unwrap(), "tamper");
     let tampered = out.join("tampered.mcl");
     let mut bytes = std::fs::read(&full).unwrap();
     let last = bytes.len() - 8;
     bytes[last] ^= 0xff;
     std::fs::write(&tampered, &bytes).unwrap();
 
-    let (_, stderr, ok) = run_mcc(&root, &["lib", "install", "--from", tampered.to_str().unwrap()]);
+    let (_, stderr, ok) = run_mcc_in(&proj, &root, &["lib", "install", "--from", tampered.to_str().unwrap()]);
     assert!(!ok, "a corrupted frame must refuse");
     assert!(
         stderr.contains("decode failed") || stderr.contains("is not an .mcl"),
         "names the corruption: {stderr}"
     );
-    assert!(!root.join("packtest@0.1.0").exists(), "nothing lands");
+    assert!(!proj.join("libs").join("packtest@0.1").exists(), "nothing lands");
 }
 
 #[test]
@@ -282,6 +310,7 @@ fn install__refuses_manifest_less_archive() {
     // gate this locks — a valid zstd frame is not enough.
     let (pack, root, out) = fixture("nomanifest");
     let _ = pack_first(&root, &pack, &out);
+    let proj = with_project(out.parent().unwrap(), "nomanifest");
 
     let bare = out.join("bare.mcl");
     let f = std::fs::File::create(&bare).unwrap();
@@ -290,8 +319,8 @@ fn install__refuses_manifest_less_archive() {
     tar.append_path_with_name(pack.join("packtest.mc"), "packtest.mc").unwrap();
     tar.into_inner().unwrap().finish().unwrap();
 
-    let (_, stderr, ok) = run_mcc(&root, &["lib", "install", "--from", bare.to_str().unwrap()]);
+    let (_, stderr, ok) = run_mcc_in(&proj, &root, &["lib", "install", "--from", bare.to_str().unwrap()]);
     assert!(!ok, "manifest-less archive must refuse");
     assert!(stderr.contains("check (1)") || stderr.contains("pack.toml"), "names check ①: {stderr}");
-    assert!(!root.join("packtest@0.1.0").exists(), "nothing lands");
+    assert!(!proj.join("libs").join("packtest@0.1").exists(), "nothing lands");
 }

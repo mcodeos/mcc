@@ -78,13 +78,16 @@ pub fn build_from_manifest(
 
     // 2. Load unloaded dependency libraries — through the shared loading
     //    loop (use-design §19.10 D6; same shape as the RPC
-    //    ensure_library_loaded handler).
+    //    ensure_library_loaded handler). Manifest version pins ride along.
     if let Some(ref m) = manifest {
         let ctx = mcc::cli::loadctx::LoadContext {
             deps: m.dependencies.keys().cloned().collect(),
+            pins: m.dependencies.clone(),
             ..mcc::cli::loadctx::LoadContext::default()
         };
-        mcc::cli::loadctx::load_all(&ctx);
+        for warn in mcc::cli::loadctx::load_all(&ctx) {
+            eprintln!("warning: {warn}");
+        }
     }
 
     // 3. Load project
@@ -264,7 +267,9 @@ pub fn init_local(target: Option<&str>, cli_libs: &[String]) -> Option<PathBuf> 
     // The D6 shape: resolve one context, load it once
     // (use-design §19.10 convergence table, init_local row).
     let ctx = mcc::cli::loadctx::resolve_load_context(project_root.as_deref(), cli_libs);
-    mcc::cli::loadctx::load_all(&ctx);
+    for warn in mcc::cli::loadctx::load_all(&ctx) {
+        eprintln!("warning: {warn}");
+    }
     project_root
 }
 

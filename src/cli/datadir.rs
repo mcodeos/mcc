@@ -147,7 +147,6 @@ pub fn rebuild_index() -> std::io::Result<()> {
     let root = data_root();
     let mut system_entries: Vec<Value> = Vec::new();
     let mut tp_entries: Vec<Value> = Vec::new();
-    let skip = ["logs", "config", "projects", "index.json"];
 
     if let Ok(read) = std::fs::read_dir(&root) {
         for entry in read.flatten() {
@@ -160,7 +159,7 @@ pub fn rebuild_index() -> std::io::Result<()> {
                 .and_then(|n| n.to_str())
                 .unwrap_or("")
                 .to_string();
-            if skip.contains(&name.as_str()) {
+            if LIB_DIR_SKIP.contains(&name.as_str()) {
                 continue;
             }
             // Hidden directories are never libraries — pointing the data root
@@ -269,7 +268,7 @@ pub fn read_index() -> std::io::Result<IndexFile> {
 }
 
 /// Parse `<name>@<version>` into a (name, version) tuple.
-fn parse_name_version(s: &str) -> Option<(&str, &str)> {
+pub fn parse_name_version(s: &str) -> Option<(&str, &str)> {
     let at = s.find('@')?;
     let (name, rest) = s.split_at(at);
     let ver = &rest[1..];
@@ -278,6 +277,82 @@ fn parse_name_version(s: &str) -> Option<(&str, &str)> {
     } else {
         Some((name, ver))
     }
+}
+
+/// Directory names under a library root that are never libraries.
+///
+/// The union of the skip lists previously maintained independently by the
+/// CLI scanner (`cmds/lib.rs`), the RPC search (`rpc/handlers/libcmd.rs`)
+/// and `rebuild_index` — one const so they cannot drift again. Dot-dirs are
+/// skipped by rule, not by list.
+pub const LIB_DIR_SKIP: &[&str] = &["logs", "config", "projects", "mclibs", "unitest", "index.json"];
+
+/// The project-local library directory: `<project_root>/libs`.
+///
+/// Third-party libraries install here by default (cargo-style, vendored and
+/// git-committable); the global data root only ever holds the mcode official
+/// library.
+pub fn project_libs_dir(root: &Path) -> PathBuf {
+    root.join("libs")
+}
+
+/// Normalize a version string to the canonical two-segment `MAJOR.MINOR`.
+///
+/// Versions are two numbers by convention (`0.1`); a trailing `.0` on a
+/// legacy three-segment value is dropped (`0.1.0` → `0.1`). A version that
+/// does not end in `.0` (or has more segments) is returned unchanged —
+/// reading is tolerant, writing is canonical.
+pub fn normalize_version(ver: &str) -> &str {
+    let nums: Vec<&str> = ver.split('.').collect();
+    if nums.len() == 3 && nums[2] == "0" {
+        // Re-borrow the first two segments joined — safe: same input slice.
+        return &ver[..nums[0].len() + 1 + nums[1].len()];
+    }
+    ver
+}
+
+/// One library directory found by [`scan_lib_dir`].
+#[derive(Debug, Clone)]
+pub struct ScannedLib {
+    pub name: String,
+    pub version: String,
+    pub path: PathBuf,
+}
+
+/// Scan a flat library root (`data_root` or a project's `libs/`) for
+/// installed libraries: every directory named `<name>@<version>`, plus the
+/// legacy bare `mcode` directory (reported as `version = "*"`, matching
+/// `mcode_dir()`'s unversioned layout). Versioned `mcode@0.5` copies are
+/// listed normally. Skips [`LIB_DIR_SKIP`] and dot-dirs.
+pub fn scan_lib_dir(root: &Path) -> Vec<ScannedLib> {
+    let mut result = Vec::new();
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return result;
+    };
+    for entry in entries.flatten() {
+        let p = entry.path();
+        if !p.is_dir() {
+            continue;
+        }
+        let fname = entry.file_name().to_string_lossy().to_string();
+        if fname.starts_with('.') || LIB_DIR_SKIP.contains(&fname.as_str()) {
+            continue;
+        }
+        if let Some((name, ver)) = parse_name_version(&fname) {
+            result.push(ScannedLib {
+                name: name.to_string(),
+                version: ver.to_string(),
+                path: p,
+            });
+        } else if fname == "mcode" {
+            result.push(ScannedLib {
+                name: "mcode".into(),
+                version: "*".into(),
+                path: p,
+            });
+        }
+    }
+    result
 }
 
 #[cfg(test)]
@@ -360,6 +435,47 @@ pub mod tests {
         assert_eq!(parse_name_version("mcode"), None);
         assert_eq!(parse_name_version("@1.0"), None);
         assert_eq!(parse_name_version("name@"), None);
+    }
+
+    #[test]
+    fn cli_datadir__normalize_version_two_segment_canonical() {
+        // Canonical form passes through; legacy trailing .0 is dropped.
+        assert_eq!(normalize_version("0.1"), "0.1");
+        assert_eq!(normalize_version("1.5"), "1.5");
+        assert_eq!(normalize_version("0.1.0"), "0.1");
+        assert_eq!(normalize_version("10.20.0"), "10.20");
+        // A non-zero third segment is not ours to reinterpret — leave it.
+        assert_eq!(normalize_version("0.1.2"), "0.1.2");
+    }
+
+    #[test]
+    fn cli_datadir__scan_lib_dir_versions_and_skips() {
+        let unique = scratch_dir("scan-lib-dir");
+        let _ = std::fs::remove_dir_all(&unique);
+        std::fs::create_dir_all(unique.join("hc32l110@0.1")).unwrap();
+        std::fs::create_dir_all(unique.join("mcpub@1.0.0")).unwrap();
+        std::fs::create_dir_all(unique.join("mcode")).unwrap();
+        std::fs::create_dir_all(unique.join("mcode@0.5")).unwrap();
+        std::fs::create_dir_all(unique.join("logs")).unwrap();
+        std::fs::create_dir_all(unique.join(".git")).unwrap();
+        std::fs::write(unique.join("index.json"), "{}").unwrap();
+
+        let mut libs = scan_lib_dir(&unique);
+        libs.sort_by(|a, b| a.name.cmp(&b.name).then(a.version.cmp(&b.version)));
+        let summary: Vec<(String, String)> = libs
+            .iter()
+            .map(|l| (l.name.clone(), l.version.clone()))
+            .collect();
+        assert_eq!(
+            summary,
+            vec![
+                ("hc32l110".into(), "0.1".into()),
+                ("mcode".into(), "*".into()),
+                ("mcode".into(), "0.5".into()),
+                ("mcpub".into(), "1.0.0".into()),
+            ]
+        );
+        let _ = std::fs::remove_dir_all(&unique);
     }
 
     #[test]

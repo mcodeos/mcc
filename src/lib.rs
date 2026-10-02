@@ -129,6 +129,9 @@ pub use builder::{
     mcb_unload_lib, file_is_system_library,
     resolve_lib_root, unified_lookup, unified_lookup_all, unified_lookup_all_layered, BusRow,
     ClauseRow, FuncRow, MccProjectTree, SubElementKind,
+    // Library install/resolution law shared by the CLI and the RPC handlers.
+    ensure_install_scope, find_lib_dir_pinned, install_lib_at, mcb_load_lib_by_name_pinned,
+    parse_version_req, VersionReq,
 };
 
 // ── Instant / Net ──

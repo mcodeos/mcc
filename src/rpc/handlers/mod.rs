@@ -2587,10 +2587,13 @@ pub(crate) fn ensure_library_loaded(file_uri: &McURI) {
         if let Ok(manifest) = crate::cli::manifest::Manifest::load(&manifest_path) {
             let ctx = crate::cli::loadctx::LoadContext {
                 deps: manifest.dependencies.keys().cloned().collect(),
+                pins: manifest.dependencies.clone(),
                 ..crate::cli::loadctx::LoadContext::default()
             };
             tracing::debug!(target: "mcc::lib", deps = ?ctx.deps, "loading dependencies");
-            crate::cli::loadctx::load_all(&ctx);
+            for warn in crate::cli::loadctx::load_all(&ctx) {
+                tracing::warn!(target: "mcc::lib", "{}", warn);
+            }
         }
     }
 }

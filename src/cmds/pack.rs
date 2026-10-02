@@ -317,6 +317,20 @@ pub fn do_inspect(file: &str) -> Result<InspectReport> {
 /// matching basename, (3) sha256 per file against the attachment table. Thin archives legitimately
 /// lack attachments; check (3) audits what is present.
 pub fn install_mcl(archive: &Path, expected_name: Option<&str>) -> Result<(String, PathBuf)> {
+    install_mcl_at(archive, expected_name, &datadir::data_root())
+}
+
+/// `.mcl` install into an explicit root (project `libs/` or the data root).
+///
+/// The staging directory lives under the *target* root so the final rename
+/// stays same-volume for project installs too. The install-scope guard
+/// applies after pack.toml names the pack: mcode is global-only, and a
+/// project-tier target refuses it.
+pub fn install_mcl_at(
+    archive: &Path,
+    expected_name: Option<&str>,
+    target_root: &Path,
+) -> Result<(String, PathBuf)> {
     let files = read_archive(archive)?;
 
     // Check (1): manifest present + structural validation (format gate, pack-name law, semver live
@@ -386,16 +400,20 @@ pub fn install_mcl(archive: &Path, expected_name: Option<&str>) -> Result<(Strin
         }
     }
 
-    let target = datadir::data_root().join(format!(
-        "{}@{}",
-        pack.package.name, pack.package.version
-    ));
+    // Install-scope guard (pack.toml is the authority face for the name).
+    mcc::ensure_install_scope(&pack.package.name, target_root)?;
+
+    // The landed directory normalizes to the canonical two-segment version,
+    // even when a legacy x.y.z pack.toml says otherwise.
+    let ver = datadir::normalize_version(&pack.package.version).to_string();
+    let target = target_root.join(format!("{}@{}", pack.package.name, ver));
     if target.exists() {
         anyhow::bail!("lib install: target already exists '{}'", target.display());
     }
 
     // staging → rename: same-volume atomic placement; a mid-way failure leaves no half pack.
-    let root_dir = datadir::data_root();
+    // Staging lives under the target root so the rename stays same-volume.
+    let root_dir = target_root;
     std::fs::create_dir_all(&root_dir)?;
     let staging = root_dir.join(format!(".staging-{}-{}", pack.package.name, std::process::id()));
     if staging.exists() {
@@ -420,9 +438,12 @@ pub fn install_mcl(archive: &Path, expected_name: Option<&str>) -> Result<(Strin
         let _ = std::fs::remove_dir_all(&staging);
         return Err(e.into());
     }
-    datadir::rebuild_index()?;
+    // The index only covers the global data root; project tiers list by scan.
+    if root_dir == datadir::data_root() {
+        datadir::rebuild_index()?;
+    }
     Ok((
-        format!("{}@{}", pack.package.name, pack.package.version),
+        format!("{}@{}", pack.package.name, ver),
         target,
     ))
 }

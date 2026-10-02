@@ -35,6 +35,7 @@ mod iface_param_pin_same_name;
 mod iface_role_peers;
 mod iface_pin_number_binding;
 mod lib_pack;
+mod lib_project;
 mod lock_module_expects;
 mod lock_impact_import;
 mod lock_pp_conds;

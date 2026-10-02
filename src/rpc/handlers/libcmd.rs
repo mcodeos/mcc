@@ -35,30 +35,30 @@ pub fn handle_lib_unload(params: Option<Value>) -> RpcResult {
 
 pub fn handle_lib_install(params: Option<Value>) -> RpcResult {
     let p: LibInstallParams = parse_strict(params)?;
-    let src = PathBuf::from(&p.from);
-    if !src.exists() {
-        return Err(JsonRpcError::custom(
-            32100,
-            &format!("lib install: source path does not exist '{}'", p.from),
-        ));
+    // The client resolves the project tier (it owns the cwd); absent → the
+    // legacy global data-root behavior.
+    let target_root = match &p.target_root {
+        Some(root) => PathBuf::from(root),
+        None => mcc_system_root(),
+    };
+    match crate::db::infra::libmgr::install_lib_at(&target_root, &p.name, &p.from, p.version.as_deref())
+    {
+        Ok((name_ver, target)) => Ok(json!({
+            "installed": name_ver,
+            "path": target.to_string_lossy(),
+        })),
+        Err(e) => {
+            let msg = format!("{e:#}");
+            let code = if msg.contains("already installed") {
+                32101
+            } else if msg.contains("reserved for mcode") || msg.contains("never vendored") {
+                32102
+            } else {
+                32100
+            };
+            Err(JsonRpcError::custom(code, &msg))
+        }
     }
-    let ver = p.version.as_deref().unwrap_or("0.0.0");
-    let name_ver = format!("{}@{}", p.name, ver);
-    // Flat layout: install into <root>/<name>@<ver>
-    let target = crate::cli::datadir::data_root().join(&name_ver);
-    if target.exists() {
-        return Err(JsonRpcError::custom(
-            32101,
-            &format!("lib install: {} is already installed", name_ver),
-        ));
-    }
-    copy_dir_recursive(&src, &target).map_err(io_err)?;
-    // Refresh index.json so lib.list sees the new install.
-    let _ = crate::cli::datadir::rebuild_index();
-    Ok(json!({
-        "installed": name_ver,
-        "path": target.to_string_lossy(),
-    }))
 }
 
 // === handle_lib_uninstall (lines 380-411 in original) ===
@@ -81,12 +81,22 @@ pub fn handle_lib_uninstall(params: Option<Value>) -> RpcResult {
             &format!("lib uninstall: failed to unload '{}'", p.name),
         ));
     }
-    let lib_dir = resolve_installed_lib_dir(&p.name).ok_or_else(|| {
-        JsonRpcError::custom(
+    // Client-resolved project-tier copy wins; absent → legacy global scan.
+    let lib_dir = match &p.target_dir {
+        Some(dir) => PathBuf::from(dir),
+        None => resolve_installed_lib_dir(&p.name).ok_or_else(|| {
+            JsonRpcError::custom(
+                32102,
+                &format!("lib uninstall: '{}' is not installed", p.name),
+            )
+        })?,
+    };
+    if !lib_dir.exists() {
+        return Err(JsonRpcError::custom(
             32102,
             &format!("lib uninstall: '{}' is not installed", p.name),
-        )
-    })?;
+        ));
+    }
     fs::remove_dir_all(&lib_dir).map_err(io_err)?;
     // Refresh index.json so lib.list no longer shows the deleted install.
     let _ = crate::cli::datadir::rebuild_index();
@@ -101,33 +111,29 @@ pub fn handle_lib_uninstall(params: Option<Value>) -> RpcResult {
 pub fn handle_lib_search(params: Option<Value>) -> RpcResult {
     let p: LibSearchParams = parse_strict(params)?;
     let pat = p.pattern.to_lowercase();
+
+    // One scanner for both tiers (datadir::scan_lib_dir): the client-resolved
+    // project `libs/` first, then the global root.
     let mut results = Vec::new();
-    if mcode_dir().exists() && ("mcode".contains(&pat) || pat.is_empty()) {
-        results.push(json!({
-            "name": "mcode", "version": "*",
-            "path": mcode_dir().to_string_lossy(),
-        }));
-    }
-
-    // Scan flat root directory for installed libs.
-    let system_dirs = ["logs", "config", "mclibs", "projects", "unitest"];
-
-    if let Ok(entries) = fs::read_dir(mcc_system_root()) {
-        for entry in entries.flatten() {
-            let fname = entry.file_name().to_string_lossy().to_string();
-            if !entry.path().is_dir() || system_dirs.contains(&fname.as_str()) {
-                continue;
-            }
-            let (name, version) = match fname.find('@') {
-                Some(at) => (fname[..at].to_string(), fname[at + 1..].to_string()),
-                None => (fname.clone(), "0.0.0".to_string()),
-            };
-            let path = entry.path().to_string_lossy().to_string();
-            if name.to_lowercase().contains(&pat) || path.to_lowercase().contains(&pat) {
-                results.push(json!({"name": name, "version": version, "path": path}));
+    let mut push_scan = |root: &Path, origin: &str| {
+        for lib in crate::cli::datadir::scan_lib_dir(root) {
+            let path = lib.path.to_string_lossy().to_string();
+            if lib.name.to_lowercase().contains(&pat) || path.to_lowercase().contains(&pat) {
+                results.push(json!({
+                    "name": lib.name, "version": lib.version,
+                    "path": path, "origin": origin,
+                }));
             }
         }
+    };
+    if let Some(proj) = &p.project_root {
+        push_scan(
+            &crate::cli::datadir::project_libs_dir(Path::new(proj)),
+            "project",
+        );
     }
+    push_scan(&mcc_system_root(), "global");
+
     Ok(json!({
         "pattern": p.pattern,
         "total": results.len(),

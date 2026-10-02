@@ -21,6 +21,11 @@ pub(crate) struct LibInstallParams {
     pub(crate) from: String,
     #[serde(default)]
     pub(crate) version: Option<String>,
+    /// Client-resolved absolute install root (`<project>/libs` or the data
+    /// root). The daemon cannot see the client's cwd, so the client decides
+    /// the project tier; absent → legacy global data-root behavior.
+    #[serde(default)]
+    pub(crate) target_root: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -28,11 +33,19 @@ pub(crate) struct LibUninstallParams {
     pub(crate) name: String,
     #[serde(default)]
     pub(crate) force: bool,
+    /// Client-resolved absolute directory to delete (the project-tier copy).
+    /// Absent → legacy global data-root resolution.
+    #[serde(default)]
+    pub(crate) target_dir: Option<String>,
 }
 
 #[derive(Deserialize)]
 pub(crate) struct LibSearchParams {
     pub(crate) pattern: String,
+    /// Client-resolved absolute project root: the project `libs/` tier is
+    /// merged into the results. Absent → global only.
+    #[serde(default)]
+    pub(crate) project_root: Option<String>,
 }
 
 #[derive(Deserialize, Default)]

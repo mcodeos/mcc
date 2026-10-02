@@ -312,13 +312,21 @@ pub fn mcb_init_system_lib() {
 
     // Single resolved system root: the explicitly-set root, else the data root
     // resolved from config (`MCC_SYSTEM_ROOT` env or `~/.mcode` default). Never
-    // a hardcoded `~/.mcode`.
+    // a hardcoded `~/.mcode`. The project's `[dependencies] mcode` pin selects
+    // a versioned `mcode@<ver>` copy when one is installed; the legacy bare
+    // `mcode` working copy satisfies any pin (libmgr::find_lib_dir_pinned).
     let system_root = mcb_get_system_root();
-    let mcode_root = if system_root.as_os_str().is_empty() {
-        crate::cli::datadir::data_root().join("mcode")
+    let mcode_pin = project_root_ref
+        .and_then(|root| crate::cli::manifest::Manifest::find_and_load(root))
+        .and_then(|m| m.dep("mcode").map(String::from));
+    let req = libmgr::parse_version_req(mcode_pin.as_deref().unwrap_or("*"));
+    let default_root = if system_root.as_os_str().is_empty() {
+        crate::cli::datadir::data_root()
     } else {
-        system_root.join("mcode")
+        system_root
     };
+    let mcode_root = libmgr::find_lib_dir_pinned(&default_root, "mcode", &req)
+        .unwrap_or_else(|| default_root.join("mcode"));
     trace!(target: "mcc::sysinit", root = ?mcode_root, "got mcode root");
 
     if mcode_root.exists() {

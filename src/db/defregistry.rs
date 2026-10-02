@@ -1739,7 +1739,12 @@ impl RegistryState {
         //    its adopts compose (base's ride the clone, the child's own append,
         //    U375), so the adopts/effective-funcs rebuild below must read the
         //    materialized def, not the parsed (empty-shell) child.
-        let comps = ds.workspace_components();
+        // Any domain, not project-only (U320, same law as the adopts pass
+        // below): a device pack loads into library space (`use sgm2019.sgm2019`
+        // mounts the pack as a lib), and its `component X : Abstract` variants
+        // must materialize there too — a workspace-only scan left every
+        // pack part an empty shell (no pins) and its bom rows E5067.
+        let comps = ds.all_components();
         for (sn, comp) in comps.iter() {
             if let Some(base_name) = &comp.variant_base {
                 self.sync_variant(sn, comp, base_name);
