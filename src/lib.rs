@@ -89,9 +89,13 @@ pub use db::defspace::{
 // private db::infra path for the CLI and RPC faces that read them.
 pub use db::infra::model_profile;
 pub use db::infra::params_dump::dump_component;
-pub use db::infra::params_dump::{ParamsDump, RowDump};pub mod eval;
+pub use db::infra::params_dump::{ParamsDump, RowDump};
+pub mod eval;
 pub mod export;
 pub mod fmt;
+// The computation core (U383): dimension algebra, unit synthesis and the
+// value arithmetic face. `eval` above is its compatibility shim.
+pub mod quantity;
 pub mod refdef;
 // ── Stage readout (stage-readout-design.md §3/§5.3): `stage.p2` / `stage.vec`
 // / `stage.viz` as data instead of `MC_*_DUMP` stderr prose. Lives in the
