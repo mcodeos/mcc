@@ -53,9 +53,15 @@ fn default_data_root() -> PathBuf {
 
 /// Effective `$MCC_SYSTEM_ROOT` override, if any. A relative value is resolved
 /// against the current directory (matching the historical `data_root`
-/// behaviour); `None` when the variable is unset.
+/// behaviour); `None` when the variable is unset or empty — an empty value
+/// used to resolve to the current directory, silently relocating the whole
+/// data root (config/, index.json, logs/) into whatever directory the command
+/// ran in.
 fn env_data_root_override() -> Option<PathBuf> {
     let val = std::env::var(MCC_SYSTEM_ENV).ok()?;
+    if val.trim().is_empty() {
+        return None;
+    }
     let p = PathBuf::from(val);
     if p.is_absolute() {
         Some(p)
@@ -281,10 +287,9 @@ pub fn parse_name_version(s: &str) -> Option<(&str, &str)> {
 
 /// Directory names under a library root that are never libraries.
 ///
-/// The union of the skip lists previously maintained independently by the
-/// CLI scanner (`cmds/lib.rs`), the RPC search (`rpc/handlers/libcmd.rs`)
-/// and `rebuild_index` — one const so they cannot drift again. Dot-dirs are
-/// skipped by rule, not by list.
+/// The union of the skip lists behind the CLI scanner (`cmds/lib.rs`), the
+/// RPC search (`rpc/handlers/libcmd.rs`) and `rebuild_index` — one const so
+/// they cannot drift. Dot-dirs are skipped by rule, not by list.
 pub const LIB_DIR_SKIP: &[&str] = &["logs", "config", "projects", "mclibs", "unitest", "index.json"];
 
 /// The project-local library directory: `<project_root>/libs`.
