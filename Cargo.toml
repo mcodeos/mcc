@@ -71,6 +71,9 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["env-filter", "fmt", "ansi"] }
 tar = "0.4"
 flate2 = "1.0"
+# .mcl 容器（registry-design.md §3.4）：tar 流入 zstd 单流；sha2 出附件/档位校验和。
+zstd = "0.13"
+sha2 = "0.10"
 base64 = "0.22"
 sysinfo = "0.32"
 reqwest = { version = "0.12", features = ["json", "blocking"] }
@@ -80,6 +83,10 @@ rmcp = { version = "3.1.2", features = ["transport-io"] }
 [dev-dependencies]
 criterion = "0.5"
 serde_json = "1.0"
+# shard7 lib_pack.rs 手工组档/算校验和（format 闸、三查负例的原料）
+tar = "0.4"
+zstd = "0.13"
+sha2 = "0.10"
 
 [build-dependencies]
 cc = "1.0"

@@ -14,6 +14,7 @@ pub mod datadir;
 pub mod loadctx;
 pub mod manifest;
 pub mod outlet;
+pub mod packfile;
 pub mod rpcclient;
 pub mod servercfg;
 use clap::{Parser, Subcommand, ValueEnum};
@@ -1217,16 +1218,33 @@ pub enum LibAction {
 
     /// Install library to system directory
     Install {
-        /// Library name
-        name: String,
+        /// Library name (required for a bare directory; an .mcl archive
+        /// carries its own name in pack.toml and must not contradict it)
+        name: Option<String>,
 
-        /// Source path (library root directory)
+        /// Source path (library root directory, or an .mcl pack archive)
         #[arg(long)]
         from: String,
 
-        /// Version number (optional)
+        /// Version number (optional; an .mcl archive takes it from pack.toml)
         #[arg(long)]
         version: Option<String>,
+    },
+
+    /// Pack a library directory into .mcl archives (thin + full)
+    Pack {
+        /// Library package directory (must contain pack.toml)
+        dir: String,
+
+        /// Output directory (default: the pack directory itself)
+        #[arg(long)]
+        out: Option<String>,
+    },
+
+    /// Inspect an .mcl archive without installing (offline manifest dump)
+    Inspect {
+        /// Path to the .mcl archive
+        file: String,
     },
 
     /// Load library into memory

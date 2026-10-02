@@ -18,7 +18,7 @@ use mcc::cli::{datadir, LibAction, OutputFormat};
 use serde::Serialize;
 use serde_json::Value;
 use std::fmt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 // Report types
 
@@ -116,15 +116,19 @@ pub fn run(action: &LibAction, format: OutputFormat) -> Result<()> {
             name,
             from,
             version,
-        } => match &client {
-            Some(c) => call_and_emit(
+        } => match (&client, name) {
+            // .mcl 档自带坐标，纯本地路径，没有守护面；裸目录安装维持既有 RPC 委派。
+            (Some(c), Some(name)) => call_and_emit(
                 c,
                 "lib.install",
                 serde_json::json!({ "name": name, "from": from, "version": version }),
                 format,
             ),
-            None => cmd_install(name, from, version.as_deref(), format),
+            _ => cmd_install(name.as_deref(), from, version.as_deref(), format),
         },
+        // pack/inspect 离线工具，无守护面（U90 先例），恒走进程内。
+        LibAction::Pack { dir, out } => crate::cmds::pack::cmd_pack(dir, out.as_deref(), format),
+        LibAction::Inspect { file } => crate::cmds::pack::cmd_inspect(file, format),
         LibAction::Load { name } => match &client {
             Some(c) => call_and_emit(c, "lib.load", serde_json::json!({ "name": name }), format),
             None => cmd_load(name, format),
@@ -183,14 +187,30 @@ fn cmd_list(format: OutputFormat) -> Result<()> {
 
 // install
 
-fn cmd_install(name: &str, from: &str, version: Option<&str>, _format: OutputFormat) -> Result<()> {
-    let (lib_name_ver, target) = do_install(name, from, version)?;
+fn cmd_install(
+    name: Option<&str>,
+    from: &str,
+    version: Option<&str>,
+    _format: OutputFormat,
+) -> Result<()> {
+    let (lib_name_ver, target) = if from.ends_with(".mcl") && Path::new(from).is_file() {
+        // .mcl 档：按 zstd 帧指纹识别内容，坐标/版本取自 pack.toml。
+        crate::cmds::pack::install_mcl(Path::new(from), name)?
+    } else {
+        let name = name.ok_or_else(|| {
+            anyhow::anyhow!(
+                "lib install: bare directory source requires <name> (.mcl archives carry their own)"
+            )
+        })?;
+        do_install(name, from, version)?
+    };
     eprintln!("✓ installed {} → {}", lib_name_ver, target.display());
     Ok(())
 }
 
-/// Pure install: copy library dir into data_root. Returns (name@version, target path).
-/// Shared by CLI (`mcc lib install`) and RPC (`lib.install`) for local/server parity.
+/// Pure bare-directory install: copy library dir into data_root. Returns
+/// (name@version, target path). Shared by RPC (`lib.install`) and by the CLI
+/// for directory sources; .mcl archives go through `cmds::pack::install_mcl`.
 pub fn do_install(name: &str, from: &str, version: Option<&str>) -> Result<(String, PathBuf)> {
     let src = PathBuf::from(from);
     if !src.exists() {

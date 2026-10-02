@@ -246,7 +246,7 @@ impl McUse {
         }
 
         // 2. Determine base path from prefix (log and exit on failure)
-        let base_path = match self.prefix {
+        let mut base_path = match self.prefix {
             McUsePrefix::PathSystem => mcb_get_system_root(),
             McUsePrefix::PathProject => mcb_get_project_root(),
             McUsePrefix::PathCurrent => current_path.to_path_buf(),
@@ -289,6 +289,49 @@ impl McUse {
         //    directory, so no extra path prefix is needed.
         if self.prefix == McUsePrefix::PathSystem {
             // System root is already the library root — no mcode/ prefix
+
+            // 4b. Versioned-pack fallback: an installed pack lands as
+            //     `<root>/<name>@<ver>/` (registry-design.md §4.2), so
+            //     `use <name>/…` joins to `<root>/<name>/…` and misses when
+            //     only the versioned directory exists. When the bare
+            //     first-segment directory is absent, re-base on the highest
+            //     `<name>@<ver>` directory (bare dirs stay preferred, so
+            //     mcode/mclibs/mcpub's bare checkouts are untouched; the P2
+            //     solver replaces "highest wins" later).
+            base_path = match final_filename.split(['/', '.']).find(|s| !s.is_empty()) {
+                Some(seg) if !seg.eq_ignore_ascii_case("mcode") && !base_path.join(seg).exists() => {
+                    match crate::db::infra::libmgr::highest_versioned_dir(&base_path, seg) {
+                        Some(vroot) => {
+                            // Re-base AND strip the consumed first segment:
+                            // `ams1117.ams1117` → uri `ams1117/ams1117/ams1117.mc`
+                            // becomes `<ams1117@ver-root>/ams1117.mc`; dotted
+                            // category tails (`mcpub.power/…`) keep mapping
+                            // dots to directory levels.
+                            let tail = final_filename[seg.len()..]
+                                .trim_start_matches(['/', '.'])
+                                .to_string();
+                            final_filename = tail;
+                            // The module-form tail still carries the a/b/b
+                            // expansion, so the direct join can miss inside
+                            // the pack root; fall through to the same
+                            // unique-basename pack search 6a uses.
+                            if !vroot.join(&final_filename).exists() {
+                                if let Some(fname) =
+                                    std::path::Path::new(&final_filename).file_name()
+                                {
+                                    let fname = fname.to_string_lossy().into_owned();
+                                    if let Some(hit) = search_unique_under(&vroot, &fname) {
+                                        final_filename = hit.to_string_lossy().into_owned();
+                                    }
+                                }
+                            }
+                            vroot
+                        }
+                        None => base_path,
+                    }
+                }
+                _ => base_path,
+            };
         }
 
         // 5. Base path + versioned URI

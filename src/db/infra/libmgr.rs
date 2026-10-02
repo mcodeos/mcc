@@ -141,6 +141,39 @@ fn find_lib_dir(root: &Path, name: &str) -> Option<std::path::PathBuf> {
     None
 }
 
+/// Highest `<name>@<version>` directory under `root`, semver-ordered
+/// (non-numeric tails sort lowest). The system-`use` join uses this as a
+/// fallback when no bare `<name>` directory exists (registry-design.md §4.2:
+/// installed packs land as `<name>@<ver>/`). "Highest wins" is the P1 rule —
+/// the version solver (§P2) replaces it once dependency resolution lands.
+pub fn highest_versioned_dir(root: &Path, name: &str) -> Option<std::path::PathBuf> {
+    let prefix = format!("{name}@");
+    let mut best: Option<((u64, u64, u64), std::path::PathBuf)> = None;
+    let entries = std::fs::read_dir(root).ok()?;
+    for e in entries.flatten() {
+        let fname = e.file_name().to_string_lossy().to_string();
+        let Some(ver) = fname.strip_prefix(&prefix) else {
+            continue;
+        };
+        if !e.path().is_dir() {
+            continue;
+        }
+        let nums: Vec<u64> = ver
+            .split('.')
+            .map(|seg| seg.parse::<u64>().unwrap_or(0))
+            .collect();
+        let key = (
+            nums.first().copied().unwrap_or(0),
+            nums.get(1).copied().unwrap_or(0),
+            nums.get(2).copied().unwrap_or(0),
+        );
+        if best.as_ref().map(|(k, _)| key > *k).unwrap_or(true) {
+            best = Some((key, e.path()));
+        }
+    }
+    best.map(|(_, p)| p)
+}
+
 /// True when `path` belongs to an already-loaded system library (e.g. mcode).
 ///
 /// A library file that is re-entered through a project entry point (did_open /
