@@ -12,6 +12,12 @@ pub enum IdaSegment {
     Id(String),
     /// Square bracket segment, contains multiple items
     Square(Vec<SquareItem>),
+    /// Explicitly marked expansion layer, `name[[items]]` (U385 leg G1,
+    /// layer-expansion-law.md §3). Same item shape as `Square`; the mark only
+    /// changes when the layer expands, and every current consumer is a flat
+    /// consumer, so flat expansion treats the two variants identically. The
+    /// retained-grouping read rides the expansion leg.
+    SquareExpanded(Vec<SquareItem>),
 }
 
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -56,11 +62,30 @@ impl McIda {
                     current_id.clear();
                 }
 
-                // Parse the square bracket segment
-                chars.next(); // Skip '['
+                // U385 leg G1 (b4500): `[[` opens an explicitly marked
+                // expansion layer — consume `[ [ content ] ]` as one segment.
+                chars.next(); // Skip the first '['
+                let marked = chars.peek() == Some(&'[');
+                if marked {
+                    chars.next(); // Skip the second '['
+                }
                 let square_content = Self::parse_until_closing_bracket(&mut chars);
+                if marked {
+                    // Consume the second closer so it does not leak into the
+                    // identifier stream; an unpaired spelling cannot reach
+                    // here (the grammar only accepts the doubled form).
+                    for c2 in chars.by_ref() {
+                        if c2 == ']' {
+                            break;
+                        }
+                    }
+                }
                 if let Some(items) = Self::parse_square_content(&square_content) {
-                    segments.push(IdaSegment::Square(items));
+                    if marked {
+                        segments.push(IdaSegment::SquareExpanded(items));
+                    } else {
+                        segments.push(IdaSegment::Square(items));
+                    }
                 }
             } else if *c == '\\' {
                 // §2.12: Escape character — `\+` → `+`, `\-` → `-`, `\x` → `x`
@@ -166,7 +191,7 @@ impl McIda {
         if let Some(first) = self.segments.first() {
             match first {
                 IdaSegment::Id(s) => s,
-                IdaSegment::Square(_) => "",
+                IdaSegment::Square(_) | IdaSegment::SquareExpanded(_) => "",
             }
         } else {
             ""
@@ -177,7 +202,7 @@ impl McIda {
     pub fn has_square(&self) -> bool {
         self.segments
             .iter()
-            .any(|seg| matches!(seg, IdaSegment::Square(_)))
+            .any(|seg| seg.square_items().is_some())
     }
 
     /// Check if it contains parameter references (e.g. non-numeric square bracket ranges like rows,
@@ -185,7 +210,7 @@ impl McIda {
     /// e.g.: R[1:rows]C[1:cols] contains parameter references rows and cols
     pub fn has_param_ref(&self) -> bool {
         for segment in &self.segments {
-            if let IdaSegment::Square(items) = segment {
+            if let Some(items) = segment.square_items() {
                 for item in items {
                     if let SquareItem::Range(start, end) = item {
                         // If the range endpoint cannot be parsed as a number, it is considered a
@@ -216,7 +241,7 @@ impl McIda {
             .iter()
             .map(|seg| match seg {
                 IdaSegment::Id(id) => IdaSegment::Id(id.clone()),
-                IdaSegment::Square(items) => {
+                IdaSegment::Square(items) | IdaSegment::SquareExpanded(items) => {
                     let new_items: Vec<SquareItem> = items
                         .iter()
                         .map(|item| match item {
@@ -229,7 +254,13 @@ impl McIda {
                             }
                         })
                         .collect();
-                    IdaSegment::Square(new_items)
+                    // The mark survives substitution: it is a property of the
+                    // layer, not of the items.
+                    if matches!(seg, IdaSegment::SquareExpanded(_)) {
+                        IdaSegment::SquareExpanded(new_items)
+                    } else {
+                        IdaSegment::Square(new_items)
+                    }
                 }
             })
             .collect();
@@ -286,8 +317,13 @@ impl McIda {
                         expandable_segments = new_segments;
                     }
                 }
-                IdaSegment::Square(items) => {
-                    // Expand current square bracket segment
+                IdaSegment::Square(items) | IdaSegment::SquareExpanded(items) => {
+                    // Expand current square bracket segment. The marked
+                    // variant (`[[..]]`) expands identically here — every
+                    // current consumer is a flat consumer, so the marked layer
+                    // joins the same Cartesian product (layer-expansion-law.md
+                    // §3.1 flat-consumption law). The retained-grouping read
+                    // lands with the expansion leg's structure consumers.
                     let expanded = self.expand_square_items(items);
                     if expanded.is_empty() {
                         continue;
@@ -374,11 +410,28 @@ impl McIda {
     }
 }
 
+impl IdaSegment {
+    /// The item list of a square segment, marked or not. Flat consumers share
+    /// one read over both variants (layer-expansion-law.md §2: the mark only
+    /// changes when the layer expands, not the pairing law).
+    pub fn square_items(&self) -> Option<&[SquareItem]> {
+        match self {
+            IdaSegment::Square(items) | IdaSegment::SquareExpanded(items) => Some(items),
+            IdaSegment::Id(_) => None,
+        }
+    }
+}
+
 impl fmt::Display for IdaSegment {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             IdaSegment::Id(id) => write!(f, "{id}"),
-            IdaSegment::Square(items) => {
+            IdaSegment::Square(items) | IdaSegment::SquareExpanded(items) => {
+                // The marked variant round-trips with its doubled spelling so
+                // Display output stays re-parseable as the same IDA.
+                if matches!(self, IdaSegment::SquareExpanded(_)) {
+                    write!(f, "[")?;
+                }
                 write!(f, "[")?;
                 for (i, item) in items.iter().enumerate() {
                     if i > 0 {
@@ -386,7 +439,11 @@ impl fmt::Display for IdaSegment {
                     }
                     write!(f, "{item}")?;
                 }
-                write!(f, "]")
+                write!(f, "]")?;
+                if matches!(self, IdaSegment::SquareExpanded(_)) {
+                    write!(f, "]")?;
+                }
+                Ok(())
             }
         }
     }

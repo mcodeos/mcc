@@ -9,7 +9,6 @@ use crate::db::diagnostic::diagnostic::dlog_trace;
 use crate::db::diagnostic::diagnostic::{dlog_error, dlog_warning};
 use crate::query::refs::mcb_register_declare_class;
 use crate::semantic::basic::mc_bus::McBus;
-use crate::semantic::basic::mc_ida::IdaSegment;
 use crate::semantic::basic::mc_ids::IdsSegment;
 use crate::semantic::basic::mc_kvs::McKVS;
 use crate::semantic::component::mc_attr::{McAttrVal, McAttribute, McAttributes};
@@ -2295,7 +2294,7 @@ impl McPins {
                                     let ida_squares = ida
                                         .segments
                                         .iter()
-                                        .filter(|s| matches!(s, IdaSegment::Square(_)))
+                                        .filter(|s| s.square_items().is_some())
                                         .count();
                                     square_count += ida_squares;
 
@@ -2307,7 +2306,7 @@ impl McPins {
                                         // is col def
                                         let mut found_first_square = false;
                                         for ida_seg in &ida.segments {
-                                            if let IdaSegment::Square(items) = ida_seg {
+                                            if let Some(items) = ida_seg.square_items() {
                                                 if !found_first_square {
                                                     // first square segment defines row count
                                                     rows = items.len();

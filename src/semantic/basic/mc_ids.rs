@@ -414,7 +414,7 @@ pub(crate) fn display_base_members(display: &str) -> (String, Vec<String>) {
             IdsSegment::Ida(ida) => {
                 let mut members: Vec<String> = Vec::new();
                 for seg in &ida.segments {
-                    if let IdaSegment::Square(items) = seg {
+                    if let Some(items) = seg.square_items() {
                         members.extend(items.iter().map(ToString::to_string));
                         break;
                     }
@@ -1344,14 +1344,14 @@ impl McIds {
         let square_count = ida
             .segments
             .iter()
-            .filter(|s| matches!(s, IdaSegment::Square(_)))
+            .filter(|s| s.square_items().is_some())
             .count();
         if square_count > 1 {
             return None;
         }
         let mut members = Vec::new();
         for seg in &ida.segments {
-            if let IdaSegment::Square(items) = seg {
+            if let Some(items) = seg.square_items() {
                 for item in items {
                     match item {
                         SquareItem::Id(id) => members.push(id.clone()),
@@ -1635,7 +1635,7 @@ impl McIds {
                 IdsSegment::Ida(ida) => {
                     // Check if there is a square bracket segment
                     for seg in &ida.segments {
-                        if let IdaSegment::Square(_) = seg {
+                        if seg.square_items().is_some() {
                             // Has square brackets, find the preceding Id segment
                             for id_seg in &ida.segments {
                                 if let IdaSegment::Id(name) = id_seg {

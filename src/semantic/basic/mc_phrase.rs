@@ -311,7 +311,6 @@ fn expand_inner_square_items(items: &[crate::semantic::basic::mc_ida::SquareItem
 /// R2, U237 case B: inner group reads as a per-instance member face).
 fn split_embedded_member_group(ids: &McIds) -> Option<(McIds, Vec<String>)> {
     use crate::semantic::basic::mc_ids::IdsSegment;
-    use crate::semantic::basic::mc_ida::IdaSegment;
     // (a) trailing outer Square segments, adjacent pair at the end.
     if ids.segments.len() >= 2 {
         if let (
@@ -341,10 +340,12 @@ fn split_embedded_member_group(ids: &McIds) -> Option<(McIds, Vec<String>)> {
     })?;
     let mut segs = last_square.segments.clone();
     match (segs.pop(), segs.last()) {
-        (Some(IdaSegment::Square(last_items)), Some(IdaSegment::Square(_)))
-            if !last_items.is_empty() =>
+        (Some(last_seg), Some(prev_seg))
+            if !last_seg.square_items().unwrap_or(&[]).is_empty()
+                && prev_seg.square_items().is_some() =>
         {
-            let members = expand_inner_square_items(&last_items);
+            let last_items = last_seg.square_items().unwrap();
+            let members = expand_inner_square_items(last_items);
             if members.is_empty() {
                 return None;
             }

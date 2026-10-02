@@ -16,7 +16,7 @@
 //! (`HasFindInst::resolve_reference`), which converges the Phase 1 gate's
 //! four duplicated miss-decision trees.
 
-use super::mc_ida::{IdaSegment, McIda, SquareItem};
+use super::mc_ida::{McIda, SquareItem};
 use super::mc_ids::{IdsSegment, McIds};
 
 /// Reference/declaration form class, derived from the McIds AST (§1.2①).
@@ -140,7 +140,7 @@ fn classify_embedded_square(ida: &McIda) -> Form {
     let square_count = ida
         .segments
         .iter()
-        .filter(|s| matches!(s, IdaSegment::Square(_)))
+        .filter(|s| s.square_items().is_some())
         .count();
     match square_count {
         0 => Form::Bare,
@@ -148,10 +148,7 @@ fn classify_embedded_square(ida: &McIda) -> Form {
             let items = ida
                 .segments
                 .iter()
-                .find_map(|s| match s {
-                    IdaSegment::Square(items) => Some(items),
-                    _ => None,
-                })
+                .find_map(|s| s.square_items())
                 .unwrap();
             match embedded_square_kind(items) {
                 SquareKind::CommaList => Form::List,
