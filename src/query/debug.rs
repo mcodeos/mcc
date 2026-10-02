@@ -226,6 +226,16 @@ pub(crate) fn print_phrase_internal(
             print_phrase_internal(inner, "");
             println!(")");
         }
+        McPhrase::Reordered(inner, order) => {
+            let items = order
+                .iter()
+                .map(|i| i.to_string())
+                .collect::<Vec<_>>()
+                .join(",");
+            print!("{prefix}(reordered {{{{{items}}}}}: ");
+            print_phrase_internal(inner, "");
+            println!(")");
+        }
         McPhrase::Lead(_) => {
             // §1 P5.1: a standalone operand `_` is a passthrough
             println!("{prefix}(lead: passthrough)");

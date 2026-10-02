@@ -1208,6 +1208,18 @@ fn phrase_to_tree_json(p: &McPhrase, max_depth: usize, cur: usize) -> serde_json
             "label": "",
             "children": [phrase_to_tree_json(inner, max_depth, cur + 1)],
         }),
+        McPhrase::Reordered(inner, order) => json!({
+            "kind": "Reordered",
+            "label": format!(
+                "{{{{{}}}}}",
+                order
+                    .iter()
+                    .map(|i| i.to_string())
+                    .collect::<Vec<_>>()
+                    .join(",")
+            ),
+            "children": [phrase_to_tree_json(inner, max_depth, cur + 1)],
+        }),
         McPhrase::Member(inner, ep) => json!({
             "kind": "Member",
             "label": format!(".{}", ep),

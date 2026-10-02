@@ -521,6 +521,20 @@ pub const SHAPE_INST_PORTCOUNT_PLUSMINUS: u32 = 2908;
 /// face, node `4*2`). Emitted at Pass1; the operand is dropped.
 pub const SHAPE_MEMBER_GROUP_WIDTH: u32 = 2909;
 
+/// A `{{order}}` reorder spec item is not a positive 1-based position
+/// (U385 engine leg 2, layer-expansion-law.md §4: `{{0}}`, `{{x}}`, `{{2.5}}`
+/// name nothing in a member sequence). Emitted at Pass2, where the operand's
+/// member sequence is materialized; the operand keeps its written order.
+pub const SHAPE_REORDER_POSITION_INVALID: u32 = 2910;
+
+/// A `{{order}}` reorder spec is not a permutation of the operand's member
+/// sequence (U385 engine leg 2, layer-expansion-law.md §4): a position falls
+/// outside `1..=n`, repeats, or the spec does not cover every member (the
+/// law's initial ruling — a permutation, not a resampling). Emitted at
+/// Pass2, where the member count is known; the operand keeps its written
+/// order.
+pub const SHAPE_REORDER_NOT_A_PERMUTATION: u32 = 2911;
+
 // Pass1c: component definition (pins / attrs / units) (3000-3049)
 
 /// Pin ID and pin name do not match.
@@ -2832,6 +2846,8 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(SHAPE_COLUMN_WIDTH_MIXED, "Column-width mix in a `[...]` list (vec-arch.md §4.1.1 R4): a single-column element among two-pin/node elements silently spans both columns.", "Column-width mix in a list: '{0}' spans both columns (single-column element among two-pin/node elements, e.g. `[A, R101]`). All elements must be single-column or all two-pin/node; use '_' to inherit the sibling column width."),
     entry!(SHAPE_INST_PORTCOUNT_PLUSMINUS, "Two component bodies with unequal port counts cannot participate in `+`/`-` (a body pair must have matching terminals).", "Instances '{0}' ({1} ports) and '{2}' ({3} ports) cannot participate in `+`/`-`: two component bodies must have equal port counts. Use a single pin ('{0}.1') to attach one body to a net."),
     entry!(SHAPE_MEMBER_GROUP_WIDTH, "Nested-subscript inner member group wider than two (vec-arch.md §4.1.1 R2, U237 case B): a `1*3` row vector has no defined pairing.", "Inner member group of '{0}' has {1} members; a nested-subscript inner group must be a single member (a point, `N*1`) or a pair (a member face, node `N*2`). A `1*{1}` row vector has no defined pairing (R5 row-vector law)."),
+    entry!(SHAPE_REORDER_POSITION_INVALID, "A `{{order}}` reorder item is not a positive 1-based position.", "`{{order}}` item '{0}' is not a member position: a reorder spec counts the operand's expanded members from 1 (`{{4:1}}` on four members is the reverse)."),
+    entry!(SHAPE_REORDER_NOT_A_PERMUTATION, "A `{{order}}` reorder spec is not a permutation of the operand's member sequence.", "`{{order}}` spec '{0}' does not permute the operand's {1} member(s): every position from 1 to {1} must appear exactly once (a permutation, not a resampling)."),
     entry!(CONN_GROUP_SHAPE_MISMATCH, "Retired: no producer.", "Retired - no producer. The R0 rework removed the group-shape refusal path; sister code CONN_SERIES_SHAPE_MISMATCH (4167) stays live."),
     entry!(INST_POWER_PORT_UNBOUND, "Sub-module DC power port is never connected (missing power argument?).", "Sub-module instance '{0}' DC power port '{1}' is never connected (missing power argument?)"),
     entry!(INST_CTOR_BODY_STMT_FAILED, "A constructor function body statement failed.", "Constructor '{0}' body statement failed: {1}"),

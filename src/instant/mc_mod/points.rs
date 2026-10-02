@@ -23,6 +23,69 @@ use crate::semantic::common::IOType;
 use crate::semantic::mc_inst::McInstance;
 use crate::semantic::validation::ledger::{self, LedgerAction, LedgerEntry, LedgerKind};
 
+/// U385 engine leg 2: expand a `{{order}}` spec, judge it against the
+/// materialized member count, and permute `pts` in place. An invalid spec
+/// keeps the written order and emits E2910/E2911 through the enclosing
+/// statement's error channel (`record_error`) — a bad spec neither silently
+/// reorders nor silently drops the face (layer-expansion-law.md §4).
+fn judge_reorder(
+    pts: &mut Vec<NetPoint>,
+    order: &[crate::semantic::basic::mc_ida::SquareItem],
+    b: &mut InstantiationBuilder,
+) {
+    use crate::semantic::basic::mc_ida::{judge_order_positions, order_positions, OrderSpecError};
+
+    fn not_a_permutation(
+        b: &mut InstantiationBuilder,
+        spec_text: &str,
+        members: usize,
+    ) {
+        // One report per statement: both faces of the wrapper walk the same
+        // spec (the vexpr fold reads left and right), so the second mint is
+        // collapsed by the site guard (the U364 double-mint idiom).
+        if b.has_error_at_current_site(crate::errcodes::SHAPE_REORDER_NOT_A_PERMUTATION) {
+            return;
+        }
+        b.record_error(
+            crate::errcodes::SHAPE_REORDER_NOT_A_PERMUTATION,
+            crate::errcodes::format_msg(
+                crate::errcodes::SHAPE_REORDER_NOT_A_PERMUTATION,
+                &[&spec_text, &members.to_string()],
+            ),
+        );
+    }
+
+    let spec_text = order
+        .iter()
+        .map(|item| item.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
+    let positions = match order_positions(order) {
+        Ok(positions) => positions,
+        Err(OrderSpecError::InvalidPosition(text)) => {
+            if !b.has_error_at_current_site(crate::errcodes::SHAPE_REORDER_POSITION_INVALID) {
+                b.record_error(
+                    crate::errcodes::SHAPE_REORDER_POSITION_INVALID,
+                    crate::errcodes::format_msg(
+                        crate::errcodes::SHAPE_REORDER_POSITION_INVALID,
+                        &[&text],
+                    ),
+                );
+            }
+            return;
+        }
+        Err(OrderSpecError::NotPermutation) => {
+            not_a_permutation(b, &spec_text, pts.len());
+            return;
+        }
+    };
+    if judge_order_positions(&positions, pts.len()).is_err() {
+        not_a_permutation(b, &spec_text, pts.len());
+        return;
+    }
+    *pts = positions.into_iter().map(|p| pts[p - 1].clone()).collect();
+}
+
 // Iter-1.1: member string IDA expansion
 //
 // Syntax like `uC.pins[8:11]` / `cap[4:5]` / `ADC{P,N}` results in
@@ -459,6 +522,16 @@ impl InstantiationBuilder {
                 } else {
                     self.get_right_points(inner)
                 }
+            }
+
+            // U385 engine leg 2: the reorder wrapper keeps the SAME side and
+            // permutes the materialized point sequence — this walk owns the
+            // spec judgement (E2910/E2911 via `judge_reorder`), because here
+            // the member count is real.
+            McPhrase::Reordered(inner, order) => {
+                let mut pts = self.get_left_points(inner)?;
+                judge_reorder(&mut pts, order, self);
+                Ok(pts)
             }
 
             McPhrase::Transposed(inner_line) => {
@@ -1173,6 +1246,15 @@ impl InstantiationBuilder {
                 } else {
                     self.get_left_points(inner)
                 }
+            }
+
+            // U385 engine leg 2: mirror of the get_left_points arm — the
+            // reorder keeps the SAME side; this walk owns the spec judgement
+            // (E2910/E2911 via `judge_reorder`).
+            McPhrase::Reordered(inner, order) => {
+                let mut pts = self.get_right_points(inner)?;
+                judge_reorder(&mut pts, order, self);
+                Ok(pts)
             }
 
             McPhrase::Transposed(inner_line) => {

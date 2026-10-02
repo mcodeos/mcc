@@ -51,6 +51,7 @@ fn shape(p: &McPhrase) -> String {
         McPhrase::Reversed(b) => format!("Reversed({})", shape(b)),
         McPhrase::Closure(_) => "Closure".to_string(),
         McPhrase::FuncCall(f) => format!("FuncCall({})", f.func_name),
+        McPhrase::Reordered(b, _) => format!("Reordered({})", shape(b)),
         McPhrase::Member(b, _) => format!("Member({})", shape(b)),
     }
 }

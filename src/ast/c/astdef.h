@@ -279,6 +279,8 @@
 #define MCAST_IOTYPE_RF                342 // radio-frequency pin face (rf) — pins-line prefix only (b4475 R2); net-model class rides IOType::InOut, RF identity rides the iface
 #define MCAST_LET                      343 // let binding clause (U383 leg4a) — `let name = values`, ATT_ID/ATT_VALUES payload like an attribute row
 #define MCAST_REQUIRE                  344 // require judgement clause (U383 leg4a) — `require <judge>`, judge child rides verbatim
+#define MCAST_OPD_REORDER              345 // postfix member-sequence reorder `X{{4:1}}` (U385 engine leg 2) — child 0 is the inner operand, children 1.. are the order-spec items
+#define MCAST_OPD_REORDER_RANGE        346 // one `a:b` range item inside an OPD_REORDER spec — two ID children (start, end); a bare item is a plain MCAST_ID
 
 
 //---------------------------

@@ -26,7 +26,8 @@ use crate::{
     refdef::types::SymbolKind,
     semantic::{
         basic::{
-            mc_literal::McInt, mc_opd::McOpd, mc_param::McParamValue, opd_shape::OpdShape,
+            mc_ida::SquareItem, mc_literal::McInt, mc_opd::McOpd, mc_param::McParamValue,
+            opd_shape::OpdShape,
         },
         component::mc_pins::{pin_value_keys, pin_values_of, McPinPort},
         context::resolve_cmie,
@@ -424,6 +425,16 @@ pub enum McPhrase {
     /// transposed operands) evaluate to themselves — that decision lives here
     /// at eval, not at parse.
     Reversed(Box<McPhrase>),
+    /// Postfix `{{order}}` (U385 engine leg 2, layer-expansion-law.md §4): a
+    /// wrapper like `Reversed`, not a tree rewrite — the operand survives
+    /// underneath and the permutation is applied when the operand's member
+    /// sequence is materialized. The spec is the order items exactly as
+    /// written (`4:1` range form keeps its spelling order: it expands
+    /// descending, so `{{4:1}}` on four members is the reverse); Pass2 judges
+    /// it a 1-based permutation of the operand's expanded member count and
+    /// rejects anything else (E2910 non-numeric position, E2911 not a
+    /// permutation).
+    Reordered(Box<McPhrase>, Vec<SquareItem>),
     Closure(McClosure),
     FuncCall(McFuncCall),
     Member(Box<McPhrase>, McRef),
@@ -3394,6 +3405,44 @@ impl McPhrase {
                 Some(McPhrase::Reversed(Box::new(opd1)))
             }
 
+            MCAST_OPD_REORDER => {
+                // U385 engine leg 2: the `{{order}}` postfix. Child 0 is the
+                // inner operand (a full phrase — the wrapper law, same as
+                // `'`/`^` above); children 1.. are the order-spec items, one
+                // node per comma item: a bare run is the run's MCAST_ID data
+                // node, an `a:b` pair is wrapped in MCAST_OPD_REORDER_RANGE
+                // (two ID children) so item boundaries survive the flat link
+                // chain. The items keep their WRITTEN order — `4:1` is the
+                // descending spelling, so `{{4:1}}` is the reverse; the
+                // permutation judgement (1-based, complete, no repeats) runs
+                // at Pass2 where the member count is known.
+                let first = node.get_sub_node().expect(MISSING_SUBNODE);
+                let children: Vec<AstNode> = first.iter().collect();
+                let inner = McPhrase::new(&children[0], context)?;
+                let mut order = Vec::with_capacity(children.len().saturating_sub(1));
+                for item in &children[1..] {
+                    if item.is_type(MCAST_OPD_REORDER_RANGE) {
+                        let pair_first = item.get_sub_node().expect(MISSING_SUBNODE);
+                        let pair: Vec<AstNode> = pair_first.iter().collect();
+                        let read_id = |n: &AstNode| -> String {
+                            n.data_as_cstr()
+                                .and_then(|c| c.to_str().ok())
+                                .unwrap_or("")
+                                .to_string()
+                        };
+                        order.push(SquareItem::Range(read_id(&pair[0]), read_id(&pair[1])));
+                    } else {
+                        let text = item
+                            .data_as_cstr()
+                            .and_then(|c| c.to_str().ok())
+                            .unwrap_or("")
+                            .to_string();
+                        order.push(SquareItem::Id(text));
+                    }
+                }
+                Some(McPhrase::Reordered(Box::new(inner), order))
+            }
+
             MCAST_OPD_FCALL => {
                 let result = McFuncCall::parse(node, context);
                 if let Some(ref r) = result {
@@ -4320,6 +4369,28 @@ fn shape_defaults(c: &Mc2Component) -> CompPinShape {
 /// reversal is real. (Two *distinct labels* would read the same shape-wise, but
 /// they no longer reach here: `+` between two bodiless operands is rejected at
 /// Pass1 as a cross-net merge, `CONN_NET_CROSSNET`.)
+
+/// Apply a `{{order}}` spec to a face's element list (U385 engine leg 2).
+/// Shared by the bus-level face accessors, which have no diagnostic channel:
+/// a valid permutation is applied, anything else leaves the list untouched.
+/// The Pass2 point walk (`instant::mc_mod::points`) judges the same spec
+/// through [`mc_ida::order_positions`] / [`mc_ida::judge_order_positions`]
+/// with the real diagnostics (E2910/E2911), so an invalid spec is never
+/// silently accepted on a wired statement.
+pub(crate) fn permute_face_elements(buses: Vec<McBus>, order: &[SquareItem]) -> Vec<McBus> {
+    use super::super::basic::mc_ida::{judge_order_positions, order_positions};
+    match order_positions(order) {
+        Ok(positions) => {
+            if judge_order_positions(&positions, buses.len()).is_ok() {
+                positions.into_iter().map(|p| buses[p - 1].clone()).collect()
+            } else {
+                buses
+            }
+        }
+        Err(_) => buses,
+    }
+}
+
 fn is_reverse_noop_operand(p: &McPhrase) -> bool {
     match p {
         // `'` presents a column on both faces (vec-dianlu.md §6.2).
@@ -4639,6 +4710,15 @@ impl McPhrase {
                     mc_line.get_right()
                 }
             }
+            // U385 engine leg 2: the reorder wrapper keeps the SAME side (it
+            // permutes a face's member sequence, it does not swap faces). The
+            // bus-level accessor applies a valid permutation and leaves an
+            // invalid one untouched — this level has no diagnostic channel;
+            // every statement carrying an invalid spec is judged (and
+            // reported) by the Pass2 point walk, which reads the same helper.
+            McPhrase::Reordered(mc_line, order) => {
+                permute_face_elements(mc_line.get_left(), order)
+            }
             // ★ P4.1 / func-return-design v2.1 §1: consume the resolved return
             // shape (eval.md §8.1). The return face is a symmetric stereo node:
             // case ② `Label{bus}` → BOTH left and right mouths expose the return
@@ -4778,6 +4858,12 @@ impl McPhrase {
                     mc_line.get_left()
                 }
             }
+            // U385 engine leg 2: same-side permutation, mirror of the
+            // get_left arm above (the law and the invalid-spec fallback are
+            // documented there).
+            McPhrase::Reordered(mc_line, order) => {
+                permute_face_elements(mc_line.get_right(), order)
+            }
             // ★ P4.1: consume the resolved return shape (eval.md §8.1).
             // `Label` → right = the return value's buses ([0|N]).
             McPhrase::FuncCall(ref f) => match &f.resolved_return_shape {
@@ -4803,6 +4889,13 @@ impl McPhrase {
             McPhrase::Reversed(inner) => (*inner)
                 .dot_or_curly(member_names)
                 .map(|p| McPhrase::Reversed(Box::new(p))),
+            // Member access through the reorder wrapper (U385 engine leg 2):
+            // same wrapper law — resolve against the operand, keep the
+            // permutation around it, so `.m` on a reordered operand still
+            // permutes at eval.
+            McPhrase::Reordered(inner, order) => (*inner)
+                .dot_or_curly(member_names)
+                .map(|p| McPhrase::Reordered(Box::new(p), order.clone())),
             McPhrase::Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::Component(c),
                 ..
@@ -5373,6 +5466,9 @@ fn needs_paren_for_priority(phrase: &McPhrase) -> bool {
         // `x^` binds tighter than every operator, so as an operand it needs
         // its own parentheses to keep the operand boundary.
         McPhrase::Reversed(_) => true,
+        // `x{{order}}` is postfix with a self-delimiting right side, but the
+        // operand boundary still needs the parentheses as an operand.
+        McPhrase::Reordered(_, _) => true,
         McPhrase::Multiple(_) => true,
         McPhrase::Series(phrases, _) => {
             if phrases.is_empty() {
@@ -5398,6 +5494,9 @@ fn needs_paren_for_series(phrase: &McPhrase) -> bool {
         // self-delimiting as a series item: `a -> b^` re-parses as
         // `a -> (b^)`. Keep the parentheses.
         McPhrase::Reversed(_) => true,
+        // `x{{order}}` closes itself (the doubled brace ends the wrapper), so
+        // as a series item it needs no extra parentheses.
+        McPhrase::Reordered(_, _) => false,
         // A nested series only exists where the source parenthesized it
         // (R0, b4034: group expansion preserves the inner chain) — the
         // parser never builds one directly. Render the parentheses back,
@@ -5483,6 +5582,17 @@ impl std::fmt::Display for McPhrase {
                     }
                 }
                 write!(f, "({p})^")
+            }
+            McPhrase::Reordered(p, order) => {
+                // `{{order}}` is postfix and self-delimiting on the right, so
+                // the operand keeps its own parentheses; the spec round-trips
+                // in its written spelling (`4:1` stays `4:1`).
+                let items = order
+                    .iter()
+                    .map(|i| i.to_string())
+                    .collect::<Vec<_>>()
+                    .join(",");
+                write!(f, "({p}){{{{{items}}}}}")
             }
             McPhrase::Multiple(phrases) => {
                 // Flatten nested `Multiple` so a source `[dio[1:2]::DIO(...)]`
@@ -6214,6 +6324,13 @@ fn eval_port_elems(phrase: &McPhrase, right: bool, context: &dyn ShapeCtx) -> Ve
             } else {
                 eval_port_elems(inner, !right, context)
             }
+        }
+        // U385 engine leg 2: the reorder wrapper keeps the same side and
+        // permutes the element list — the same read the face accessors apply
+        // (invalid specs pass through untouched here; the Pass2 point walk
+        // owns the diagnostic).
+        McPhrase::Reordered(inner, order) => {
+            permute_face_elements(eval_port_elems(inner, right, context), order)
         }
         McPhrase::Series(phrases, _) => {
             let edge = if right {

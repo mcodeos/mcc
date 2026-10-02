@@ -2168,6 +2168,9 @@ impl McFuncCall {
             McPhrase::Transposed(inner) | McPhrase::Reversed(inner) => {
                 Self::fill_return_shapes(inner, scope)
             }
+            // U385 engine leg 2: the reorder wrapper is transparent to the
+            // return-shape walk — the nested FuncCall is the operand's.
+            McPhrase::Reordered(inner, _) => Self::fill_return_shapes(inner, scope),
             McPhrase::Closure(c) => {
                 for line in &mut c.body {
                     Self::fill_return_shapes(line, scope);

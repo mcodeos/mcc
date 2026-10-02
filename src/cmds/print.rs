@@ -142,6 +142,16 @@ pub fn print_phrase_members(phrase: &McPhrase, prefix: &str) {
             print_phrase_members(p, "");
             println!(")");
         }
+        McPhrase::Reordered(p, order) => {
+            let items = order
+                .iter()
+                .map(|i| i.to_string())
+                .collect::<Vec<_>>()
+                .join(",");
+            print!("{}(reordered {{{{{items}}}}}: ", prefix);
+            print_phrase_members(p, "");
+            println!(")");
+        }
         McPhrase::Lead(_) => {
             // §1 P5.1: a standalone operand `_` is a passthrough
             println!("{}(lead: passthrough)", prefix);

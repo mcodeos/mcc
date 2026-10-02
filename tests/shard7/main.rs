@@ -84,6 +84,7 @@ mod u343_b2_face_members;
 mod u343_dprec_loads;
 mod u356_whole_foot;
 mod u383_value_resolution;
+mod u385_reorder_face;
 mod vec_lane_chain_width;
 mod vec_net_crossnet;
 mod vec_r0_operator_encoding;

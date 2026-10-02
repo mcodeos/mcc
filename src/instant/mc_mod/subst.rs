@@ -611,6 +611,12 @@ impl InstantiationBuilder {
                 expansion_ctx,
                 cx,
             ))),
+            // U385 engine leg 2: positions are literals, not parameter names —
+            // substitute the operand, keep the spec as written.
+            McPhrase::Reordered(inner, order) => McPhrase::Reordered(
+                Box::new(Self::substitute_phrase(inner, bindings, expansion_ctx, cx)),
+                order.clone(),
+            ),
             McPhrase::Lead(_) => phrase.clone(),
             // Iter-2.3
             // Returning Endpoint::Name(Label/Bus/List) as-is would leave the

@@ -265,6 +265,8 @@ pub(crate) fn collect_referenced_names(phrase: &McPhrase, names: &mut HashSet<St
             }
         }
         McPhrase::Transposed(p) | McPhrase::Reversed(p) => collect_referenced_names(p, names),
+        // U385 engine leg 2: positions are literals, not references.
+        McPhrase::Reordered(p, _) => collect_referenced_names(p, names),
         McPhrase::Closure(c) => {
             for line in &c.body {
                 collect_referenced_names(line, names);
@@ -311,6 +313,8 @@ pub(crate) fn collect_net_label_names(phrase: &McPhrase, names: &mut HashSet<Str
             }
         }
         McPhrase::Transposed(p) | McPhrase::Reversed(p) => collect_net_label_names(p, names),
+        // U385 engine leg 2: positions are not net labels — walk the operand.
+        McPhrase::Reordered(p, _) => collect_net_label_names(p, names),
         McPhrase::Closure(c) => {
             for line in &c.body {
                 collect_net_label_names(line, names);

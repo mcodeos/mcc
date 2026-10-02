@@ -2929,6 +2929,12 @@ impl InstantiationBuilder {
             McPhrase::Reversed(inner) => McPhrase::Reversed(Box::new(
                 Self::prefix_instance_phrase_with_skip(inner, inst_name, skip),
             )),
+            // U385 engine leg 2: the order spec holds positions, not names —
+            // only the operand is prefixed.
+            McPhrase::Reordered(inner, order) => McPhrase::Reordered(
+                Box::new(Self::prefix_instance_phrase_with_skip(inner, inst_name, skip)),
+                order.clone(),
+            ),
             McPhrase::Lead(_) => phrase.clone(),
 
             // Iter-3.C

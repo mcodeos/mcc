@@ -186,3 +186,5 @@ pub const MCAST_IOTYPE_PSBI: u16 = 341;
 pub const MCAST_IOTYPE_RF: u16 = 342;
 pub const MCAST_LET: u16 = 343;
 pub const MCAST_REQUIRE: u16 = 344;
+pub const MCAST_OPD_REORDER: u16 = 345;
+pub const MCAST_OPD_REORDER_RANGE: u16 = 346;

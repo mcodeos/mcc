@@ -458,6 +458,65 @@ impl fmt::Display for SquareItem {
     }
 }
 
+/// Outcome of judging a `{{order}}` spec (U385 engine leg 2,
+/// layer-expansion-law.md §4).
+pub enum OrderSpecError {
+    /// A spec item is not a positive 1-based position (`0`, `x`, `2.5`) — the
+    /// offending item text rides along for the diagnostic.
+    InvalidPosition(String),
+    /// The positions are not a permutation of `1..=n` — repeated, out of
+    /// range, or incomplete (the law's initial ruling: a permutation, not a
+    /// resampling).
+    NotPermutation,
+}
+
+/// Expand a `{{order}}` spec to 1-based positions in spelling order: a bare
+/// item is one position, a range expands start..=end with the written
+/// direction (`4:1` = 4,3,2,1 — the descending spelling is the reverse).
+/// Repeats inside the spec are rejected here; the `1..=n` completeness is
+/// judged against the member count at the call site
+/// ([`judge_order_positions`]).
+pub fn order_positions(items: &[SquareItem]) -> Result<Vec<usize>, OrderSpecError> {
+    fn one(text: &str) -> Result<usize, OrderSpecError> {
+        // A position is a plain positive decimal integer.
+        match text.parse::<usize>() {
+            Ok(p) if p >= 1 => Ok(p),
+            _ => Err(OrderSpecError::InvalidPosition(text.to_string())),
+        }
+    }
+    let mut out = Vec::new();
+    for item in items {
+        match item {
+            SquareItem::Id(p) => out.push(one(p)?),
+            SquareItem::Range(a, b) => {
+                let (start, end) = (one(a)?, one(b)?);
+                if start <= end {
+                    out.extend(start..=end);
+                } else {
+                    out.extend((end..=start).rev());
+                }
+            }
+        }
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    for p in &out {
+        if !seen.insert(*p) {
+            return Err(OrderSpecError::NotPermutation);
+        }
+    }
+    Ok(out)
+}
+
+/// Judge the expanded spec against a member-sequence length: a permutation
+/// must hit every position exactly once.
+pub fn judge_order_positions(positions: &[usize], n: usize) -> Result<(), OrderSpecError> {
+    if positions.len() == n && positions.iter().all(|p| (1..=n).contains(p)) {
+        Ok(())
+    } else {
+        Err(OrderSpecError::NotPermutation)
+    }
+}
+
 impl fmt::Display for McIda {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.to_string())

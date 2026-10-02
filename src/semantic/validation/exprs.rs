@@ -231,7 +231,10 @@ fn anchor_leaves(phrase: &McPhrase) -> usize {
         McPhrase::Multiple(v) | McPhrase::Parallel(v) | McPhrase::Series(v, _) => {
             v.iter().map(anchor_leaves).sum()
         }
-        McPhrase::Reversed(inner) | McPhrase::Transposed(inner) | McPhrase::Member(inner, _) => {
+        McPhrase::Reversed(inner)
+        | McPhrase::Transposed(inner)
+        | McPhrase::Reordered(inner, _)
+        | McPhrase::Member(inner, _) => {
             anchor_leaves(inner)
         }
         McPhrase::Group(_) => phrase

@@ -1320,6 +1320,9 @@ fn phrase_to_info(phrase: &McPhrase) -> StmtInfo {
                 inner: Box::new(phrase_to_info(phrase)),
             }],
         },
+        // U385 engine leg 2: the reorder is a face view — the member set is
+        // the operand's; the permutation lives in the face accessors.
+        McPhrase::Reordered(inner, _) => phrase_to_info(inner),
         McPhrase::Lead(_) => StmtInfo { members: vec![] },
         McPhrase::Multiple(phrases) => StmtInfo {
             members: phrases

@@ -1882,6 +1882,11 @@ impl InstantiationBuilder {
                 let gaps: Vec<ConnDir> = gaps.into_iter().rev().map(ConnDir::flipped).collect();
                 (members, gaps)
             }
+            // U385 engine leg 2: a reorder is a face view, not a chain
+            // rewrite — the operand rides as ONE member and the permutation
+            // applies inside get_left_points / get_right_points when the
+            // wrapper's faces are read.
+            McPhrase::Reordered(_, _) => (vec![phrase.clone()], Vec::new()),
             McPhrase::Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::Component(c),
             })) => {
@@ -3407,6 +3412,35 @@ impl InstantiationBuilder {
                     self.process_stmt(inner)?;
                 }
             },
+            // U385 engine leg 2: `{{order}}` is a face view over the same
+            // expression — instantiate the operand in place (same pointer
+            // law as the Transposed/Reversed arms above); the permutation
+            // itself rides get_left_points / get_right_points.
+            McPhrase::Reordered(inner, _) => match inner.as_ref() {
+                McPhrase::Series(elems, d) => {
+                    self.process_series_branch_inplace(elems, *d)?;
+                }
+                McPhrase::FuncCall(_)
+                | McPhrase::Endpoint(_)
+                | McPhrase::Transposed(_)
+                | McPhrase::Reversed(_)
+                | McPhrase::Reordered(_, _)
+                | McPhrase::Lead(_)
+                | McPhrase::Member(_, _) => {
+                    self.process_member_internal(inner)?;
+                }
+                McPhrase::Multiple(items) => {
+                    // U372: same law as the Transposed/Reversed arms above —
+                    // a dissolved member vector instantiates in place, never
+                    // chains.
+                    for it in items {
+                        self.process_member_internal(it)?;
+                    }
+                }
+                _ => {
+                    self.process_stmt(inner)?;
+                }
+            },
             McPhrase::Closure(ref c) => {
                 // Phase 3.3: Closure instantiation (closure parameter binding)
                 for param_decl in c.params.iter() {
@@ -4218,6 +4252,9 @@ impl InstantiationBuilder {
                 Self::assign_phrase_ids(inner, next_id);
             }
             McPhrase::Reversed(ref mut inner) => {
+                Self::assign_phrase_ids(inner, next_id);
+            }
+            McPhrase::Reordered(ref mut inner, _) => {
                 Self::assign_phrase_ids(inner, next_id);
             }
             McPhrase::Closure(ref mut c) => {

@@ -346,6 +346,8 @@ pub(crate) fn count_refs(phrase: &McPhrase, name: &str, c: &mut RefCounts, net_c
             }
         }
         Transposed(inner) | Reversed(inner) => count_refs(inner, name, c, net_ctx),
+        // U385 engine leg 2: positions are literals, not references.
+        Reordered(inner, _) => count_refs(inner, name, c, net_ctx),
         Closure(closure) => {
             for p in &closure.body {
                 count_refs(p, name, c, net_ctx);
