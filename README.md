@@ -90,6 +90,7 @@ the offline manual lives in the sibling docs repo (`mcd/doc/cli/manual.md`).
 |---------|-------------|
 | `export` | Export netlist / BOM / SPICE (text\|csv\|json) |
 | `import` | Read an EDA artifact back and report how it differs from the current world |
+| `import --skeleton` | mct.netlist/1 JSON (the mct corpus tool's `--json` output) -> a compilable project skeleton (project.toml + main.mc + bom.mc). Conservative stubbing: anything unresolved (values / pin directions / domains) stays a `TODO(import)` stub; inline `::CAP/::RES/::IND` chains only for two-pin + whitelist + a high-confidence value parse; the generated project must pass the compile self-check at 0 errors before delivery. Contract: `schema/mct-netlist.schema.json`; engine in `src/import_skeleton/` |
 
 **Session, library and scaffolding**
 
