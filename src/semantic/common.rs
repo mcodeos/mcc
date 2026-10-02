@@ -119,7 +119,8 @@ impl std::fmt::Display for ConnDir {
 /// the source region that declared them.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BlockPartition {
-    /// The name as written (`pwr` in `block pwr { ... }`).
+    /// The name as written (`pwr` in `block pwr { ... }`), or empty for the
+    /// anonymous form `block { ... }` (b4440) — the frame draws untitled.
     pub name: String,
     /// The level word as written (`block`; `sheet` / `subsystem` reduce through
     /// the same node). Carried, never consulted: the family is a grammar choice.
@@ -186,8 +187,9 @@ impl BlockPartitions {
 /// partitions transparent precisely by discarding them. The coverage span is
 /// the clause's own `rpos/rlen` (U159): the whole `block <name> { ... }` text.
 ///
-/// Bodyless or nameless nodes are skipped defensively; the grammar cannot
-/// produce them (an unnamed partition is E2082 with the clause recovered).
+/// Bodyless nodes are skipped defensively; the grammar cannot produce them.
+/// The name slot is optional (b4440): the anonymous `block { ... }` reduces
+/// with an empty `MCAST_IDS` name node and lands here as an untitled record.
 pub fn collect_block_partitions(body: &AstNode) -> Vec<BlockPartition> {
     fn partition_of(node: &AstNode) -> Option<BlockPartition> {
         let sub = node.get_sub_node()?;
@@ -196,12 +198,15 @@ pub fn collect_block_partitions(body: &AstNode) -> Vec<BlockPartition> {
         let name_node = children.get(1)?;
         let body_node = children.get(2)?;
 
-        let name = McIds::new_with_dot(name_node)
+        // The anonymous form's name slot is an MCAST_IDS with no sub-nodes;
+        // McIds::new reports exactly that shape as E2121, so the empty name is
+        // read off the node shape before McIds ever sees it.
+        let name = name_node
+            .get_sub_node()
+            .map(|_| McIds::new_with_dot(name_node))
+            .unwrap_or(None)
             .map(|ids| ids.to_string())
             .unwrap_or_default();
-        if name.is_empty() {
-            return None;
-        }
         let level_word = level
             .data_as_cstr()
             .and_then(|c| c.to_str().ok())

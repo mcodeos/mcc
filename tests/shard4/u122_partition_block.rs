@@ -27,16 +27,12 @@
 //      not by the absence of a complaint — a body that swallowed the partition
 //      would be silent about the component pins and still silent about the
 //      recipe signals.
-//   3. A partition must be named. `block { … }` is not a clause the grammar can
-//      reduce, so it is reported — and, as everywhere else, the report does not
-//      block the board: the clauses inside are read as the body's own, which is
-//      what they would have been anyway. The twin (the same board with a name)
-//      is silent, so the lock cannot pass on an engine that rejects every
-//      partition — and no assertion here has to claim that a mistake erases the
-//      circuit. The two boards' *rows* are deliberately not compared: after
-//      recovery the unnamed one spells its pin rows differently (measured:
-//      `main.R1/1` against the named board's `main.R1.1`), which is a fact
-//      about the recoverable path and not about partitions.
+//   3. The name is optional (b4440): `block { … }` reduces through the same
+//      clause and is exactly as silent as its named twin — grouping is the
+//      clause's whole effect, and a name changes none of it (the label is the
+//      viz frame's, U168's face). Before the anonymous arm the missing name
+//      died in clause recovery, and the recovery ate the body's first clause
+//      with it, so this lock replaces `u122__an_unnamed_partition_is_reported`.
 //
 // Deliberately **not** locked: that the level word is carried whole (`block`
 // versus the family's other words is a grammar choice, not a runtime reading),
@@ -53,9 +49,10 @@ use std::collections::HashMap;
 
 use mcc::{DiagnosticLevel, McIds};
 
-/// `PARSER_CLAUSE_INVALID` — "Invalid clause in a body", the report a `block`
-/// with no name draws (the grammar has no reduction for it; the recoverable
-/// clause error is what reaches the author).
+/// `PARSER_CLAUSE_INVALID` — "Invalid clause in a body". No partition spelling
+/// draws it any more (the anonymous form reduces, b4440); the tests keep the
+/// zero-count assertions so a regression back to a rejecting grammar — named
+/// or anonymous — cannot pass by silence.
 const PARSER_CLAUSE_INVALID: u32 = 2082;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -367,41 +364,38 @@ module main(psnk GND)
 }
 
 #[test]
-fn u122__an_unnamed_partition_is_reported() {
+fn u122__an_anonymous_partition_is_silent_like_its_named_twin() {
     let _guard = common::lock();
-    let unnamed = build("unnamed", &board(None));
+    let anonymous = build("anonymous", &board(None));
     let named = build("named-twin", &board(Some("power")));
 
-    // The report: the grammar has no clause to reduce, so the recoverable
-    // clause error reaches the author — and it is an error, not a warning.
-    assert!(
-        unnamed
-            .diags
-            .iter()
-            .any(|d| d.code == PARSER_CLAUSE_INVALID && d.level == DiagnosticLevel::Error),
-        "an unnamed partition must be reported: {:?}",
-        unnamed.diags
-    );
-    // The twin is the control: the same board with a name is silent, so the
-    // report above comes from the missing name and nothing else.
+    // The name is the only thing the two boards differ in, and the name is
+    // only the viz frame's label (U168's face) — so both are silent, and the
+    // anonymous one carries no clause-error report either: the grammar reduces
+    // `block { … }` directly (b4440), there is no recovery to fire.
     assert_eq!(
-        named.count(PARSER_CLAUSE_INVALID),
+        anonymous.count(PARSER_CLAUSE_INVALID),
         0,
-        "diags: {:?}",
-        named.diags
+        "an anonymous partition is legal syntax: {:?}",
+        anonymous.diags
     );
+    assert!(!anonymous.has_error(), "diags: {:?}", anonymous.diags);
+    assert_eq!(named.count(PARSER_CLAUSE_INVALID), 0, "diags: {:?}", named.diags);
 
-    // The report is not a stop: the part written inside the refused clause is
-    // still built, and still built as the *module's* own part — there is no
-    // path segment for the partition either way, which is the same thing the
-    // named twin shows (grouping is not a scope, so a clause the parser could
-    // not reduce lands where one it could would have landed anyway).
+    // The part written inside the anonymous clause builds as the *module's*
+    // own part, and its wire holds: grouping is not a scope, so there is no
+    // path segment for a name the author never wrote either.
     assert!(
-        unnamed.has_path("main.R1"),
+        anonymous.has_path("main.R1"),
         "paths: {:?}",
-        unnamed.net_of_path
+        anonymous.net_of_path
     );
-    for p in unnamed.net_of_path.keys() {
+    assert_eq!(
+        anonymous.net_of("main.R1.1"),
+        anonymous.net_of("main.GND"),
+        "the statement inside the anonymous partition must be wired"
+    );
+    for p in anonymous.net_of_path.keys() {
         assert!(
             !p.contains("power"),
             "a partition became a path segment: {p}"

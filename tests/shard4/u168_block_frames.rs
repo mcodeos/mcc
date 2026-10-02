@@ -247,7 +247,83 @@ fn block_frame__frames_enclose_their_member_boxes_only() {
     }
 }
 
-/// -- 3. the twin: no partitions, no frames --
+/// -- 3. the anonymous form: the grouping stays, the label is empty (b4440) --
+
+/// One anonymous partition next to a named sibling, each holding two boxes —
+/// the same two-members-per-region shape the main fixture keeps, so a dropped
+/// region cannot pass by silence.
+const ANONYMOUS: &str = r#"component RES
+{
+    pins = [
+        1 = 1
+        2 = 2
+    ]
+}
+
+module main(psnk GND)
+{
+    block
+    {
+        RES R_m1
+        RES R_m2
+        R_m1.1 -> GND
+        R_m2.1 -> GND
+    }
+    block idle
+    {
+        RES R_z1
+        RES R_z2
+        R_z1.1 -> GND
+        R_z2.1 -> GND
+    }
+}
+"#;
+
+#[test]
+fn block_frame__anonymous_partition_collects_and_draws_untitled() {
+    let _guard = common::lock();
+    let (mut graph, table) = build(ANONYMOUS);
+
+    // The table: the anonymous clause is a root like any other, with the
+    // empty name the source wrote — and its span still means containment.
+    let parts = table
+        .block_parts_of(graph.bid as u32)
+        .expect("the main module entry carries its partition table");
+    assert_eq!(
+        parts.roots.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(),
+        vec!["", "idle"],
+        "the anonymous root keeps its place in source order"
+    );
+    assert_eq!(parts.roots[0].level, "block");
+    let off_m = ANONYMOUS.find("RES R_m1").unwrap();
+    assert!(
+        parts.innermost(off_m).is_some_and(|p| p.name.is_empty()),
+        "a member of the anonymous partition attributes to it"
+    );
+
+    // The frame: drawn like any block frame, with no title text.
+    run_device_tail(&mut graph);
+    let anonymous_frame = graph
+        .block_frames
+        .iter()
+        .find(|f| f.title.is_empty())
+        .unwrap_or_else(|| panic!("the anonymous partition draws a frame: {:?}", graph.block_frames));
+    for name in ["R_m1", "R_m2"] {
+        assert!(
+            inside(rect_of(box_by_name(&graph, name)), (anonymous_frame.x, anonymous_frame.y, anonymous_frame.w, anonymous_frame.h)),
+            "{name} inside the untitled frame"
+        );
+    }
+
+    // The SVG: an empty data-block attribute, a frame group like any other.
+    let svg = mcc::viz::render::SvgRenderer::render(&graph, 0.0, 0.0, 800.0, 600.0);
+    assert!(
+        svg.contains(r#"data-block="""#),
+        "the anonymous frame carries an empty data-block"
+    );
+}
+
+/// -- 4. the twin: no partitions, no frames --
 
 #[test]
 fn block_frame__unpartitioned_board_draws_no_frames() {
@@ -266,7 +342,7 @@ fn block_frame__unpartitioned_board_draws_no_frames() {
     );
 }
 
-/// -- 4. the drawing: frames reach the SVG, named by the partition --
+/// -- 5. the drawing: frames reach the SVG, named by the partition --
 
 #[test]
 fn block_frame__svg_carries_the_frames_under_the_content() {
@@ -293,7 +369,7 @@ fn block_frame__svg_carries_the_frames_under_the_content() {
     );
 }
 
-/// -- 5. the grouping law: the frame pass derives, it never moves --
+/// -- 6. the grouping law: the frame pass derives, it never moves --
 
 #[test]
 fn block_frame__frame_pass_moves_no_box() {
@@ -317,7 +393,7 @@ fn block_frame__frame_pass_moves_no_box() {
     );
 }
 
-/// -- 6. the switch: the frames are display, off unless asked (U171) --
+/// -- 7. the switch: the frames are display, off unless asked (U171) --
 
 #[test]
 fn block_frame__frames_off_by_default_opt_in_draws() {
