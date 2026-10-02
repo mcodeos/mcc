@@ -24,7 +24,7 @@ use std::sync::Arc;
 /// The engine-value reading of a resolved attribute row (U383 leg3): the
 /// sibling-name environment of a `spec = [ … ]` block. A row that did not
 /// resolve to a literal contributes nothing — later rows read it as unbound.
-fn attr_val_to_value(val: &crate::semantic::component::mc_attr::McAttrVal) -> Option<Value> {
+pub(crate) fn attr_val_to_value(val: &crate::semantic::component::mc_attr::McAttrVal) -> Option<Value> {
     use crate::semantic::basic::mc_literal::McLiteral;
     use crate::semantic::component::mc_attr::McAttrVal;
     match val {
@@ -34,6 +34,205 @@ fn attr_val_to_value(val: &crate::semantic::component::mc_attr::McAttrVal) -> Op
         McAttrVal::AttrLiteral(McLiteral::String(s)) => Some(Value::Str(s.value.clone())),
         _ => None,
     }
+}
+
+/// The parameter-text reader behind [`McComponentInst::lookup_param_value`]
+/// (U383 leg4b): argument bindings first, then the definition's declared
+/// defaults. Free-standing so the module `let` face reads its own params
+/// with the same fallback order.
+pub(crate) fn param_text_lookup(
+    params: &McParamBindings,
+    declares: &crate::semantic::basic::mc_paramd::McParamDeclares,
+    name: &str,
+) -> Option<String> {
+    // 1. Check instance parameter bindings
+    for binding in params.iter() {
+        if formal_answers_to(&binding.declare, name) {
+            if let Some(value) = binding.get_value() {
+                return Some(format!("{value}"));
+            }
+        }
+    }
+    // 2. Fall back to declared parameter defaults from the definition
+    //    (used when no arguments were passed, e.g. TEST_EXPRESSION u1)
+    for declare in declares.iter() {
+        match &declare.kind {
+            crate::semantic::basic::mc_paramd::McParamDeclareKind::UValue(uval) => {
+                if uval.name.get_primary_name().as_deref() == Some(name) {
+                    if let Some(ref default) = uval.default {
+                        return Some(default.clone());
+                    }
+                }
+            }
+            crate::semantic::basic::mc_paramd::McParamDeclareKind::EnumClass(ec) => {
+                if ec.name.get_primary_name().as_deref() == Some(name) {
+                    if let Some(ref default) = ec.default_val {
+                        return Some(default.clone());
+                    }
+                }
+            }
+            crate::semantic::basic::mc_paramd::McParamDeclareKind::Single(ids) => {
+                if ids.get_primary_name().as_deref() == Some(name) {
+                    return Some(String::new());
+                }
+            }
+            crate::semantic::basic::mc_paramd::McParamDeclareKind::Role {
+                name: ids, ..
+            } => {
+                if ids.get_primary_name().as_deref() == Some(name) {
+                    return Some(String::new());
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// The expression evaluator behind the resolve door (U383 leg4b): parameter
+/// lookup is the only instance state the reader touches, so the component
+/// spec face and the module `let`/`require` face share one reader with the
+/// lookup riding as a closure. The bodies are the leg3 reader verbatim —
+/// the traits that matter here are unchanged: an unbound name resolves to
+/// `Ok(None)` (silent, not a refusal), an engine refusal is `Err` and keeps
+/// the written form at the reporting row.
+pub(crate) fn resolve_expr_value(
+    expr: &McExpression,
+    env: &[(String, Value)],
+    lookup: &dyn Fn(&str) -> Option<String>,
+) -> Result<Option<Value>, eval::EvalError> {
+    Ok(match expr {
+        McExpression::Variable(opd) => {
+            let names = opd.expand();
+            if names.len() == 1 {
+                match lookup(&names[0]) {
+                    Some(s) => Some(Value::from_text(&s)),
+                    // A resolved sibling row of the enclosing block is a
+                    // name too (spec = [vbus = 12V, p = vbus * imax]) —
+                    // instance params shadow, siblings fill the rest.
+                    None => env
+                        .iter()
+                        .rev()
+                        .find(|(n, _)| n == &names[0])
+                        .map(|(_, v)| v.clone()),
+                }
+            } else {
+                Some(Value::Str(names.join(" ")))
+            }
+        }
+        McExpression::Int(i) => Some(Value::Int(i.value)),
+        McExpression::Float(f) => Some(Value::Float(f.value)),
+        McExpression::String(s) => Some(Value::Str(s.value.clone())),
+        McExpression::UnitValue(u) => Some(Value::from_quantity(u.clone())),
+        McExpression::Plus(l, r) => apply_expr_operands(Op::Add, l, r, env, lookup)?,
+        McExpression::Minus(l, r) => apply_expr_operands(Op::Sub, l, r, env, lookup)?,
+        McExpression::Multiply(l, r) => apply_expr_operands(Op::Mul, l, r, env, lookup)?,
+        McExpression::Divide(l, r) => apply_expr_operands(Op::Div, l, r, env, lookup)?,
+        McExpression::Call { name, args } => {
+            let mut resolved = Vec::with_capacity(args.len());
+            for arg in args {
+                match resolve_expr_value(arg, env, lookup)? {
+                    Some(v) => resolved.push(v),
+                    // An unresolved argument is not a refusal — the call
+                    // stays as written, silently (the legacy face).
+                    None => return Ok(None),
+                }
+            }
+            eval::call_builtin(name, &resolved)
+        }
+        _ => resolve_expr_literal(expr, env, lookup).map(Value::Str),
+    })
+}
+
+/// Substitute parameter references in an expression and evaluate the result
+/// as text — the legacy string face of [`resolve_expr_value`].
+pub(crate) fn resolve_expr_literal(
+    expr: &McExpression,
+    env: &[(String, Value)],
+    lookup: &dyn Fn(&str) -> Option<String>,
+) -> Option<String> {
+    match expr {
+        // Substitute a variable with its bound parameter value
+        McExpression::Variable(opd) => {
+            let names = opd.expand();
+            if names.len() == 1 {
+                lookup(&names[0])
+            } else {
+                // Multi-value variable: join with spaces
+                Some(names.join(" "))
+            }
+        }
+        // Simple literals: return their string representation
+        McExpression::Int(i) => Some(i.value.to_string()),
+        McExpression::Float(f) => Some(f.value.to_string()),
+        McExpression::String(s) => Some(s.value.clone()),
+        // `+` concatenates without the "+" separator; the engine reads a
+        // text operand as interpolation, so `"cols: " + cols` renders the
+        // same string it always did.
+        McExpression::Plus(l, r) => {
+            let left = resolve_expr_value(l, env, lookup).ok().flatten()?;
+            let right = resolve_expr_value(r, env, lookup).ok().flatten()?;
+            eval::apply(Op::Add, &left, &right).ok().map(|v| v.text())
+        }
+        // Arithmetic: evaluated by the engine, then read back as a whole
+        // number.
+        McExpression::Multiply(l, r) => resolve_expr_int(Op::Mul, l, r, env, lookup),
+        McExpression::Divide(l, r) => resolve_expr_int(Op::Div, l, r, env, lookup),
+        McExpression::Minus(l, r) => resolve_expr_int(Op::Sub, l, r, env, lookup),
+        McExpression::Slice(l, r) => {
+            let left = resolve_expr_literal(l, env, lookup)?;
+            let right = resolve_expr_literal(r, env, lookup)?;
+            Some(format!("{left}:{right}"))
+        }
+        McExpression::Range(l, r) => {
+            let left = resolve_expr_literal(l, env, lookup)?;
+            let right = resolve_expr_literal(r, env, lookup)?;
+            Some(format!("{left}~{right}"))
+        }
+        // Fallback: use the expression's Display representation
+        _ => Some(expr.to_string()),
+    }
+}
+
+/// Apply an operator to two sub-expressions and keep the result when it is a
+/// whole number.
+///
+/// An expression that does not come out integral is left unresolved, so the
+/// attribute keeps the form it was written in. A division by zero or an
+/// integer overflow is one of those cases (the engine reports them rather
+/// than letting the arithmetic truncate or wrap silently).
+fn resolve_expr_int(
+    op: Op,
+    l: &McExpression,
+    r: &McExpression,
+    env: &[(String, Value)],
+    lookup: &dyn Fn(&str) -> Option<String>,
+) -> Option<String> {
+    let left = resolve_expr_value(l, env, lookup).ok().flatten()?;
+    let right = resolve_expr_value(r, env, lookup).ok().flatten()?;
+    match eval::apply(op, &left, &right) {
+        Ok(Value::Int(n)) => Some(n.to_string()),
+        _ => None,
+    }
+}
+
+fn apply_expr_operands(
+    op: Op,
+    l: &McExpression,
+    r: &McExpression,
+    env: &[(String, Value)],
+    lookup: &dyn Fn(&str) -> Option<String>,
+) -> Result<Option<Value>, eval::EvalError> {
+    // An operand that resolves to nothing (an unbound name) leaves the
+    // whole expression unresolved — `Ok(None)`, no diagnostic. Only the
+    // engine itself refusing (`eval::apply` → `Err`) is a refusal.
+    let Some(left) = resolve_expr_value(l, env, lookup)? else {
+        return Ok(None);
+    };
+    let Some(right) = resolve_expr_value(r, env, lookup)? else {
+        return Ok(None);
+    };
+    eval::apply(op, &left, &right).map(Some)
 }
 
 // McComponentInst - Component instance
@@ -765,48 +964,7 @@ impl McComponentInst {
     /// Checks argument bindings first, then falls back to declared defaults
     /// (needed when a component is instantiated without arguments, e.g. `TEST_EXPRESSION u1`).
     fn lookup_param_value(&self, name: &str) -> Option<String> {
-        // 1. Check instance parameter bindings
-        for binding in self.params.iter() {
-            if formal_answers_to(&binding.declare, name) {
-                if let Some(value) = binding.get_value() {
-                    return Some(format!("{value}"));
-                }
-            }
-        }
-        // 2. Fall back to declared parameter defaults from the component definition
-        //    (used when no arguments were passed, e.g. TEST_EXPRESSION u1)
-        for declare in self.def.params.iter() {
-            match &declare.kind {
-                crate::semantic::basic::mc_paramd::McParamDeclareKind::UValue(uval) => {
-                    if uval.name.get_primary_name().as_deref() == Some(name) {
-                        if let Some(ref default) = uval.default {
-                            return Some(default.clone());
-                        }
-                    }
-                }
-                crate::semantic::basic::mc_paramd::McParamDeclareKind::EnumClass(ec) => {
-                    if ec.name.get_primary_name().as_deref() == Some(name) {
-                        if let Some(ref default) = ec.default_val {
-                            return Some(default.clone());
-                        }
-                    }
-                }
-                crate::semantic::basic::mc_paramd::McParamDeclareKind::Single(ids) => {
-                    if ids.get_primary_name().as_deref() == Some(name) {
-                        return Some(String::new());
-                    }
-                }
-                crate::semantic::basic::mc_paramd::McParamDeclareKind::Role {
-                    name: ids, ..
-                } => {
-                    if ids.get_primary_name().as_deref() == Some(name) {
-                        return Some(String::new());
-                    }
-                }
-                _ => {}
-            }
-        }
-        None
+        param_text_lookup(&self.params, &self.def.params, name)
     }
 
     /// Substitute parameter references in an expression and evaluate the result.
@@ -816,70 +974,12 @@ impl McComponentInst {
     /// The operations run on the value engine (doc/eval V2/V7), so an argument
     /// that carries a unit suffix is normalized by the one suffix table instead
     /// of having the suffix sliced off the text.
-    fn resolve_expr_to_literal(&self, expr: &McExpression, env: &[(String, Value)]) -> Option<String> {
-        match expr {
-            // Substitute a variable with its bound parameter value
-            McExpression::Variable(opd) => {
-                let names = opd.expand();
-                if names.len() == 1 {
-                    self.lookup_param_value(&names[0])
-                } else {
-                    // Multi-value variable: join with spaces
-                    Some(names.join(" "))
-                }
-            }
-            // Simple literals: return their string representation
-            McExpression::Int(i) => Some(i.value.to_string()),
-            McExpression::Float(f) => Some(f.value.to_string()),
-            McExpression::String(s) => Some(s.value.clone()),
-            // `+` concatenates without the "+" separator; the engine reads a
-            // text operand as interpolation, so `"cols: " + cols` renders the
-            // same string it always did.
-            McExpression::Plus(l, r) => {
-                let left = self.resolve_expr_to_value(l, env).ok().flatten()?;
-                let right = self.resolve_expr_to_value(r, env).ok().flatten()?;
-                eval::apply(Op::Add, &left, &right).ok().map(|v| v.text())
-            }
-            // Arithmetic: evaluated by the engine, then read back as a whole
-            // number.
-            McExpression::Multiply(l, r) => self.resolve_expr_to_int(Op::Mul, l, r, env),
-            McExpression::Divide(l, r) => self.resolve_expr_to_int(Op::Div, l, r, env),
-            McExpression::Minus(l, r) => self.resolve_expr_to_int(Op::Sub, l, r, env),
-            McExpression::Slice(l, r) => {
-                let left = self.resolve_expr_to_literal(l, env)?;
-                let right = self.resolve_expr_to_literal(r, env)?;
-                Some(format!("{left}:{right}"))
-            }
-            McExpression::Range(l, r) => {
-                let left = self.resolve_expr_to_literal(l, env)?;
-                let right = self.resolve_expr_to_literal(r, env)?;
-                Some(format!("{left}~{right}"))
-            }
-            // Fallback: use the expression's Display representation
-            _ => Some(expr.to_string()),
-        }
-    }
-
-    /// Apply an operator to two sub-expressions and keep the result when it is a
-    /// whole number.
-    ///
-    /// An expression that does not come out integral is left unresolved, so the
-    /// attribute keeps the form it was written in. A division by zero or an
-    /// integer overflow is one of those cases (the engine reports them rather
-    /// than letting the arithmetic truncate or wrap silently).
-    fn resolve_expr_to_int(
+    fn resolve_expr_to_literal(
         &self,
-        op: Op,
-        l: &McExpression,
-        r: &McExpression,
+        expr: &McExpression,
         env: &[(String, Value)],
     ) -> Option<String> {
-        let left = self.resolve_expr_to_value(l, env).ok().flatten()?;
-        let right = self.resolve_expr_to_value(r, env).ok().flatten()?;
-        match eval::apply(op, &left, &right) {
-            Ok(Value::Int(n)) => Some(n.to_string()),
-            _ => None,
-        }
+        resolve_expr_literal(expr, env, &|name| self.lookup_param_value(name))
     }
 
     /// Resolve an expression to an engine value (V1): the forms that take part
@@ -895,69 +995,8 @@ impl McComponentInst {
         expr: &McExpression,
         env: &[(String, Value)],
     ) -> Result<Option<Value>, eval::EvalError> {
-        Ok(match expr {
-            McExpression::Variable(opd) => {
-                let names = opd.expand();
-                if names.len() == 1 {
-                    match self.lookup_param_value(&names[0]) {
-                        Some(s) => Some(Value::from_text(&s)),
-                        // A resolved sibling row of the enclosing block is a
-                        // name too (spec = [vbus = 12V, p = vbus * imax]) —
-                        // instance params shadow, siblings fill the rest.
-                        None => env
-                            .iter()
-                            .rev()
-                            .find(|(n, _)| n == &names[0])
-                            .map(|(_, v)| v.clone()),
-                    }
-                } else {
-                    Some(Value::Str(names.join(" ")))
-                }
-            }
-            McExpression::Int(i) => Some(Value::Int(i.value)),
-            McExpression::Float(f) => Some(Value::Float(f.value)),
-            McExpression::String(s) => Some(Value::Str(s.value.clone())),
-            McExpression::UnitValue(u) => Some(Value::from_quantity(u.clone())),
-            McExpression::Plus(l, r) => self.apply_operands(Op::Add, l, r, env)?,
-            McExpression::Minus(l, r) => self.apply_operands(Op::Sub, l, r, env)?,
-            McExpression::Multiply(l, r) => self.apply_operands(Op::Mul, l, r, env)?,
-            McExpression::Divide(l, r) => self.apply_operands(Op::Div, l, r, env)?,
-            McExpression::Call { name, args } => {
-                let mut resolved = Vec::with_capacity(args.len());
-                for arg in args {
-                    match self.resolve_expr_to_value(arg, env)? {
-                        Some(v) => resolved.push(v),
-                        // An unresolved argument is not a refusal — the call
-                        // stays as written, silently (the legacy face).
-                        None => return Ok(None),
-                    }
-                }
-                eval::call_builtin(name, &resolved)
-            }
-            _ => self.resolve_expr_to_literal(expr, env).map(Value::Str),
-        })
+        resolve_expr_value(expr, env, &|name| self.lookup_param_value(name))
     }
-
-    fn apply_operands(
-        &self,
-        op: Op,
-        l: &McExpression,
-        r: &McExpression,
-        env: &[(String, Value)],
-    ) -> Result<Option<Value>, eval::EvalError> {
-        // An operand that resolves to nothing (an unbound name) leaves the
-        // whole expression unresolved — `Ok(None)`, no diagnostic. Only the
-        // engine itself refusing (`eval::apply` → `Err`) is a refusal.
-        let Some(left) = self.resolve_expr_to_value(l, env)? else {
-            return Ok(None);
-        };
-        let Some(right) = self.resolve_expr_to_value(r, env)? else {
-            return Ok(None);
-        };
-        eval::apply(op, &left, &right).map(Some)
-    }
-
-
 
     /// Initialize dynamic pins
     /// Dynamic pins contain parameter references (e.g., `1:cols`) and need to be resolved

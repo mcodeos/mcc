@@ -174,3 +174,105 @@ fn u383__legacy_text_faces_unchanged() {
     // `gain` binds as text "2.5"; 10V * 2.5 is a quantity times a scalar → 25V.
     assert!(rows.contains("scaled = 25.00V"), "{rows}");
 }
+
+// ---------------------------------------------------------------------------
+// U383 leg4b — body-local `let` bindings and per-instance `require` judgements
+// (b4483 rulings ① and ②). The judgement rides the conds chain with the U39
+// deferral: undecided is not violated.
+// ---------------------------------------------------------------------------
+
+/// Diagnostics only — the module-body face has no resolved-attrs render to
+/// read; the judgement products are diagnostics (or their absence).
+fn probe_diags(src: &str, uri: &str, top: &str) -> Vec<u32> {
+    let _lock = common::lock();
+    common::reset();
+    let uri: mcc::McURI = uri.to_string();
+    mcc::mcc_load_from_string(&uri, src);
+    let (_, arena, store, _) =
+        mcc::mcc_build_with_arena(&McIds::from(top), &uri).expect("build");
+    let _ = (&arena, &store);
+    mcc::mcc_diagnose_all().iter().map(|d| d.code).collect()
+}
+
+/// The exemplar §B chain: lets bind in written order, a later let reads an
+/// earlier one, and the satisfied require stays silent.
+#[test]
+fn u383__let_chain_satisfied_require_is_silent() {
+    let src = "module main {\n\
+               \x20   let v      = 3.3V\n\
+               \x20   let i_load = 500mA\n\
+               \x20   let p      = v * i_load\n\
+               \x20   let p_peak = p * 2\n\
+               \x20   require p_peak <= 5W\n\
+               }\n";
+    let diags = probe_diags(src, "/mcc/u383-let-chain.mc", "main");
+    assert!(diags.is_empty(), "a satisfied require must stay silent: {diags:?}");
+}
+
+/// The violated require reports E5463 at its row.
+#[test]
+fn u383__violated_require_reports() {
+    let src = "module main {\n\
+               \x20   let p = 9.9W\n\
+               \x20   require p <= 5W\n\
+               }\n";
+    let diags = probe_diags(src, "/mcc/u383-require-fail.mc", "main");
+    assert!(
+        diags.contains(&mcc::errcodes::MODULE_REQUIRE_UNSATISFIED),
+        "a false judge must report: {diags:?}"
+    );
+}
+
+/// Undecided is not violated (the U39 deferral): a `_`-valued binding keeps
+/// the require silent, and so does an unbound header formal.
+#[test]
+fn u383__undecided_requires_stay_silent() {
+    let src = "module main (src) {\n\
+               \x20   let mystery = _\n\
+               \x20   let p = mystery * 3A\n\
+               \x20   require p <= 10W\n\
+               \x20   require src <= 3\n\
+               }\n";
+    let diags = probe_diags(src, "/mcc/u383-require-undef.mc", "main");
+    assert!(diags.is_empty(), "undecided judges must defer silently: {diags:?}");
+}
+
+/// The judgement is per instance (ruling ②): two instances of the same
+/// module, one inside and one outside the bound — the report is E5463 and
+/// the same written row does not duplicate it.
+#[test]
+fn u383__judgement_is_per_instance() {
+    let pass = "module TOP {\n    LIM(lim = 0.5A)\n}\n\
+                module LIM (lim) {\n    let p = lim * 5V\n    require p <= 5W\n}\n";
+    let diags = probe_diags(pass, "/mcc/u383-per-inst-pass.mc", "TOP");
+    assert!(diags.is_empty(), "0.5A * 5V = 2.5W satisfies: {diags:?}");
+
+    let fail = "module TOP {\n    LIM(lim = 2A)\n    LIM(lm2, lim = 3A)\n}\n\
+                module LIM (lim) {\n    let p = lim * 5V\n    require p <= 5W\n}\n";
+    let diags = probe_diags(fail, "/mcc/u383-per-inst-fail.mc", "TOP");
+    assert_eq!(
+        diags.iter().filter(|c| **c == mcc::errcodes::MODULE_REQUIRE_UNSATISFIED).count(),
+        1,
+        "both instances violate the same written row; the row reports once: {diags:?}"
+    );
+}
+
+/// The let-row refusal face mirrors leg3: an unregistered product reports
+/// E5417 at the let row, the name stays unbound, and the require reading it
+/// defers silently.
+#[test]
+fn u383__let_refusal_reports_and_defers_the_require() {
+    let src = "module main {\n\
+               \x20   let bad = 1A * 1A\n\
+               \x20   require bad <= 3W\n\
+               }\n";
+    let diags = probe_diags(src, "/mcc/u383-let-refusal.mc", "main");
+    assert!(
+        diags.contains(&mcc::errcodes::EVAL_NO_DERIVED_FAMILY),
+        "the unregistered product reports at the let row: {diags:?}"
+    );
+    assert!(
+        !diags.contains(&mcc::errcodes::MODULE_REQUIRE_UNSATISFIED),
+        "the require reading an unbound let defers: {diags:?}"
+    );
+}

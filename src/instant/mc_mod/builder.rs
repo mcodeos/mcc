@@ -1132,6 +1132,11 @@ impl InstantiationBuilder {
         // 3. Process connection stmts — per-stmt fault tolerance
         self.instantiate_stmts_resilient();
 
+        // 3.4 U383 leg4b: body-local `let` bindings and `require` judgements —
+        // per instance (b4483 ruling ②), riding the conds chain with the U39
+        // deferral for judges the instance cannot decide.
+        self.judge_body_requires();
+
         // 3.5 Auto-invoke module-level parameterless functions (closures)
         // Module-level functions like `func i2c() { ... }` with no parameters
         // are auto-invoked during instantiation. Functions with parameters
@@ -1163,6 +1168,137 @@ impl InstantiationBuilder {
         }
 
         Ok(()) // Always return Ok — errors have been recorded to diagnostics
+    }
+
+    /// U383 leg4b: evaluate the module body's `let` bindings, then judge its
+    /// `require` rows — per instance (b4483 ruling ②), riding the conds chain
+    /// ([`McConds::check_condition_result`]) with the U39 deferral: a judge
+    /// that reads a name this instance cannot resolve (an unbound or
+    /// name-bound parameter, a `_`-valued binding) stays silent — undecided
+    /// is not violated. A judge that decides false reports E5463 at its row;
+    /// an engine refusal on a resolvable `let` expression reports at the let
+    /// row (the leg3 refusal face) and leaves the name unbound.
+    pub(super) fn judge_body_requires(&mut self) {
+        if self.def.lets.is_empty() && self.def.requires.is_empty() {
+            return;
+        }
+        use crate::meta::Value;
+        use crate::semantic::basic::mc_conds::{CondParam, McConds};
+        use crate::instant::mc_comp::{attr_val_to_value, param_text_lookup, resolve_expr_value};
+
+        // The unreduced parameters (U39 gate): a header formal with no
+        // literal binding and no declared default stays open — the value may
+        // still arrive from the call site or the spec, so neither a `let`
+        // reading it nor a `require` judging it is this instance's to
+        // report.
+        let unreduced_params: Vec<String> = self
+            .def
+            .params
+            .names()
+            .into_iter()
+            .filter(|name| {
+                !self.params.find(name).is_some_and(|b| match b.get_value() {
+                    Some(value) => value.is_literal(),
+                    None => b.declare.default_val.is_some(),
+                })
+            })
+            .collect();
+
+        // The parameter-text reader: same fallback order as a component's
+        // (bindings, then declared defaults), except that an unreduced
+        // parameter reads as unbound — the component text face renders a
+        // bare header formal as the empty string, which the value face has
+        // no business arithmetic on.
+        let lookup = |name: &str| {
+            if unreduced_params.iter().any(|n| n == name) {
+                None
+            } else {
+                param_text_lookup(&self.params, &self.def.params, name)
+            }
+        };
+
+        // 1. Bind the lets in written order — a later row reads an earlier
+        //    one, and instance params shadow nothing here (the body-local
+        //    scope starts from the parameter values).
+        let mut env: Vec<(String, Value)> = Vec::new();
+        let mut unbound_lets: Vec<String> = Vec::new();
+        for row in &self.def.lets {
+            let resolved = match &row.value {
+                crate::semantic::component::mc_attr::McAttrVal::AttrExpr(expr) => {
+                    resolve_expr_value(expr, &env, &lookup)
+                }
+                other => Ok(attr_val_to_value(other)),
+            };
+            match resolved {
+                Ok(Some(v)) => {
+                    if matches!(v, Value::Undef) {
+                        // `_` propagates to the readers but never satisfies
+                        // a judge: the name counts as unreduced.
+                        unbound_lets.push(row.name.clone());
+                    } else {
+                        env.push((row.name.clone(), v));
+                    }
+                }
+                Ok(None) => unbound_lets.push(row.name.clone()),
+                Err(err) => {
+                    // The leg3 refusal face: report at the row, keep the
+                    // written form, leave the name unbound.
+                    crate::db::diagnostic::diagnostic::dlog_error_at(
+                        err.code(),
+                        row.span.start as u32,
+                        (row.span.end - row.span.start) as u32,
+                        &err.message(),
+                    );
+                    unbound_lets.push(row.name.clone());
+                }
+            }
+        }
+
+        if self.def.requires.is_empty() {
+            return;
+        }
+
+        // 2. The judge environment: the instance's conds parameters plus the
+        //    resolved lets rendered back to text (the same one-suffix-table
+        //    reading the conds chain always used).
+        let mut cond_params = self.params.to_cond_params();
+        for (name, value) in &env {
+            cond_params.push(CondParam::guessed(
+                crate::semantic::basic::mc_ids::McIds::from(name.as_str()),
+                value.text(),
+            ));
+        }
+
+        // 3. The unreduced-name gate (U39): a judge reading any of these is
+        //    undecided, not violated — the open header formals plus the
+        //    lets that did not resolve.
+        let mut unreduced = unreduced_params;
+        unreduced.extend(unbound_lets);
+
+        // 4. Judge each require row.
+        for row in &self.def.requires {
+            if row.cond.references_param(&unreduced) {
+                continue;
+            }
+            match McConds::check_condition_result(&row.cond, &cond_params, None) {
+                Ok(true) => {}
+                Ok(false) => crate::db::diagnostic::diagnostic::dlog_error_at(
+                    crate::errcodes::MODULE_REQUIRE_UNSATISFIED,
+                    row.span.start as u32,
+                    (row.span.end - row.span.start) as u32,
+                    &crate::errcodes::format_msg(
+                        crate::errcodes::MODULE_REQUIRE_UNSATISFIED,
+                        &[&row.cond.to_string()],
+                    ),
+                ),
+                Err(err) => crate::db::diagnostic::diagnostic::dlog_error_at(
+                    crate::errcodes::MODULE_REQUIRE_UNSATISFIED,
+                    row.span.start as u32,
+                    (row.span.end - row.span.start) as u32,
+                    &err.message(),
+                ),
+            }
+        }
     }
 
     /// Auto-invoke module-level parameterless functions (closures).

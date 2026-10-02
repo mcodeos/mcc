@@ -1704,6 +1704,13 @@ pub const COND_JUDGE_OPERAND_DROPPED: u32 = 5461;
 /// author spells both sides in the same family.
 pub const COND_FAMILY_MISMATCH: u32 = 5462;
 
+/// A `require` body clause judged false for this instance (U383 leg4b): the
+/// judgement runs per instance at instantiation, so the report names the
+/// instance that violates the requirement, anchored at the require row. A
+/// judge that could not be decided at all (an unbound name, a `_` operand)
+/// stays silent instead — undecided is not violated (the U39 gate).
+pub const MODULE_REQUIRE_UNSATISFIED: u32 = 5463;
+
 // Pass3: hardware checks (5500-5549)
 
 /// Pin numbers have gaps.
@@ -2951,6 +2958,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(COND_DUPLICATE, "Duplicate condition in if/else-if chain.", "A later if/else-if branch duplicates an earlier branch's condition, so it can never be selected."),
     entry!(COND_JUDGE_OPERAND_DROPPED, "Condition operand was not recognized.", "A judge operand has a form the condition collector does not recognize (for example a call), so the whole judge is discarded and the branch never selects. Rewrite the operand as a parameter reference or a literal."),
     entry!(COND_FAMILY_MISMATCH, "Condition compares a bare word with a quoted string.", "The two sides of the judge belong to different lexical families ({0} vs {1}), so they can never be equal under the strict reading: a bare word only equals the same bare word, a quoted string only the same quoted text. Spell both sides in the same family, or bind the parameter so its family matches the judge."),
+    entry!(MODULE_REQUIRE_UNSATISFIED, "Requirement is not satisfied.", "The `require` judge evaluated false for this instance ({0}). The requirement names a bound the instance violates; adjust the parameter binding or the requirement. A judge that could not be decided (an unbound name, a `_` operand) stays silent instead — undecided is not violated."),
     // section
     entry!(HW_PIN_NUMBER_GAP, "Pin numbers have gaps.", "Pin numbers have gaps."),
     entry!(HW_PIN_COUNT_HIGH, "Pin count is unusually high.", "Pin count is unusually high."),

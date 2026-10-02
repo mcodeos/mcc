@@ -534,8 +534,12 @@ fn check_empty_module(acc: &mut CheckAccumulator) {
         // A module carrying only power-intent declarations (refs / domains /
         // rails) is not a stub — the declarations are content.
         let has_pi = !m.pi.is_empty();
+        // Neither is a module whose body binds quantities and states
+        // requirements (U383 leg4b) — the rows are author intent even with
+        // no instance or net statement beside them.
+        let has_bindings = !m.lets.is_empty() || !m.requires.is_empty();
 
-        if !has_params && !has_insts && !has_stmts && !has_funcs && !has_pi {
+        if !has_params && !has_insts && !has_stmts && !has_funcs && !has_pi && !has_bindings {
             acc.push(CheckResult {
                 check_name: "conds",
                 severity: CheckSeverity::Warning,

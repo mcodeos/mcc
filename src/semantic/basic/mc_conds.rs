@@ -538,6 +538,14 @@ impl McConds {
         }
     }
 
+    /// U383 leg4b: a `require <judge>` body clause carries a bare judge node —
+    /// the same subtree shape an `if` clause rides, so the same reader builds
+    /// the condition. Public entry for the module body walk; no cond-if
+    /// wrapper involved.
+    pub fn condition_from_judge(node: &AstNode) -> Option<McCondition> {
+        Self::parse_condition(node)
+    }
+
     fn parse_condition(node: &AstNode) -> Option<McCondition> {
         let node_type = node.get_type();
 

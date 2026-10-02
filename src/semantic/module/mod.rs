@@ -13,7 +13,8 @@ use super::{
 use crate::db::context::DB;
 use crate::db::diagnostic::diagnostic::{dlog_error, Position};
 use crate::refdef::types::ChainSegment;
-use crate::semantic::basic::mc_conds::McConds;
+use crate::semantic::basic::mc_conds::{McCondition, McConds};
+use crate::semantic::component::mc_attr::McAttrVal;
 use crate::semantic::basic::mc_param_type::{McParamType, McParamTypeKind};
 use crate::semantic::component::mc_layout::McLayout;
 use crate::semantic::component::Mc2Component;
@@ -32,6 +33,49 @@ use self::expects::Ledger;
 pub(crate) mod pi;
 use self::pi::McPowerDecls;
 
+/// One `let name = values` body row (U383 leg4b, b4483 ruling ①): a
+/// body-local quantity binding, visible to the rows written after it in the
+/// same body. The written value keeps its attr-row vocabulary — an
+/// expression as the engine-readable tree, a direct literal (including a
+/// quantity `3.3V`) in the attr-literal form — so evaluation runs the same
+/// reader the spec rows run.
+#[derive(Debug, Clone)]
+pub struct LetRow {
+    pub name: String,
+    pub value: McAttrVal,
+    pub span: std::ops::Range<usize>,
+}
+
+/// One `require <judge>` body row (U383 leg4b, b4483 ruling ②): the judge
+/// rides in the same `McCondition` vocabulary the conds chain judges, and is
+/// evaluated per instance at instantiation with the U39 deferral for judges
+/// it cannot decide.
+#[derive(Debug, Clone)]
+pub struct RequireRow {
+    pub cond: McCondition,
+    pub span: std::ops::Range<usize>,
+}
+
+/// Read one `let name = values` clause into a [`LetRow`] (U383 leg4b).
+/// Shape: `MCAST_LET |- MCAST_ATT_ID |- ids`, with the value sibling
+/// `MCAST_ATT_VALUES` (the same payload shape an attribute row carries).
+fn parse_let_row(clause: &AstNode) -> Option<LetRow> {
+    let subnodes = clause.get_sub_node()?;
+    let id_node = subnodes.iter().find(|n| n.is_type(MCAST_ATT_ID))?;
+    let ids = id_node
+        .get_sub_node()
+        .and_then(|n| crate::semantic::basic::mc_ids::McIds::new(&n))?;
+    let values_node = subnodes.iter().find(|n| n.is_type(MCAST_ATT_VALUES))?;
+    let mut values = crate::semantic::component::mc_attr::McAttribute::new_attr_values(&values_node)?;
+    // A multi-value row keeps its first value: the binding names one thing.
+    let value = values.pop()?;
+    Some(LetRow {
+        name: ids.get_primary_name()?.to_string(),
+        value,
+        span: (clause.get_pos() as usize)..((clause.get_pos() + clause.get_len()) as usize),
+    })
+}
+
 // McModule - Module definition
 
 #[derive(Debug, Clone)]
@@ -45,6 +89,15 @@ pub struct McModule {
     /// `expects = [ ... ]` expectation rows declared in this module body
     /// (declaration face only; storage, no engine yet).
     pub expects: Ledger,
+    /// `let name = values` binding rows declared in this module body
+    /// (U383 leg4b, b4483 ruling ①: body-local scope, written order).
+    /// Capture only — the values evaluate per instance at instantiation,
+    /// where the parameter bindings are known.
+    pub lets: Vec<LetRow>,
+    /// `require <judge>` requirement rows declared in this module body
+    /// (U383 leg4b, b4483 ruling ②: judged per instance at instantiation,
+    /// riding the conds chain with the U39 deferral for undecided judges).
+    pub requires: Vec<RequireRow>,
     pub insts: McInstances,
     pub stmts: Vec<McPhrase>,
     /// Source span for each connection stmt in `stmts` (parallel array).
@@ -135,6 +188,8 @@ impl McModule {
                 params: McParamDeclares::new(),
                 layout: McLayout::default(),
                 expects: Ledger::default(),
+                lets: Vec::new(),
+                requires: Vec::new(),
                 funcs: McFunctions::new(),
                 pi: McPowerDecls::new(),
                 blocks: BlockPartitions {
@@ -931,6 +986,42 @@ impl McModule {
                         // keeps the unexpected-clause diagnostic it gets at
                         // the top level.
                         self.read_cond_expects(&clause);
+                    }
+                    MCAST_LET => {
+                        // U383 leg4b: `let name = values` — capture the
+                        // binding row. Values evaluate per instance at
+                        // instantiation, where the parameter bindings are
+                        // known; the walk itself is value-free (b4483
+                        // ruling ①: body-local scope, written order).
+                        if let Some(row) = parse_let_row(&clause) {
+                            self.lets.push(row);
+                        }
+                    }
+                    MCAST_REQUIRE => {
+                        // U383 leg4b: `require <judge>` — capture the judge
+                        // in the conds vocabulary; the judgement itself is
+                        // per instance at instantiation (b4483 ruling ②).
+                        // A judge the collector cannot build keeps the
+                        // condition-face code the conds chain uses.
+                        match McConds::condition_from_judge(
+                            &clause
+                                .get_sub_node()
+                                .expect("require clause carries the judge node"),
+                        ) {
+                            Some(cond) => self.requires.push(RequireRow {
+                                cond,
+                                span: (clause.get_pos() as usize)
+                                    ..((clause.get_pos() + clause.get_len()) as usize),
+                            }),
+                            None => dlog_error(
+                                crate::errcodes::COND_JUDGE_OPERAND_DROPPED,
+                                &clause,
+                                &crate::errcodes::format_msg(
+                                    crate::errcodes::COND_JUDGE_OPERAND_DROPPED,
+                                    &[],
+                                ),
+                            ),
+                        }
                     }
                     MCAST_ATTRIBUTE | MCAST_ATTRIBUTE_ADD => {
                         // `layout = [ ... ]` — boundary-port placement for this
