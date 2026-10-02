@@ -128,20 +128,25 @@ pub fn dump_component(component: &str, tree: &Value) -> Option<ParamsDump> {
 
 // ── Face assembly ────────────────────────────────────────────────────────────
 
-/// One `pin_name`: the iotype word is the face kind, the declare's rail
-/// vector is the rails, the class call's params are the rows.
+/// One `pin_line`: the iotype word (a direct child) is the face kind; each
+/// `pin_name` under `pin_names` contributes the declare's rail vector as
+/// rails and the class call's params as rows.
 fn face_of_line(pin_line: &Value) -> Option<FaceDump> {
     let mut kind_word = None;
     let mut rails = Vec::new();
     let mut rows = Vec::new();
-    for pn in descendants_of_kind(pin_line, "pin_name") {
-        if let Some(io) = find_first(pn, "iotype") {
-            if let Some(t) = children_of(io).first().and_then(val_of) {
-                kind_word = Some(t.to_string());
-            }
+    if let Some(io) = find_first(pin_line, "iotype") {
+        if let Some(t) = children_of(io).first().and_then(val_of) {
+            kind_word = Some(t.to_string());
         }
-        if let Some(decl) = find_first(pn, "declare") {
-            for opd in descendants_of_kind(decl, "opd") {
+    }
+    for pn in descendants_of_kind(pin_line, "pin_name") {
+        // The declare wraps both halves: class (the `::DC(...)` rows) and
+        // instance (the `[VBAT, GND]` rail vector). Rails ride the
+        // instance's square vec directly — a whole-subtree `opd` walk would
+        // sweep the rows' axis words in.
+        if let Some(vec) = find_first(pn, "instance").and_then(|i| find_first(i, "opd_square_vec")) {
+            for opd in children_of(vec).iter().filter(|c| kind(c) == Some("opd")) {
                 if let Some(text) = text_of(opd) {
                     rails.push(text);
                 }
