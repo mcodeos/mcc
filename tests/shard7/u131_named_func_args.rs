@@ -206,7 +206,7 @@ fn u131_bracket_formal_member_is_not_an_argument_name() {
     // has no whole-formal name. One honest E4176 — not the E4180 +
     // phantom-pin 3179 cascade a scalar bound to the whole vector produced.
     let named =
-        format!("{RES_CLASS}\nmodule main {{\n    RES(1k) r1\n    r1.Pull(n2: N2, n1: N1)\n}}\n");
+        format!("{RES_CLASS}\nmodule main {{\n    RES(1) r1\n    r1.Pull(n2: N2, n1: N1)\n}}\n");
     let errs = bind_errors(&named);
     assert_eq!(errs.len(), 1, "{errs:?}");
     assert!(errs[0].contains("Vector formal member"), "{errs:?}");
@@ -217,7 +217,7 @@ fn u131_bracket_formal_member_is_not_an_argument_name() {
     assert!(!all.contains(&3179), "{all:?}");
 
     // The positional twin stays live: N1-r1.1, N2-r1.2.
-    let pos = format!("{RES_CLASS}\nmodule main {{\n    RES(1k) r1\n    r1.Pull([N1, N2])\n}}\n");
+    let pos = format!("{RES_CLASS}\nmodule main {{\n    RES(1) r1\n    r1.Pull([N1, N2])\n}}\n");
     assert!(bind_errors(&pos).is_empty());
     let part = nets(&pos);
     let n1 = vec!["N1".to_string(), "r1.1".to_string()];

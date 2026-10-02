@@ -433,3 +433,39 @@ fn u383__module_let_calls_value_func_per_instance() {
         "exactly one instance violates: {diags:?}"
     );
 }
+
+/// The bare kilo shorthand (leg4d): `10k` is a resistance value — it lexes
+/// into the ohm family, the row stores typed, and the engine computes through
+/// it (`Ω·A → V`). The direct row echoes the author's spelling.
+#[test]
+fn u383__bare_kilo_is_ohm() {
+    let src = format!(
+        "{KEY}    spec = [\n        r1 = 10k\n        vdrop = r1 * 2A\n    ]\n}}\n{MAIN}\n"
+    );
+    let (diags, attrs) = probe(&src, "/mcc/u383-bare-kilo.mc");
+    assert!(diags.is_empty(), "got {diags:?}");
+    let rows = attrs_of(&attrs, "c1").join("\n");
+    assert!(rows.contains("r1 = 10k"), "{rows}");
+    assert!(rows.contains("vdrop = 20000.0V"), "{rows}");
+}
+
+/// The census lock (leg4d): `M`/`G` stay out of the ohm family. A bare `10M`
+/// keeps today's reading — an identifier, so the spec-ref check still reports
+/// E5101 — and a bare `10G` keeps today's gauss reading, not ohms. `10kV` and
+/// `10kHz` still lex into their own (longer-match) families.
+#[test]
+fn u383__mega_and_giga_stay_out_of_the_ohm_family() {
+    let src = format!(
+        "{KEY}    spec = [\n        m1 = 10M\n        g1 = 10G\n        kv = 10kV\n        khz = 10kHz\n    ]\n}}\n{MAIN}\n"
+    );
+    let (diags, attrs) = probe(&src, "/mcc/u383-census-lock.mc");
+    assert!(
+        diags.contains(&mcc::errcodes::SPEC_KEY_UNDECLARED_PARAM),
+        "bare 10M stays an identifier: {diags:?}"
+    );
+    assert_eq!(diags.len(), 1, "only the 10M row reports: {diags:?}");
+    let rows = attrs_of(&attrs, "c1").join("\n");
+    assert!(rows.contains("g1 = 10G"), "{rows}");
+    assert!(rows.contains("kv = 10kV"), "{rows}");
+    assert!(rows.contains("khz = 10kHz"), "{rows}");
+}

@@ -731,14 +731,17 @@ fn parse_resist_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
 }
 
 /// Multiplier for a resistance unit suffix: symbol (Ω), R-code (R), or
-/// spelled form (ohm). Prefix variants cover milli/micro/nano/kilo/mega/giga.
+/// spelled form (ohm). Prefix variants cover milli/micro/nano/kilo/mega/giga,
+/// plus the bare kilo shorthand — "10k" is the written form of 10kΩ (U383
+/// leg4d; the census keeps M/G out: they are the MHz/GHz shorthand in the
+/// live RF corpus rows, and G already reads gauss in the lexer).
 fn resist_multiplier(unit: &str) -> Option<f64> {
     match unit {
         "R" | "Ω" | "ohm" | "Ohm" => Some(1.0),
         "mR" | "mΩ" | "mohm" | "mOhm" => Some(1e-3),
         "μR" | "µR" | "uR" | "μΩ" | "µΩ" | "uΩ" | "μohm" | "µohm" | "uohm" => Some(1e-6),
         "nR" | "nΩ" | "nohm" | "nOhm" => Some(1e-9),
-        "kR" | "kΩ" | "kohm" | "kOhm" => Some(1e3),
+        "kR" | "kΩ" | "kohm" | "kOhm" | "k" => Some(1e3),
         "MR" | "MΩ" | "Mohm" | "MOhm" => Some(1e6),
         "GR" | "GΩ" | "Gohm" | "GOhm" => Some(1e9),
         _ => None,

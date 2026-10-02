@@ -360,6 +360,11 @@ pub static UNIT_SUFFIXES: &[UnitSuffix] = &[
     sfx("kΩ", McUnit::Ohm, 1e3),
     sfx("kohm", McUnit::Ohm, 1e3),
     sfx("kOhm", McUnit::Ohm, 1e3),
+    // The bare kilo shorthand (U383 leg4d): "10k" is the written form of 10kΩ.
+    // The census locks the rest of the segment out — M and G are the MHz/GHz
+    // shorthand in the live RF corpus rows (and G already reads gauss in the
+    // UV_BFIELD lexer arm), K is kelvin, m is the metre.
+    sfx("k", McUnit::Ohm, 1e3),
     sfx("MR", McUnit::Ohm, 1e6),
     sfx("MΩ", McUnit::Ohm, 1e6),
     sfx("Mohm", McUnit::Ohm, 1e6),
