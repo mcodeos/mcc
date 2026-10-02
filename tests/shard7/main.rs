@@ -34,6 +34,7 @@ mod iface_relay;
 mod iface_param_pin_same_name;
 mod iface_role_peers;
 mod iface_pin_number_binding;
+mod import_skeleton_golden;
 mod lib_pack;
 mod lib_project;
 mod lock_module_expects;

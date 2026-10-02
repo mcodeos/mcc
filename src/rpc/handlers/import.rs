@@ -37,6 +37,29 @@ pub fn handle_import(params: Option<Value>) -> RpcResult {
     })
 }
 
+/// MCP face of `mcc import --skeleton`: generate a compilable project skeleton
+/// from an `mct.netlist/1` JSON file. **No disk writes** — the files go back in
+/// the response (`files: {path: content}`); the caller decides where they land.
+pub fn handle_import_skeleton(params: Option<Value>) -> RpcResult {
+    #[derive(Deserialize)]
+    struct SkeletonParams {
+        file: String,
+        #[serde(default)]
+        name: Option<String>,
+    }
+    let p: SkeletonParams = parse_strict(params)?;
+    let text = std::fs::read_to_string(&p.file).map_err(|e| {
+        JsonRpcError::custom(-32602, &format!("import: cannot read '{}': {e}", p.file))
+    })?;
+    let plan = crate::import_skeleton::plan(&text, &crate::import_skeleton::Opts { name: p.name.as_deref() })
+        .map_err(|m| JsonRpcError::custom(-32602, m.as_str()))?;
+    Ok(json!({
+        "schema_version": "import_skeleton.1.0",
+        "report": plan.report,
+        "files": plan.files,
+    }))
+}
+
 /// Read an EDA artifact back and report how it differs from what the scope world
 /// exports right now (design §6.2).
 ///
@@ -113,6 +136,9 @@ fn read_model(text: &str, format: crate::cli::ImportFormat) -> Result<EdaModel, 
         crate::cli::ImportFormat::Netlist => Ok(read_netlist(text)),
         crate::cli::ImportFormat::KiCad => read_kicad(text),
         crate::cli::ImportFormat::EasyEda => Err("no easyeda reader".to_string()),
+        // mct.netlist/1 goes through import_skeleton generation; there is
+        // no read-back reference face for it
+        crate::cli::ImportFormat::MctJson => Err("mctjson has no read-back model; use --skeleton".to_string()),
     }
 }
 

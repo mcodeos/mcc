@@ -1124,6 +1124,23 @@ pub struct ImportArgs {
     #[arg(long)]
     pub flat: bool,
 
+    /// mctjson only: generate a compilable mcode project skeleton from an
+    /// `mct.netlist/1` JSON file instead of diffing against a world. Nothing
+    /// is guessed — unparsed values, pin directions and domains stay as
+    /// `TODO(import)` stubs. Writes `<out-dir>/project.toml`, `main.mc`,
+    /// `bom.mc`. Requires `--from mctjson` (validated at runtime).
+    #[arg(long)]
+    pub skeleton: bool,
+
+    /// skeleton only: output directory for the generated project
+    /// (default `./<name>`, name from `--name` or the JSON title stem)
+    #[arg(long)]
+    pub out_dir: Option<String>,
+
+    /// skeleton only: project name for `project.toml` and the default
+    /// output directory (default: the JSON title stem)
+    #[arg(long)]
+    pub name: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
@@ -1137,6 +1154,10 @@ pub enum ImportFormat {
     // side to subtract (batch of its own)
     #[value(name = "easyeda")]
     EasyEda,
+    // The mct corpus tool's `mct.netlist/1` JSON (--skeleton's input; no
+    // export side — goes through skeleton generation, not read-back)
+    #[value(name = "mctjson")]
+    MctJson,
 }
 
 impl ImportFormat {
@@ -1146,6 +1167,7 @@ impl ImportFormat {
             ImportFormat::Netlist => "netlist",
             ImportFormat::KiCad => "kicad",
             ImportFormat::EasyEda => "easyeda",
+            ImportFormat::MctJson => "mctjson",
         }
     }
 
@@ -1156,6 +1178,7 @@ impl ImportFormat {
             ImportFormat::Netlist => Some(ExportKind::Netlist),
             ImportFormat::KiCad => Some(ExportKind::KiCad),
             ImportFormat::EasyEda => None,
+            ImportFormat::MctJson => None,
         }
     }
 
@@ -1165,6 +1188,7 @@ impl ImportFormat {
         match s {
             "kicad" => ImportFormat::KiCad,
             "easyeda" => ImportFormat::EasyEda,
+            "mctjson" => ImportFormat::MctJson,
             _ => ImportFormat::Netlist,
         }
     }

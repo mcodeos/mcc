@@ -93,6 +93,9 @@ pub use db::infra::params_dump::{ParamsDump, RowDump};
 pub mod eval;
 pub mod export;
 pub mod fmt;
+// import --skeleton: mct.netlist/1 JSON -> compilable project skeleton.
+// Library-side (CLI/RPC shared) like `export`; see import_skeleton/mod.rs.
+pub mod import_skeleton;
 // The meta domain module (U383): compute half (dimension algebra, unit
 // synthesis, the value arithmetic face) + read half (McMetaValue, U377).
 // `eval` above and `quantity` are compatibility shims.

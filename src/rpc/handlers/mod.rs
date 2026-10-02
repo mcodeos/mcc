@@ -3119,6 +3119,7 @@ pub fn register_all(
     builder = builder.register_method("export", handle_export);
     builder = builder.register_method("impact", handle_impact);
     builder = builder.register_method("import", handle_import);
+    builder = builder.register_method("import_skeleton", handle_import_skeleton);
     // LSP
     builder = builder.register_method("sem", handle_sem);
     builder = builder.register_method("explain", handle_explain);
