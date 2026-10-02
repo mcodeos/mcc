@@ -4,8 +4,8 @@
 //! `[dependencies]`, `[variants]` (base+since derived faces), `[[attachments]]`
 //! (bundled: path/kind/rev/license/checksum; linked: url/rev).
 //! pack/inspect/install share this parsing and validation; validation is purely structural —
-// ! the semantic face (variant base presence, checksum audit) lives in cmds/pack.rs and the
-   install three checks.
+//! the semantic face (variant base presence, checksum audit) lives in cmds/pack.rs and in
+//! the install three checks.
 
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
@@ -38,11 +38,11 @@ pub struct PackageSection {
     /// Category (power/mcu/connector/…); must be non-empty, no closed enumeration.
     pub category: String,
     /// Chip vendor (TI/ST/…); connectors/electromechanical parts without documented
+    /// provenance carry the honest `unknown`.
     #[serde(default)]
     pub vendor: Option<String>,
-    /// provenance carry the honest `unknown`.
-    /// Pack publisher (`mcode` for the mcpub transition; the verified/community slot in the
-        cloud-libs era).
+    /// Pack publisher (`mcode` for the mcpub transition; the verified/community slot in
+    /// the cloud-libs era).
     #[serde(default)]
     pub publisher: Option<String>,
     #[serde(default)]
@@ -51,13 +51,15 @@ pub struct PackageSection {
     pub license: Option<String>,
     /// Entry .mc file name (relative to the pack root).
     pub entry: String,
-    /// Pack description document (Markdown, path relative to the pack root). Long text lives in
-    /// the file, the manifest keeps the pointer; the thin tier must carry it (README.md/README
+    /// Pack description document (Markdown, path relative to the pack root). Long text
+    /// lives in the file, the manifest keeps the pointer; the thin tier must carry it
+    /// (README.md/README are auto-included in thin by default; this field makes it
+    /// explicit).
     #[serde(default)]
     pub readme: Option<String>,
-    /// are auto-included in thin by default; this field makes it explicit).
-    /// Search tokens (lowercase, short: device family / package / function). Raw material for
-    /// search ranking; no closed enumeration. The registry side (P3) weighs them later.
+    /// Search tokens (lowercase, short: device family / package / function). Raw
+    /// material for search ranking; no closed enumeration. The registry side (P3)
+    /// weighs them later.
     #[serde(default)]
     pub keywords: Vec<String>,
 }
@@ -70,23 +72,23 @@ pub struct VariantEntry {
     pub since: String,
 }
 
-/// Attachment: bundled (a real in-pack file with path + checksum) or linked (a url/rev pointer
-    only).
+/// Attachment: bundled (a real in-pack file with path + checksum) or linked (a url/rev
+/// pointer only).
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct AttachmentEntry {
     /// Bundled attachment path relative to the pack root; absent for linked attachments.
     #[serde(default)]
     pub path: Option<String>,
-    /// Material kind: datasheet/doc/symbol/pcb/sim/3d/test (P1 keeps it open; only non-empty is
-        checked).
+    /// Material kind: datasheet/doc/symbol/pcb/sim/3d/test (P1 keeps it open; only non-empty
+    /// is checked).
     pub kind: String,
     /// Material revision (datasheet rev and the like).
     #[serde(default)]
     pub rev: Option<String>,
     #[serde(default)]
     pub license: Option<String>,
-    /// Bundled attachment content checksum, `sha256:<hex>`; written at pack time, audited by
-        install check ③.
+    /// Bundled attachment content checksum, `sha256:<hex>`; written at pack time, audited
+    /// by install check (3).
     #[serde(default)]
     pub checksum: Option<String>,
     /// Linked attachment document name (the mo/ds central manual name, etc.).
@@ -115,8 +117,8 @@ pub fn load(dir: &Path) -> Result<PackToml> {
     Ok(pack)
 }
 
-/// Structural validation (no pack directory needed: inspect/install run this half on unpacked
-    content first).
+/// Structural validation (no pack directory needed: inspect/install run this half on
+/// unpacked content first).
 /// Rules: format gate, name/version/category non-empty + semver version,
 /// entry a relative in-pack path, name == entry basename (the pack-name law),
 /// each attachment row's required fields per bundled/linked, checksum shaped `sha256:<hex64>`.
@@ -155,7 +157,7 @@ pub fn validate_structure(pack: &PackToml) -> Result<()> {
         }
     }
     // Keywords: non-empty short tokens; lowercase normalization is the packer's duty (only
-       emptiness and duplicates are rejected here).
+    // emptiness and duplicates are rejected here).
     let mut seen_kw = std::collections::BTreeSet::new();
     for kw in &pack.package.keywords {
         if kw.trim().is_empty() {
@@ -173,8 +175,8 @@ pub fn validate_structure(pack: &PackToml) -> Result<()> {
         bail!("pack.toml [package] entry `{}` must be a relative in-pack path", entry);
     }
     let entry_path = Path::new(entry);
-    // Pack-name law: pack name == the entry file basename (stem). One pack per part; the name
-       follows the part.
+    // Pack-name law: pack name == the entry file basename (stem). One pack per part; the
+    // name follows the part.
     let stem = entry_path
         .file_stem()
         .and_then(|s| s.to_str())
@@ -237,8 +239,8 @@ pub fn validate_structure(pack: &PackToml) -> Result<()> {
     Ok(())
 }
 
-/// Full validation = structure + entry file on disk (pack face; a pack whose entry is absent is
-    invalid everywhere).
+/// Full validation = structure + entry file on disk (pack face; a pack whose entry is
+/// absent is invalid everywhere).
 pub fn validate(pack: &PackToml, dir: &Path) -> Result<()> {
     validate_structure(pack)?;
     let entry_path = dir.join(&pack.package.entry);
@@ -248,8 +250,8 @@ pub fn validate(pack: &PackToml, dir: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Loose semver: `x.y.z`, three non-empty numeric segments (no prerelease/metadata — device packs
-    never need them).
+/// Loose semver: `x.y.z`, three non-empty numeric segments (no prerelease/metadata — device
+/// packs never need them).
 fn valid_semver(v: &str) -> bool {
     let parts: Vec<&str> = v.split('.').collect();
     parts.len() == 3 && parts.iter().all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))

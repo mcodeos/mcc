@@ -3,15 +3,14 @@
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
 //! `mcc lib pack` / `mcc lib inspect` + the `.mcl` install path — the device-pack local loop
-// ! (registry-design.md §3: `.mcl` = a tar stream flowing into a single zstd stream; the frame
-   magic `28 B5 2F FD`
-// ! is the format fingerprint; thin = manifest + entry, full = manifest + entry + all bundled
-   attachments).
+//! (registry-design.md §3: `.mcl` = a tar stream flowing into a single zstd stream; the
+//! frame magic `28 B5 2F FD` is the format fingerprint; thin = manifest + entry, full =
+//! manifest + entry + all bundled attachments).
 //!
-// ! Everything runs offline in-process, never over RPC (the parse U90 precedent: offline tools
-   have no daemon face).
-// ! The pack gate = no-compile-no-pack: the in-process check pipeline runs the entry; any E error
-   refuses.
+//! Everything runs offline in-process, never over RPC (the parse U90 precedent: offline
+//! tools have no daemon face).
+//! The pack gate = no-compile-no-pack: the in-process check pipeline runs the entry; any E
+//! error refuses.
 
 use crate::cmds::check;
 use crate::output;
@@ -24,7 +23,7 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 
 /// The zstd frame magic (RFC 8878 §3.1.1) — the `.mcl` format fingerprint, identified by bytes at
-    install time, never by extension.
+/// install time, never by extension.
 pub const ZSTD_MAGIC: [u8; 4] = [0x28, 0xB5, 0x2F, 0xFD];
 
 // Reports
@@ -137,7 +136,7 @@ pub fn cmd_pack(dir: &str, out: Option<&str>, format: OutputFormat) -> Result<()
 }
 
 /// Pure pack: validate → check gate → file sets → dual `.mcl` artifacts. Shared CLI/RPC semantic
-    face.
+/// face.
 pub fn do_pack(dir: &str, out: Option<&str>) -> Result<PackReport> {
     let root = PathBuf::from(dir);
     if !root.is_dir() {
@@ -148,7 +147,7 @@ pub fn do_pack(dir: &str, out: Option<&str>) -> Result<PackReport> {
     let entry_path = root.join(&pack.package.entry);
 
     // No-compile-no-pack: the in-process check gate (U90: check is already an in-process pipeline,
-       no daemon branch).
+    // no daemon branch).
     let args = CheckArgs {
         target: Some(entry_path.to_string_lossy().into_owned()),
         dlog: false,
@@ -166,7 +165,7 @@ pub fn do_pack(dir: &str, out: Option<&str>) -> Result<PackReport> {
     }
 
     // Variant base shallow check: a declared base must be present on the entry source face
-       (semantic binding in a later batch).
+    // (semantic binding in a later batch).
     let source = std::fs::read_to_string(&entry_path)
         .with_context(|| format!("failed to read entry: {}", entry_path.display()))?;
     for (vname, v) in &pack.variants {
@@ -182,7 +181,7 @@ pub fn do_pack(dir: &str, out: Option<&str>) -> Result<PackReport> {
     }
 
     // Bundled attachments: presence + sha256 audit (a manifest-declared checksum is verified at
-       pack time).
+    // pack time).
     for att in &pack.attachments {
         if let Some(p) = &att.path {
             let ap = root.join(p);
@@ -204,7 +203,7 @@ pub fn do_pack(dir: &str, out: Option<&str>) -> Result<PackReport> {
     }
 
     // File sets: thin = manifest + entry (+ readme pointer / README convention); full = thin + all
-       bundled attachments.
+    // bundled attachments.
     let mut thin_files: Vec<(PathBuf, String)> = vec![
         (root.join("pack.toml"), "pack.toml".to_string()),
         (entry_path.clone(), pack.package.entry.clone()),
@@ -232,7 +231,7 @@ pub fn do_pack(dir: &str, out: Option<&str>) -> Result<PackReport> {
     }
 
     // Artifacts: `<name>-<ver>.mcl` + `<name>-<ver>.thin.mcl`, defaulting into the pack directory
-       itself.
+    // itself.
     let out_dir = out.map(PathBuf::from).unwrap_or_else(|| root.clone());
     std::fs::create_dir_all(&out_dir)
         .with_context(|| format!("failed to create the output directory: {}", out_dir.display()))?;
@@ -295,7 +294,7 @@ pub fn do_inspect(file: &str) -> Result<InspectReport> {
         toml::from_str(std::str::from_utf8(text).context("pack.toml is not UTF-8")?)
             .context("failed to parse the archive pack.toml")?;
     // Structural validation (format gate included); entry presence holds for thin archives and is
-       required for full ones too.
+    // required for full ones too.
     packfile::validate_structure(&pack)?;
     if !files.contains_key(pack.package.entry.as_str()) {
         anyhow::bail!("entry `{}` is not present in the archive", pack.package.entry);
@@ -312,16 +311,16 @@ pub fn do_inspect(file: &str) -> Result<InspectReport> {
 // install (.mcl path)
 
 /// `.mcl` install: unpack → install-time three checks + format gate → staging into
-    `data_root/<name>@<ver>/`
-/// → rebuild_index. Three checks (registry-design.md §4.2): (1) manifest present, (2) entry
-    present with
+/// `data_root/<name>@<ver>/`
+/// → rebuild_index. Three checks (registry-design.md §4.2): (1) manifest present, (2) entry present
+/// with
 /// matching basename, (3) sha256 per file against the attachment table. Thin archives legitimately
-    lack attachments; check (3) audits what is present.
+/// lack attachments; check (3) audits what is present.
 pub fn install_mcl(archive: &Path, expected_name: Option<&str>) -> Result<(String, PathBuf)> {
     let files = read_archive(archive)?;
 
     // Check (1): manifest present + structural validation (format gate, pack-name law, semver live
-       here).
+    // here).
     let text = files
         .get("pack.toml")
         .ok_or_else(|| anyhow!("install check (1) failed: no pack.toml in the archive"))?;
@@ -332,13 +331,13 @@ pub fn install_mcl(archive: &Path, expected_name: Option<&str>) -> Result<(Strin
 
     let entry = &pack.package.entry;
     // Check (2): entry present (basename matching is already covered by validate_structure's
-       pack-name law).
+    // pack-name law).
     if !files.contains_key(entry.as_str()) {
         anyhow::bail!("install check (2) failed: entry `{}` is not in the archive", entry);
     }
 
     // The manifest is the authority face: unlisted files are refused (thin allows
-       manifest+entry+README).
+    // manifest+entry+README).
     let mut allowed: std::collections::BTreeSet<&str> =
         ["pack.toml", entry.as_str(), "README", "README.md"].into_iter().collect();
     if let Some(rm) = &pack.package.readme {
@@ -356,7 +355,7 @@ pub fn install_mcl(archive: &Path, expected_name: Option<&str>) -> Result<(Strin
     }
 
     // Check (3): sha256 per file against the attachment table (only what is present; thin archives
-       legitimately lack attachments).
+    // legitimately lack attachments).
     for att in &pack.attachments {
         if let (Some(p), Some(sum)) = (&att.path, &att.checksum) {
             if let Some(data) = files.get(p) {
@@ -376,7 +375,7 @@ pub fn install_mcl(archive: &Path, expected_name: Option<&str>) -> Result<(Strin
     }
 
     // A caller-supplied name contradicting the manifest is refused — the manifest wins, no silent
-       misplacement.
+    // misplacement.
     if let Some(n) = expected_name {
         if n != pack.package.name {
             anyhow::bail!(
@@ -431,7 +430,7 @@ pub fn install_mcl(archive: &Path, expected_name: Option<&str>) -> Result<(Strin
 // archive reading
 
 /// Read a `.mcl`: identified by the zstd frame fingerprint (never the extension), decoded into a
-    relative-path → bytes table.
+/// relative-path → bytes table.
 /// Zip-slip guard: absolute paths or `..` segments are refused outright.
 pub fn read_archive(path: &Path) -> Result<BTreeMap<String, Vec<u8>>> {
     let mut raw = Vec::new();
