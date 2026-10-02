@@ -10,7 +10,7 @@
 //! * **pack emits the dual artifact** — `<name>-<ver>.mcl` + `.thin.mcl`, both
 //!   starting with the zstd frame magic (`28 B5 2F FD`), full ⊇ thin; the
 //!   format gate (`format = "1"` only) and the variant base check refuse
-//!   *before* any archive is written (编译不过不出包's structural siblings);
+//!   *before* any archive is written (the no-compile-no-pack structural siblings);
 //! * **inspect is a pure manifest dump** — no install, coordinates and
 //!   attachment checksums straight off pack.toml;
 //! * **install does the three checks** — manifest present (①), entry present
@@ -31,7 +31,7 @@ use std::process::Command;
 
 const ZSTD_MAGIC: [u8; 4] = [0x28, 0xB5, 0x2F, 0xFD];
 
-// ── fixture ──────────────────────────────────────────────────────────────
+// Fixture
 
 /// Minimal part file, shape lifted from mcpub/power/ams1117 (abstract base +
 /// one orderable SKU) but with **no library dependency** — a fresh
@@ -134,7 +134,7 @@ fn first_line(stderr: &str) -> String {
         .to_string()
 }
 
-// ── pack ─────────────────────────────────────────────────────────────────
+// pack
 
 #[test]
 fn pack__emits_thin_and_full_with_zstd_magic() {
@@ -172,7 +172,7 @@ fn pack__refuses_variant_base_missing_from_entry() {
     std::fs::write(pack.join("pack.toml"), bad).unwrap();
     let (_, stderr, ok) = run_mcc(&root, &["lib", "pack", pack.to_str().unwrap(), "--out", out.to_str().unwrap()]);
     assert!(!ok, "declared base must be on the entry face");
-    assert!(stderr.contains("不在位"), "names the missing base: {stderr}");
+    assert!(stderr.contains("not present on the entry source face"), "names the missing base: {stderr}");
     assert!(out.read_dir().unwrap().next().is_none(), "no archive may exist");
 }
 
@@ -184,11 +184,11 @@ fn pack__refuses_wrong_attachment_checksum() {
     std::fs::write(pack.join("pack.toml"), bad).unwrap();
     let (_, stderr, ok) = run_mcc(&root, &["lib", "pack", pack.to_str().unwrap(), "--out", out.to_str().unwrap()]);
     assert!(!ok, "declared checksum must match the bytes");
-    assert!(stderr.contains("checksum 不符"), "names the mismatch: {stderr}");
+    assert!(stderr.contains("checksum mismatch"), "names the mismatch: {stderr}");
     assert!(out.read_dir().unwrap().next().is_none(), "no archive may exist");
 }
 
-// ── inspect ──────────────────────────────────────────────────────────────
+// inspect
 
 #[test]
 fn inspect__dumps_manifest_without_installing() {
@@ -203,11 +203,11 @@ fn inspect__dumps_manifest_without_installing() {
     assert!(stdout.contains("variant: PKTEST_3_3 base=PKTEST"), "variant table: {stdout}");
     assert!(stdout.contains("datasheet.txt"), "attachment listing: {stdout}");
     assert!(stdout.contains(&sha256_hex(DATASHEET.as_bytes())), "attachment checksum: {stdout}");
-    // 纯检视：root 里不得落包（bootstrap 的 config/logs/index 不算）。
+    // Pure inspection: no pack may land in root (bootstrap config/logs/index don't count).
     assert!(!root.join("packtest@0.1.0").exists(), "inspect must not install");
 }
 
-// ── install ──────────────────────────────────────────────────────────────
+// install
 
 fn pack_first(root: &Path, pack: &Path, out: &Path) -> PathBuf {
     let (_, stderr, ok) = run_mcc(root, &["lib", "pack", pack.to_str().unwrap(), "--out", out.to_str().unwrap()]);
@@ -239,7 +239,7 @@ fn install__lands_name_at_version_and_reindexes() {
         &["lib", "install", "othername", "--from", full.to_str().unwrap()],
     );
     assert!(!ok, "name contradiction must refuse");
-    assert!(stderr.contains("不符"), "names the contradiction: {stderr}");
+    assert!(stderr.contains("contradicting"), "names the contradiction: {stderr}");
 }
 
 #[test]
@@ -270,7 +270,7 @@ fn install__refuses_tampered_archive() {
     let (_, stderr, ok) = run_mcc(&root, &["lib", "install", "--from", tampered.to_str().unwrap()]);
     assert!(!ok, "a corrupted frame must refuse");
     assert!(
-        stderr.contains("解码失败") || stderr.contains("不是 .mcl"),
+        stderr.contains("decode failed") || stderr.contains("is not an .mcl"),
         "names the corruption: {stderr}"
     );
     assert!(!root.join("packtest@0.1.0").exists(), "nothing lands");
@@ -278,7 +278,7 @@ fn install__refuses_tampered_archive() {
 
 #[test]
 fn install__refuses_manifest_less_archive() {
-    // Hand-built tar+zstd without pack.toml: 三查① (manifest present) is the
+    // Hand-built tar+zstd without pack.toml: check (1) (manifest present) is the
     // gate this locks — a valid zstd frame is not enough.
     let (pack, root, out) = fixture("nomanifest");
     let _ = pack_first(&root, &pack, &out);
@@ -292,6 +292,6 @@ fn install__refuses_manifest_less_archive() {
 
     let (_, stderr, ok) = run_mcc(&root, &["lib", "install", "--from", bare.to_str().unwrap()]);
     assert!(!ok, "manifest-less archive must refuse");
-    assert!(stderr.contains("三查①") || stderr.contains("pack.toml"), "names check ①: {stderr}");
+    assert!(stderr.contains("check (1)") || stderr.contains("pack.toml"), "names check ①: {stderr}");
     assert!(!root.join("packtest@0.1.0").exists(), "nothing lands");
 }

@@ -2,12 +2,16 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! `mcc lib pack` / `mcc lib inspect` ＋ `.mcl` 安装路径 —— 器件包本地闭环
-//! （registry-design.md §3：`.mcl` ＝ tar 流入 zstd 单流，帧 magic `28 B5 2F FD`
-//! 即格式指纹；thin＝清单＋entry，full＝清单＋entry＋全部 bundled 附件）。
+//! `mcc lib pack` / `mcc lib inspect` + the `.mcl` install path — the device-pack local loop
+// ! (registry-design.md §3: `.mcl` = a tar stream flowing into a single zstd stream; the frame
+   magic `28 B5 2F FD`
+// ! is the format fingerprint; thin = manifest + entry, full = manifest + entry + all bundled
+   attachments).
 //!
-//! 全部离线进程内执行，不走 RPC（同 parse 的 U90 先例：离线工具没有守护面）。
-//! pack 门＝「编译不过不出包」：进程内调 check 管线跑 entry，任何 E 错即拒。
+// ! Everything runs offline in-process, never over RPC (the parse U90 precedent: offline tools
+   have no daemon face).
+// ! The pack gate = no-compile-no-pack: the in-process check pipeline runs the entry; any E error
+   refuses.
 
 use crate::cmds::check;
 use crate::output;
@@ -19,7 +23,8 @@ use std::collections::BTreeMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
-/// zstd 帧 magic（RFC 8878 §3.1.1）——`.mcl` 的格式指纹，装时按字节识别，不靠扩展名。
+/// The zstd frame magic (RFC 8878 §3.1.1) — the `.mcl` format fingerprint, identified by bytes at
+    install time, never by extension.
 pub const ZSTD_MAGIC: [u8; 4] = [0x28, 0xB5, 0x2F, 0xFD];
 
 // Reports
@@ -30,7 +35,7 @@ pub struct PackReport {
     pub version: String,
     pub category: String,
     pub entry: String,
-    /// full 档文件集（thin 档 = 清单 + entry + README，报告不重复列）。
+    /// Full-tier file set (thin tier = manifest + entry + README; not repeated in the report).
     pub files: Vec<String>,
     pub full: ArtifactInfo,
     pub thin: ArtifactInfo,
@@ -46,7 +51,7 @@ pub struct ArtifactInfo {
 #[derive(Serialize)]
 pub struct InspectReport {
     pub file: String,
-    /// 档内全部文件名（含路径）。
+    /// Every file name in the archive (with paths).
     pub files: Vec<String>,
     pub pack: packfile::PackToml,
 }
@@ -70,6 +75,18 @@ impl std::fmt::Display for InspectReport {
         writeln!(f, "Archive: {}", self.file)?;
         writeln!(f, "  format: {}  name: {}  version: {}", p.format, p.name, p.version)?;
         writeln!(f, "  category: {}  entry: {}", p.category, p.entry)?;
+        if let Some(v) = &p.vendor {
+            writeln!(f, "  vendor: {}", v)?;
+        }
+        if let Some(publ) = &p.publisher {
+            writeln!(f, "  publisher: {}", publ)?;
+        }
+        if let Some(rm) = &p.readme {
+            writeln!(f, "  readme: {}", rm)?;
+        }
+        if !p.keywords.is_empty() {
+            writeln!(f, "  keywords: {}", p.keywords.join(", "))?;
+        }
         if let Some(d) = &p.description {
             writeln!(f, "  description: {}", d)?;
         }
@@ -119,17 +136,19 @@ pub fn cmd_pack(dir: &str, out: Option<&str>, format: OutputFormat) -> Result<()
     output::emit(&report, format, None)
 }
 
-/// Pure pack: validate → check 门 → file sets → 双档 `.mcl`。共享 CLI/RPC 语义面。
+/// Pure pack: validate → check gate → file sets → dual `.mcl` artifacts. Shared CLI/RPC semantic
+    face.
 pub fn do_pack(dir: &str, out: Option<&str>) -> Result<PackReport> {
     let root = PathBuf::from(dir);
     if !root.is_dir() {
-        anyhow::bail!("lib pack: '{}' 不是目录", dir);
+        anyhow::bail!("lib pack: '{}' is not a directory", dir);
     }
-    let root = root.canonicalize().context("lib pack: 解析包目录失败")?;
-    let pack = packfile::load(&root).context("pack 门：清单校验不过")?;
+    let root = root.canonicalize().context("lib pack: failed to resolve the pack directory")?;
+    let pack = packfile::load(&root).context("pack gate: manifest validation failed")?;
     let entry_path = root.join(&pack.package.entry);
 
-    // 编译不过不出包：进程内 check 门（U90：check 已是进程内管线，无守护分支）。
+    // No-compile-no-pack: the in-process check gate (U90: check is already an in-process pipeline,
+       no daemon branch).
     let args = CheckArgs {
         target: Some(entry_path.to_string_lossy().into_owned()),
         dlog: false,
@@ -138,41 +157,43 @@ pub fn do_pack(dir: &str, out: Option<&str>) -> Result<PackReport> {
         pins: false,
         ledger: None,
     };
-    let outcome = check::run(&args).context("pack 门：check 管线故障")?;
+    let outcome = check::run(&args).context("pack gate: check pipeline failure")?;
     if outcome.exit_code != 0 {
         anyhow::bail!(
-            "pack 门：entry {} 编译不过（诊断见上），不出包",
+            "pack gate: entry {} does not compile (diagnostics above); no pack emitted",
             pack.package.entry
         );
     }
 
-    // variants base 名浅查：声明的 base 必须在 entry 源面在位（语义绑定后续批）。
+    // Variant base shallow check: a declared base must be present on the entry source face
+       (semantic binding in a later batch).
     let source = std::fs::read_to_string(&entry_path)
-        .with_context(|| format!("读取 entry 失败: {}", entry_path.display()))?;
+        .with_context(|| format!("failed to read entry: {}", entry_path.display()))?;
     for (vname, v) in &pack.variants {
         let pat = format!(r"\b{}\b", regex::escape(v.base.as_str()));
         let re = regex::Regex::new(&pat)?;
         if !re.is_match(&source) {
             anyhow::bail!(
-                "variants `{}` 的 base `{}` 在 entry 源面不在位",
+                "variants `{}` base `{}` is not present on the entry source face",
                 vname,
                 v.base
             );
         }
     }
 
-    // bundled 附件：在位＋sha256 对账（清单已声明 checksum 的，pack 时即验证）。
+    // Bundled attachments: presence + sha256 audit (a manifest-declared checksum is verified at
+       pack time).
     for att in &pack.attachments {
         if let Some(p) = &att.path {
             let ap = root.join(p);
             if !ap.is_file() {
-                anyhow::bail!("bundled 附件不在场: {}", p);
+                anyhow::bail!("bundled attachment is missing: {}", p);
             }
             if let Some(sum) = &att.checksum {
                 let actual = format!("sha256:{}", sha256_hex_file(&ap)?);
                 if &actual != sum {
                     anyhow::bail!(
-                        "附件 {} checksum 不符: 清单 {} ≠ 实际 {}",
+                        "attachment {} checksum mismatch: manifest {} != actual {}",
                         p,
                         sum,
                         actual
@@ -182,16 +203,23 @@ pub fn do_pack(dir: &str, out: Option<&str>) -> Result<PackReport> {
         }
     }
 
-    // 文件集：thin = 清单 + entry (+README)；full = thin + 全部 bundled 附件。
+    // File sets: thin = manifest + entry (+ readme pointer / README convention); full = thin + all
+       bundled attachments.
     let mut thin_files: Vec<(PathBuf, String)> = vec![
         (root.join("pack.toml"), "pack.toml".to_string()),
         (entry_path.clone(), pack.package.entry.clone()),
     ];
-    for readme in ["README.md", "README"] {
-        let rp = root.join(readme);
-        if rp.is_file() {
-            thin_files.push((rp, readme.to_string()));
+    let mut push_readme = |rel: &str, thin: &mut Vec<(PathBuf, String)>| {
+        let rp = root.join(rel);
+        if rp.is_file() && !thin.iter().any(|(_, r)| r == rel) {
+            thin.push((rp, rel.to_string()));
         }
+    };
+    if let Some(rm) = &pack.package.readme {
+        push_readme(rm, &mut thin_files);
+    }
+    for readme in ["README.md", "README"] {
+        push_readme(readme, &mut thin_files);
     }
     let mut full_files = thin_files.clone();
     for att in &pack.attachments {
@@ -203,10 +231,11 @@ pub fn do_pack(dir: &str, out: Option<&str>) -> Result<PackReport> {
         }
     }
 
-    // 出档：`<name>-<ver>.mcl` ＋ `<name>-<ver>.thin.mcl`，默认落在包目录自身。
+    // Artifacts: `<name>-<ver>.mcl` + `<name>-<ver>.thin.mcl`, defaulting into the pack directory
+       itself.
     let out_dir = out.map(PathBuf::from).unwrap_or_else(|| root.clone());
     std::fs::create_dir_all(&out_dir)
-        .with_context(|| format!("创建输出目录失败: {}", out_dir.display()))?;
+        .with_context(|| format!("failed to create the output directory: {}", out_dir.display()))?;
     let base = format!("{}-{}", pack.package.name, pack.package.version);
     let full_path = out_dir.join(format!("{}.mcl", base));
     let thin_path = out_dir.join(format!("{}.thin.mcl", base));
@@ -227,15 +256,15 @@ pub fn do_pack(dir: &str, out: Option<&str>) -> Result<PackReport> {
     })
 }
 
-/// tar 流入 zstd 单流（§3.4 容器形），路径用包内相对名。
+/// tar stream into a single zstd stream (§3.4 container shape); paths use pack-relative names.
 fn write_archive(path: &Path, files: &[(PathBuf, String)]) -> Result<()> {
     let f = std::fs::File::create(path)
-        .with_context(|| format!("创建档失败: {}", path.display()))?;
+        .with_context(|| format!("failed to create the archive: {}", path.display()))?;
     let enc = zstd::stream::Encoder::new(f, 3)?;
     let mut tar = tar::Builder::new(enc);
     for (abs, rel) in files {
         tar.append_path_with_name(abs, rel)
-            .with_context(|| format!("入档失败: {}", rel))?;
+            .with_context(|| format!("failed to archive: {}", rel))?;
     }
     tar.into_inner()?.finish()?;
     Ok(())
@@ -256,19 +285,20 @@ pub fn cmd_inspect(file: &str, format: OutputFormat) -> Result<()> {
     output::emit(&report, format, None)
 }
 
-/// 纯检视：解包读清单，离线吐报告，不落盘、不出网。
+/// Pure inspection: unpack, read the manifest, emit an offline report — no disk writes, no network.
 pub fn do_inspect(file: &str) -> Result<InspectReport> {
     let files = read_archive(Path::new(file))?;
     let text = files
         .get("pack.toml")
-        .ok_or_else(|| anyhow!("档内无 pack.toml"))?;
+        .ok_or_else(|| anyhow!("no pack.toml in the archive"))?;
     let pack: packfile::PackToml =
-        toml::from_str(std::str::from_utf8(text).context("pack.toml 非 UTF-8")?)
-            .context("档内 pack.toml 解析失败")?;
-    // 结构面校验（含 format 闸）；entry 在场性对 thin 档也成立，对 full 档同样要求。
+        toml::from_str(std::str::from_utf8(text).context("pack.toml is not UTF-8")?)
+            .context("failed to parse the archive pack.toml")?;
+    // Structural validation (format gate included); entry presence holds for thin archives and is
+       required for full ones too.
     packfile::validate_structure(&pack)?;
     if !files.contains_key(pack.package.entry.as_str()) {
-        anyhow::bail!("档内 entry `{}` 不在场", pack.package.entry);
+        anyhow::bail!("entry `{}` is not present in the archive", pack.package.entry);
     }
     let mut names: Vec<String> = files.keys().cloned().collect();
     names.sort();
@@ -281,30 +311,39 @@ pub fn do_inspect(file: &str) -> Result<InspectReport> {
 
 // install (.mcl path)
 
-/// `.mcl` 安装：解包 → 装时三查＋format 闸 → staging 落位 `data_root/<name>@<ver>/`
-/// → rebuild_index。三查（registry-design.md §4.2）：①清单在场 ②entry 在场且
-/// basename 匹配 ③sha256 逐文件对附件表。thin 档附件天然不在场，③按在场文件核验。
+/// `.mcl` install: unpack → install-time three checks + format gate → staging into
+    `data_root/<name>@<ver>/`
+/// → rebuild_index. Three checks (registry-design.md §4.2): (1) manifest present, (2) entry
+    present with
+/// matching basename, (3) sha256 per file against the attachment table. Thin archives legitimately
+    lack attachments; check (3) audits what is present.
 pub fn install_mcl(archive: &Path, expected_name: Option<&str>) -> Result<(String, PathBuf)> {
     let files = read_archive(archive)?;
 
-    // 三查①：清单在场＋结构校验（format 闸、包名律、semver 在此）。
+    // Check (1): manifest present + structural validation (format gate, pack-name law, semver live
+       here).
     let text = files
         .get("pack.toml")
-        .ok_or_else(|| anyhow!("装时三查① 失败：档内无 pack.toml"))?;
+        .ok_or_else(|| anyhow!("install check (1) failed: no pack.toml in the archive"))?;
     let pack: packfile::PackToml =
-        toml::from_str(std::str::from_utf8(text).context("pack.toml 非 UTF-8")?)
-            .context("档内 pack.toml 解析失败")?;
+        toml::from_str(std::str::from_utf8(text).context("pack.toml is not UTF-8")?)
+            .context("failed to parse the archive pack.toml")?;
     packfile::validate_structure(&pack)?;
 
     let entry = &pack.package.entry;
-    // 三查②：entry 在场（basename 匹配已由 validate_structure 的包名律覆盖）。
+    // Check (2): entry present (basename matching is already covered by validate_structure's
+       pack-name law).
     if !files.contains_key(entry.as_str()) {
-        anyhow::bail!("装时三查② 失败：entry `{}` 不在档内", entry);
+        anyhow::bail!("install check (2) failed: entry `{}` is not in the archive", entry);
     }
 
-    // 清单是权威面：未列名文件拒收（thin 档允许清单+entry+README）。
+    // The manifest is the authority face: unlisted files are refused (thin allows
+       manifest+entry+README).
     let mut allowed: std::collections::BTreeSet<&str> =
         ["pack.toml", entry.as_str(), "README", "README.md"].into_iter().collect();
+    if let Some(rm) = &pack.package.readme {
+        allowed.insert(rm.as_str());
+    }
     for att in &pack.attachments {
         if let Some(p) = &att.path {
             allowed.insert(p.as_str());
@@ -312,11 +351,12 @@ pub fn install_mcl(archive: &Path, expected_name: Option<&str>) -> Result<(Strin
     }
     for name in files.keys() {
         if !allowed.contains(name.as_str()) {
-            anyhow::bail!("档内文件 `{}` 未在 pack.toml 列名（清单是权威面）", name);
+            anyhow::bail!("archive file `{}` is not listed in pack.toml (the manifest is the authority face)", name);
         }
     }
 
-    // 三查③：sha256 逐文件对附件表（在场才核验；thin 档附件不在场属正常态）。
+    // Check (3): sha256 per file against the attachment table (only what is present; thin archives
+       legitimately lack attachments).
     for att in &pack.attachments {
         if let (Some(p), Some(sum)) = (&att.path, &att.checksum) {
             if let Some(data) = files.get(p) {
@@ -325,7 +365,7 @@ pub fn install_mcl(archive: &Path, expected_name: Option<&str>) -> Result<(Strin
                 let actual = format!("sha256:{}", hex(&h.finalize()));
                 if &actual != sum {
                     anyhow::bail!(
-                        "装时三查③ 失败：附件 `{}` sha256 不符（清单 {} ≠ 实际 {}）",
+                        "install check (3) failed: attachment `{}` sha256 mismatch (manifest {} != actual {})",
                         p,
                         sum,
                         actual
@@ -335,11 +375,12 @@ pub fn install_mcl(archive: &Path, expected_name: Option<&str>) -> Result<(Strin
         }
     }
 
-    // 调用方给的 name 若与清单相悖，以清单为准、拒绝静默错位。
+    // A caller-supplied name contradicting the manifest is refused — the manifest wins, no silent
+       misplacement.
     if let Some(n) = expected_name {
         if n != pack.package.name {
             anyhow::bail!(
-                "--from 档的包名是 `{}`，与给定 name `{}` 不符",
+                "the --from archive pack name is `{}`, contradicting the given name `{}`",
                 pack.package.name,
                 n
             );
@@ -354,7 +395,7 @@ pub fn install_mcl(archive: &Path, expected_name: Option<&str>) -> Result<(Strin
         anyhow::bail!("lib install: target already exists '{}'", target.display());
     }
 
-    // staging → rename：同盘原子落位，半途失败不留半个包。
+    // staging → rename: same-volume atomic placement; a mid-way failure leaves no half pack.
     let root_dir = datadir::data_root();
     std::fs::create_dir_all(&root_dir)?;
     let staging = root_dir.join(format!(".staging-{}-{}", pack.package.name, std::process::id()));
@@ -389,21 +430,22 @@ pub fn install_mcl(archive: &Path, expected_name: Option<&str>) -> Result<(Strin
 
 // archive reading
 
-/// 读入 `.mcl`：按 zstd 帧指纹识别（不靠扩展名），解出「相对路径 → 字节」表。
-/// zip-slip 护栏：绝对路径或 `..` 段直接拒。
+/// Read a `.mcl`: identified by the zstd frame fingerprint (never the extension), decoded into a
+    relative-path → bytes table.
+/// Zip-slip guard: absolute paths or `..` segments are refused outright.
 pub fn read_archive(path: &Path) -> Result<BTreeMap<String, Vec<u8>>> {
     let mut raw = Vec::new();
     std::fs::File::open(path)
-        .with_context(|| format!("打开档失败: {}", path.display()))?
+        .with_context(|| format!("failed to open the archive: {}", path.display()))?
         .read_to_end(&mut raw)?;
     if raw.len() < 4 || raw[0..4] != ZSTD_MAGIC {
         anyhow::bail!(
-            "{} 不是 .mcl 档（zstd 帧指纹 28 B5 2F FD 不符）",
+            "{} is not an .mcl archive (zstd frame fingerprint 28 B5 2F FD mismatch)",
             path.display()
         );
     }
     let tarbytes = zstd::stream::decode_all(&raw[..])
-        .with_context(|| format!("zstd 解码失败: {}", path.display()))?;
+        .with_context(|| format!("zstd decode failed: {}", path.display()))?;
     let mut arch = tar::Archive::new(&tarbytes[..]);
     let mut files = BTreeMap::new();
     for e in arch.entries()? {
@@ -413,7 +455,7 @@ pub fn read_archive(path: &Path) -> Result<BTreeMap<String, Vec<u8>>> {
             || p.components()
                 .any(|c| matches!(c, std::path::Component::ParentDir))
         {
-            anyhow::bail!("档内出现非法路径: {}", p.display());
+            anyhow::bail!("illegal path in the archive: {}", p.display());
         }
         let mut buf = Vec::new();
         e.read_to_end(&mut buf)?;
