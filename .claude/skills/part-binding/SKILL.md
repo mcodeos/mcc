@@ -11,7 +11,7 @@ description: Bottom-up playbook for binding a real part to an abstract base-libr
 # Part binding — the USB worked template
 
 The canon (rationale, worked example with readouts, naming law) lives in
-`mcd/doc/library/part-binding-playbook.md`. Read it before the first run of
+`mcd/doc/workflow/part-binding-playbook.md`. Read it before the first run of
 any step you are unsure about. This file is the operational checklist.
 
 ## Direction
