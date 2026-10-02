@@ -18,7 +18,7 @@ This file is the index and the always-needed part. The bulk is split into
 | File | Covers |
 |---|---|
 | `reference/authoring-rules.md` | Rules for editing this repo (no name-guessing, no hardcoded paths, test scope) |
-| `reference/cli.md` | Every subcommand and flag: `parse`, `check`, `build`, `list`/`show`, `search`/`query`, `export`, `extract`, `lib`, `start`/`stop`/`status` |
+| `reference/cli.md` | Every subcommand and flag: `parse`, `check`, `build`, `list`/`show`, `search`/`query`, `join`/`trace`/`diff`, `export`, `rules`, `impact`/`import`, `fmt`, `lib`, `start`/`stop`/`status`, `proj`, `def`/`refs`/`explain`/`erc`/`caps`/`config` |
 | `reference/rpc.md` | JSON-RPC protocol, method tables, error codes |
 | `reference/pipeline.md` | Compiler passes, and how to debug mcc itself (VS Code configs, logging, server debugging, trace config, test commands) |
 | `reference/debugging.md` | Debugging mcode projects: project layout, common workflows, diagnosing errors, error codes, lapper/refdefmap dumps |

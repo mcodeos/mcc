@@ -1,5 +1,9 @@
 # 2. CLI Commands
 
+> Corrected against the real `mcc --help` surface (25 words + `search` alias),
+> U379 (2026-10-02). When this file and `mcc <word> --help` disagree, the
+> binary wins.
+
 ### Global Flags
 
 ```
@@ -14,6 +18,8 @@
   -o, --output <FILE>                 Write the command result to FILE instead of stdout
   -t, --top <NAME>                    Top-level module name (auto-guess first module if omitted)
   -e, --entry <FILE>                  Entry file for a directory target without a manifest
+  -i, --ignore <CODES>                Suppress warning diagnostics by code, comma-separated (warning-only; errors are never suppressed)
+      --strict                        Strict mode: strict-only diagnostics are reported as warnings
   -V, --version                       Print version
 ```
 
@@ -90,32 +96,31 @@ mcc parse example.mc --pass1
 # Parse + instantiate, or all the way through visualization
 mcc parse example.mc --pass2 --top main
 mcc parse example.mc --top main --viz
-
-# Output as JSON / show AST / limit tree depth
-mcc parse example.mc -f json-pretty -o result.json
-mcc parse example.mc --ast
-mcc parse example.mc --top main --depth 3
+mcc parse example.mc --all          # = --pass1 --pass2 --viz
 ```
 
 Key flags (see also Global Flags above; `--lib`/`--top`/`-f`/`-o` are global):
 
-| Flag                        | Purpose                                                          |
-| --------------------------- | ---------------------------------------------------------------- |
-| `--code CODE`               | Parse inline code                                                |
-| `-l, --lib NAME`            | Load a library (global, repeatable)                              |
-| `-t, --top NAME`            | Top-level module name (global)                                   |
-| `--dlog`                    | Only output diagnostics as `file:line:col: level[code]: message` |
-| `-i, --ignore CODES`        | Suppress warning-level diagnostics by code (global, e.g. `E3137[,E…]`); errors are never suppressed. Alias: `--ignore-warnings` |
-| `--sort {pinid\|interface}` | Pin sorting mode                                                 |
-| `--pass1`                   | Parse only (no instantiation)                                    |
-| `--pass2`                   | Parse + instantiate                                              |
-| `--viz`                     | Generate HTML visualization                                      |
-| `--viz-json`                | Generate JSON visualization data                                 |
-| `--ast`                     | Print AST                                                        |
-| `--tree`                    | Print tree representation                                        |
-| `--depth N`                 | Tree depth limit (0=unlimited)                                   |
-| `-f FORMAT`                 | Output format (global)                                           |
-| `-o FILE`                   | Output file (global)                                             |
+| Flag                          | Purpose                                                          |
+| ----------------------------- | ---------------------------------------------------------------- |
+| `--code CODE`                 | Parse inline code (mutually exclusive with positional TARGET)    |
+| `-l, --lib NAME`              | Load a library (global, repeatable)                              |
+| `-t, --top NAME`              | Top-level module name (global)                                   |
+| `--dlog`                      | Only output diagnostics as `file:line:col: level[code]: message` |
+| `-i, --ignore CODES`          | Suppress warning-level diagnostics by code (global); errors are never suppressed |
+| `--sort {pin-id\|interface}`  | Instance-tree pin sorting (default `pin-id`)                     |
+| `--pass1`                     | Detailed Pass1 print (loaded files / definitions / ports)        |
+| `--pass2`                     | Parse + instantiate, print module tree / connections / nets      |
+| `--all`                       | Equivalent to `--pass1 --pass2 --viz`                            |
+| `--viz`                       | Generate visualization HTML (default `<project-root>/build/circuit.html`) |
+| `--viz-json`                  | Generate visualization JSON instead of HTML                      |
+| `--ast`                       | Print AST                                                        |
+| `--tree`                      | Print tree representation                                        |
+| `--depth N`                   | Tree depth limit (`--tree`/`--ast` only, 0=unlimited)            |
+| `-f FORMAT` / `-o FILE`       | Output format / file (global)                                    |
+
+> `parse` always exits 0 — it reports diagnostics but is not an exit-code gate.
+> For CI-style pass/fail use `check` (exit 1 on errors).
 
 ***
 
@@ -131,18 +136,25 @@ mcc check ./my-project
 # Errors only
 mcc check example.mc --errors-only
 
-# Strict mode (warnings become errors)
+# Strict mode (strict-only diagnostics reported as warnings)
 mcc check example.mc --strict
 
-# Include netlist checks
+# Include netlist checks (driver conflict, floating inputs, ...)
 mcc check example.mc --nets
 
-# JSON output
-mcc check example.mc -f json-pretty
+# Pin usage checks (unused pins, conflicting pin options)
+mcc check example.mc --pins
 
-# Only diagnostics as file:line:col lines
+# Append the resolve-gate failure ledger (summary; `--ledger=audit` adds deferred/ambiguous detail)
+mcc check example.mc --ledger
+
+# JSON output / only file:line:col lines
+mcc check example.mc -f json-pretty
 mcc check example.mc --dlog
 ```
+
+Exit code 1 when errors are present — `check` (unlike `parse`) is the
+exit-code gate.
 
 ***
 
@@ -164,6 +176,16 @@ mcc build path/to/main.mc -f json -o output.json
 mcc build --include-system
 ```
 
+Extra flags:
+
+| Flag                  | Purpose                                                                                                          |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `--layouter flow`     | Lock viz to one layouter (only `flow` exists today)                                                              |
+| `--viz-frames`        | Draw scope dashed frames in `--viz` output (grouping annotation, default off)                                    |
+| `--product IDS`       | Write file products into `<project-root>/build/`; ids are the `mcc export <KIND>` tokens (`netlist`,`bom`,`spice`,`kicad`,`kicad-sch`,`inst-list`). Omitted = envelope alone |
+
+Exit code follows the same criterion as `check` (1 on diagnostics errors).
+
 Uses `project.toml`:
 
 ```toml
@@ -181,14 +203,12 @@ mcode = "*"
 
 ### 2.4 `list` / `show` — Inspect Definitions
 
-The old `show` command was split into two:
-
 - `mcc list <KIND>` — top-level definition **name lists**
 - `mcc show <TARGET> [NAME]` — **detailed content** of one entity / an overview
 
 ```
-mcc list <KIND> [OPTIONS]          # KIND: all | component | module | interface | enum | nets | ports | files
-mcc show <TARGET> [NAME] [OPTIONS] # NAME required except for `all`
+mcc list <KIND> [OPTIONS]          # KIND: all | component | module | interface | enum | nets | ports | files | func | bus | clause
+mcc show <TARGET> [NAME] [OPTIONS] # NAME required for detail/drill targets; file-based targets take the file via -F
 ```
 
 #### `mcc list` — top-level lists (names only)
@@ -200,83 +220,54 @@ object shown in the table (kind-tagged rows, uris, etc.).
 | ------------------------------------------------------ | ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `mcc list all`                                         | `count: N` + one `kind: name` line per definition | flat aggregate, kind-tagged: `{type:"all", count, list:[{name, kind}]}`; same `--scope` default policy as `show all` (`-F` anchors the `file` layer) |
 | `mcc list component` / `module` / `interface` / `enum` | `count: N` + one name per line                    | flat name list `{type, count, list}` — scripting-friendly                                                                                            |
+| `mcc list func` / `bus` / `clause`                     | `count: N` + one name per line                    | same flat shape; `list clause` filters on the **host** name (a clause has no name of its own)                                                        |
 | `mcc list nets`                                        | `count: N` + `name: point, point` per net         | all Pass2 nets of the top module (`--top` overrides; each entry includes its points)                                                                 |
 | `mcc list ports`                                       | `count: N` + `name: iotype (module)` per port     | all module ports                                                                                                                                     |
 | `mcc list files`                                       | one `uri: counts` line per file                   | every loaded file with per-file def counts                                                                                                           |
 
-Options: `--filter EXPR` (component/module/interface/enum), `-F/--file`,
-`-l/--lib`, `-t/--top` (nets), `-f/-o`, `-L`, `-c`.
+Options: `--filter EXPR` (structured filter, keys `name|kind|class`, `*`/`?`
+wildcards; applies to all/component/module/interface/enum/func/bus),
+`-F/--file`, `-l/--lib`, `-t/--top` (nets), `-f/-o`, `-L`, `-c`.
 
 #### `mcc show` — detailed content
 
-**Overview:**
+Targets (29):
 
-| command                              | output                                                                                                                                                                                                                             |
-| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `mcc show all [-F FILE] [--scope S]` | layered overview (file/use/system); `-F` anchors the `file` layer (default) and renders each entity in that file as a compact `.mc`-style detail block (pins/attrs/funcs/instances/...) — the former `show file` / whole-file dump |
-
-**Entity details:**
-
-| command                   | output                              |
-| ------------------------- | ----------------------------------- |
-| `mcc show component NAME` | pins table (id/io/names/interfaces) |
-| `mcc show module NAME`    | module summary + sub-instances      |
-| `mcc show interface NAME` | pin\_count, roles, params           |
-| `mcc show enum NAME`      | values                              |
-
-**Drill-downs** (NAME = owning entity):
-
-| command                   | output                                                                           |
-| ------------------------- | -------------------------------------------------------------------------------- |
-| `mcc show pins NAME`      | pins of a component / interface                                                  |
-| `mcc show ports NAME`     | ports (in/out/io) of a module                                                    |
-| `mcc show labels NAME`    | labels of a module                                                               |
-| `mcc show instances NAME` | sub-instances of a component / module; `--type KIND` filters kind                |
-| `mcc show nets NAME`      | Pass2 netlist of module `NAME` (or `OWNER.FUNC` → func-body line nets, no Pass2) |
-| `mcc show net NAME`       | points of one Pass2 net                                                          |
-| `mcc show attrs NAME`     | attributes of a component / interface                                            |
-| `mcc show funcs NAME`     | functions of a component / module                                                |
-| `mcc show params NAME`    | parameter declarations of a component / module / interface / func                |
-| `mcc show roles NAME`     | roles of an interface                                                            |
-| `mcc show values NAME`    | values of an enum                                                                |
-
-**Debug output** (raw parser / semantic data):
-
-| command                   | output                                                   |
-| ------------------------- | -------------------------------------------------------- |
-| `mcc show lapper -F FILE` | LSP symbol intervals + RefDefMap (goto-def debug, local) |
-| `mcc show ast -F FILE`    | AST tree (parser debug); `-f json` adds per-node source spans (see §2.4b) |
-
-**Pass2 circuit tree** (`--top`):
-
-| command                | output                                                                                              |
-| ---------------------- | --------------------------------------------------------------------------------------------------- |
-| `mcc show dianlu`      | whole instantiated circuit, one section per module: same-level instances (`[C]` component, `[M]` sub-module, `[L]` label, `[B]` bus) then per-connection lines; sub-modules recurse into nested sections; component interface buses are annotated with their interface class (e.g. `uC.UART0{TX, RX} :: UART.TTL(DCE)`) |
+| group    | targets |
+| -------- | ------- |
+| Overview / registry | `all` (layered overview, `--scope`), `defs` (whole def space in registry form: DefId + kind + declaring file) |
+| Entity details | `component`, `module`, `interface`, `enum` |
+| Pass2 circuit / power | `dianlu` (whole instantiated circuit; `--ids` annotates `NodeId`/`DefId`/physical points), `pwr` (power-intent facts tree), `pwrflow` (one-screen power flow; `--full` widens the rail-contract table, `--decaps` unfolds decoupler counts), `netlist` (flattening connectivity projection), `net` / `nets` (one net's points / module netlist) |
+| Projections (readout, never a gate) | `project` (hierarchical module/instance tree), `core-erc` (extension-tool check-model snapshot), `expectation` (acceptance ledger verdicts), `diagnostics` (collected diagnostics of the loaded world), `sim` (sim model-profile registry joined to the built world), `org-units` (organization directory) |
+| Debug | `lapper` (LSP intervals + RefDefMap), `ast` (parser AST tree), `stage <p1\|p2\|vec\|viz>` (pipeline segment; `--select`/`--exclude` slice stage viz by query-DSL predicate) |
+| Drill-downs (NAME = owning entity) | `pins`, `ports`, `labels`, `instances` (`--type KIND`), `nets`, `attrs`, `funcs`, `params`, `roles`, `values` |
 
 > `show nets` / `show params` accept `OWNER.FUNC` (dot-qualified func inside a
 > module/component; dotted class names work too, e.g. `MCU.US513_20_F.i2c`).
 > `show nets <func>` reports func-body connection-line nets named `line_N`
 > (no Pass2 — funcs depend on parameters and a calling context).
 > `show lapper` — see §6.6 for the full debug workflow.
-> `show sem` — RPC-based equivalent of lapper:
-> `curl -s -X POST http://localhost:8080/rpc -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","method":"sem","params":{"uri":"<path>"},"id":1}'`
 
 #### Parameter matrix
 
 | parameter                     | `mcc list`                          | `mcc show`    | effect                                                                                                                                |
 | ----------------------------- | ----------------------------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `--scope S`                   | `all`                               | `all`         | definition layers: `file` (default) / `use` / `system` / `all`; `show all` text renders one `------ <layer> ------` section per layer |
-| `--filter EXPR`               | all/component/module/interface/enum | —             | name filter on the list (`name=RES*`, `*` / `?` wildcards)                                                                            |
+| `--scope S`                   | `all`                               | `all` / `defs` | definition layers: `file` (default) / `use` / `system` / `all`; `show defs` defaults to every loaded layer                            |
+| `--filter EXPR`               | all/component/module/interface/enum/func/bus | —    | structured filter (`name=RES*`, `*` / `?` wildcards)                                                                                  |
 | `-F, --file FILE`             | all                                 | all           | parse directly from a file instead of the loaded library/project; anchors the `show all` / `list all` file layer                      |
-| `-t, --top NAME`              | nets                                | nets / dianlu | Pass2 top module for instantiation (auto-guesses the first module in the file if omitted)                                             |
+| `-t, --top NAME`              | nets                                | nets / dianlu / pwr / pwrflow / sim | Pass2 top module for instantiation (auto-guesses the first module in the file if omitted)                       |
 | `--type KIND`                 | —                                   | instances     | filter sub-instances by kind (component\|module\|label\|interface\|bus\|busref\|list)                                                 |
 | `--span`                      | —                                   | show all text | append `@start:end` source spans to `show all` file-layer details (hidden by default)                                                 |
+| `--ids`                       | —                                   | dianlu        | annotate instances/pins with node `NodeId` + def `DefId` + physical point ids (`N<n>:<m>`)                                            |
+| `--full` / `--decaps`         | —                                   | pwrflow       | widen the rail-contract table / unfold decoupler annotations                                                                          |
+| `--select` / `--exclude EXPR` | —                                   | stage viz     | slice the drawing to nets the query-DSL predicate selects / subtracts (repeatable, union)                                             |
 | `-l, --lib NAME` (repeatable) | all                                 | all           | load a library into scope (mcode, installed, or project)                                                                              |
 
 > Target-specific parameters (`--scope`, `--filter`, `--top`, `--type`,
-> `--span`) are silently ignored on targets they don't apply to. Orthogonal
-> flags `-f`/`-o` (format/output), `-L` (local), `-c` (cwd), `-e` (entry) apply
-> to every `list` / `show` target.
+> `--span`, `--ids`, `--full`, `--decaps`, `--select`, `--exclude`) are silently
+> ignored on targets they don't apply to. Orthogonal flags `-f`/`-o`
+> (format/output), `-L` (local), `-c` (cwd), `-e` (entry) apply to every
+> `list` / `show` target.
 
 #### Common queries
 
@@ -284,41 +275,31 @@ Options: `--filter EXPR` (component/module/interface/enum), `-F/--file`,
 # Lists
 mcc list all -l mcode                       # every def, kind-tagged, flat
 mcc list all -F example.mc                  # defs in the file (file layer, same default as show all)
-mcc list all -F example.mc --scope system   # defs in system libraries only
-mcc list component -l mcode
 mcc list component -l mcode --filter "name=RES*"
-mcc list interface -l mcode
+mcc list func -F example.mc
 mcc list files
 mcc list nets -F example.mc --top net1_simple_port
 
-# Overview / file scope (by origin layer, not kind)
+# Overview / registry
 mcc show all -F example.mc                  # entities in the file (file layer)
-mcc show all -F example.mc --scope all      # system/use/file sections
 mcc show all -F example.mc --scope system   # one layer only
+mcc show defs -l mcode                      # whole def space, registry form
 
-# Entity details
+# Entity details / drill-down
 mcc show component RES -l mcode
-mcc show enum CAP -l mcode
-mcc show module LP322DCDC -F example.mc
-
-# Drill-down
 mcc show pins RES -l mcode
-mcc show ports LP322DCDC -F example.mc
-mcc show labels LP322DCDC -F example.mc
-mcc show instances LP322DCDC -F example.mc
 mcc show instances LP322DCDC --type component -F example.mc
 mcc show nets LP322DCDC --top LP322DCDC -F example.mc
-mcc show net left -F example.mc             # points of one net
-mcc show attrs RES -l mcode
-mcc show funcs CAP -l mcode
-mcc show params CAP -l mcode
-mcc show roles SPI -l mcode
-mcc show values CAP -l mcode
+mcc show params US513.loadFlash -F example.mc   # nested func (OWNER.FUNC)
 
-# Nested funcs (OWNER.FUNC)
-mcc show params US513.loadFlash -F example.mc        # func parameters
-mcc show nets US513.loadFlash -F example.mc          # func body line nets
-mcc show funcs US513 -F example.mc                   # list funcs of an entity
+# Pass2 circuit / power
+mcc show dianlu --top main -F example.mc --ids
+mcc show pwrflow --top main -F example.mc --full --decaps
+
+# Projections (JSON readouts)
+mcc show project -f json
+mcc show expectation -f json
+mcc show core-erc -f json
 
 # Debug
 mcc show all -F example.mc --span                     # file layer with @start:end spans
@@ -350,20 +331,26 @@ mcc join vec viz -F hbl.mc        # vec -> viz objects
 mcc join src p2 -F hbl.mc --only drop   # one class only
 
 # Follow ONE key along the whole chain and print what it is at each stage.
-# Key forms are read off the key itself (four shapes):
-mcc trace top.u1.vin -F hbl.mc    # instance port canonical path
-mcc trace dc.VDD_3V3 -F hbl.mc    # net name
-mcc trace mcu.mc:23 -F hbl.mc     # source position
-mcc trace N12:3 -F hbl.mc         # in-domain handle
+# The key's form is read off the key itself — four shapes:
+mcc trace top.u1.vin -F hbl.mc        # instance canonical path
+mcc trace "lib/power.mc::LDO" -F hbl.mc  # def canonical key
+mcc trace dc.VDD_3V3 -F hbl.mc        # net name
+mcc trace mcu.mc:23 -F hbl.mc         # source position
+mcc trace N12:3 -F hbl.mc             # in-domain handle
 
 # Stage readouts (the segments themselves):
 mcc show stage p2 -F hbl.mc             # text
 mcc show stage viz -F hbl.mc -f json    # structured, saveable
 
-# Diff two readings of one view (a source path read now, or a saved
-# `show stage ... -o FILE` reading):
+# Diff two readings of one view. Two modes:
 mcc show stage viz -F hbl.mc -f json -o /tmp/viz_now.json
 mcc diff hbl.mc /tmp/viz_now.json --view stage.viz
+        # identity mode (default): NodeId-keyed alignment over a stage view;
+        # operands = a source path read now + a saved reading
+mcc diff ./projA ./projB --mode functional
+        # functional mode: shared-expects alignment over two worlds;
+        # both operands are source paths/projects, --view does not apply
+# --view: stage.viz (default) | stage.p2 | stage.vec
 ```
 
 AST faces (feeds of the whole chain):
@@ -399,11 +386,12 @@ $MCC join vec viz -F $HBL          # vec -> viz
 $MCC join vec viz -F $HBL --only drop   # zoom into one class
 
 # 2. Trace one object that looks wrong at some stage
-$MCC trace top.u1.vin -F $HBL      # instance port / net name / mcu.mc:23 / N12:3
+$MCC trace top.u1.vin -F $HBL      # instance port / def key / net name / mcu.mc:23 / N12:3
 
 # 3. Diff two readings of one view (before/after an edit)
 $MCC show stage viz -F $HBL -f json -o /tmp/viz_now.json
 $MCC diff $HBL /tmp/viz_now.json --view stage.viz
+$MCC diff $HBL ~/other/worktree/src/hbl.mc --mode functional   # two worlds
 
 # 4. AST <-> source round-trip gate (every non-comment byte accounted for)
 python3 scripts/check-ast-roundtrip.py --mcc $MCC ~/work/mo/mcs/hbl/src/*.mc
@@ -418,21 +406,18 @@ after any fix; 5 is the standing diagnostics floor, not a comparison.
 
 ***
 
-
-
 ### 2.5 `search` & `query` — Find Definitions
 
 ```bash
-# Text search
+# Text search (substring is the default matcher)
 mcc search RES
+mcc search RES --substring          # explicit substring
 
-# Regex search
+# Regex / fuzzy search
 mcc search "CAP\..*" --regex
-
-# Fuzzy search
 mcc search "amplifir" --fuzzy
 
-# Filter by kind
+# Filter by kind: component|module|interface|enum|instance|net|func|bus|clause
 mcc search SPI --kind interface
 
 # Limit results
@@ -450,9 +435,15 @@ mcc query "kind=component AND name=RES*"
 mcc query "kind=interface AND port_count>2" --json
 ```
 
+> A query value that does not compile as a DSL expression falls back to a
+> case-insensitive substring match on def names. `--kind` has no `def` value —
+> def-like kinds are spelled out (`component|module|interface|enum|...`).
+
 ***
 
 ### 2.6 `export` — Generate Outputs
+
+Kinds: `netlist | bom | spice | kicad | kicad-sch | inst-list`.
 
 ```bash
 # Netlist
@@ -464,32 +455,88 @@ mcc export bom example.mc --top main --lib mcode
 # SPICE netlist
 mcc export spice example.mc --top main --lib mcode
 
-# KiCad schematic
-mcc export kicad example.mc --top main --lib mcode -o output.kicad_sch
+# KiCad NETLIST (the connectivity exchange format)
+mcc export kicad example.mc --top main --lib mcode -o output.net
+
+# KiCad SCHEMATIC (hierarchical sheets; --flat tiles everything on one sheet)
+mcc export kicad-sch example.mc --top main --lib mcode -o output.kicad_sch
+mcc export kicad-sch example.mc --flat
+
+# Instance list
+mcc export inst-list example.mc --top main
 
 # Format options
 mcc export netlist example.mc --top main -f json
 mcc export bom example.mc --top main -f csv
 ```
 
+> `kicad` and `kicad-sch` are different products: `kicad` is the KiCad
+> **netlist**, `kicad-sch` is the drawing. `--flat` is `kicad-sch`-only.
+
 ***
 
-### 2.7 `extract` — Extract Entities
+### 2.7 `rules` — Check-Rule Registry Catalog
 
 ```bash
-# All instances / nets / components / interfaces
-mcc extract instances example.mc --top main --lib mcode
-mcc extract nets example.mc --top main --lib mcode
-mcc extract components example.mc --lib mcode
-mcc extract interfaces example.mc --lib mcode
+# List catalog rules; -f json emits the shared rules.list projection
+mcc rules list
+mcc rules list --scope flat-erc --severity warning
 
-# Filter by name pattern
-mcc extract instances example.mc --name "C*" --lib mcode
+# One rule's full descriptor + its override audit (severity/allow/accept rows per layer)
+mcc rules detail FLAT_R02
+
+# Set a severity override (session-only; --write persists into project [config] diag.severities)
+mcc rules set-severity FLAT_R02 error
+
+# Allow (suppression) row / Accept (waiver) row (same --write persistence pattern)
+mcc rules allow FLAT_R03 --path "src/power.mc"
+mcc rules accept FLAT_R03
 ```
+
+`rules list` filter flags: `--scope` (post-parse | assembly-gate | flat-erc |
+declaration | viz-layout), `--domain`, `--severity` (hint|info|warning|error),
+`--plane`, `--gate`, `--fix`, `--overridable`. Without a subcommand the
+catalog summary prints.
 
 ***
 
-### 2.8 `lib` — Library Management
+### 2.8 `impact` & `import` — Change Radius / Read-Back
+
+```bash
+# Blast radius of changing one def (which tops, nets, consumers)
+mcc impact LDO ./my-project
+mcc impact main -f json             # versioned payload (schema_version impact.1.0)
+
+# Read an EDA artifact back and report how it differs from the current world
+mcc export netlist ./my-project -o /tmp/hbl.net
+mcc import /tmp/hbl.net ./my-project --from netlist
+mcc import /tmp/hbl.net ./my-project --from netlist -f json   # schema_version import.1.0
+```
+
+Exit codes: `impact` exits 1 when the sym names nothing, 2 when the world
+cannot be built. `import` exits 2 on artifact/world construction failure,
+1 when the artifact differs (`count > 0`) or the world is not
+diagnostic-clean, 0 on agreement. Both answers are versioned payloads of
+their own (`schema_version`), not the shared command envelope (design §7 D4).
+
+***
+
+### 2.9 `fmt` — Format `.mc` Sources
+
+```bash
+mcc fmt path/to/file.mc             # format in place (whitespace only)
+mcc fmt ./src                       # whole directory; default target = cwd
+mcc fmt --check ./src               # report files needing formatting; exit 1 if any differ
+mcc fmt --rename ./src              # also rewrite style-gate names (E5070) to corrected spelling
+```
+
+> `--rename` is off by default and is not a whitespace pass: it rewrites the
+> token sequence, and only touches names whose consumer set is provably
+> complete (a name with invisible consumers is left as-is).
+
+***
+
+### 2.10 `lib` — Library Management
 
 ```bash
 # List loaded libraries
@@ -514,7 +561,7 @@ mcc lib unload mylib
 
 ***
 
-### 2.9 `start` / `stop` / `status` — RPC Server
+### 2.11 `start` / `stop` / `status` — RPC Server
 
 ```bash
 # Start foreground server
@@ -523,50 +570,45 @@ mcc start --host 127.0.0.1 --port 8080 --lib mcode
 # Start background daemon
 mcc start -b --port 8080 --lib mcode
 
-# With logging
-mcc start --log-level debug --log-file /tmp/mcc-server.log
+# Server log file
+mcc start -b --log-file /tmp/mcc-server.log
 
 # Check status
 mcc status
 mcc status --json
+mcc status --watch                  # real-time monitoring
 
-# Stop gracefully
+# Stop gracefully (wait up to --timeout seconds, default 10)
 mcc stop
 
 # Force stop
 mcc stop --force
 ```
 
+> There is no `--log-level` flag: log verbosity is the global `-v`/`-q` ladder
+> (default `warn`, `-v` info, `-vv` debug, `-vvv` trace).
+
 ***
 
-### 2.10 Other Commands
+### 2.12 Other Commands
 
 ```bash
 # Create a new project
 mcc proj create my-project
 
-# Explain an error code
+# Explain an error code (omit the code to list all)
 mcc explain 1100
 
 # Go-to-definition (verify F12 jump target)
 mcc def DC --lib mcode
-mcc def CAP --lib mcode
-mcc def RES --lib mcode
 
-# Find references (verify reference lookup)
+# Find references (source spans by default; --circuit answers in the built board's rows)
 mcc refs DC --lib mcode
-mcc refs CAP --lib mcode
+mcc refs LDO --circuit --top main ./my-project
 
 # Electrical rule check
 mcc erc ./my-project --lib mcode
 mcc erc ./my-project --top main --lib mcode
-
-# Convert .mc to JSON/YAML
-mcc convert example.mc --to json -o example.json
-mcc convert example.mc --to yaml -o example.yaml
-
-# Generate design report
-mcc report ./my-project
 
 # Self-describing capabilities (AI discovery)
 mcc caps
@@ -574,7 +616,7 @@ mcc caps
 # Config management
 mcc config list
 mcc config get trace.parser
-mcc config set trace.pass1 true
+mcc config set trace.pass1 true     # runtime log-stream toggles (pass1/pass2/server), not stored in the config file
 mcc config reset
 ```
 

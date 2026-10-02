@@ -384,6 +384,13 @@ fn print_help_hint() {
     eprintln!("  list     List top-level definition names (component / module / interface / enum / nets / ports / files / all)");
     eprintln!("  query    Query defs by DSL <EXPR> or by name; --kind instance/net tables (text|regex|fuzzy); -f csv");
     eprintln!("  search   Alias of `query` for bare-name substring searches");
+    eprintln!("  join     Reconcile two adjacent pipeline stages by key, report every mismatch");
+    eprintln!("  trace    Follow one key along the whole chain and print what it is at each stage");
+    eprintln!("  diff     Compare two readings of one view and report what changed");
+    eprintln!("  def      Go-to-definition for a symbol");
+    eprintln!("  refs     Find all references to a symbol");
+    eprintln!("  explain  Explain an error/diagnostic code");
+    eprintln!("  erc      Electrical rule check (single-point nets, unconnected ports, ...)");
     eprintln!("  export   Export netlist / BOM / SPICE (text|csv|json)");
     eprintln!("  impact   Blast radius of changing one def (which tops, nets, consumers)");
     eprintln!(
@@ -393,11 +400,13 @@ fn print_help_hint() {
         "  lib      System library management (list / install / load / unload / show / search / uninstall)"
     );
     eprintln!("  proj     Project scaffolding (create)");
+    eprintln!("  fmt      Format .mc sources in place (whitespace only)");
     eprintln!("  start    Start server");
     eprintln!("  stop     Stop server");
     eprintln!("  status   View server status");
     eprintln!("  config   Configuration management (get / set / list / reset)");
-    eprintln!("  rules    Check-rule registry catalog (list / detail / allow / accept)");
+    eprintln!("  rules    Check-rule registry catalog (list / detail / set-severity / allow / accept)");
+    eprintln!("  caps     Show compiler capabilities (self-describing API for AI)");
     eprintln!();
     eprintln!("Examples:");
     eprintln!("  mcc parse example.mc");

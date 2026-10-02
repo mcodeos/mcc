@@ -103,9 +103,17 @@ fn get_config_value(config: &MccConfig, name: &str) -> Result<String> {
             .visit
             .map(|v| v.to_string())
             .unwrap_or_else(|| "null".to_string())),
-        ["trace", "pass1"] => Ok("null".to_string()), // runtime state, not stored in config file
-        ["trace", "pass2"] => Ok("null".to_string()),
-        ["trace", "server"] => Ok("null".to_string()),
+        // Runtime log-stream state (not stored in the config file); mirrors the
+        // RPC handler (rpc/handlers/libcmd.rs), which reads the same getters.
+        ["trace", "pass1"] => Ok(mcc::cli::config::get_log_pass1()
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| "null".to_string())),
+        ["trace", "pass2"] => Ok(mcc::cli::config::get_log_pass2()
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| "null".to_string())),
+        ["trace", "server"] => Ok(mcc::cli::config::get_log_server()
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| "null".to_string())),
         ["parser", "max_depth"] => Ok(config
             .parser
             .max_depth
@@ -200,9 +208,11 @@ fn set_config_value(config: &mut MccConfig, name: &str, value: &str) -> Result<(
         ["trace", "parser"] => config.trace.parser = Some(parse_bool(value)?),
         ["trace", "visit"] => config.trace.visit = Some(parse_bool(value)?),
         ["trace", "level"] => config.trace.level = Some(value.to_string()),
-        ["trace", "pass1"] => {} // runtime state, not stored in config file
-        ["trace", "pass2"] => {}
-        ["trace", "server"] => {}
+        // Runtime log-stream toggles (not stored in the config file); same
+        // setters the RPC handler uses (rpc/handlers/libcmd.rs).
+        ["trace", "pass1"] => mcc::cli::config::set_log_pass1(parse_bool(value)?),
+        ["trace", "pass2"] => mcc::cli::config::set_log_pass2(parse_bool(value)?),
+        ["trace", "server"] => mcc::cli::config::set_log_server(parse_bool(value)?),
         ["trace", "targets", target] => {
             // mcc config set "trace.targets.mcc::sem::fcall" debug
             config

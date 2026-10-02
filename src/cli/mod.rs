@@ -27,7 +27,7 @@ use clap::{Parser, Subcommand, ValueEnum};
     long_about = None,
 )]
 pub struct Cli {
-    // Global options (corresponding to design doc §3)
+    // Global options (manual.md §4)
     /// Verbose log: -v=info, -vv=debug, -vvv=trace
     #[arg(short = 'v', long = "verbose", action = clap::ArgAction::Count, global = true)]
     pub verbose: u8,
@@ -162,10 +162,10 @@ pub fn strict_mode() -> bool {
 /// Subcommands supported by first phase (MVP)
 #[derive(Subcommand, Debug)]
 pub enum Command {
-    /// Parse currently loaded content (corresponding to design doc §8.2)
+    /// Parse currently loaded content (manual.md §5.3.1)
     Parse(ParseArgs),
 
-    /// Syntax/semantic check, output diagnostics (corresponding to design doc §8.3)
+    /// Syntax/semantic check, output diagnostics (manual.md §5.3.2)
     Check(CheckArgs),
 
     /// Join two adjacent segments of the compile pipeline by key, and report
@@ -204,13 +204,13 @@ pub enum Command {
     /// Project workspace management (create)
     Proj(ProjArgs),
 
-    /// Start service (corresponding to design doc §4.1)
+    /// Start service (manual.md §5.2.3)
     Start(StartArgs),
 
-    /// Stop service (corresponding to design doc §4.2)
+    /// Stop service (manual.md §5.2.3)
     Stop(StopArgs),
 
-    /// View service status (corresponding to design doc §4.3)
+    /// View service status (manual.md §5.2.3)
     Status(StatusArgs),
 
     /// Configuration management (get / set / list / reset)
