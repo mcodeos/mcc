@@ -6,7 +6,7 @@ use ./power.mc
 
 component MCU.US513_20_F
 {
-    partno = "US513_20_F"
+    partno = "US513U61"
     package = PKG.QFN20
 
     pins = [

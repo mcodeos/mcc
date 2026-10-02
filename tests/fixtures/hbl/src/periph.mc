@@ -6,7 +6,7 @@ use ./power.mc
 
 component MICROPHONE.SIP2
 {
-    partno = "SIP2-1.25MM-WA"
+    partno = "CMC-6027-32T"
     package = PKG.MIC_SIP2  
 
     pins = [

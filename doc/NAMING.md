@@ -506,9 +506,23 @@ positions, N1):
 | `name` | Body | Text | - |
 | `description` | Body | Text | - |
 | `partno` | Body | Text | - |
-| `package` | Body | Text | - |
+| `package` | Body | Text | §4 PKG |
 | `manufacturer` | Body | Text | - |
 | `spec` | Body | - | - |
+
+Corpus convention for the identity keys (prevailing practice, not a gate):
+`package` resolves through the global `PKG` enum (§4, mcode
+`comp/package.mc`) and is never a free string —
+`package = PKG.LQFP176_24X24`, never `package = "PG-LQFP-176-22"`. The
+package is consumed inside the toolchain (footprint mapping, pin layout,
+export), so its value must be a controlled-vocabulary member; extend the
+enum when no member exists yet. `partno` stays a free string (real
+orderable codes contain `-`, `/`, `.` and can never be identifiers) and
+carries content discipline instead: copy the exact orderable code as the
+datasheet prints it, no invented aliases, no `-`/`/` → `_` mangling (that
+law is for PKG member names only); one partno per concrete variant, with
+the `if (partno == "…")` selector pattern — string comparisons included —
+sanctioned when one file serves several orderables.
 
 Column semantics:
 
