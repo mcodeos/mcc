@@ -179,7 +179,6 @@ fn u383__legacy_text_faces_unchanged() {
 // U383 leg4b — body-local `let` bindings and per-instance `require` judgements
 // (b4483 rulings ① and ②). The judgement rides the conds chain with the U39
 // deferral: undecided is not violated.
-// ---------------------------------------------------------------------------
 
 /// Diagnostics only — the module-body face has no resolved-attrs render to
 /// read; the judgement products are diagnostics (or their absence).
@@ -274,5 +273,163 @@ fn u383__let_refusal_reports_and_defers_the_require() {
     assert!(
         !diags.contains(&mcc::errcodes::MODULE_REQUIRE_UNSATISFIED),
         "the require reading an unbound let defers: {diags:?}"
+    );
+}
+
+// U383 leg4c — value functions.
+//
+// A return carrying `*`/`/` parses as a computation (`McFuncReturn::Value`),
+// not a connection: the formals bind positionally to the evaluated arguments
+// and the stored expression evaluates per instance at the value-face call
+// site. A call that names no value function keeps its written form, silently.
+
+/// Quantity-in, quantity-out: `Drop(20mA, 100R)` lands typed — the same
+/// storage a direct `2V` row holds (canon §7.4 note 2 flipped).
+#[test]
+fn u383__value_func_quantity_out() {
+    let src = "component C {\n\
+               \x20   pins = [\n\
+               \x20       1 = A\n\
+               \x20       2 = B\n\
+               \x20   ]\n\
+               \x20   func Drop(i, r) { return r * i }\n\
+               \x20   spec = [\n\
+               \x20       vdrop = Drop(20mA, 100R)\n\
+               \x20       direct = 2V\n\
+               \x20   ]\n\
+               }\n\
+               module main {\n\
+               \x20   C c1()\n\
+               }\n";
+    let (diags, attrs) = probe(&src, "/mcc/u383-value-func-quantity.mc");
+    assert!(diags.is_empty(), "got {diags:?}");
+    let rows = attrs_of(&attrs, "c1").join("\n");
+    assert!(rows.contains("vdrop = 2.00V"), "{rows}");
+    assert!(rows.contains("direct = 2V"), "{rows}");
+}
+
+/// A dimensionless ratio is the bare scalar (leg3 ruling ① carried through
+/// the call), and the arguments read the sibling spec rows by name.
+#[test]
+fn u383__value_func_ratio_reads_sibling_rows() {
+    let src = "component C {\n\
+               \x20   pins = [\n\
+               \x20       1 = A\n\
+               \x20       2 = B\n\
+               \x20   ]\n\
+               \x20   func Ratio(v_hi, v_lo) { return v_hi / v_lo }\n\
+               \x20   spec = [\n\
+               \x20       vin = 5V\n\
+               \x20       vout = 2.5V\n\
+               \x20       frac = Ratio(vin, vout)\n\
+               \x20   ]\n\
+               }\n\
+               module main {\n\
+               \x20   C c1()\n\
+               }\n";
+    let (diags, attrs) = probe(&src, "/mcc/u383-value-func-ratio.mc");
+    assert!(diags.is_empty(), "got {diags:?}");
+    let rows = attrs_of(&attrs, "c1").join("\n");
+    assert!(rows.contains("frac = 2"), "{rows}");
+}
+
+/// A call to an unknown name is not a refusal: the row stays as written,
+/// silently — the legacy face for every unresolvable call.
+#[test]
+fn u383__unknown_value_call_stays_raw() {
+    let src = "component C {\n\
+               \x20   pins = [\n\
+               \x20       1 = A\n\
+               \x20       2 = B\n\
+               \x20   ]\n\
+               \x20   spec = [\n\
+               \x20       m = Mystery(3V)\n\
+               \x20   ]\n\
+               }\n\
+               module main {\n\
+               \x20   C c1()\n\
+               }\n";
+    let (diags, attrs) = probe(&src, "/mcc/u383-value-func-unknown.mc");
+    assert!(diags.is_empty(), "got {diags:?}");
+    let rows = attrs_of(&attrs, "c1").join("\n");
+    assert!(rows.contains(r#"m = "Mystery(3V)""#), "{rows}");
+}
+
+/// An arity mismatch against a known value function is not a refusal either —
+/// the written form survives (no value-face diagnostics this leg).
+#[test]
+fn u383__value_func_wrong_arity_stays_raw() {
+    let src = "component C {\n\
+               \x20   pins = [\n\
+               \x20       1 = A\n\
+               \x20       2 = B\n\
+               \x20   ]\n\
+               \x20   func Drop(i, r) { return r * i }\n\
+               \x20   spec = [\n\
+               \x20       vdrop = Drop(20mA)\n\
+               \x20   ]\n\
+               }\n\
+               module main {\n\
+               \x20   C c1()\n\
+               }\n";
+    let (diags, attrs) = probe(&src, "/mcc/u383-value-func-arity.mc");
+    assert!(diags.is_empty(), "got {diags:?}");
+    let rows = attrs_of(&attrs, "c1").join("\n");
+    assert!(rows.contains(r#"vdrop = "Drop(20mA)""#), "{rows}");
+}
+
+/// The arithmetic return is body content: neither E5252 (empty body) nor
+/// E5103 (params but no body) fires for a value function.
+#[test]
+fn u383__value_func_is_not_a_stub() {
+    let src = "component C {\n\
+               \x20   pins = [\n\
+               \x20       1 = A\n\
+               \x20       2 = B\n\
+               \x20   ]\n\
+               \x20   func Drop(i, r) { return r * i }\n\
+               \x20   spec = [\n\
+               \x20       vdrop = Drop(20mA, 100R)\n\
+               \x20   ]\n\
+               }\n\
+               module main {\n\
+               \x20   C c1()\n\
+               }\n";
+    let (diags, _) = probe(&src, "/mcc/u383-value-func-stub.mc");
+    assert!(
+        !diags.contains(&mcc::errcodes::FUNC_EMPTY_BODY),
+        "E5252 must not fire: {diags:?}"
+    );
+    assert!(
+        !diags.contains(&mcc::errcodes::FUNC_PARAMS_NO_BODY),
+        "E5103 must not fire: {diags:?}"
+    );
+}
+
+/// The module-body face calls value functions too: a `let` evaluates the
+/// call per instance and the `require` judges the result — 15W passes
+/// silently, 25W violates with exactly one E5463 (per instance, leg4b).
+#[test]
+fn u383__module_let_calls_value_func_per_instance() {
+    let src = "module AMP(v) {\n\
+               \x20   func Pd(v, i) { return v * i }\n\
+               \x20   let p = Pd(v, 5A)\n\
+               \x20   require p <= 20W\n\
+               }\n\
+               module main {\n\
+               \x20   AMP(v = 3V)\n\
+               }\n";
+    let diags = probe_diags(src, "/mcc/u383-value-func-module.mc", "main");
+    assert!(diags.is_empty(), "got {diags:?}");
+
+    let violating = src.replace("AMP(v = 3V)", "AMP(v = 5V)");
+    let diags = probe_diags(&violating, "/mcc/u383-value-func-module-bad.mc", "main");
+    assert_eq!(
+        diags
+            .iter()
+            .filter(|c| **c == mcc::errcodes::MODULE_REQUIRE_UNSATISFIED)
+            .count(),
+        1,
+        "exactly one instance violates: {diags:?}"
     );
 }

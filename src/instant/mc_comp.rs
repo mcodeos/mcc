@@ -12,6 +12,7 @@ use crate::instant::identity::NodeId;
 use crate::instant::insttab::InstOrigin;
 use crate::semantic::basic::mc_conds::{CondDefCtx, McConds};
 use crate::semantic::basic::mc_expr::McExpression;
+use crate::semantic::mc_func::{McFuncReturn, McFunctions};
 use crate::semantic::basic::mc_param::{McParamBindings, McParamValue, ParamBindError};
 use crate::semantic::basic::mc_paramd::{McParamDeclare, McParamDeclareKind};
 use crate::semantic::common::IOType;
@@ -100,6 +101,8 @@ pub(crate) fn resolve_expr_value(
     expr: &McExpression,
     env: &[(String, Value)],
     lookup: &dyn Fn(&str) -> Option<String>,
+    funcs: Option<&McFunctions>,
+    depth: usize,
 ) -> Result<Option<Value>, eval::EvalError> {
     Ok(match expr {
         McExpression::Variable(opd) => {
@@ -124,24 +127,74 @@ pub(crate) fn resolve_expr_value(
         McExpression::Float(f) => Some(Value::Float(f.value)),
         McExpression::String(s) => Some(Value::Str(s.value.clone())),
         McExpression::UnitValue(u) => Some(Value::from_quantity(u.clone())),
-        McExpression::Plus(l, r) => apply_expr_operands(Op::Add, l, r, env, lookup)?,
-        McExpression::Minus(l, r) => apply_expr_operands(Op::Sub, l, r, env, lookup)?,
-        McExpression::Multiply(l, r) => apply_expr_operands(Op::Mul, l, r, env, lookup)?,
-        McExpression::Divide(l, r) => apply_expr_operands(Op::Div, l, r, env, lookup)?,
+        McExpression::Plus(l, r) => apply_expr_operands(Op::Add, l, r, env, lookup, funcs, depth)?,
+        McExpression::Minus(l, r) => apply_expr_operands(Op::Sub, l, r, env, lookup, funcs, depth)?,
+        McExpression::Multiply(l, r) => {
+            apply_expr_operands(Op::Mul, l, r, env, lookup, funcs, depth)?
+        }
+        McExpression::Divide(l, r) => {
+            apply_expr_operands(Op::Div, l, r, env, lookup, funcs, depth)?
+        }
         McExpression::Call { name, args } => {
             let mut resolved = Vec::with_capacity(args.len());
             for arg in args {
-                match resolve_expr_value(arg, env, lookup)? {
+                match resolve_expr_value(arg, env, lookup, funcs, depth)? {
                     Some(v) => resolved.push(v),
                     // An unresolved argument is not a refusal — the call
                     // stays as written, silently (the legacy face).
                     None => return Ok(None),
                 }
             }
-            eval::call_builtin(name, &resolved)
+            match eval::call_builtin(name, &resolved) {
+                Some(v) => Some(v),
+                // Not a builtin: a user value function (U383 leg4c). An
+                // unknown name, a non-value function, or an arity mismatch
+                // keeps the written form (`None`) — no diagnostics from this
+                // door this leg.
+                None => call_user_func(funcs, name, &resolved, depth)?,
+            }
         }
-        _ => resolve_expr_literal(expr, env, lookup).map(Value::Str),
+        _ => resolve_expr_literal(expr, env, lookup, funcs, depth).map(Value::Str),
     })
+}
+
+/// Evaluate a user value function at the value-face call site (U383 leg4c):
+/// formals bind positionally to the evaluated arguments and the stored return
+/// expression evaluates in that scope, per instance. A call that names no
+/// value function — unknown name, a connection-face function, an arity
+/// mismatch — or that exceeds the recursion cap resolves to nothing: the call
+/// site keeps its written form, silently.
+fn call_user_func(
+    funcs: Option<&McFunctions>,
+    name: &str,
+    args: &[Value],
+    depth: usize,
+) -> Result<Option<Value>, eval::EvalError> {
+    const MAX_CALL_DEPTH: usize = 8;
+    let Some(funcs) = funcs else {
+        return Ok(None);
+    };
+    let Some(func) = funcs.find(name) else {
+        return Ok(None);
+    };
+    let McFuncReturn::Value(body) = &func.returns else {
+        return Ok(None);
+    };
+    if depth >= MAX_CALL_DEPTH {
+        return Ok(None);
+    }
+    let names = func.params.names();
+    if names.len() != args.len() {
+        return Ok(None);
+    }
+    let formal_env: Vec<(String, Value)> = names
+        .into_iter()
+        .zip(args.iter().cloned())
+        .collect();
+    // The body scope is the formals: the lookup answers nothing, so a body
+    // name is either a formal (env) or unresolved (silent).
+    let no_lookup = |_n: &str| -> Option<String> { None };
+    resolve_expr_value(body, &formal_env, &no_lookup, Some(funcs), depth + 1)
 }
 
 /// Substitute parameter references in an expression and evaluate the result
@@ -150,6 +203,8 @@ pub(crate) fn resolve_expr_literal(
     expr: &McExpression,
     env: &[(String, Value)],
     lookup: &dyn Fn(&str) -> Option<String>,
+    funcs: Option<&McFunctions>,
+    depth: usize,
 ) -> Option<String> {
     match expr {
         // Substitute a variable with its bound parameter value
@@ -170,23 +225,27 @@ pub(crate) fn resolve_expr_literal(
         // text operand as interpolation, so `"cols: " + cols` renders the
         // same string it always did.
         McExpression::Plus(l, r) => {
-            let left = resolve_expr_value(l, env, lookup).ok().flatten()?;
-            let right = resolve_expr_value(r, env, lookup).ok().flatten()?;
+            let left = resolve_expr_value(l, env, lookup, funcs, depth)
+                .ok()
+                .flatten()?;
+            let right = resolve_expr_value(r, env, lookup, funcs, depth)
+                .ok()
+                .flatten()?;
             eval::apply(Op::Add, &left, &right).ok().map(|v| v.text())
         }
         // Arithmetic: evaluated by the engine, then read back as a whole
         // number.
-        McExpression::Multiply(l, r) => resolve_expr_int(Op::Mul, l, r, env, lookup),
-        McExpression::Divide(l, r) => resolve_expr_int(Op::Div, l, r, env, lookup),
-        McExpression::Minus(l, r) => resolve_expr_int(Op::Sub, l, r, env, lookup),
+        McExpression::Multiply(l, r) => resolve_expr_int(Op::Mul, l, r, env, lookup, funcs, depth),
+        McExpression::Divide(l, r) => resolve_expr_int(Op::Div, l, r, env, lookup, funcs, depth),
+        McExpression::Minus(l, r) => resolve_expr_int(Op::Sub, l, r, env, lookup, funcs, depth),
         McExpression::Slice(l, r) => {
-            let left = resolve_expr_literal(l, env, lookup)?;
-            let right = resolve_expr_literal(r, env, lookup)?;
+            let left = resolve_expr_literal(l, env, lookup, funcs, depth)?;
+            let right = resolve_expr_literal(r, env, lookup, funcs, depth)?;
             Some(format!("{left}:{right}"))
         }
         McExpression::Range(l, r) => {
-            let left = resolve_expr_literal(l, env, lookup)?;
-            let right = resolve_expr_literal(r, env, lookup)?;
+            let left = resolve_expr_literal(l, env, lookup, funcs, depth)?;
+            let right = resolve_expr_literal(r, env, lookup, funcs, depth)?;
             Some(format!("{left}~{right}"))
         }
         // Fallback: use the expression's Display representation
@@ -207,9 +266,15 @@ fn resolve_expr_int(
     r: &McExpression,
     env: &[(String, Value)],
     lookup: &dyn Fn(&str) -> Option<String>,
+    funcs: Option<&McFunctions>,
+    depth: usize,
 ) -> Option<String> {
-    let left = resolve_expr_value(l, env, lookup).ok().flatten()?;
-    let right = resolve_expr_value(r, env, lookup).ok().flatten()?;
+    let left = resolve_expr_value(l, env, lookup, funcs, depth)
+        .ok()
+        .flatten()?;
+    let right = resolve_expr_value(r, env, lookup, funcs, depth)
+        .ok()
+        .flatten()?;
     match eval::apply(op, &left, &right) {
         Ok(Value::Int(n)) => Some(n.to_string()),
         _ => None,
@@ -222,14 +287,16 @@ fn apply_expr_operands(
     r: &McExpression,
     env: &[(String, Value)],
     lookup: &dyn Fn(&str) -> Option<String>,
+    funcs: Option<&McFunctions>,
+    depth: usize,
 ) -> Result<Option<Value>, eval::EvalError> {
     // An operand that resolves to nothing (an unbound name) leaves the
     // whole expression unresolved — `Ok(None)`, no diagnostic. Only the
     // engine itself refusing (`eval::apply` → `Err`) is a refusal.
-    let Some(left) = resolve_expr_value(l, env, lookup)? else {
+    let Some(left) = resolve_expr_value(l, env, lookup, funcs, depth)? else {
         return Ok(None);
     };
-    let Some(right) = resolve_expr_value(r, env, lookup)? else {
+    let Some(right) = resolve_expr_value(r, env, lookup, funcs, depth)? else {
         return Ok(None);
     };
     eval::apply(op, &left, &right).map(Some)
@@ -979,7 +1046,13 @@ impl McComponentInst {
         expr: &McExpression,
         env: &[(String, Value)],
     ) -> Option<String> {
-        resolve_expr_literal(expr, env, &|name| self.lookup_param_value(name))
+        resolve_expr_literal(
+            expr,
+            env,
+            &|name| self.lookup_param_value(name),
+            Some(&self.def.funcs),
+            0,
+        )
     }
 
     /// Resolve an expression to an engine value (V1): the forms that take part
@@ -995,7 +1068,13 @@ impl McComponentInst {
         expr: &McExpression,
         env: &[(String, Value)],
     ) -> Result<Option<Value>, eval::EvalError> {
-        resolve_expr_value(expr, env, &|name| self.lookup_param_value(name))
+        resolve_expr_value(
+            expr,
+            env,
+            &|name| self.lookup_param_value(name),
+            Some(&self.def.funcs),
+            0,
+        )
     }
 
     /// Initialize dynamic pins

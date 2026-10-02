@@ -2014,6 +2014,10 @@ impl McFuncCall {
                 };
                 self.resolved_return_shape = Some(ReturnShape::Label { bus });
             }
+            // Value: a computation has no connection face — the resolved
+            // shape stays `None` and the phrase-level fallback keeps the
+            // parse-time shape (U383 leg4c).
+            McFuncReturn::Value(_) => {}
         }
     }
 
@@ -2211,7 +2215,7 @@ impl McFuncCall {
 
         debug_assert!(matches!(
             ret,
-            McFuncReturn::Endpoint(_) | McFuncReturn::Group(_)
+            McFuncReturn::Endpoint(_) | McFuncReturn::Group(_) | McFuncReturn::Value(_)
         ));
         dlog_error(
             crate::errcodes::FCALL_PARSE_FAILED,

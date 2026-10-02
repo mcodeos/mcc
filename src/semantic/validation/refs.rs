@@ -41,11 +41,16 @@ fn check_comp_func_unused_params(acc: &mut CheckAccumulator) {
         for func in comp.funcs.iter() {
             // U361: a body of only if/else blocks parses into `conds` (and
             // executes the matched branches at instantiation), so a func
-            // with cond content is not a stub.
+            // with cond content is not a stub. U383 leg4c: the same for a
+            // value function — the arithmetic return is the body.
             if !func.params.is_empty()
                 && func.stmts.is_empty()
                 && func.insts.is_empty()
                 && func.conds.is_empty()
+                && matches!(
+                    func.returns,
+                    crate::semantic::mc_func::McFuncReturn::Implicit
+                )
             {
                 let param_names = func.params.names().join(", ");
                 let func_span = func.span.clone().unwrap_or(comp.span.start..comp.span.end);

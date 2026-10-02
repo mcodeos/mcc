@@ -35,6 +35,12 @@ use crate::{
 ///   * `Group(_)` — explicit comma-separated multi-member return
 ///     (`return a, b` ≡ `return (a, b)`). A z-axis group, not a vector: its
 ///     lanes are welded by the body, so it contributes no chain connection.
+///   * `Value(_)` — explicit arithmetic return over value formals
+///     (`return r * i`) — a computation, not a connection (U383 leg4c): the
+///     discriminator is the presence of a `*`/`/` operator in the return
+///     expression, the only two operators the connection face rejects today
+///     (`+`/`-` keep their series/parallel readings). Evaluated per instance
+///     at the value-face call site; never chainable, never a pin source.
 #[derive(Debug, Clone, Default)]
 pub enum McFuncReturn {
     /// No explicit `return` statement.
@@ -48,6 +54,8 @@ pub enum McFuncReturn {
     /// Explicit comma-separated multi-member return, carried as an
     /// [`McPhrase::Group`].
     Group(McPhrase),
+    /// Explicit arithmetic return — the value-function face (U383 leg4c).
+    Value(Box<crate::semantic::basic::mc_expr::McExpression>),
 }
 
 impl McFuncReturn {
@@ -56,13 +64,14 @@ impl McFuncReturn {
         matches!(self, McFuncReturn::Implicit | McFuncReturn::This)
     }
 
-    /// Short tag for diagnostics ("implicit"/"this"/"endpoint"/"group").
+    /// Short tag for diagnostics ("implicit"/"this"/"endpoint"/"group"/"value").
     pub fn kind_str(&self) -> &'static str {
         match self {
             McFuncReturn::Implicit => "implicit",
             McFuncReturn::This => "this",
             McFuncReturn::Endpoint(_) => "endpoint",
             McFuncReturn::Group(_) => "group",
+            McFuncReturn::Value(_) => "value",
         }
     }
 }
@@ -1280,6 +1289,29 @@ impl McFunction {
                 self.returns = McFuncReturn::This;
                 return;
             }
+            // U383 leg4c: a return carrying `*` or `/` is a computation, not a
+            // connection — the connection face has no reading for those two
+            // operators (E4008 is where it died before), while the value face
+            // evaluates them per instance at the call site. `+`/`-` keep their
+            // series/parallel readings and never take this arm.
+            if Self::expr_has_value_op(expr_node) {
+                match crate::semantic::basic::mc_expr::McExpression::new(expr_node) {
+                    Some(expr) => {
+                        self.returns = McFuncReturn::Value(Box::new(expr));
+                    }
+                    None => {
+                        dlog_error(
+                            crate::errcodes::FUNC_RETURN_EXPR_INVALID,
+                            body_node,
+                            &crate::errcodes::format_msg(
+                                crate::errcodes::FUNC_RETURN_EXPR_INVALID,
+                                &[],
+                            ),
+                        );
+                    }
+                }
+                return;
+            }
             match McPhrase::new(expr_node, context) {
                 Some(phrase) => self.returns = McFuncReturn::Endpoint(phrase),
                 None => {
@@ -1315,6 +1347,26 @@ impl McFunction {
                 );
             }
         }
+    }
+
+    /// Whether the return expression subtree carries a `*`/`/` operator —
+    /// the value-function discriminator (U383 leg4c). The walk covers the
+    /// expression wrapper (`MCAST_EXPRESSION`), operand groups, and the
+    /// operator nodes themselves, mirroring what [`McPhrase::new`] would have
+    /// traversed before refusing them.
+    fn expr_has_value_op(node: &AstNode) -> bool {
+        let t = node.get_type();
+        if t == MCAST_OPD_MULTI || t == MCAST_OPD_DIVID {
+            return true;
+        }
+        let mut cursor = node.get_sub_node();
+        while let Some(child) = cursor {
+            if Self::expr_has_value_op(&child) {
+                return true;
+            }
+            cursor = child.get_next();
+        }
+        false
     }
 
     /// Recognise a bare `this` return across the few plausible AST shapes.

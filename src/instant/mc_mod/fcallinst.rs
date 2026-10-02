@@ -940,6 +940,10 @@ impl InstantiationBuilder {
                 Ok(FuncCallInst::PassThrough)
             }
 
+            // Value: a computation has no connection face — nothing to bridge
+            // or publish here (U383 leg4c); the value face evaluates it.
+            McFuncReturn::Value(_) => Ok(FuncCallInst::PassThrough),
+
             // Endpoint(phrase): non-chainable, returns a label/bus.
             //
             // U130 ③ (ruled 2026-09-20): publish the SUBSTITUTED return face
@@ -1644,6 +1648,8 @@ impl InstantiationBuilder {
         };
 
         match &func_def.returns {
+            // Value: no return endpoint to publish (U383 leg4c).
+            McFuncReturn::Value(_) => {}
             McFuncReturn::Group(phrase) => {
                 let substituted = substitute_return(phrase);
                 let names: Vec<String> = match &substituted {
@@ -3396,5 +3402,7 @@ fn validate_fcall_return_shape(
                 );
             }
         }
+        // Value: a computation has no bus face to validate (U383 leg4c).
+        McFuncReturn::Value(_) => {}
     }
 }

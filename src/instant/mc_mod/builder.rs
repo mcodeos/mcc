@@ -1225,7 +1225,7 @@ impl InstantiationBuilder {
         for row in &self.def.lets {
             let resolved = match &row.value {
                 crate::semantic::component::mc_attr::McAttrVal::AttrExpr(expr) => {
-                    resolve_expr_value(expr, &env, &lookup)
+                    resolve_expr_value(expr, &env, &lookup, Some(&self.def.funcs), 0)
                 }
                 other => Ok(attr_val_to_value(other)),
             };

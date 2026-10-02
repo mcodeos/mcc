@@ -1053,6 +1053,8 @@ impl InstantiationBuilder {
             McFuncReturn::Implicit | McFuncReturn::This => true,
             McFuncReturn::Endpoint(ep) => matches!(OpdShape::of(ep, self), OpdShape::Row(_, _)),
             McFuncReturn::Group(_) => false,
+            // Value: a computation is not a row face (U383 leg4c).
+            McFuncReturn::Value(_) => false,
         };
         if !row {
             return None;
