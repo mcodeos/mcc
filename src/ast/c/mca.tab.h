@@ -200,8 +200,9 @@ extern int mca_debug;
     MC_WS = 398,                   /* MC_WS  */
     MC_SINGLE_COMMENT = 399,       /* MC_SINGLE_COMMENT  */
     MC_MULTI_COMMENT = 400,        /* MC_MULTI_COMMENT  */
-    UVALUE_WORD_PREC = 401,        /* UVALUE_WORD_PREC  */
-    IDA_BASE_PREC = 402            /* IDA_BASE_PREC  */
+    UVALUE_PAIR_PREC = 401,        /* UVALUE_PAIR_PREC  */
+    UVALUE_WORD_PREC = 402,        /* UVALUE_WORD_PREC  */
+    IDA_BASE_PREC = 403            /* IDA_BASE_PREC  */
   };
   typedef enum mca_tokentype mca_token_kind_t;
 #endif
