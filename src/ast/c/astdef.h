@@ -276,6 +276,9 @@
 #define MCAST_IOTYPE_PSRC              339 // power-source direction word (psrc) — pin/rail source side
 #define MCAST_IOTYPE_PSNK              340 // power-sink direction word (psnk) — pin/rail sink side
 #define MCAST_IOTYPE_PSBI              341 // power-bidirectional (psbi) — charge = sink, discharge = source
+#define MCAST_IOTYPE_RF                342 // radio-frequency pin face (rf) — pins-line prefix only (b4475 R2); net-model class rides IOType::InOut, RF identity rides the iface
+#define MCAST_LET                      343 // let binding clause (U383 leg4a) — `let name = values`, ATT_ID/ATT_VALUES payload like an attribute row
+#define MCAST_REQUIRE                  344 // require judgement clause (U383 leg4a) — `require <judge>`, judge child rides verbatim
 
 
 //---------------------------

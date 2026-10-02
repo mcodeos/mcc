@@ -183,3 +183,6 @@ pub const MCAST_JUDGE_BARE_LITERAL: u16 = 338;
 pub const MCAST_IOTYPE_PSRC: u16 = 339;
 pub const MCAST_IOTYPE_PSNK: u16 = 340;
 pub const MCAST_IOTYPE_PSBI: u16 = 341;
+pub const MCAST_IOTYPE_RF: u16 = 342;
+pub const MCAST_LET: u16 = 343;
+pub const MCAST_REQUIRE: u16 = 344;
