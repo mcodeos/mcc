@@ -240,7 +240,7 @@ pub trait HasFindInst: ShapeCtx {
     /// converges is the *miss action* — relax-everything: the phantom ghost-bus is kept
     /// and inlined (no E3182), the gate candidate is registered (for the finish
     /// recheck's E3137 single-use warning / late-resolution balance), and the
-    /// caller adds the bus. Found-base handling (E1802 member validation,
+    /// caller adds the bus. Found-base handling (E3179 member validation,
     /// `add_bus_member`, LSP registration, member fall-through) and the
     /// `as_component_member` branch stay at each site.
     ///

@@ -445,7 +445,7 @@ pub fn mcb_register_declare_class(uri: &McURI, class_name: &McIds, raw_span: Spa
             cmie_kind,
         ));
     } else {
-        // ★ Do NOT emit E1601 here during P4, because WORKSPACE.modules
+        // ★ Do NOT emit the unresolved-class error here during P4, because WORKSPACE.modules
         // is empty at that point (modules are registered in P5). The class ref is stored
         // below with DeclareId::default() sentinel; resolve_class_ref_at_span in
         // create_lapper will re-resolve it correctly after all modules are parsed.

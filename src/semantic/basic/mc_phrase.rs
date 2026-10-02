@@ -1540,9 +1540,9 @@ impl McPhrase {
                                 // §3 deferral) and UnresolvedRef (base declared nowhere →
                                 // relax-everything, ghost-bus inlined, no E3182) both keep
                                 // `add_bus`;
-                                // Resolved is the loud E1802 / member-access path, unchanged.
+                                // Resolved is the loud E3179 / member-access path, unchanged.
                                 // Record exactly one Fallback row per ghost-bus phrase — never
-                                // on the E1802 error path (that is a loud error, not a silent
+                                // on the E3179 error path (that is a loud error, not a silent
                                 // fallback).
                                 let fallback_site: Option<&'static str>;
                                 match context.resolve_reference(
@@ -1558,7 +1558,7 @@ impl McPhrase {
                                         fallback_site = Some("mc_phrase.rs:453 add_bus ghost-bus");
                                     }
                                     RefVerdict::Resolved => {
-                                        // E1802: Check if base is a Component and rest is a valid
+                                        // E3179: Check if base is a Component and rest is a valid
                                         // pin
                                         if let Some(McInstance::Component(c)) =
                                             context.find_inst(base)
@@ -1853,7 +1853,7 @@ impl McPhrase {
                                     // Base instance found - check if it's a Component
                                     if let Some(McInstance::Component(c)) = context.find_inst(base)
                                     {
-                                        // E1802: Check if the member is a valid pin in the
+                                        // E3179: Check if the member is a valid pin in the
                                         // component
                                         if c.find_pin(member).is_none() {
                                             if c.base.attrs.find(&McIds::from(member)).is_some() {
@@ -2595,7 +2595,7 @@ impl McPhrase {
                             if matches!(result, McPhrase::Multiple(_)) {
                                 // dot_or_curly returned Multiple, which means some members not
                                 // found
-                                // E1802: pin not found in component
+                                // E3179: pin not found in component
                                 if right.len() == 1 {
                                     let member = &right[0];
                                     if c.find_pin(member).is_none() {
@@ -2645,7 +2645,7 @@ impl McPhrase {
                             return Some(result);
                         } else {
                             // dot_or_curly returned None, meaning no pins found
-                            // E1802: pin not found in component
+                            // E3179: pin not found in component
                             if right.len() == 1 {
                                 let member = &right[0];
                                 if c.base.attrs.find(&McIds::from(member.as_str())).is_some() {
@@ -2693,7 +2693,7 @@ impl McPhrase {
                             if matches!(result, McPhrase::Multiple(_)) {
                                 // dot_or_curly returned Multiple, which means some members not
                                 // found
-                                // E1802: pin not found in component
+                                // E3179: pin not found in component
                                 if right.len() == 1 {
                                     let member = &right[0];
                                     if !m.base.insts.find_port(member).is_some() {
@@ -2736,7 +2736,7 @@ impl McPhrase {
                             return Some(result);
                         } else {
                             // dot_or_curly returned None, meaning no ports found
-                            // E1803: port not found in module
+                            // E3175: port not found in module
                             if right.len() == 1 {
                                 let member = &right[0];
                                 let available: Vec<&str> =
@@ -2776,7 +2776,7 @@ impl McPhrase {
                     // Chained member on a method/instance call (`X6.setup(GND).XTAL`,
                     // `mic(V3V3).MIC`) names a pin/port of the base instance. Validate
                     // it against the base's class pins/ports here — AST-level, no text
-                    // re-parsing — so a typo like `.XTALXX` is flagged (E3179 / E1803)
+                    // re-parsing — so a typo like `.XTALXX` is flagged (E3179 / E3175)
                     // instead of silently yielding no connection points in Pass2.
                     // `CAP(1uF).Cap(...)` style ctor-method chains resolve no base
                     // instance (`base_instance_name` recurses the caller, which is a

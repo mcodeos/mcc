@@ -75,7 +75,7 @@ pub fn run(args: &ParseArgs) -> Result<()> {
     // Loads libraries from all config sources: global config + project config +
     // manifest + CLI --lib, plus the mcode default (unless disabled).
     // Without this, local-mode parse can't see mcode's interfaces and emits spurious
-    // E1304 / E2702 warnings for every `X::Interface(...)` reference.
+    // unresolved-reference warnings for every `X::Interface(...)` reference.
     manifest::init_local(target.as_deref(), &mcc::cli::globals().lib);
 
     // ── 0.6. Pass 0 snapshot: lib load + C parser error attribution ──

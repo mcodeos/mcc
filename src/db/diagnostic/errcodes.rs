@@ -464,6 +464,8 @@ pub const NOT_SUPPORTED_YET: u32 = 2171;
 /// `name-space-internal.md` §1.3 "not found → Unresolved / diagnostic error".
 pub const SYMBOL_NOT_FOUND: u32 = 2172;
 
+// Pass1b: parser / AST messages, continued (2200-2249); 2080-2119 is full.
+
 // Pass2: vector shape validation (2900-2949)
 
 /// Transpose operand shape out of range (eval.md §5.5): only 1*1 / 1*2 / 2*1 / 2*2
@@ -1336,6 +1338,8 @@ pub const CONN_REPLICATION_COUNT: u32 = 4216;
 /// interface reused across pin groups leaves no unique pin), so the
 /// reference lands on no conductor at all.
 pub const WHOLE_FOOT_PIN_UNRESOLVED: u32 = 4217;
+
+// Pass2: netlist heuristics (D-series / layout), continued (4250-4299); 4050-4099 is full.
 
 // Pass3: duplicate validation (5000-5049)
 
@@ -2509,7 +2513,7 @@ pub const DOMAIN_BRIDGE_LEG_INCONSISTENT: u32 = 6048;
 /// bridge is the undecided one-way question (§8 open 2) and is not judged here.
 pub const DOMAIN_BRIDGE_DANGLING: u32 = 6049;
 
-// ── 9xxx: the acceptance (fulfillment) family ──
+// Acceptance (fulfillment) family (9000-9049)
 // The static `expects` acceptance engine (circuit-intent-acceptance-design.md
 // §4): one verdict per row of the top module's ledger, judged on the frozen
 // flat world. Legality lives in 4xxx/5xxx/6xxx; these codes say the built top

@@ -298,6 +298,80 @@ impl McUse {
         let canonical_abs_path: std::path::PathBuf = match absolute_file_path.canonicalize() {
             Ok(path) => path,
             Err(e) => {
+                // 6a. Package-dir fallback (system libraries only): a part
+                // package keeps its .mc next to its datasheet in its own
+                // directory (`<lib>/<category>/<part>/<part>.mc`), while use
+                // URIs address the part by file name (`mcpub.mcu/hc32l110.mc`
+                // joins to `<...>/mcu/hc32l110.mc`, which misses). Re-search
+                // the joined path's parent directory for a unique file with
+                // the same basename; relative/project prefixes keep strict
+                // join semantics — only the managed library space gets the
+                // deep search. Zero or multiple hits stay E2003.
+                if self.prefix == McUsePrefix::PathSystem {
+                    let found = absolute_file_path
+                        .parent()
+                        .zip(absolute_file_path.file_name())
+                        .and_then(|(dir, base)| search_unique_under(dir, &base.to_string_lossy()));
+                    match found {
+                        Some(hit) => match hit.canonicalize() {
+                            Ok(path) => {
+                                debug!(
+                                    target: "mcc::use",
+                                    wanted = %absolute_file_path.display(),
+                                    hit = %path.display(),
+                                    "use target resolved via package-dir search"
+                                );
+                                // 6b. below re-checks containment; fall through
+                                // with the found path.
+                                if let Some(abs_path_str) = path.to_str() {
+                                    self.uri = abs_path_str.to_owned();
+                                    return;
+                                }
+                            }
+                            Err(ce) => {
+                                debug!(
+                                    target: "mcc::use",
+                                    error = %ce,
+                                    path = ?hit,
+                                    "package-dir search hit failed to canonicalize"
+                                );
+                            }
+                        },
+                        None if absolute_file_path
+                            .parent()
+                            .zip(absolute_file_path.file_name())
+                            .map(|(dir, base)| {
+                                count_files_named(dir, &base.to_string_lossy()) > 1
+                            })
+                            .unwrap_or(false) =>
+                        {
+                            if let Some(fnode) = file_node {
+                                let msg = format!(
+                                    "{} (ambiguous: multiple files named {} under {})",
+                                    absolute_file_path.display(),
+                                    absolute_file_path
+                                        .file_name()
+                                        .map(|f| f.to_string_lossy())
+                                        .unwrap_or_default(),
+                                    absolute_file_path
+                                        .parent()
+                                        .map(|p| p.display().to_string())
+                                        .unwrap_or_default()
+                                );
+                                dlog_warning(
+                                    crate::db::diagnostic::errcodes::USE_TARGET_NOT_FOUND,
+                                    fnode,
+                                    &crate::db::diagnostic::errcodes::format_msg(
+                                        crate::db::diagnostic::errcodes::USE_TARGET_NOT_FOUND,
+                                        &[&msg],
+                                    ),
+                                );
+                            }
+                            return;
+                        }
+                        None => {}
+                    }
+                }
                 // Log warning with dlog_warning if file_node is available
                 if let Some(fnode) = file_node {
                     let file_display = absolute_file_path.display();
@@ -389,6 +463,47 @@ impl McUse {
             );
         }
     }
+}
+
+/// Count files named `base` under `dir` (recursive, no size limit needed —
+/// failure-path only, called on one library category directory at a time).
+fn count_files_named(dir: &Path, base: &str) -> usize {
+    let mut n = 0;
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        let Ok(rd) = std::fs::read_dir(&d) else { continue };
+        for entry in rd.flatten() {
+            let p = entry.path();
+            if p.is_dir() {
+                stack.push(p);
+            } else if p.file_name().is_some_and(|f| f == base) {
+                n += 1;
+            }
+        }
+    }
+    n
+}
+
+/// Return the unique file named `base` under `dir`, or `None` on zero or
+/// multiple matches (the caller keeps its not-found diagnostic for both).
+fn search_unique_under(dir: &Path, base: &str) -> Option<std::path::PathBuf> {
+    let mut hits = Vec::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        let Ok(rd) = std::fs::read_dir(&d) else { continue };
+        for entry in rd.flatten() {
+            let p = entry.path();
+            if p.is_dir() {
+                stack.push(p);
+            } else if p.file_name().is_some_and(|f| f == base) {
+                hits.push(p);
+                if hits.len() > 1 {
+                    return None;
+                }
+            }
+        }
+    }
+    hits.pop()
 }
 
 #[cfg(test)]
