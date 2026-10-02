@@ -114,6 +114,13 @@ impl McExpression {
                 Some(McExpression::Variable(McOpd::new(node)?))
             }
 
+            // The bracket group is transparent (the U372 leg6 L12 law): a
+            // parenthesized operand reads as its content, so `m2 = (12V -
+            // 11.4V)` is the expression `12V - 11.4V`. Without this arm the
+            // collector dropped the whole value — a row read back as a bare
+            // key (the U383 leg1 probe).
+            MCAST_OPD_GROUP => McExpression::new(&node.get_sub_node()?),
+
             // Binary operator
             MCAST_OPD_PLUS => {
                 let left = node.get_sub_node()?;

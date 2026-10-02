@@ -21,6 +21,21 @@ use crate::semantic::component::mc_pins::dynamic;
 use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 
+/// The engine-value reading of a resolved attribute row (U383 leg3): the
+/// sibling-name environment of a `spec = [ … ]` block. A row that did not
+/// resolve to a literal contributes nothing — later rows read it as unbound.
+fn attr_val_to_value(val: &crate::semantic::component::mc_attr::McAttrVal) -> Option<Value> {
+    use crate::semantic::basic::mc_literal::McLiteral;
+    use crate::semantic::component::mc_attr::McAttrVal;
+    match val {
+        McAttrVal::AttrLiteral(McLiteral::Uval(u)) => Some(Value::from_quantity(u.clone())),
+        McAttrVal::AttrLiteral(McLiteral::Int(i)) => Some(Value::Int(i.value)),
+        McAttrVal::AttrLiteral(McLiteral::Float(f)) => Some(Value::Float(f.value)),
+        McAttrVal::AttrLiteral(McLiteral::String(s)) => Some(Value::Str(s.value.clone())),
+        _ => None,
+    }
+}
+
 // McComponentInst - Component instance
 
 /// Pass2 Instantiation - Component instance
@@ -636,7 +651,7 @@ impl McComponentInst {
             resolved.values = attr
                 .values
                 .iter()
-                .map(|v| self.resolve_attr_value(v))
+                .map(|v| self.resolve_attr_value(v, attr.key_span.as_ref(), &[]))
                 .collect();
             self.params
                 .apply_key_overrides(&[attr.id.to_string()], &mut resolved.values);
@@ -645,9 +660,16 @@ impl McComponentInst {
     }
 
     /// Resolve a single McAttrVal by substituting parameter references.
+    ///
+    /// `key_span` positions the row-level refusal diagnostics (survey §D: a
+    /// refused expression reports instead of staying silent). `env` carries the
+    /// already-resolved sibling rows of the enclosing block, so `pmax =
+    /// vbus * imax` reads `vbus` and `imax` from the rows above it.
     fn resolve_attr_value(
         &self,
         val: &crate::semantic::component::mc_attr::McAttrVal,
+        key_span: Option<&std::ops::Range<usize>>,
+        env: &[(String, Value)],
     ) -> crate::semantic::component::mc_attr::McAttrVal {
         use crate::semantic::component::mc_attr::McAttrVal;
         match val {
@@ -668,22 +690,52 @@ impl McComponentInst {
                 val.clone()
             }
             McAttrVal::AttrExpr(expr) => {
-                // Substitute parameter references in the expression tree,
-                // then evaluate to a single string literal.
-                // e.g. quantity * 2 with quantity=2 -> "4"
-                // e.g. "Test: " + polarity + " expression" with polarity="center_positive"
-                //      -> "Test: center_positive expression"
-                if let Some(resolved) = self.resolve_expr_to_literal(expr) {
-                    McAttrVal::AttrLiteral(crate::semantic::basic::mc_literal::McLiteral::String(
-                        crate::semantic::basic::mc_literal::McString { value: resolved },
-                    ))
-                } else {
-                    val.clone()
+                // U383 leg3: the typed-quantity attempt runs first — a quantity
+                // result lands as `AttrLiteral(Uval)`, the exact shape a direct
+                // `36W` row already stores (`pmax = vbus * imax` resolves to
+                // what `pmax = 36W` holds). Text results keep the literal path
+                // they always took (ints, concat, slice/range). A refused
+                // expression keeps its written form and reports at the row.
+                match self.resolve_expr_to_value(expr, env) {
+                    Ok(Some(Value::Quantity(q))) => {
+                        McAttrVal::AttrLiteral(crate::semantic::basic::mc_literal::McLiteral::Uval(q))
+                    }
+                    // The dimensionless ratio (W/W → bare scalar, U383
+                    // ruling ①) has no unit to carry: it lands as a float
+                    // literal, the scalar vocabulary the row grammar has.
+                    Ok(Some(Value::Float(f))) => McAttrVal::AttrLiteral(
+                        crate::semantic::basic::mc_literal::McLiteral::Float(
+                            crate::semantic::basic::mc_literal::McFloat { value: f },
+                        ),
+                    ),
+                    typed => {
+                        if let Some(text) = self.resolve_expr_to_literal(expr, env) {
+                            McAttrVal::AttrLiteral(
+                                crate::semantic::basic::mc_literal::McLiteral::String(
+                                    crate::semantic::basic::mc_literal::McString { value: text },
+                                ),
+                            )
+                        } else {
+                            if let Err(err) = typed {
+                                if let Some(span) = key_span {
+                                    crate::db::diagnostic::diagnostic::dlog_error_at(
+                                        err.code(),
+                                        span.start as u32,
+                                        (span.end - span.start) as u32,
+                                        &err.message(),
+                                    );
+                                }
+                            }
+                            val.clone()
+                        }
+                    }
                 }
             }
             McAttrVal::Attributes(attrs) => {
-                // Recurse into nested attribute blocks (e.g. spec = [polarity = polarity, ...])
-                // resolving each inner attribute's values.
+                // Recurse into nested attribute blocks (e.g. spec = [vbus = 12V,
+                // ...]), resolving each inner row and recording the rows already
+                // resolved so a later row can read an earlier one by name.
+                let mut env: Vec<(String, Value)> = Vec::new();
                 let resolved: Vec<_> = attrs
                     .iter()
                     .map(|inner| {
@@ -691,8 +743,15 @@ impl McComponentInst {
                         r.values = inner
                             .values
                             .iter()
-                            .map(|v| self.resolve_attr_value(v))
+                            .map(|v| self.resolve_attr_value(v, inner.key_span.as_ref(), &env))
                             .collect();
+                        if let Some(name) = inner.id.get_primary_name() {
+                            if let Some(first) = r.values.first() {
+                                if let Some(value) = attr_val_to_value(first) {
+                                    env.push((name.to_string(), value));
+                                }
+                            }
+                        }
                         r
                     })
                     .collect();
@@ -757,7 +816,7 @@ impl McComponentInst {
     /// The operations run on the value engine (doc/eval V2/V7), so an argument
     /// that carries a unit suffix is normalized by the one suffix table instead
     /// of having the suffix sliced off the text.
-    fn resolve_expr_to_literal(&self, expr: &McExpression) -> Option<String> {
+    fn resolve_expr_to_literal(&self, expr: &McExpression, env: &[(String, Value)]) -> Option<String> {
         match expr {
             // Substitute a variable with its bound parameter value
             McExpression::Variable(opd) => {
@@ -777,23 +836,23 @@ impl McComponentInst {
             // text operand as interpolation, so `"cols: " + cols` renders the
             // same string it always did.
             McExpression::Plus(l, r) => {
-                let left = self.resolve_expr_to_value(l)?;
-                let right = self.resolve_expr_to_value(r)?;
+                let left = self.resolve_expr_to_value(l, env).ok().flatten()?;
+                let right = self.resolve_expr_to_value(r, env).ok().flatten()?;
                 eval::apply(Op::Add, &left, &right).ok().map(|v| v.text())
             }
             // Arithmetic: evaluated by the engine, then read back as a whole
             // number.
-            McExpression::Multiply(l, r) => self.resolve_expr_to_int(Op::Mul, l, r),
-            McExpression::Divide(l, r) => self.resolve_expr_to_int(Op::Div, l, r),
-            McExpression::Minus(l, r) => self.resolve_expr_to_int(Op::Sub, l, r),
+            McExpression::Multiply(l, r) => self.resolve_expr_to_int(Op::Mul, l, r, env),
+            McExpression::Divide(l, r) => self.resolve_expr_to_int(Op::Div, l, r, env),
+            McExpression::Minus(l, r) => self.resolve_expr_to_int(Op::Sub, l, r, env),
             McExpression::Slice(l, r) => {
-                let left = self.resolve_expr_to_literal(l)?;
-                let right = self.resolve_expr_to_literal(r)?;
+                let left = self.resolve_expr_to_literal(l, env)?;
+                let right = self.resolve_expr_to_literal(r, env)?;
                 Some(format!("{left}:{right}"))
             }
             McExpression::Range(l, r) => {
-                let left = self.resolve_expr_to_literal(l)?;
-                let right = self.resolve_expr_to_literal(r)?;
+                let left = self.resolve_expr_to_literal(l, env)?;
+                let right = self.resolve_expr_to_literal(r, env)?;
                 Some(format!("{left}~{right}"))
             }
             // Fallback: use the expression's Display representation
@@ -808,9 +867,15 @@ impl McComponentInst {
     /// attribute keeps the form it was written in. A division by zero or an
     /// integer overflow is one of those cases (the engine reports them rather
     /// than letting the arithmetic truncate or wrap silently).
-    fn resolve_expr_to_int(&self, op: Op, l: &McExpression, r: &McExpression) -> Option<String> {
-        let left = self.resolve_expr_to_value(l)?;
-        let right = self.resolve_expr_to_value(r)?;
+    fn resolve_expr_to_int(
+        &self,
+        op: Op,
+        l: &McExpression,
+        r: &McExpression,
+        env: &[(String, Value)],
+    ) -> Option<String> {
+        let left = self.resolve_expr_to_value(l, env).ok().flatten()?;
+        let right = self.resolve_expr_to_value(r, env).ok().flatten()?;
         match eval::apply(op, &left, &right) {
             Ok(Value::Int(n)) => Some(n.to_string()),
             _ => None,
@@ -821,13 +886,30 @@ impl McComponentInst {
     /// in an operation. A form with no value reading falls back to its own
     /// resolution, as text — that keeps `Slice`/`Range`/`Set` operands
     /// interpolating exactly as they did before the engine existed.
-    fn resolve_expr_to_value(&self, expr: &McExpression) -> Option<Value> {
-        match expr {
+    ///
+    /// Errors propagate (U383 leg3): the typed-quantity face reports a refusal
+    /// at the row, while the legacy text callers swallow them with `.ok()`
+    /// exactly as they swallowed `None` before.
+    fn resolve_expr_to_value(
+        &self,
+        expr: &McExpression,
+        env: &[(String, Value)],
+    ) -> Result<Option<Value>, eval::EvalError> {
+        Ok(match expr {
             McExpression::Variable(opd) => {
                 let names = opd.expand();
                 if names.len() == 1 {
-                    self.lookup_param_value(&names[0])
-                        .map(|s| Value::from_text(&s))
+                    match self.lookup_param_value(&names[0]) {
+                        Some(s) => Some(Value::from_text(&s)),
+                        // A resolved sibling row of the enclosing block is a
+                        // name too (spec = [vbus = 12V, p = vbus * imax]) —
+                        // instance params shadow, siblings fill the rest.
+                        None => env
+                            .iter()
+                            .rev()
+                            .find(|(n, _)| n == &names[0])
+                            .map(|(_, v)| v.clone()),
+                    }
                 } else {
                     Some(Value::Str(names.join(" ")))
                 }
@@ -836,26 +918,46 @@ impl McComponentInst {
             McExpression::Float(f) => Some(Value::Float(f.value)),
             McExpression::String(s) => Some(Value::Str(s.value.clone())),
             McExpression::UnitValue(u) => Some(Value::from_quantity(u.clone())),
-            McExpression::Plus(l, r) => self.apply_operands(Op::Add, l, r),
-            McExpression::Minus(l, r) => self.apply_operands(Op::Sub, l, r),
-            McExpression::Multiply(l, r) => self.apply_operands(Op::Mul, l, r),
-            McExpression::Divide(l, r) => self.apply_operands(Op::Div, l, r),
+            McExpression::Plus(l, r) => self.apply_operands(Op::Add, l, r, env)?,
+            McExpression::Minus(l, r) => self.apply_operands(Op::Sub, l, r, env)?,
+            McExpression::Multiply(l, r) => self.apply_operands(Op::Mul, l, r, env)?,
+            McExpression::Divide(l, r) => self.apply_operands(Op::Div, l, r, env)?,
             McExpression::Call { name, args } => {
                 let mut resolved = Vec::with_capacity(args.len());
                 for arg in args {
-                    resolved.push(self.resolve_expr_to_value(arg)?);
+                    match self.resolve_expr_to_value(arg, env)? {
+                        Some(v) => resolved.push(v),
+                        // An unresolved argument is not a refusal — the call
+                        // stays as written, silently (the legacy face).
+                        None => return Ok(None),
+                    }
                 }
                 eval::call_builtin(name, &resolved)
             }
-            _ => self.resolve_expr_to_literal(expr).map(Value::Str),
-        }
+            _ => self.resolve_expr_to_literal(expr, env).map(Value::Str),
+        })
     }
 
-    fn apply_operands(&self, op: Op, l: &McExpression, r: &McExpression) -> Option<Value> {
-        let left = self.resolve_expr_to_value(l)?;
-        let right = self.resolve_expr_to_value(r)?;
-        eval::apply(op, &left, &right).ok()
+    fn apply_operands(
+        &self,
+        op: Op,
+        l: &McExpression,
+        r: &McExpression,
+        env: &[(String, Value)],
+    ) -> Result<Option<Value>, eval::EvalError> {
+        // An operand that resolves to nothing (an unbound name) leaves the
+        // whole expression unresolved — `Ok(None)`, no diagnostic. Only the
+        // engine itself refusing (`eval::apply` → `Err`) is a refusal.
+        let Some(left) = self.resolve_expr_to_value(l, env)? else {
+            return Ok(None);
+        };
+        let Some(right) = self.resolve_expr_to_value(r, env)? else {
+            return Ok(None);
+        };
+        eval::apply(op, &left, &right).map(Some)
     }
+
+
 
     /// Initialize dynamic pins
     /// Dynamic pins contain parameter references (e.g., `1:cols`) and need to be resolved
