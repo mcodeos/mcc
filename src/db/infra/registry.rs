@@ -969,9 +969,16 @@ impl DiskSource<'_> {
                 "registry metadata for `{name}@{ver}` carries no thin_checksum — cannot verify the download"
             ))
         })?;
+        // Process-unique scratch: the download lands through a `.part`
+        // sibling, and two mcc processes installing the same name must not
+        // share one — a concurrent rename would pull the sibling out from
+        // under the other (observed live as ENOENT at finalize). The dir is
+        // removed once consumed; error paths keep it for forensics.
+        let scratch = std::env::temp_dir().join(format!("mcc-fetch-{}-{}", std::process::id(), name));
+        let _ = std::fs::remove_dir_all(&scratch);
         let path = self
             .src
-            .fetch_artifact(&meta.category, name, ver, Tier::Thin, &std::env::temp_dir())
+            .fetch_artifact(&meta.category, name, ver, Tier::Thin, &scratch)
             .map_err(solve_err)?;
         let got = crate::sha256_hex_file(&path)
             .map_err(|e| SolveError::Registry(format!("failed to read {}: {e}", path.display())))?;
@@ -985,6 +992,7 @@ impl DiskSource<'_> {
         }
         crate::install_mcl_at_scope(&path, Some(name), &target, crate::ensure_install_scope_registry)
             .map_err(|e| SolveError::Registry(e.to_string()))?;
+        let _ = std::fs::remove_dir_all(&scratch);
         Ok(())
     }
 

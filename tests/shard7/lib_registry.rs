@@ -500,3 +500,265 @@ fn fetch_docs__pulls_bundled_and_prints_linked() {
     );
     assert!(!stderr.contains("fetched"), "no re-extraction: {stderr}");
 }
+
+// the P3 HTTP face: an in-process registry host (no external server)
+
+use std::io::{Read, Write};
+use std::net::{TcpListener, TcpStream};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+
+struct ServeCfg {
+    /// Document root (the registry tree).
+    root: PathBuf,
+    /// When set, `/lib/` paths answer with this status (error-face tests).
+    fail_status: Option<u16>,
+    /// When set, `/dl/` bodies are cut to this many bytes (truncation face).
+    truncate_dl: Option<usize>,
+}
+
+/// A one-test static registry host: ETag on every 200 (sha256 of the bytes),
+/// If-None-Match honoured with a 304, real 404s, optional fault injection.
+/// Every answer is logged as `GET <path> <status>` for the tests to assert
+/// against — the access log IS the wire-level observation.
+struct MiniRegistry {
+    url: String,
+    addr: std::net::SocketAddr,
+    log: Arc<Mutex<Vec<String>>>,
+    shutdown: Arc<AtomicBool>,
+    handle: Option<std::thread::JoinHandle<()>>,
+}
+
+impl MiniRegistry {
+    fn start(root: &Path, fail_status: Option<u16>, truncate_dl: Option<usize>) -> Self {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind mini registry");
+        let addr = listener.local_addr().unwrap();
+        let cfg = Arc::new(ServeCfg {
+            root: root.to_path_buf(),
+            fail_status,
+            truncate_dl,
+        });
+        let log = Arc::new(Mutex::new(Vec::new()));
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let handle = {
+            let cfg = cfg.clone();
+            let log = log.clone();
+            let shutdown = shutdown.clone();
+            std::thread::spawn(move || {
+                for stream in listener.incoming() {
+                    if shutdown.load(Ordering::SeqCst) {
+                        break;
+                    }
+                    let Ok(s) = stream else { continue };
+                    let cfg = cfg.clone();
+                    let log = log.clone();
+                    std::thread::spawn(move || {
+                        let _ = handle_conn(s, &cfg, &log);
+                    });
+                }
+            })
+        };
+        Self {
+            url: format!("http://{addr}"),
+            addr,
+            log,
+            shutdown,
+            handle: Some(handle),
+        }
+    }
+
+    fn served(&self, line: &str) -> bool {
+        self.log.lock().unwrap().iter().any(|l| l.contains(line))
+    }
+
+    #[allow(dead_code)]
+    fn log_lines(&self) -> Vec<String> {
+        self.log.lock().unwrap().clone()
+    }
+}
+
+impl Drop for MiniRegistry {
+    fn drop(&mut self) {
+        self.shutdown.store(true, Ordering::SeqCst);
+        let _ = TcpStream::connect(self.addr); // break the blocking accept
+        if let Some(h) = self.handle.take() {
+            h.join().unwrap();
+        }
+    }
+}
+
+fn handle_conn(mut s: TcpStream, cfg: &ServeCfg, log: &Mutex<Vec<String>>) -> std::io::Result<()> {
+    // Read the request head (headers only; GETs carry no body).
+    let mut buf = Vec::new();
+    let mut chunk = [0u8; 1024];
+    loop {
+        let n = s.read(&mut chunk)?;
+        if n == 0 {
+            break;
+        }
+        buf.extend_from_slice(&chunk[..n]);
+        if buf.windows(4).any(|w| w == b"\r\n\r\n") {
+            break;
+        }
+    }
+    let text = String::from_utf8_lossy(&buf);
+    let mut lines = text.split("\r\n");
+    let path = lines
+        .next()
+        .and_then(|l| l.split_whitespace().nth(1))
+        .unwrap_or("/")
+        .to_string();
+    let inm = lines
+        .filter_map(|l| l.split_once(':'))
+        .find(|(k, _)| k.trim().eq_ignore_ascii_case("if-none-match"))
+        .map(|(_, v)| v.trim().to_string());
+
+    let clean = path.split('?').next().unwrap_or("/").trim_start_matches('/');
+    let record = |status: u16| log.lock().unwrap().push(format!("GET /{clean} {status}"));
+
+    let resp: Vec<u8> = if clean.starts_with("lib/") && cfg.fail_status.is_some() {
+        let status = cfg.fail_status.unwrap();
+        record(status);
+        format!("HTTP/1.1 {status} Fault\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").into_bytes()
+    } else {
+        let fpath = cfg.root.join(clean);
+        if !fpath.is_file() {
+            record(404);
+            b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec()
+        } else {
+            let mut body = std::fs::read(&fpath)?;
+            let etag = format!("\"{:x}\"", Sha256::digest(&body));
+            if inm.as_deref() == Some(etag.as_str()) {
+                record(304);
+                format!("HTTP/1.1 304 Not Modified\r\nETag: {etag}\r\nConnection: close\r\n\r\n")
+                    .into_bytes()
+            } else {
+                if let Some(n) = cfg.truncate_dl {
+                    if clean.starts_with("dl/") {
+                        body.truncate(n);
+                    }
+                }
+                record(200);
+                let mut resp = format!(
+                    "HTTP/1.1 200 OK\r\nETag: {etag}\r\nContent-Type: application/octet-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                )
+                .into_bytes();
+                resp.extend_from_slice(&body);
+                resp
+            }
+        }
+    };
+    s.write_all(&resp)
+}
+
+/// The fixture manifest with an arbitrary registry url (the http face).
+fn manifest_with_url(deps: &str, url: &str) -> String {
+    format!(
+        "[project]\nname = \"p\"\nversion = \"0.1\"\nentry = \"src/main.mc\"\n\n\
+         [dependencies]\nmcode = \"*\"\n{deps}\n\n\
+         [config.registry]\nurl = \"{url}\"\n"
+    )
+}
+
+#[test]
+fn http__build_installs_then_revalidates_the_cached_meta_with_304() {
+    let f = fixture("http-304", "regtest = \"*\"");
+    let srv = MiniRegistry::start(&f.reg, None, None);
+    std::fs::write(
+        f.proj.join("project.toml"),
+        manifest_with_url("regtest = \"*\"", &srv.url),
+    )
+    .unwrap();
+
+    let (_, stderr, ok) = in_proj(&f, &["build"]);
+    assert!(ok, "http build failed: {stderr}");
+    assert!(stderr.contains("installed regtest@"), "installed: {stderr}");
+    assert!(f.root.join("regtest@0.1").is_dir(), "landed in the data root");
+    assert!(
+        srv.served("/lib/regtest.json 200"),
+        "meta fetched over the wire: {:?}",
+        srv.log_lines()
+    );
+
+    // Force a re-solve: drop the lock and the install. The cached meta and
+    // its parked ETag must carry the rebuild — the server answers 304 this
+    // time and the client serves the cached copy.
+    std::fs::remove_file(f.proj.join("mcode.lock")).unwrap();
+    std::fs::remove_dir_all(f.root.join("regtest@0.1")).unwrap();
+    let (_, stderr, ok) = in_proj(&f, &["build"]);
+    assert!(ok, "cache-carried rebuild failed: {stderr}");
+    assert!(
+        srv.served("/lib/regtest.json 304"),
+        "expected a 304 revalidation: {:?}",
+        srv.log_lines()
+    );
+    assert!(f.root.join("regtest@0.1").is_dir(), "reinstalled from cache");
+}
+
+#[test]
+fn http__unknown_name_is_unresolved_and_the_404_is_seen() {
+    let f = fixture("http-404", "nosuch = \"*\"");
+    let srv = MiniRegistry::start(&f.reg, None, None);
+    std::fs::write(
+        f.proj.join("project.toml"),
+        manifest_with_url("nosuch = \"*\"", &srv.url),
+    )
+    .unwrap();
+
+    let (_, stderr, ok) = in_proj(&f, &["build"]);
+    assert!(!ok, "an unknown name must fail the build");
+    assert!(stderr.contains("nosuch"), "the missing lib is named: {stderr}");
+    assert!(
+        srv.served("/lib/nosuch.json 404"),
+        "the 404 answer went out: {:?}",
+        srv.log_lines()
+    );
+}
+
+#[test]
+fn http__a_failing_registry_is_named_not_hung() {
+    let f = fixture("http-500", "regtest = \"*\"");
+    let srv = MiniRegistry::start(&f.reg, Some(500), None);
+    std::fs::write(
+        f.proj.join("project.toml"),
+        manifest_with_url("regtest = \"*\"", &srv.url),
+    )
+    .unwrap();
+
+    let (_, stderr, ok) = in_proj(&f, &["build"]);
+    assert!(!ok, "a 500 registry must fail the build");
+    assert!(stderr.contains("HTTP 500"), "named, not swallowed: {stderr}");
+    assert!(
+        srv.served("/lib/regtest.json 500"),
+        "the fault was injected where aimed: {:?}",
+        srv.log_lines()
+    );
+}
+
+#[test]
+fn http__truncated_artifact_fails_the_checksum_with_no_half_install() {
+    let f = fixture("http-trunc", "regtest = \"*\"");
+    let srv = MiniRegistry::start(&f.reg, None, Some(64));
+    std::fs::write(
+        f.proj.join("project.toml"),
+        manifest_with_url("regtest = \"*\"", &srv.url),
+    )
+    .unwrap();
+
+    let (_, stderr, ok) = in_proj(&f, &["build"]);
+    assert!(!ok, "a truncated artifact must fail the build");
+    assert!(
+        stderr.contains("checksum mismatch"),
+        "names the integrity failure: {stderr}"
+    );
+    assert!(
+        !f.root.join("regtest@0.1").exists(),
+        "no half install over http either"
+    );
+    assert!(
+        srv.served("/dl/power/regtest/0.1/regtest-0.1.thin.mcl 200"),
+        "the artifact came over the wire: {:?}",
+        srv.log_lines()
+    );
+}
