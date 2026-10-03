@@ -210,6 +210,27 @@ pub fn handle_set_project_root(params: Option<Value>) -> RpcResult {
     }
 
     let p: SetProjectRootParams = parse_strict(params)?;
+    // Mid-run re-rooting is the exceptional path (world-sandbox-design §3.3 /
+    // §5 P2): the daemon slot is per-project and the world identity is the
+    // workspace root, so a client asking a live project world to re-root to a
+    // *different* directory would desync the project-root pointer from the
+    // loaded world (`use` resolution, libmgr and find_project_root all read
+    // the pointer directly). In-process callers drive world switches through
+    // `workspace_switch_to`, which keeps the pointer in step; only the RPC
+    // face can move the pointer behind the world's back. Refuse and point at
+    // `mcc restart` (same hint the handshake drift verdicts use).
+    let requested = std::path::PathBuf::from(&p.path);
+    let requested_key = requested.canonicalize().unwrap_or_else(|_| requested.clone());
+    if let Some(active) = crate::builder::workspace::WORKSPACE.active_root() {
+        if active != requested_key {
+            return Err(JsonRpcError::custom(
+                32114,
+                "set_project_root: a project world is already loaded from a different root; \
+                 re-rooting a live daemon is not supported — run `mcc restart` in the \
+                 project (or connect to that project's own daemon slot)",
+            ));
+        }
+    }
     crate::mcc_set_project_root(std::path::Path::new(&p.path));
     Ok(serde_json::json!({ "ok": true }))
 }

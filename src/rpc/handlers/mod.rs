@@ -3318,6 +3318,62 @@ mod tests {
         crate::db::infra::init::mcb_set_project_root(&saved_root);
     }
 
+    /// U393 leg5 P2 close-out: mid-run re-rooting is the exceptional path.
+    /// With a project world active, `set_project_root` for a *different*
+    /// root must refuse (the pointer would desync from the loaded world);
+    /// the same-root call stays a no-op, and the call before any world is
+    /// active is the ordinary connect-time configuration.
+    #[test]
+    fn cli_rpc__set_project_root_refuses_midrun_reroot_to_a_different_world() {
+        let _guard = crate::db::infra::init::MCC_TEST_PARSE_LOCK
+            .lock()
+            .expect("test parse lock");
+        let saved_root = crate::db::infra::init::mcb_get_project_root();
+        let saved_ws = crate::workspace_root();
+
+        let proj_a = std::env::temp_dir().join(format!("mcc-reroot-a-{}", std::process::id()));
+        let proj_b = std::env::temp_dir().join(format!("mcc-reroot-b-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&proj_a);
+        let _ = std::fs::remove_dir_all(&proj_b);
+        fs::create_dir_all(&proj_a).unwrap();
+        fs::create_dir_all(&proj_b).unwrap();
+        // The workspace pipeline canonicalizes roots; on macOS /var is a
+        // symlink to /private/var, so compare against canonical forms.
+        let proj_a = fs::canonicalize(&proj_a).unwrap();
+        let proj_b = fs::canonicalize(&proj_b).unwrap();
+
+        // Connect-time: no project world is active, configuration is free.
+        // (Tests share the process globals — drop to the anonymous world first.)
+        let _ = crate::workspace_switch_to(None, crate::WorkspaceKind::Project);
+        let before = super::admin::handle_set_project_root(Some(serde_json::json!(
+            {"path": proj_a.to_string_lossy()}
+        )));
+        assert!(before.is_ok());
+
+        // A project world activates (the pointer follows it).
+        assert!(crate::workspace_switch_to(Some(proj_a.clone()), crate::WorkspaceKind::Project));
+        assert_eq!(crate::db::infra::init::mcb_get_project_root(), proj_a);
+
+        // Same root: the idempotent reconnect call.
+        let again = super::admin::handle_set_project_root(Some(serde_json::json!(
+            {"path": proj_a.to_string_lossy()}
+        )));
+        assert!(again.is_ok());
+
+        // A different root behind a live world: refused, pointer untouched.
+        let err = super::admin::handle_set_project_root(Some(serde_json::json!(
+            {"path": proj_b.to_string_lossy()}
+        )))
+        .unwrap_err();
+        assert_eq!(err.code, 32114);
+        assert_eq!(crate::db::infra::init::mcb_get_project_root(), proj_a);
+
+        fs::remove_dir_all(&proj_a).unwrap();
+        fs::remove_dir_all(&proj_b).unwrap();
+        let _ = crate::workspace_switch_to(saved_ws, crate::WorkspaceKind::Project);
+        crate::db::infra::init::mcb_set_project_root(&saved_root);
+    }
+
     /// U234 end-to-end: `defs.dependents` answers from the live graph, so a
     /// re-parse that drops the reference must flip the answer — count 1
     /// before, `hasDependents: false` after. The purge primitive in the
