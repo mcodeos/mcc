@@ -53,6 +53,7 @@ dirs = "5.0"
 line-index = "0.1.2"
 clap = { version = "4.5", features = ["derive"] }
 serde = { version = "1.0", features = ["derive", "rc"] }
+bincode = "1.3"
 # `float_roundtrip`: a float must survive a save-and-read unchanged. Without it
 # serde_json parses a decimal to the nearest double by a fast path that is off by
 # one ULP for some inputs, which makes a metric read back from a saved reading
@@ -71,7 +72,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["env-filter", "fmt", "ansi"] }
 tar = "0.4"
 flate2 = "1.0"
-# .mcl 容器（registry-design.md §3.4）：tar 流入 zstd 单流；sha2 出附件/档位校验和。
+# .mcl container (registry-design.md §3.4): tar streams into a single zstd flow; sha2 yields the attachment/tier checksums.
 zstd = "0.13"
 sha2 = "0.10"
 base64 = "0.22"
@@ -83,7 +84,7 @@ rmcp = { version = "3.1.2", features = ["transport-io"] }
 [dev-dependencies]
 criterion = "0.5"
 serde_json = "1.0"
-# shard7 lib_pack.rs 手工组档/算校验和（format 闸、三查负例的原料）
+# shard7 lib_pack.rs manual archive assembly / checksum (format gate; the negative-case material for the three checks)
 tar = "0.4"
 zstd = "0.13"
 sha2 = "0.10"

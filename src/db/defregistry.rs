@@ -1403,6 +1403,48 @@ impl RegistryState {
         keyed.into_iter().map(|(_, item)| item).collect()
     }
 
+    /// Lib parse cache capture (U392 leg B): every **live** def of one file in
+    /// registration order — `(DefId, space name, domain, value)`. The cache
+    /// slot stores this vector verbatim and a hit replays it through
+    /// `insert_def`, so the order must be the original allocation order
+    /// (`DefId` ascending) or the replayed ids would differ from a fresh
+    /// parse. Unlike [`Self::enumerate_in_uri`] there is no kind filter and
+    /// no shadow hiding: the slot must reproduce the file's full registry
+    /// contribution, both layers included.
+    pub(crate) fn capture_defs_for_uri(
+        &self,
+        uri: &str,
+    ) -> Vec<(DefId, McSpaceName, LoadDomain, DefValue)> {
+        let uri_id = crate::semantic::common::uri_intern(uri);
+        let Some(bucket) = self.uri_index.get(&uri_id) else {
+            return Vec::new();
+        };
+        let mut rows: Vec<(DefId, McSpaceName, LoadDomain, DefValue)> = Vec::new();
+        for id in bucket.iter() {
+            let Some(e) = self.arena.get(id) else {
+                continue;
+            };
+            // Host-func member rows share the file's uri bucket but never
+            // enter key_to_id (they live under the host→func member index);
+            // they are re-registered by `register_host_funcs`, not by the
+            // file's parse, so the slot must not capture them.
+            if e.data.is_none() || !self.key_to_id.contains_key(&e.sn) {
+                continue;
+            }
+            rows.push((e.id, e.sn.clone(), e.domain.clone(), e.data.clone().unwrap()));
+        }
+        rows.sort_by_key(|r| r.0);
+        rows
+    }
+
+    /// The next free `DefId` — the cache key's registration-order factor: a
+    /// slot recorded when this file's defs started at `N` may only be
+    /// replayed while the live counter also reads `N`, or the replayed defs
+    /// would take ids a fresh parse would not give them.
+    pub(crate) fn next_def_id_snapshot(&self) -> u32 {
+        self.next_def_id.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
     /// ★ CIMP §1 U120 (2026-09-19): the whole definition space in **one** read.
     ///
     /// [`enumerate`](Self::enumerate) has always been kind-parameterized; what

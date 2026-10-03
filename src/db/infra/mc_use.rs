@@ -11,7 +11,12 @@ use crate::db::diagnostic::diagnostic::{dlog_error, dlog_warning};
 use crate::db::infra::init::{mcb_get_project_root, mcb_get_system_root};
 use crate::{McIds, McURI};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+// Serde on the use-statement face: the lib parse cache (U392 leg B) stores a
+// library file's resolved `uselist` in its slot and restores it verbatim on a
+// hit — the module pass reads it for topo order and world_ver reads it for the
+// version envelope, so the replay must carry the resolved shape, prefix and
+// all (the source-position fields ride along; they are plain offsets).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum McUsePrefix {
     PathSystem,
     PathProject,
@@ -30,7 +35,7 @@ impl std::fmt::Display for McUsePrefix {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct McUse {
     pub public: bool,
     pub prefix: McUsePrefix,
@@ -299,7 +304,7 @@ impl McUse {
             //     mcode/mclibs/mcpub's bare checkouts are untouched; the P2
             //     solver replaces "highest wins" later).
             base_path = match final_filename.split(['/', '.']).find(|s| !s.is_empty()) {
-                Some(seg) if !seg.eq_ignore_ascii_case("mcode") && !base_path.join(seg).exists() => {
+                Some(seg) if seg != "mcode" && !base_path.join(seg).exists() => {
                     match crate::db::infra::libmgr::highest_versioned_dir(&base_path, seg) {
                         Some(vroot) => {
                             // Re-base AND strip the consumed first segment:

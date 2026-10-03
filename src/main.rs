@@ -129,6 +129,24 @@ fn main() -> ExitCode {
         eprintln!("warning: Failed to create data directory: {}", e);
     }
 
+    // 3.6. Library parse cache gate (U392 leg B): only the one-shot
+    // tables-only commands may serve cache hits — their whole lifetime is a
+    // single world build whose consumers read tables, never the AST or the
+    // LSP symbol faces the restored entries do not carry. Symbol-serving
+    // commands (join, refs, query, show, ...) and the server lifecycle keep
+    // the full parse. `MCC_LIBPARSE_CACHE=0` overrides this off for A/B.
+    match &cli.command {
+        Some(Command::Build(_))
+        | Some(Command::Check(_))
+        | Some(Command::Export(_))
+        | Some(Command::Erc(_))
+        | Some(Command::Impact(_))
+        | Some(Command::Diff(_)) => {
+            mcc::set_libparse_cache_tables_only(true);
+        }
+        _ => {}
+    }
+
     // 3.6. Load trace config from file (global + project)
     // Apply the file-configured level/targets only when the user explicitly
     // asked for debug output (`-v` / `-D`); otherwise the file's `trace.level:

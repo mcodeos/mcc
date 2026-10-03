@@ -1,10 +1,11 @@
 # MCode Class Naming Convention
 
-> **Version**: v1.1
-> **Date**: 2026-10-01
+> **Version**: v1.2
+> **Date**: 2026-10-03
 >
 > This document defines the naming rules for all class definitions (component, interface, enum)
-> in the MCode standard component library, and for instance designators (§7).
+> in the MCode standard component library, for instance designators (§7), and for
+> methods — wiring-macro funcs and capability recipes (§9).
 
 ---
 
@@ -506,7 +507,7 @@ positions, N1):
 | `name` | Body | Text | - |
 | `description` | Body | Text | - |
 | `partno` | Body | Text | - |
-| `package` | Body | Text | §4 PKG |
+| `package` | Body | Text | - |
 | `manufacturer` | Body | Text | - |
 | `spec` | Body | - | - |
 
@@ -604,3 +605,79 @@ may declare its own keys, may not shadow L0, and a conflict is an error,
 never a silent win. Retiring a key means downgrading it to unregistered;
 since keys in public libraries may still be consumed, a retired row carries
 a lifecycle (active / deprecated / retired).
+
+---
+
+## 9. Method Naming (func / recipe)
+
+Wiring macros and circuit-block funcs (the S4 two-level encoding) and
+capability recipes (adopted via `::`) are named for the **behavior**, never
+the topology — the whole point of a named method (S7, mcd design-axioms) is
+the part of the meaning the topology cannot express, so the name must say
+what the block *does* (`Power`, `Cap`, `Pullup`), never how it is wired
+(`ResAndCap` and the like are banned).
+
+### 9.1 Convention
+
+1. **The name is the short form of the function — accurate first, one word
+   as the default target.** `Power`, `Reset`, `Cap`, `Regulate`, `Pullup`.
+   Reach for a second word only when no single word is accurate
+   (`PowerIsolated`, `CapAnalog`); never pad a name for polish.
+2. **funcs are `PascalCase` whole English words** — `PowerIsolated`, not
+   `Power_ISO`, not `STDBY`. The case form separates methods from pins
+   (`VDD`), classes (`CAP.X5R`), and instance designators (§7) at a glance.
+3. **Variant qualification rides as a suffix, in the order
+   [behavior][domain][net]** — `Power` → `PowerIsolated` (domain);
+   `Cap` → `CapAnalog` (domain); `PullUp` → `PullUp_RO1` (net the pull-up
+   serves).
+4. **Typical-application macros share the component's own name** —
+   `func TLE7368` inside `tle7368` is the minimal-system macro (S4 module
+   level). The same-name collision is the convention, not a clash; the
+   call site reads `TLE7368()` = "instantiate the typical application".
+5. **recipes are `SCREAMING_SNAKE` capability names** — `CURRENT_LIMIT`,
+   `CAP_DECOUPLE` — so the `::` adoption row visually separates capability
+   from class and from dotted interface names.
+6. **The same name at different arities is one behavior, not a conflict** —
+   the chip-local decoupling macro `Cap()` and the parameterized decoupling
+   `Cap(pair)` on the CAP family are the same behavior; arity dispatch is
+   the engine's business, never the name's.
+7. **Length law: the class name carries the domain — the method must not
+   repeat it.** A call site always reads `CLASS(...).method(...)`, so the
+   method name needs only the behavior word (`Suppress` on `IND.CMC`,
+   `Amplify` on `AMP.INSTRUMENTATION`, `Sense` on `DIO.PHOTO`); qualifier
+   information rides with the class name and the arguments. When a
+   qualifier is still unavoidable it takes an industry-standard
+   abbreviation (rule §1.4), never an invented one — the behavior head
+   stays a whole word, the qualifier tail may shrink to the recognized
+   short form: `PowerIso` is right (`Iso` is the standing EE shorthand for
+   isolated), `PwrIso` is not (`Pwr` is a private abbreviation). Working
+   budget: one word, ≤ 8 characters; keep a longer name only when it is
+   already the shortest accurate term (`Indicator`, `Rheostat`).
+
+### 9.2 Violations on record (fix on touch)
+
+- `PaiIn` — `tle7368.mc:70`; misspelling of `PinIn`.
+- `STDBY` — `tle7368.mc:116`; all-caps abbreviation; should be `Standby`
+  (rule 9.1.2).
+- ~~`route` — `witness.mc`~~ **fixed 2026-10-03** (unify batch: renamed to
+  `Route`).
+
+**Unify batch 2026-10-03** (mcode + mclibs, zero-consumer renames under
+rule 9.1.1): `VoltageRegulator`→`Regulate` (DIO.ZEN) ·
+`VoltageDivider`→`Divider` (RES.POT) · `FastRectifier`→`Rectify`
+(DIO.SCH) · `VoltageComparator`→`Compare` (AMP.COMPARATOR) ·
+`VoltageToCurrentConverter`→`VtoI` (AMP.OTA; transconductance is the
+accurate term but over-long for a method name — `VtoI` says the direction
+in five characters) ·
+`UnityGainBuffer`→`Buffer` (AMP.BUFFER) · `UARTtoRS485`(supply
+macro)→`Power` (uart2rs485; §9.4 same-name belongs to typical-application
+macros only) · `IPDMatch`→`BiasMatch` (uart2rs485; fail-safe bias +
+termination match — name says both halves).
+
+**Length batch 2026-10-03** (same day, rule 9.1.7; all zero-consumer):
+`ColorIndicator`→`Color` (LED.RGB) · `IRTransmitter`→`Transmit` (LED.IR) ·
+`Illumination`→`Light` (LED.HP) · `LightSensor`→`Sense` (DIO.PHOTO) ·
+`DifferentialAmplifier`→`Amplify` (AMP.INSTRUMENTATION) ·
+`PowerIsolated`→`PowerIso` (ADC; qualifier tail to the recognized short
+form per 9.1.7). Kept at length by
+9.1.7's keep-clause: `Indicator`, `Rheostat`.

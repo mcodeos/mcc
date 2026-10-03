@@ -323,6 +323,14 @@ pub fn mcc_init_no_lib() {
 }
 
 /// mcc interface mcc_add
+/// Library parse cache gate (U392 leg B): opt a process into the cache fast
+/// path. Only for one-shot tables-only worlds (CLI build / check / export);
+/// a process that will serve LSP must never call this — the restored
+/// entries carry no AST and no lapper.
+pub fn set_libparse_cache_tables_only(enabled: bool) {
+    db::infra::libparse_cache::set_tables_only_mode(enabled);
+}
+
 pub fn mcc_add(uri: &McURI) {
     builder::mcb_add(uri);
 }

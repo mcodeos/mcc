@@ -300,6 +300,44 @@ pub fn mcb_add_recursive(uri: &McURI, loaded: &mut HashSet<String>, is_system_li
         }
     };
 
+    // U392 leg B: library parse cache fast path. A tables-only process (CLI
+    // build / check / export) restores an unchanged library file from its
+    // content-addressed slot instead of parsing it — both the load-time
+    // pass1 and the module pass are skipped, because the restored entry
+    // carries its defs (re-registered with their original DefIds), its full
+    // diagnostic set and modules_parsed already set, so
+    // mcb_parse_all_modules clean-skips it. Any mismatch is a miss that
+    // falls through to the fresh parse below. Symbol-serving processes
+    // (the servers, LSP faces) never take this path: the restored entry has
+    // no AST and no lapper — that restoration is leg C's face.
+    if is_system_lib {
+        let lib_for_cache = CURRENT_LIB_NAME
+            .lock()
+            .unwrap()
+            .clone()
+            .unwrap_or_else(|| "mcode".to_string());
+        if let Ok(content) = std::fs::read_to_string(&file_str) {
+            if let Some(mcfile) = crate::db::infra::libparse_cache::try_replay(
+                &canonical_uri,
+                &content,
+                is_system_lib,
+                &lib_for_cache,
+            ) {
+                trace!(target: "mcc::builder", canonical = %canonical_uri, "load: cache hit, replayed from lib parse cache");
+                let deps: Vec<McURI> = mcfile.uselist.iter().map(|u| u.uri.clone()).collect();
+                workspace::WORKSPACE.mcodes.insert(canonical_uri.clone(), mcfile);
+                workspace::WORKSPACE
+                    .sources
+                    .insert(canonical_uri.clone(), SourceDomain::SystemLib(lib_for_cache));
+                loaded.insert(canonical_uri.clone());
+                for dep_uri in deps {
+                    mcb_add_recursive(&dep_uri, loaded, is_system_lib);
+                }
+                return;
+            }
+        }
+    }
+
     // Single-line progress on interactive terminals while a system library
     // (e.g. mcode) is parsed file by file.
     if is_system_lib {

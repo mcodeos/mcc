@@ -3,6 +3,7 @@ pub(crate) mod context;
 pub(crate) mod global;
 pub(crate) mod init;
 pub mod libmgr;
+pub(crate) mod libparse_cache;
 pub mod loadprof;
 pub mod mc_code;
 pub mod packinst;

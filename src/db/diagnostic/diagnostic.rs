@@ -38,7 +38,11 @@ pub fn is_diagnostic_ignored(d: &Diagnostic) -> bool {
     guard.contains(&format!("E{}", d.code)) || guard.contains(&d.code.to_string())
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+// Serde on the diagnostic face: the lib parse cache (U392 leg B) stores a
+// library file's parse/pass1/module diagnostics in its slot and replays them
+// verbatim on a hit, so the whole face must round-trip. Plain data — row/col
+// are resolved at emission time and stored, nothing is recomputed on load.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum DiagnosticLevel {
     Error = 1,
     Warning = 2,
@@ -46,7 +50,7 @@ pub enum DiagnosticLevel {
     Hint = 4,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Location {
     pub uri: McURI,
     pub pos: Position,
@@ -57,7 +61,7 @@ pub struct Location {
     pub end_col: u32, // 1-based end column number (computed from pos + len)
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Diagnostic {
     pub code: u32,
     pub level: DiagnosticLevel,
@@ -66,7 +70,7 @@ pub struct Diagnostic {
     pub other: Vec<RelatedInformation>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RelatedInformation {
     pub location: Location,
     pub message_template: String,

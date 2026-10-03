@@ -213,7 +213,8 @@ pub fn mcb_parse_all_modules() {
     {
         use crate::db::diagnostic::diagnostic::{diagnostic_log, DiagnosticLevel};
         use crate::semantic::validation::CheckRegistry;
-        let re_derived_set: std::collections::HashSet<String> = re_derived.into_iter().collect();
+        let re_derived_set: std::collections::HashSet<String> =
+            re_derived.iter().cloned().collect();
         // Nothing changed → nothing to (re)validate: every clean file already
         // carries the results of its last re-derive round. Skip the full
         // workspace validator pass on this all-clean hot path.
@@ -268,6 +269,19 @@ pub fn mcb_parse_all_modules() {
             validate_ms,
             "post-parse validation done (U392 probe)"
         );
+    }
+
+    // U392 leg B: the round's state is final — module pass and validation
+    // have both run, so a freshly derived library file now carries everything
+    // its cache slot must hold (defs, diagnostics, resolved use table).
+    // Record slots here, after `re_derived` has been consumed by the
+    // validation filter above, for the lib parse cache's next cold start.
+    for uri in re_derived.iter() {
+        if let Some(domain) = workspace::WORKSPACE.sources.get(uri) {
+            if let crate::db::defspace::SourceDomain::SystemLib(lib) = domain.value() {
+                crate::db::infra::libparse_cache::store_slot(uri, lib);
+            }
+        }
     }
 }
 
