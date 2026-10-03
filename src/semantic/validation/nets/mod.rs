@@ -198,6 +198,17 @@ pub(crate) use iface_role_peers::check_iface_role_peers;
 mod level_window;
 pub(crate) use level_window::{check_level_window_mismatch, entry_active_low};
 
+// U391 peer-undershoot gate (reset-intent-design.md §2, both structural
+// candidates). iface_peer_reach.rs is a sibling leaf like iface_peer.rs:
+// one owner (6063 check_iface_peer_reach) judges every direction-less
+// (`None`-shaped — the io-member quadrant 6060 leaves unjudged) exact-one
+// peer lane for the true orphan — a merged conductor exhausted by its own
+// family, no peer endpoint and no non-family structure on it. RC-only
+// reset networks stay silent (the b4511 ruling); the trigger is the
+// declaration, never a family or role name.
+mod iface_peer_reach;
+pub(crate) use iface_peer_reach::check_iface_peer_reach;
+
 /// Run all electrical net checks and return diagnostics.
 ///
 /// FlatErc rules are declared — and ordered — in `crate::rules`

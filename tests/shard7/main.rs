@@ -32,6 +32,7 @@ mod iface_chain;
 mod live_world_rpc;
 mod iface_connect_rule;
 mod iface_exclusive_peer;
+mod iface_peer_reach;
 mod iface_relay;
 mod iface_param_pin_same_name;
 mod iface_role_peers;

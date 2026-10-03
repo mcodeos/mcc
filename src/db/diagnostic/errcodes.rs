@@ -2511,6 +2511,28 @@ pub const IFACE_ROLE_PEER_CONFLICT: u32 = 6061;
 /// never guesses what the board did not declare.
 pub const POLARITY_REVERSED: u32 = 6062;
 
+/// U391 **peer undershoot** (reset-intent-design.md §2, both structural
+/// candidates): an adoption lane whose role declares an **exact-one** peer
+/// (`peer = X(1)`, or the retired `exclusive = true` still honored as a
+/// one-body window) and whose lane reads no direction shape (`None` — the
+/// `io`-member quadrant the chain-reach gate 6060 explicitly leaves
+/// unjudged) must share its whole merged conductor with either the
+/// declared peer role of its own family or **any** terminal outside the
+/// family. The defect is the true orphan: zero peer-role endpoints and
+/// zero non-family structure — a body wired to nothing that could drive
+/// it. An RC-only reset network is a legal reset source (the b4511 probe
+/// ruling): its resistor and capacitor terminals are non-family endpoints
+/// and keep the lane silent, as do a button, a debugger pin, a supervisor
+/// output — every one of them is either the declared peer or a non-family
+/// endpoint. Not-fitted and NC-marked terminals count on neither side
+/// (U305's not_fitted law); a dangling module port counts as structure
+/// (conservative silence — the dangling-port shape is R12/C4's object).
+/// POR-supervisor existence at per-domain grain is deferred until domain
+/// objects exist; at conductor grain this gate *is* the absent-source
+/// fact, which is why the two candidates land as one code. Triggered by
+/// the declaration, never a family or role name.
+pub const IFACE_PEER_UNREACHED: u32 = 6063;
+
 /// R3 **mixed bridge identity** (intent-reference-layer-design.md §10.4 bridge
 /// identity three-state): a `@bridge(X, Y)` whose two arguments disagree on
 /// kind — one names a whole-referenceable domain of the owning module, the
@@ -3103,6 +3125,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(IFACE_CHAIN_SOURCE_UNREACHED, "A sink-shaped adoption lane reaches no source of its family along the adoption chain.", "interface '{0}' lane '{1}' on '{2}' adopts role '{3}', whose pins all declare `in` — a sink-shaped lane — but no source endpoint of the same family is reachable along the adoption chain: the walk crossed every net the family's lanes lead to from here and found only further sink lanes. A unidirectional lane fed from nowhere is a dangling input — an orphan clock input is a clock that never arrives. Wire a source-role endpoint onto the chain (directly, or through a sink lane whose instance also declares a source pin of the same family), or drop the direction words if the lane is not genuinely a consumer (clock-intent-design.md §2.2, U112 ②)."),
     entry!(IFACE_ROLE_PEER_CONFLICT, "Two role-bearing endpoints of one family on a flat net are not mutual peers per the interface's role table.", "Net '{0}' joins '{1}' (role {2}) and '{3}' (role {4}) of family '{5}', but the roles are not mutual peers: the role block of '{2}' does not declare '{4}' in its `peer` set (and/or the reverse). The pair met only through role-less conductors — a wiring mediator or a module port — so the statement-level judge (4121) never saw it; the flat net walk did (replicated-binding-design.md §4 check 4). Give one endpoint the matching role, or extend the peer tables so the two roles name each other."),
     entry!(POLARITY_REVERSED, "A polarized part's positive terminal sits on a lower declared DC potential than its negative terminal.", "instance '{0}' is polarized — its positive terminal ({1}) lands on '{2}' at {3} while its negative terminal ({4}) lands on '{5}' at {6} — the electrolytic/diode reverse connection that ends in heat, not in a working part. Swap the two nets so the positive terminal faces the higher declared potential, or drop the polarity declaration if the part genuinely has none (erc rules-catalog family B9, U319)."),
+    entry!(IFACE_PEER_UNREACHED, "An exact-one-peer adoption lane shares its whole conductor with no peer endpoint and no other structure at all.", "interface '{0}' lane '{1}' on '{2}' adopts role '{3}', whose peer declaration is {4} — exactly one peer instance — but the whole merged conductor the lane lands on holds no endpoint of the declared peer role and no terminal outside the family either: the body is wired to nothing that could drive it. A reset-style body alone on an otherwise empty conductor is an orphan input — a reset that never arrives. Wire a peer-role endpoint or any driving structure (a passive from a rail, a supervisor output, a button) onto the conductor, or drop the exact-one spelling if the pairing is meant to be unrestricted (reset-intent-design.md §2, U391)."),
     entry!(EXPECTATION_TARGET_MISSING, "An `expects` row names a target the built top does not contain.", "the `expects` row '{0}' addresses a {1}, but the built top has no {1} named '{0}' — only what the top instantiates or declares can carry an expectation (circuit-intent-acceptance-design.md §4)"),
     entry!(EXPECTATION_CLASS_MISMATCH, "The instance an `expects` row names instantiates no face matching the row's class word.", "the instance '{0}' instantiates '{1}', and none of its declared faces matches the expected '{2}' — a class row reads the same keys `::` binding reads: the class itself, its variant base chain, and its adopted recipes ({3}) (circuit-intent-acceptance-design.md §3-§4)"),
     entry!(EXPECTATION_NOT_DRIVEN, "The net an `expects = driven` row names carries no declared driver.", "the net '{0}' carries no declared driver — no endpoint on it is an `Out` pin or a declared power source, the same declared-face rule the undriven-net gate reads; wire a source onto it, or drop the `driven` row if the net is a passive branch (circuit-intent-acceptance-design.md §3-§4)"),

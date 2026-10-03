@@ -66,7 +66,8 @@ use crate::semantic::validation::nets::{
     check_exposed_clamp_coverage, check_exposed_clamp_downstream, check_filter_subface_overreach,
     check_ac_face_return, check_ac_nominal_conflict, check_floating_inputs,
     check_floating_outputs, check_iface_chain_source, check_iface_exclusive_peer,
-    check_iface_role_peers, check_level_window_mismatch, check_polarity_reverse,
+    check_iface_peer_reach, check_iface_role_peers, check_level_window_mismatch,
+    check_polarity_reverse,
     check_protective_pin_copper, check_isolated_dc_bridge, check_nc_connected,
     check_net_budget, check_bom_key_slot, check_bom_value_descendant,
     check_pin_contract_decode, check_pin_contract_return_member,
@@ -1423,6 +1424,20 @@ pub static FLAT_ERC_RULES: &[FlatErcRule] = &[
         overridable = false,
         owner = check_level_window_mismatch,
     },
+    // U391 peer-undershoot gate (reset-intent-design.md §2, both structural
+    // candidates); table tail, tracking the FLAT_ERC_ORDER append (§5-5).
+    declare_flat_erc_rule! {
+        code = crate::errcodes::IFACE_PEER_UNREACHED,
+        name = "iface-peer-unreached",
+        title = "an exact-one-peer adoption lane shares its whole conductor with no peer endpoint and no other structure at all",
+        severity = Error,
+        domain = Connectivity,
+        family = None,
+        doc = "U391 (reset-intent-design.md §2, both structural candidates — chain reachability and POR-supervisor existence, pulled forward by user ruling): an adoption lane whose role declares an exact-one peer (`peer = X(1)`, or the retired `exclusive = true` as a one-body window) and whose lane reads no direction shape (the io-member quadrant the chain-reach gate 6060 explicitly leaves unjudged) must share its whole merged conductor with either the declared peer role or any terminal outside the family. The failure fact is conductor exhaustion, never \"zero reachable sources\": an RC-only reset network is a legal reset source (the b4511 probe ruling) because its resistor and capacitor terminals are non-family endpoints — as are a button, a debugger pin, a supervisor output. Two bare receivers tied together exhaust the conductor and both fire. Not-fitted and NC-marked terminals count on neither side (U305); a dangling module port counts as structure (conservative silence, R12/C4's object). Trigger = the declaration, never a family or role name; the Source/Sink quadrants stay 6060's object so the two gates never double-report. POR existence at per-domain grain waits for domain objects; at conductor grain this gate is the absent-source fact.",
+        lock = "tests/shard7/iface_peer_reach.rs",
+        overridable = false,
+        owner = check_iface_peer_reach,
+    },
 ];
 
 // Declaration scope (pins / declaration semantics)
@@ -1986,7 +2001,8 @@ mod tests {
         CLAMP_REF_NOT_PROTECTIVE, COMBINE_OUTPUT_TOL, CROSS_BARRIER_NET,
         DECOUPLING_RETURN_MISMATCH, DEVICE_RETURN_SPAN_UNDECLARED, EARTH_DC_LEAK,
         EXPOSED_NET_DOWNSTREAM_UNPROTECTED, EXPOSED_NET_NO_CLAMP, FILTER_SUBFACE_OVERREACH,
-        IFACE_CHAIN_SOURCE_UNREACHED, IFACE_EXCLUSIVE_PEER_CONFLICT, IFACE_ROLE_PEER_CONFLICT,
+        IFACE_CHAIN_SOURCE_UNREACHED, IFACE_EXCLUSIVE_PEER_CONFLICT, IFACE_PEER_UNREACHED,
+        IFACE_ROLE_PEER_CONFLICT,
         LEVEL_WINDOW_MISMATCH,
         POLARITY_REVERSED,
         ISOLATED_DC_BRIDGE,
@@ -2011,7 +2027,7 @@ mod tests {
     /// The execution order of the migrated `nets::run_net_checks` call table.
     /// This is the lock that keeps catalog declaration order byte-identical to
     /// the pre-registry runner sequence.
-    const FLAT_ERC_ORDER: [u32; 64] = [
+    const FLAT_ERC_ORDER: [u32; 65] = [
         NET_MULTI_DRIVE,                    // P1
         NET_NO_DRIVER,                      // P2
         NET_INPUT_UNCONNECTED,              // P5
@@ -2076,6 +2092,7 @@ mod tests {
         IFACE_ROLE_PEER_CONFLICT, // U289 ⑥ flat-net generic peer sweep (tail append)
         POLARITY_REVERSED,        // U319 B9 polarity reverse (tail append)
         LEVEL_WINDOW_MISMATCH,    // U358 level-window compatibility (tail append)
+        IFACE_PEER_UNREACHED, // U391 exact-one peer undershoot (tail append)
     ];
 
     /// The report-row tags of the netcheck R-series. This is the lock that
@@ -2624,7 +2641,9 @@ mod tests {
         //       three anchors to the ledger without recording the step).
         // 177 = +4124 (the U358 level-window gate,
         //       tests/shard7/flatten_net_check_diagnostics.rs).
-        assert_eq!((strong, doc, note), (177, 0, 3));
+        // 178 = +6063 (the U391 peer-undershoot gate,
+        //       tests/shard7/iface_peer_reach.rs).
+        assert_eq!((strong, doc, note), (178, 0, 3));
         assert_eq!(strong + doc + note, rule_count());
     }
 
