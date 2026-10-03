@@ -1275,6 +1275,24 @@ pub enum LibAction {
         here: bool,
     },
 
+    /// Re-solve `[dependencies]` against the registry and rewrite mcode.lock
+    /// (the ONLY lock-rewrite authority — build and install never rewrite).
+    /// Without a name every declared key is refreshed; with one, that key's
+    /// lock pin is dropped (its subtree re-selects) and the rest stay locked.
+    Update {
+        /// Dependency key to refresh (defaults to all of `[dependencies]`)
+        name: Option<String>,
+    },
+
+    /// Fetch a pack's documentation attachments (registry-design.md §1.3):
+    /// bundled ones missing from the installed thin pack are pulled from the
+    /// full-tier artifact (sha256-verified per file); linked ones print their
+    /// URL. In-process always (it writes local machine state, U90).
+    FetchDocs {
+        /// `[name][@ver]` — the installed copy's version when @ver is absent
+        spec: String,
+    },
+
     /// Pack a library directory into .mcl archives (thin + full)
     Pack {
         /// Library package directory (must contain pack.toml)

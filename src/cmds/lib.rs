@@ -237,6 +237,27 @@ pub fn run(action: &LibAction, format: OutputFormat) -> Result<()> {
                 },
             }
         }
+        // update/fetch-docs are in-process always: the lock write authority
+        // and the fetched attachments are this cwd's local machine state the
+        // daemon cannot own (the .mcl install precedent, U90).
+        LibAction::Update { name } => {
+            let root = client_project_root().ok_or_else(|| {
+                anyhow::anyhow!(
+                    "lib update: no project.toml found above the current directory; \
+                     run inside a project"
+                )
+            })?;
+            cmd_update(name.as_deref(), &root)
+        }
+        LibAction::FetchDocs { spec } => {
+            let root = client_project_root().ok_or_else(|| {
+                anyhow::anyhow!(
+                    "lib fetch-docs: no project.toml found above the current directory; \
+                     run inside a project"
+                )
+            })?;
+            cmd_fetch_docs(spec, &root)
+        }
         // pack/inspect are offline tools with no daemon face (the U90
         // precedent) — always in-process.
         LibAction::Pack { dir, out } => crate::cmds::pack::cmd_pack(dir, out.as_deref(), format),
@@ -492,6 +513,256 @@ fn parse_install_spec(spec: &str) -> Result<(String, Option<String>, Option<Stri
         anyhow::bail!("lib install: empty name in `{spec}` (expected [name][@ver][#partno])");
     }
     Ok((name.to_string(), ver, partno))
+}
+
+// update
+
+/// Re-solve `[dependencies]` and rewrite `mcode.lock` (registry-design.md
+/// §4.3): the ONLY lock-rewrite authority — build writes once when absent
+/// and install never writes. Without `name` the lock is dropped entirely
+/// (every key re-selects fresh, yanked skipped); with one, that key's entry
+/// is dropped from the lock (its subtree re-selects) and the rest stay
+/// locked — the reproduction credential survives for untouched keys.
+pub fn cmd_update(name: Option<&str>, project_root: &Path) -> Result<()> {
+    use mcc::{solve_and_install, LockFile, RegistrySource};
+
+    let manifest_path = mcc::cli::manifest::Manifest::find_in(project_root).ok_or_else(|| {
+        anyhow::anyhow!("lib update: no project.toml in {}", project_root.display())
+    })?;
+    let m = mcc::cli::manifest::Manifest::load(&manifest_path)?;
+    let decls = m.solve_decls();
+    if let Some(key) = name {
+        if !decls.contains_key(key) {
+            anyhow::bail!(
+                "lib update: `{key}` is not declared in [dependencies] ({})",
+                decls
+                    .keys()
+                    .map(|k| k.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+        }
+    }
+    let url = mcc::cli::config::get_registry_url(Some(project_root)).ok_or_else(|| {
+        anyhow::anyhow!(
+            "lib update: no registry configured — set [registry] url in mcc.yaml or \
+             [config.registry] url in project.toml"
+        )
+    })?;
+    let src = RegistrySource::from_url(&url).map_err(|e| anyhow::anyhow!("lib update: {e}"))?;
+
+    // The refresh face: no name → solve with no lock at all; one name → the
+    // stored lock minus that key (everything else stays pinned).
+    let stored = LockFile::load(project_root);
+    let effective = match (name, stored) {
+        (Some(key), Some(mut lock)) => {
+            lock.deps.remove(key);
+            Some(lock)
+        }
+        (Some(_), None) => None,
+        (None, lock) => None,
+    };
+    let any_local = decls.values().any(|d| d.local);
+    let (out, installed) = solve_and_install(
+        &src,
+        any_local.then(|| project_root.join("deps")).as_deref(),
+        &mcc::cli::datadir::data_root(),
+        &decls,
+        effective.as_ref(),
+    )
+    .map_err(|e| anyhow::anyhow!("lib update: {}", crate::cmds::manifest::solve_error_msg(&e)))?;
+    for face in &installed {
+        eprintln!("↓ downloaded {face}");
+    }
+
+    // The rewrite: the solve's own lock face records every declared key
+    // (locked entries included), so this is the whole credential, refreshed.
+    let body = mcc::lock_with_mcode_rev(&out.lock);
+    let path = body.store(project_root)?;
+    eprintln!("✓ updated {} ({} entries)", path.display(), body.deps.len());
+    Ok(())
+}
+
+// fetch-docs
+
+/// Pull a pack's documentation attachments (registry-design.md §1.3/§7⑪).
+/// Bundled attachments missing from the installed thin pack are extracted
+/// from the full-tier artifact (sha256-verified per file against the
+/// attachment table); linked attachments print their URL — the pointer is
+/// the delivery, the content never enters the reproducibility face.
+pub fn cmd_fetch_docs(spec: &str, project_root: &Path) -> Result<()> {
+    use mcc::RegistrySource;
+
+    let (name, ver) = match spec.split_once('@') {
+        Some((n, v)) => (n, Some(v.to_string())),
+        None => (spec, None),
+    };
+    if name.is_empty() {
+        anyhow::bail!("lib fetch-docs: empty name in `{spec}` (expected [name][@ver])");
+    }
+    let url = mcc::cli::config::get_registry_url(Some(project_root)).ok_or_else(|| {
+        anyhow::anyhow!(
+            "lib fetch-docs: no registry configured — set [registry] url in mcc.yaml or \
+             [config.registry] url in project.toml"
+        )
+    })?;
+    let src = RegistrySource::from_url(&url).map_err(|e| anyhow::anyhow!("lib fetch-docs: {e}"))?;
+    let data_root = mcc::cli::datadir::data_root();
+
+    // Locate the installed copy (project deps/ first, then the data root);
+    // absent → install the thin tier first (the solver's single fetch path).
+    let deps_dir = project_root.join("deps");
+    let (dir, ver) = match find_installed_pack(&deps_dir, &data_root, name, ver.as_deref()) {
+        Some((dir, ver)) => (dir, ver),
+        None => {
+            let Some(ver) = ver else {
+                anyhow::bail!(
+                    "lib fetch-docs: `{name}` is not installed — pass `@<ver>` to \
+                     install and fetch in one step"
+                );
+            };
+            let decl = std::iter::once((
+                name.to_string(),
+                mcc::SolveDecl {
+                    key: name.to_string(),
+                    req: mcc::parse_version_req("*"),
+                    partno: None,
+                    local: false,
+                },
+            ))
+            .collect();
+            let (_, _) = mcc::solve_and_install(&src, None, &data_root, &decl, None)
+                .map_err(|e| anyhow::anyhow!("lib fetch-docs: {}", crate::cmds::manifest::solve_error_msg(&e)))?;
+            let dir = data_root.join(format!("{name}@{ver}"));
+            if !dir.is_dir() {
+                anyhow::bail!(
+                    "lib fetch-docs: installed `{name}` but {} is missing",
+                    dir.display()
+                );
+            }
+            (dir, ver)
+        }
+    };
+
+    // The attachment table is the material ledger: bundled rows name in-pack
+    // paths, linked rows name URLs.
+    let pack = mcc::cli::packfile::load(&dir)?;
+    let mut linked = 0;
+    for att in &pack.attachments {
+        if let Some(url) = &att.url {
+            linked += 1;
+            let rev = att.rev.as_deref().unwrap_or("-");
+            eprintln!(" linked {} {} (rev {rev}): {url}", att.kind, att.name.as_deref().unwrap_or("-"));
+        }
+    }
+
+    let missing: Vec<&mcc::cli::packfile::AttachmentEntry> = pack
+        .attachments
+        .iter()
+        .filter(|a| a.is_bundled())
+        .filter(|a| !dir.join(a.path.as_deref().unwrap_or_default()).is_file())
+        .collect();
+    if missing.is_empty() {
+        eprintln!(
+            "✓ {name}@{ver}: all bundled attachments present ({} linked pointer{})",
+            linked,
+            if linked == 1 { "" } else { "s" }
+        );
+        return Ok(());
+    }
+
+    // The full tier is the attachment carrier: verify the artifact against
+    // the metadata checksum, then extract only the missing rows.
+    let meta = src
+        .meta_json_cached(name)
+        .map_err(|e| anyhow::anyhow!("lib fetch-docs: {e}"))?
+        .ok_or_else(|| anyhow::anyhow!("lib fetch-docs: `{name}` is not in the registry"))?;
+    let vmeta = meta.versions.get(&ver).ok_or_else(|| {
+        anyhow::anyhow!("lib fetch-docs: `{name}@{ver}` is not in the registry")
+    })?;
+    let want = vmeta.checksum.as_deref().ok_or_else(|| {
+        anyhow::anyhow!(
+            "lib fetch-docs: registry metadata for `{name}@{ver}` carries no full-tier checksum"
+        )
+    })?;
+    let archive_path = src.artifact_path(&meta.category, name, &ver, mcc::Tier::Full);
+    let got = crate::cmds::pack::sha256_hex_file(&archive_path)
+        .map_err(|e| anyhow::anyhow!("lib fetch-docs: {e}"))?;
+    let want_hex = want.strip_prefix("sha256:").unwrap_or(want);
+    // Hex compares case-normalized, then exact (the name-case law).
+    if want_hex.to_ascii_lowercase() != got {
+        anyhow::bail!(
+            "lib fetch-docs: checksum mismatch for `{name}@{ver}`: metadata {want}, read {got}"
+        );
+    }
+    let archive = crate::cmds::pack::read_archive(&archive_path)?;
+    for att in &missing {
+        let path = att.path.as_deref().unwrap_or_default();
+        let bytes = archive.get(path).ok_or_else(|| {
+            anyhow::anyhow!(
+                "lib fetch-docs: full-tier archive of {name}@{ver} lacks `{path}` (the pack and the registry tree disagree)"
+            )
+        })?;
+        // The attachment table's own checksum audits the extracted file.
+        if let Some(sum) = &att.checksum {
+            let digest = {
+                use sha2::{Digest, Sha256};
+                let mut h = Sha256::new();
+                h.update(bytes);
+                format!("sha256:{:x}", h.finalize())
+            };
+            if sum.to_ascii_lowercase() != digest {
+                anyhow::bail!(
+                    "lib fetch-docs: attachment `{path}` checksum mismatch: pack.toml {sum}, extracted {digest}"
+                );
+            }
+        }
+        let target = dir.join(path);
+        if let Some(parent) = target.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(&target, bytes)?;
+        eprintln!("↓ fetched {path}");
+    }
+    eprintln!(
+        "✓ {name}@{ver}: {} attachment(s) into {}",
+        missing.len(),
+        dir.display()
+    );
+    Ok(())
+}
+
+/// The installed `<name>@<ver>` dir: `deps/` first (the declaration face
+/// wins), then the data root. `ver` absent → the highest installed version
+/// (the directory scan's version ordering).
+fn find_installed_pack(
+    deps_dir: &Path,
+    data_root: &Path,
+    name: &str,
+    ver: Option<&str>,
+) -> Option<(PathBuf, String)> {
+    let pick = |root: &Path| -> Option<(PathBuf, String)> {
+        match ver {
+            Some(v) => {
+                let d = root.join(format!("{name}@{v}"));
+                d.is_dir().then(|| (d, v.to_string()))
+            }
+            None => {
+                let mut hits: Vec<(String, PathBuf)> = std::fs::read_dir(root)
+                    .ok()?
+                    .filter_map(|e| e.ok())
+                    .filter_map(|e| {
+                        let f = e.file_name().into_string().ok()?;
+                        let rest = f.strip_prefix(&format!("{name}@"))?;
+                        Some((rest.to_string(), e.path()))
+                    })
+                    .collect();
+                hits.sort_by(|a, b| mcc::version_key(&a.0).cmp(&mcc::version_key(&b.0)));
+                hits.pop().map(|(v, p)| (p, v))
+            }
+        }
+    };
+    pick(deps_dir).or_else(|| pick(data_root))
 }
 
 // load

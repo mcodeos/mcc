@@ -48,6 +48,37 @@ pub(crate) struct LibSearchParams {
     pub(crate) project_root: Option<String>,
 }
 
+/// `lib.resolve` (registry-design.md §7): solve a project's `[dependencies]`
+/// against the configured registry and report — per pack — what resolved,
+/// what was installed and what failed. Loading is NOT this method's job
+/// (that stays `lib.load`); the editor consumes the diagnostics and the
+/// attachment list (§7⑪ the document-card face).
+#[derive(Deserialize)]
+pub(crate) struct LibResolveParams {
+    /// Client-resolved absolute project root (the daemon cannot see the
+    /// client's cwd — the LibInstallParams precedent).
+    pub(crate) project_root: String,
+    /// Optional declaration override (key → req/parts); absent = the
+    /// project.toml `[dependencies]` as-is.
+    #[serde(default)]
+    pub(crate) deps: Option<std::collections::BTreeMap<String, LibResolveDep>>,
+    /// Resolve-only: packs not already on disk are reported, never
+    /// downloaded.
+    #[serde(default)]
+    pub(crate) offline: bool,
+}
+
+/// One entry of the optional `deps` override.
+#[derive(Deserialize)]
+pub(crate) struct LibResolveDep {
+    #[serde(default)]
+    pub(crate) version: Option<String>,
+    #[serde(default)]
+    pub(crate) partno: Option<String>,
+    #[serde(default)]
+    pub(crate) local: bool,
+}
+
 #[derive(Deserialize, Default)]
 pub(crate) struct DefsSearchParams {
     pub(crate) pattern: String,

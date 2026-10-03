@@ -145,8 +145,9 @@ pub use db::infra::packinst::{
 
 // ── Package registry (registry-design.md; P2 local closure) ──
 pub use db::infra::registry::{
-    ensure_deps_gitignore, solve, solve_and_install, DiskSource, LibMeta, LockEntry, LockFile,
-    RegistrySource, SolveDecl, SolveError, SolveOrigin, SolvedPack, Tier, VersionMeta,
+    ensure_deps_gitignore, first_stale_key, lock_with_mcode_rev, solve, solve_and_install,
+    DiskSource, LibMeta, LockEntry, LockFile, RegistrySource, SolveDecl, SolveError, SolveOrigin,
+    SolvedPack, Tier, VersionMeta,
 };
 
 // ── Instant / Net ──

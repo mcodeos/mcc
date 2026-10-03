@@ -48,6 +48,9 @@ pub fn handle_lib_install(params: Option<Value>) -> RpcResult {
             "path": target.to_string_lossy(),
         })),
         Err(e) => {
+            // The --from face's error family (install_lib_at) has no
+            // SolveError enum behind it — the 321xx solve codes (D15) do not
+            // apply here; these three legacy codes stay.
             let msg = format!("{e:#}");
             let code = if msg.contains("already installed") {
                 32101
@@ -104,6 +107,255 @@ pub fn handle_lib_uninstall(params: Option<Value>) -> RpcResult {
         "uninstalled": p.name,
         "path": lib_dir.to_string_lossy(),
     }))
+}
+
+// === handle_lib_resolve (registry-design.md §7, P4) ===
+//
+// The editor face of the dependency solver: solve the project's
+// `[dependencies]` against the configured registry, install what is missing
+// (unless `offline`), and report per pack — resolved faces, what this run
+// downloaded, the attachment list (§7⑪ the document-card face) and per-key
+// diagnostics. Loading is NOT here: the library load stays `lib.load`.
+
+/// RPC error codes for the solve faces (D15): one per `SolveError` arm —
+/// enum-mapped, never string-matched.
+const RPC_SOLVE_FAILED: i32 = 32120;
+const RPC_REGISTRY_UNREACHABLE: i32 = 32121;
+const RPC_PACK_NOT_FOUND: i32 = 32122;
+const RPC_CHECKSUM_MISMATCH: i32 = 32123;
+const RPC_PARTNO_UNAVAILABLE: i32 = 32124;
+const RPC_LOCK_STALE: i32 = 32125;
+
+fn solve_rpc_code(e: &crate::SolveError) -> i32 {
+    use crate::SolveError;
+    match e {
+        SolveError::Unresolved { .. } => RPC_PACK_NOT_FOUND,
+        SolveError::Conflict { .. } | SolveError::Cycle { .. } => RPC_SOLVE_FAILED,
+        SolveError::PartnoUnavailable { .. } => RPC_PARTNO_UNAVAILABLE,
+        SolveError::Checksum { .. } => RPC_CHECKSUM_MISMATCH,
+        // Transport/parse failures — including the offline
+        // "not installed and downloads are off" face.
+        SolveError::Registry(_) => RPC_REGISTRY_UNREACHABLE,
+    }
+}
+
+pub fn handle_lib_resolve(params: Option<Value>) -> RpcResult {
+    let p: LibResolveParams = parse_strict(params)?;
+    let root = PathBuf::from(&p.project_root);
+    if !root.is_dir() {
+        return Err(JsonRpcError::custom(
+            RPC_SOLVE_FAILED,
+            &format!(
+                "lib.resolve: project root is not a directory: {}",
+                root.display()
+            ),
+        ));
+    }
+
+    let decls: std::collections::BTreeMap<String, crate::SolveDecl> = match &p.deps {
+        Some(map) => map
+            .iter()
+            .map(|(k, d)| {
+                (
+                    k.clone(),
+                    crate::SolveDecl {
+                        key: k.clone(),
+                        req: crate::parse_version_req(d.version.as_deref().unwrap_or("*")),
+                        partno: d.partno.clone(),
+                        local: d.local,
+                    },
+                )
+            })
+            .collect(),
+        None => {
+            let path = crate::cli::manifest::Manifest::find_in(&root).ok_or_else(|| {
+                JsonRpcError::custom(
+                    RPC_SOLVE_FAILED,
+                    &format!("lib.resolve: no project.toml in {}", root.display()),
+                )
+            })?;
+            let m = crate::cli::manifest::Manifest::load(&path).map_err(|e| {
+                JsonRpcError::custom(RPC_SOLVE_FAILED, &format!("lib.resolve: {e}"))
+            })?;
+            m.solve_decls()
+        }
+    };
+
+    let url = crate::cli::config::get_registry_url(Some(&root)).ok_or_else(|| {
+        JsonRpcError::custom(
+            RPC_SOLVE_FAILED,
+            "lib.resolve: no registry configured — set [registry] url in mcc.yaml or \
+             [config.registry] url in project.toml",
+        )
+    })?;
+    let src = crate::RegistrySource::from_url(&url)
+        .map_err(|e| JsonRpcError::custom(RPC_REGISTRY_UNREACHABLE, &format!("lib.resolve: {e}")))?;
+
+    let any_local = decls.values().any(|d| d.local);
+    let deps_dir = any_local.then(|| root.join("deps"));
+    let data_root = mcc_system_root();
+    let stored = crate::LockFile::load(&root);
+
+    let solved = if p.offline {
+        crate::solve(
+            &decls,
+            stored.as_ref(),
+            &crate::DiskSource {
+                src: &src,
+                deps_dir: deps_dir.clone(),
+                data_root: data_root.clone(),
+                no_install: true,
+            },
+        )
+        .map(|o| (o, Vec::new()))
+    } else {
+        crate::solve_and_install(
+            &src,
+            deps_dir.as_deref(),
+            &data_root,
+            &decls,
+            stored.as_ref(),
+        )
+    };
+
+    match solved {
+        Ok((out, installed)) => {
+            // Lock write authority = build's: write once when fresh, never
+            // rewrite; a stale lock is a diagnostic, not an error.
+            let lock_written = if out.fresh {
+                crate::lock_with_mcode_rev(&out.lock)
+                    .store(&root)
+                    .is_ok()
+            } else {
+                false
+            };
+            let mut diagnostics = Vec::new();
+            if !out.fresh {
+                if let Some(st) = &stored {
+                    if let Some(key) = crate::first_stale_key(st, &out.lock) {
+                        diagnostics.push(json!({
+                            "code": RPC_LOCK_STALE,
+                            "key": key,
+                            "message": format!(
+                                "mcode.lock does not cover `{key}` as solved — run `mcc lib update`"
+                            ),
+                        }));
+                    }
+                }
+            }
+            Ok(json!({
+                "resolved": out.packs.values().map(|pk| {
+                    let dir = match (pk.local, &deps_dir) {
+                        (true, Some(d)) => d.join(format!("{}@{}", pk.package, pk.version)),
+                        _ => data_root.join(format!("{}@{}", pk.package, pk.version)),
+                    };
+                    json!({
+                        "key": pk.key,
+                        "package": pk.package,
+                        "version": pk.version,
+                        "partno": pk.partno,
+                        "checksum": pk.checksum,
+                        "origin": match pk.origin {
+                            crate::SolveOrigin::Project => "project",
+                            crate::SolveOrigin::DataRoot => "data-root",
+                            crate::SolveOrigin::Registry => "registry",
+                        },
+                        "attachments": pack_attachments(&dir),
+                    })
+                }).collect::<Vec<_>>(),
+                "installed": installed,
+                "lock_present": stored.is_some(),
+                "lock_written": lock_written,
+                "diagnostics": diagnostics,
+            }))
+        }
+        Err(primary) => {
+            // The whole-solve failed; re-run per declaration (selection only,
+            // no installs) so the editor gets one diagnostic row per failing
+            // key plus whatever did resolve. Every key failing = a hard
+            // error carrying the primary's code.
+            let disk = crate::DiskSource {
+                src: &src,
+                deps_dir: deps_dir.clone(),
+                data_root: data_root.clone(),
+                no_install: true,
+            };
+            let mut resolved = Vec::new();
+            let mut diagnostics = Vec::new();
+            for (key, decl) in &decls {
+                let one = std::iter::once((key.clone(), decl.clone())).collect();
+                match crate::solve(&one, stored.as_ref(), &disk) {
+                    Ok(out) => {
+                        for pk in out.packs.values() {
+                            let dir = match (pk.local, &deps_dir) {
+                                (true, Some(d)) => {
+                                    d.join(format!("{}@{}", pk.package, pk.version))
+                                }
+                                _ => data_root.join(format!("{}@{}", pk.package, pk.version)),
+                            };
+                            resolved.push(json!({
+                                "key": pk.key,
+                                "package": pk.package,
+                                "version": pk.version,
+                                "partno": pk.partno,
+                                "checksum": pk.checksum,
+                                "origin": match pk.origin {
+                                    crate::SolveOrigin::Project => "project",
+                                    crate::SolveOrigin::DataRoot => "data-root",
+                                    crate::SolveOrigin::Registry => "registry",
+                                },
+                                "attachments": pack_attachments(&dir),
+                            }));
+                        }
+                    }
+                    Err(e) => diagnostics.push(json!({
+                        "code": solve_rpc_code(&e),
+                        "key": key,
+                        "message": e.to_string(),
+                    })),
+                }
+            }
+            if resolved.is_empty() {
+                return Err(JsonRpcError::custom(
+                    solve_rpc_code(&primary),
+                    &format!("lib.resolve: {primary}"),
+                ));
+            }
+            Ok(json!({
+                "resolved": resolved,
+                "installed": [],
+                "lock_present": stored.is_some(),
+                "lock_written": false,
+                "diagnostics": diagnostics,
+            }))
+        }
+    }
+}
+
+/// The §7⑪ attachment face of an installed pack: the pack.toml
+/// `[[attachments]]` table as the document card reads it — bundled rows
+/// (in-pack paths the thin tier may omit; `lib fetch-docs` fills them) and
+/// linked rows (URL pointers).
+fn pack_attachments(dir: &Path) -> Value {
+    let pack = match crate::cli::packfile::load(dir) {
+        Ok(p) => p,
+        Err(_) => return json!([]),
+    };
+    json!(pack
+        .attachments
+        .iter()
+        .map(|a| {
+            json!({
+                "form": if a.is_bundled() { "bundled" } else { "linked" },
+                "kind": a.kind,
+                "path": a.path,
+                "name": a.name,
+                "url": a.url,
+                "rev": a.rev,
+                "license": a.license,
+            })
+        })
+        .collect::<Vec<_>>())
 }
 
 // === handle_lib_search (lines 418-453 in original) ===

@@ -556,8 +556,21 @@ mcc lib install ams1117@0.2#AMS1117-3.3
 mcc lib install regtest --here
 
 # Build in a registry-configured project solves [dependencies] first and
-# writes mcode.lock once (only `mcc lib update` rewrites it — P4); a stale
-# lock warns E2056 instead of being touched.
+# writes mcode.lock once (build never rewrites it); a stale lock warns E2056.
+
+# Re-solve and rewrite mcode.lock — the ONLY lock-rewrite authority.
+# No name: drop the lock, re-select everything fresh (yanked skipped).
+# With a name: drop just that key's pin (its subtree re-selects); every
+# other locked key keeps its face byte for byte. Records the mcode rev.
+mcc lib update
+mcc lib update regtest
+
+# Fetch a pack's documentation attachments (registry-design.md §1.3/§7⑪):
+# bundled attachments missing from the installed thin pack are extracted
+# from the full tier (per-file sha256 audited against the attachment
+# table); linked ones print their URL. `@ver` installs + fetches in one step.
+mcc lib fetch-docs regtest
+mcc lib fetch-docs regtest@0.1
 
 # Search available libraries
 mcc lib search mcode

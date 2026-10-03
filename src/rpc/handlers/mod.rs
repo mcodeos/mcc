@@ -2713,6 +2713,10 @@ pub static METHODS: &[MethodMeta] = &[
         consumer: "admin",
     },
     MethodMeta {
+        name: "lib.resolve",
+        consumer: "admin",
+    },
+    MethodMeta {
         name: "trace.set",
         consumer: "admin",
     },
@@ -3068,6 +3072,7 @@ pub fn register_all(
     builder = builder.register_method("lib.install", handle_lib_install);
     builder = builder.register_method("lib.uninstall", handle_lib_uninstall);
     builder = builder.register_method("lib.search", handle_lib_search);
+    builder = builder.register_method("lib.resolve", handle_lib_resolve);
     builder = builder.register_method("trace.set", handle_trace_set);
     builder = builder.register_method("trace.get", handle_trace_get);
     // Build

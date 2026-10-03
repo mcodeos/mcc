@@ -138,6 +138,7 @@ curl -s -X POST http://127.0.0.1:8080/rpc \
 | `lib.install`   | `path`  | Install library       |
 | `lib.uninstall` | `name`  | Uninstall library     |
 | `lib.search`    | `query` | Search installed libs |
+| `lib.resolve`   | `project_root`, `deps?`, `offline?` | Solve the project's `[dependencies]` against the registry: `{resolved:[{key,package,version,partno,checksum,origin,attachments}], installed, lock_present, lock_written, diagnostics}`. Diagnostics carry per-key codes (32120 solve_failed, 32121 registry_unreachable, 32122 pack_not_found, 32123 checksum_mismatch, 32124 partno_unavailable, 32125 lock_stale); loading stays `lib.load` |
 
 #### Export / Utility
 

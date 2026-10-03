@@ -363,3 +363,140 @@ fn build__corrupt_thin_artifact_fails_checksum_with_no_half_install() {
         "no half install: nothing landed in the data root"
     );
 }
+
+// update + fetch-docs (P4)
+
+/// The lock pin nobody can build on: build refuses (and may not rewrite);
+/// `lib update` is the only rewrite authority and the rebuild is green.
+#[test]
+fn update__rewrites_the_lock_the_way_build_never_may() {
+    let f = fixture("update", "regtest = \"*\"");
+    let (_, stderr, ok) = in_proj(&f, &["build", "-f", "json"]);
+    assert!(ok, "first build failed: {stderr}");
+
+    // A pin to a version the registry never had: the lock-first solve fails.
+    std::fs::write(
+        f.proj.join("mcode.lock"),
+        "mcode = { rev = \"9999\" }\n\n[regtest]\nversion = \"0.9\"\n",
+    )
+    .unwrap();
+    let (_, stderr, ok) = in_proj(&f, &["build", "-f", "json"]);
+    assert!(!ok, "a lock pin to a missing version must fail the build: {stderr}");
+
+    // update drops the whole lock, re-selects fresh, and rewrites — the
+    // reproduction credential is whole again.
+    let (_, stderr, ok) = in_proj(&f, &["lib", "update"]);
+    assert!(ok, "lib update failed: {stderr}");
+    assert!(stderr.contains("updated"), "reports the rewrite: {stderr}");
+    let lock = std::fs::read_to_string(f.proj.join("mcode.lock")).unwrap();
+    assert!(lock.contains("0.1"), "the lock carries the solved version: {lock}");
+    assert!(lock.contains("rev"), "the lock keeps the mcode stdlib-rail rev: {lock}");
+
+    let (_, stderr, ok) = in_proj(&f, &["build", "-f", "json"]);
+    assert!(ok, "rebuild on the updated lock failed: {stderr}");
+}
+
+/// `lib update <key>` refreshes only that key; the other locked entries
+/// survive byte for byte (the untouched credential is not the updater's to
+/// re-select), and an undeclared name is refused.
+#[test]
+fn update__one_name_refreshes_only_that_key() {
+    let f = fixture("update1", "regtest = \"*\"\npacka = \"*\"");
+    let aux = f.base.join("pack-packa");
+    std::fs::create_dir_all(&aux).unwrap();
+    std::fs::write(aux.join("packa.mc"), DEP_ENTRY).unwrap();
+    std::fs::write(aux.join("pack.toml"), pack_manifest("packa", "packa.mc", &[])).unwrap();
+    f.register(&aux, "packa", &[], &[]);
+
+    let (_, stderr, ok) = in_proj(&f, &["build", "-f", "json"]);
+    assert!(ok, "first build failed: {stderr}");
+
+    // Break only regtest's pin; packa's entry stays exactly as solved.
+    let lock = std::fs::read_to_string(f.proj.join("mcode.lock")).unwrap();
+    let broken = lock.replace("[regtest]\nversion = \"0.1\"", "[regtest]\nversion = \"0.9\"");
+    assert_ne!(lock, broken, "the fixture lock names regtest");
+    std::fs::write(f.proj.join("mcode.lock"), &broken).unwrap();
+    let aux_before = lock
+        .split("[packa]")
+        .nth(1)
+        .unwrap_or("")
+        .to_string();
+
+    let (_, stderr, ok) = in_proj(&f, &["lib", "update", "regtest"]);
+    assert!(ok, "single-name update failed: {stderr}");
+    let after = std::fs::read_to_string(f.proj.join("mcode.lock")).unwrap();
+    assert!(
+        after.contains("version = \"0.1\""),
+        "regtest re-solved to the available version: {after}"
+    );
+    let aux_after = after.split("[packa]").nth(1).unwrap_or("");
+    assert_eq!(aux_before, aux_after, "the untouched key keeps its lock face");
+
+    let (_, stderr, ok) = in_proj(&f, &["lib", "update", "nosuch"]);
+    assert!(!ok, "an undeclared key is refused");
+    assert!(stderr.contains("not declared"), "names the refusal: {stderr}");
+}
+
+/// fetch-docs: the thin install carries no bundled attachments (thin normal
+/// state); fetch-docs extracts them from the full tier (per-file checksum
+/// audited) and prints linked pointers as-is.
+#[test]
+fn fetch_docs__pulls_bundled_and_prints_linked() {
+    let f = fixture("docs", "regtest = \"*\"");
+
+    // Give the pack a material face: one bundled datasheet, one linked note.
+    let pack = f.base.join("pack-regtest");
+    let ds_rel = "datasheet/DS_regtest.pdf";
+    let ds_body = b"%PDF-1.4 regtest datasheet rev 2.70";
+    std::fs::create_dir_all(pack.join("datasheet")).unwrap();
+    std::fs::write(pack.join(ds_rel), ds_body).unwrap();
+    let ds_sum = {
+        let mut h = Sha256::new();
+        h.update(ds_body);
+        format!("sha256:{:x}", h.finalize())
+    };
+    std::fs::write(
+        pack.join("pack.toml"),
+        format!(
+            "{}{}\n[[attachments]]\nkind = \"datasheet\"\npath = \"{ds_rel}\"\nrev = \"2.70\"\nchecksum = \"{ds_sum}\"\n\n[[attachments]]\nkind = \"doc\"\nname = \"regtest-appnote\"\nurl = \"https://example.com/regtest-appnote.pdf\"\nrev = \"1.0\"\n",
+            pack_manifest("regtest", "regtest.mc", &[]),
+            variant_section()
+        ),
+    )
+    .unwrap();
+    // Re-register: the tree's artifacts now carry the attachment (full tier).
+    f.register(&pack, "regtest", &["REGTEST-3.3"], &[]);
+
+    let (_, stderr, ok) = in_proj(&f, &["build", "-f", "json"]);
+    assert!(ok, "build failed: {stderr}");
+    let installed = f.root.join("regtest@0.1");
+    assert!(
+        !installed.join(ds_rel).exists(),
+        "the thin install omits bundled attachments (thin normal state)"
+    );
+
+    let (_, stderr, ok) = in_proj(&f, &["lib", "fetch-docs", "regtest"]);
+    assert!(ok, "fetch-docs failed: {stderr}");
+    assert!(
+        stderr.contains("fetched") && stderr.contains(ds_rel),
+        "reports the extraction: {stderr}"
+    );
+    assert!(
+        stderr.contains("https://example.com/regtest-appnote.pdf"),
+        "linked pointers print their url: {stderr}"
+    );
+    assert_eq!(
+        std::fs::read(installed.join(ds_rel)).unwrap(),
+        ds_body,
+        "the extracted attachment is byte-identical"
+    );
+
+    // Second run: everything present — nothing is downloaded again.
+    let (_, stderr, ok) = in_proj(&f, &["lib", "fetch-docs", "regtest"]);
+    assert!(ok, "second fetch-docs failed: {stderr}");
+    assert!(
+        stderr.contains("all bundled attachments present"),
+        "a no-op fetch says so: {stderr}"
+    );
+    assert!(!stderr.contains("fetched"), "no re-extraction: {stderr}");
+}

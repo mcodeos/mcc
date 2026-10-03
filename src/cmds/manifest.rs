@@ -164,17 +164,9 @@ fn solve_deps_for_build(
 
     // Lock write authority (§4.2): only a fresh solve writes, exactly once.
     if out.fresh {
-        let mut body = out.lock.clone();
-        body.deps.insert(
-            "mcode".to_string(),
-            LockEntry {
-                rev: Some(mcc::buildinfo::BUILD.to_string()),
-                ..LockEntry::default()
-            },
-        );
-        body.store(project_root)?;
+        mcc::lock_with_mcode_rev(&out.lock).store(project_root)?;
     } else if let Some(stored) = &lock {
-        if let Some(key) = first_stale_key(stored, &out.lock) {
+        if let Some(key) = mcc::first_stale_key(stored, &out.lock) {
             let msg = mcc::errcodes::format_msg(mcc::errcodes::USE_DEP_LOCK_STALE, &[&key]);
             eprintln!("warning: E{}: {msg} — run `mcc lib update`", mcc::errcodes::USE_DEP_LOCK_STALE);
         }
@@ -227,18 +219,6 @@ pub(crate) fn solve_error_msg(e: &mcc::SolveError) -> String {
         | SolveError::Checksum { .. }
         | SolveError::Registry(_) => e.to_string(),
     }
-}
-
-/// The first solved entry the stored lock lacks or disagrees with (key
-/// absent, or a version/partno/package face drift) — the E2056 face.
-fn first_stale_key<'a>(
-    stored: &mcc::LockFile,
-    solved: &'a mcc::LockFile,
-) -> Option<&'a str> {
-    solved.deps.iter().find_map(|(k, e)| match stored.deps.get(k) {
-        Some(s) if s.version == e.version && s.partno == e.partno && s.package == e.package => None,
-        _ => Some(k.as_str()),
-    })
 }
 
 /// Browse-mode entry selection for a directory that has no manifest

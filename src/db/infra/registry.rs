@@ -253,6 +253,30 @@ impl LockFile {
     }
 }
 
+/// The lock body a solve implies, with the mcode stdlib-rail rev recorded
+/// (the mcc batch the library ships with — it tracks the build, not the
+/// registry). Shared by the build hook, `lib update` and `lib.resolve`.
+pub fn lock_with_mcode_rev(solved: &LockFile) -> LockFile {
+    let mut body = solved.clone();
+    body.deps.insert(
+        "mcode".to_string(),
+        LockEntry {
+            rev: Some(crate::buildinfo::BUILD.to_string()),
+            ..LockEntry::default()
+        },
+    );
+    body
+}
+
+/// The first solved entry the stored lock lacks or disagrees with (key
+/// absent, or a version/partno/package face drift) — the E2056 face.
+pub fn first_stale_key<'a>(stored: &LockFile, solved: &'a LockFile) -> Option<&'a str> {
+    solved.deps.iter().find_map(|(k, e)| match stored.deps.get(k) {
+        Some(s) if s.version == e.version && s.partno == e.partno && s.package == e.package => None,
+        _ => Some(k.as_str()),
+    })
+}
+
 // ── The solver (§4.2/§5) ──
 //
 // Deterministic-function law: "dependency declarations + lock -> one definite
@@ -652,6 +676,9 @@ pub struct DiskSource<'a> {
     /// explicit-placement law: it never joins the search otherwise).
     pub deps_dir: Option<PathBuf>,
     pub data_root: PathBuf,
+    /// The offline-resolve face (`lib.resolve` offline): a pack not already
+    /// on disk is an error naming it — never a download.
+    pub no_install: bool,
 }
 
 /// Lowercase hex compare, tolerant of the metadata's `sha256:` prefix.
@@ -685,6 +712,11 @@ impl DiskSource<'_> {
     /// already on disk is a no-op — transitive packs were placed while their
     /// manifests were read.
     fn install_from_registry(&self, name: &str, ver: &str, local: bool) -> Result<(), SolveError> {
+        if self.no_install {
+            return Err(SolveError::Registry(format!(
+                "offline resolve: `{name}@{ver}` is not installed and downloads are off"
+            )));
+        }
         let target = self.placement_root(local);
         if target.join(format!("{name}@{ver}")).is_dir() {
             return Ok(());
@@ -819,6 +851,7 @@ pub fn solve_and_install(
         src,
         deps_dir: deps_dir.map(Path::to_path_buf),
         data_root: data_root.to_path_buf(),
+        no_install: false,
     };
     let out = solve(decls, lock, &disk)?;
     let mut installed = Vec::new();
