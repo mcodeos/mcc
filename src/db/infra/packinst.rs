@@ -158,6 +158,15 @@ pub fn install_mcl_at_scope(
     }
     if let Err(e) = std::fs::rename(&staging, &target) {
         let _ = std::fs::remove_dir_all(&staging);
+        // Two-window race: another process may have placed the same pack
+        // between the exists() check above and this rename (os error 66,
+        // ENOTEMPTY). The winner verified the same sha256 pack bytes and
+        // landed the same name@version, so treat the placement as already
+        // done instead of surfacing a spurious error (U393 leg5 live
+        // probe: 9/20 concurrent windows hit this; placement always won).
+        if target.exists() {
+            return Ok((format!("{}@{}", pack.package.name, ver), target));
+        }
         return Err(e.into());
     }
     // The index only covers the global data root; project tiers list by scan.
