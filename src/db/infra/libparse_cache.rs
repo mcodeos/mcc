@@ -153,13 +153,15 @@ struct SymLoc {
 struct LspSlot {
     /// `McSemToken { type_, position, length }` — plain data, no ids.
     tokens: Vec<(i16, i32, i32)>,
-    // ── LocalSymbolTable     inst_id_counter: u32,
+    // ── LocalSymbolTable
+    inst_id_counter: u32,
     name_to_declare_id: Vec<((String, u8, String, String), SymId, SymLoc)>,
     name_to_declare_ids: Vec<(String, Vec<(String, u8, u8, String)>)>,
     scope_index: Vec<(String, String)>,
     inst_id_to_span: Vec<(u32, u32, u32)>,
     inst_id_to_declare_inst: Vec<(u32, SymId)>,
-    // ── GlobalSymbolTable     class_id_counter: u32,
+    // ── GlobalSymbolTable
+    class_id_counter: u32,
     declare_class_id_counter: u32,
     class_name_to_id: Vec<(String, String, SymId)>,
     class_id_to_span: Vec<(SymId, String, u32, u32)>,
@@ -172,26 +174,30 @@ struct LspSlot {
     // ── lapper: (start, stop, kind, id) in lapper (sorted) order — replay
     // inserts in the same order, reproducing the internal layout exactly.
     lapper: Vec<(u32, u32, u8, SymId)>,
-    // ── def faces     def_map: Vec<(u8, SymId, SymLoc)>,
+    // ── def faces
+    def_map: Vec<(u8, SymId, SymLoc)>,
     ref_entries: Vec<(u8, SymId, u32, u32)>,
     def_names: Vec<(u8, SymId, String)>,
     container_table: Vec<String>,
     func_table: Vec<String>,
-    // ── RefDefMap     ref_def_map: Option<RefDefSlot>,
-    // ── McCode-level     cross_file_targets: Vec<(SymId, String, u32, u32, u8)>,
+    // ── RefDefMap
+    ref_def_map: Option<RefDefSlot>,
+    // ── McCode-level
+    cross_file_targets: Vec<(SymId, String, u32, u32, u8)>,
     /// `lsp.class_table` rows owned by this file: (uri, ContainerKind,
     /// name, id, span).
     class_table: Vec<(String, u8, String, SymId, u32, u32)>,
 }
 
-/// `RefDefMap` in slot form.
+/// `RefDefMap` in slot form. `def_to_refs` is not stored: replay rebuilds
+/// it through `RefDefMap::insert`, which also re-records the U234 refgraph
+/// edges the who-uses prefilter reads.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 struct RefDefSlot {
     entries: Vec<(u8, SymId, SymLoc, u8, u8, String)>,
     containers: Vec<String>,
     /// (lookup-file uri, name, layer, entry…)
     name_index: Vec<(String, String, u8, u8, SymId, SymLoc, u8, u8, String)>,
-    def_to_refs: Vec<(u8, String, u32, u32, Vec<(u8, SymId)>)>,
     owner_uri: String,
 }
 
@@ -636,7 +642,7 @@ fn capture_lsp(mc: &McCode, canonical_uri: &str) -> Option<LspSlot> {
         })
         .collect();
 
-    Some(LspSlot {
+    let mut slot = LspSlot {
         tokens: tokens
             .tokens
             .iter()
@@ -787,21 +793,6 @@ fn capture_lsp(mc: &McCode, canonical_uri: &str) -> Option<LspSlot> {
                     })
                 })
                 .collect(),
-            def_to_refs: m
-                .def_to_refs
-                .iter()
-                .map(|((k, fid, s, e), refs)| {
-                    (
-                        *k as u8,
-                        uri_of_file_id(*fid).to_string(),
-                        *s,
-                        *e,
-                        refs.iter()
-                            .map(|(rk, rid)| (*rk as u8, symid(*rid)))
-                            .collect(),
-                    )
-                })
-                .collect(),
             owner_uri: m.owner_uri.clone(),
         }),
         cross_file_targets: mc
@@ -818,7 +809,32 @@ fn capture_lsp(mc: &McCode, canonical_uri: &str) -> Option<LspSlot> {
             })
             .collect(),
         class_table,
-    })
+    };
+    // Canonical order for every map-derived vec: capture iterates live
+    // HashMaps whose order is process-nondeterministic, and a slot's bytes
+    // must be a function of the world, not of the iteration (the symbolic
+    // fixed point and the same-key concurrent-write story both rely on it).
+    slot.name_to_declare_id.sort();
+    slot.name_to_declare_ids.sort();
+    slot.scope_index.sort();
+    slot.inst_id_to_span.sort();
+    slot.inst_id_to_declare_inst.sort();
+    slot.class_name_to_id.sort();
+    slot.class_id_to_span.sort();
+    slot.declare_class_id_to_span.sort();
+    slot.span_to_declare_class_id.sort();
+    slot.declare_id_to_class_id.sort();
+    slot.enum_class_name_to_id.sort();
+    slot.enum_class_id_to_span.sort();
+    slot.enum_value_id_to_span.sort();
+    slot.def_map.sort();
+    slot.def_names.sort();
+    if let Some(r) = slot.ref_def_map.as_mut() {
+        r.entries.sort();
+        r.name_index.sort();
+    }
+    slot.class_table.sort();
+    Some(slot)
 }
 
 /// Rebuild the LSP faces of a cache-hit file from the slot. All fallible
@@ -829,7 +845,8 @@ fn replay_lsp(mc: &mut McCode, lsp: &LspSlot) -> Option<()> {
     let rid = |sid: &SymId| -> Option<u32> { replay_id(sid) };
     let span = |s: u32, e: u32| -> std::ops::Range<usize> { s as usize..e as usize };
 
-    // ── decode pass     let mut lt = crate::ast::sem::LocalSymbolTable::new();
+    // ── decode pass ──
+    let mut lt = crate::ast::sem::LocalSymbolTable::new();
     lt.set_inst_id_counter_raw(lsp.inst_id_counter);
     for ((uri, k, scope, name), sid, loc) in &lsp.name_to_declare_id {
         lt.name_to_declare_id.insert(
@@ -938,9 +955,17 @@ fn replay_lsp(mc: &mut McCode, lsp: &LspSlot) -> Option<()> {
             let mut m = RefDefMap::default();
             m.containers = r.containers.clone();
             m.owner_uri = r.owner_uri.clone();
+            // Rebuild through the public mutators, not by direct field fill:
+            // `insert` also maintains `def_to_refs` and records the U234
+            // def-resolution edge into the who-uses refgraph (the edge
+            // endpoints are name+file pairs — portable, no raw ids), and
+            // `add_name_candidate` re-applies the same-def dedup. Skipping
+            // these would silently degrade the who-uses prefilter on a
+            // cache-hit world.
             for (k, sid, loc, dk, ck, name) in &r.entries {
-                m.entries.insert(
-                    (kind(*k)?, rid(sid)?),
+                m.insert(
+                    kind(*k)?,
+                    rid(sid)?,
                     RefDefEntry {
                         ref_kind: kind(*k)?,
                         ref_id: rid(sid)?,
@@ -952,29 +977,18 @@ fn replay_lsp(mc: &mut McCode, lsp: &LspSlot) -> Option<()> {
                 );
             }
             for (file_uri, name, layer, rk, sid, loc, dk, ck, dn) in &r.name_index {
-                m.name_index
-                    .entry((file_uri.clone(), name.clone()))
-                    .or_default()
-                    .push(crate::refdef::NameIndexCandidate {
-                        layer: name_layer_from_u8(*layer)?,
-                        entry: RefDefEntry {
-                            ref_kind: symbol_kind_from_u8(*rk)?,
-                            ref_id: rid(sid)?,
-                            def_loc: replay_loc(loc),
-                            def_kind: symbol_kind_from_u8(*dk)?,
-                            cmie_kind: *ck,
-                            def_name: dn.clone(),
-                        },
-                    });
-            }
-            for (k, fid, s, e, refs) in &r.def_to_refs {
-                let mapped = refs
-                    .iter()
-                    .map(|(rk, rid2)| Some((symbol_kind_from_u8(*rk)?, rid(rid2)?)))
-                    .collect::<Option<Vec<_>>>()?;
-                m.def_to_refs.insert(
-                    (kind(*k)?, uri_intern(fid).0, *s, *e),
-                    mapped,
+                m.add_name_candidate(
+                    &McURI::from(file_uri.clone()),
+                    name,
+                    name_layer_from_u8(*layer)?,
+                    RefDefEntry {
+                        ref_kind: symbol_kind_from_u8(*rk)?,
+                        ref_id: rid(sid)?,
+                        def_loc: replay_loc(loc),
+                        def_kind: symbol_kind_from_u8(*dk)?,
+                        cmie_kind: *ck,
+                        def_name: dn.clone(),
+                    },
                 );
             }
             Some(m)
@@ -995,7 +1009,8 @@ fn replay_lsp(mc: &mut McCode, lsp: &LspSlot) -> Option<()> {
         })
         .collect::<Option<Vec<_>>>()?;
 
-    // ── commit pass     {
+    // ── commit pass ──
+    {
         let mut sem = mc.symbols.lock().ok()?;
         *sem.global_table.lock().ok()? = gt;
         sem.local_table = lt;
@@ -1056,5 +1071,123 @@ mod tests {
         assert_eq!(hex(&[0xde, 0xad]), "dead");
         assert_eq!(sha256(b"").len(), 32);
         assert_ne!(sha256(b"a"), sha256(b"b"));
+    }
+
+    /// Parse + derive one corpus file so every LSP face is populated.
+    fn derive(corpus: &str, label: &str) -> McCode {
+        let path = std::path::PathBuf::from("/tmp").join(format!(
+            "mcc-libparse-c-{}-{label}.mc",
+            std::process::id()
+        ));
+        std::fs::write(&path, corpus).expect("write corpus");
+        let uri = path.to_string_lossy().to_string();
+        let mut code = McCode::new_from_string(&uri, corpus).expect("mc code from string");
+        code.parse_ast();
+        code.parse_pass1_types();
+        let _ = code.parse_pass1_modules();
+        code.create_lapper();
+        code
+    }
+
+    /// Symbolic fixed point (design §5 leg C): the slot form carries no
+    /// interned id, so after wiping the intern ledger and replaying, a fresh
+    /// capture of the restored world must equal the slot byte-for-byte —
+    /// the symbolic form is id-free, hence replay-order- and
+    /// intern-position-independent. The corpus has no enum (the one
+    /// file-scoped counter domain a re-capture could not re-symbolize);
+    /// the raw pass-through law is covered separately below.
+    #[test]
+    fn libparse_cache__lsp_capture_replay_is_a_symbolic_fixed_point() {
+        let _guard = crate::db::infra::init::MCC_TEST_PARSE_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        const CORPUS: &str = r#"
+component RES.SMD0603
+{
+    name = "resistor"
+    pins = [
+        a 1 = PASS
+        b 2 = PASS
+    ]
+}
+
+interface Isolation
+{
+    pins = [
+        1 = IN
+        2 = OUT
+    ]
+}
+"#;
+        let code = derive(CORPUS, "fixed");
+        let uri = code.uri.to_string();
+        let s1 = capture_lsp(&code, &uri).expect("capture");
+        assert!(!s1.lapper.is_empty(), "corpus must populate the lapper");
+        assert!(!s1.name_to_declare_id.is_empty());
+        // The on-disk encoding must survive a bincode round-trip.
+        let bytes = bincode::serialize(&s1).expect("bincode encode");
+        let s1d: LspSlot = bincode::deserialize(&bytes).expect("bincode decode");
+        assert_eq!(s1d, s1, "bincode round-trip drift");
+
+        // Wipe the intern ledger: replay allocates fresh raw ids, but the
+        // symbolic form must not move.
+        crate::ast::sem::reset_declare_id_space();
+        let shell = McCode::new_from_string(&uri, CORPUS).expect("shell mc");
+        let mut shell = shell;
+        replay_lsp(&mut shell, &s1d).expect("replay");
+        let s2 = capture_lsp(&shell, &uri).expect("recapture");
+        assert_eq!(s1d, s2, "symbolic replay drift");
+    }
+
+    /// Raw pass-through law: file-scoped id domains (the enum-class counter
+    /// domain and the class ReferenceId counters) replay verbatim — the
+    /// slot stores their raw values and replay must not re-intern them.
+    #[test]
+    fn libparse_cache__lsp_raw_domains_replay_verbatim() {
+        let _guard = crate::db::infra::init::MCC_TEST_PARSE_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        const CORPUS: &str = r#"
+component RES.SMD0603
+{
+    name = "resistor"
+    pins = [
+        a 1 = PASS
+        b 2 = PASS
+    ]
+}
+
+enum GRADE { IND, AUTO }
+"#;
+        let code = derive(CORPUS, "raw");
+        let uri = code.uri.to_string();
+        let s1 = capture_lsp(&code, &uri).expect("capture");
+        assert!(
+            !s1.enum_class_name_to_id.is_empty(),
+            "corpus must register an enum class"
+        );
+        crate::ast::sem::reset_declare_id_space();
+        let mut shell = McCode::new_from_string(&uri, CORPUS).expect("shell mc");
+        replay_lsp(&mut shell, &s1).expect("replay");
+        {
+            let sem = shell.symbols.lock().unwrap();
+            let gt = sem.global_table.lock().unwrap();
+            assert_eq!(
+                gt.counters_raw(),
+                (s1.class_id_counter, s1.declare_class_id_counter),
+                "counters must restore verbatim"
+            );
+            for (raw, uri_s, start, end) in &s1.enum_class_id_to_span {
+                let got = gt.enum_class_id_to_span.get(&crate::ast::sem::DeclareId::from(*raw));
+                assert!(
+                    got.is_some(),
+                    "enum class id {raw} must survive replay verbatim"
+                );
+                let (gu, gs) = got.unwrap();
+                assert_eq!(gu.as_str(), uri_s.as_str());
+                assert_eq!(gs.start as u32, *start);
+                assert_eq!(gs.end as u32, *end);
+            }
+        }
     }
 }

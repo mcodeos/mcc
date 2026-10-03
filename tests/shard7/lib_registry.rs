@@ -789,6 +789,7 @@ fn http__truncated_artifact_fails_the_checksum_with_no_half_install() {
         "the artifact came over the wire: {:?}",
         srv.log_lines()
     );
+}
 
 // yank: the mark-not-delete withdrawal face (registry-design.md §7④/§5)
 

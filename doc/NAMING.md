@@ -739,6 +739,13 @@ second net differs by direction, so `Pull` split into
 the role, each param names its own net's role (rule 9.1.1 — `net`
 masked the direction at every call site). pca9555 is the proof case:
 its six adoptions split cleanly VDD-half `Pullup`, VSS-half `Pulldown`.
+Ruling (user, same day): the split stands — the deciding factor is the
+ERC road it paves: per-direction checks hook the func name (the E6011
+family — a `Pulldown`'s `ret` must reach the return domain) instead of
+inferring direction from the bound net's value. A single neutral param
+was viable but had no honest word for the second slot: `rail`/`ref`
+reserved, `net` colliding with `node`, `supply` false for pull-down —
+the role vocabulary for that slot is direction-bound by trade usage.
 
 **Unify batch 2026-10-03** (mcode + mclibs, zero-consumer renames under
 rule 9.1.1): `VoltageRegulator`→`Regulate` (DIO.ZEN) ·
@@ -834,3 +841,37 @@ the types, and the units all live elsewhere.
 
 - ~~`cl` — `STM32F205_MINI` module param~~ **fixed 2026-10-03** (renamed
   `cload`; rule 11.1.6, forwards into `XTAL2(freq, cload)`).
+- Fixed in the 2026-10-03 unify batch: `pins`→`pincnt` (SWITCH.DIP,
+  CONN.B2B/MEZZANINE/DIN41612, IDC, AUDIO.XLR/SPEAKON — rule 11.1.2),
+  `a, b`→`src, snk` (`Route`), `input1, input2, vref`→`pos, neg, ref`
+  (`Amplify`), `flow, fhigh`→`flo, fhi` (FILTER.BP/BS/ACTIVE),
+  `v_out`→`vset` (AMS1117 — `vout`/`Vout` taken by member/pin), bare
+  `GND`→`gnd` (`dst310s.Setup`), `vLdo2/vStdby`→`vsel/vstandby`
+  (TLE7368), `LDO1()/LDO2()`→`CapLdo1()/StrapLdo2()` (TLE7368, §9.1),
+  `I2C(address)`→`Address(address)` (US513 — §9.1), `Power`'s
+  value-encoded scalars→domain role words `vio, vcore, vext, gnd,
+  vana1, vana2, vmem` (TC275).
+
+### 11.3 Rulings on record (2026-10-03 unify batch)
+
+- **R1 — two legal pair forms, two levels.** The bracket pair
+  `[hot, ret]::DC(v)` is the func-level form (the func binds local nets,
+  e.g. `Regulate([vin, gnd]::DC(12V), [vout]::DC(vset))`); the head form
+  `psnk pwr{V3V3, GND}::DC(...)` is the module/component-level obligatory
+  form (members project as instance face: `pwr.GND`). Neither replaces
+  the other.
+- **R2 — per-part return suffix, not global.** Where a func's return
+  member would collide with the component's own `GND` pin, the member
+  takes a per-part domain suffix (`GNDD` digital, `GNDA` analog) — this
+  is a local disambiguation, never a library-wide GND renaming.
+- **R3 — hot-rail members carry the datasheet domain rail name.** The
+  SCREAMING member says the datasheet's rail name for that domain
+  (`V3V3`, `VDD`); the `_RAIL` suffix retires. A value-style suffix
+  (`V5V`) is only correct where the domain actually has multiple rails
+  of the same role.
+- **R4 — protocol-native role vocab passes.** `Divider(input, output,
+  gnd)`, `Address(address)` are compliant: the role words are the
+  protocol's own vocabulary (§0.2), not private abbreviations.
+- **R5 — `VtoI` stays.** Value-to-I converter names read as the trade
+  word; the digit is the trade's own spelling, exempt from the
+  no-value-encoding reading.
