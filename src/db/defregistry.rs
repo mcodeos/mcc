@@ -1821,7 +1821,8 @@ impl RegistryState {
             let from_uri = crate::McURI::from(sn.uri_string().as_ref());
             let mut cap_ids: Vec<DefId> = Vec::with_capacity(comp.adopts.len());
             for name in &comp.adopts {
-                if let AdoptTarget::Recipe(id) = resolve_recipe_name(&from_uri, name) {
+                let tgt = resolve_recipe_name(&from_uri, name);
+                if let AdoptTarget::Recipe(id) = tgt {
                     cap_ids.push(id);
                 }
             }
@@ -2342,11 +2343,32 @@ pub(crate) fn has_effective_func(comp: &McComponent) -> bool {
     if comp.adopts.is_empty() {
         return false;
     }
-    let sn = McSpaceName::new(&comp.name, comp.uri.clone());
+    let sn = component_def_sn(comp);
     active()
         .def_id(&sn, DefKind::Component)
         .map(|id| !active().effective_funcs_of(id).is_empty())
         .unwrap_or(false)
+}
+
+/// The registry key of a live component def. `McSpaceName::new(&comp.name, …)`
+/// re-encodes a dotted class name as `[Ida(CAP), DotIda(MLCC)]`, while the
+/// defspace/registry rows are keyed with the name the definition registered
+/// under (`[Ida("CAP.MLCC")]` — one segment carrying the dot). For undotted
+/// names the two encodings coincide, which is why only family subclasses
+/// (`CAP.MLCC`, `RES.SMD`) lost their recipe-adoption ledgers (E3071 at every
+/// adopted-func call site). Resolve through the defspace's own key form when
+/// the direct reconstruction misses — same name, same uri, canonical key.
+pub(crate) fn component_def_sn(comp: &McComponent) -> McSpaceName {
+    let sn = McSpaceName::new(&comp.name, comp.uri.clone());
+    if active().def_id(&sn, DefKind::Component).is_some() {
+        return sn;
+    }
+    for (csn, c) in crate::definition_space().all_components_in_uri(&comp.uri.to_string()) {
+        if c.name.to_string() == comp.name.to_string() {
+            return csn;
+        }
+    }
+    sn
 }
 
 /// §5 effective method resolution on a live component def: the host's own
@@ -2364,7 +2386,7 @@ pub(crate) fn effective_method(
     if comp.adopts.is_empty() {
         return None;
     }
-    let sn = McSpaceName::new(&comp.name, comp.uri.clone());
+    let sn = component_def_sn(comp);
     active().effective_method_of(&sn, DefKind::Component, name)
 }
 
