@@ -135,22 +135,56 @@ impl<'a> DefinitionSpace<'a> {
         &self,
         uri: &McURI,
     ) -> Option<dashmap::mapref::one::Ref<'_, McURI, McCode>> {
-        if let Some(f) = self.source_file(uri) {
-            return Some(f);
+        let key = self.tolerant_key(uri)?;
+        self.source_file(&key)
+    }
+
+    /// The workspace key `source_file_tolerant` would resolve `uri` to, if
+    /// the file is loaded — same three-form probe (exact, scheme-stripped,
+    /// canonicalized), without holding a guard.
+    fn tolerant_key(&self, uri: &McURI) -> Option<McURI> {
+        if self.ws.mcodes.contains_key(uri) {
+            return Some(uri.clone());
         }
         let bare = uri.strip_prefix("file://").unwrap_or(uri);
-        if bare != uri.as_str() {
-            if let Some(f) = self.source_file(&McURI::from(bare)) {
-                return Some(f);
-            }
+        if bare != uri.as_str() && self.ws.mcodes.contains_key(&McURI::from(bare)) {
+            return Some(McURI::from(bare));
         }
         let canon = crate::build::pass1::canonicalize_project_uri(&McURI::from(bare));
-        if canon != *bare {
-            if let Some(f) = self.source_file(&McURI::from(canon)) {
-                return Some(f);
-            }
+        if canon != *bare && self.ws.mcodes.contains_key(&McURI::from(canon.clone())) {
+            return Some(McURI::from(canon));
         }
         None
+    }
+
+    /// The loaded source file with its AST guaranteed: on a library parse
+    /// cache hit the file was replayed without an AST (`ast_deferred`), and
+    /// this fills it in place from the file's own content before returning
+    /// the read guard. Query faces that never touch the AST should stay on
+    /// `source_file_tolerant` — the fill re-parses (~ms) and takes the
+    /// process-wide C-frontend lock.
+    ///
+    /// Locking: the short-lived write guard is safe because RPC handlers are
+    /// serialized process-wide by `RPC_STATE_LOCK` (rpc/protocol.rs) — no
+    /// other handler can observe the half-filled state, and two queries
+    /// cannot race on the fill (the flag is re-checked under the write guard).
+    pub fn source_file_with_ast(
+        &self,
+        uri: &McURI,
+    ) -> Option<dashmap::mapref::one::Ref<'_, McURI, McCode>> {
+        let key = self.tolerant_key(uri)?;
+        let deferred = self
+            .ws
+            .mcodes
+            .get(&key)
+            .map(|f| f.value().ast_deferred)
+            .unwrap_or(false);
+        if deferred {
+            if let Some(mut f) = self.ws.mcodes.get_mut(&key) {
+                f.value_mut().reparse_deferred_ast();
+            }
+        }
+        self.source_file(&key)
     }
 
     /// Every loaded source file's pass1 record, in arbitrary (DashMap) order.

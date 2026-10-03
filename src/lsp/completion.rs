@@ -83,7 +83,12 @@ struct ScopeHit {
 fn scope_hit_at_pos(uri: &str, position: usize) -> Option<ScopeHit> {
     let mc_uri = McURI::from(uri);
     let ds = crate::definition_space();
-    let mcfile = ds.source_file_tolerant(&mc_uri)?;
+    // `source_file_with_ast`, not `source_file_tolerant`: a library parse
+    // cache hit replays the file without an AST (`ast_deferred`) — this is
+    // the one RPC face that needs it, so it is re-derived from content here
+    // (~ms, only on the first completion in a replayed file). Every other
+    // LSP face reads only the restored tables and stays on the tolerant read.
+    let mcfile = ds.source_file_with_ast(&mc_uri)?;
     let ast = mcfile.ast.clone();
 
     // Collect all AST nodes via BFS. The stack pop condition (`node_start >=

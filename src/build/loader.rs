@@ -300,16 +300,19 @@ pub fn mcb_add_recursive(uri: &McURI, loaded: &mut HashSet<String>, is_system_li
         }
     };
 
-    // U392 leg B: library parse cache fast path. A tables-only process (CLI
-    // build / check / export) restores an unchanged library file from its
-    // content-addressed slot instead of parsing it — both the load-time
-    // pass1 and the module pass are skipped, because the restored entry
-    // carries its defs (re-registered with their original DefIds), its full
-    // diagnostic set and modules_parsed already set, so
-    // mcb_parse_all_modules clean-skips it. Any mismatch is a miss that
-    // falls through to the fresh parse below. Symbol-serving processes
-    // (the servers, LSP faces) never take this path: the restored entry has
-    // no AST and no lapper — that restoration is leg C's face.
+    // U392 leg B: library parse cache fast path. A tables-only process (the
+    // CLI build / check / export family and, since the daemon leg, the
+    // servers) restores an unchanged library file from its content-addressed
+    // slot instead of parsing it — both the load-time pass1 and the module
+    // pass are skipped, because the restored entry carries its defs
+    // (re-registered with their original DefIds), its full diagnostic set
+    // and modules_parsed already set, so mcb_parse_all_modules clean-skips
+    // it. Any mismatch is a miss that falls through to the fresh parse
+    // below. The restored entry has no AST (`ast_deferred` set): the LSP
+    // symbol faces read only the restored tables (leg C), and the one
+    // AST-reading RPC face — the completion scope walk — re-derives the AST
+    // on demand (`source_file_with_ast`). Project files never take this
+    // path (is_system_lib gates it).
     if is_system_lib {
         let lib_for_cache = CURRENT_LIB_NAME
             .lock()

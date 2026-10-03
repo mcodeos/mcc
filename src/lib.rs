@@ -331,10 +331,13 @@ pub fn mcc_init_no_lib() {
 }
 
 /// mcc interface mcc_add
-/// Library parse cache gate (U392 leg B): opt a process into the cache fast
-/// path. Only for one-shot tables-only worlds (CLI build / check / export);
-/// a process that will serve LSP must never call this — the restored
-/// entries carry no AST and no lapper.
+/// Library parse cache gate (U392 leg B + daemon leg): opt a process into
+/// the cache fast path. One-shot CLI worlds (build / check / export / ...)
+/// and the servers set this — since the daemon leg, the one AST-reading RPC
+/// face (the completion scope walk) re-derives the AST on demand from the
+/// replayed file's content (`source_file_with_ast`), so no consumer is
+/// left reading the one face a hit does not restore. Only `join`-class
+/// full-AST walkers over the whole workspace stay on the fresh-parse path.
 pub fn set_libparse_cache_tables_only(enabled: bool) {
     db::infra::libparse_cache::set_tables_only_mode(enabled);
 }

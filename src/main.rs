@@ -130,15 +130,20 @@ fn main() -> ExitCode {
         eprintln!("warning: Failed to create data directory: {}", e);
     }
 
-    // 3.6. Library parse cache gate (U392 leg B + leg C): the one-shot CLI
-    // commands may serve cache hits. The leg B set covers the tables-only
-    // world faces (build / check / export / erc / impact / diff); leg C
-    // added the symbol-serving query commands (show / query / def / refs),
-    // whose consumers read exactly the faces a hit restores — symbols,
-    // tokens, cross-file targets, class table (the AST stays un-cached and
-    // these commands never read it). `join` and the server lifecycle keep
-    // the full parse: join reads the AST, and an RPC world must also serve
-    // completion. `MCC_LIBPARSE_CACHE=0` overrides this off for A/B.
+    // 3.6. Library parse cache gate (U392 leg B + leg C + daemon leg): the
+    // one-shot CLI commands may serve cache hits. The leg B set covers the
+    // tables-only world faces (build / check / export / erc / impact /
+    // diff); leg C added the symbol-serving query commands (show / query /
+    // def / refs), whose consumers read exactly the faces a hit restores —
+    // symbols, tokens, cross-file targets, class table. The daemon leg
+    // opened the server lifecycle (`server start` internal entry and the
+    // MCP binary set the same gate): the one RPC face that reads an AST
+    // (the completion scope walk) re-derives it on demand from the
+    // replayed file's content (`source_file_with_ast`), and every other
+    // RPC face reads only the restored tables. `join` keeps the full
+    // parse — `in_scope_clauses` walks every file's AST. (The CLI `join`
+    // command never enters this match arm; the server side is gated in
+    // cmds/server.rs.) `MCC_LIBPARSE_CACHE=0` overrides this off for A/B.
     match &cli.command {
         Some(Command::Build(_))
         | Some(Command::Check(_))

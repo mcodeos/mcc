@@ -68,16 +68,21 @@ use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 /// 2 = leg C added the LSP face ([`LspSlot`]).
 const FORMAT_VERSION: u32 = 2;
 
-/// Gate: whether this process may serve cache hits (and record slots). The
-/// RPC/MCP servers never set it; the CLI's tables-only commands do. The env
-/// override (`MCC_LIBPARSE_CACHE=1` / `=0`) wins over the flag so an A/B run
-/// can flip the path without a rebuild; the third state means "no override".
+/// Gate: whether this process may serve cache hits (and record slots). Set
+/// by the CLI's tables-only commands and — since the daemon leg — by the
+/// RPC/MCP server startups: the one AST-reading RPC face (the completion
+/// scope walk) re-derives the replayed file's AST on demand
+/// (`source_file_with_ast`), so no server consumer is left reading the one
+/// face a hit does not restore. The env override (`MCC_LIBPARSE_CACHE=1` /
+/// `=0`) wins over the flag so an A/B run can flip the path without a
+/// rebuild; the third state means "no override".
 static TABLES_ONLY: AtomicBool = AtomicBool::new(false);
 static ENV_OVERRIDE: AtomicU8 = AtomicU8::new(0); // 0 none, 1 force-on, 2 force-off
 
-/// Opt this process into the cache fast path. Only for callers whose whole
-/// lifetime is one tables-only world build (CLI build / check / export
-/// faces); a process that will serve LSP must never call this.
+/// Opt this process into the cache fast path. For one-shot tables-only
+/// world builds (CLI build / check / export faces) and for the servers —
+/// whose only AST reader fills it on demand. `join`-class full-AST walkers
+/// over the whole workspace must not call this.
 pub fn set_tables_only_mode(enabled: bool) {
     TABLES_ONLY.store(enabled, Ordering::Relaxed);
 }
@@ -279,7 +284,10 @@ fn slot_dir(lib_name: &str, src_hash_hex: &str) -> PathBuf {
 /// (reproducing their `DefId`s — the seq factor guards that), diagnostics
 /// are replayed, and the returned `McCode` is complete for every
 /// tables-only consumer with `modules_parsed` already set so the module
-/// pass clean-skips the file.
+/// pass clean-skips the file. The AST is deliberately absent — the returned
+/// file carries `ast_deferred`, and the one AST-reading query face
+/// (completion's scope walk) re-derives it on demand; `join`-class
+/// full-AST walkers must not run in a gated process.
 pub(crate) fn try_replay(
     canonical_uri: &str,
     content: &str,
@@ -357,6 +365,11 @@ pub(crate) fn try_replay(
     mc.pass1_complete = true;
     mc.modules_parsed = true;
     mc.use_table_dirty = false;
+    // Daemon leg (U392): the AST is deliberately not in the slot. The file
+    // starts AST-less; the completion scope walk re-derives it on demand via
+    // `McCode::reparse_deferred_ast` (all other RPC faces read only the
+    // tables restored above).
+    mc.ast_deferred = true;
 
     // LSP face first (leg C): it can still reject the slot (a corrupted
     // conversion), and it must fail before any world mutation so the caller's
@@ -1189,5 +1202,92 @@ enum GRADE { IND, AUTO }
                 assert_eq!(gs.end as u32, *end);
             }
         }
+    }
+
+    /// Daemon leg (U392): a replayed file carries `ast_deferred` and no
+    /// AST; the one AST-reading query face fills it on demand through
+    /// `source_file_with_ast`, and the fill must not disturb the restored
+    /// LSP faces (the re-captured slot stays byte-equal) while the
+    /// completion scope walk resolves container and function from the
+    /// re-derived AST.
+    #[test]
+    fn libparse_cache__replayed_file_fills_deferred_ast_without_face_drift() {
+        let _guard = crate::db::infra::init::MCC_TEST_PARSE_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        const CORPUS: &str = r#"
+component RES.SMD0603
+{
+    name = "resistor"
+
+    func Power(v)
+    {
+        return v
+    }
+
+    pins = [
+        a 1 = PASS
+        b 2 = PASS
+    ]
+}
+"#;
+        let code = derive(CORPUS, "deferred");
+        let uri = code.uri.to_string();
+        let s1 = capture_lsp(&code, &uri).expect("capture");
+        let bytes = bincode::serialize(&s1).expect("bincode encode");
+        let s1d: LspSlot = bincode::deserialize(&bytes).expect("bincode decode");
+
+        // Replay into a shell exactly the way try_replay leaves it: tables
+        // restored, AST absent, deferred flag set.
+        crate::ast::sem::reset_declare_id_space();
+        let mut shell = McCode::new_from_string(&McURI::from(uri.as_str()), CORPUS)
+            .expect("shell mc");
+        replay_lsp(&mut shell, &s1d).expect("replay");
+        assert!(shell.ast.is_null(), "the slot must not carry an AST");
+        shell.ast_deferred = true;
+        crate::db::cmie::tables::WORKSPACE
+            .mcodes
+            .insert(McURI::from(uri.as_str()), shell);
+
+        // First AST-reading query: the fill happens behind the read.
+        let ds = crate::definition_space();
+        let filled = ds
+            .source_file_with_ast(&McURI::from(uri.as_str()))
+            .expect("file with ast");
+        assert!(
+            !filled.value().ast.is_null(),
+            "the deferred AST must be filled on demand"
+        );
+        assert!(
+            !filled.value().ast_deferred,
+            "the deferred flag must clear after the fill"
+        );
+        let s2 = capture_lsp(filled.value(), &uri).expect("recapture after fill");
+        drop(filled);
+        assert_eq!(
+            s1d, s2,
+            "the AST fill must not disturb the restored LSP faces"
+        );
+
+        // The scope walk now resolves through the re-derived AST: inside the
+        // function body -> "RES.SMD0603.Power"; inside the component body
+        // but outside the func -> "RES.SMD0603".
+        let func_pos = CORPUS.find("return v").expect("marker") + 2;
+        assert_eq!(
+            crate::lsp::completion::scope_at_pos(&uri, func_pos),
+            "RES.SMD0603.Power",
+            "the filled AST must resolve the enclosing function"
+        );
+        let body_pos = CORPUS.find("name =").expect("marker") + 2;
+        assert_eq!(
+            crate::lsp::completion::scope_at_pos(&uri, body_pos),
+            "RES.SMD0603",
+            "the filled AST must resolve the enclosing container"
+        );
+
+        // Leave no trace in the shared workspace.
+        crate::db::cmie::tables::WORKSPACE
+            .mcodes
+            .remove(&McURI::from(uri.as_str()));
     }
 }

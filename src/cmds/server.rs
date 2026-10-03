@@ -219,6 +219,15 @@ pub fn run_restart(args: &RestartArgs) -> Result<()> {
 
 // Internal startup function (invoked by child process)
 pub fn run_server_internal(host: &str, port: u16, libs: &[String]) -> Result<()> {
+    // Library parse cache gate (U392 daemon leg): server cold starts serve
+    // tables-only cache hits for library files, same as the one-shot CLI
+    // commands. Safe since the leg's deferred-AST change: the one RPC face
+    // that reads an AST (the completion scope walk) now re-derives it on
+    // demand (`source_file_with_ast` -> `McCode::reparse_deferred_ast`),
+    // and every other RPC face reads only the tables a hit restores.
+    // `restart` re-execs this function in a child process, so it inherits
+    // the gate. `MCC_LIBPARSE_CACHE=0` overrides this off for A/B.
+    mcc::set_libparse_cache_tables_only(true);
     // Skip is_server_running check (since this is internal startup)
     mcc::mcc_set_system_root(datadir::data_root().as_path());
     // Ensure canonical dirs exist + run one-shot migration. Idempotent.

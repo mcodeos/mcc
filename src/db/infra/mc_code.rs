@@ -150,6 +150,15 @@ pub struct McCode {
     pub(crate) disk_mtime: Option<std::time::SystemTime>,
     /// ★ §7.6: Use table needs refresh because a `use`d file changed.
     pub(crate) use_table_dirty: bool,
+    /// U392 daemon leg: the file was replayed from the library parse cache
+    /// (`try_replay`), which restores the tables-only faces but never the
+    /// AST — the slot does not store it. The flag says the AST can be
+    /// re-derived on demand from `content` via `reparse_deferred_ast`; it is
+    /// cleared once the AST is filled (or the reparse failed — a broken
+    /// parse stays broken until the slot misses and the file re-derives in
+    /// full). Only the completion scope walk (`lsp/completion.rs`) needs the
+    /// AST at query time; set exclusively by `try_replay`.
+    pub(crate) ast_deferred: bool,
     /// ★ Cross-file class ref targets cached from create_lapper() for consolidate_ref_def_map().
     /// Replaces GlobalSymbolTable.declare_id_to_target_span (§8.2 removal).
     /// The trailing u8 is the class's CMIE kind (Component/Module/Interface/Enum
@@ -404,6 +413,7 @@ impl McCode {
             modules_parsed: false,
             disk_mtime,
             use_table_dirty: false,
+            ast_deferred: false,
             cross_file_targets: Vec::new(),
             embedded_bom: Vec::new(),
         })
@@ -426,6 +436,7 @@ impl McCode {
             modules_parsed: false,
             disk_mtime: None,
             use_table_dirty: false,
+            ast_deferred: false,
             cross_file_targets: Vec::new(),
             embedded_bom: Vec::new(),
         }
@@ -450,6 +461,7 @@ impl McCode {
             modules_parsed: false,
             disk_mtime: None,
             use_table_dirty: false,
+            ast_deferred: false,
             cross_file_targets: Vec::new(),
             embedded_bom: Vec::new(),
         })
@@ -1028,6 +1040,81 @@ impl McCode {
                 }
             }
         }
+    }
+
+    /// U392 daemon leg: fill a cache-replayed file's deferred AST in place.
+    ///
+    /// A library parse cache hit (`try_replay`) restores the tables-only
+    /// faces — symbols, tokens, ref-def map, diagnostics — but not the AST:
+    /// the slot never stores it. When a query face needs the AST (the
+    /// completion scope walk is the only consumer), this re-derives it from
+    /// `self.content` non-destructively. Unlike `parse_ast` /
+    /// `parse_ast_from_string` it does NOT reset tokens/symbols (the
+    /// restored faces must survive), does NOT `dlog_clear_file` (that would
+    /// wipe the replayed diagnostics), and does NOT re-emit parse
+    /// diagnostics (the slot already carries them verbatim — re-emitting
+    /// would double them). Parse-time dlogs and error tokens are simply
+    /// discarded; the AST is the only output.
+    ///
+    /// Locking: the caller holds the DashMap shard write guard for this file,
+    /// and RPC handlers are serialized process-wide by `RPC_STATE_LOCK`
+    /// (rpc/protocol.rs) — so acquiring the process-wide C-frontend lock here
+    /// cannot deadlock. `self.content` is the slot-verified text (the replay
+    /// checked `src_hash`) and `line_index` was already rebuilt from it, so
+    /// neither is touched here.
+    pub fn reparse_deferred_ast(&mut self) {
+        if !self.ast_deferred {
+            return;
+        }
+        current_uri::set(&self.uri);
+
+        // ★ The same before/after `Frontend` resets as parse_ast_from_string:
+        //   the C parser keeps process-wide working state, so one session runs
+        //   under one lock, from the first reset to the last token read.
+        let fe = crate::ast::bindings::Frontend::acquire();
+        fe.reset(0);
+
+        let c_content =
+            std::ffi::CString::new(self.content.as_str()).expect("Failed to create CString");
+        let fcontent_ptr = unsafe {
+            crate::ast::bindings::mcc_load_from_string(
+                c_content.as_ptr() as *const i8,
+                self.content.len(),
+            )
+        };
+        if fcontent_ptr.is_null() {
+            tracing::warn!(target: "mcc::code", uri = %self.uri, "deferred AST load failed");
+            fe.reset(0);
+            self.ast_deferred = false;
+            return;
+        }
+
+        self.free();
+
+        unsafe {
+            // ★ mcc_reset AFTER loading — mirrors parse_ast()'s second reset
+            fe.reset(0);
+
+            let uri_cstr = std::ffi::CString::new(self.uri.as_bytes()).unwrap_or_default();
+            fe.set_lex_file(uri_cstr.as_ptr());
+            fe.lex(fcontent_ptr);
+
+            let ast = AstNode::new(fe.parse());
+            if ast.is_null() {
+                tracing::warn!(target: "mcc::code", uri = %self.uri, "deferred AST parse returned null");
+            } else {
+                self.ast = ast;
+            }
+        }
+
+        unsafe {
+            libc::free(fcontent_ptr as *mut libc::c_void);
+        }
+
+        // Cleared on both paths: a failed parse stays broken until the slot
+        // misses and the file re-derives in full; retrying on every query
+        // would only re-pay the parse for the same null result.
+        self.ast_deferred = false;
     }
 
     pub fn parse_nsp(&mut self) {

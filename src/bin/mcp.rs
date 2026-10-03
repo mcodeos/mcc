@@ -766,6 +766,11 @@ async fn main() -> anyhow::Result<()> {
     // 2. Init builder + load the mcode system library. mcc_init() calls
     //    mcb_init_system_lib(), which loads mcode by default unless
     //    libs.disable_mcode is set (see LibsConfig::should_load_mcode).
+    // Library parse cache gate (U392 daemon leg): no MCP tool reads a
+    // library file's AST (the only AST reader, the completion scope walk,
+    // is an RPC-server face), so server-style tables-only hits are safe
+    // here too. `MCC_LIBPARSE_CACHE=0` overrides this off for A/B.
+    mcc::set_libparse_cache_tables_only(true);
     mcc::mcc_init();
     // 3. Optional project binding (state model A: one process per project).
     if let Ok(project_root) = std::env::var("MCC_PROJECT_ROOT") {
