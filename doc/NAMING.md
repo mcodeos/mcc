@@ -9,6 +9,43 @@
 
 ---
 
+## 0. What a Name Says (the common law)
+
+Every rule in this document implements one idea: **a name carries exactly
+what its call-site context cannot already see — and nothing else.** Three
+laws follow; the per-namespace sections (§2–§10) are these laws applied,
+and the case table (§1.8) is only the visual discriminator, not the
+philosophy.
+
+1. **The namespace duty law.** Each namespace is answerable for one kind
+   of information; the name says that and stays silent about the rest —
+   the rest is already visible where the name is used:
+
+   | Namespace | The name says | The name never says |
+   |---|---|---|
+   | component (§2) | the industry's word for the thing | the maker, the wiring, the instance |
+   | interface (§3) | the pairing standard's proper name | the wires, the chip that hosts it |
+   | enum value (§4) | the standard code / designator | an invented word |
+   | pin (§6) | the datasheet's own name | this board's use of the pin |
+   | module (§10) | the application form it delivers | its internal wiring |
+   | func (§9) | the behavior | the topology |
+   | recipe (§9) | the capability | the mechanism |
+   | instance (§7) | which one | what it is |
+
+2. **The vocabulary law.** Names come from the trade's own vocabulary —
+   standards, datasheets, standing industry abbreviations (§1.4, §1.5).
+   Private abbreviations are banned (`PwrIso` wrong, `PowerIso` right,
+   §9.1.7); a name the industry does not already say is a name that fails
+   lookup.
+3. **The qualifier law.** Variants refine along the axis the head name
+   declares, as suffixes, one axis per position — subtypes by
+   technology / package / function (§2.2), methods by
+   `[behavior][domain][net]` (§9.1.3). A qualifier never mutates the head
+   into a construction report (`ResAndCap` names topology, not identity —
+   banned on the method side, same ban on the identity side).
+
+---
+
 ## 1. General Rules
 
 1. **All class names SHALL be `UPPER_CASE`** — letters A–Z, digits 0–9, and the allowed separators below.
@@ -690,9 +727,54 @@ supply binding are one conflation fossil) — `SN74LVC1G175(pwr)`→`Power`
 convention of its sibling `LDO2` is the correct face). Same-day follow-up:
 recipe `PullTie`→`PULL` (res; the old name mushed the behavior with the
 mechanism — the capability name is the inner func's own word, call sites
-read `RES.Pull(...)` unchanged).
+read `RES.Pull(...)` unchanged; its `supply` parameter renamed to `net`
+the same day — `supply` is only true for the pull-up direction (a
+pull-down ties to the return), and the neutral candidates `rail`/`ref`
+are both grammar-reserved (§10.10, rules §2286), so `net` takes it,
+after `Cap([net1, net2])`).
 
-**Unify batch 2026-10-03** (mcode + mclibs, zero-consumer renames under
+---
+
+## 11. Parameter Naming
+
+Parameters are neither identity nor behavior — they are **slots the caller
+fills**. The name says the role of the handover; the caller's net names,
+the types, and the units all live elsewhere.
+
+### 11.1 Convention
+
+1. **Parameters are lowercase role words** (case table §1.8: not classes,
+   not methods, not instances — `lowercase` is the parameter form).
+   `rs`, `freq`, `gnd`; `Rs`, `FreqHz` are banned.
+2. **Constructor params feed the spec: the name is its spec key in merged
+   short form, no underscore** — `resistance`→`rs`, `voltage`→`volt`,
+   `power_rated`→`prated`, `tolerance`→`tol`, `channel_count`→`chcount`.
+   The spec key stays spelled (§8 body rows are read by humans); the
+   parameter is the short form read at the call site.
+3. **func net params name the net's role in the behavior — never the
+   board's net.** The caller owns the net name; the parameter owns the
+   role it plays in this block: `Pull([node, rail])` (what is pulled /
+   pulled to what), `Divider(input, output, gnd)`, `Reset(gnd)`. Role
+   words come from the trade vocabulary (law §0.2).
+4. **psnk/pair params: lowercase head, braced members in pin case (§6).**
+   The head is the rail's role (`pwr`); the members project as visible
+   net identity at the call site (`pwr.GND`), so they take the identity
+   form: `pwr{V3V3, GND}`. Bare SCREAMING scalar params are banned —
+   that form is the members', not the head's.
+5. **The type carries the dimension — the name never does** (duty law
+   §0.1: `::UV.*` sits next to the name, so the name stays silent about
+   the unit): `freq::UV.HZ`, not `freqHz`; `vin::UV.VOLT`, not
+   `voltage_in`.
+6. **A pass-through parameter keeps the forwarded slot's name** — when a
+   module forwards its parameter into a wrapped call, the two are one
+   slot: `XTAL2(freq, cload)` behind `freq::UV.HZ, cload::UV.CAP`, not a
+   re-abbreviation of the same thing.
+
+### 11.2 Violations on record (fix on touch)
+
+- ~~`cl` — `STM32F205_MINI` module param~~ **fixed 2026-10-03** (renamed
+  `cload`; rule 11.1.6, forwards into `XTAL2(freq, cload)`).
+
 rule 9.1.1): `VoltageRegulator`→`Regulate` (DIO.ZEN) ·
 `VoltageDivider`→`Divider` (RES.POT) · `FastRectifier`→`Rectify`
 (DIO.SCH) · `VoltageComparator`→`Compare` (AMP.COMPARATOR) ·
