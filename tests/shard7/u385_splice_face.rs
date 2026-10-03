@@ -7,15 +7,17 @@
 //!
 //! * The marked form parses where the unmarked grammar had no derivation
 //!   (E2082 before the leg); `[*a, b]` pairs exactly like the written-out
-//!   `[a, b]` — the star is transparent on the connect face, whose list
-//!   elements already contribute their expanded members.
+//!   `[a, b]` — the splice-flat ruling (b4510, superseding this leg's
+//!   original transparent connect-face read) has the starred item's member
+//!   sequence materialize for real, and for scalar items that reads the same
+//!   as the written-out list.
 //! * The subscript wildcards stay shut without a dedicated arm: `name[*]`
 //!   and `S[[*]]` still parse-reject (canon §15.1 covers every spelling).
 //!
 //! The grammar arm lives in mcast (`mc_list_item: MCOP_MULTI mc_list_item`,
 //! node `MCAST_OPD_SPLICE`); the value/Set face dissolves the splice at
-//! assembly (`McParamValue::set_from_list`), the connect face unwraps it in
-//! `McPhrase::new`'s square-vector arm.
+//! assembly (`McParamValue::set_from_list`), the connect face expands it
+//! through `flatten_splice_opds` / `expand_splice_items` (b4510).
 
 // Family naming `{family}__{essence}` deliberately doubles the underscore to
 // keep the grep-able family token separate (matrix §1 taxonomy).
