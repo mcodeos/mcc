@@ -68,14 +68,14 @@ range (threshold 40KB).
 | `db/` | 29 | 1107 KB |
 | `export/` | 7 | 185 KB |
 | `import_skeleton/` | 5 | 43 KB |
-| `instant/` | 41 | 1790 KB |
+| `instant/` | 41 | 1799 KB |
 | `lsp/` | 8 | 118 KB |
 | `meta/` | 3 | 79 KB |
 | `output/` | 7 | 107 KB |
 | `query/` | 9 | 171 KB |
 | `refdef/` | 7 | 134 KB |
 | `rpc/` | 16 | 322 KB |
-| `semantic/` | 100 | 3025 KB |
+| `semantic/` | 100 | 3029 KB |
 | `stages/` | 19 | 408 KB |
 | `vector/` | 26 | 494 KB |
 | `viz/` | 97 | 2483 KB |
@@ -3809,41 +3809,51 @@ instant/mc_mod/vexpr/eval.rs#L68  impl InstantiationBuilder
 instant/mc_mod/vexpr/eval.rs#L74  fn vexpr_fold_member
 instant/mc_mod/vexpr/eval.rs#L108  fn vexpr_fold_reversed
 instant/mc_mod/vexpr/eval.rs#L129  fn vexpr_fold_transposed
-instant/mc_mod/vexpr/eval.rs#L169  fn vexpr_fold_lead
-instant/mc_mod/vexpr/eval.rs#L177  fn vexpr_expand_elems
-instant/mc_mod/vexpr/eval.rs#L195  fn vexpr_step
-instant/mc_mod/vexpr/eval.rs#L237  fn vexpr_fold_parallel
-instant/mc_mod/vexpr/eval.rs#L256  fn vexpr_body_face
-instant/mc_mod/vexpr/eval.rs#L288  fn vexpr_fold_parallel_face
-instant/mc_mod/vexpr/eval.rs#L332  fn vexpr_fold_named_form
-instant/mc_mod/vexpr/eval.rs#L372  fn vexpr_fold_parallel_operand
-instant/mc_mod/vexpr/eval.rs#L406  fn vexpr_fold_parallel_form
-instant/mc_mod/vexpr/eval.rs#L437  fn vexpr_wire_parallel
-instant/mc_mod/vexpr/eval.rs#L487  fn points_of
-instant/mc_mod/vexpr/eval.rs#L493  fn concrete_has_empty_path
-instant/mc_mod/vexpr/eval.rs#L501  mod tests
-instant/mc_mod/vexpr/eval.rs#L509  fn builder
-instant/mc_mod/vexpr/eval.rs#L516  fn label
-instant/mc_mod/vexpr/eval.rs#L523  fn bus
-instant/mc_mod/vexpr/eval.rs#L529  fn paths
-instant/mc_mod/vexpr/eval.rs#L533  fn point_paths
-instant/mc_mod/vexpr/eval.rs#L539  fn wired
-instant/mc_mod/vexpr/eval.rs#L546  fn adjacent__two_labels_series_wires_one_connection
-instant/mc_mod/vexpr/eval.rs#L555  fn adjacent__three_labels_series_wires_each_written_leg
-instant/mc_mod/vexpr/eval.rs#L564  fn parallel__wires_its_internal_net_via_the_member_pre_pass
-instant/mc_mod/vexpr/eval.rs#L577  fn group__is_a_statement_list_expanded_before_the_fold
-instant/mc_mod/vexpr/eval.rs#L595  fn fold__lead_is_a_width_slot_carrying_the_lead_body
-instant/mc_mod/vexpr/eval.rs#L623  fn fold__transposed_degenerate_operand_is_an_identity
-instant/mc_mod/vexpr/eval.rs#L640  fn fold__reversed_order_less_operand_is_an_identity
-instant/mc_mod/vexpr/eval.rs#L653  fn lane__chain_tags_every_connection_with_its_lane
-instant/mc_mod/vexpr/eval.rs#L692  fn c1__mixed_direction_chain_keeps_written_order_and_each_edge_direction
-instant/mc_mod/vexpr/eval.rs#L717  fn series__mismatched_rows_emit_the_shape_error_and_no_connection
+instant/mc_mod/vexpr/eval.rs#L173  fn vexpr_fold_lead
+instant/mc_mod/vexpr/eval.rs#L181  fn vexpr_expand_elems
+instant/mc_mod/vexpr/eval.rs#L199  fn vexpr_step
+instant/mc_mod/vexpr/eval.rs#L266  fn vexpr_fold_parallel
+instant/mc_mod/vexpr/eval.rs#L285  fn vexpr_body_face
+instant/mc_mod/vexpr/eval.rs#L317  fn vexpr_fold_parallel_face
+instant/mc_mod/vexpr/eval.rs#L361  fn vexpr_fold_named_form
+instant/mc_mod/vexpr/eval.rs#L401  fn vexpr_fold_parallel_operand
+instant/mc_mod/vexpr/eval.rs#L435  fn vexpr_fold_parallel_form
+instant/mc_mod/vexpr/eval.rs#L466  fn vexpr_wire_parallel
+instant/mc_mod/vexpr/eval.rs#L517  fn points_of
+instant/mc_mod/vexpr/eval.rs#L531  fn pair_group_slices
+instant/mc_mod/vexpr/eval.rs#L560  fn concrete_has_empty_path
+instant/mc_mod/vexpr/eval.rs#L568  mod tests
+instant/mc_mod/vexpr/eval.rs#L576  fn builder
+instant/mc_mod/vexpr/eval.rs#L583  fn label
+instant/mc_mod/vexpr/eval.rs#L590  fn bus
+instant/mc_mod/vexpr/eval.rs#L596  fn paths
+instant/mc_mod/vexpr/eval.rs#L600  fn point_paths
+instant/mc_mod/vexpr/eval.rs#L606  fn wired
+instant/mc_mod/vexpr/eval.rs#L613  fn adjacent__two_labels_series_wires_one_connection
+instant/mc_mod/vexpr/eval.rs#L622  fn adjacent__three_labels_series_wires_each_written_leg
+instant/mc_mod/vexpr/eval.rs#L631  fn parallel__wires_its_internal_net_via_the_member_pre_pass
+instant/mc_mod/vexpr/eval.rs#L644  fn group__is_a_statement_list_expanded_before_the_fold
+instant/mc_mod/vexpr/eval.rs#L662  fn fold__lead_is_a_width_slot_carrying_the_lead_body
+instant/mc_mod/vexpr/eval.rs#L690  fn fold__transposed_degenerate_operand_is_an_identity
+instant/mc_mod/vexpr/eval.rs#L707  fn fold__reversed_order_less_operand_is_an_identity
+instant/mc_mod/vexpr/eval.rs#L720  fn lane__chain_tags_every_connection_with_its_lane
+instant/mc_mod/vexpr/eval.rs#L759  fn c1__mixed_direction_chain_keeps_written_order_and_each_edge_direction
+instant/mc_mod/vexpr/eval.rs#L784  fn series__mismatched_rows_emit_the_shape_error_and_no_connection
+instant/mc_mod/vexpr/eval.rs#L806  mod group_slices_tests
+instant/mc_mod/vexpr/eval.rs#L809  fn eps
+instant/mc_mod/vexpr/eval.rs#L817  fn slices__both_grouped_pair_group_to_group
+instant/mc_mod/vexpr/eval.rs#L839  fn slices__one_sided_group_takes_one_element_per_group
+instant/mc_mod/vexpr/eval.rs#L847  fn slices__mark_that_does_not_project_falls_back_to_flat
 instant/mc_mod/vexpr/fold.rs#L20  struct SeriesStep
 instant/mc_mod/vexpr/fold.rs#L36  fn fold_series
-instant/mc_mod/vexpr/fold.rs#L77  fn fold_parallel
-instant/mc_mod/vexpr/fold.rs#L103  struct ParallelWiring
-instant/mc_mod/vexpr/fold.rs#L144  fn fold_parallel_chain
-instant/mc_mod/vexpr/fold.rs#L277  fn lane_slice
+instant/mc_mod/vexpr/fold.rs#L89  fn fold_parallel
+instant/mc_mod/vexpr/fold.rs#L118  struct ParallelWiring
+instant/mc_mod/vexpr/fold.rs#L159  fn fold_parallel_chain
+instant/mc_mod/vexpr/fold.rs#L292  fn lane_slice
+instant/mc_mod/vexpr/fold.rs#L300  mod group_rows_tests
+instant/mc_mod/vexpr/fold.rs#L305  fn opd
+instant/mc_mod/vexpr/fold.rs#L318  fn series__grouped_rows_count_groups_not_members
+instant/mc_mod/vexpr/fold.rs#L336  fn series__ungrouped_count_mismatch_stays_illegal
 instant/mc_mod/vexpr/identity.rs#L48  fn id_key
 instant/mc_mod/vexpr/identity.rs#L57  fn id_counts
 instant/mc_mod/vexpr/identity.rs#L67  fn pins_on
@@ -3872,7 +3882,7 @@ instant/mc_mod/vexpr/identity.rs#L424  fn i3__detects_a_body_that_is_counted
 instant/mc_mod/vexpr/identity.rs#L442  fn i4__every_step_of_a_series_chain_passes
 instant/mc_mod/vexpr/identity.rs#L475  fn i4__mixed_pin_and_label_faces_are_not_the_all_pin_case
 instant/mc_mod/vexpr/identity.rs#L497  fn i4__detects_a_result_that_lost_i1
-instant/mc_mod/vexpr/identity.rs#L512  fn i4__detects_an_unconserved_step
+instant/mc_mod/vexpr/identity.rs#L513  fn i4__detects_an_unconserved_step
 instant/mc_mod/vexpr/lane.rs#L50  impl InstantiationBuilder
 instant/mc_mod/vexpr/lane.rs#L57  fn vexpr_lane_chain
 instant/mc_mod/vexpr/lane.rs#L127  fn vexpr_one_lane
@@ -3882,41 +3892,42 @@ instant/mc_mod/vexpr/mod.rs#L44  mod eval
 instant/mc_mod/vexpr/mod.rs#L45  mod fold
 instant/mc_mod/vexpr/mod.rs#L46  mod identity
 instant/mc_mod/vexpr/mod.rs#L47  mod lane
-instant/mc_mod/vexpr/mod.rs#L61  enum EpKind
-instant/mc_mod/vexpr/mod.rs#L72  struct Ep
-instant/mc_mod/vexpr/mod.rs#L82  enum BodyConn
-instant/mc_mod/vexpr/mod.rs#L95  struct ConcreteOpd
-instant/mc_mod/vexpr/mod.rs#L103  impl Ep
-instant/mc_mod/vexpr/mod.rs#L109  fn classify
-instant/mc_mod/vexpr/mod.rs#L133  impl ConcreteOpd
-instant/mc_mod/vexpr/mod.rs#L135  fn from_sides
-instant/mc_mod/vexpr/mod.rs#L149  fn check_i1
-instant/mc_mod/vexpr/mod.rs#L170  fn buses_of
-instant/mc_mod/vexpr/mod.rs#L179  fn reversed
-instant/mc_mod/vexpr/mod.rs#L190  fn shape_from_faces
-instant/mc_mod/vexpr/mod.rs#L199  impl InstantiationBuilder
-instant/mc_mod/vexpr/mod.rs#L203  fn vexpr_reduce
-instant/mc_mod/vexpr/mod.rs#L214  fn member_of
-instant/mc_mod/vexpr/mod.rs#L221  fn bus_of
-instant/mc_mod/vexpr/mod.rs#L230  fn buses
-instant/mc_mod/vexpr/mod.rs#L237  mod tests
-instant/mc_mod/vexpr/mod.rs#L241  fn label
-instant/mc_mod/vexpr/mod.rs#L245  fn pin
-instant/mc_mod/vexpr/mod.rs#L249  fn opd
-instant/mc_mod/vexpr/mod.rs#L253  fn paths
-instant/mc_mod/vexpr/mod.rs#L258  fn classify__label_pin_and_port_are_distinct_kinds
-instant/mc_mod/vexpr/mod.rs#L278  fn classify__member_falls_back_to_the_path_tail
-instant/mc_mod/vexpr/mod.rs#L291  fn from_sides__shapes_are_derived_from_the_two_faces
-instant/mc_mod/vexpr/mod.rs#L313  fn i1__holds_for_every_basic_shape
-instant/mc_mod/vexpr/mod.rs#L331  fn parallel__degenerate_left_takes_the_free_face_from_the_right
-instant/mc_mod/vexpr/mod.rs#L352  fn parallel__degenerate_right_attaches_to_the_left_operands_right_face
-instant/mc_mod/vexpr/mod.rs#L371  fn parallel__both_degenerate_keeps_the_first_operands_faces
-instant/mc_mod/vexpr/mod.rs#L392  fn parallel__one_lane_anchor_cannot_absorb_a_multi_lane_degenerate_operand
-instant/mc_mod/vexpr/mod.rs#L425  fn reversed__swaps_the_two_faces_and_reverses_the_shape
-instant/mc_mod/vexpr/mod.rs#L439  fn reversed__is_an_identity_for_degenerate_operands
-instant/mc_mod/vexpr/mod.rs#L453  fn series__equal_rows_are_legal_and_anchor_right
-instant/mc_mod/vexpr/mod.rs#L466  fn series__mismatched_rows_are_illegal
-instant/mc_mod/vexpr/mod.rs#L477  fn series__an_empty_face_is_not_connectable
+instant/mc_mod/vexpr/mod.rs#L63  enum EpKind
+instant/mc_mod/vexpr/mod.rs#L74  struct Ep
+instant/mc_mod/vexpr/mod.rs#L84  enum BodyConn
+instant/mc_mod/vexpr/mod.rs#L97  struct ConcreteOpd
+instant/mc_mod/vexpr/mod.rs#L112  impl Ep
+instant/mc_mod/vexpr/mod.rs#L118  fn classify
+instant/mc_mod/vexpr/mod.rs#L142  impl ConcreteOpd
+instant/mc_mod/vexpr/mod.rs#L144  fn from_sides
+instant/mc_mod/vexpr/mod.rs#L159  fn check_i1
+instant/mc_mod/vexpr/mod.rs#L180  fn buses_of
+instant/mc_mod/vexpr/mod.rs#L189  fn reversed
+instant/mc_mod/vexpr/mod.rs#L201  fn shape_from_faces
+instant/mc_mod/vexpr/mod.rs#L210  impl InstantiationBuilder
+instant/mc_mod/vexpr/mod.rs#L214  fn vexpr_reduce
+instant/mc_mod/vexpr/mod.rs#L234  fn phrase_marked_group
+instant/mc_mod/vexpr/mod.rs#L249  fn member_of
+instant/mc_mod/vexpr/mod.rs#L256  fn bus_of
+instant/mc_mod/vexpr/mod.rs#L265  fn buses
+instant/mc_mod/vexpr/mod.rs#L272  mod tests
+instant/mc_mod/vexpr/mod.rs#L276  fn label
+instant/mc_mod/vexpr/mod.rs#L280  fn pin
+instant/mc_mod/vexpr/mod.rs#L284  fn opd
+instant/mc_mod/vexpr/mod.rs#L288  fn paths
+instant/mc_mod/vexpr/mod.rs#L293  fn classify__label_pin_and_port_are_distinct_kinds
+instant/mc_mod/vexpr/mod.rs#L313  fn classify__member_falls_back_to_the_path_tail
+instant/mc_mod/vexpr/mod.rs#L326  fn from_sides__shapes_are_derived_from_the_two_faces
+instant/mc_mod/vexpr/mod.rs#L348  fn i1__holds_for_every_basic_shape
+instant/mc_mod/vexpr/mod.rs#L366  fn parallel__degenerate_left_takes_the_free_face_from_the_right
+instant/mc_mod/vexpr/mod.rs#L387  fn parallel__degenerate_right_attaches_to_the_left_operands_right_face
+instant/mc_mod/vexpr/mod.rs#L406  fn parallel__both_degenerate_keeps_the_first_operands_faces
+instant/mc_mod/vexpr/mod.rs#L427  fn parallel__one_lane_anchor_cannot_absorb_a_multi_lane_degenerate_operand
+instant/mc_mod/vexpr/mod.rs#L460  fn reversed__swaps_the_two_faces_and_reverses_the_shape
+instant/mc_mod/vexpr/mod.rs#L474  fn reversed__is_an_identity_for_degenerate_operands
+instant/mc_mod/vexpr/mod.rs#L488  fn series__equal_rows_are_legal_and_anchor_right
+instant/mc_mod/vexpr/mod.rs#L501  fn series__mismatched_rows_are_illegal
+instant/mc_mod/vexpr/mod.rs#L512  fn series__an_empty_face_is_not_connectable
 instant/mc_net.rs#L24  static LITERAL_POINT_DETAILS
 instant/mc_net.rs#L41  fn quarantine_literal
 instant/mc_net.rs#L64  fn reset_literal_points
@@ -5740,27 +5751,35 @@ semantic/basic/mc_ida.rs#L238  fn substitute_bindings
 semantic/basic/mc_ida.rs#L274  fn substitute_param
 semantic/basic/mc_ida.rs#L283  fn len
 semantic/basic/mc_ida.rs#L296  fn expand
-semantic/basic/mc_ida.rs#L370  fn expand_square_items
-semantic/basic/mc_ida.rs#L413  impl IdaSegment
-semantic/basic/mc_ida.rs#L417  fn square_items
-semantic/basic/mc_ida.rs#L425  impl fmt::Display for IdaSegment
-semantic/basic/mc_ida.rs#L426  fn fmt
-semantic/basic/mc_ida.rs#L452  impl fmt::Display for SquareItem
-semantic/basic/mc_ida.rs#L453  fn fmt
-semantic/basic/mc_ida.rs#L463  enum OrderSpecError
-semantic/basic/mc_ida.rs#L479  fn order_positions
-semantic/basic/mc_ida.rs#L480  fn one
-semantic/basic/mc_ida.rs#L512  fn judge_order_positions
-semantic/basic/mc_ida.rs#L520  impl fmt::Display for McIda
-semantic/basic/mc_ida.rs#L521  fn fmt
-semantic/basic/mc_ida.rs#L526  impl fmt::Debug for IdaSegment
-semantic/basic/mc_ida.rs#L527  fn fmt
-semantic/basic/mc_ida.rs#L532  impl fmt::Debug for SquareItem
-semantic/basic/mc_ida.rs#L533  fn fmt
-semantic/basic/mc_ida.rs#L538  impl fmt::Debug for McIda
-semantic/basic/mc_ida.rs#L539  fn fmt
-semantic/basic/mc_ida.rs#L544  impl From<&str> for McIda
-semantic/basic/mc_ida.rs#L545  fn from
+semantic/basic/mc_ida.rs#L376  fn marked_group
+semantic/basic/mc_ida.rs#L409  fn expand_grouped
+semantic/basic/mc_ida.rs#L425  fn expand_square_items
+semantic/basic/mc_ida.rs#L468  impl IdaSegment
+semantic/basic/mc_ida.rs#L472  fn square_items
+semantic/basic/mc_ida.rs#L480  impl fmt::Display for IdaSegment
+semantic/basic/mc_ida.rs#L481  fn fmt
+semantic/basic/mc_ida.rs#L507  impl fmt::Display for SquareItem
+semantic/basic/mc_ida.rs#L508  fn fmt
+semantic/basic/mc_ida.rs#L518  enum OrderSpecError
+semantic/basic/mc_ida.rs#L534  fn order_positions
+semantic/basic/mc_ida.rs#L535  fn one
+semantic/basic/mc_ida.rs#L567  fn judge_order_positions
+semantic/basic/mc_ida.rs#L575  impl fmt::Display for McIda
+semantic/basic/mc_ida.rs#L576  fn fmt
+semantic/basic/mc_ida.rs#L581  impl fmt::Debug for IdaSegment
+semantic/basic/mc_ida.rs#L582  fn fmt
+semantic/basic/mc_ida.rs#L587  impl fmt::Debug for SquareItem
+semantic/basic/mc_ida.rs#L588  fn fmt
+semantic/basic/mc_ida.rs#L593  impl fmt::Debug for McIda
+semantic/basic/mc_ida.rs#L594  fn fmt
+semantic/basic/mc_ida.rs#L599  impl From<&str> for McIda
+semantic/basic/mc_ida.rs#L600  fn from
+semantic/basic/mc_ida.rs#L607  mod grouped_tests
+semantic/basic/mc_ida.rs#L610  fn grouped
+semantic/basic/mc_ida.rs#L615  fn grouped__marked_layer_is_the_group_boundary
+semantic/basic/mc_ida.rs#L629  fn grouped__flatten_is_the_flat_expansion_by_construction
+semantic/basic/mc_ida.rs#L645  fn grouped__unmarked_is_one_group
+semantic/basic/mc_ida.rs#L652  fn grouped__group_count_is_the_first_expanding_segment
 semantic/basic/mc_ids.rs#L15  fn expand_numeric_slice
 semantic/basic/mc_ids.rs#L25  fn expand_char_slice
 semantic/basic/mc_ids.rs#L34  enum IdsSegment
@@ -7207,86 +7226,86 @@ semantic/module/mod.rs#L82  struct McModule
 semantic/module/mod.rs#L157  impl McModule
 semantic/module/mod.rs#L158  fn new
 semantic/module/mod.rs#L247  fn test_stub
-semantic/module/mod.rs#L274  fn parse_params
-semantic/module/mod.rs#L427  fn read_cond_expects
-semantic/module/mod.rs#L454  fn read_cond_block
-semantic/module/mod.rs#L470  fn read_cond_clause
-semantic/module/mod.rs#L507  fn stmt_reports_own_failure
-semantic/module/mod.rs#L508  const PASS1_SHAPE_CODES
-semantic/module/mod.rs#L537  fn scan_domain_bridges
-semantic/module/mod.rs#L680  fn parse_body
-semantic/module/mod.rs#L1188  fn collect_declare_ctor_refs
-semantic/module/mod.rs#L1230  fn split_decl_face
-semantic/module/mod.rs#L1329  fn is_plain_label_candidate
-semantic/module/mod.rs#L1351  fn extract_declare_class_span
-semantic/module/mod.rs#L1399  fn register_curly_param_bus_def
-semantic/module/mod.rs#L1470  fn find_inst
-semantic/module/mod.rs#L1477  fn add_label
-semantic/module/mod.rs#L1497  fn find_member_in_anon_insts
-semantic/module/mod.rs#L1539  fn add_component
-semantic/module/mod.rs#L1552  fn add_module
-semantic/module/mod.rs#L1559  fn get_input_elements
-semantic/module/mod.rs#L1568  fn get_output_elements
-semantic/module/mod.rs#L1582  fn port_decl_span
-semantic/module/mod.rs#L1589  impl ShapeCtx for McModule
-semantic/module/mod.rs#L1590  fn find_inst
-semantic/module/mod.rs#L1594  fn uri
-semantic/module/mod.rs#L1598  fn is_declared_port
-semantic/module/mod.rs#L1606  fn interface_param_members
-semantic/module/mod.rs#L1626  fn get_vector_members
-semantic/module/mod.rs#L1633  impl HasFindInst for McModule
-semantic/module/mod.rs#L1635  fn is_declared_instance_name
-semantic/module/mod.rs#L1642  fn note_func_call_caller
-semantic/module/mod.rs#L1652  fn report_floating_label
-semantic/module/mod.rs#L1660  fn register_gate_candidate
-semantic/module/mod.rs#L1669  fn find_inst_mut
-semantic/module/mod.rs#L1674  fn find_inst_with_span
-semantic/module/mod.rs#L1689  fn declared_port_members
-semantic/module/mod.rs#L1709  fn add_label_at
-semantic/module/mod.rs#L1720  fn add_bus
-semantic/module/mod.rs#L1733  fn add_list
-semantic/module/mod.rs#L1742  fn add_bus_member
-semantic/module/mod.rs#L1827  fn add_interface_member
-semantic/module/mod.rs#L1864  fn check_bus_member
-semantic/module/mod.rs#L1875  fn is_component_bus
-semantic/module/mod.rs#L1885  fn parse_declare
-semantic/module/mod.rs#L1897  fn add_component
-semantic/module/mod.rs#L1905  fn add_module
-semantic/module/mod.rs#L1923  fn gen_anon_name
-semantic/module/mod.rs#L1929  fn store_inst_span
-semantic/module/mod.rs#L1933  fn record_declareb_def
-semantic/module/mod.rs#L1942  fn upgrade_label_to_bus
-semantic/module/mod.rs#L1963  fn find_func_return
-semantic/module/mod.rs#L1967  fn domain_pair_named
-semantic/module/mod.rs#L1977  fn declared_endpoint_named
-semantic/module/mod.rs#L1989  fn scope_name
-semantic/module/mod.rs#L1993  fn licensed_domain_member_at
-semantic/module/mod.rs#L2005  struct DomainBridgeWord
-semantic/module/mod.rs#L2017  fn collect_domain_bridge_words
-semantic/module/mod.rs#L2046  fn report_domain_bridge_code
-semantic/module/mod.rs#L2055  impl McModule
-semantic/module/mod.rs#L2061  fn collect_net_def_spans
-semantic/module/mod.rs#L2131  fn collect_net_refs_in_node
-semantic/module/mod.rs#L2264  fn has_dot_chain
-semantic/module/mod.rs#L2302  fn try_record_chain_ref
-semantic/module/mod.rs#L2398  fn collect_instance_segments
-semantic/module/mod.rs#L2416  fn collect_fcall_segments
-semantic/module/mod.rs#L2445  fn walk_chain_children
-semantic/module/mod.rs#L2497  fn collect_ident_segments
-semantic/module/mod.rs#L2557  fn collect_curly_members
-semantic/module/mod.rs#L2584  fn curly_range
-semantic/module/mod.rs#L2591  fn record_scoped_net_ref
-semantic/module/mod.rs#L2700  struct Mc2Module
-semantic/module/mod.rs#L2711  impl Mc2Module
-semantic/module/mod.rs#L2712  fn new
-semantic/module/mod.rs#L2722  fn with_params
-semantic/module/mod.rs#L2733  fn find_port
-semantic/module/mod.rs#L2768  fn get_input_ports
-semantic/module/mod.rs#L2778  fn get_output_ports
-semantic/module/mod.rs#L2788  fn get_all_ports
-semantic/module/mod.rs#L2800  impl std::fmt::Display for McModule
-semantic/module/mod.rs#L2801  fn fmt
-semantic/module/mod.rs#L2807  struct InstRow
+semantic/module/mod.rs#L276  fn parse_params
+semantic/module/mod.rs#L429  fn read_cond_expects
+semantic/module/mod.rs#L456  fn read_cond_block
+semantic/module/mod.rs#L472  fn read_cond_clause
+semantic/module/mod.rs#L509  fn stmt_reports_own_failure
+semantic/module/mod.rs#L510  const PASS1_SHAPE_CODES
+semantic/module/mod.rs#L539  fn scan_domain_bridges
+semantic/module/mod.rs#L682  fn parse_body
+semantic/module/mod.rs#L1190  fn collect_declare_ctor_refs
+semantic/module/mod.rs#L1232  fn split_decl_face
+semantic/module/mod.rs#L1331  fn is_plain_label_candidate
+semantic/module/mod.rs#L1353  fn extract_declare_class_span
+semantic/module/mod.rs#L1401  fn register_curly_param_bus_def
+semantic/module/mod.rs#L1472  fn find_inst
+semantic/module/mod.rs#L1479  fn add_label
+semantic/module/mod.rs#L1499  fn find_member_in_anon_insts
+semantic/module/mod.rs#L1541  fn add_component
+semantic/module/mod.rs#L1554  fn add_module
+semantic/module/mod.rs#L1561  fn get_input_elements
+semantic/module/mod.rs#L1570  fn get_output_elements
+semantic/module/mod.rs#L1584  fn port_decl_span
+semantic/module/mod.rs#L1591  impl ShapeCtx for McModule
+semantic/module/mod.rs#L1592  fn find_inst
+semantic/module/mod.rs#L1596  fn uri
+semantic/module/mod.rs#L1600  fn is_declared_port
+semantic/module/mod.rs#L1608  fn interface_param_members
+semantic/module/mod.rs#L1628  fn get_vector_members
+semantic/module/mod.rs#L1635  impl HasFindInst for McModule
+semantic/module/mod.rs#L1637  fn is_declared_instance_name
+semantic/module/mod.rs#L1644  fn note_func_call_caller
+semantic/module/mod.rs#L1654  fn report_floating_label
+semantic/module/mod.rs#L1662  fn register_gate_candidate
+semantic/module/mod.rs#L1671  fn find_inst_mut
+semantic/module/mod.rs#L1676  fn find_inst_with_span
+semantic/module/mod.rs#L1691  fn declared_port_members
+semantic/module/mod.rs#L1711  fn add_label_at
+semantic/module/mod.rs#L1722  fn add_bus
+semantic/module/mod.rs#L1735  fn add_list
+semantic/module/mod.rs#L1744  fn add_bus_member
+semantic/module/mod.rs#L1829  fn add_interface_member
+semantic/module/mod.rs#L1866  fn check_bus_member
+semantic/module/mod.rs#L1877  fn is_component_bus
+semantic/module/mod.rs#L1887  fn parse_declare
+semantic/module/mod.rs#L1899  fn add_component
+semantic/module/mod.rs#L1907  fn add_module
+semantic/module/mod.rs#L1925  fn gen_anon_name
+semantic/module/mod.rs#L1931  fn store_inst_span
+semantic/module/mod.rs#L1935  fn record_declareb_def
+semantic/module/mod.rs#L1944  fn upgrade_label_to_bus
+semantic/module/mod.rs#L1965  fn find_func_return
+semantic/module/mod.rs#L1969  fn domain_pair_named
+semantic/module/mod.rs#L1979  fn declared_endpoint_named
+semantic/module/mod.rs#L1991  fn scope_name
+semantic/module/mod.rs#L1995  fn licensed_domain_member_at
+semantic/module/mod.rs#L2007  struct DomainBridgeWord
+semantic/module/mod.rs#L2019  fn collect_domain_bridge_words
+semantic/module/mod.rs#L2048  fn report_domain_bridge_code
+semantic/module/mod.rs#L2057  impl McModule
+semantic/module/mod.rs#L2063  fn collect_net_def_spans
+semantic/module/mod.rs#L2133  fn collect_net_refs_in_node
+semantic/module/mod.rs#L2266  fn has_dot_chain
+semantic/module/mod.rs#L2304  fn try_record_chain_ref
+semantic/module/mod.rs#L2400  fn collect_instance_segments
+semantic/module/mod.rs#L2418  fn collect_fcall_segments
+semantic/module/mod.rs#L2447  fn walk_chain_children
+semantic/module/mod.rs#L2499  fn collect_ident_segments
+semantic/module/mod.rs#L2559  fn collect_curly_members
+semantic/module/mod.rs#L2586  fn curly_range
+semantic/module/mod.rs#L2593  fn record_scoped_net_ref
+semantic/module/mod.rs#L2702  struct Mc2Module
+semantic/module/mod.rs#L2713  impl Mc2Module
+semantic/module/mod.rs#L2714  fn new
+semantic/module/mod.rs#L2724  fn with_params
+semantic/module/mod.rs#L2735  fn find_port
+semantic/module/mod.rs#L2770  fn get_input_ports
+semantic/module/mod.rs#L2780  fn get_output_ports
+semantic/module/mod.rs#L2790  fn get_all_ports
+semantic/module/mod.rs#L2802  impl std::fmt::Display for McModule
+semantic/module/mod.rs#L2803  fn fmt
+semantic/module/mod.rs#L2809  struct InstRow
 semantic/module/pi.rs#L57  struct McPowerDecls
 semantic/module/pi.rs#L90  impl McPowerDecls
 semantic/module/pi.rs#L91  fn new
@@ -12082,4 +12101,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-436 files, 11997 declarations.
+436 files, 12016 declarations.
