@@ -32,7 +32,7 @@ range (threshold 40KB).
 |---|---|---|
 | `viz/layout/equipotential_tree.rs` | 460 KB | 220 |
 | `db/infra/mc_code.rs` | 404 KB | 124 |
-| `semantic/basic/mc_phrase.rs` | 371 KB | 94 |
+| `semantic/basic/mc_phrase.rs` | 372 KB | 94 |
 | `semantic/component/mc_pins/mod.rs` | 243 KB | 112 |
 | `instant/mc_mod/stmt.rs` | 225 KB | 84 |
 | `db/diagnostic/errcodes.rs` | 221 KB | 485 |
@@ -51,6 +51,7 @@ range (threshold 40KB).
 | `semantic/mc_inst.rs` | 123 KB | 88 |
 | `semantic/basic/mc_fcall.rs` | 120 KB | 25 |
 | `vector/graph/fromblock.rs` | 103 KB | 35 |
+| `semantic/basic/mc_param.rs` | 101 KB | 105 |
 | `viz/metrics/mod.rs` | 100 KB | 156 |
 
 ## Modules
@@ -74,7 +75,7 @@ range (threshold 40KB).
 | `query/` | 9 | 171 KB |
 | `refdef/` | 7 | 134 KB |
 | `rpc/` | 16 | 322 KB |
-| `semantic/` | 100 | 3015 KB |
+| `semantic/` | 100 | 3017 KB |
 | `stages/` | 19 | 408 KB |
 | `vector/` | 26 | 494 KB |
 | `viz/` | 97 | 2483 KB |
@@ -311,6 +312,7 @@ ast/macros.rs#L187  const MCAST_LET
 ast/macros.rs#L188  const MCAST_REQUIRE
 ast/macros.rs#L189  const MCAST_OPD_REORDER
 ast/macros.rs#L190  const MCAST_OPD_REORDER_RANGE
+ast/macros.rs#L191  const MCAST_OPD_SPLICE
 ast/mod.rs#L5  mod bindings
 ast/mod.rs#L6  mod error
 ast/mod.rs#L7  mod macros
@@ -5922,103 +5924,105 @@ semantic/basic/mc_param.rs#L36  enum McParamValue
 semantic/basic/mc_param.rs#L59  impl McParamValue
 semantic/basic/mc_param.rs#L65  fn cond_family
 semantic/basic/mc_param.rs#L75  fn new
-semantic/basic/mc_param.rs#L196  fn uvalue_or_range
-semantic/basic/mc_param.rs#L227  fn as_const
-semantic/basic/mc_param.rs#L239  fn is_literal
-semantic/basic/mc_param.rs#L257  fn uvalue
-semantic/basic/mc_param.rs#L268  fn at_condition
-semantic/basic/mc_param.rs#L278  fn inline_attrs_from_body
-semantic/basic/mc_param.rs#L308  fn new_no_ctx
-semantic/basic/mc_param.rs#L393  fn as_ids
-semantic/basic/mc_param.rs#L402  fn is_const
-semantic/basic/mc_param.rs#L407  fn is_ids
-semantic/basic/mc_param.rs#L412  fn is_set
-semantic/basic/mc_param.rs#L420  fn is_named_param
-semantic/basic/mc_param.rs#L429  fn matches_param_name
-semantic/basic/mc_param.rs#L439  fn get_param_name
-semantic/basic/mc_param.rs#L451  struct NamedEntry
-semantic/basic/mc_param.rs#L459  fn attr_key_matches
-semantic/basic/mc_param.rs#L470  fn attr_val_to_param_value
-semantic/basic/mc_param.rs#L493  fn expr_to_param_value
-semantic/basic/mc_param.rs#L521  impl McParamValue
-semantic/basic/mc_param.rs#L524  fn or_best_effort
-semantic/basic/mc_param.rs#L532  impl std::fmt::Display for McParamValue
-semantic/basic/mc_param.rs#L533  fn fmt
-semantic/basic/mc_param.rs#L576  struct McParamFuncCall
-semantic/basic/mc_param.rs#L590  impl McParamFuncCall
-semantic/basic/mc_param.rs#L591  fn new
-semantic/basic/mc_param.rs#L642  fn full_name
-semantic/basic/mc_param.rs#L653  impl std::fmt::Display for McParamFuncCall
-semantic/basic/mc_param.rs#L654  fn fmt
-semantic/basic/mc_param.rs#L676  struct McParamNetExpr
-semantic/basic/mc_param.rs#L689  enum NetExprOp
-semantic/basic/mc_param.rs#L700  impl McParamNetExpr
-semantic/basic/mc_param.rs#L701  fn new
-semantic/basic/mc_param.rs#L724  struct McParamBinding
-semantic/basic/mc_param.rs#L735  impl McParamBinding
-semantic/basic/mc_param.rs#L736  fn new
-semantic/basic/mc_param.rs#L745  fn as_int_binding
-semantic/basic/mc_param.rs#L756  fn get_value
-semantic/basic/mc_param.rs#L782  fn get_member_value
-semantic/basic/mc_param.rs#L828  fn expand_names
-semantic/basic/mc_param.rs#L846  struct AttrKeyName
-semantic/basic/mc_param.rs#L852  impl AttrKeyName
-semantic/basic/mc_param.rs#L858  fn without_formal_link
-semantic/basic/mc_param.rs#L866  struct McParamBindings
-semantic/basic/mc_param.rs#L883  impl McParamBindings
-semantic/basic/mc_param.rs#L884  fn new
-semantic/basic/mc_param.rs#L894  fn call_pin_rows
-semantic/basic/mc_param.rs#L908  fn expand_pin_row_ids
-semantic/basic/mc_param.rs#L939  fn undeclared_pin_row_ids
-semantic/basic/mc_param.rs#L985  fn pin_name_faces
-semantic/basic/mc_param.rs#L1008  fn undeclared_pin_row_reason
-semantic/basic/mc_param.rs#L1020  fn apply_key_overrides
-semantic/basic/mc_param.rs#L1048  fn has_key_overrides
-semantic/basic/mc_param.rs#L1055  fn from_bindings
-semantic/basic/mc_param.rs#L1066  fn find_by_name
-semantic/basic/mc_param.rs#L1075  fn with_key_overrides_of
-semantic/basic/mc_param.rs#L1092  fn bind
-semantic/basic/mc_param.rs#L1103  fn bind_quiet
-semantic/basic/mc_param.rs#L1113  fn bind_component
-semantic/basic/mc_param.rs#L1127  fn bind_tolerant
-semantic/basic/mc_param.rs#L1135  fn bind_inner
-semantic/basic/mc_param.rs#L1145  fn bind_inner_opts
-semantic/basic/mc_param.rs#L1658  fn find
-semantic/basic/mc_param.rs#L1668  fn to_params_for_eval
-semantic/basic/mc_param.rs#L1689  fn to_cond_params
-semantic/basic/mc_param.rs#L1711  fn iter
-semantic/basic/mc_param.rs#L1716  fn len
-semantic/basic/mc_param.rs#L1721  fn is_empty
-semantic/basic/mc_param.rs#L1726  fn find_by_index
-semantic/basic/mc_param.rs#L1736  fn find_member_value
-semantic/basic/mc_param.rs#L1753  fn ambiguous_member_names
-semantic/basic/mc_param.rs#L1813  fn subset_excluding
-semantic/basic/mc_param.rs#L1833  enum ParamBindError
-semantic/basic/mc_param.rs#L1868  impl std::fmt::Display for ParamBindError
-semantic/basic/mc_param.rs#L1869  fn fmt
-semantic/basic/mc_param.rs#L1918  mod tests
-semantic/basic/mc_param.rs#L1927  fn sem_mcparam__nc_stripped_from_instance_method_arity
-semantic/basic/mc_param.rs#L1962  fn sem_mcparam__nc_named_array_does_not_trigger_too_many_args
-semantic/basic/mc_param.rs#L2014  fn sem_mcparam__nc_anonymous_inline_same_as_named_array
-semantic/basic/mc_param.rs#L2059  fn single_declare
-semantic/basic/mc_param.rs#L2069  fn attr_int
-semantic/basic/mc_param.rs#L2081  fn dotted
-semantic/basic/mc_param.rs#L2100  fn sem_mcparam__named_args_bind_by_name_exact_case
-semantic/basic/mc_param.rs#L2120  fn sem_mcparam__named_arg_key_case_is_significant
-semantic/basic/mc_param.rs#L2134  fn sem_mcparam__named_args_out_of_order_bind_by_name
-semantic/basic/mc_param.rs#L2154  fn sem_mcparam__orphan_named_arg_is_error
-semantic/basic/mc_param.rs#L2168  fn sem_mcparam__named_arg_plus_positional_fill_remaining
-semantic/basic/mc_param.rs#L2189  fn sem_mcparam__named_claim_causing_positional_overflow
-semantic/basic/mc_param.rs#L2213  fn register_test_enum
-semantic/basic/mc_param.rs#L2247  fn sem_mcparam__bare_enum_member_claims_enum_class_slot
-semantic/basic/mc_param.rs#L2270  fn sem_mcparam__dotted_enum_member_opd_claims_enum_class_slot
-semantic/basic/mc_param.rs#L2293  fn sem_mcparam__enum_member_without_enum_slot_is_error
-semantic/basic/mc_param.rs#L2308  fn sem_mcparam__invalid_enum_member_value_is_error
-semantic/basic/mc_param.rs#L2332  fn sem_mcparam__interface_member_claims_interface_slot
-semantic/basic/mc_param.rs#L2357  fn sem_mcparam__dotted_net_ref_falls_through_to_positional
-semantic/basic/mc_param.rs#L2372  fn sem_mcparam__get_member_value_projects_set_member
-semantic/basic/mc_param.rs#L2407  fn sem_mcparam__get_member_value_projects_ids_square_member
-semantic/basic/mc_param.rs#L2441  impl std::error::Error for ParamBindError
+semantic/basic/mc_param.rs#L178  fn uvalue_or_range
+semantic/basic/mc_param.rs#L209  fn as_const
+semantic/basic/mc_param.rs#L221  fn is_literal
+semantic/basic/mc_param.rs#L239  fn uvalue
+semantic/basic/mc_param.rs#L250  fn at_condition
+semantic/basic/mc_param.rs#L260  fn inline_attrs_from_body
+semantic/basic/mc_param.rs#L281  fn set_from_list
+semantic/basic/mc_param.rs#L309  fn splice_flatten
+semantic/basic/mc_param.rs#L341  fn new_no_ctx
+semantic/basic/mc_param.rs#L426  fn as_ids
+semantic/basic/mc_param.rs#L435  fn is_const
+semantic/basic/mc_param.rs#L440  fn is_ids
+semantic/basic/mc_param.rs#L445  fn is_set
+semantic/basic/mc_param.rs#L453  fn is_named_param
+semantic/basic/mc_param.rs#L462  fn matches_param_name
+semantic/basic/mc_param.rs#L472  fn get_param_name
+semantic/basic/mc_param.rs#L484  struct NamedEntry
+semantic/basic/mc_param.rs#L492  fn attr_key_matches
+semantic/basic/mc_param.rs#L503  fn attr_val_to_param_value
+semantic/basic/mc_param.rs#L526  fn expr_to_param_value
+semantic/basic/mc_param.rs#L554  impl McParamValue
+semantic/basic/mc_param.rs#L557  fn or_best_effort
+semantic/basic/mc_param.rs#L565  impl std::fmt::Display for McParamValue
+semantic/basic/mc_param.rs#L566  fn fmt
+semantic/basic/mc_param.rs#L609  struct McParamFuncCall
+semantic/basic/mc_param.rs#L623  impl McParamFuncCall
+semantic/basic/mc_param.rs#L624  fn new
+semantic/basic/mc_param.rs#L675  fn full_name
+semantic/basic/mc_param.rs#L686  impl std::fmt::Display for McParamFuncCall
+semantic/basic/mc_param.rs#L687  fn fmt
+semantic/basic/mc_param.rs#L709  struct McParamNetExpr
+semantic/basic/mc_param.rs#L722  enum NetExprOp
+semantic/basic/mc_param.rs#L733  impl McParamNetExpr
+semantic/basic/mc_param.rs#L734  fn new
+semantic/basic/mc_param.rs#L757  struct McParamBinding
+semantic/basic/mc_param.rs#L768  impl McParamBinding
+semantic/basic/mc_param.rs#L769  fn new
+semantic/basic/mc_param.rs#L778  fn as_int_binding
+semantic/basic/mc_param.rs#L789  fn get_value
+semantic/basic/mc_param.rs#L815  fn get_member_value
+semantic/basic/mc_param.rs#L861  fn expand_names
+semantic/basic/mc_param.rs#L879  struct AttrKeyName
+semantic/basic/mc_param.rs#L885  impl AttrKeyName
+semantic/basic/mc_param.rs#L891  fn without_formal_link
+semantic/basic/mc_param.rs#L899  struct McParamBindings
+semantic/basic/mc_param.rs#L916  impl McParamBindings
+semantic/basic/mc_param.rs#L917  fn new
+semantic/basic/mc_param.rs#L927  fn call_pin_rows
+semantic/basic/mc_param.rs#L941  fn expand_pin_row_ids
+semantic/basic/mc_param.rs#L972  fn undeclared_pin_row_ids
+semantic/basic/mc_param.rs#L1018  fn pin_name_faces
+semantic/basic/mc_param.rs#L1041  fn undeclared_pin_row_reason
+semantic/basic/mc_param.rs#L1053  fn apply_key_overrides
+semantic/basic/mc_param.rs#L1081  fn has_key_overrides
+semantic/basic/mc_param.rs#L1088  fn from_bindings
+semantic/basic/mc_param.rs#L1099  fn find_by_name
+semantic/basic/mc_param.rs#L1108  fn with_key_overrides_of
+semantic/basic/mc_param.rs#L1125  fn bind
+semantic/basic/mc_param.rs#L1136  fn bind_quiet
+semantic/basic/mc_param.rs#L1146  fn bind_component
+semantic/basic/mc_param.rs#L1160  fn bind_tolerant
+semantic/basic/mc_param.rs#L1168  fn bind_inner
+semantic/basic/mc_param.rs#L1178  fn bind_inner_opts
+semantic/basic/mc_param.rs#L1691  fn find
+semantic/basic/mc_param.rs#L1701  fn to_params_for_eval
+semantic/basic/mc_param.rs#L1722  fn to_cond_params
+semantic/basic/mc_param.rs#L1744  fn iter
+semantic/basic/mc_param.rs#L1749  fn len
+semantic/basic/mc_param.rs#L1754  fn is_empty
+semantic/basic/mc_param.rs#L1759  fn find_by_index
+semantic/basic/mc_param.rs#L1769  fn find_member_value
+semantic/basic/mc_param.rs#L1786  fn ambiguous_member_names
+semantic/basic/mc_param.rs#L1846  fn subset_excluding
+semantic/basic/mc_param.rs#L1866  enum ParamBindError
+semantic/basic/mc_param.rs#L1901  impl std::fmt::Display for ParamBindError
+semantic/basic/mc_param.rs#L1902  fn fmt
+semantic/basic/mc_param.rs#L1951  mod tests
+semantic/basic/mc_param.rs#L1960  fn sem_mcparam__nc_stripped_from_instance_method_arity
+semantic/basic/mc_param.rs#L1995  fn sem_mcparam__nc_named_array_does_not_trigger_too_many_args
+semantic/basic/mc_param.rs#L2047  fn sem_mcparam__nc_anonymous_inline_same_as_named_array
+semantic/basic/mc_param.rs#L2092  fn single_declare
+semantic/basic/mc_param.rs#L2102  fn attr_int
+semantic/basic/mc_param.rs#L2114  fn dotted
+semantic/basic/mc_param.rs#L2133  fn sem_mcparam__named_args_bind_by_name_exact_case
+semantic/basic/mc_param.rs#L2153  fn sem_mcparam__named_arg_key_case_is_significant
+semantic/basic/mc_param.rs#L2167  fn sem_mcparam__named_args_out_of_order_bind_by_name
+semantic/basic/mc_param.rs#L2187  fn sem_mcparam__orphan_named_arg_is_error
+semantic/basic/mc_param.rs#L2201  fn sem_mcparam__named_arg_plus_positional_fill_remaining
+semantic/basic/mc_param.rs#L2222  fn sem_mcparam__named_claim_causing_positional_overflow
+semantic/basic/mc_param.rs#L2246  fn register_test_enum
+semantic/basic/mc_param.rs#L2280  fn sem_mcparam__bare_enum_member_claims_enum_class_slot
+semantic/basic/mc_param.rs#L2303  fn sem_mcparam__dotted_enum_member_opd_claims_enum_class_slot
+semantic/basic/mc_param.rs#L2326  fn sem_mcparam__enum_member_without_enum_slot_is_error
+semantic/basic/mc_param.rs#L2341  fn sem_mcparam__invalid_enum_member_value_is_error
+semantic/basic/mc_param.rs#L2365  fn sem_mcparam__interface_member_claims_interface_slot
+semantic/basic/mc_param.rs#L2390  fn sem_mcparam__dotted_net_ref_falls_through_to_positional
+semantic/basic/mc_param.rs#L2405  fn sem_mcparam__get_member_value_projects_set_member
+semantic/basic/mc_param.rs#L2440  fn sem_mcparam__get_member_value_projects_ids_square_member
+semantic/basic/mc_param.rs#L2474  impl std::error::Error for ParamBindError
 semantic/basic/mc_param_infer.rs#L24  struct UsageSite
 semantic/basic/mc_param_infer.rs#L37  enum UsageKind
 semantic/basic/mc_param_infer.rs#L68  struct InferenceResult
@@ -6192,73 +6196,73 @@ semantic/basic/mc_phrase.rs#L625  fn expand_options
 semantic/basic/mc_phrase.rs#L637  fn expand_group
 semantic/basic/mc_phrase.rs#L707  fn cartesian_product
 semantic/basic/mc_phrase.rs#L723  fn new
-semantic/basic/mc_phrase.rs#L4192  fn salvage_inline_ctors
-semantic/basic/mc_phrase.rs#L4196  fn collect_fcalls
-semantic/basic/mc_phrase.rs#L4228  fn curly_mn_side_members
-semantic/basic/mc_phrase.rs#L4253  fn curly_side_member
-semantic/basic/mc_phrase.rs#L4282  struct CompPinShape
-semantic/basic/mc_phrase.rs#L4290  enum PinShapeKind
-semantic/basic/mc_phrase.rs#L4312  fn shape_defaults
-semantic/basic/mc_phrase.rs#L4380  fn permute_face_elements
-semantic/basic/mc_phrase.rs#L4394  fn is_reverse_noop_operand
-semantic/basic/mc_phrase.rs#L4424  fn as_bare_component
-semantic/basic/mc_phrase.rs#L4435  fn body_arity
-semantic/basic/mc_phrase.rs#L4449  fn check_inst_plusminus
-semantic/basic/mc_phrase.rs#L4475  fn check_body_pair_plusminus
-semantic/basic/mc_phrase.rs#L4499  fn as_bare_net
-semantic/basic/mc_phrase.rs#L4527  fn root_ident
-semantic/basic/mc_phrase.rs#L4553  fn check_net_pair_plusminus
-semantic/basic/mc_phrase.rs#L4568  impl McPhrase
-semantic/basic/mc_phrase.rs#L4573  fn reverse_is_noop
-semantic/basic/mc_phrase.rs#L4577  fn get_left
-semantic/basic/mc_phrase.rs#L4741  fn get_right
-semantic/basic/mc_phrase.rs#L4880  fn dot_or_curly
-semantic/basic/mc_phrase.rs#L5284  fn access_node_element_members
-semantic/basic/mc_phrase.rs#L5347  fn curly_mn
-semantic/basic/mc_phrase.rs#L5363  fn opd_to_node_element_vec
-semantic/basic/mc_phrase.rs#L5451  fn upgrade_new_label_or_bus
-semantic/basic/mc_phrase.rs#L5462  fn needs_paren_for_priority
-semantic/basic/mc_phrase.rs#L5484  fn needs_paren_for_series
-semantic/basic/mc_phrase.rs#L5512  fn format_series_item
-semantic/basic/mc_phrase.rs#L5520  impl std::fmt::Display for McPhrase
-semantic/basic/mc_phrase.rs#L5521  fn fmt
-semantic/basic/mc_phrase.rs#L5600  fn flatten
-semantic/basic/mc_phrase.rs#L5704  fn stretch_licensed_members
-semantic/basic/mc_phrase.rs#L5728  fn operand_is_licensed_member
-semantic/basic/mc_phrase.rs#L5744  fn operand_lane_width
-semantic/basic/mc_phrase.rs#L5752  fn infer_shape_and_upgrade
-semantic/basic/mc_phrase.rs#L5932  fn check_transpose_allowed
-semantic/basic/mc_phrase.rs#L5953  fn interface_elems
-semantic/basic/mc_phrase.rs#L5995  fn with_owner
-semantic/basic/mc_phrase.rs#L6015  fn component_port_elems
-semantic/basic/mc_phrase.rs#L6077  fn base_instance_name
-semantic/basic/mc_phrase.rs#L6096  fn module_port_elems
-semantic/basic/mc_phrase.rs#L6171  fn operand_base_member
-semantic/basic/mc_phrase.rs#L6202  fn module_member_is_internal
-semantic/basic/mc_phrase.rs#L6245  fn report_internal_member_access
-semantic/basic/mc_phrase.rs#L6277  fn group_display_form
-semantic/basic/mc_phrase.rs#L6282  fn eval_port_elems
-semantic/basic/mc_phrase.rs#L6871  impl OpdShape
-semantic/basic/mc_phrase.rs#L6878  fn of
-semantic/basic/mc_phrase.rs#L6888  fn from_sides
-semantic/basic/mc_phrase.rs#L6935  fn check_list_column_width_mixed
-semantic/basic/mc_phrase.rs#L6992  fn declared_scalar_element
-semantic/basic/mc_phrase.rs#L7015  fn list_element_elems
-semantic/basic/mc_phrase.rs#L7031  fn column_kind
-semantic/basic/mc_phrase.rs#L7061  enum ColumnKind
-semantic/basic/mc_phrase.rs#L7092  fn is_connectable
-semantic/basic/mc_phrase.rs#L7107  mod nested_subscript_tests
-semantic/basic/mc_phrase.rs#L7111  fn nested_subscript__embedded_group_splits_from_single_ida
-semantic/basic/mc_phrase.rs#L7119  fn nested_subscript__named_inner_members
-semantic/basic/mc_phrase.rs#L7127  fn nested_subscript__matrix_is_not_split
-semantic/basic/mc_phrase.rs#L7133  fn nested_subscript__curly_on_array_splits
-semantic/basic/mc_phrase.rs#L7151  fn nested_subscript__plain_curly_bus_is_not_split
-semantic/basic/mc_phrase.rs#L7172  mod r0_group_structure_tests
-semantic/basic/mc_phrase.rs#L7176  fn group
-semantic/basic/mc_phrase.rs#L7187  fn spliced_statement
-semantic/basic/mc_phrase.rs#L7202  fn r0_group_structure__inner_chain_survives_the_statement_split
-semantic/basic/mc_phrase.rs#L7222  fn r0_group_structure__display_renders_the_inner_parentheses
-semantic/basic/mc_phrase.rs#L7234  fn r0_group_structure__inner_direction_stays_under_a_different_outer
+semantic/basic/mc_phrase.rs#L4208  fn salvage_inline_ctors
+semantic/basic/mc_phrase.rs#L4212  fn collect_fcalls
+semantic/basic/mc_phrase.rs#L4244  fn curly_mn_side_members
+semantic/basic/mc_phrase.rs#L4269  fn curly_side_member
+semantic/basic/mc_phrase.rs#L4298  struct CompPinShape
+semantic/basic/mc_phrase.rs#L4306  enum PinShapeKind
+semantic/basic/mc_phrase.rs#L4328  fn shape_defaults
+semantic/basic/mc_phrase.rs#L4396  fn permute_face_elements
+semantic/basic/mc_phrase.rs#L4410  fn is_reverse_noop_operand
+semantic/basic/mc_phrase.rs#L4440  fn as_bare_component
+semantic/basic/mc_phrase.rs#L4451  fn body_arity
+semantic/basic/mc_phrase.rs#L4465  fn check_inst_plusminus
+semantic/basic/mc_phrase.rs#L4491  fn check_body_pair_plusminus
+semantic/basic/mc_phrase.rs#L4515  fn as_bare_net
+semantic/basic/mc_phrase.rs#L4543  fn root_ident
+semantic/basic/mc_phrase.rs#L4569  fn check_net_pair_plusminus
+semantic/basic/mc_phrase.rs#L4584  impl McPhrase
+semantic/basic/mc_phrase.rs#L4589  fn reverse_is_noop
+semantic/basic/mc_phrase.rs#L4593  fn get_left
+semantic/basic/mc_phrase.rs#L4757  fn get_right
+semantic/basic/mc_phrase.rs#L4896  fn dot_or_curly
+semantic/basic/mc_phrase.rs#L5300  fn access_node_element_members
+semantic/basic/mc_phrase.rs#L5363  fn curly_mn
+semantic/basic/mc_phrase.rs#L5379  fn opd_to_node_element_vec
+semantic/basic/mc_phrase.rs#L5467  fn upgrade_new_label_or_bus
+semantic/basic/mc_phrase.rs#L5478  fn needs_paren_for_priority
+semantic/basic/mc_phrase.rs#L5500  fn needs_paren_for_series
+semantic/basic/mc_phrase.rs#L5528  fn format_series_item
+semantic/basic/mc_phrase.rs#L5536  impl std::fmt::Display for McPhrase
+semantic/basic/mc_phrase.rs#L5537  fn fmt
+semantic/basic/mc_phrase.rs#L5616  fn flatten
+semantic/basic/mc_phrase.rs#L5720  fn stretch_licensed_members
+semantic/basic/mc_phrase.rs#L5744  fn operand_is_licensed_member
+semantic/basic/mc_phrase.rs#L5760  fn operand_lane_width
+semantic/basic/mc_phrase.rs#L5768  fn infer_shape_and_upgrade
+semantic/basic/mc_phrase.rs#L5948  fn check_transpose_allowed
+semantic/basic/mc_phrase.rs#L5969  fn interface_elems
+semantic/basic/mc_phrase.rs#L6011  fn with_owner
+semantic/basic/mc_phrase.rs#L6031  fn component_port_elems
+semantic/basic/mc_phrase.rs#L6093  fn base_instance_name
+semantic/basic/mc_phrase.rs#L6112  fn module_port_elems
+semantic/basic/mc_phrase.rs#L6187  fn operand_base_member
+semantic/basic/mc_phrase.rs#L6218  fn module_member_is_internal
+semantic/basic/mc_phrase.rs#L6261  fn report_internal_member_access
+semantic/basic/mc_phrase.rs#L6293  fn group_display_form
+semantic/basic/mc_phrase.rs#L6298  fn eval_port_elems
+semantic/basic/mc_phrase.rs#L6887  impl OpdShape
+semantic/basic/mc_phrase.rs#L6894  fn of
+semantic/basic/mc_phrase.rs#L6904  fn from_sides
+semantic/basic/mc_phrase.rs#L6951  fn check_list_column_width_mixed
+semantic/basic/mc_phrase.rs#L7008  fn declared_scalar_element
+semantic/basic/mc_phrase.rs#L7031  fn list_element_elems
+semantic/basic/mc_phrase.rs#L7047  fn column_kind
+semantic/basic/mc_phrase.rs#L7077  enum ColumnKind
+semantic/basic/mc_phrase.rs#L7108  fn is_connectable
+semantic/basic/mc_phrase.rs#L7123  mod nested_subscript_tests
+semantic/basic/mc_phrase.rs#L7127  fn nested_subscript__embedded_group_splits_from_single_ida
+semantic/basic/mc_phrase.rs#L7135  fn nested_subscript__named_inner_members
+semantic/basic/mc_phrase.rs#L7143  fn nested_subscript__matrix_is_not_split
+semantic/basic/mc_phrase.rs#L7149  fn nested_subscript__curly_on_array_splits
+semantic/basic/mc_phrase.rs#L7167  fn nested_subscript__plain_curly_bus_is_not_split
+semantic/basic/mc_phrase.rs#L7188  mod r0_group_structure_tests
+semantic/basic/mc_phrase.rs#L7192  fn group
+semantic/basic/mc_phrase.rs#L7203  fn spliced_statement
+semantic/basic/mc_phrase.rs#L7218  fn r0_group_structure__inner_chain_survives_the_statement_split
+semantic/basic/mc_phrase.rs#L7238  fn r0_group_structure__display_renders_the_inner_parentheses
+semantic/basic/mc_phrase.rs#L7250  fn r0_group_structure__inner_direction_stays_under_a_different_outer
 semantic/basic/mc_ref.rs#L14  struct McInstanceRef
 semantic/basic/mc_ref.rs#L18  impl McInstanceRef
 semantic/basic/mc_ref.rs#L19  fn new
@@ -12075,4 +12079,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-436 files, 11991 declarations.
+436 files, 11994 declarations.
