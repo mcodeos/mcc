@@ -264,8 +264,6 @@ impl McModule {
                 end: name.len(),
             },
             anon_counter: 1,
-            lets: Vec::new(),
-            requires: Vec::new(),
             seen_callers: Vec::new(),
             gate_candidates: Vec::new(),
             floating_candidates: Vec::new(),
