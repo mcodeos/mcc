@@ -8,7 +8,7 @@
 //! `adopts`/`effective_funcs` from a project-domain-only enumeration, so a
 //! library-side host (mcode is auto-visible, hence `LoadDomain::System`)
 //! never entered the loop — silently, with no diagnostic of its own, until
-//! the call site fired `E3071 function 'Pull' not found in class 'RES'`.
+//! the call site fired `E3071 function 'Pullup' not found in class 'RES'`.
 //!
 //! The locks drive `mcc check` / `mcc export netlist` over a temp project
 //! whose dependency is a self-contained fake `mcode` library in a private

@@ -20,9 +20,9 @@ use crate::common;
 use mcc::{McIds, McURI};
 
 /// Two-pin resistor with two call faces over the same body:
-/// `Pull` takes one **index** formal (`.Pull(_)` consumes a whole vector,
+/// `Pullup` takes one **index** formal (`.Pullup(_)` consumes a whole vector,
 /// arity = 1, terminal-formal-design §15.6); `Two` takes two **scalar** formals.
-const RES: &str = "component RES(res::INT) {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n    func Pull([n1, n2]) {\n        n1 - this - n2\n    }\n    func Two(n1, n2) {\n        n1 - this - n2\n    }\n}\n";
+const RES: &str = "component RES(res::INT) {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n    func Pullup([n1, n2]) {\n        n1 - this - n2\n    }\n    func Two(n1, n2) {\n        n1 - this - n2\n    }\n}\n";
 
 const HEAD: &str = "module main {\n    io A\n    io B\n    io VDD\n    func M() {\n";
 
@@ -93,7 +93,7 @@ fn instance_count(parts: &[Vec<String>]) -> usize {
 /// formal, so the call wires once and reports no wiring code.
 #[test]
 fn prefix_uscore__exactly_one_folds() {
-    let body = "        [A, B] => RES(10).Pull(_)";
+    let body = "        [A, B] => RES(10).Pullup(_)";
     let parts = partition_of(&src_of(body), "/mcc/prefix-uscore-one.mc");
     assert_eq!(
         instance_count(&parts),
@@ -130,7 +130,7 @@ fn prefix_uscore__placeholder_need_not_be_first() {
 #[test]
 fn prefix_uscore__zero_placeholders_reports_e4176() {
     for body in [
-        "        [A, B] => RES(10).Pull()",
+        "        [A, B] => RES(10).Pullup()",
         "        A => RES(10).Two(VDD, B)",
     ] {
         let codes = codes_of(&src_of(body), "/mcc/prefix-uscore-zero.mc");

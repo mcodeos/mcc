@@ -165,7 +165,7 @@ impl InstantiationBuilder {
 
             // 3.5 ── §3.3: per-member method dispatch
             // Array receiver whose members are already-materialized instances
-            // (`r[1:2]::RES(0)` then `r[1:2].Pull([net,vcc])`): each item
+            // (`r[1:2]::RES(0)` then `r[1:2].Pullup([net,vcc])`): each item
             // (`U1.r1`) is a real instance. Dispatch the method on it rather
             // than feeding `instantiate_funccall` — which would mis-resolve
             // the per-item method call and construct a phantom `r[1:2]` RES
@@ -289,7 +289,7 @@ impl InstantiationBuilder {
     /// Resolve index-related values in parameters
     ///
     /// Every scalar parameter value is **shared unchanged** with every
-    /// iterated member (vec-dianlu §7.6: `res[1:2].Pull([net,vcc])` →
+    /// iterated member (vec-dianlu §7.6: `res[1:2].Pullup([net,vcc])` →
     /// res1, res2 each run the body once with the same `net`/`vcc` nets — each
     /// member lands on the shared multi-terminal net, never a §5.3.1 single-
     /// point broadcast). A **multi-member slice lane** in an arg list

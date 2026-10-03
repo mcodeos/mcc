@@ -27,7 +27,7 @@
 //!    worked. The bail now requires the body to have neither.
 //!
 //! Fixtures are self-contained (inline classes, no `use mcode`) — the live
-//! system root's RES lost `func Pull` to library drift, which would couple
+//! system root's RES lost `func Pullup` to library drift, which would couple
 //! these locks to `~/.mcode` state.
 
 #![allow(non_snake_case)]
@@ -68,7 +68,7 @@ fn probe(uri_path: &str, source: &str) -> Probe {
 }
 
 /// The two-pin inline class both fixtures construct through a method call:
-/// `Cap` series-wires the created instance between the two actuals, `Pull`
+/// `Cap` series-wires the created instance between the two actuals, `Pullup`
 /// ties each actual to one pin.
 const CLASSES: &str = r#"
 component CX
@@ -91,7 +91,7 @@ component RX
         2 = 2, "T2"
     ]
 
-    func Pull([node, supply])
+    func Pullup([node, supply])
     {
         node - this.1
         supply - this.2
@@ -178,7 +178,7 @@ component RX
         2 = 2, "T2"
     ]
 
-    func Pull([node, supply])
+    func Pullup([node, supply])
     {
         node - this.1
         supply - this.2
@@ -193,7 +193,7 @@ component PB
 
     func Address(address)
     {
-        if (address & 0x01) RX().Pull([A0, VA]) else RX().Pull([A0, VB])
+        if (address & 0x01) RX().Pullup([A0, VA]) else RX().Pullup([A0, VB])
     }
 }
 
@@ -216,7 +216,7 @@ component RX
         2 = 2, "T2"
     ]
 
-    func Pull([node, supply])
+    func Pullup([node, supply])
     {
         node - this.1
         supply - this.2
@@ -231,8 +231,8 @@ component PB
 
     func Address(address)
     {
-        RX().Pull([A0, VA])
-        if (address & 0x01) RX().Pull([A0, VB]) else RX().Pull([A0, VB])
+        RX().Pullup([A0, VA])
+        if (address & 0x01) RX().Pullup([A0, VB]) else RX().Pullup([A0, VB])
     }
 }
 

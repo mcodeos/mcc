@@ -9,9 +9,9 @@
 //! each member becomes its **own** prefix statement, folded on its own:
 //!
 //! ```text
-//! (I2C0.SCL, I2C0.SDA) => RESS(10).Pull(_, VCC)
-//!   ≡ I2C0.SCL => RESS(10).Pull(_, VCC)   and
-//!     I2C0.SDA => RESS(10).Pull(_, VCC)   -- TWO components
+//! (I2C0.SCL, I2C0.SDA) => RESS(10).Pullup(_, VCC)
+//!   ≡ I2C0.SCL => RESS(10).Pullup(_, VCC)   and
+//!     I2C0.SDA => RESS(10).Pullup(_, VCC)   -- TWO components
 //! ```
 //!
 //! This is what separates it from the **bus** prefix (§5), which *replicates*
@@ -31,15 +31,15 @@ use std::collections::BTreeSet;
 
 use mcc::{McIds, McURI};
 
-/// Two-pin resistor whose `Pull` body wires `n1 - this - n2`.
+/// Two-pin resistor whose `Pullup` body wires `n1 - this - n2`.
 ///
-/// `Pull` declares **two scalar network formals** on purpose: the fork's
+/// `Pullup` declares **two scalar network formals** on purpose: the fork's
 /// branches are two-operand calls (`f(A, VCC)`), and §9.7 states the group
 /// spelling as "two scalar formals, two actuals". The library's own
-/// `Pull([net, vcc])` is one **index** formal — that shape takes a single
-/// `_` fed by a vector prefix (`[A, B] => …Pull(_)`), which is a different
+/// `Pullup([net, vcc])` is one **index** formal — that shape takes a single
+/// `_` fed by a vector prefix (`[A, B] => …Pullup(_)`), which is a different
 /// axis (§3) and not this file's subject.
-const RES: &str = "component RESS(res::INT) {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n    func Pull(n1, n2) {\n        n1 - this - n2\n    }\n}\n";
+const RES: &str = "component RESS(res::INT) {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n    func Pullup(n1, n2) {\n        n1 - this - n2\n    }\n}\n";
 
 /// Module skeleton: the two nets the group members name, plus a rail.
 const HEAD: &str = "module main {\n    io I2C0{SCL, SDA}\n    io VCC\n    func M() {\n";
@@ -160,7 +160,7 @@ fn strip_heads(parts: Vec<Vec<String>>) -> Vec<Vec<String>> {
 #[test]
 fn group_prefix__forks_into_one_statement_per_member() {
     let parts = partition_of(
-        &src_of("        (I2C0.SCL, I2C0.SDA) => RESS(10).Pull(_, VCC)"),
+        &src_of("        (I2C0.SCL, I2C0.SDA) => RESS(10).Pullup(_, VCC)"),
         "/mcc/group-prefix.mc",
     );
 
@@ -194,13 +194,13 @@ fn group_prefix__forks_into_one_statement_per_member() {
 #[test]
 fn group_prefix__equals_two_written_statements() {
     let forked = strip_heads(partition_of(
-        &src_of("        (I2C0.SCL, I2C0.SDA) => RESS(10).Pull(_, VCC)"),
+        &src_of("        (I2C0.SCL, I2C0.SDA) => RESS(10).Pullup(_, VCC)"),
         "/mcc/group-prefix-eq.mc",
     ));
     let written = strip_heads(partition_of(
         &src_of(
-            "        I2C0.SCL => RESS(10).Pull(_, VCC)\n        \
-             I2C0.SDA => RESS(10).Pull(_, VCC)",
+            "        I2C0.SCL => RESS(10).Pullup(_, VCC)\n        \
+             I2C0.SDA => RESS(10).Pullup(_, VCC)",
         ),
         "/mcc/group-prefix-written.mc",
     ));
@@ -217,11 +217,11 @@ fn group_prefix__equals_two_written_statements() {
 #[test]
 fn group_prefix__order_insensitive() {
     let ab = strip_heads(partition_of(
-        &src_of("        (I2C0.SCL, I2C0.SDA) => RESS(10).Pull(_, VCC)"),
+        &src_of("        (I2C0.SCL, I2C0.SDA) => RESS(10).Pullup(_, VCC)"),
         "/mcc/group-prefix-ab.mc",
     ));
     let ba = strip_heads(partition_of(
-        &src_of("        (I2C0.SDA, I2C0.SCL) => RESS(10).Pull(_, VCC)"),
+        &src_of("        (I2C0.SDA, I2C0.SCL) => RESS(10).Pullup(_, VCC)"),
         "/mcc/group-prefix-ba.mc",
     ));
 
@@ -237,8 +237,8 @@ fn group_prefix__order_insensitive() {
 #[test]
 fn group_prefix__two_placeholders_is_e4176_and_nothing() {
     for body in [
-        "        (I2C0.SCL, I2C0.SDA) => RESS(10).Pull(_, _)",
-        "        (I2C0.SDA, I2C0.SCL) => RESS(10).Pull(_, _)",
+        "        (I2C0.SCL, I2C0.SDA) => RESS(10).Pullup(_, _)",
+        "        (I2C0.SDA, I2C0.SCL) => RESS(10).Pullup(_, _)",
     ] {
         assert!(
             codes_of(&src_of(body), "/mcc/group-prefix-two.mc").contains(&4176),
@@ -262,7 +262,7 @@ fn group_prefix__two_placeholders_is_e4176_and_nothing() {
 fn group_prefix__expands_quietly() {
     assert_eq!(
         wiring_codes_of(
-            &src_of("        (I2C0.SCL, I2C0.SDA) => RESS(10).Pull(_, VCC)"),
+            &src_of("        (I2C0.SCL, I2C0.SDA) => RESS(10).Pullup(_, VCC)"),
             "/mcc/group-prefix-quiet.mc"
         ),
         Vec::<u32>::new(),
@@ -276,7 +276,7 @@ fn group_prefix__expands_quietly() {
 #[test]
 fn group_prefix__chain_tail_rides_each_branch() {
     let parts = partition_of(
-        &src_of_tail("        (I2C0.SCL, I2C0.SDA) => RESS(10).Pull(_, VCC) -> TAIL"),
+        &src_of_tail("        (I2C0.SCL, I2C0.SDA) => RESS(10).Pullup(_, VCC) -> TAIL"),
         "/mcc/group-prefix-chain.mc",
     );
 
@@ -303,7 +303,7 @@ fn group_prefix__chain_tail_rides_each_branch() {
 #[test]
 fn group_prefix__single_member_is_the_member() {
     let parts = partition_of(
-        &src_of("        (VCC) => RESS(10).Pull(_, I2C0.SCL)"),
+        &src_of("        (VCC) => RESS(10).Pullup(_, I2C0.SCL)"),
         "/mcc/group-prefix-single.mc",
     );
     assert_eq!(

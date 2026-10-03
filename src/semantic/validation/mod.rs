@@ -116,6 +116,7 @@ impl CheckRegistry {
     pub fn with_defaults() -> Self {
         let mut r = Self::new();
         r.register(Box::new(duplicate::DuplicateCmieCheck));
+        r.register(Box::new(funcshape::FuncShapeDriftCheck));
         r.register(Box::new(dupwithin::DupWithinCheck));
         r.register(Box::new(enums::EnumsCheck));
         r.register(Box::new(attrs::AttrsCheck));
@@ -165,6 +166,7 @@ pub mod body;
 pub mod conds;
 pub mod defs;
 pub mod duplicate;
+pub mod funcshape;
 pub mod dupwithin;
 pub mod enums;
 pub mod exprs;

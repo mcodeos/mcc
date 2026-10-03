@@ -91,7 +91,7 @@ fn num(raw: &str) -> String {
     }
 }
 
-/// Pull a named XML attribute's value out of a tag's attribute string.
+/// Pullup a named XML attribute's value out of a tag's attribute string.
 fn attr(tag_attrs: &str, name: &str) -> Option<String> {
     let needle = format!("{name}=\"");
     let start = tag_attrs.find(&needle)? + needle.len();
@@ -582,8 +582,8 @@ component FLASH.GD25Q32E
     func power([V3V3, GND]::DC(3.3V))
     {
         [V3V3, GND] => CAP(100nF).Cap(_) -> [VCC, VSS]
-        RES(10k).Pull([_CS, V3V3])
-        RES(10k).Pull([_WP, V3V3])
+        RES(10k).Pullup([_CS, V3V3])
+        RES(10k).Pullup([_WP, V3V3])
     }
 }
 

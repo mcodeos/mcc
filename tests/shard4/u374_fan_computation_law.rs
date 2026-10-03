@@ -19,7 +19,7 @@ use crate::common;
 use mcc::{McIds, McURI};
 
 const CAP_COMP: &str = "component CAP {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n    func Cap([n1, n2]) {\n        n1 - this - n2\n    }\n}\n";
-const RP_COMP: &str = "component RP {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n    func Pull(n1) {\n        n1 - this.1\n    }\n}\n";
+const RP_COMP: &str = "component RP {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n    func Pullup(n1) {\n        n1 - this.1\n    }\n}\n";
 const T_COMP: &str = "component T {\n    pins = [\n        1 = A\n        2 = K\n    ]\n}\n";
 
 /// Build `main`, return the diagnostic codes (sorted).
@@ -131,12 +131,12 @@ fn p3_stmt_equal_slice_pair_per_row() {
     );
 }
 
-/// F1 shape 1 (matrix, P4) -- `c[1:2].Pull(VDD)`: the single scalar actual is
+/// F1 shape 1 (matrix, P4) -- `c[1:2].Pullup(VDD)`: the single scalar actual is
 /// shared across all lanes, so every pulled pin lands on the VDD net.
 #[test]
 fn p4_dispatch_scalar_shared_fan() {
     let src = format!(
-        "{RP_COMP}module main {{\n    io VDD\n    RP c[1:2]()\n    c[1:2].Pull(VDD)\n}}\n"
+        "{RP_COMP}module main {{\n    io VDD\n    RP c[1:2]()\n    c[1:2].Pullup(VDD)\n}}\n"
     );
     let nets = build_net_store(&src, "/mcc/u374-p4.mc");
     let shared = net_holding(&nets, "c1.1").expect("net carrying c1.1");

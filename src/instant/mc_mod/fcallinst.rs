@@ -837,7 +837,7 @@ impl InstantiationBuilder {
                 // ──
                 // Take an outer snapshot; reset before each stmt → @CAP/@RES entries
                 // from previous body stmts do not linger, preventing member_key pointer
-                // reuse that causes the next stmt's .Cap()/.Pull() to be mis-paired
+                // reuse that causes the next stmt's .Cap()/.Pullup() to be mis-paired
                 // with the previous stmt's instance (root cause of VDD/VDD_CORE short
                 // circuits); entries from outer stmts remain because they are in the
                 // snapshot (preserves the chained return `X6.setup(...).XTAL`).
@@ -2518,7 +2518,7 @@ impl InstantiationBuilder {
         // ★ U331 ③: a body whose statements are ALL conditional (if/else)
         // parses into `conds` with `stmts` empty — bailing on `stmts` alone
         // starved the conds channel below of every such body (pca9555
-        // Address, nsi814x Pull). Only a body with neither statements nor
+        // Address, nsi814x Pullup). Only a body with neither statements nor
         // conditional blocks has nothing to run.
         if func_def.stmts.is_empty() && func_def.conds.is_empty() {
             mcc_dbg!(
@@ -2906,7 +2906,7 @@ impl InstantiationBuilder {
                         })
                     },
                     func_name: f.func_name.clone(),
-                    // ── P4: Prefix bare pin names in actuals (e.g. `_CS` in `.Pull(_CS, V3V3)`
+                    // ── P4: Prefix bare pin names in actuals (e.g. `_CS` in `.Pullup(_CS, V3V3)`
                     // → `flash._CS`). The underscore placeholder `_` (McOpd::Uscore) and
                     // the skip set (actuals / parent ports, e.g. V3V3) are protected
                     // inside the helper and are not accidentally prefixed.
@@ -3308,7 +3308,7 @@ impl InstantiationBuilder {
     }
 
     /// P4: Prefix bare pin names in method-call actuals
-    /// In actuals of `.Cap/.Pull` calls like `.Pull(_CS, V3V3)` /
+    /// In actuals of `.Cap/.Pullup` calls like `.Pullup(_CS, V3V3)` /
     /// `.Cap(x)`, the component's own bare pin names (e.g. flash's
     /// `_CS`/`_WP`/`_HOLD`) must be prefixed to `flash._CS` so that
     /// `instantiate_instance_method` falls onto the instance's real pin via

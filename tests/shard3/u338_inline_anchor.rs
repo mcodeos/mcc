@@ -9,7 +9,7 @@
 //! point at the chain tail (E4007, head nets lost). The b4149 probe pinned
 //! the mechanism; the fix keeps the prefix as terminal-binding lanes on the
 //! construction (`pre_closure` + caller-less + real-`left` marker). These
-//! locks pin the new face against its `.Pull(_)` anchor control: identical
+//! locks pin the new face against its `.Pullup(_)` anchor control: identical
 //! netlist multiset, identical diagnostics, and the width-mismatch face
 //! reporting E4180 once without the tail re-judging it as E4007.
 
@@ -23,7 +23,7 @@ component RES(r) {
         1 = _
         2 = _
     ]
-    func Pull([n1, n2]) {
+    func Pullup([n1, n2]) {
         n1 - this - n2
         return [n1, n2]
     }
@@ -57,7 +57,7 @@ fn netlines(src: &str) -> (Vec<String>, Vec<u32>) {
     (lines, codes)
 }
 
-/// The ruled equivalence: the bare inline anchor and the `.Pull(_)` method
+/// The ruled equivalence: the bare inline anchor and the `.Pullup(_)` method
 /// anchor produce the same netlist multiset with zero diagnostics —
 /// `[A1, A2] => CAP(x)` binds the prefix lanes pairwise to the cap's
 /// terminals and the tail zips row-wise against the same lane set.
@@ -67,7 +67,7 @@ fn bare_anchor_matches_method_anchor_netlist() {
         "{PRELUDE}        [A1, A2] => RES(10k) -> [B1, B2]\n    }}\n}}"
     ));
     let (method_lines, method_codes) = netlines(&format!(
-        "{PRELUDE}        [A1, A2] => RES(10k).Pull(_) -> [B1, B2]\n    }}\n}}"
+        "{PRELUDE}        [A1, A2] => RES(10k).Pullup(_) -> [B1, B2]\n    }}\n}}"
     ));
     assert!(
         !bare_lines.is_empty(),

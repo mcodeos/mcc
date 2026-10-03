@@ -165,7 +165,7 @@ fn member_scalar__single_member_range_is_scalar() {
 /// locks that a scalar member reference connects only itself.
 #[test]
 fn member_scalar__single_index_ref_connects_only_itself() {
-    let res_comp = "component RES(res::INT) {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n    func Pull([n1, n2]) {\n        n1 - this - n2\n    }\n}\n";
+    let res_comp = "component RES(res::INT) {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n    func Pullup([n1, n2]) {\n        n1 - this - n2\n    }\n}\n";
     let src = format!(
         "{res_comp}module main {{\n    io VDD\n    io GND\n    res[1:2]::RES(0)\n    res[2] -> GND\n}}\n"
     );
@@ -202,9 +202,9 @@ fn member_scalar__single_index_ref_connects_only_itself() {
 /// array; a non-array caller must reach method dispatch. Locked here.
 #[test]
 fn member_scalar__single_index_method_dispatch_reaches_its_member() {
-    let res_comp = "component RES(res::INT) {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n    func Pull([n1, n2]) {\n        n1 - this - n2\n    }\n}\n";
+    let res_comp = "component RES(res::INT) {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n    func Pullup([n1, n2]) {\n        n1 - this - n2\n    }\n}\n";
     let src = format!(
-        "{res_comp}module main {{\n    io NET\n    io VCC\n    res[1:2]::RES(0)\n    res[2].Pull([NET, VCC])\n}}\n"
+        "{res_comp}module main {{\n    io NET\n    io VCC\n    res[1:2]::RES(0)\n    res[2].Pullup([NET, VCC])\n}}\n"
     );
     let (inst, _, _, net_store) = build_main(&src, "/mcc/vinst-single-index-call.mc");
     assert_eq!(find_vector(&inst, "res").member_names, vec!["res1", "res2"]);
@@ -221,7 +221,7 @@ fn member_scalar__single_index_method_dispatch_reaches_its_member() {
     assert!(
         net_pins.iter().any(|p| p.starts_with("res2."))
             && vcc_pins.iter().any(|p| p.starts_with("res2.")),
-        "`res[2].Pull` must dispatch on res2 (NET=res2.1, VCC=res2.2); \
+        "`res[2].Pullup` must dispatch on res2 (NET=res2.1, VCC=res2.2); \
          got NET={net_pins:?} VCC={vcc_pins:?}"
     );
     assert!(
@@ -230,14 +230,14 @@ fn member_scalar__single_index_method_dispatch_reaches_its_member() {
     );
 }
 
-/// The dotted spelling (`res1.Pull`) is the same scalar member reference and
+/// The dotted spelling (`res1.Pullup`) is the same scalar member reference and
 /// must dispatch identically — the swallow was keyed on "name is in a vector
 /// group", not on the `[` spelling (§2.6 table A lists this as clean work).
 #[test]
 fn member_scalar__dotted_member_method_dispatch_reaches_its_member() {
-    let res_comp = "component RES(res::INT) {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n    func Pull([n1, n2]) {\n        n1 - this - n2\n    }\n}\n";
+    let res_comp = "component RES(res::INT) {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n    func Pullup([n1, n2]) {\n        n1 - this - n2\n    }\n}\n";
     let src = format!(
-        "{res_comp}module main {{\n    io NET\n    io VCC\n    res[1:2]::RES(0)\n    res1.Pull([NET, VCC])\n}}\n"
+        "{res_comp}module main {{\n    io NET\n    io VCC\n    res[1:2]::RES(0)\n    res1.Pullup([NET, VCC])\n}}\n"
     );
     let (inst, _, _, net_store) = build_main(&src, "/mcc/vinst-dotted-call.mc");
     let entries = net_store.get(&inst.name.to_string()).unwrap_or_default();
@@ -248,7 +248,7 @@ fn member_scalar__dotted_member_method_dispatch_reaches_its_member() {
         .unwrap_or_default();
     assert!(
         net_pins.iter().any(|p| p.starts_with("res1.")),
-        "`res1.Pull` must dispatch on res1; got NET={net_pins:?}"
+        "`res1.Pullup` must dispatch on res1; got NET={net_pins:?}"
     );
     assert!(
         !net_pins.iter().any(|p| p.starts_with("res2.")),

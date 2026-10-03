@@ -1404,7 +1404,10 @@ impl McParamBindings {
                         continue;
                     }
                     if let Some(decl_unit) = declare.get_declared_unit() {
-                        if decl_unit == arg_unit {
+                        // U370 seam: a composite written value (`100ppm/°C`)
+                        // claims a leaf-head declaration (`::UV.PPM`,
+                        // `::UV.PPM/UV.TEMP` -> PPM) through its head family.
+                        if arg_unit.matches_declared(decl_unit) {
                             bindings[di] =
                                 Some(McParamBinding::new(declare.clone(), Some(pos_val.clone())));
                             slot_claimed[di] = true;
@@ -1916,7 +1919,7 @@ pub enum ParamBindError {
     DuplicateParameter { name: String },
 
     /// A name that matches a *member* of a bracket vector formal
-    /// (`Pull(n1: …)` against `func Pull([n1, n2])`). Members are
+    /// (`Pullup(n1: …)` against `func Pullup([n1, n2])`). Members are
     /// nameable inside the body, not at the call site: a named argument
     /// supplies the one whole-formal value (spec/10-funcs.md §7 item 12),
     /// and a Multiple formal has no whole-formal name to write.

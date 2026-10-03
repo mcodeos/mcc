@@ -3254,7 +3254,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         severity = Warning,
         domain = NamingStyle,
         host = "ports",
-        doc = "Name is both a value parameter and an instance.",
+        doc = "Name is both a numeric parameter and an instance.",
         lock = "tests/semantic_false_diagnostics.rs",
     },
     declare_post_parse_rule! {

@@ -121,16 +121,16 @@ fn vector_receiver_is_lane_structured_list() {
 
 /// Lane contract: func-local declared receiver (§11.3 pin 3)
 /// `r[1:2]::RES(0)` (func-body declare, invisible to in-body find_inst) then
-/// `r[1:2].Pull([NET, VCC])` — still resolves to per-member lanes via
+/// `r[1:2].Pullup([NET, VCC])` — still resolves to per-member lanes via
 /// `is_declared_instance_name`.
 #[test]
 fn func_local_vector_receiver_is_lane_structured_list() {
-    let res_comp = "component RES(res::INT) {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n    func Pull([n1, n2]) {\n        n1 - this - n2\n    }\n}\n";
+    let res_comp = "component RES(res::INT) {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n    func Pullup([n1, n2]) {\n        n1 - this - n2\n    }\n}\n";
     let src = format!(
-        "{res_comp}module main {{\n    io NET\n    io VCC\n    func M() {{\n        r[1:2]::RES(0)\n        r[1:2].Pull([NET, VCC])\n    }}\n}}\n"
+        "{res_comp}module main {{\n    io NET\n    io VCC\n    func M() {{\n        r[1:2]::RES(0)\n        r[1:2].Pullup([NET, VCC])\n    }}\n}}\n"
     );
     let stmts = func_m_stmts(&src, "/mcc/lane-funclocal.mc");
-    let fc = find_funccall(&stmts, "Pull").expect("Pull fcall in M stmts");
+    let fc = find_funccall(&stmts, "Pullup").expect("Pullup fcall in M stmts");
     let caller = fc.caller.as_ref().expect("caller");
     let lanes = match caller.as_ref() {
         mcc::McPhrase::Endpoint(mcc::McRef::Group(lanes)) => lanes,
@@ -181,17 +181,17 @@ fn bus_member_slice_lane_stays_structured_ids() {
 }
 
 /// ── U316 site 1: a single-member declare is a plain reference ───
-/// `r::RES(0)` then `r.Pull([NET, VCC])` — the caller collapses to
+/// `r::RES(0)` then `r.Pullup([NET, VCC])` — the caller collapses to
 /// `Endpoint(Name(..))` like every other single-ref producer; the
 /// Group-of-1 spelling is not buildable.
 #[test]
 fn single_member_declare_caller_is_not_a_group() {
-    let res_comp = "component RES(res::INT) {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n    func Pull([n1, n2]) {\n        n1 - this - n2\n    }\n}\n";
+    let res_comp = "component RES(res::INT) {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n    func Pullup([n1, n2]) {\n        n1 - this - n2\n    }\n}\n";
     let src = format!(
-        "{res_comp}module main {{\n    io NET\n    io VCC\n    func M() {{\n        r::RES(0)\n        r.Pull([NET, VCC])\n    }}\n}}\n"
+        "{res_comp}module main {{\n    io NET\n    io VCC\n    func M() {{\n        r::RES(0)\n        r.Pullup([NET, VCC])\n    }}\n}}\n"
     );
     let stmts = func_m_stmts(&src, "/mcc/lane-single-declare.mc");
-    let fc = find_funccall(&stmts, "Pull").expect("Pull fcall in M stmts");
+    let fc = find_funccall(&stmts, "Pullup").expect("Pullup fcall in M stmts");
     let caller = fc.caller.as_ref().expect("caller");
     match caller.as_ref() {
         mcc::McPhrase::Endpoint(mcc::McRef::Name(_)) => {}

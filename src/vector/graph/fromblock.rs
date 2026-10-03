@@ -239,7 +239,7 @@ fn apply_reserved_overrides(b: &mut McVecBox) {
 
 /// ★ C1b: extract component value from class name and symbol.
 ///
-/// When the component declaration doesn't provide a value parameter, there is
+/// When the component declaration doesn't provide a numeric parameter, there is
 /// nothing real to print — earlier code invented "0R" for every default resistor,
 /// which cluttered the schematic with a bogus value. Return `None` and let the
 /// renderer draw only the designator.

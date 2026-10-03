@@ -89,9 +89,9 @@ impl InstantiationBuilder {
         }
 
         // ── §3.3: a fanned-out array member dispatch is a STATEMENT LIST, not
-        // a chain. `x[1:2]::RES(0).Pull(C)` parses to a `Multiple` of the
+        // a chain. `x[1:2]::RES(0).Pullup(C)` parses to a `Multiple` of the
         // per-member calls; flattening that joins the members with an
-        // undirected gap and shorts them together (a returnless `Pull` put
+        // undirected gap and shorts them together (a returnless `Pullup` put
         // all four pins and both nets on ONE net). Each member is its own
         // standalone statement — same expansion shape as the group above.
         if let Some(expanded) = phrase.expand_array_member_statements() {
@@ -553,7 +553,7 @@ impl InstantiationBuilder {
     ) -> Result<(), InstError> {
         debug_assert_eq!(gaps.len(), members.len().saturating_sub(1));
         // ── P2-5: expand a call once per lane of a multi-member bus ──
-        // `I2C0 => RES(10kΩ).Pull(_, VDD)` with `I2C0 = {SCL, SDA}` should
+        // `I2C0 => RES(10kΩ).Pullup(_, VDD)` with `I2C0 = {SCL, SDA}` should
         // create 2 resistors. The call is identified by the bus appearing in
         // its actuals; where the LANES come from depends on how the bus was
         // written (see `plan` below):
@@ -706,8 +706,8 @@ impl InstantiationBuilder {
                 }
 
                 // One substituted call per lane. The `=>` fold put the bus
-                // inside the call's actuals, so `I2C0 => RES(10kΩ).Pull([_, VDD])`
-                // folds to `.Pull([I2C0, VDD])`; per lane the bus must become
+                // inside the call's actuals, so `I2C0 => RES(10kΩ).Pullup([_, VDD])`
+                // folds to `.Pullup([I2C0, VDD])`; per lane the bus must become
                 // its member (`uC.I2C0` -> `uC.I2C0.SCL`, param-prefix §5) so the
                 // body wires pin2 -> VDD instead of leaving it dangling.
                 let lane_calls: Vec<McPhrase> = lane_items
@@ -715,7 +715,7 @@ impl InstantiationBuilder {
                     .map(|item| {
                         let mut fc_clone = fc.clone();
                         // Fresh IDs per lane so P2-9 dedup does not collapse the
-                        // expanded instances (SCL+SDA Pull must build 2 RES).
+                        // expanded instances (SCL+SDA Pullup must build 2 RES).
                         Self::reset_phrase_ids(&mut fc_clone);
                         if let McPhrase::FuncCall(fc_ref) = &mut fc_clone {
                             if let Some((base_bus, lane_name)) = Self::bus_lane_of(item) {
@@ -3617,7 +3617,7 @@ impl InstantiationBuilder {
                 // (although not in the example project).
                 //
                 // Iter-3.A
-                // `.Cap/.Pull` must reach Iter-2.2 dispatch below
+                // `.Cap/.Pullup` must reach Iter-2.2 dispatch below
                 // so the library func is the wiring source (unified-twopin-
                 // no-builtin v2.0) — never get grabbed earlier as a component
                 // instance method with an empty-shell body ("Instance method
@@ -3669,7 +3669,7 @@ impl InstantiationBuilder {
                 }
 
                 // Iter-2.2: ordinary instance-method dispatch
-                // Runs for ALL method calls including `.Cap/.Pull`
+                // Runs for ALL method calls including `.Cap/.Pullup`
                 // — the library func (`func Cap([net1, net2])` etc.) is now the
                 // only implementation (unified-twopin-no-builtin v2.0). If the
                 // caller's component/sub-module def declares the func, dispatch
@@ -3914,7 +3914,7 @@ impl InstantiationBuilder {
                 // This position is kept as a placeholder note, semantics are lifted.
                 // Below follows the generic FuncCall instantiation path
                 // (unified-twopin-no-builtin v2.0: no P1-D builtin twopin
-                // fallback — `.Cap/.Pull` either dispatch through
+                // fallback — `.Cap/.Pullup` either dispatch through
                 // method dispatch above or fall through to the generic path).
                 let key = Self::member_key(phrase);
 
@@ -4181,7 +4181,7 @@ impl InstantiationBuilder {
                 // P1-B keeps Multiple inside Series, so this arm cannot stay a
                 // no-op: doing nothing leaves the inner FuncCalls (like the iterated
                 // call `cap[4:5]::CAP(1uF)`, or member list
-                // `[CAP(10uF).Cap(...), RES(1k).Pull(...)]`) won't be
+                // `[CAP(10uF).Cap(...), RES(1k).Pullup(...)]`) won't be
                 // instantiated, auto_inst_map won't have corresponding keys,
                 // downstream get_left_points/get_right_points can only go
                 // through fallback, expanding pins as bare labels, and the
@@ -4467,8 +4467,8 @@ impl InstantiationBuilder {
         // scalars are not in `vectors`, so single-member references never
         // re-link as arrays" — is false as written: `member_ids` holds exactly
         // the contract-E scalar member names (`res1`, `res2`). So a scalar
-        // member used as a *FuncCall caller* (`res[2].Pull(...)`,
-        // `res1.Pull(...)`) matched, producer B registered `@@ARRAY:res1,
+        // member used as a *FuncCall caller* (`res[2].Pullup(...)`,
+        // `res1.Pullup(...)`) matched, producer B registered `@@ARRAY:res1,
         // res2` and returned early — **before** the Iter-2.2 method dispatch —
         // silently dropping the call. The old lock
         // (`member_scalar__single_index_ref_connects_only_itself`) only covers

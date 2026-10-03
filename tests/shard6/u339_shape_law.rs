@@ -366,7 +366,7 @@ fn u339__implicit_this_row_return_replicates_per_lane() {
 /// return — the construction the shape law's row arm replicates one instance
 /// of per lane. `io R` (third lane) is declared for the scaling lock; the
 /// two-lane locks simply leave it unwired.
-const PULL: &str = "component RES(res::INT) {\n    pins = [ io [1,2] = NODE{P, N} ]\n    func Pull(net) {\n        net - this.1\n        return this{P | N}\n    }\n}\n";
+const PULL: &str = "component RES(res::INT) {\n    pins = [ io [1,2] = NODE{P, N} ]\n    func Pullup(net) {\n        net - this.1\n        return this{P | N}\n    }\n}\n";
 
 fn pull_src(body: &str) -> String {
     format!(
@@ -377,12 +377,12 @@ fn pull_src(body: &str) -> String {
 
 /// The §7.7 row arm on a construction callee: a `1*2` return on a two-lane
 /// trunk reads as one instance PER LANE, in series within its lane —
-/// `[P, Q] => RES(10k).Pull(_) -> [X, Y]` builds the same circuit as the two
+/// `[P, Q] => RES(10k).Pullup(_) -> [X, Y]` builds the same circuit as the two
 /// scalar statements. The column control above (`column_head_still_bridges`)
 /// is the contrast: a column return bridges one instance across both lanes.
 #[test]
 fn u339__row_return_constructor_replicates_one_instance_per_lane() {
-    let src = pull_src("        [P, Q] => RES(10k).Pull(_) -> [X, Y]");
+    let src = pull_src("        [P, Q] => RES(10k).Pullup(_) -> [X, Y]");
     let mut nets = nets_of(&src, "/mcc/u339-row-fork.mc");
     nets.retain(|net| net.iter().any(|p| p.contains("_R")));
     nets.sort();
@@ -412,7 +412,7 @@ fn u339__row_return_constructor_replicates_one_instance_per_lane() {
 /// materialize three instances, each bound to its own lane's tail member.
 #[test]
 fn u339__row_return_fork_scales_to_three_lanes() {
-    let src = pull_src("        [P, Q, R] => RES(10k).Pull(_) -> [X, Y, Z]");
+    let src = pull_src("        [P, Q, R] => RES(10k).Pullup(_) -> [X, Y, Z]");
     assert_eq!(
         devices_of(&src, "/mcc/u339-row-fork3.mc"),
         BTreeSet::from([
@@ -437,12 +437,12 @@ fn u339__row_return_fork_scales_to_three_lanes() {
 #[test]
 fn u339__row_return_fork_keeps_each_lane_width_honest() {
     let two = PULL.replace(
-        "func Pull(net) {\n        net - this.1\n        return this{P | N}\n    }",
-        "func Pull([n1, n2]) {\n        n1 - this - n2\n        return this{P | N}\n    }",
+        "func Pullup(net) {\n        net - this.1\n        return this{P | N}\n    }",
+        "func Pullup([n1, n2]) {\n        n1 - this - n2\n        return this{P | N}\n    }",
     );
     let src = format!(
         "{two}module main {{\n    io P\n    io Q\n    io X\n    io Y\n    \
-         func M() {{\n        [P, Q] => RES(10k).Pull(_) -> [X, Y]\n    }}\n}}\n"
+         func M() {{\n        [P, Q] => RES(10k).Pullup(_) -> [X, Y]\n    }}\n}}\n"
     );
     let codes = codes_of(&src, "/mcc/u339-row-fork-deficit.mc");
     assert_eq!(

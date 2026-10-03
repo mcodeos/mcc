@@ -779,7 +779,7 @@ pub fn handle_show_pins(params: Option<Value>) -> RpcResult {
     Ok(data)
 }
 
-/// The component's callable functions (e.g. `Pull`/`Cap` on RES), so an
+/// The component's callable functions (e.g. `Pullup`/`Cap` on RES), so an
 /// AI agent looking up `component_pins` also learns which methods it may call —
 /// it cannot guess them from the pins alone.
 fn component_funcs_json(c: &crate::McComponent) -> Value {

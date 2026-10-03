@@ -78,7 +78,7 @@ fn check_param_inst_overlap(mod_name: &str, m: &crate::McModule, acc: &mut Check
                 uri: Some(m.uri.to_string()),
                 span,
                 message: format!(
-                    "Name '{}' in '{}' is both a value parameter and an instance.",
+                    "Name '{}' in '{}' is both a numeric parameter and an instance.",
                     n, mod_name
                 ),
                 code: crate::errcodes::NAME_PARAM_AND_INSTANCE,

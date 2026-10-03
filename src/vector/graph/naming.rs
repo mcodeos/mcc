@@ -79,7 +79,7 @@ const MAIN_CHIP_KEYWORDS: &[&str] = &["MCU", "CPU", "SOC", "FPGA", "DSP"];
 /// -> `instantiate_funccall` returns `PassThrough` -> stmt.rs generates `@?ESD_N` stub
 /// -> subsequent resolve can't find `@?ESD_N.1` -> entire net lost (viz.md A1 diagnostic chain).
 ///
-/// **Note**: `Pull` / `Cap` are chain-methods (caller.Pull(...)), dispatched as
+/// **Note**: `Pullup` / `Cap` are chain-methods (caller.Pullup(...)), dispatched as
 /// ordinary methods, **not** in this table, otherwise it would rename the actual
 /// RES instance corresponding to the caller.
 const CLASS_ALIAS_TO_CANONICAL: &[(&str, &str)] = &[
@@ -100,7 +100,7 @@ const CLASS_ALIAS_TO_CANONICAL: &[(&str, &str)] = &[
 /// assert_eq!(canonicalize_class_alias("ESD"), Some("DIO.ESD".to_string()));
 /// assert_eq!(canonicalize_class_alias("zener"), Some("DIO.ZENER".to_string()));
 /// assert_eq!(canonicalize_class_alias("CAP"), None);  // CAP itself is already canonical
-/// assert_eq!(canonicalize_class_alias("Pull"), None); // not a class, it's a method
+/// assert_eq!(canonicalize_class_alias("Pullup"), None); // not a class, it's a method
 /// ```
 pub fn canonicalize_class_alias(class_name: &str) -> Option<String> {
     let u = class_name.to_uppercase();
@@ -481,8 +481,8 @@ mod tests {
         assert_eq!(canonicalize_class_alias("RES"), None);
         assert_eq!(canonicalize_class_alias("DIO.ESD"), None);
         assert_eq!(canonicalize_class_alias("IND.FERRITE"), None);
-        // Pull / Cap are methods, not class aliases
-        assert_eq!(canonicalize_class_alias("Pull"), None);
+        // Pullup / Cap are methods, not class aliases
+        assert_eq!(canonicalize_class_alias("Pullup"), None);
         assert_eq!(canonicalize_class_alias("Cap"), None);
     }
 }

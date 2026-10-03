@@ -1435,6 +1435,9 @@ fn emit_tree_nets(
                 longest_midpoint(t.segments.iter().map(|s| ((s.x1, s.y1), (s.x2, s.y2))))
             {
                 let shown = display_of(&t.net_name);
+                if std::env::var("MCC_KSCH_TRACE").is_ok() {
+                    eprintln!("[tlbl] {} {} {} {}", graph.bid, shown, xf.x(x), xf.y(y));
+                }
                 text_label(graph.bid, &shown, xf.x(x), xf.y(y), Slide::X, &mut state.labels, e);
             }
         }
@@ -2320,6 +2323,9 @@ fn emit_pin_rescue(
                         EntrySide::Bottom => (ax, ay + 10.0),
                     };
                     emit_wire(graph.bid, xf, ax, ay, sx, sy, e);
+                    if std::env::var("MCC_KSCH_TRACE").is_ok() {
+                        eprintln!("[rlbl] {} {} {} {}", graph.bid, display, sx, sy);
+                    }
                     text_label(graph.bid, display, sx, sy, Slide::Y, ledger, e);
                 }
             }
@@ -2429,6 +2435,9 @@ fn emit_wired_pin_guarantee(
             };
             emit_wire(graph.bid, xf, ax, ay, sx, sy, e);
             if named {
+                if std::env::var("MCC_KSCH_TRACE").is_ok() {
+                    eprintln!("[glbl1] {} {} {} {}", graph.bid, shown, xf.x(sx), xf.y(sy));
+                }
                 text_label(graph.bid, &shown, xf.x(sx), xf.y(sy), Slide::None, ledger, e);
             } else if let Some(&(ex, ey)) = ends
                 .iter()
@@ -2478,6 +2487,9 @@ fn emit_wired_pin_guarantee(
                 EntrySide::Bottom => (ax, ay + 10.0),
             };
             emit_wire(graph.bid, xf, ax, ay, sx, sy, e);
+            if std::env::var("MCC_KSCH_TRACE").is_ok() {
+                eprintln!("[glbl2] {} {} {} {}", graph.bid, island, xf.x(sx), xf.y(sy));
+            }
             text_label(graph.bid, island, xf.x(sx), xf.y(sy), Slide::None, ledger, e);
             ends.push((ax, ay));
         }

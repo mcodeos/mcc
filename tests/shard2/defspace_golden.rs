@@ -1399,13 +1399,13 @@ component WVariant : RealR
 fn def_defspace__p13b_variant_adoption_compose() {
     let _lock = common::lock();
 
-    // ── Cell 1/2/5 — green compose: base carries `:: Pull`, the variant adds
-    //    `:: Diff` (and re-listing `Pull` dedups); the merged ledger reads
-    //    [Pull, Diff] in base-first order and no adoption diagnostic fires.
+    // ── Cell 1/2/5 — green compose: base carries `:: Pullup`, the variant adds
+    //    `:: Diff` (and re-listing `Pullup` dedups); the merged ledger reads
+    //    [Pullup, Diff] in base-first order and no adoption diagnostic fires.
     common::reset();
     let uri = "/virtual/p13b_compose.mc".to_string();
     let src = r#"
-recipe Pull
+recipe Pullup
 {
     psnk VCC
 }
@@ -1415,7 +1415,7 @@ recipe Diff
     io EN
 }
 
-abstract component ABase(v::UV.VOLT) :: Pull
+abstract component ABase(v::UV.VOLT) :: Pullup
 {
     pins = [
         psnk 1 = VCC
@@ -1424,7 +1424,7 @@ abstract component ABase(v::UV.VOLT) :: Pull
     ]
 }
 
-component CVariant : ABase :: Pull, Diff
+component CVariant : ABase :: Pullup, Diff
 {
     partno = "CV-1"
 }
@@ -1441,13 +1441,13 @@ component CVariant : ABase :: Pull, Diff
         d.iter().map(|x| (x.code, x.msg.clone())).collect::<Vec<_>>()
     );
     let sn = |name: &str| mcc::McSpaceName::new(&mcc::McIds::from(name), uri.clone());
-    let pull_id = mcc::def_id(&sn("Pull"), mcc::DefKind::Recipe).expect("Pull def id");
+    let pull_id = mcc::def_id(&sn("Pullup"), mcc::DefKind::Recipe).expect("Pullup def id");
     let diff_id = mcc::def_id(&sn("Diff"), mcc::DefKind::Recipe).expect("Diff def id");
     let cvar_id = mcc::def_id(&sn("CVariant"), mcc::DefKind::Component).expect("CVariant def id");
     assert_eq!(
         mcc::adopted_recipes_of(cvar_id),
         vec![pull_id, diff_id],
-        "merged adopt ledger = base's [Pull] + own [Diff], the re-listed Pull dedups"
+        "merged adopt ledger = base's [Pullup] + own [Diff], the re-listed Pullup dedups"
     );
 
     // ── Cell 4 — clash: the variant's own adopted recipe func collides with
@@ -1495,7 +1495,7 @@ component CVariant2 : ABase2 :: Clasher
     common::reset();
     let ord_uri = "/virtual/p13b_order.mc".to_string();
     let ord_src = r#"
-recipe Pull
+recipe Pullup
 {
     psnk VCC
 }
@@ -1507,7 +1507,7 @@ abstract component ABase3(v::UV.VOLT)
     ]
 }
 
-component CBad3 :: Pull : ABase3
+component CBad3 :: Pullup : ABase3
 {
 }
 "#;

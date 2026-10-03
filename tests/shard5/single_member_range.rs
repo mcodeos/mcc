@@ -28,7 +28,7 @@ use crate::common;
 
 use mcc::{McIds, McURI};
 
-const RES_COMP: &str = "component RES(res::INT) {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n    func Pull([net1, net2]) {\n        net1 - this - net2\n        return [net1, net2]\n    }\n}\n";
+const RES_COMP: &str = "component RES(res::INT) {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n    func Pullup([net1, net2]) {\n        net1 - this - net2\n        return [net1, net2]\n    }\n}\n";
 
 /// Build `main` from `src`, returning (paths, nets, diagnostic codes).
 fn build(src: &str, uri: &str) -> (Vec<String>, Vec<String>, Vec<u32>) {
@@ -69,7 +69,7 @@ fn assert_no_path_containing(paths: &[String], fragment: &str, what: &str) {
 #[test]
 fn member_scalar__res4_range_is_scalar() {
     let src = format!(
-        "{RES_COMP}module main {{\n    io VDD\n    io NET\n    io VCC\n    func M() {{\n        res[4]::RES(0)\n        res[4].Pull([NET, VCC])\n    }}\n}}\n"
+        "{RES_COMP}module main {{\n    io VDD\n    io NET\n    io VCC\n    func M() {{\n        res[4]::RES(0)\n        res[4].Pullup([NET, VCC])\n    }}\n}}\n"
     );
     let (paths, nets, codes) = build(&src, "/mcc/single-member-range.mc");
 

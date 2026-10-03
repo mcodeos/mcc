@@ -858,6 +858,14 @@ pub const IFACE_ARG_EXCESS: u32 = 3190;
 /// materializes no pin and vanishes silently.
 pub const IFACE_ROW_UNBOUND_PARAM: u32 = 3191;
 
+/// Same-name funcs on different components declare different parameter
+/// shapes (func-param-shape-design.md): the shape is a quantifier contract
+/// with every call site (scalar = one net per slot; Set = one slot takes the
+/// whole bundle; no auto-folding), so a consumer of `X.Power` cannot carry
+/// the spelling to `Y.Power` when the shapes drift. Warning, not error —
+/// the drift may be a legitimate domain difference.
+pub const FUNC_SHAPE_DRIFT: u32 = 3192;
+
 // Pass2: connection / shape (4000-4049)
 
 /// Transposed connection size mismatch.
@@ -1492,7 +1500,7 @@ pub const PORT_DUPLICATE_NAME: u32 = 5152;
 /// The class is a component/module/enum, not an interface.
 pub const NOT_AN_INTERFACE: u32 = 5153;
 
-/// Name is both a value parameter and an instance.
+/// Name is both a numeric parameter and an instance.
 pub const NAME_PARAM_AND_INSTANCE: u32 = 5154;
 
 /// Pin is not connected to any net.
@@ -2772,6 +2780,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(STMT_MARKER_UNKNOWN, "Unknown statement tail marker.", "`@{0}` is not a marker this statement line reads. Instance lines read `@ncpin(...)`; connection lines read `@bridge(a, b)` / `@couple(a, b)` / `@clamp(a)` / `@star`. A marker the line does not read is never applied — remove it or correct its spelling."),
     entry!(IFACE_ARG_EXCESS, "An interface adoption passes more constructor arguments than the interface declares.", "Interface '{0}' declares {1} parameter(s) but this adoption passes {2}; every argument past {1} is dropped. Match the argument list to the declared parameter table."),
     entry!(IFACE_ROW_UNBOUND_PARAM, "A cond branch's computed pin-row name reads a parameter no constructor argument binds at this interface adoption.", "The selected branch of interface '{0}' computes a pin-row name from parameter(s) [{1}], but this adoption binds none of them; the row registers no pin. Pass the arguments here (e.g. '{0}(<value>)')."),
+    entry!(FUNC_SHAPE_DRIFT, "Same-name funcs on different components declare different parameter shapes.", "func '{0}' is declared with parameter shape ({1}) on '{2}', but ({3}) elsewhere — same-name funcs should keep one shape (the shape is the call-site spelling contract; see func-param-shape-design.md)."),
     // section
     entry!(CONN_TRANSPOSE_SIZE_MISMATCH, "Transposed connection size mismatch.", "Transposed connection size mismatch"),
     entry!(CONN_LEFT_ARROW_SHAPE_MISMATCH, "Shape mismatch in a <- connection.", "Shape mismatch in a <- connection"),
@@ -2921,7 +2930,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(INST_DECLARED_MULTIPLE, "Instance is declared more than once in the module.", "Instance is declared more than once in the module."),
     entry!(PORT_DUPLICATE_NAME, "Duplicate port name in the module — ambiguous.", "Duplicate port name in the module — ambiguous."),
     entry!(NOT_AN_INTERFACE, "The class is a component/module/enum, not an interface.", "'{0}' is a component/module/enum, not an interface."),
-    entry!(NAME_PARAM_AND_INSTANCE, "Name is both a value parameter and an instance.", "Name is both a value parameter and an instance."),
+    entry!(NAME_PARAM_AND_INSTANCE, "Name is both a numeric parameter and an instance.", "Name is both a numeric parameter and an instance."),
     entry!(PIN_UNCONNECTED, "Pin is not connected to any net.", "Pin is not connected to any net."),
     entry!(PIN_CONFLICTING_OPTIONS, "Pin uses conflicting option names.", "Instance {0} pin {1} is reached as both {2} and {3}, and the two names belong to different `|` options of the pin — one physical pin cannot carry two functions at once. Connect one option per pin, or split the connection across the option's own pin group."),
     entry!(INST_THIS_TYPE, "this :: TYPE declaration is not allowed.", "this :: TYPE declaration is not allowed."),

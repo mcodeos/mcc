@@ -14,7 +14,7 @@
 //!   unknown-name reading the claimed-slot path used to give;
 //! * positional overflow → E4176 arity (unchanged);
 //! * a bracket vector formal's member names are not argument names
-//!   (`Pull(n1: …)` against `func Pull([n1, n2])`) — one honest E4176
+//!   (`Pullup(n1: …)` against `func Pullup([n1, n2])`) — one honest E4176
 //!   instead of the width-gate E4180 + phantom-pin 3179 cascade a scalar
 //!   bound to the whole vector used to produce;
 //! * a single formal receiving a bracket set takes the *one* bracket
@@ -44,9 +44,9 @@ use std::collections::BTreeMap;
 /// unconnected-pin noise is orthogonal to every cell and filtered out.
 const METHOD_CLASS: &str = "component C {\n    pins = [\n        1 = A\n        2 = B\n    ]\n\n    func link(a, b) {\n        a - b\n    }\n}\n";
 
-/// gap1's live bracket-formal vehicle: `Pull([n1, n2])` declares one
+/// gap1's live bracket-formal vehicle: `Pullup([n1, n2])` declares one
 /// vector formal whose members are nameable inside the body.
-const RES_CLASS: &str = "component RES(res::INT) {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n    func Pull([n1, n2]) {\n        n1 - this - n2\n    }\n}\n";
+const RES_CLASS: &str = "component RES(res::INT) {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n    func Pullup([n1, n2]) {\n        n1 - this - n2\n    }\n}\n";
 
 /// Component with a single formal, for the one-bracket-argument cell.
 const SINGLE_CLASS: &str = "component S {\n    pins = [\n        1 = A\n        2 = B\n    ]\n\n    func pull(net) {\n        net - this\n    }\n}\n";
@@ -206,7 +206,7 @@ fn u131_bracket_formal_member_is_not_an_argument_name() {
     // has no whole-formal name. One honest E4176 — not the E4180 +
     // phantom-pin 3179 cascade a scalar bound to the whole vector produced.
     let named =
-        format!("{RES_CLASS}\nmodule main {{\n    RES(1) r1\n    r1.Pull(n2: N2, n1: N1)\n}}\n");
+        format!("{RES_CLASS}\nmodule main {{\n    RES(1) r1\n    r1.Pullup(n2: N2, n1: N1)\n}}\n");
     let errs = bind_errors(&named);
     assert_eq!(errs.len(), 1, "{errs:?}");
     assert!(errs[0].contains("Vector formal member"), "{errs:?}");
@@ -217,7 +217,7 @@ fn u131_bracket_formal_member_is_not_an_argument_name() {
     assert!(!all.contains(&3179), "{all:?}");
 
     // The positional twin stays live: N1-r1.1, N2-r1.2.
-    let pos = format!("{RES_CLASS}\nmodule main {{\n    RES(1) r1\n    r1.Pull([N1, N2])\n}}\n");
+    let pos = format!("{RES_CLASS}\nmodule main {{\n    RES(1) r1\n    r1.Pullup([N1, N2])\n}}\n");
     assert!(bind_errors(&pos).is_empty());
     let part = nets(&pos);
     let n1 = vec!["N1".to_string(), "r1.1".to_string()];

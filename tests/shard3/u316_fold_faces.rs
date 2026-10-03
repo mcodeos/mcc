@@ -32,7 +32,7 @@ use mcc::{McIds, McURI};
 const PRELUDE: &str = r#"
 component RES(r) {
     pins = [ 1 = 1  2 = 2 ]
-    func Pull([n1, n2]) {
+    func Pullup([n1, n2]) {
         n1 - this - n2
         return [n1, n2]
     }
@@ -84,7 +84,7 @@ fn netlines(src: &str) -> (Vec<String>, Vec<u32>) {
 #[test]
 fn iface_instance_in_set_actual_answers_width_e4180() {
     let (_, codes) = netlines(&format!(
-        "{PRELUDE}        R1::RES(10k).Pull([I2C0, VDD])\n    }}\n}}"
+        "{PRELUDE}        R1::RES(10k).Pullup([I2C0, VDD])\n    }}\n}}"
     ));
     assert!(
         codes.contains(&4180),
@@ -92,7 +92,7 @@ fn iface_instance_in_set_actual_answers_width_e4180() {
          honestly (E4180, same verdict as face B); got {codes:?}"
     );
     let (_, dotted_codes) = netlines(&format!(
-        "{PRELUDE}        R1::RES(10k).Pull([I2C0.SCL, VDD])\n    }}\n}}"
+        "{PRELUDE}        R1::RES(10k).Pullup([I2C0.SCL, VDD])\n    }}\n}}"
     ));
     assert!(
         !dotted_codes.contains(&4180),
@@ -104,7 +104,7 @@ fn iface_instance_in_set_actual_answers_width_e4180() {
 #[test]
 fn dotted_member_spelling_binds_lane_correct() {
     let (lines, codes) = netlines(&format!(
-        "{PRELUDE}        R1::RES(10k).Pull([I2C0.SCL, VDD])\n    }}\n}}"
+        "{PRELUDE}        R1::RES(10k).Pullup([I2C0.SCL, VDD])\n    }}\n}}"
     ));
     assert!(
         !codes.contains(&4180) && !codes.contains(&4007),
@@ -121,7 +121,7 @@ fn dotted_member_spelling_binds_lane_correct() {
 #[test]
 fn bus_literal_set_member_loses_lanes_under_width_diag() {
     let (_, codes) = netlines(&format!(
-        "{PRELUDE}        R1::RES(10k).Pull([I2C0{{SCL, SDA}}, VDD])\n    }}\n}}"
+        "{PRELUDE}        R1::RES(10k).Pullup([I2C0{{SCL, SDA}}, VDD])\n    }}\n}}"
     ));
     assert!(
         codes.contains(&4180),
@@ -139,7 +139,7 @@ fn bus_literal_set_member_loses_lanes_under_width_diag() {
 #[test]
 fn u329_prefix_fanout_stays_per_lane() {
     let (lines, codes) = netlines(&format!(
-        "{PRELUDE}        I2C0 => RES(10k).Pull([_, VDD])\n    }}\n}}"
+        "{PRELUDE}        I2C0 => RES(10k).Pullup([_, VDD])\n    }}\n}}"
     ));
     assert!(
         !codes.contains(&4180),

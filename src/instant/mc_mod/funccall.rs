@@ -11,7 +11,7 @@
 //!   (func-return-design §6.2: return face for case ②, instance face for case ①)
 //!
 //! unified-twopin-no-builtin v2.0: there is no built-in twopin wiring path —
-//! `.Cap/.Pull` dispatch as ordinary methods onto the library funcs
+//! `.Cap/.Pullup` dispatch as ordinary methods onto the library funcs
 //! (cap.mc / res.mc), whose body and return value are the only wiring source.
 //!
 //! The actual component / module / user_func / instance_method instantiation
@@ -74,7 +74,7 @@ impl InstantiationBuilder {
     /// 1. Component construction — `CAP(0.1uF)`, `Diode('SMBJ30A')`, `HDR(46)` etc.
     /// 2. Module call — `PowerDomain(V3V3)` etc. (Step 2 implementation)
     /// 3. User function — `func input(sin){...}` expansion (Step 3 implementation)
-    /// 4. Built-in function — `rc2()`, `Cap()`, `Pull()` etc. (Step 4 implementation)
+    /// 4. Built-in function — `rc2()`, `Cap()`, `Pullup()` etc. (Step 4 implementation)
     pub(super) fn instantiate_funccall(
         &mut self,
         func_name: &McIds,
@@ -349,7 +349,7 @@ impl InstantiationBuilder {
             // member as the left endpoint (`U1.cap1`) and `func_name` as
             // the method (`Cap`) — not a class. Resolve it against the
             // caller's type before declaring the call dead; otherwise
-            // every iterated `.Cap`/`.Pull` family degenerates to
+            // every iterated `.Cap`/`.Pullup` family degenerates to
             // pass-through (§2.6 Table A, E0944 0-connection root cause).
             if let Some(fc) = self.try_resolve_instance_method(&name_str, params, left, right)? {
                 return Ok(fc);
