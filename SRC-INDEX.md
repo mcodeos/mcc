@@ -73,7 +73,7 @@ range (threshold 40KB).
 | `query/` | 9 | 170 KB |
 | `refdef/` | 7 | 134 KB |
 | `rpc/` | 16 | 313 KB |
-| `semantic/` | 100 | 2998 KB |
+| `semantic/` | 100 | 3000 KB |
 | `stages/` | 19 | 408 KB |
 | `vector/` | 26 | 494 KB |
 | `viz/` | 97 | 2483 KB |
@@ -6713,9 +6713,9 @@ semantic/context.rs#L65  fn resolve_system
 semantic/instref.rs#L18  fn validate_inst_member_ref
 semantic/instref.rs#L83  fn validate_component_pin_ref
 semantic/instref.rs#L309  fn validate_module_port_ref
-semantic/instref.rs#L408  fn validate_interface_member_ref
-semantic/instref.rs#L492  fn validate_inst_reference
-semantic/instref.rs#L566  fn validate_component_interface_ref
+semantic/instref.rs#L441  fn validate_interface_member_ref
+semantic/instref.rs#L525  fn validate_inst_reference
+semantic/instref.rs#L599  fn validate_component_interface_ref
 semantic/mc_enum.rs#L13  struct McEnumValue
 semantic/mc_enum.rs#L20  struct McEnumDef
 semantic/mc_enum.rs#L31  impl McEnumDef

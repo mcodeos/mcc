@@ -318,6 +318,26 @@ fn validate_module_port_ref(
     // eprintln!("[VAL-MOD] inst='{}' requested={:?} all_ports={:?}",
     //       base_name, members, port_names);
 
+    // U390: a bare head formal at a module head is a declared terminal (U384
+    // N5-a) — it lives in `params` as `McParamTypeKind::Terminal`, never in
+    // `def.insts`, yet it is a boundary endpoint by declaration: the same
+    // ticket the re-call binder already accepts (`bindable_formals` →
+    // `is_power_terminal`) and the pass2 net-point gate accepts (it reads the
+    // instance-side `ports`, where the mint carries `terminal=true`). The
+    // curly member face consults the declaration channel so `f1{pin}`
+    // addresses the same endpoint instead of reporting E3175 against an
+    // empty store.
+    let declared_terminal = |name: &str| {
+        module
+            .base
+            .params
+            .find(name)
+            .is_some_and(|p| {
+                p.param_type.kind
+                    == crate::semantic::basic::mc_param_type::McParamTypeKind::Terminal
+            })
+    };
+
     let valid_port_names: Vec<&String> = port_names.iter().collect();
     let mut valid_members: Vec<String> = Vec::new();
     let mut invalid_members: Vec<String> = Vec::new();
@@ -343,6 +363,8 @@ fn validate_module_port_ref(
             });
         if exportable {
             valid_members.push(member.clone());
+        } else if declared_terminal(member) {
+            valid_members.push(member.clone());
         } else if valid_port_names.contains(&member) {
             internal_members.push(member.clone());
         } else {
@@ -365,11 +387,22 @@ fn validate_module_port_ref(
     }
 
     if !invalid_members.is_empty() {
-        let all_valid = port_names
-            .iter()
-            .map(|s| s.as_str())
-            .collect::<Vec<_>>()
-            .join(", ");
+        // U390: the availability hint must list the declared terminals too —
+        // a bare head formal is a real boundary member even though the def
+        // store never records it.
+        let mut available: Vec<String> = port_names.clone();
+        for decl in module.base.params.iter() {
+            if decl.param_type.kind
+                == crate::semantic::basic::mc_param_type::McParamTypeKind::Terminal
+            {
+                if let Some(name) = decl.get_primary_name() {
+                    if !available.contains(&name) {
+                        available.push(name);
+                    }
+                }
+            }
+        }
+        let all_valid = available.join(", ");
         dlog_error(
             crate::errcodes::MODULE_PORT_NOT_FOUND,
             node,

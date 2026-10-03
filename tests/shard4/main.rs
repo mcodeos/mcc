@@ -45,6 +45,7 @@ mod u363_spec_row_annotations;
 mod u364_params_dump;
 mod u372_curly_wrapper_transpose;
 mod u374_fan_computation_law;
+mod u390_head_terminal_curly_ref;
 mod use_statement_diagnostics;
 mod vec_parallel_transposed_bridge;
 mod vec_range_declare_equivalence;
