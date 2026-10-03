@@ -281,6 +281,7 @@
 #define MCAST_REQUIRE                  344 // require judgement clause (U383 leg4a) — `require <judge>`, judge child rides verbatim
 #define MCAST_OPD_REORDER              345 // postfix member-sequence reorder `X{{4:1}}` (U385 engine leg 2) — child 0 is the inner operand, children 1.. are the order-spec items
 #define MCAST_OPD_REORDER_RANGE        346 // one `a:b` range item inside an OPD_REORDER spec — two ID children (start, end); a bare item is a plain MCAST_ID
+#define MCAST_OPD_SPLICE               347 // `*expr` list-element splice prefix (U385 engine leg 2b) — child 0 is the spliced item; the semantic layer flattens the item's expanded member sequence into the enclosing list
 
 
 //---------------------------

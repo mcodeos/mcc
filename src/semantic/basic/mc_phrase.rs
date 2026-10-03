@@ -2994,7 +2994,23 @@ impl McPhrase {
 
             MCAST_OPD_SQUARE_VEC => {
                 let first_subnode = node.get_sub_node().expect(MISSING_SUBNODE);
-                let subnodes: Vec<AstNode> = first_subnode.iter().collect();
+                let subnodes: Vec<AstNode> = first_subnode
+                    .iter()
+                    .flat_map(|n| {
+                        // U385 engine leg 2b: the `*expr` splice prefix is
+                        // transparent on this face — the list is a connect
+                        // operand whose elements already contribute their
+                        // expanded members, so the marked item reads exactly
+                        // as the unmarked one (layer-expansion-law.md §2 flat
+                        // law; the value/Set face owns the real splice and
+                        // dissolves it in McParamValue).
+                        if n.is_type(MCAST_OPD_SPLICE) {
+                            n.get_sub_node().into_iter().collect()
+                        } else {
+                            vec![n]
+                        }
+                    })
+                    .collect();
 
                 // D6: DROPPED_STATEMENT detection
                 // When a single-element square bracket (e.g. [2] or [Unknown])
