@@ -1247,13 +1247,16 @@ pub enum LibAction {
 
     /// Install library to system directory
     Install {
-        /// Library name (required for a bare directory; an .mcl archive
-        /// carries its own name in pack.toml and must not contradict it)
+        /// Registry form: `[name][@ver][#partno]` (e.g. `ams1117@1.2#ams1117-3.3`),
+        /// solved against the configured registry. Vendoring form: the bare
+        /// name of a --from source (an .mcl archive carries its own name in
+        /// pack.toml and must not contradict it)
         name: Option<String>,
 
-        /// Source path (library root directory, or an .mcl pack archive)
+        /// Source path (library root directory, or an .mcl pack archive).
+        /// Absent = the registry form, solved against [registry] url.
         #[arg(long)]
-        from: String,
+        from: Option<String>,
 
         /// Version number (optional; an .mcl archive takes it from pack.toml)
         #[arg(long)]
@@ -1264,6 +1267,12 @@ pub enum LibAction {
         /// territory; third-party libraries are vendored into the project.
         #[arg(long)]
         global: bool,
+
+        /// Registry form only: place the pack in <project>/deps/ (the
+        /// explicit-placement law — deps/ joins the search roots only when a
+        /// declaration opted in). Without it the pack lands in the data root.
+        #[arg(long)]
+        here: bool,
     },
 
     /// Pack a library directory into .mcl archives (thin + full)

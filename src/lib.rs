@@ -133,8 +133,20 @@ pub use builder::{
     resolve_lib_root, unified_lookup, unified_lookup_all, unified_lookup_all_layered, BusRow,
     ClauseRow, FuncRow, MccProjectTree, SubElementKind,
     // Library install/resolution law shared by the CLI and the RPC handlers.
-    ensure_install_scope, find_lib_dir_pinned, install_lib_at, mcb_load_lib_by_name_pinned,
-    parse_version_req, VersionReq,
+    ensure_install_scope, ensure_install_scope_registry, find_lib_dir_pinned, install_lib_at,
+    key_in_bounds, mcb_load_lib_by_name_pinned, parse_version_req, version_key,
+    version_req_bounds, VersionReq,
+};
+
+// ── .mcl pack install (the single unpack path; registry-design.md §4) ──
+pub use db::infra::packinst::{
+    install_mcl, install_mcl_at, install_mcl_at_scope, read_archive, sha256_hex_file, ZSTD_MAGIC,
+};
+
+// ── Package registry (registry-design.md; P2 local closure) ──
+pub use db::infra::registry::{
+    ensure_deps_gitignore, solve, solve_and_install, DiskSource, LibMeta, LockEntry, LockFile,
+    RegistrySource, SolveDecl, SolveError, SolveOrigin, SolvedPack, Tier, VersionMeta,
 };
 
 // ── Instant / Net ──

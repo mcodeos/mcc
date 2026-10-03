@@ -185,6 +185,28 @@ fn pack__refuses_format_2_without_writing() {
 }
 
 #[test]
+fn pack__refuses_with_parse_rows_when_entry_yields_no_ast() {
+    let (pack, root, out) = fixture("parsefatal");
+    // A C-parser-level break: the truncated declaration yields a null AST, the
+    // check pipeline finds no top module, and the gate must blame the parse
+    // face with the real rows — not the build-stage "cannot find top-level
+    // module" fatal that masked them (b4491 gate-UX follow-up).
+    std::fs::write(pack.join("packtest.mc"), "component broken(\n").unwrap();
+    let (_, stderr, ok) = run_mcc(&root, &["lib", "pack", pack.to_str().unwrap(), "--out", out.to_str().unwrap()]);
+    assert!(!ok, "a null-AST entry must not pack");
+    assert!(stderr.contains("does not parse"), "gate must blame the parse face: {stderr}");
+    assert!(
+        stderr.contains("error[E"),
+        "the refusal must carry the parse rows: {stderr}"
+    );
+    assert!(
+        !stderr.contains("cannot find top-level module"),
+        "the build-stage fatal must not surface: {stderr}"
+    );
+    assert!(out.read_dir().unwrap().next().is_none(), "no archive may exist");
+}
+
+#[test]
 fn pack__refuses_variant_base_missing_from_entry() {
     let (pack, root, out) = fixture("variant");
     let bad = manifest(&sha256_hex(DATASHEET.as_bytes()))

@@ -111,11 +111,11 @@ pub fn resolve_load_context(project_root: Option<&Path>, cli_libs: &[String]) ->
     if let Some(root) = project_root {
         if let Some(path) = crate::cli::manifest::Manifest::find_in(root) {
             if let Ok(manifest) = crate::cli::manifest::Manifest::load(&path) {
-                for (dep, req) in &manifest.dependencies {
-                    if !config_libs.contains(dep) {
+                for (dep, req) in manifest.dep_pins() {
+                    if !config_libs.contains(&dep) {
                         deps.push(dep.clone());
                     }
-                    pins.insert(dep.clone(), req.clone());
+                    pins.insert(dep, req);
                 }
             }
         }

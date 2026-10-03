@@ -187,11 +187,39 @@ pub fn run(action: &LibAction, format: OutputFormat) -> Result<()> {
             from,
             version,
             global,
+            here,
         } => {
+            let Some(from) = from else {
+                // The registry form (registry-design.md §4.5): solve
+                // `[name][@ver][#partno]` against [registry] url and place the
+                // pack — `--here` into <project>/deps/, otherwise the data
+                // root. In-process always: it writes the local machine state
+                // the daemon cannot see this cwd own (the .mcl install
+                // precedent, U90), and the lock is never its to rewrite.
+                if *global {
+                    anyhow::bail!("lib install: --global is reserved for mcode; a registry install places the pack in the data root or, with --here, in <project>/deps");
+                }
+                let spec = name.as_deref().ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "lib install: a registry install needs [name][@ver][#partno] \
+                         (or --from PATH to vendor a directory/.mcl archive)"
+                    )
+                })?;
+                let root = client_project_root().ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "lib install: no project.toml found above the current directory; \
+                         run inside a project"
+                    )
+                })?;
+                return crate::cmds::lib::cmd_install_registry(spec, *here, &root);
+            };
             // Resolve the install root client-side: the daemon cannot see
             // this cwd, so the project tier must travel in the params.
             // .mcl archives keep the in-process face (pack/inspect precedent,
             // U90): their coordinates come from pack.toml, read locally.
+            if *here {
+                anyhow::bail!("lib install: --here belongs to the registry form (drop --from)");
+            }
             let is_mcl = from.ends_with(".mcl") && Path::new(from).is_file();
             match resolve_install_target(name.as_deref(), *global) {
                 Err(e) => Err(e),
@@ -205,7 +233,7 @@ pub fn run(action: &LibAction, format: OutputFormat) -> Result<()> {
                         }),
                         format,
                     ),
-                    _ => cmd_install(name.as_deref(), from, version.as_deref(), &target_root),
+                    _ => cmd_install(name.as_deref(), &from, version.as_deref(), &target_root),
                 },
             }
         }
@@ -396,6 +424,74 @@ pub fn do_install_at(
     version: Option<&str>,
 ) -> Result<(String, PathBuf)> {
     mcc::install_lib_at(target_root, name, from, version)
+}
+
+/// The registry install form (registry-design.md §4.5): solve the one
+/// declaration against the configured registry and place the pack — `--here`
+/// into `<project>/deps/`, otherwise the data root (law amendment 1 admits a solved
+/// pack there). The lock is never this command's to rewrite; the placement
+/// is recorded nowhere but the disk (U387⑩) and `deps/` lands in .gitignore.
+pub fn cmd_install_registry(spec: &str, here: bool, project_root: &Path) -> Result<()> {
+    use mcc::{ensure_deps_gitignore, solve_and_install, RegistrySource, SolveDecl};
+
+    let (name, ver, partno) = parse_install_spec(spec)?;
+    let url = mcc::cli::config::get_registry_url(Some(project_root)).ok_or_else(|| {
+        anyhow::anyhow!(
+            "lib install: no registry configured — set [registry] url in mcc.yaml or \
+             [config.registry] url in project.toml"
+        )
+    })?;
+    let src = RegistrySource::from_url(&url)
+        .map_err(|e| anyhow::anyhow!("lib install: {e}"))?;
+    let decl = SolveDecl {
+        key: name.clone(),
+        req: mcc::parse_version_req(ver.as_deref().unwrap_or("*")),
+        partno,
+        local: here,
+    };
+    let decls = std::iter::once((name.clone(), decl)).collect();
+    let deps_dir = here.then(|| project_root.join("deps"));
+    let (out, installed) = solve_and_install(
+        &src,
+        deps_dir.as_deref(),
+        &mcc::cli::datadir::data_root(),
+        &decls,
+        None,
+    )
+    .map_err(|e| anyhow::anyhow!("lib install: {}", crate::cmds::manifest::solve_error_msg(&e)))?;
+    if here {
+        ensure_deps_gitignore(project_root)?;
+    }
+    for face in &installed {
+        eprintln!("↓ downloaded {face}");
+    }
+    for p in out.packs.values() {
+        let from = match p.origin {
+            mcc::SolveOrigin::Project => "<project>/deps",
+            mcc::SolveOrigin::DataRoot => "data root",
+            mcc::SolveOrigin::Registry => "registry",
+        };
+        let part = p.partno.as_deref().map(|v| format!("#{v}")).unwrap_or_default();
+        eprintln!("✓ {} {}@{}{part} (from {from})", p.key, p.package, p.version);
+    }
+    Ok(())
+}
+
+/// `[name][@ver][#partno]` — the registry install token. Punctuation splits
+/// only; a partno is never guessed from the name shape.
+fn parse_install_spec(spec: &str) -> Result<(String, Option<String>, Option<String>)> {
+    let (body, partno) = match spec.split_once('#') {
+        Some((b, p)) => (b, Some(p.to_string())),
+        None => (spec, None),
+    };
+    let (name, ver) = match body.split_once('@') {
+        Some((n, v)) => (n, Some(v.to_string())),
+        None => (body, None),
+    };
+    if name.is_empty() {
+        anyhow::bail!("lib install: empty name in `{spec}` (expected [name][@ver][#partno])");
+    }
+    Ok((name.to_string(), ver, partno))
 }
 
 // load

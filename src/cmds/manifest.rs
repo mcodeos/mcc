@@ -78,11 +78,20 @@ pub fn build_from_manifest(
 
     // 2. Load unloaded dependency libraries — through the shared loading
     //    loop (use-design §19.10 D6; same shape as the RPC
-    //    ensure_library_loaded handler). Manifest version pins ride along.
+    //    ensure_library_loaded handler). Registry face first
+    //    (registry-design.md §4.2 — the solver is an automated lib install):
+    //    when a registry is configured, the declarations are solved and any
+    //    missing pack installed, and the loader pins the exact solved
+    //    versions. No [registry] url → the legacy data-root loading,
+    //    byte for byte.
     if let Some(ref m) = manifest {
+        let pins = match mcc::cli::config::get_registry_url(Some(project_root)) {
+            Some(url) => solve_deps_for_build(project_root, m, &url)?,
+            None => m.dep_pins(),
+        };
         let ctx = mcc::cli::loadctx::LoadContext {
-            deps: m.dependencies.keys().cloned().collect(),
-            pins: m.dependencies.clone(),
+            deps: pins.keys().cloned().collect(),
+            pins,
             ..mcc::cli::loadctx::LoadContext::default()
         };
         for warn in mcc::cli::loadctx::load_all(&ctx) {
@@ -113,6 +122,123 @@ pub fn build_from_manifest(
         })?;
 
     Ok((entry_uri, top_name))
+}
+
+/// The build-side dependency solve (registry-design.md §4.2): solve the
+/// `[dependencies]` against the registry + lock, install what is missing,
+/// and return the loader pins as exact solved faces. Lock write authority:
+/// written once when absent (mcode records its stdlib-rail rev — the mcc
+/// batch); an existing lock is never rewritten here — a stale one warns
+/// E2056 and points at `mcc lib update`.
+fn solve_deps_for_build(
+    project_root: &Path,
+    m: &Manifest,
+    url: &str,
+) -> Result<std::collections::BTreeMap<String, String>> {
+    use mcc::{ensure_deps_gitignore, solve_and_install, LockEntry, LockFile, RegistrySource};
+
+    let src = RegistrySource::from_url(url).map_err(|e| anyhow::anyhow!("build: {e}"))?;
+    let decls = m.solve_decls();
+    let any_local = decls.values().any(|d| d.local);
+    let lock = LockFile::load(project_root);
+    let (out, installed) = solve_and_install(
+        &src,
+        // The explicit-placement law: `deps/` joins the search only when a
+        // declaration opted in.
+        any_local
+            .then(|| project_root.join("deps"))
+            .as_deref(),
+        &mcc::cli::datadir::data_root(),
+        &decls,
+        lock.as_ref(),
+    )
+    .map_err(|e| anyhow::anyhow!("build: {}", solve_error_msg(&e)))?;
+    if any_local {
+        ensure_deps_gitignore(project_root)?;
+    }
+    if !installed.is_empty() {
+        for face in &installed {
+            eprintln!("installed {face}");
+        }
+    }
+
+    // Lock write authority (§4.2): only a fresh solve writes, exactly once.
+    if out.fresh {
+        let mut body = out.lock.clone();
+        body.deps.insert(
+            "mcode".to_string(),
+            LockEntry {
+                rev: Some(mcc::buildinfo::BUILD.to_string()),
+                ..LockEntry::default()
+            },
+        );
+        body.store(project_root)?;
+    } else if let Some(stored) = &lock {
+        if let Some(key) = first_stale_key(stored, &out.lock) {
+            let msg = mcc::errcodes::format_msg(mcc::errcodes::USE_DEP_LOCK_STALE, &[&key]);
+            eprintln!("warning: E{}: {msg} — run `mcc lib update`", mcc::errcodes::USE_DEP_LOCK_STALE);
+        }
+    }
+
+    // The loader pins the solved faces: package → exact version (a partno
+    // alias key dissolved into its package during the solve); mcode keeps
+    // its manifest req on the stdlib rail.
+    let mut pins: std::collections::BTreeMap<String, String> = out
+        .packs
+        .values()
+        .map(|p| (p.package.clone(), format!("={}", p.version)))
+        .collect();
+    if let Some(req) = m.dep_pins().get("mcode") {
+        pins.insert("mcode".to_string(), req.clone());
+    }
+    Ok(pins)
+}
+
+/// Solve failures surface their diagnostic code face (E2053-E2055); registry
+/// transport and checksum failures have no 2xxx producer — they carry the
+/// plain face and name the registry.
+pub(crate) fn solve_error_msg(e: &mcc::SolveError) -> String {
+    use mcc::SolveError;
+    match e {
+        SolveError::Unresolved { name, req } => format!(
+            "E{}: {}",
+            mcc::errcodes::USE_DEP_UNRESOLVED,
+            mcc::errcodes::format_msg(mcc::errcodes::USE_DEP_UNRESOLVED, &[name, req])
+        ),
+        SolveError::Cycle { path } => {
+            let p = path.join(" -> ");
+            format!(
+                "E{}: {}",
+                mcc::errcodes::USE_DEP_CYCLE,
+                mcc::errcodes::format_msg(mcc::errcodes::USE_DEP_CYCLE, &[&p])
+            )
+        }
+        SolveError::PartnoUnavailable { partno, package, selected, since, available } => {
+            let av = available.join(", ");
+            format!(
+                "E{}: {}",
+                mcc::errcodes::USE_DEP_PARTNO_UNAVAILABLE,
+                mcc::errcodes::format_msg(mcc::errcodes::USE_DEP_PARTNO_UNAVAILABLE, &[
+                    partno, package, selected, since, &av
+                ])
+            )
+        }
+        SolveError::Conflict { .. }
+        | SolveError::Checksum { .. }
+        | SolveError::Registry(_) => e.to_string(),
+    }
+}
+
+/// The first solved entry the stored lock lacks or disagrees with (key
+/// absent, or a version/partno/package face drift) — the E2056 face.
+fn first_stale_key<'a>(
+    stored: &mcc::LockFile,
+    solved: &'a mcc::LockFile,
+) -> Option<&'a str> {
+    solved.deps.iter().find_map(|(k, e)| match stored.deps.get(k) {
+        Some(s) if s.version == e.version && s.partno == e.partno && s.package == e.package => None,
+        _ => Some(k.as_str()),
+    })
 }
 
 /// Browse-mode entry selection for a directory that has no manifest
@@ -297,7 +423,7 @@ infineon = "2.1.0"
         assert_eq!(m.project.entry, "src/hbl.mc");
         assert_eq!(m.project.top_module, Some("main".into()));
         assert_eq!(m.dependencies.len(), 2);
-        assert_eq!(m.dependencies["infineon"], "2.1.0");
+        assert_eq!(m.dependencies["infineon"].req(), "2.1.0");
     }
 
     #[test]

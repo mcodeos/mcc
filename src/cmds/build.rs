@@ -209,7 +209,7 @@ fn run_rpc(c: &RpcClient, args: &BuildArgs) -> Result<BuildOutcome> {
     };
     let libs: Vec<String> = manifest
         .as_ref()
-        .map(|m| m.dependencies.keys().cloned().collect())
+        .map(|m| m.dep_pins().into_keys().collect())
         .unwrap_or_default();
 
     match c.call(
@@ -341,19 +341,25 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
     // ── 1. manifest parsing ──
     tracing::debug!(target: "mcc::build", project_root = ?project_root, "resolved project root");
 
+    // The browse-dir fallback is the *no-manifest* face only (use-design.md
+    // §19.5 rule 3). A manifest with a failing dependency solve (registry-design
+    // §4.2) is a real build failure — falling back here would silently build a
+    // different program.
+    let has_manifest = manifest::Manifest::find_in(&project_root).is_some();
     let (entry_uri, top_name) = match manifest::build_from_manifest(
         &project_root,
         mcc::cli::globals().top.as_deref(),
         cli_entry(args).as_deref(),
     ) {
         Ok(r) => r,
-        Err(_) => {
-            // No project manifest → directory batch mode (use-design.md §19.5
-            // rule 3): parse every `.mc` under the root recursively and build
-            // each file's default top. Unified with `build.full`'s directory
-            // branch and the extension's Build Project on a toml-less folder.
+        Err(e) if !has_manifest => {
+            // No project manifest → directory batch mode: parse every `.mc`
+            // under the root recursively and build each file's default top.
+            // Unified with `build.full`'s directory branch and the
+            // extension's Build Project on a toml-less folder.
             return build_browse_dir(&project_root, args, builder, tracker);
         }
+        Err(e) => return Err(e),
     };
 
     // Targets for the envelope and the viz (mcd spec/16-export-viz §6):

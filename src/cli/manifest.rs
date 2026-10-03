@@ -27,6 +27,13 @@
 //! read tolerantly but never written. An unmet exact pin is a warning
 //! with an install hint, not a silent version swap.
 //!
+//! The registry batch (registry-design.md §4.1) adds two forms alongside the
+//! bare string: a partno key (`"ams1117-3.3" = "1.2"` — the key names a
+//! variant of a package) and a table form
+//! (`ams1117 = { version = "1.2", partno = "ams1117-3.3", local = true }`),
+//! the two spellings being equivalent. `local = true` opts the project's
+//! `deps/` directory into the search roots (the explicit-placement law).
+//!
 //! Lives in the lib (not the binary's `cmds/`) because the batch entry resolver
 //! ([`crate::build::loader::discover_entries`]) runs on the RPC side too. One
 //! reader for one file: a second, hand-rolled scanner would drift from this one
@@ -38,11 +45,59 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+/// One `[dependencies]` value: the bare version req string every existing
+/// project writes, or the table form that can name a partno and opt into the
+/// project `deps/` placement. Untagged so the two shapes parse by what they
+/// are, not by key sniffing; a bare string can never match the table variant.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum DepSpec {
+    Plain(String),
+    Table {
+        #[serde(default)]
+        version: Option<String>,
+        #[serde(default)]
+        partno: Option<String>,
+        #[serde(default)]
+        local: bool,
+    },
+}
+
+impl DepSpec {
+    /// The version-requirement face: the string itself, or the table's
+    /// `version` (absent = `"*"`, any/highest).
+    pub fn req(&self) -> &str {
+        match self {
+            DepSpec::Plain(s) => s.as_str(),
+            DepSpec::Table { version, .. } => version.as_deref().unwrap_or("*"),
+        }
+    }
+
+    /// The partno the form pins, if any (the plain partno-key spelling keeps
+    /// the partno in the *key*; expansion is the solver's job, never a
+    /// name-shape guess here).
+    pub fn partno(&self) -> Option<&str> {
+        match self {
+            DepSpec::Plain(_) => None,
+            DepSpec::Table { partno, .. } => partno.as_deref(),
+        }
+    }
+
+    /// Whether the declaration opts `<proj>/deps/` into the search roots
+    /// (the explicit-placement law — placement is never guessed).
+    pub fn local(&self) -> bool {
+        match self {
+            DepSpec::Plain(_) => false,
+            DepSpec::Table { local, .. } => *local,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Manifest {
     pub project: ProjectSection,
     #[serde(default)]
-    pub dependencies: BTreeMap<String, String>,
+    pub dependencies: BTreeMap<String, DepSpec>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -143,6 +198,37 @@ mcode = "*"
     /// `"*"` = any/highest installed copy; anything else is an exact pin.
     /// See the module docs ("Version pins").
     pub fn dep(&self, name: &str) -> Option<&str> {
-        self.dependencies.get(name).map(String::as_str)
+        self.dependencies.get(name).map(DepSpec::req)
+    }
+
+    /// Dependency name → raw version req, the face the loader's pins ride on
+    /// ([`crate::cli::loadctx`]). The declaration forms collapse here: a table
+    /// entry contributes its `version` (absent = `"*"`), and the partno/local
+    /// faces travel separately (the solver reads the [`DepSpec`]s whole).
+    pub fn dep_pins(&self) -> BTreeMap<String, String> {
+        self.dependencies
+            .iter()
+            .map(|(k, v)| (k.clone(), v.req().to_string()))
+            .collect()
+    }
+
+    /// The declarations normalized for the registry solver (registry-design
+    /// §4.1): the key face, the version req, the table-form partno, and the
+    /// explicit-placement opt-in.
+    pub fn solve_decls(&self) -> BTreeMap<String, crate::db::infra::registry::SolveDecl> {
+        self.dependencies
+            .iter()
+            .map(|(k, v)| {
+                (
+                    k.clone(),
+                    crate::db::infra::registry::SolveDecl {
+                        key: k.clone(),
+                        req: crate::parse_version_req(v.req()),
+                        partno: v.partno().map(str::to_string),
+                        local: v.local(),
+                    },
+                )
+            })
+            .collect()
     }
 }

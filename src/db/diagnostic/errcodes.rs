@@ -245,6 +245,20 @@ pub const USE_DEP_NOT_DECLARED: u32 = 2051;
 /// Library referenced by `use` is not installed in the system root.
 pub const USE_LIB_NOT_FOUND: u32 = 2052;
 
+/// The dependency solve failed — no version satisfies the declaration
+/// (registry-design.md §5; build names the solve diagnostic, never a bare "pack absent" note).
+pub const USE_DEP_UNRESOLVED: u32 = 2053;
+
+/// The dependency solve found a dependency cycle; the path names the loop.
+pub const USE_DEP_CYCLE: u32 = 2054;
+
+/// The selected pack version predates the declared partno (the diagnostic
+/// names the first version carrying it).
+pub const USE_DEP_PARTNO_UNAVAILABLE: u32 = 2055;
+
+/// The mcode.lock no longer matches [dependencies] — run `mcc lib update`.
+pub const USE_DEP_LOCK_STALE: u32 = 2056;
+
 /// An imported symbol conflicts with an existing name.
 pub const USE_SYMBOL_CONFLICT: u32 = 2061;
 
@@ -2609,6 +2623,10 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     // section
     entry!(USE_DEP_NOT_DECLARED, "Use of an undeclared dependency — add it to project.toml [dependencies] or load via --lib.", "use of undeclared dependency '{0}': add it to project.toml [dependencies] or load via --lib"),
     entry!(USE_LIB_NOT_FOUND, "The library is not installed in the system root — install it with `mcc lib install` or load it with --lib.", "library '{0}' not found in the system root; install it with `mcc lib install` or load it with --lib"),
+    entry!(USE_DEP_UNRESOLVED, "No registry version satisfies the declared dependency.", "dependency '{0}' unresolved: {1}"),
+    entry!(USE_DEP_CYCLE, "The dependency declarations form a cycle.", "dependency cycle: {0}"),
+    entry!(USE_DEP_PARTNO_UNAVAILABLE, "The selected pack version predates the declared partno.", "partno '{0}' of '{1}' does not exist in {2} (it exists since {3}; versions carrying it: {4})"),
+    entry!(USE_DEP_LOCK_STALE, "mcode.lock no longer matches [dependencies].", "mcode.lock does not cover '{0}' — run `mcc lib update` to refresh it"),
     entry!(USE_SYMBOL_CONFLICT, "An imported symbol conflicts with an existing name.", "symbol conflict in module '{0}': {1} collides with previous use from '{2}'. Use 'as' alias to disambiguate"),
     entry!(USE_IMPORTED_NOT_FOUND, "The imported symbol was not found in the target file.", "imported symbol '{0}' not found in '{1}'"),
     // section

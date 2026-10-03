@@ -121,7 +121,21 @@ pub struct MccConfig {
     pub libs: LibsConfig,
 
     #[serde(default)]
+    pub registry: RegistryConfig,
+
+    #[serde(default)]
     pub diag: DiagConfig,
+}
+
+/// Package-registry endpoint (registry-design.md §3.2): the global default
+/// lives in `~/.mcode/config/mcc.yaml`, a project overrides it through
+/// `project.toml` `[config.registry]` (an intranet mirror takes precedence). P2 speaks `file://`
+/// (or a bare absolute path) only; unset means the solver errors naming the
+/// key — there is no implicit public registry yet.
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+pub struct RegistryConfig {
+    #[serde(default)]
+    pub url: Option<String>,
 }
 
 /// Diagnostic rendering configuration.
@@ -543,6 +557,10 @@ pub fn merge_configs(global: &MccConfig, local: Option<&MccConfig>) -> MccConfig
                     .or(global.libs.include_system_contracts),
             };
 
+            let registry = RegistryConfig {
+                url: local.registry.url.clone().or(global.registry.url.clone()),
+            };
+
             let diag = DiagConfig {
                 ignore_warnings: if local.diag.ignore_warnings.is_empty() {
                     global.diag.ignore_warnings.clone()
@@ -571,11 +589,22 @@ pub fn merge_configs(global: &MccConfig, local: Option<&MccConfig>) -> MccConfig
                 parser,
                 output,
                 libs,
+                registry,
                 diag,
             }
         }
         None => global.clone(),
     }
+}
+
+/// The merged registry URL for `project_root` (project `[config.registry]`
+/// over the global `mcc.yaml`), the one lookup the solver and the CLI verbs
+/// share. `None` = nowhere configured — the caller names the key in its
+/// error, it never invents an endpoint.
+pub fn get_registry_url(project_root: Option<&Path>) -> Option<String> {
+    let global = load_global_config().unwrap_or_default();
+    let local = project_root.and_then(|p| load_project_config(p).ok().flatten());
+    merge_configs(&global, local.as_ref()).registry.url
 }
 
 pub fn get_trace_flag(project_root: Option<&Path>) -> u8 {

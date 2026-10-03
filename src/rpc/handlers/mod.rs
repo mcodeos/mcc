@@ -2585,9 +2585,10 @@ pub(crate) fn ensure_library_loaded(file_uri: &McURI) {
     // `load_all` the one loading loop - no hand-rolled section parse here.
     if let Some(manifest_path) = crate::cli::datadir::find_manifest_in(&project_root) {
         if let Ok(manifest) = crate::cli::manifest::Manifest::load(&manifest_path) {
+            let pins = manifest.dep_pins();
             let ctx = crate::cli::loadctx::LoadContext {
-                deps: manifest.dependencies.keys().cloned().collect(),
-                pins: manifest.dependencies.clone(),
+                deps: pins.keys().cloned().collect(),
+                pins,
                 ..crate::cli::loadctx::LoadContext::default()
             };
             tracing::debug!(target: "mcc::lib", deps = ?ctx.deps, "loading dependencies");

@@ -143,18 +143,78 @@ pub fn resolve_lib_root_req(
 
 /// A `[dependencies]` version requirement from a project manifest.
 ///
-/// `"*"` (or empty) = any installed copy; anything else is an exact pin.
+/// `"*"` (or empty) = any installed copy; `">=x.y"` = at least that version
+/// (highest qualifying copy wins); `"^M.m"` = `>=M.m <(M+1).0`; `"~M.m"` =
+/// `>=M.m <M.(m+1)` (semver per registry-design.md §5); anything else is an
+/// exact pin. The `use` keyword's `@ver` is a free string and never flows
+/// through here.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VersionReq {
     Any,
+    AtLeast(String),
+    Caret(String),
+    Tilde(String),
     Exact(String),
 }
 
 /// Parse a raw pin string into a [`VersionReq`].
+///
+/// The strategy table (use-design §19.10): fixed `"0.1"`/`"=0.1"`, floor
+/// `">=0.1"`, semver range `"^1.2"`/`"~1.2.0"` (registry-design.md §5),
+/// latest `"*"`/absent. Unknown prefixes degrade to an exact pin, never a
+/// silent strategy swap.
 pub fn parse_version_req(s: &str) -> VersionReq {
-    match s.trim() {
+    let t = s.trim();
+    match t {
         "" | "*" => VersionReq::Any,
-        v => VersionReq::Exact(v.to_string()),
+        _ if t.starts_with(">=") => VersionReq::AtLeast(t[2..].trim().to_string()),
+        _ if t.starts_with('^') => VersionReq::Caret(t[1..].trim().to_string()),
+        _ if t.starts_with('~') => VersionReq::Tilde(t[1..].trim().to_string()),
+        _ if t.starts_with('=') => VersionReq::Exact(t[1..].trim().to_string()),
+        _ => VersionReq::Exact(t.to_string()),
+    }
+}
+
+/// The half-open `[lo, hi)` key bounds a requirement admits, on the same
+/// `version_key` face the directory scans and the solver's metadata matcher
+/// compare with (missing segments count as 0; the installed canon is
+/// two-segment, so `hi` never names a patch tier). `None` = unbounded.
+pub fn version_req_bounds(req: &VersionReq) -> (Option<(u64, u64, u64)>, Option<(u64, u64, u64)>) {
+    match req {
+        VersionReq::Any => (None, None),
+        VersionReq::AtLeast(v) => (Some(version_key(v)), None),
+        // ^M.m(.p) = [M.m.p, (M+1).0.0); ~M.m(.p) = [M.m.p, M.(m+1).0). A
+        // caret only carrying one segment (^1) ranges over the major: [1.0.0,
+        // 2.0.0) — the minor is absent, so it counts as 0 on both faces.
+        VersionReq::Caret(v) => {
+            let lo = version_key(v);
+            (Some(lo), Some((lo.0 + 1, 0, 0)))
+        }
+        VersionReq::Tilde(v) => {
+            let lo = version_key(v);
+            (Some(lo), Some((lo.0, lo.1 + 1, 0)))
+        }
+        VersionReq::Exact(v) => {
+            let k = version_key(v);
+            (Some(k), Some(k))
+        }
+    }
+}
+
+/// Whether a version key falls inside the [`version_req_bounds`] face.
+/// Ranges are half-open `[lo, hi)`; the degenerate `lo == hi` is the closed
+/// point interval an exact pin produces (a half-open point would be empty).
+pub fn key_in_bounds(
+    k: (u64, u64, u64),
+    lo: Option<(u64, u64, u64)>,
+    hi: Option<(u64, u64, u64)>,
+) -> bool {
+    if lo.map(|l| k < l).unwrap_or(false) {
+        return false;
+    }
+    match hi {
+        None => true,
+        Some(h) => k < h || (lo == Some(h) && k == h),
     }
 }
 
@@ -171,6 +231,14 @@ pub fn find_lib_dir_pinned(
             if pinned.is_dir() {
                 return Some(pinned);
             }
+            // Legacy tolerance: a pin compared on the normalized face so an
+            // installed three-segment directory still satisfies its canonical
+            // two-segment pin (`"0.1"` pins `name@0.1.0`) — and a legacy
+            // three-segment pin hits a two-segment install too.
+            let want = crate::cli::datadir::normalize_version(v);
+            if let Some(found) = highest_versioned_dir_normalized(root, name, want) {
+                return Some(found);
+            }
             // mcode keeps the legacy unversioned layout as an exact-pin
             // fallback: the bare working-copy mcode satisfies any pin rather
             // than failing the load.
@@ -186,8 +254,91 @@ pub fn find_lib_dir_pinned(
             }
             None
         }
+        VersionReq::AtLeast(v) => {
+            // Floor semantics: the highest installed copy whose normalized
+            // version is >= the pin. Comparing on the normalized face keeps a
+            // two-segment floor honest against legacy three-segment dirs.
+            if let Some(found) =
+                scan_dir_in_bounds(root, name, (Some(version_key(v)), None))
+            {
+                return Some(found);
+            }
+            mcode_bare_fallback(root, name)
+        }
+        VersionReq::Caret(_) | VersionReq::Tilde(_) => {
+            if let Some(found) = scan_dir_in_bounds(root, name, version_req_bounds(req)) {
+                return Some(found);
+            }
+            mcode_bare_fallback(root, name)
+        }
         VersionReq::Any => find_lib_dir(root, name),
     }
+}
+
+/// The mcode legacy-tolerance shared by the pinned arms: the bare
+/// working-copy mcode satisfies any pin rather than failing the load.
+/// mcode-only — a third-party pin miss is a loud miss, never a swap.
+fn mcode_bare_fallback(root: &Path, name: &str) -> Option<std::path::PathBuf> {
+    if name != "mcode" {
+        return None;
+    }
+    let bare = root.join("mcode");
+    if bare.exists() {
+        return Some(bare);
+    }
+    let sibling = root.join("..").join("mcode");
+    if sibling.exists() {
+        return Some(sibling);
+    }
+    None
+}
+
+/// Highest `<name>@<ver>` directory under `root` whose version key falls in
+/// the half-open `[lo, hi)` bounds (`None` = unbounded). The single scan
+/// behind the `>=` floor and the semver caret/tilde ranges; the solver's
+/// registry matching reuses [`version_req_bounds`] on the same key face.
+fn scan_dir_in_bounds(
+    root: &Path,
+    name: &str,
+    bounds: (Option<(u64, u64, u64)>, Option<(u64, u64, u64)>),
+) -> Option<std::path::PathBuf> {
+    let (lo, hi) = bounds;
+    let prefix = format!("{name}@");
+    let mut best: Option<((u64, u64, u64), std::path::PathBuf)> = None;
+    if let Ok(entries) = std::fs::read_dir(root) {
+        for e in entries.flatten() {
+            let fname = e.file_name().to_string_lossy().to_string();
+            let Some(ver) = fname.strip_prefix(&prefix) else {
+                continue;
+            };
+            if !e.path().is_dir() {
+                continue;
+            }
+            let key = version_key(&ver);
+            if !key_in_bounds(key, lo, hi) {
+                continue;
+            }
+            if best.as_ref().map(|(k, _)| key > *k).unwrap_or(true) {
+                best = Some((key, e.path()));
+            }
+        }
+    }
+    best.map(|(_, p)| p)
+}
+
+/// Sort key of a version string (missing segments count as 0). The one
+/// version-comparison face: directory scans, exact-pin tolerance and the
+/// registry solver all compare through it.
+pub fn version_key(ver: &str) -> (u64, u64, u64) {
+    let nums: Vec<u64> = ver
+        .split('.')
+        .map(|seg| seg.parse::<u64>().unwrap_or(0))
+        .collect();
+    (
+        nums.first().copied().unwrap_or(0),
+        nums.get(1).copied().unwrap_or(0),
+        nums.get(2).copied().unwrap_or(0),
+    )
 }
 
 /// Search a single root directory for a library by name.
@@ -231,6 +382,40 @@ pub fn highest_versioned_dir(root: &Path, name: &str) -> Option<std::path::PathB
             continue;
         };
         if !e.path().is_dir() {
+            continue;
+        }
+        let nums: Vec<u64> = ver
+            .split('.')
+            .map(|seg| seg.parse::<u64>().unwrap_or(0))
+            .collect();
+        let key = (
+            nums.first().copied().unwrap_or(0),
+            nums.get(1).copied().unwrap_or(0),
+            nums.get(2).copied().unwrap_or(0),
+        );
+        if best.as_ref().map(|(k, _)| key > *k).unwrap_or(true) {
+            best = Some((key, e.path()));
+        }
+    }
+    best.map(|(_, p)| p)
+}
+
+/// Highest installed `<name>@<ver>` whose **normalized** version equals
+/// `want` — the legacy-tolerance face of an exact pin (`"0.1"` hits the
+/// installed `name@0.1.0`).
+fn highest_versioned_dir_normalized(root: &Path, name: &str, want: &str) -> Option<std::path::PathBuf> {
+    let prefix = format!("{name}@");
+    let mut best: Option<((u64, u64, u64), std::path::PathBuf)> = None;
+    let entries = std::fs::read_dir(root).ok()?;
+    for e in entries.flatten() {
+        let fname = e.file_name().to_string_lossy().to_string();
+        let Some(ver) = fname.strip_prefix(&prefix) else {
+            continue;
+        };
+        if !e.path().is_dir() {
+            continue;
+        }
+        if crate::cli::datadir::normalize_version(&ver) != want {
             continue;
         }
         let nums: Vec<u64> = ver
@@ -626,21 +811,43 @@ pub fn mcb_load_lib_by_name_pinned(lib_name: &str, req: &VersionReq) -> Option<S
             None => {
                 // Pin unmet: fall back to any installed copy, loudly.
                 let fallback = resolve_lib_root(lib_name);
-                if let (VersionReq::Exact(v), Some(found)) = (req, fallback) {
+                let pin_display = |req: &VersionReq| match req {
+                    VersionReq::Exact(v) => format!("@{v}"),
+                    VersionReq::AtLeast(v) => format!(" >= {v}"),
+                    VersionReq::Caret(v) => format!(" ^{v}"),
+                    VersionReq::Tilde(v) => format!(" ~{v}"),
+                    VersionReq::Any => "*".to_string(),
+                };
+                let pin_tag = |req: &VersionReq| match req {
+                    VersionReq::Exact(v) => v.clone(),
+                    VersionReq::AtLeast(v) => format!(">={v}"),
+                    VersionReq::Caret(v) => format!("^{v}"),
+                    VersionReq::Tilde(v) => format!("~{v}"),
+                    VersionReq::Any => "*".to_string(),
+                };
+                if let (VersionReq::Exact(v) | VersionReq::AtLeast(v), Some(found)) =
+                    (req, fallback)
+                {
+                    let op = if matches!(req, VersionReq::AtLeast(_)) {
+                        ">="
+                    } else {
+                        "@"
+                    };
                     let warn = format!(
-                        "project pins {lib_name}@{v} but it is not installed; using {}. \
-                         Run `mcc lib install {lib_name} --from <path>` (or set the pin to \"*\")",
+                        "project pins {lib_name}{op}{v} but it is not installed; using {}. \
+                         Run `mcc lib install {lib_name} --from <path>` (or set the pin to \"*\" or \">=x.y\")",
                         found.display()
                     );
-                    tracing::warn!(target: "mcc::lib", lib = lib_name, pin = v, "{}", warn);
+                    tracing::warn!(target: "mcc::lib", lib = lib_name, pin = pin_tag(req), "{}", warn);
                     warning = Some(warn);
                     found
-                } else if let VersionReq::Exact(v) = req {
+                } else if matches!(req, VersionReq::Exact(_) | VersionReq::AtLeast(_)) {
                     let warn = format!(
-                        "library {lib_name}@{v} is not installed anywhere; \
-                         run `mcc lib install {lib_name} --from <path>` (or set the pin to \"*\")"
+                        "library {lib_name}{} is not installed anywhere; \
+                         run `mcc lib install {lib_name} --from <path>` (or set the pin to \"*\" or \">=x.y\")",
+                        pin_display(req)
                     );
-                    tracing::warn!(target: "mcc::lib", lib = lib_name, pin = v, "{}", warn);
+                    tracing::warn!(target: "mcc::lib", lib = lib_name, pin = pin_tag(req), "{}", warn);
                     warning = Some(warn);
                     data_root.join(lib_name)
                 } else {
@@ -703,6 +910,21 @@ pub fn ensure_install_scope(name: &str, target_root: &Path) -> anyhow::Result<()
         anyhow::bail!(
             "lib install: the global data root is reserved for mcode; third-party \
              libraries install into <project>/libs (run inside a project)"
+        );
+    }
+    Ok(())
+}
+
+/// Registry-face install scope (law amendment 1, registry-design.md §4.5): the data
+/// root doubles as the public placement for registry-solved packs, so a
+/// non-mcode pack may land there through the solve path. mcode still never
+/// leaves the data root — it rides the stdlib rail (b4489). The `--from`
+/// face keeps [`ensure_install_scope`] byte for byte.
+pub fn ensure_install_scope_registry(name: &str, target_root: &Path) -> anyhow::Result<()> {
+    if name == "mcode" && target_root != crate::cli::datadir::data_root() {
+        anyhow::bail!(
+            "lib install: mcode is the official library and installs into the global data \
+             root; it is never vendored into a project"
         );
     }
     Ok(())
@@ -781,7 +1003,10 @@ fn copy_dir_recursive(
 
 #[cfg(test)]
 mod tests {
-    use super::{find_lib_dir, find_lib_dir_pinned, parse_version_req, resolve_lib_root_req, VersionReq};
+    use super::{
+        ensure_install_scope_registry, find_lib_dir, find_lib_dir_pinned, parse_version_req,
+        resolve_lib_root_req, version_req_bounds, VersionReq,
+    };
     use std::path::PathBuf;
 
     /// Build a temp root populated with a bare `acme` lib and a versioned one.
@@ -849,6 +1074,62 @@ mod tests {
         assert_eq!(parse_version_req("*"), VersionReq::Any);
         assert_eq!(parse_version_req(""), VersionReq::Any);
         assert_eq!(parse_version_req(" 0.1 "), VersionReq::Exact("0.1".into()));
+        assert_eq!(parse_version_req(">=0.1"), VersionReq::AtLeast("0.1".into()));
+        assert_eq!(parse_version_req(" >= 0.1 "), VersionReq::AtLeast("0.1".into()));
+        assert_eq!(parse_version_req(">= 0.1"), VersionReq::AtLeast("0.1".into()));
+    }
+
+    #[test]
+    fn def_libmgr__parse_version_req_semver_forms() {
+        // registry-design.md §5: `^1.2`, `~1.2.0`, `=1.2.0` join the table;
+        // `=` is spelled exactness, the bare string stays the exact pin.
+        assert_eq!(parse_version_req("^1.2"), VersionReq::Caret("1.2".into()));
+        assert_eq!(parse_version_req(" ~ 1.2.0 "), VersionReq::Tilde("1.2.0".into()));
+        assert_eq!(parse_version_req("=1.2.0"), VersionReq::Exact("1.2.0".into()));
+        assert_eq!(parse_version_req("0.3"), VersionReq::Exact("0.3".into()));
+    }
+
+    #[test]
+    fn def_libmgr__version_req_bounds_semver_table() {
+        // ^M.m = [M.m, (M+1).0); ~M.m(.p) = [M.m, M.(m+1)); the exact pin is
+        // the point interval on the key face (missing segments count 0, so a
+        // two-segment pin and its legacy three-segment spelling share bounds).
+        let (lo, hi) = version_req_bounds(&VersionReq::Caret("1.2".into()));
+        assert_eq!((lo, hi), (Some((1, 2, 0)), Some((2, 0, 0))));
+        let (lo, hi) = version_req_bounds(&VersionReq::Tilde("1.2.0".into()));
+        assert_eq!((lo, hi), (Some((1, 2, 0)), Some((1, 3, 0))));
+        let (lo, hi) = version_req_bounds(&VersionReq::AtLeast("0.1".into()));
+        assert_eq!((lo, hi), (Some((0, 1, 0)), None));
+        let (lo, hi) = version_req_bounds(&VersionReq::Exact("0.1".into()));
+        assert_eq!((lo, hi), (Some((0, 1, 0)), Some((0, 1, 0))));
+        assert_eq!(version_req_bounds(&VersionReq::Any), (None, None));
+    }
+
+    #[test]
+    fn def_libmgr__pinned_caret_scans_within_range() {
+        let root = temp_root("pin-caret");
+        std::fs::create_dir_all(root.join("acme@1.2")).unwrap();
+        std::fs::create_dir_all(root.join("acme@1.9")).unwrap();
+        std::fs::create_dir_all(root.join("acme@2.0")).unwrap();
+        // ^1.2 admits the highest 1.x (1.9) and refuses the 2.0 tier.
+        let found = find_lib_dir_pinned(&root, "acme", &parse_version_req("^1.2"));
+        assert_eq!(found, Some(root.join("acme@1.9")));
+        // A caret floor above everything installed is a loud miss, not a swap.
+        let missed = find_lib_dir_pinned(&root, "acme", &parse_version_req("^3.0"));
+        assert_eq!(missed, None);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn def_libmgr__pinned_tilde_stays_in_the_minor() {
+        let root = temp_root("pin-tilde");
+        std::fs::remove_dir_all(root.join("acme@2.0")).unwrap();
+        std::fs::create_dir_all(root.join("acme@1.2")).unwrap();
+        std::fs::create_dir_all(root.join("acme@1.7")).unwrap();
+        // ~1.2 = [1.2, 1.3): the 1.7 copy is outside the band.
+        let found = find_lib_dir_pinned(&root, "acme", &parse_version_req("~1.2"));
+        assert_eq!(found, Some(root.join("acme@1.2")));
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
@@ -867,6 +1148,54 @@ mod tests {
         // Only acme@2.0 exists; pinning 9.9 must NOT return acme@2.0.
         let found = find_lib_dir_pinned(&root, "acme", &VersionReq::Exact("9.9".into()));
         assert_eq!(found, None);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn def_libmgr__pinned_two_segment_hits_legacy_three_segment_dir() {
+        let root = temp_root("pin-legacy");
+        // Installed under the legacy three-segment name; the canonical
+        // two-segment pin must normalize-hit it, never warn-and-fallback.
+        std::fs::create_dir_all(root.join("acme@0.1.0")).unwrap();
+        let found = find_lib_dir_pinned(&root, "acme", &VersionReq::Exact("0.1".into()));
+        assert_eq!(
+            found,
+            Some(root.join("acme@0.1.0")),
+            "two-segment pin matches the legacy dir"
+        );
+        // But a different normalized version must still miss.
+        let missed = find_lib_dir_pinned(&root, "acme", &VersionReq::Exact("0.2".into()));
+        assert_eq!(missed, None, "0.2 does not match a 0.1.0 install");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn def_libmgr__pinned_at_least_takes_highest_qualifying() {
+        let root = temp_root("pin-floor");
+        std::fs::remove_dir_all(root.join("acme@2.0")).unwrap();
+        std::fs::create_dir_all(root.join("acme@0.1.0")).unwrap();
+        std::fs::create_dir_all(root.join("acme@0.2")).unwrap();
+        std::fs::create_dir_all(root.join("acme@0.1.7")).unwrap();
+        // Floor 0.1: the highest installed copy >= 0.1 wins (0.2), skipping
+        // the legacy-named acme (bare) entirely.
+        let found = find_lib_dir_pinned(&root, "acme", &VersionReq::AtLeast("0.1".into()));
+        assert_eq!(
+            found,
+            Some(root.join("acme@0.2")),
+            "the floor takes the highest qualifying copy"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn def_libmgr__pinned_at_least_missing_floor_is_not_swallowed() {
+        let root = temp_root("pin-floor-miss");
+        std::fs::remove_dir_all(root.join("acme@2.0")).unwrap();
+        // Only 0.1 installed; a floor of 0.2 must NOT quietly return 0.1 —
+        // None so the caller degrades loudly.
+        std::fs::create_dir_all(root.join("acme@0.1")).unwrap();
+        let found = find_lib_dir_pinned(&root, "acme", &VersionReq::AtLeast("0.2".into()));
+        assert_eq!(found, None, "a floor below the installed set is a miss");
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -911,5 +1240,26 @@ mod tests {
         let found = find_lib_dir_pinned(&root, "acme", &VersionReq::Any);
         assert_eq!(found, Some(root.join("acme@2.0")), "Any picks the highest");
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    // Law amendment 1 (registry-design §4.5): the registry face lets a solved pack
+    // land in the data root; mcode still never leaves it. The `--from` face
+    // keeps the strict law (its tests live in shard7 lib_project).
+    #[test]
+    fn def_libmgr__registry_scope_admits_packs_into_the_data_root() {
+        let global = crate::cli::datadir::data_root();
+        ensure_install_scope_registry("acme", &global)
+            .expect("registry face: a non-mcode pack may land in the data root");
+        ensure_install_scope_registry("mcode", &global)
+            .expect("registry face: mcode stays in the data root");
+    }
+
+    #[test]
+    fn def_libmgr__registry_scope_still_bars_mcode_from_projects() {
+        let proj = std::env::temp_dir().join(format!("mcc-scope-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&proj);
+        std::fs::create_dir_all(&proj).unwrap();
+        assert!(ensure_install_scope_registry("mcode", &proj).is_err());
+        let _ = std::fs::remove_dir_all(&proj);
     }
 }
