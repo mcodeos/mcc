@@ -181,6 +181,7 @@ Protocol names use their **industry-standard acronym**:
 | `MII` | Media Independent Interface (100/10, 16-signal) | IEEE 802.3 clause 22 |
 | `RMII` | Reduced Media Independent Interface (8-signal) | RMII Consortium specification |
 | `MDIO` | Management Data Input/Output (SMI pair) | IEEE 802.3 clause 22/45 |
+| `ENC` | Incremental (quadrature) encoder, 2-phase A/B | de facto (2-phase quadrature) |
 | `ONEWIRE` | 1-Wire | Maxim/Dallas proprietary |
 | `MOST` | Media Oriented Systems Transport | MOST Cooperation specification |
 | `I2S` | Inter-IC Sound | NXP I²S specification |
@@ -339,6 +340,7 @@ the mcode parser:
 | MII | Media Independent Interface |
 | RMII | Reduced Media Independent Interface |
 | MDIO | Management Data Input/Output |
+| ENC | Encoder (incremental/quadrature) |
 
 ---
 
