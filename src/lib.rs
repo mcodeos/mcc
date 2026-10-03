@@ -18,7 +18,7 @@ use crate::db::diagnostic::diagnostic::Diagnostic;
 use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use tracing::debug;
+use tracing::{debug, info};
 
 // crate-wide debug macro (20 targets + error/warn/info)
 #[macro_use]
@@ -331,7 +331,19 @@ pub fn mcc_load_project(entry_uri: &McURI) {
     builder::mc_code::mcb_reset_ast_visit_flag();
     let mut loaded = HashSet::new();
     builder::mcb_add_recursive(entry_uri, &mut loaded, false);
-    builder::mcb_parse_all_modules();
+    // U392 probe: the module sema pass is the project-side cost the
+    // per-library summaries do not cover — time and log it.
+    let modules_ms = {
+        let t = std::time::Instant::now();
+        builder::mcb_parse_all_modules();
+        t.elapsed().as_millis() as u64
+    };
+    info!(
+        target: "mcc::builder",
+        modules_ms,
+        entry = %entry_uri,
+        "project module pass done (U392 probe)"
+    );
 }
 
 /// Collect every `.mc` file under `root` recursively (hidden directories

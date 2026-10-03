@@ -377,7 +377,10 @@ pub fn mcb_add_recursive(uri: &McURI, loaded: &mut HashSet<String>, is_system_li
     //    This is a non-recursive lookup — unlike the old parse_nsp() which
     //    re-traversed the entire use graph independently (Defect 12).
     trace!(target: "mcc::builder", file = %file_str, "load: parse_nsp_from_deps");
-    mcfile.parse_nsp_from_deps();
+    crate::db::infra::loadprof::time(
+        &crate::db::infra::loadprof::NSP_NS,
+        || mcfile.parse_nsp_from_deps(),
+    );
 
     // 9. After all dependencies are loaded, parse this file's CMIE definitions
     // Check pass1_complete flag to determine if parsing is needed
@@ -386,7 +389,14 @@ pub fn mcb_add_recursive(uri: &McURI, loaded: &mut HashSet<String>, is_system_li
         trace!(target: "mcc::builder", file = %file_str, "load: parse_pass1_types");
         crate::current_uri::set(&canonical_uri);
         remove_project_defs(&canonical_uri);
-        mcfile.parse_pass1_types();
+        let pass1_ns = {
+            let t = std::time::Instant::now();
+            mcfile.parse_pass1_types();
+            t.elapsed().as_nanos() as u64
+        };
+        crate::db::infra::loadprof::PASS1_NS
+            .fetch_add(pass1_ns, std::sync::atomic::Ordering::Relaxed);
+        crate::db::infra::loadprof::note_pass1(&canonical_uri, pass1_ns);
         // Update spacenames in prj_mcodes
         workspace::WORKSPACE
             .mcodes

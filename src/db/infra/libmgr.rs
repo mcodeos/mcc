@@ -470,6 +470,9 @@ pub fn file_is_system_library(path: &Path) -> bool {
 /// Returns `true` if load succeeded.
 pub fn mcb_load_lib(name: &str, root: &Path) -> bool {
     let t0 = std::time::Instant::now();
+    // U392 probe: the summary at the end of this function must describe
+    // exactly one library round, so the accumulators zero here.
+    crate::db::infra::loadprof::reset();
     info!(
         target: "mcc::lib",
         name = name,
@@ -607,6 +610,8 @@ pub fn mcb_load_lib(name: &str, root: &Path) -> bool {
         elapsed_ms = t0.elapsed().as_millis() as u64,
         "loaded"
     );
+    // U392 probe: phase split + per-file top list for this round.
+    crate::db::infra::loadprof::log_summary(name);
     // T6-②: library load round end — the recursive add registered (or, for a
     // use-only third-party lib, tombstoned) defs above; stamp one journal
     // version when the round changed the definition space.
@@ -806,7 +811,10 @@ pub fn mcb_load_lib_by_name_pinned(lib_name: &str, req: &VersionReq) -> Option<S
         } else {
             Some(proj.as_path())
         };
-        match resolve_lib_root_req(lib_name, req, project_root) {
+        match crate::db::infra::loadprof::time(
+            &crate::db::infra::loadprof::SCAN_NS,
+            || resolve_lib_root_req(lib_name, req, project_root),
+        ) {
             Some(found) => found,
             None => {
                 // Pin unmet: fall back to any installed copy, loudly.
@@ -882,6 +890,7 @@ pub fn mcb_load_lib_by_name_pinned(lib_name: &str, req: &VersionReq) -> Option<S
         tracing::info!(target: "mcc::lib",
             lib = name,
             path = ?root,
+            scan_ms = crate::db::infra::loadprof::SCAN_NS.load(std::sync::atomic::Ordering::Relaxed) / 1_000_000,
             "loading library");
         crate::mcb_load_lib(&name, &root);
     } else if !root.exists() {

@@ -489,7 +489,17 @@ impl McCode {
         // Use C mcc_load instead of Rust read_to_string
         // Must use CString to ensure null-terminated string for C
         let c_path = std::ffi::CString::new(binding.clone()).expect("Failed to create CString");
-        let fcontent_ptr = unsafe { crate::ast::bindings::mcc_load(c_path.as_ptr() as *mut i8) };
+        // U392 probe: time the whole parse_ast round; the disk read below is
+        // a distinct C call, timed apart from the lex+parse that follows.
+        let probe_t0 = std::time::Instant::now();
+        let (fcontent_ptr, read_ns) = crate::db::infra::loadprof::time(
+            &crate::db::infra::loadprof::READ_NS,
+            || {
+                let t = std::time::Instant::now();
+                let ptr = unsafe { crate::ast::bindings::mcc_load(c_path.as_ptr() as *mut i8) };
+                (ptr, t.elapsed().as_nanos() as u64)
+            },
+        );
         if fcontent_ptr.is_null() {
             tracing::warn!(target: "mcc::code", file = ?fname, "mcc_load failed");
             return;
@@ -620,6 +630,14 @@ impl McCode {
                 }
             }
         }
+
+        // U392 probe: the round's wall time minus the read is lex+parse.
+        let total_ns = probe_t0.elapsed().as_nanos() as u64;
+        crate::db::infra::loadprof::LEXPARSE_NS.fetch_add(
+            total_ns.saturating_sub(read_ns),
+            std::sync::atomic::Ordering::Relaxed,
+        );
+        crate::db::infra::loadprof::note_parse(&self.uri, total_ns);
     }
 
     pub fn parse_ast_quiet(&mut self) {
