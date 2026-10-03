@@ -65,7 +65,7 @@ range (threshold 40KB).
 | `builder/` | 1 | 0 KB |
 | `cli/` | 9 | 163 KB |
 | `cmds/` | 33 | 609 KB |
-| `db/` | 35 | 1280 KB |
+| `db/` | 35 | 1281 KB |
 | `export/` | 7 | 185 KB |
 | `import_skeleton/` | 5 | 43 KB |
 | `instant/` | 41 | 1802 KB |
@@ -2626,9 +2626,9 @@ db/infra/packinst.rs#L20  const ZSTD_MAGIC
 db/infra/packinst.rs#L28  fn install_mcl
 db/infra/packinst.rs#L38  fn install_mcl_at
 db/infra/packinst.rs#L50  fn install_mcl_at_scope
-db/infra/packinst.rs#L176  fn read_archive
-db/infra/packinst.rs#L209  fn sha256_hex_file
-db/infra/packinst.rs#L216  fn hex
+db/infra/packinst.rs#L185  fn read_archive
+db/infra/packinst.rs#L218  fn sha256_hex_file
+db/infra/packinst.rs#L225  fn hex
 db/infra/params_dump.rs#L37  struct ParamsDump
 db/infra/params_dump.rs#L44  struct FaceDump
 db/infra/params_dump.rs#L58  struct RowDump
