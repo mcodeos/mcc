@@ -370,8 +370,9 @@ fn find_lib_dir(root: &Path, name: &str) -> Option<std::path::PathBuf> {
 /// Highest `<name>@<version>` directory under `root`, semver-ordered
 /// (non-numeric tails sort lowest). The system-`use` join uses this as a
 /// fallback when no bare `<name>` directory exists (registry-design.md §4.2:
-/// installed packs land as `<name>@<ver>/`). "Highest wins" is the P1 rule —
-/// the version solver (§P2) replaces it once dependency resolution lands.
+/// installed packs land as `<name>@<ver>/`). "Highest wins" holds for the
+/// direct use face; the registry solve is the declared-dependency face and
+/// pins exact versions on top of it.
 pub fn highest_versioned_dir(root: &Path, name: &str) -> Option<std::path::PathBuf> {
     let prefix = format!("{name}@");
     let mut best: Option<((u64, u64, u64), std::path::PathBuf)> = None;

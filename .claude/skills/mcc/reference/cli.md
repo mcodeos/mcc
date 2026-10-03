@@ -548,6 +548,17 @@ mcc lib show mcode
 # Install a library from source
 mcc lib install mcode --from /path/to/mcode
 
+# Registry form (registry-design.md §4.5): solve against [registry] url,
+# download the thin artifact, verify sha256, unpack through the three checks.
+# `--here` places the pack in <project>/deps/ (the explicit-placement law);
+# without it the pack lands in the data root.
+mcc lib install ams1117@0.2#AMS1117-3.3
+mcc lib install regtest --here
+
+# Build in a registry-configured project solves [dependencies] first and
+# writes mcode.lock once (only `mcc lib update` rewrites it — P4); a stale
+# lock warns E2056 instead of being touched.
+
 # Search available libraries
 mcc lib search mcode
 

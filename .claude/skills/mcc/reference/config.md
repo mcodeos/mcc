@@ -29,6 +29,13 @@ output:
 libs:
   preload:
     - mcode
+
+registry:
+  # Static registry tree root (registry-design.md §3). file:///abs or a bare
+  # absolute path; unset = the registry faces (lib install <spec>, build's
+  # dependency solve) are unavailable and name this key in their errors.
+  # A project.toml [config.registry] url overrides it.
+  # url: "file:///srv/mcode-registry"
 ```
 
 ### Project Config (`project.toml`)

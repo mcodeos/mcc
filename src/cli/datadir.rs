@@ -313,9 +313,9 @@ pub const LIB_DIR_SKIP: &[&str] = &["logs", "config", "projects", "mclibs", "uni
 
 /// The project-local library directory: `<project_root>/libs`.
 ///
-/// Third-party libraries install here by default (cargo-style, vendored and
-/// git-committable); the global data root only ever holds the mcode official
-/// library.
+/// Third-party libraries vendor here by default via `--from` (cargo-style,
+/// git-committable); the data root holds mcode plus the registry-solved
+/// packs (registry-design.md §4.5, the amended install-scope law).
 pub fn project_libs_dir(root: &Path) -> PathBuf {
     root.join("libs")
 }

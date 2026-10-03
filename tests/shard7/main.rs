@@ -38,6 +38,7 @@ mod iface_pin_number_binding;
 mod import_skeleton_golden;
 mod lib_pack;
 mod lib_project;
+mod lib_registry;
 mod lock_module_expects;
 mod lock_impact_import;
 mod lock_pp_conds;
