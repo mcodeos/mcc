@@ -813,7 +813,7 @@ the types, and the units all live elsewhere.
    parameter is the short form read at the call site.
 3. **func net params name the net's role in the behavior — never the
    board's net.** The caller owns the net name; the parameter owns the
-   role it plays in this block: `Pull([node, rail])` (what is pulled /
+   role it plays in this block: `Pullup([node, hot])` (what is pulled /
    pulled to what), `Divider(input, output, gnd)`, `Reset(gnd)`. Role
    words come from the trade vocabulary (law §0.2).
 4. **psnk/pair params: lowercase head, braced members in pin case (§6).**
