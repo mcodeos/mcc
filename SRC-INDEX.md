@@ -44,8 +44,8 @@ range (threshold 40KB).
 | `db/defregistry.rs` | 161 KB | 184 |
 | `viz/layout/equi_audit.rs` | 140 KB | 98 |
 | `instant/mc_mod/points.rs` | 136 KB | 24 |
+| `rpc/handlers/mod.rs` | 136 KB | 108 |
 | `semantic/module/mod.rs` | 134 KB | 89 |
-| `rpc/handlers/mod.rs` | 133 KB | 107 |
 | `instant/mc_mod/phases.rs` | 132 KB | 29 |
 | `export/kicad_sch.rs` | 127 KB | 106 |
 | `semantic/mc_inst.rs` | 123 KB | 88 |
@@ -74,7 +74,7 @@ range (threshold 40KB).
 | `output/` | 7 | 107 KB |
 | `query/` | 9 | 171 KB |
 | `refdef/` | 7 | 135 KB |
-| `rpc/` | 16 | 334 KB |
+| `rpc/` | 16 | 338 KB |
 | `semantic/` | 101 | 3044 KB |
 | `stages/` | 19 | 408 KB |
 | `vector/` | 26 | 494 KB |
@@ -5329,10 +5329,10 @@ rpc/handlers/admin.rs#L182  fn handle_server_info
 rpc/handlers/admin.rs#L200  fn handle_methods
 rpc/handlers/admin.rs#L206  fn handle_set_project_root
 rpc/handlers/admin.rs#L208  struct SetProjectRootParams
-rpc/handlers/admin.rs#L218  fn handle_set_system_root
-rpc/handlers/admin.rs#L220  struct SetSystemRootParams
-rpc/handlers/admin.rs#L230  fn handle_load_project
-rpc/handlers/admin.rs#L232  struct LoadProjectParams
+rpc/handlers/admin.rs#L239  fn handle_set_system_root
+rpc/handlers/admin.rs#L241  struct SetSystemRootParams
+rpc/handlers/admin.rs#L251  fn handle_load_project
+rpc/handlers/admin.rs#L253  struct LoadProjectParams
 rpc/handlers/aicontract.rs#L9  fn handle_check
 rpc/handlers/aicontract.rs#L91  fn handle_caps
 rpc/handlers/aicontract.rs#L93  struct ClientTriple
@@ -5543,11 +5543,12 @@ rpc/handlers/mod.rs#L3182  fn cli_rpc__find_project_root_prefers_configured_root
 rpc/handlers/mod.rs#L3214  fn cli_rpc__find_project_root_does_not_claim_files_outside_it
 rpc/handlers/mod.rs#L3238  fn cli_rpc__find_project_root_detects_project_manifest
 rpc/handlers/mod.rs#L3262  fn cli_rpc__load_project_keeps_sibling_projects_in_separate_worlds
-rpc/handlers/mod.rs#L3326  fn cli_rpc__defs_dependents_reports_no_dependents_after_reparse
-rpc/handlers/mod.rs#L3382  fn cli_rpc__pin_id_cmp_orders_numeric_then_natural
-rpc/handlers/mod.rs#L3407  fn cli_rpc__diag_in_system_lib_classifies_by_source_domain
-rpc/handlers/mod.rs#L3451  fn cli_rpc__handle_check_scopes_to_candidate_overlay
-rpc/handlers/mod.rs#L3535  fn cli_rpc__handle_check_reuses_one_overlay_uri
+rpc/handlers/mod.rs#L3327  fn cli_rpc__set_project_root_refuses_midrun_reroot_to_a_different_world
+rpc/handlers/mod.rs#L3382  fn cli_rpc__defs_dependents_reports_no_dependents_after_reparse
+rpc/handlers/mod.rs#L3438  fn cli_rpc__pin_id_cmp_orders_numeric_then_natural
+rpc/handlers/mod.rs#L3463  fn cli_rpc__diag_in_system_lib_classifies_by_source_domain
+rpc/handlers/mod.rs#L3507  fn cli_rpc__handle_check_scopes_to_candidate_overlay
+rpc/handlers/mod.rs#L3591  fn cli_rpc__handle_check_reuses_one_overlay_uri
 rpc/handlers/params.rs#L9  fn default_true
 rpc/handlers/params.rs#L14  struct LibraryShowParams
 rpc/handlers/params.rs#L19  struct LibInstallParams
@@ -12415,4 +12416,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-447 files, 12330 declarations.
+447 files, 12331 declarations.
