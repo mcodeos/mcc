@@ -14,7 +14,7 @@ use crate::ast::node::AstNode;
 use crate::semantic::basic::attr_keys::{self, AttrValueKind};
 use crate::semantic::basic::mc_ids::McIds;
 use crate::semantic::basic::mc_param_type::{McParamType, McParamTypeKind};
-use crate::semantic::basic::mc_paramd::McParamDeclare;
+use crate::semantic::basic::mc_paramd::{McParamDeclare, McParamDeclareKind};
 use crate::semantic::basic::mc_uval::McUnit;
 
 // Usage Site
@@ -450,6 +450,14 @@ pub fn infer_param(param_name: &str, body: &AstNode) -> InferenceResult {
 
 /// Check for unused parameters — uses all_name_forms() for IDX-aware matching.
 pub fn find_unused_params(declares: &[McParamDeclare], body: &AstNode) -> Vec<String> {
+    // U385 leg E3: a vector formal's written body spellings never
+    // string-equal its canonical form (`kin[4][l,r]` as written vs
+    // `kin[4][l, r]` canonical) nor its expanded members, so the per-form
+    // scan below misses them. Collect the leaves once; each declare gets a
+    // spelling-form fallback ([`declare_used_in_leaves`],
+    // layer-expansion-law.md §6.1).
+    let mut leaves = Vec::new();
+    leaf_texts(body, &mut leaves);
     let mut unused = Vec::new();
     for declare in declares {
         let name_forms = declare.all_name_forms();
@@ -458,7 +466,8 @@ pub fn find_unused_params(declares: &[McParamDeclare], body: &AstNode) -> Vec<St
         }
         let has_usage = name_forms
             .iter()
-            .any(|name| !collect_usages(name, body).is_empty());
+            .any(|name| !collect_usages(name, body).is_empty())
+            || declare_used_in_leaves(declare, &leaves);
         if !has_usage {
             let name = declare.display_name();
             if !name.is_empty() {
@@ -467,6 +476,41 @@ pub fn find_unused_params(declares: &[McParamDeclare], body: &AstNode) -> Vec<St
         }
     }
     unused
+}
+
+/// Collect the text of every node (leaves and composites) in the subtree.
+fn leaf_texts(node: &AstNode, out: &mut Vec<String>) {
+    if let Some(text) = node.to_string() {
+        out.push(text);
+    }
+    if let Some(child) = node.get_sub_node() {
+        for n in child.iter() {
+            leaf_texts(&n, out);
+        }
+    }
+}
+
+/// The U385 leg E3 spelling-form fallback: a vector/ida formal (square
+/// subscript) counts as used when a leaf is its bare base name, its
+/// space-stripped canonical form, or its member-index face `<base>[<n>]`.
+/// Plain formals return false — the ordinary per-form scan covers them.
+fn declare_used_in_leaves(declare: &McParamDeclare, leaves: &[String]) -> bool {
+    let McParamDeclareKind::Single(ids) = &declare.kind else {
+        return false;
+    };
+    let Some(base) = ids.get_base_name() else {
+        return false;
+    };
+    let canonical = ids.to_string().replace(' ', "");
+    leaves.iter().any(|t| {
+        t.as_str() == base
+            || t.replace(' ', "") == canonical
+            || (t.starts_with(base.as_str())
+                && t[base.len()..]
+                    .strip_prefix('[')
+                    .and_then(|s| s.strip_suffix(']'))
+                    .is_some_and(|s| s.parse::<usize>().is_ok()))
+    })
 }
 
 #[cfg(test)]

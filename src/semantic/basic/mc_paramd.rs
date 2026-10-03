@@ -282,6 +282,45 @@ impl McParamDeclares {
         self.declares.iter().find(|decl| decl.match_name(name))
     }
 
+    /// Whether `name` denotes a declared parameter through the whole-set
+    /// face: the bare base name or the declaration's own canonical spelling
+    /// (`IN`, `IN[1:2]`, `kin[4][l, r]`). U385 leg E3 — the definition-face
+    /// floating check must not report a formal's body reference as a
+    /// floating net label.
+    pub fn matches_whole_set(&self, name: &str) -> bool {
+        self.declares
+            .iter()
+            .any(|decl| decl.matches_whole_set_spelling(name))
+    }
+
+    /// Whether `name` is the member-index face of a declared vector formal:
+    /// a `<base>[<n>]` spelling whose base declares a bracketed formal
+    /// (`IN[2]` against formal `IN[3]`). The index range itself is the
+    /// instantiation face's business ([`McParamBinding::member_lane`]); here
+    /// it only decides "not a floating label". U385 leg E3.
+    pub fn matches_member_index(&self, name: &str) -> bool {
+        let Some((base, sub)) = name.split_once('[') else {
+            return false;
+        };
+        let Some(sub) = sub.strip_suffix(']') else {
+            return false;
+        };
+        if base.is_empty() || base.contains(['[', ']', '.', '{', '}', ' ']) {
+            return false;
+        }
+        if sub.parse::<usize>().is_err() {
+            return false;
+        }
+        self.declares.iter().any(|decl| {
+            let McParamDeclareKind::Single(ids) = &decl.kind else {
+                return false;
+            };
+            // `get_base_name` returns `Some` only for a bracketed form, so
+            // the equality also proves the formal is a vector.
+            ids.get_base_name().as_deref() == Some(base)
+        })
+    }
+
     /// Find parameter declaration by name (mutable reference)
     pub fn find_mut(&mut self, name: &str) -> Option<&mut McParamDeclare> {
         self.declares.iter_mut().find(|decl| decl.match_name(name))
@@ -1118,6 +1157,24 @@ impl McParamDeclare {
             McParamDeclareKind::UValue(uval) => uval.name.get_primary_name(),
             McParamDeclareKind::EnumClass(ec) => ec.name.get_primary_name(),
         }
+    }
+
+    /// U385 leg E3: the whole-set body-reference face of a vector/ida formal
+    /// (layer-expansion-law.md §6.1). A formal written with a square
+    /// subscript (`IN[2]`, `kin[4][l,r]`) is referenced in the body either by
+    /// its bare base name (`IN`) or by its own canonical spelling
+    /// (`kin[4][l, r]`); both denote the whole expanded member_set. Plain
+    /// formals (no subscript) return false — the ordinary name match
+    /// [`Self::match_name`] already covers them, and curly-bus formals keep
+    /// their member-addressing face unchanged.
+    pub fn matches_whole_set_spelling(&self, target: &str) -> bool {
+        let McParamDeclareKind::Single(ids) = &self.kind else {
+            return false;
+        };
+        let Some(base) = ids.get_base_name() else {
+            return false;
+        };
+        target == base || target == ids.to_string()
     }
 
     /// Human-readable display name, including compound forms.

@@ -880,11 +880,23 @@ impl McFunction {
         };
         self.insts.scope = Some(full_scope);
         // ★ Fix: wrap context so func params are searchable by McPhrase::new
-        let param_names: Vec<String> = self
+        let mut param_names: Vec<String> = self
             .params
             .iter()
             .filter_map(|p| p.get_primary_name())
             .collect();
+        // U385 leg E3: a vector formal's base name (`IN` for `IN[1:2]`) is a
+        // legal body reference — the whole-set face — so the definition-face
+        // name search must know it, not just the declared spelling.
+        for p in &self.params {
+            if let crate::semantic::basic::mc_paramd::McParamDeclareKind::Single(ids) = &p.kind {
+                if let Some(base) = ids.get_base_name() {
+                    if !param_names.contains(&base) {
+                        param_names.push(base);
+                    }
+                }
+            }
+        }
         // Bare identifiers that failed find_inst are recorded here and
         // filtered after the body loop against the func's own params/insts.
         let pending_floating = std::cell::RefCell::new(Vec::new());
@@ -1117,8 +1129,12 @@ impl McFunction {
             // the func for the component-finish recheck.
             self.seen_callers = seen_callers.into_inner();
             self.gate_candidates = gate_candidates.into_inner();
-            for (name, pos, len) in pending_floating.into_inner() {
-                if self.params.find(&name).is_some() {
+            for (name, pos, len) in pending_floating.into_inner() {                // U385 leg E3: a formal's own body reference (base name,
+                // declared spelling, or member index) is not a floating label.
+                if self.params.find(&name).is_some()
+                    || self.params.matches_whole_set(&name)
+                    || self.params.matches_member_index(&name)
+                {
                     continue;
                 }
                 if self.insts.get(&name).is_some() {

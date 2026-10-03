@@ -92,6 +92,7 @@ mod u385_reorder_face;
 mod u385_expansion_faces;
 mod u385_layer_group;
 mod u385_splice_face;
+mod u385_formal_face;
 mod vec_lane_chain_width;
 mod vec_net_crossnet;
 mod vec_r0_operator_encoding;

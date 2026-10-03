@@ -857,6 +857,23 @@ impl McParamBinding {
     pub fn expand_names(&self) -> Vec<String> {
         self.declare.expand()
     }
+
+    /// The `index`-th member (1-based) of the bound member_set — the U385
+    /// leg E3 member-index face (`IN[2]` in a body selects the 2nd member).
+    /// A `Set` bound value indexes positionally; a scalar bound to a
+    /// single-member formal serves as the whole. Out of range is `None` —
+    /// the reference stays unbound and the caller-scope pass reports it.
+    pub fn member_lane(&self, index: usize) -> Option<&McParamValue> {        let members = self.declare.expand();
+        if members.is_empty() || index == 0 || index > members.len() {
+            return None;
+        }
+        let value = self.get_value()?;
+        match value {
+            McParamValue::Set(vals) => vals.get(index - 1),
+            _ if index == 1 => Some(value),
+            _ => None,
+        }
+    }
 }
 
 /// A call-site-bindable name implied by a definition-side attribute key.
@@ -1685,7 +1702,19 @@ impl McParamBindings {
 
     /// Find binding by parameter name
     pub fn find(&self, name: &str) -> Option<&McParamBinding> {
-        self.bindings.iter().find(|b| b.declare.match_name(name))
+        self.bindings
+            .iter()
+            .find(|b| b.declare.match_name(name))
+            .or_else(|| {
+                // U385 leg E3: the whole-set face — a vector/ida formal is
+                // referenced in the body by its bare base name or its own
+                // canonical spelling (`IN`, `kin[4][l, r]`); the match then
+                // denotes the whole expanded member_set
+                // (layer-expansion-law.md §6.1).
+                self.bindings
+                    .iter()
+                    .find(|b| b.declare.matches_whole_set_spelling(name))
+            })
     }
 
     /// Convert bindings to (McIds, String) pairs for condition evaluation.

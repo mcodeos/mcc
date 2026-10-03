@@ -202,6 +202,18 @@ impl InstantiationBuilder {
         elems.into_iter().map(McBus::from_caller_scope).collect()
     }
 
+    /// Decompose a body operand spelled `<base>[<n>]` (single numeric
+    /// subscript, no spaces) into `(base, n)` — the member-index face of a
+    /// formal reference (U385 leg E3). Any other spelling returns `None`.
+    fn split_formal_index(name: &str) -> Option<(String, usize)> {
+        let (base, sub) = name.split_once('[')?;
+        let sub = sub.strip_suffix(']')?;
+        if base.is_empty() || base.contains(['[', ']', '.', '{', '}', ' ']) {
+            return None;
+        }
+        sub.parse::<usize>().ok().filter(|n| *n > 0).map(|n| (base.to_string(), n))
+    }
+
     fn substitute_node_element(
         elem: &McBus,
         bindings: &McParamBindings,
@@ -274,6 +286,22 @@ impl InstantiationBuilder {
             }
         }
 
+        // U385 leg E3: the member-index face — `IN[2]` in a body selects the
+        // n-th member of the formal's bound member_set (layer-expansion-law.md
+        // §6.1). It runs only after the whole-set faces missed: the formal's
+        // own canonical spelling (`IN[2]` against formal `IN[2]`) is a
+        // whole-set reference above, a differing numeric subscript is an
+        // index. Out of range stays unbound — the caller-scope pass reports
+        // it as today.
+        if let Some((base, index)) = Self::split_formal_index(&elem.name) {            if let Some(binding) = bindings.find(&base) {
+                if let Some(lane) = binding.member_lane(index) {
+                return Self::from_formal_value(
+                    Self::param_value_to_node_elements(lane, cx),
+                );
+                }
+            }
+        }
+
         // No match -> return element unchanged (with flat string members)
         vec![McBus {
             name: elem.name.clone(),
@@ -283,6 +311,31 @@ impl InstantiationBuilder {
             error_kind: elem.error_kind,
             caller_scope: elem.caller_scope,
         }]
+    }
+
+    /// Re-emit substituted node elements as an endpoint phrase. A single
+    /// element folds to one Bus endpoint; several elements (the whole-set
+    /// face's per-member lanes) re-emit as a `Multiple` of per-member
+    /// endpoints — the written list form the pairing layer consumes — rather
+    /// than an anonymous merged bus (the U318 fold: an empty-name multi-member
+    /// bus loses its members on the read-back path and pairs as one point).
+    fn elements_to_endpoint(elements: &[McBus]) -> McPhrase {
+        if elements.len() == 1 {
+            McPhrase::Endpoint(McRef::Name(McInstanceRef::new(McInstance::Bus(
+                Self::node_elements_to_bus(elements),
+            ))))
+        } else {
+            McPhrase::Multiple(
+                elements
+                    .iter()
+                    .map(|e| {
+                        McPhrase::Endpoint(McRef::Name(McInstanceRef::new(McInstance::Bus(
+                            e.clone(),
+                        ))))
+                    })
+                    .collect(),
+            )
+        }
     }
 
     /// Substitute parameters in a list of NodeElements
@@ -401,6 +454,18 @@ impl InstantiationBuilder {
                                 }
                             }
                             return Self::external_wrap(actual);
+                        }
+                    }
+                }
+                // U385 leg E3: the member-index face on the value side —
+                // `Cap(IN[2])` binds the 2nd member of the formal's bound
+                // member_set (layer-expansion-law.md §6.1). Reached only when
+                // the whole-set faces missed, so the formal's own canonical
+                // spelling keeps its whole-set reading above.
+                if let Some((base, index)) = Self::split_formal_index(&ids_str) {
+                    if let Some(binding) = bindings.find(&base) {
+                        if let Some(lane) = binding.member_lane(index) {
+                            return Self::external_wrap(lane);
                         }
                     }
                 }
@@ -691,9 +756,8 @@ impl InstantiationBuilder {
                     phrase.clone()
                 } else {
                     // Substitution hit (or a self-face reference resolved to the
-                    // caller instance bus): merge into a Bus endpoint.
-                    let bus = Self::node_elements_to_bus(&substituted);
-                    McPhrase::Endpoint(McRef::Name(McInstanceRef::new(McInstance::Bus(bus))))
+                    // caller instance bus): re-emit the substituted elements.
+                    Self::elements_to_endpoint(&substituted)
                 }
             }
             McPhrase::Endpoint(McRef::Name(McInstanceRef {
@@ -728,8 +792,7 @@ impl InstantiationBuilder {
                     // No substitution hit for a non-self bus, return as-is
                     phrase.clone()
                 } else {
-                    let bus = Self::node_elements_to_bus(&substituted);
-                    McPhrase::Endpoint(McRef::Name(McInstanceRef::new(McInstance::Bus(bus))))
+                    Self::elements_to_endpoint(&substituted)
                 }
             }
             McPhrase::Endpoint(McRef::Name(McInstanceRef {
@@ -748,8 +811,7 @@ impl InstantiationBuilder {
                 } else if substituted.is_empty() {
                     phrase.clone()
                 } else {
-                    let bus = Self::node_elements_to_bus(&substituted);
-                    McPhrase::Endpoint(McRef::Name(McInstanceRef::new(McInstance::Bus(bus))))
+                    Self::elements_to_endpoint(&substituted)
                 }
             }
             McPhrase::Endpoint(McRef::Name(McInstanceRef {
