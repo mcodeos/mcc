@@ -129,19 +129,26 @@ fn main() -> ExitCode {
         eprintln!("warning: Failed to create data directory: {}", e);
     }
 
-    // 3.6. Library parse cache gate (U392 leg B): only the one-shot
-    // tables-only commands may serve cache hits — their whole lifetime is a
-    // single world build whose consumers read tables, never the AST or the
-    // LSP symbol faces the restored entries do not carry. Symbol-serving
-    // commands (join, refs, query, show, ...) and the server lifecycle keep
-    // the full parse. `MCC_LIBPARSE_CACHE=0` overrides this off for A/B.
+    // 3.6. Library parse cache gate (U392 leg B + leg C): the one-shot CLI
+    // commands may serve cache hits. The leg B set covers the tables-only
+    // world faces (build / check / export / erc / impact / diff); leg C
+    // added the symbol-serving query commands (show / query / def / refs),
+    // whose consumers read exactly the faces a hit restores — symbols,
+    // tokens, cross-file targets, class table (the AST stays un-cached and
+    // these commands never read it). `join` and the server lifecycle keep
+    // the full parse: join reads the AST, and an RPC world must also serve
+    // completion. `MCC_LIBPARSE_CACHE=0` overrides this off for A/B.
     match &cli.command {
         Some(Command::Build(_))
         | Some(Command::Check(_))
         | Some(Command::Export(_))
         | Some(Command::Erc(_))
         | Some(Command::Impact(_))
-        | Some(Command::Diff(_)) => {
+        | Some(Command::Diff(_))
+        | Some(Command::Show(_))
+        | Some(Command::Query(_))
+        | Some(Command::Def(_))
+        | Some(Command::Refs(_)) => {
             mcc::set_libparse_cache_tables_only(true);
         }
         _ => {}

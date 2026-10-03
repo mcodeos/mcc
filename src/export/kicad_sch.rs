@@ -1507,6 +1507,9 @@ fn text_label(
     ledger: &mut Vec<(f64, f64, f64, f64)>,
     e: &mut Emit,
 ) {
+    if std::env::var("MCC_KSCH_TRACE").is_ok() {
+        eprintln!("[lbl] {bid} {text} {x} {y}");
+    }
     // Anti-overlap: slide ALONG the wire first; if every candidate collides,
     // drop the font one notch and try the same run again (dense sheets read a
     // smaller label better than an overlapping one).

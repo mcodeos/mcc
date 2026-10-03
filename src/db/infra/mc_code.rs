@@ -3253,6 +3253,23 @@ impl McCode {
         }
     }
 
+    /// Cross-file class-ref target list — raw snapshot/restore for the
+    /// library parse cache (U392 leg C): the list is per-file state rebuilt
+    /// by `create_lapper`, the slot stores it symbolically and replay
+    /// restores it through the id remap.
+    pub(crate) fn cross_file_targets_snapshot(
+        &self,
+    ) -> Vec<(crate::ast::sem::DeclareId, McURI, std::ops::Range<usize>, u8)> {
+        self.cross_file_targets.clone()
+    }
+
+    pub(crate) fn set_cross_file_targets(
+        &mut self,
+        v: Vec<(crate::ast::sem::DeclareId, McURI, std::ops::Range<usize>, u8)>,
+    ) {
+        self.cross_file_targets = v;
+    }
+
     pub fn create_lapper(&mut self) {
         tracing::info!(target: "mcc::lsp", "[LAPPER_DEBUG] create_lapper START uri={}", self.uri);
         self.cross_file_targets.clear();

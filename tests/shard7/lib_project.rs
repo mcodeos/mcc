@@ -402,3 +402,49 @@ fn pin__exact_pin_loads_from_the_project_tier() {
     assert!(ok, "project-tier load failed: {stdout}{stderr}");
     assert!(stdout.contains("loaded") || stderr.contains("loaded"), "load report: {stdout}{stderr}");
 }
+
+// use-side tier precedence
+//
+// The load side resolves a pinned dependency through the project tier first
+// (`find_lib_dir_pinned` over `<project>/libs/`, b4506). The use side must
+// obey the same law: a vendored pack resolves by plain `use <name>.<name>`
+// with no global install — otherwise every pack's consumer verification line
+// (WORKFLOW §6: install → use → check 0/0) dead-ends at E2003.
+
+#[test]
+fn use__resolves_a_vendored_pack_through_the_project_tier() {
+    let f = fixture("use-project-tier");
+    let (_, stderr, ok) = run_in_proj(
+        &f,
+        &[
+            "lib",
+            "install",
+            "ztestpack",
+            "--from",
+            f.lib_src.to_str().unwrap(),
+            "--version",
+            "0.3",
+        ],
+    );
+    assert!(ok, "install failed: {stderr}");
+
+    std::fs::write(
+        f.proj.join("src/main.mc"),
+        "use ztestpack.ztestpack\n\nmodule main()\n{\n}\n",
+    )
+    .unwrap();
+
+    let (stdout, stderr, ok) = run_in_proj(&f, &["check", "src/main.mc"]);
+    assert!(
+        ok,
+        "vendored-pack use must resolve: {stdout}{stderr}"
+    );
+    assert!(
+        !stderr.contains("E2003"),
+        "use target must resolve through the project tier: {stderr}"
+    );
+    assert!(
+        !stderr.contains("unresolved class"),
+        "the pack's classes must be visible: {stderr}"
+    );
+}

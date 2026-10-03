@@ -290,6 +290,11 @@ impl McUse {
             final_filename.push_str(".mc");
         }
 
+        // 3c. A project-tier hit in 4b widens the 6b containment fence: the
+        //     target is lawful under the project root, not only the system
+        //     root. Declared here so 6b (later in this function) sees it.
+        let mut project_fence: Option<std::path::PathBuf> = None;
+
         // 4. System libraries: the system root already points to the library
         //    directory, so no extra path prefix is needed.
         if self.prefix == McUsePrefix::PathSystem {
@@ -299,13 +304,36 @@ impl McUse {
             //     `<root>/<name>@<ver>/` (registry-design.md §4.2), so
             //     `use <name>/…` joins to `<root>/<name>/…` and misses when
             //     only the versioned directory exists. When the bare
-            //     first-segment directory is absent, re-base on the highest
-            //     `<name>@<ver>` directory (bare dirs stay preferred, so
-            //     mcode/mclibs/mcpub's bare checkouts are untouched; the P2
-            //     solver replaces "highest wins" later).
+            //     first-segment directory is absent, re-base on the
+            //     resolved `<name>@<ver>` directory (bare dirs stay
+            //     preferred, so mcode/mclibs/mcpub's bare checkouts are
+            //     untouched). Resolution goes through the shared tier law —
+            //     `resolve_lib_root_req`, the same face the load side uses
+            //     (b4506): project `libs/` first, then the global root — so
+            //     a vendored `<project>/libs/<name>@<ver>` pack resolves by
+            //     plain `use <name>.<name>` without any global install.
             base_path = match final_filename.split(['/', '.']).find(|s| !s.is_empty()) {
                 Some(seg) if seg != "mcode" && !base_path.join(seg).exists() => {
-                    match crate::db::infra::libmgr::highest_versioned_dir(&base_path, seg) {
+                    let project_root = {
+                        let proj = mcb_get_project_root();
+                        if proj.as_os_str().is_empty() {
+                            None
+                        } else {
+                            Some(proj)
+                        }
+                    };
+                    let found = crate::db::infra::libmgr::resolve_lib_root_req(
+                        seg,
+                        &crate::db::infra::libmgr::VersionReq::Any,
+                        project_root.as_deref(),
+                    );
+                    if let (Some(vroot), Some(proj)) = (&found, &project_root) {
+                        let proj_canon = proj.canonicalize().unwrap_or_else(|_| proj.clone());
+                        if vroot.starts_with(&proj_canon) {
+                            project_fence = Some(proj_canon);
+                        }
+                    }
+                    match found {
                         Some(vroot) => {
                             // Re-base AND strip the consumed first segment:
                             // `ams1117.ams1117` → uri `ams1117/ams1117/ams1117.mc`
@@ -454,19 +482,26 @@ impl McUse {
         // internal `./` uses resolve under the system root, not the project,
         // and must not be measured against it. View mode (root unset) keeps
         // the historical permissive behavior.
-        let boundary = match self.prefix {
+        let boundary: Vec<std::path::PathBuf> = match self.prefix {
             McUsePrefix::PathSystem => {
+                let mut roots: Vec<std::path::PathBuf> = Vec::new();
                 let root = mcb_get_system_root();
-                if root.as_os_str().is_empty() {
-                    None
-                } else {
-                    Some(root.canonicalize().unwrap_or(root))
+                if !root.as_os_str().is_empty() {
+                    roots.push(root.canonicalize().unwrap_or(root));
                 }
+                // The system face fences against the system root plus, when
+                // 4b resolved through the project tier, the project root —
+                // both are manifest-defined managed spaces; a target outside
+                // both still escapes (this gate's original law).
+                if let Some(pf) = &project_fence {
+                    roots.push(pf.clone());
+                }
+                roots
             }
             McUsePrefix::PathProject | McUsePrefix::PathCurrent | McUsePrefix::PathParent => {
                 let root = mcb_get_project_root();
                 if root.as_os_str().is_empty() {
-                    None
+                    Vec::new()
                 } else {
                     let root_canon = root.canonicalize().unwrap_or_else(|_| root);
                     // Both sides canonical: /tmp vs /private/tmp on macOS
@@ -475,28 +510,30 @@ impl McUse {
                         .canonicalize()
                         .unwrap_or_else(|_| current_path.to_path_buf());
                     if here_canon.starts_with(&root_canon) {
-                        Some(root_canon)
+                        vec![root_canon]
                     } else {
-                        None
+                        Vec::new()
                     }
                 }
             }
         };
-        if let Some(root_canon) = boundary {
-            if !canonical_abs_path.starts_with(&root_canon) {
-                if let Some(fnode) = file_node {
-                    let file_display = canonical_abs_path.display();
-                    dlog_warning(
+        let fenced = boundary.is_empty()
+            || boundary
+                .iter()
+                .any(|root_canon| canonical_abs_path.starts_with(root_canon));
+        if !fenced {
+            if let Some(fnode) = file_node {
+                let file_display = canonical_abs_path.display();
+                dlog_warning(
+                    crate::db::diagnostic::errcodes::USE_TARGET_ESCAPES_ROOT,
+                    fnode,
+                    &crate::db::diagnostic::errcodes::format_msg(
                         crate::db::diagnostic::errcodes::USE_TARGET_ESCAPES_ROOT,
-                        fnode,
-                        &crate::db::diagnostic::errcodes::format_msg(
-                            crate::db::diagnostic::errcodes::USE_TARGET_ESCAPES_ROOT,
-                            &[&file_display],
-                        ),
-                    );
-                }
-                return;
+                        &[&file_display],
+                    ),
+                );
             }
+            return;
         }
 
         // 7. Update final absolute path into self.uri
