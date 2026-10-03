@@ -84,17 +84,6 @@ struct RouteState {
 
 type Routes = Arc<Mutex<BTreeMap<String, RouteState>>>;
 
-/// The download scratch file is `<temp_dir>/<artifact-name>` (registry.rs
-/// fetch_artifact's shared scratch) — parallel installs of the same
-/// artifact name would race on it. The http tests that install therefore
-/// serialize their mcc subprocess runs.
-static DOWNLOAD_LOCK: Mutex<()> = Mutex::new(());
-
-fn downloads_locked<T>(f: impl FnOnce() -> T) -> T {
-    let _guard = DOWNLOAD_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-    f()
-}
-
 fn route_hits(routes: &Routes, path: &str) -> (u32, u32) {
     let map = routes.lock().unwrap();
     match map.get(path) {
@@ -474,7 +463,6 @@ fn serve_trust_json(f: &HttpFixture, rows: &[serde_json::Value]) {
 /// comes from `/dl/…`, and the pack lands in `deps/` (`--here`).
 #[test]
 fn http__install_solves_downloads_and_lands_in_the_data_root() {
-    downloads_locked(|| {
         let f = fixture("install");
         let (_, stderr, ok) = in_proj(&f, &["lib", "install", "regtest@*", "--here"]);
         assert!(ok, "install failed: {stderr}");
@@ -490,7 +478,6 @@ fn http__install_solves_downloads_and_lands_in_the_data_root() {
             f.root.join("cache/meta").join(authority).join("regtest.json").is_file(),
             "the metadata cache row parks under the authority shard"
         );
-    });
 }
 
 /// `lib search --remote` reads `/search.json` and classifies through the
@@ -510,7 +497,6 @@ fn http__search_remote_lists_the_catalog() {
 /// server answers 304, and the cached row is served without a refetch.
 #[test]
 fn http__etag_revalidation_answers_304_and_parks_the_sidecar() {
-    downloads_locked(|| {
         let f = fixture("etag");
         let (_, stderr, ok) = in_proj(&f, &["lib", "install", "regtest@*", "--here"]);
         assert!(ok, "first install failed: {stderr}");
@@ -530,7 +516,6 @@ fn http__etag_revalidation_answers_304_and_parks_the_sidecar() {
         // At least one read carried the parked etag and got the 304 answer
         // (some of a solve's reads revalidate, some are plain reads).
         assert!(not_modified >= 1, "the revalidation answered 304");
-    });
 }
 
 /// The tamper law (registry.rs meta_json_cached): a signed row that stops
@@ -538,7 +523,6 @@ fn http__etag_revalidation_answers_304_and_parks_the_sidecar() {
 /// source *outage* over the same cache serves the row. Never the reverse.
 #[test]
 fn http__tampered_signed_metadata_hard_errors_never_cache_fallback() {
-    downloads_locked(|| {
     let key = key_from_seed([0x42; 32]);
     let f = signed_fixture("tamper", &key);
     seed_trust_store(&f.root, &key);
@@ -568,7 +552,6 @@ fn http__tampered_signed_metadata_hard_errors_never_cache_fallback() {
     let (_, stderr, ok) = run_mcc_in(&p3, &f.root, &["lib", "install", "regtest@*", "--here"]);
     assert!(ok, "outage falls back to the cached row: {stderr}");
     assert!(p3.join("deps/regtest@0.1").is_dir(), "cache-served install lands");
-    });
 }
 
 /// The ⑦b auxiliary channel over http: the store seeds key A; the table
@@ -578,7 +561,6 @@ fn http__tampered_signed_metadata_hard_errors_never_cache_fallback() {
 /// the remote search classifies it verified.
 #[test]
 fn http__trust_update_chains_from_a_trusted_key_and_refuses_bogus() {
-    downloads_locked(|| {
     let f = fixture("trust");
     // The republish at the end writes 0.1 signed by B — versions are
     // immutable, so the hand-written unsigned row must not be in the way.
@@ -643,5 +625,4 @@ fn http__trust_update_chains_from_a_trusted_key_and_refuses_bogus() {
     let (_, stderr, ok) = in_proj(&f, &["lib", "search", "--remote", "regtest"]);
     assert!(ok, "remote search failed: {stderr}");
     assert!(stderr.contains("[verified]"), "B-signed metadata is verified: {stderr}");
-    });
 }
