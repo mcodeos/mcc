@@ -732,49 +732,15 @@ the same day — `supply` is only true for the pull-up direction (a
 pull-down ties to the return), and the neutral candidates `rail`/`ref`
 are both grammar-reserved (§10.10, rules §2286), so `net` takes it,
 after `Cap([net1, net2])`).
+Next follow-up (b4532): one func still could not carry both roles —
+`node` is the same at every call site (the strapped signal) but the
+second net differs by direction, so `Pull` split into
+`Pullup([node, hot])` / `Pulldown([node, ret])`: the func name states
+the role, each param names its own net's role (rule 9.1.1 — `net`
+masked the direction at every call site). pca9555 is the proof case:
+its six adoptions split cleanly VDD-half `Pullup`, VSS-half `Pulldown`.
 
----
-
-## 11. Parameter Naming
-
-Parameters are neither identity nor behavior — they are **slots the caller
-fills**. The name says the role of the handover; the caller's net names,
-the types, and the units all live elsewhere.
-
-### 11.1 Convention
-
-1. **Parameters are lowercase role words** (case table §1.8: not classes,
-   not methods, not instances — `lowercase` is the parameter form).
-   `rs`, `freq`, `gnd`; `Rs`, `FreqHz` are banned.
-2. **Constructor params feed the spec: the name is its spec key in merged
-   short form, no underscore** — `resistance`→`rs`, `voltage`→`volt`,
-   `power_rated`→`prated`, `tolerance`→`tol`, `channel_count`→`chcount`.
-   The spec key stays spelled (§8 body rows are read by humans); the
-   parameter is the short form read at the call site.
-3. **func net params name the net's role in the behavior — never the
-   board's net.** The caller owns the net name; the parameter owns the
-   role it plays in this block: `Pull([node, rail])` (what is pulled /
-   pulled to what), `Divider(input, output, gnd)`, `Reset(gnd)`. Role
-   words come from the trade vocabulary (law §0.2).
-4. **psnk/pair params: lowercase head, braced members in pin case (§6).**
-   The head is the rail's role (`pwr`); the members project as visible
-   net identity at the call site (`pwr.GND`), so they take the identity
-   form: `pwr{V3V3, GND}`. Bare SCREAMING scalar params are banned —
-   that form is the members', not the head's.
-5. **The type carries the dimension — the name never does** (duty law
-   §0.1: `::UV.*` sits next to the name, so the name stays silent about
-   the unit): `freq::UV.HZ`, not `freqHz`; `vin::UV.VOLT`, not
-   `voltage_in`.
-6. **A pass-through parameter keeps the forwarded slot's name** — when a
-   module forwards its parameter into a wrapped call, the two are one
-   slot: `XTAL2(freq, cload)` behind `freq::UV.HZ, cload::UV.CAP`, not a
-   re-abbreviation of the same thing.
-
-### 11.2 Violations on record (fix on touch)
-
-- ~~`cl` — `STM32F205_MINI` module param~~ **fixed 2026-10-03** (renamed
-  `cload`; rule 11.1.6, forwards into `XTAL2(freq, cload)`).
-
+**Unify batch 2026-10-03** (mcode + mclibs, zero-consumer renames under
 rule 9.1.1): `VoltageRegulator`→`Regulate` (DIO.ZEN) ·
 `VoltageDivider`→`Divider` (RES.POT) · `FastRectifier`→`Rectify`
 (DIO.SCH) · `VoltageComparator`→`Compare` (AMP.COMPARATOR) ·
@@ -826,3 +792,45 @@ name.
 5. **Instances inside the module follow §7** — the module body is the
    uniqueness scope (§7.3.3); the projected refdes carries the `M` module
    segment (§7.5).
+
+---
+
+## 11. Parameter Naming
+
+Parameters are neither identity nor behavior — they are **slots the caller
+fills**. The name says the role of the handover; the caller's net names,
+the types, and the units all live elsewhere.
+
+### 11.1 Convention
+
+1. **Parameters are lowercase role words** (case table §1.8: not classes,
+   not methods, not instances — `lowercase` is the parameter form).
+   `rs`, `freq`, `gnd`; `Rs`, `FreqHz` are banned.
+2. **Constructor params feed the spec: the name is its spec key in merged
+   short form, no underscore** — `resistance`→`rs`, `voltage`→`volt`,
+   `power_rated`→`prated`, `tolerance`→`tol`, `channel_count`→`chcount`.
+   The spec key stays spelled (the spec rows are read by humans); the
+   parameter is the short form read at the call site.
+3. **func net params name the net's role in the behavior — never the
+   board's net.** The caller owns the net name; the parameter owns the
+   role it plays in this block: `Pull([node, rail])` (what is pulled /
+   pulled to what), `Divider(input, output, gnd)`, `Reset(gnd)`. Role
+   words come from the trade vocabulary (law §0.2).
+4. **psnk/pair params: lowercase head, braced members in pin case (§6).**
+   The head is the rail's role (`pwr`); the members project as visible
+   net identity at the call site (`pwr.GND`), so they take the identity
+   form: `pwr{V3V3, GND}`. Bare SCREAMING scalar params are banned —
+   that form is the members', not the head's.
+5. **The type carries the dimension — the name never does** (duty law
+   §0.1: `::UV.*` sits next to the name, so the name stays silent about
+   the unit): `freq::UV.HZ`, not `freqHz`; `vin::UV.VOLT`, not
+   `voltage_in`.
+6. **A pass-through parameter keeps the forwarded slot's name** — when a
+   module forwards its parameter into a wrapped call, the two are one
+   slot: `XTAL2(freq, cload)` behind `freq::UV.HZ, cload::UV.CAP`, not a
+   re-abbreviation of the same thing.
+
+### 11.2 Violations on record (fix on touch)
+
+- ~~`cl` — `STM32F205_MINI` module param~~ **fixed 2026-10-03** (renamed
+  `cload`; rule 11.1.6, forwards into `XTAL2(freq, cload)`).
