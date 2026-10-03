@@ -187,7 +187,12 @@ pub fn run(args: &CheckArgs) -> Result<CheckOutcome> {
     // Fresh ledger per invocation: a long-lived server must not accumulate
     // stale rows across requests, and repeated CLI runs must be reproducible.
     ledger::clear();
-    manifest::init_local(target.as_deref(), &mcc::cli::globals().lib);
+    // Directory targets go to the per-world batch below, which loads the
+    // libraries into each entry's own world — loading them here as well would
+    // feed a world the batch reset drops (see init_local_ctx). Single-file
+    // targets keep this world, so their branch loads the context once.
+    let (_project_root, load_ctx) =
+        manifest::init_local_ctx(target.as_deref(), &mcc::cli::globals().lib);
 
     // Resolve the target.
     //   - Directory: a container of definition spaces (§19.5 rule 3 of
@@ -205,6 +210,12 @@ pub fn run(args: &CheckArgs) -> Result<CheckOutcome> {
     let _uri: McURI = if dir_root.is_some() {
         McURI::from("")
     } else if let Some(t) = &target {
+        // Single file: this world is the serving world, so the resolved
+        // context loads here. `build_from_manifest`'s own load round then
+        // short-circuits on the already-populated library tables.
+        for warn in mcc::cli::loadctx::load_all(&load_ctx) {
+            eprintln!("warning: {warn}");
+        }
         let p = Path::new(t);
         let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
         let abs_t = if p.is_absolute() {

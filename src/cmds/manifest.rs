@@ -368,6 +368,31 @@ pub fn effective_target(target: Option<&str>) -> Option<String> {
 ///
 /// Returns the resolved project root if any.
 pub fn init_local(target: Option<&str>, cli_libs: &[String]) -> Option<PathBuf> {
+    let (project_root, ctx) = init_local_ctx(target, cli_libs);
+    for warn in mcc::cli::loadctx::load_all(&ctx) {
+        eprintln!("warning: {warn}");
+    }
+    project_root
+}
+
+/// [`init_local`] without the library load; the caller decides which world the
+/// resolved context is loaded into and calls [`mcc::cli::loadctx::load_all`]
+/// itself.
+///
+/// Commands that hand a directory target to the per-world batch
+/// ([`mcc::mcc_for_each_entry`]) must use this shape: the batch resets the
+/// world per entry, so a load here lands in a world that is dropped before
+/// anything reads it — one full library round of wasted parse. The discarded
+/// round also advances the registry's global DefId counter (world resets
+/// tombstone rows but never reuse ids), which pushes every later world's
+/// registration sequence off the recorded slot positions — the U392 library
+/// parse cache then misses the whole batch world and rewrites every slot on
+/// each run (measured on the jlink corpus: 81 library files, second world
+/// starts at DefId 289, 36/81 replayed, 45 slots rewritten per run).
+pub fn init_local_ctx(
+    target: Option<&str>,
+    cli_libs: &[String],
+) -> (Option<PathBuf>, mcc::cli::loadctx::LoadContext) {
     mcc::mcc_init_no_lib();
     // Empty path → system root is auto-discovered from cwd (env or cwd/mc/ or ~/.mcode/).
     mcc::mcc_set_system_root(Path::new(""));
@@ -378,10 +403,7 @@ pub fn init_local(target: Option<&str>, cli_libs: &[String]) -> Option<PathBuf> 
     // The D6 shape: resolve one context, load it once
     // (use-design §19.10 convergence table, init_local row).
     let ctx = mcc::cli::loadctx::resolve_load_context(project_root.as_deref(), cli_libs);
-    for warn in mcc::cli::loadctx::load_all(&ctx) {
-        eprintln!("warning: {warn}");
-    }
-    project_root
+    (project_root, ctx)
 }
 
 // Tests
