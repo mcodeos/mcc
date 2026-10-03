@@ -132,7 +132,7 @@ pub(crate) fn check_iface_peer_reach(table: &InstTable, results: &mut Vec<NetChe
             };
             let mut peer_reached = false;
             let mut structured = false;
-            for other in endpoints {
+            for other in &endpoints {
                 if other.id == c.entry.id {
                     continue;
                 }

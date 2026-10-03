@@ -255,7 +255,7 @@ fn peer_reach_dual_source_leaves_overshoot_to_6054() {
 fn peer_reach_nc_marked_structure_does_not_count() {
     let _lock = common::lock();
     common::reset();
-    let src = format!("{RSF}{BRF}{PAD}{SUB}module main {{\n    PSRC s1\n    PSRC s2\n    PRCV p1\n    PRCV p2\n    PAD d1\n    CAP c1 n(1,2)\n    XA xa\n    XB xb\n    mid u1\n    p1.IN.SG + c1.P\n}}\n");
+    let src = format!("{RSF}{BRF}{PAD}{SUB}module main {{\n    PSRC s1\n    PSRC s2\n    PRCV p1\n    PRCV p2\n    PAD d1\n    CAP c1 @ncpin(1,2)\n    XA xa\n    XB xb\n    mid u1\n    p1.IN.SG + c1.P\n}}\n");
     let uri: McURI = "/mcc/iface-peer-reach-nc.mc".to_string();
     mcc::mcc_load_from_string(&uri, &src);
     let _ = mcc::mcc_build_flat(&McIds::from("main"), &uri, 1000).expect("flat build");
