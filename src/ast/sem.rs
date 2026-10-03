@@ -169,6 +169,19 @@ pub(crate) fn reset_declare_id_space() {
     NEXT_DECLARE_ID.store(1, Ordering::Relaxed);
 }
 
+/// Snapshot the intern ledger as raw id → canonical key (U392 leg C: the
+/// cache store side symbolizes every interned `DeclareId` it persists; an id
+/// absent from this ledger is file-scoped — enum-class / instance counters —
+/// and replays verbatim).
+pub(crate) fn declare_id_key_snapshot() -> HashMap<u32, DeclareKey> {
+    DECLARE_ID_BY_KEY
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(key, raw)| (*raw, key.clone()))
+        .collect()
+}
+
 impl LocalSymbolTable {
     pub fn new() -> Self {
         LocalSymbolTable {
@@ -227,6 +240,17 @@ impl LocalSymbolTable {
                 .or_insert(loc.file_id);
         }
         declare_id
+    }
+
+    /// File-scoped instance counter — raw read/write for the library parse
+    /// cache (U392 leg C): the counter is per-file state, so the slot stores
+    /// the raw value and replay restores it verbatim.
+    pub(crate) fn inst_id_counter_raw(&self) -> u32 {
+        self.inst_id_counter.raw()
+    }
+
+    pub(crate) fn set_inst_id_counter_raw(&mut self, raw: u32) {
+        self.inst_id_counter = ReferenceId { _raw: raw };
     }
 
     pub fn add_inst(&mut self, span: Span, declr_id: DeclareId) {
@@ -318,6 +342,19 @@ impl GlobalSymbolTable {
         let rid = self.declare_class_id_counter;
         self.declare_class_id_counter += 1;
         rid
+    }
+
+    /// Raw counters for the library parse cache (U392 leg C). Both are
+    /// per-file state (`class_id_counter` only feeds the enum id domain and
+    /// `declare_class_id_counter` the file-scoped reference ids), so the slot
+    /// stores the raw values and replay restores them verbatim.
+    pub(crate) fn counters_raw(&self) -> (u32, u32) {
+        (self.class_id_counter.raw(), self.declare_class_id_counter.raw())
+    }
+
+    pub(crate) fn set_counters_raw(&mut self, class_ctr: u32, ref_ctr: u32) {
+        self.class_id_counter = DeclareId { _raw: class_ctr };
+        self.declare_class_id_counter = ReferenceId { _raw: ref_ctr };
     }
 
     // ★ LSP: enum id helpers
