@@ -151,6 +151,47 @@ shorthand, and library faces are uppercase). The generic parametric faces are
 `HDR.SINGLE(cols)` / `HDR.MULTI(rows, cols)`; the concrete `1XN`/`2XN` faces are
 fixed-size variants in the `IEC.C8`/`C14` style.
 
+### 2.4 Part-Pack Component Id (concrete devices, mcpub corpus)
+
+§2.1–§2.3 name **abstract/base classes** (stdlib primitives and connector
+shapes). Concrete device packs (mcpub) carry a real part number and use a
+**closed category vocabulary** as their prefix — 2026-10-03 ruling:
+
+```
+CAT.PART          component ADC.MCP3204, pack dir analog/mcp3204
+```
+
+Laws:
+
+1. **Two-segment `CAT.ID`** — `CAT` = the part's primary-function category
+   from the closed table below; `ID` = the part number (uppercase,
+   non-alnum → `_` per the existing id law).
+2. **Closed vocabulary, anchored to the pack tree**: the category table is
+   the mcpub top-level directory taxonomy expanded to family level
+   (analog → `ADC`/`DAC`/`AMP`/`LDO`/`DCDC`/`REF`…; discrete → `NMOS`/
+   `PMOS`/`NPN`/`PNP`/`DIO`/`ZENER`/`TVS`…). Machine gate: **`CAT` must
+   equal the pack's directory category** — no human memorization.
+3. **Synonym convergence** (one meaning, one word): `BUCK` folds into
+   `DCDC` (topology goes in the description, not the id); transistor
+   families are first-level (`NMOS.BSS138N`, not `TRANS.NMOS.BSS138N`);
+   transformers are `TRAFO.` (bare `TRAN.` is ambiguous); crystal/resonator
+   packs are `CRYST.` (frequency components, separate from `IND`).
+   Note the split of duties vs §2.1–2.2: `REG.LDO`/`REG.BUCK` remain the
+   *stdlib base* names; concrete regulator packs use `LDO.x` / `DCDC.x`.
+4. **Variant law: underscore, never a third dot segment** — package/die/
+   voltage variants ride the id with `_` (`LOGIC.SN74LVC1G175_DBV`,
+   `LDO.AMS1117_3_3`); a dot segment is reserved for the two-level
+   connector namespaces (§2.3).
+5. **`MCU.` prefix mandatory for all microcontrollers** (2026-10-03
+   ruling; sweep list: TC275, STM32F103C8T6, STM32F205RET6, HC32L110,
+   ESP32_H2, EFR32MG21, CC2652R, CC2530, CST92F32). Misclassifications
+   corrected in the same sweep: LIS2DH12 → `SENSOR.`, MAX3232/MCP2551/
+   MCP2003 → transceiver category, L298N/DRV8889 family → `DRV.`.
+6. **Component id and pack directory name stay decoupled** — the consumer
+   use face (`use <pack>.<pack>`, the directory name) binds the directory
+   name; the prefix law touches only the `component` line, zero consumer
+   blast radius.
+
 ---
 
 ## 3. Interface Naming
