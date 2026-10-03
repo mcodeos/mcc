@@ -48,7 +48,9 @@ pub mod lane;
 
 use crate::instant::mc_net::{InstError, NetPoint};
 use crate::semantic::basic::mc_bus::McBus;
+use crate::semantic::basic::mc_ida::McIda;
 use crate::semantic::basic::mc_phrase::McPhrase;
+use crate::semantic::basic::mc_ref::McRef;
 use crate::semantic::basic::opd_shape::OpdShape;
 use crate::semantic::common::IOType;
 
@@ -98,6 +100,13 @@ pub struct ConcreteOpd {
     pub kind: OpdShape,
     pub body: Vec<BodyConn>,
     pub lane: Option<u16>,
+    /// U385 leg 2c: the grouped structural read the operand's written
+    /// reference toggled on — `(groups, group_width)`, consecutive slices of
+    /// each expanded face. `None` when the reference carries no marked layer
+    /// (`[[..]]`): the faces pair flat, exactly as before this field existed.
+    /// The mark is a *toggle* (layer-expansion-law.md §3.3), never a shape
+    /// change — `flatten` of the grouped view is the face itself.
+    pub group: Option<(usize, usize)>,
 }
 
 impl Ep {
@@ -140,6 +149,7 @@ impl ConcreteOpd {
             kind,
             body: Vec::new(),
             lane: None,
+            group: None,
         }
     }
 
@@ -183,6 +193,7 @@ impl ConcreteOpd {
             kind: self.kind.reverse(),
             body: self.body.clone(),
             lane: self.lane,
+            group: self.group,
         }
     }
 
@@ -203,8 +214,32 @@ impl InstantiationBuilder {
     pub(super) fn vexpr_reduce(&mut self, phrase: &McPhrase) -> Result<ConcreteOpd, InstError> {
         let left = self.get_left_points(phrase)?;
         let right = self.get_right_points(phrase)?;
-        Ok(ConcreteOpd::from_sides(left, right))
+        let mut opd = ConcreteOpd::from_sides(left, right);
+        // U385 leg 2c: a marked layer (`[[..]]`) in the written reference
+        // toggles the grouped structural read on. Faces stay exactly what the
+        // flat expansion produced (law §3.1 flat identity); the group is the
+        // extra slice map the pairing arm may spend.
+        opd.group = phrase_marked_group(phrase);
+        Ok(opd)
     }
+}
+
+/// U385 leg 2c: the `(groups, group_width)` the operand's written reference
+/// toggles on, read from the reference text where the mark survives into
+/// Pass2 (`McInstanceRef`'s Display round-trip keeps `[[..]]` verbatim).
+///
+/// Only a plain name reference carries the read; operators (`+`, `^`, `'`,
+/// parentheses) reduce through other fold arms whose grouped face is an open
+/// edge (layer-expansion-law.md §8) and answer `None` — the flat behavior.
+fn phrase_marked_group(phrase: &McPhrase) -> Option<(usize, usize)> {
+    let McPhrase::Endpoint(McRef::Name(iref)) = phrase else {
+        return None;
+    };
+    let text = iref.full_name();
+    if !text.contains("[[") {
+        return None;
+    }
+    McIda::from(text.as_str()).marked_group()
 }
 
 // helpers

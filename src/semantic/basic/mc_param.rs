@@ -128,32 +128,10 @@ impl McParamValue {
             }
 
             // Square bracket vector: [a -> b] is parsed as MCAST_SQUARE_VEC
-            MCAST_SQUARE_VEC => {
-                if let Some(subnodes) = node.get_sub_node() {
-                    let values: Vec<McParamValue> = subnodes
-                        .iter()
-                        .filter_map(|n| McParamValue::new(&n, context))
-                        .collect();
-                    if !values.is_empty() {
-                        return Some(McParamValue::Set(values));
-                    }
-                }
-                None
-            }
+            MCAST_SQUARE_VEC => Self::set_from_list(node, context),
 
             // bracket-vector actual: `[a b]` parses as MCAST_OPD_SQUARE_VEC
-            MCAST_OPD_SQUARE_VEC => {
-                if let Some(subnodes) = node.get_sub_node() {
-                    let values: Vec<McParamValue> = subnodes
-                        .iter()
-                        .filter_map(|n| McParamValue::new(&n, context))
-                        .collect();
-                    if !values.is_empty() {
-                        return Some(McParamValue::Set(values));
-                    }
-                }
-                None
-            }
+            MCAST_OPD_SQUARE_VEC => Self::set_from_list(node, context),
 
             // Parenthesized group `(a, b)` as an actual — the same node type
             // `McPhrase::new` builds a `Group` from. Falling through to
@@ -287,6 +265,57 @@ impl McParamValue {
             }
         }
         Some(McParamValue::InlineAttrs(attributes))
+    }
+
+    /// Assemble a list value (both bracket encodings, `MCAST_SQUARE_VEC` and
+    /// `MCAST_OPD_SQUARE_VEC`) into a [`McParamValue::Set`], dissolving the
+    /// `*expr` splice prefix (U385 engine leg 2b, layer-expansion-law.md §5):
+    /// the starred item's expanded member sequence flattens into the
+    /// enclosing list at its position, elements after it continue by
+    /// position. An unmarked vector item stays ONE unit (the implicit
+    /// no-auto-expansion law, §5.2) — the nesting is the Set itself.
+    fn set_from_list(node: &AstNode, context: &mut dyn HasFindInst) -> Option<Self> {
+        let subnodes = node.get_sub_node()?;
+        let mut values: Vec<McParamValue> = Vec::new();
+        for n in subnodes.iter() {
+            if n.is_type(MCAST_OPD_SPLICE) {
+                let first = n.get_sub_node();
+                for child in first.iter().flat_map(|f| f.iter()) {
+                    match McParamValue::new(&child, context) {
+                        Some(McParamValue::Set(members)) => values.extend(members),
+                        Some(v) => Self::splice_flatten(&mut values, v),
+                        None => {}
+                    }
+                }
+            } else if let Some(v) = McParamValue::new(&n, context) {
+                values.push(v);
+            }
+        }
+        if values.is_empty() {
+            return None;
+        }
+        Some(McParamValue::Set(values))
+    }
+
+    /// One spliced item joins the list: a nested set flattens, an identifier
+    /// carrying a square group spreads into one member per expanded name
+    /// (`[*UART[3:4]]` → `UART3`, `UART4`), a scalar stays itself. This is
+    /// the flat-consumption law again — the members are the same names the
+    /// written-out form would carry.
+    fn splice_flatten(values: &mut Vec<McParamValue>, v: McParamValue) {
+        match v {
+            McParamValue::Ids(ids) => {
+                let members = ids.expand();
+                if members.len() > 1 {
+                    for m in members {
+                        values.push(McParamValue::Ids(McIds::from(m)));
+                    }
+                } else {
+                    values.push(McParamValue::Ids(ids));
+                }
+            }
+            other => values.push(other),
+        }
     }
 
     /// Parse a parameter value without an instance-lookup context.

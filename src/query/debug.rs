@@ -236,6 +236,12 @@ pub(crate) fn print_phrase_internal(
             print_phrase_internal(inner, "");
             println!(")");
         }
+        McPhrase::Splice(inner) => {
+            // U385 leg E2b: the `*` splice is a list wrapper — dump the item.
+            print!("{prefix}(splice: ");
+            print_phrase_internal(inner, "");
+            println!(")");
+        }
         McPhrase::Lead(_) => {
             // §1 P5.1: a standalone operand `_` is a passthrough
             println!("{prefix}(lead: passthrough)");

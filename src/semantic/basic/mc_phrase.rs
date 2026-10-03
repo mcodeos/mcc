@@ -435,6 +435,16 @@ pub enum McPhrase {
     /// rejects anything else (E2910 non-numeric position, E2911 not a
     /// permutation).
     Reordered(Box<McPhrase>, Vec<SquareItem>),
+    /// `*` list-element expansion prefix (U385 engine leg E2b,
+    /// layer-expansion-law.md §5): a list-position wrapper, not a tree
+    /// rewrite — the item survives underneath and its expanded member
+    /// sequence splices flat into the enclosing list when the list's
+    /// elements are materialized. The unmarked spelling stays one unit
+    /// (the implicit no-auto-expansion ban, ur-text :474, is untouched);
+    /// `*` is only lawful in list-element position, so a Splice that
+    /// reaches a point accessor any other way falls through to the inner
+    /// operand's own reading (conservative, no second face).
+    Splice(Box<McPhrase>),
     Closure(McClosure),
     FuncCall(McFuncCall),
     Member(Box<McPhrase>, McRef),
@@ -649,6 +659,14 @@ impl McPhrase {
             McPhrase::Group(g) if g.opds.len() > 1 => {
                 let mut out = Vec::new();
                 for s in g.opds {
+                    // U385 leg E2b: a `*item` branch splices the item's
+                    // expanded member sequence flat into the statement list —
+                    // one statement per member, the same split the group
+                    // itself contributes (layer-expansion-law.md §5).
+                    if let McPhrase::Splice(inner) = &s {
+                        out.extend(expand_splice_members(inner));
+                        continue;
+                    }
                     if let Some(sub) = Self::expand_group(s.clone()) {
                         out.extend(sub);
                     } else {
@@ -2994,6 +3012,17 @@ impl McPhrase {
 
             MCAST_OPD_SQUARE_VEC => {
                 let first_subnode = node.get_sub_node().expect(MISSING_SUBNODE);
+                // U385 engine leg E2b (b4510, ruled over b4514's transparent
+                // read): the `*expr` splice wrapper SURVIVES the mint — the
+                // connect face expands the mark for real (the flat member
+                // sequence splices into the enclosing list, layer-expansion-law.md
+                // §5.1), so `[*K[1:2], W1]` reads exactly as the spelled
+                // `[K1, K2, W1]`. A transparent unwrap here would leave the
+                // bare-range item its single phantom unit, the reading the
+                // implicit no-auto-expansion ban reserves for the UNmarked
+                // spelling. The value/Set face dissolves the splice in
+                // McParamValue::set_from_list (AST-level, independent of this
+                // mint).
                 let subnodes: Vec<AstNode> = first_subnode.iter().collect();
 
                 // D6: DROPPED_STATEMENT detection
@@ -3441,6 +3470,18 @@ impl McPhrase {
                     }
                 }
                 Some(McPhrase::Reordered(Box::new(inner), order))
+            }
+
+            MCAST_OPD_SPLICE => {
+                // U385 engine leg E2b: the `*` list-element expansion prefix.
+                // One child: the item phrase, kept verbatim underneath (the
+                // wrapper law). The splice itself happens where the enclosing
+                // list materializes its elements (points.rs list lanes, the
+                // fcall Set face); minting here only records the mark.
+                let first = node.get_sub_node().expect(MISSING_SUBNODE);
+                let children: Vec<AstNode> = first.iter().collect();
+                let inner = McPhrase::new(&children[0], context)?;
+                Some(McPhrase::Splice(Box::new(inner)))
             }
 
             MCAST_OPD_FCALL => {
@@ -4719,6 +4760,10 @@ impl McPhrase {
             McPhrase::Reordered(mc_line, order) => {
                 permute_face_elements(mc_line.get_left(), order)
             }
+            // U385 leg E2b: bus-level accessors read the splice transparently
+            // (the item's own face); the splice law applies where the
+            // enclosing list materializes elements (points.rs / fcall Set).
+            McPhrase::Splice(inner) => inner.get_left(),
             // ★ P4.1 / func-return-design v2.1 §1: consume the resolved return
             // shape (eval.md §8.1). The return face is a symmetric stereo node:
             // case ② `Label{bus}` → BOTH left and right mouths expose the return
@@ -4864,6 +4909,8 @@ impl McPhrase {
             McPhrase::Reordered(mc_line, order) => {
                 permute_face_elements(mc_line.get_right(), order)
             }
+            // U385 leg E2b: mirror of the get_left arm above.
+            McPhrase::Splice(inner) => inner.get_right(),
             // ★ P4.1: consume the resolved return shape (eval.md §8.1).
             // `Label` → right = the return value's buses ([0|N]).
             McPhrase::FuncCall(ref f) => match &f.resolved_return_shape {
@@ -4896,6 +4943,12 @@ impl McPhrase {
             McPhrase::Reordered(inner, order) => (*inner)
                 .dot_or_curly(member_names)
                 .map(|p| McPhrase::Reordered(Box::new(p), order.clone())),
+            // U385 leg E2b: member access through the splice wrapper keeps
+            // the wrapper (`.m` binds inside the item, splice still applies
+            // where the list materializes).
+            McPhrase::Splice(inner) => (*inner)
+                .dot_or_curly(member_names)
+                .map(|p| McPhrase::Splice(Box::new(p))),
             McPhrase::Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::Component(c),
                 ..
@@ -5469,6 +5522,9 @@ fn needs_paren_for_priority(phrase: &McPhrase) -> bool {
         // `x{{order}}` is postfix with a self-delimiting right side, but the
         // operand boundary still needs the parentheses as an operand.
         McPhrase::Reordered(_, _) => true,
+        // `*x` (leg E2b) only appears as a list element; spelled back it needs
+        // the star kept visible to stay the same tree.
+        McPhrase::Splice(_) => true,
         McPhrase::Multiple(_) => true,
         McPhrase::Series(phrases, _) => {
             if phrases.is_empty() {
@@ -5497,6 +5553,9 @@ fn needs_paren_for_series(phrase: &McPhrase) -> bool {
         // `x{{order}}` closes itself (the doubled brace ends the wrapper), so
         // as a series item it needs no extra parentheses.
         McPhrase::Reordered(_, _) => false,
+        // `*x` (leg E2b) lives only inside list items, never as a series
+        // member; the star prefixes its item, no parentheses needed.
+        McPhrase::Splice(_) => false,
         // A nested series only exists where the source parenthesized it
         // (R0, b4034: group expansion preserves the inner chain) — the
         // parser never builds one directly. Render the parentheses back,
@@ -5593,6 +5652,10 @@ impl std::fmt::Display for McPhrase {
                     .collect::<Vec<_>>()
                     .join(",");
                 write!(f, "({p}){{{{{items}}}}}")
+            }
+            McPhrase::Splice(p) => {
+                // `*x` (leg E2b): the star prefixes the item as written.
+                write!(f, "*{p}")
             }
             McPhrase::Multiple(phrases) => {
                 // Flatten nested `Multiple` so a source `[dio[1:2]::DIO(...)]`
@@ -6279,6 +6342,67 @@ fn group_display_form(g: &McGroup) -> String {
     format!("({})", inner.join(", "))
 }
 
+/// U385 leg E2b (`*` list-element splice): the expanded member sequence of
+/// one splice operand, spelled out as endpoint phrases. `*K[1:4]` reads as
+/// the list `K1, K2, K3, K4` — the same members the McIds expansion law
+/// mints everywhere else; an operand without a range segment is its own
+/// single member. The unmarked spelling stays one unit (the implicit
+/// no-auto-expansion ban, ur-text nets.mc:474) — only the mark expands.
+pub(crate) fn expand_splice_members(inner: &McPhrase) -> Vec<McPhrase> {
+    // (a) a range spelling on the endpoint itself: `*K[1:4]` -> K1..K4 (the
+    //     McIds law, the same members the declared-array expansion mints).
+    let range_name = match inner {
+        McPhrase::Endpoint(McRef::Name(iref)) => match &iref.base {
+            McInstance::Bus(b) if b.member.is_empty() && b.name.contains('[') => {
+                Some(b.name.clone())
+            }
+            McInstance::Label(s) if s.contains('[') => Some(s.clone()),
+            _ => None,
+        },
+        _ => None,
+    };
+    if let Some(name) = range_name {
+        return McIds::from(name.as_str())
+            .expand()
+            .into_iter()
+            .map(|m| {
+                McPhrase::Endpoint(McRef::name(McInstanceRef::new(McInstance::Bus(McBus::new(
+                    &m,
+                )))))
+            })
+            .collect();
+    }
+    // (b) a member access on an already-minted group base: `*S[1:2].1` mints
+    //     as `Member(Endpoint(Group([S1, S2])), .1)` — the splice flattens
+    //     the group into one item per member (`S1.1`, `S2.1`), the same
+    //     instance-major order the group face's own walk uses.
+    if let McPhrase::Member(base, member_ep) = inner {
+        if let McPhrase::Endpoint(McRef::Group(items)) = base.as_ref() {
+            let out: Vec<McPhrase> = items
+                .iter()
+                .map(|it| {
+                    McPhrase::Member(Box::new(McPhrase::Endpoint(it.clone())), member_ep.clone())
+                })
+                .collect();
+            if !out.is_empty() {
+                return out;
+            }
+        }
+    }
+    // (c) a bare group endpoint: one item per member.
+    if let McPhrase::Endpoint(McRef::Group(items)) = inner {
+        let out: Vec<McPhrase> = items
+            .iter()
+            .map(|it| McPhrase::Endpoint(it.clone()))
+            .collect();
+        if !out.is_empty() {
+            return out;
+        }
+    }
+    // (d) no member sequence of its own — the item is its single member.
+    vec![inner.clone()]
+}
+
 fn eval_port_elems(phrase: &McPhrase, right: bool, context: &dyn ShapeCtx) -> Vec<McBus> {
     match phrase {
         // A transposed operand is first transposed via strict math transpose
@@ -6331,6 +6455,17 @@ fn eval_port_elems(phrase: &McPhrase, right: bool, context: &dyn ShapeCtx) -> Ve
         // owns the diagnostic).
         McPhrase::Reordered(inner, order) => {
             permute_face_elements(eval_port_elems(inner, right, context), order)
+        }
+        // U385 leg E2b: the splice presents its expanded member sequence —
+        // the flat list the enclosing face pairs against. A transparent read
+        // would present the unmarked one-unit width (the phantom unit), which
+        // the implicit-expansion ban reserves for the UNmarked spelling.
+        McPhrase::Splice(inner) => {
+            let mut out = Vec::new();
+            for item in expand_splice_members(inner) {
+                out.extend(eval_port_elems(&item, right, context));
+            }
+            out
         }
         McPhrase::Series(phrases, _) => {
             let edge = if right {

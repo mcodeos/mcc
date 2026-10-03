@@ -29,6 +29,8 @@ impl McGroup {
     /// left/right shape-match flags. The comma forms (`return a, b`) hand their
     /// members over this way instead of through a `GROUP` subnode.
     pub fn from_opds(mut opds: Vec<McPhrase>) -> Self {
+        let opds = flatten_splice_opds(opds);
+        let mut opds = opds;
         let (left_match, right_match) = group_shape_match_and_upgrade(&mut opds);
         McGroup {
             opds,
@@ -55,6 +57,8 @@ impl McGroup {
             .map(|line| parse_phrase(&line, context))
             .collect::<Option<Vec<_>>>()?;
 
+        let opds = flatten_splice_opds(opds);
+        let mut opds = opds;
         let (left_match, right_match) = group_shape_match_and_upgrade(&mut opds);
 
         Some(McGroup {
@@ -114,6 +118,30 @@ fn group_form(opds: &[McPhrase]) -> String {
 }
 
 /// Helper: check group shape match and upgrade
+/// U385 leg E2b: splice branches flatten into the group's operand list at
+/// construction — the enclosing paren group IS the list the §5.1 splice law
+/// splices into, so `A -> (*K[1:2], W1)` must carry exactly the branches the
+/// spelled form carries (`A -> (K1, K2, W1)`). Left in place, the splice
+/// branch would present its whole expanded width as the group's single unit
+/// width (the group face reads `opds[0]`'s port), a shape the spelled form
+/// never has.
+fn flatten_splice_opds(opds: Vec<McPhrase>) -> Vec<McPhrase> {
+    if !opds
+        .iter()
+        .any(|o| matches!(o, McPhrase::Splice(_)))
+    {
+        return opds;
+    }
+    let mut out = Vec::new();
+    for opd in opds {
+        match opd {
+            McPhrase::Splice(inner) => out.extend(super::mc_phrase::expand_splice_members(&inner)),
+            other => out.push(other),
+        }
+    }
+    out
+}
+
 fn group_shape_match_and_upgrade(opds: &mut Vec<McPhrase>) -> (bool, bool) {
     fn get_size(elements: &[McBus]) -> usize {
         elements.iter().map(|each| each.size()).sum()

@@ -158,6 +158,10 @@ impl InstantiationBuilder {
             right,
             body: Vec::new(),
             lane: None,
+            // The transposed face is re-derived from the shape layer's
+            // unexpanded element lists — the grouped slice map does not
+            // survive a `'` (open edge, layer-expansion-law.md §8).
+            group: None,
         })
     }
 
@@ -216,12 +220,37 @@ impl InstantiationBuilder {
             return Ok(());
         }
         if step.legal {
-            self.create_connection(
-                points_of(&step.pair.0),
-                points_of(&step.pair.1),
-                dir,
-                step.result.lane,
-            )?;
+            // U385 leg 2c: a grouped operand pairs **per group** — group k of
+            // the accumulator's right face against group k of the next
+            // operand's left face (layer-expansion-law.md §3.3). The
+            // decomposition spends the mark exactly here: `create_connection`
+            // is untouched, each call just sees the group's slice, and its own
+            // row law (equal zip / scalar passthrough) judges within the group.
+            // Ungrouped legs — and a grouped leg whose slice map does not fit
+            // the concrete faces (dynamic pins, lane expansion) — take the
+            // flat call verbatim, so the flat identity (law §3.1) is what runs
+            // when no mark was written.
+            let slices = pair_group_slices(&step.pair, acc.group, next.group);
+            match slices {
+                Some(ranges) => {
+                    for (lr, rr) in ranges {
+                        self.create_connection(
+                            points_of(&step.pair.0[lr]),
+                            points_of(&step.pair.1[rr]),
+                            dir,
+                            step.result.lane,
+                        )?;
+                    }
+                }
+                None => {
+                    self.create_connection(
+                        points_of(&step.pair.0),
+                        points_of(&step.pair.1),
+                        dir,
+                        step.result.lane,
+                    )?;
+                }
+            }
         } else {
             self.record_error(
                 crate::errcodes::CONN_SERIES_SHAPE_MISMATCH,
@@ -450,6 +479,7 @@ impl InstantiationBuilder {
                     kind: OpdShape::Unknown,
                     body: Vec::new(),
                     lane: None,
+                    group: None,
                 });
                 continue;
             }
@@ -486,6 +516,43 @@ impl InstantiationBuilder {
 /// The concrete points behind a face, in face order.
 fn points_of(eps: &[Ep]) -> Vec<NetPoint> {
     eps.iter().map(|e| e.point.clone()).collect()
+}
+
+/// U385 leg 2c: the per-group slice ranges of a series pair, or `None` for the
+/// flat pairing.
+///
+/// The pair is decomposed only when the marks actually project onto the
+/// concrete faces — group k of the left pairs group k of the right, an
+/// ungrouped side contributes one element per group (its row count is the
+/// group count, the same rows `fold_series` legality compared). Any mismatch
+/// between the written group map and the expanded face (dynamic pins, port
+/// lane expansion) answers `None`: the leg pairs flat rather than guessing a
+/// different decomposition.
+fn pair_group_slices(
+    pair: &(Vec<Ep>, Vec<Ep>),
+    acc_group: Option<(usize, usize)>,
+    next_group: Option<(usize, usize)>,
+) -> Option<Vec<(std::ops::Range<usize>, std::ops::Range<usize>)>> {
+    match (acc_group, next_group) {
+        (Some((ga, wa)), Some((gb, wb)))
+            if ga == gb
+                && pair.0.len() == ga * wa
+                && pair.1.len() == gb * wb =>
+        {
+            Some(
+                (0..ga)
+                    .map(|g| (g * wa..(g + 1) * wa, g * wb..(g + 1) * wb))
+                    .collect(),
+            )
+        }
+        (Some((ga, wa)), None) if pair.0.len() == ga * wa && pair.1.len() == ga => {
+            Some((0..ga).map(|g| (g * wa..(g + 1) * wa, g..g + 1)).collect())
+        }
+        (None, Some((gb, wb))) if pair.1.len() == gb * wb && pair.0.len() == gb => {
+            Some((0..gb).map(|g| (g..g + 1, g * wb..(g + 1) * wb)).collect())
+        }
+        _ => None,
+    }
 }
 
 /// U318: does either face of the operand carry an element whose point never
@@ -732,5 +799,58 @@ mod tests {
             inst.has_errors(),
             "an illegal leg must report CONN_SERIES_SHAPE_MISMATCH"
         );
+    }
+}
+
+#[cfg(test)]
+mod group_slices_tests {
+    use super::*;
+
+    fn eps(paths: &[&str]) -> Vec<Ep> {
+        paths
+            .iter()
+            .map(|p| Ep::classify(&NetPoint::new(p, IOType::None, None)))
+            .collect()
+    }
+
+    #[test]
+    fn slices__both_grouped_pair_group_to_group() {
+        let pair = (eps(&["a1", "a2", "a3", "a4"]), eps(&["b1", "b2", "b3", "b4"]));
+        let slices = pair_group_slices(&pair, Some((2, 2)), Some((2, 2))).expect("grouped");
+        let got: Vec<(Vec<String>, Vec<String>)> = slices
+            .iter()
+            .map(|(l, r)| {
+                (
+                    pair.0[l.clone()].iter().map(|e| e.point.path.clone()).collect(),
+                    pair.1[r.clone()].iter().map(|e| e.point.path.clone()).collect(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            got,
+            vec![
+                (vec!["a1".into(), "a2".into()], vec!["b1".into(), "b2".into()]),
+                (vec!["a3".into(), "a4".into()], vec!["b3".into(), "b4".into()]),
+            ]
+        );
+    }
+
+    #[test]
+    fn slices__one_sided_group_takes_one_element_per_group() {
+        let pair = (eps(&["a1", "a2", "a3", "a4"]), eps(&["b1", "b2"]));
+        let slices = pair_group_slices(&pair, Some((2, 2)), None).expect("grouped left");
+        assert_eq!(slices[1].0.clone(), 2..4, "second group's slice");
+        assert_eq!(slices[1].1.clone(), 1..2, "one flat element per group");
+    }
+
+    #[test]
+    fn slices__mark_that_does_not_project_falls_back_to_flat() {
+        // The written group map must fit the concrete faces; a lane expansion
+        // or dynamic pins that broke the projection pairs flat, not by guess.
+        let pair = (eps(&["a1", "a2", "a3"]), eps(&["b1", "b2"]));
+        assert_eq!(pair_group_slices(&pair, Some((2, 2)), None), None);
+        let pair = (eps(&["a1", "a2"]), eps(&["b1", "b2"]));
+        assert_eq!(pair_group_slices(&pair, Some((2, 1)), Some((3, 1))), None);
+        assert_eq!(pair_group_slices(&pair, None, None), None);
     }
 }

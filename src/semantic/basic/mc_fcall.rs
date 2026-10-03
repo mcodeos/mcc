@@ -2171,6 +2171,9 @@ impl McFuncCall {
             // U385 engine leg 2: the reorder wrapper is transparent to the
             // return-shape walk — the nested FuncCall is the operand's.
             McPhrase::Reordered(inner, _) => Self::fill_return_shapes(inner, scope),
+            // U385 leg E2b: the `*` splice is transparent to the
+            // return-shape walk — same law as the reorder wrapper above.
+            McPhrase::Splice(inner) => Self::fill_return_shapes(inner, scope),
             McPhrase::Closure(c) => {
                 for line in &mut c.body {
                     Self::fill_return_shapes(line, scope);

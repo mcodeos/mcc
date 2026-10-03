@@ -502,6 +502,7 @@ mod tests {
             kind: OpdShape::Row(McBus::new("A"), McBus::new("A")),
             body: Vec::new(),
             lane: None,
+            group: None,
         };
         let err = check_i4("forged", &[&forged], &forged, &[]);
         assert!(err.is_err(), "an I1-breaking result must be red");

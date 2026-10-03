@@ -116,6 +116,95 @@ fn parse_curly_select(name: &str) -> Option<(String, String)> {
     Some((base, inner.trim().to_string()))
 }
 
+/// U385 leg E2b (`*` list-element splice): rewrite one splice operand into
+/// its spelled-out member items. The marked operand must materialize REAL
+/// expanded points — a transparent unwrap would reproduce the single phantom
+/// unit the unmarked range spelling builds (nets.mc ur-text: expansion is
+/// always explicit, never implicit). Ranges expand through the shared `McIds`
+/// law (`K[1:4]` -> K1..K4, the same members the declared-array expansion
+/// mints); an operand without a range segment is its own single member, and
+/// shapes the accessors already expand flat (bus members, instance arrays)
+/// pass through unchanged.
+pub(super) fn expand_splice_items(inner: &McPhrase) -> Vec<McPhrase> {
+    match inner {
+        McPhrase::Endpoint(McRef::Name(iref)) => match &iref.base {
+            McInstance::Bus(b) if b.member.is_empty() && b.name.contains('[') => {
+                expand_member_ida(&b.name)
+                    .into_iter()
+                    .map(|m| {
+                        McPhrase::Endpoint(McRef::name(McInstanceRef::new(McInstance::Bus(
+                            McBus::new(&m),
+                        ))))
+                    })
+                    .collect()
+            }
+            McInstance::Label(s) if s.contains('[') => expand_member_ida(s)
+                .into_iter()
+                .map(|m| {
+                    McPhrase::Endpoint(McRef::name(McInstanceRef::new(McInstance::Bus(McBus::new(
+                        &m,
+                    )))))
+                })
+                .collect(),
+            _ => vec![inner.clone()],
+        },
+        // (b) a member access on an already-minted group base: `*S[1:2].1`
+        //     mints as `Member(Endpoint(Group([S1, S2])), .1)` — the splice
+        //     flattens the group into one item per member. Each item must
+        //     carry EXACTLY what the spelled form mints (`S1.1` =
+        //     `Endpoint(Bus{s1, member 1})`): a rebuilt `Member` loses the
+        //     member on the right-side accessor (it falls through to the
+        //     direction-heuristic pin instead of the named pin).
+        McPhrase::Member(base, member_ep) => {
+            if let McPhrase::Endpoint(McRef::Group(items)) = base.as_ref() {
+                let member = match member_ep {
+                    McRef::Name(ir) => match &ir.base {
+                        McInstance::Label(s) => Some(s.clone()),
+                        McInstance::Bus(b) if b.member.is_empty() => Some(b.name.clone()),
+                        _ => None,
+                    },
+                    _ => None,
+                };
+                if let Some(m) = member {
+                    let out: Vec<McPhrase> = items
+                        .iter()
+                        .filter_map(|it| {
+                            let name = match it {
+                                McRef::Name(ir) => match &ir.base {
+                                    McInstance::Component(c) => Some(c.name.to_string()),
+                                    McInstance::Label(s) => Some(s.clone()),
+                                    _ => None,
+                                },
+                                _ => None,
+                            }?;
+                            Some(McPhrase::Endpoint(McRef::name(McInstanceRef::new(
+                                McInstance::Bus(McBus::new(&format!("{name}.{m}"))),
+                            ))))
+                        })
+                        .collect();
+                    if !out.is_empty() {
+                        return out;
+                    }
+                }
+            }
+            vec![inner.clone()]
+        }
+        // (c) a bare group endpoint: one item per member.
+        McPhrase::Endpoint(McRef::Group(items)) => {
+            let out: Vec<McPhrase> = items
+                .iter()
+                .map(|it| McPhrase::Endpoint(it.clone()))
+                .collect();
+            if !out.is_empty() {
+                out
+            } else {
+                vec![inner.clone()]
+            }
+        }
+        _ => vec![inner.clone()],
+    }
+}
+
 fn expand_member_ida(member: &str) -> Vec<String> {
     // no brackets, return directly
     if !member.contains('[') {
@@ -641,6 +730,23 @@ impl InstantiationBuilder {
                     let pts = self.get_left_points(phrase)?;
                     if pts.is_empty() {
                         points.extend(self.get_left_points_from_phrase(phrase)?);
+                    } else {
+                        points.extend(pts);
+                    }
+                }
+                Ok(points)
+            }
+
+            McPhrase::Splice(inner) => {
+                // U385 leg E2b: `*item` splices the item's expanded member
+                // sequence flat into the enclosing list — per-member
+                // materialization through the normal accessor, with the same
+                // empty-fallback the Group branches use.
+                let mut points = Vec::new();
+                for item in expand_splice_items(inner) {
+                    let pts = self.get_left_points(&item)?;
+                    if pts.is_empty() {
+                        points.extend(self.get_left_points_from_phrase(&item)?);
                     } else {
                         points.extend(pts);
                     }
@@ -1339,6 +1445,21 @@ impl InstantiationBuilder {
                     let pts = self.get_right_points(phrase)?;
                     if pts.is_empty() {
                         points.extend(self.get_right_points_from_phrase(phrase)?);
+                    } else {
+                        points.extend(pts);
+                    }
+                }
+                Ok(points)
+            }
+
+            McPhrase::Splice(inner) => {
+                // U385 leg E2b: mirror get_left_points — per-member
+                // materialization of the spliced member sequence.
+                let mut points = Vec::new();
+                for item in expand_splice_items(inner) {
+                    let pts = self.get_right_points(&item)?;
+                    if pts.is_empty() {
+                        points.extend(self.get_right_points_from_phrase(&item)?);
                     } else {
                         points.extend(pts);
                     }

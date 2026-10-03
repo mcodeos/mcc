@@ -2935,6 +2935,11 @@ impl InstantiationBuilder {
                 Box::new(Self::prefix_instance_phrase_with_skip(inner, inst_name, skip)),
                 order.clone(),
             ),
+            // U385 leg E2b: the `*` prefix holds no names — only the item is
+            // prefixed, the wrapper stays.
+            McPhrase::Splice(inner) => McPhrase::Splice(Box::new(
+                Self::prefix_instance_phrase_with_skip(inner, inst_name, skip),
+            )),
             McPhrase::Lead(_) => phrase.clone(),
 
             // Iter-3.C

@@ -234,6 +234,7 @@ fn anchor_leaves(phrase: &McPhrase) -> usize {
         McPhrase::Reversed(inner)
         | McPhrase::Transposed(inner)
         | McPhrase::Reordered(inner, _)
+        | McPhrase::Splice(inner)
         | McPhrase::Member(inner, _) => {
             anchor_leaves(inner)
         }

@@ -364,6 +364,61 @@ impl McIda {
         result
     }
 
+    /// U385 leg 2c: the grouped read a marked layer (`[[..]]`) toggles on.
+    ///
+    /// Returns `(groups, group_width)` for the flat expansion: the group count
+    /// is the **first expanding square segment's** item count, the group width
+    /// is the product of every other expanding segment (layer-expansion-law.md
+    /// §3.3). Marked and unmarked spellings therefore answer identically — the
+    /// mark is only the *toggle* deciding whether a consumer may ask for the
+    /// grouped read at all. `None` when no segment is marked: the structural
+    /// read is unavailable and the flat list is the only view.
+    pub fn marked_group(&self) -> Option<(usize, usize)> {
+        let marked = self
+            .segments
+            .iter()
+            .any(|s| matches!(s, IdaSegment::SquareExpanded(_)));
+        if !marked {
+            return None;
+        }
+        let mut groups: Option<usize> = None;
+        let mut width = 1usize;
+        for segment in &self.segments {
+            if let IdaSegment::Square(items) | IdaSegment::SquareExpanded(items) = segment {
+                // An empty expansion contributes no items and no width — the
+                // flat expansion skips it too (`expand`, `continue` arm).
+                let n = self.expand_square_items(items).len();
+                if n == 0 {
+                    continue;
+                }
+                if groups.is_none() {
+                    groups = Some(n);
+                } else {
+                    width *= n;
+                }
+            }
+        }
+        groups.map(|g| (g, width))
+    }
+
+    /// U385 leg 2c: the expansion as consecutive groups of the flat sequence.
+    ///
+    /// `flatten(expand_grouped()) == expand()` holds by construction — the
+    /// groups are slices of the one flat list, never a second expansion — so
+    /// the flat-consumption identity (law §3.1) is structural, not a promise.
+    pub fn expand_grouped(&self) -> Vec<Vec<String>> {
+        let flat = self.expand();
+        match self.marked_group() {
+            None => vec![flat],
+            Some((g, w)) if g * w == flat.len() => {
+                flat.chunks(w).map(<[String]>::to_vec).collect()
+            }
+            // Unreachable by construction (the Cartesian product multiplies the
+            // same counts marked_group read); keep the flat identity anyway.
+            Some(_) => vec![flat],
+        }
+    }
+
     /// Expand all items within a single square bracket
     /// e.g. [1:7] -> ["1", "2", "3", "4", "5", "6", "7"]
     /// e.g. [VDD, GND] -> ["VDD", "GND"]
@@ -545,5 +600,60 @@ impl From<&str> for McIda {
     fn from(value: &str) -> Self {
         let segments = Self::parse_ida_string(value);
         Self { segments }
+    }
+}
+
+#[cfg(test)]
+mod grouped_tests {
+    use super::*;
+
+    fn grouped(s: &str) -> Vec<Vec<String>> {
+        McIda::from(s).expand_grouped()
+    }
+
+    #[test]
+    fn grouped__marked_layer_is_the_group_boundary() {
+        // `[[1:2]]` toggles the structural read: two groups of two, the first
+        // expanding segment varying slowest — exactly consecutive slices of
+        // the flat expansion.
+        assert_eq!(
+            grouped("A[[1:2]][1:2]"),
+            vec![
+                vec!["A11".to_string(), "A12".to_string()],
+                vec!["A21".to_string(), "A22".to_string()]
+            ]
+        );
+    }
+
+    #[test]
+    fn grouped__flatten_is_the_flat_expansion_by_construction() {
+        for s in [
+            "A[[1:2]][1:2]",
+            "A[[1:2]]",
+            "A[1:2][[1:2]]",
+            "A[[1:2,3]]C[1:2]",
+            "A[1:2]",
+            "A",
+        ] {
+            let flat = McIda::from(s).expand();
+            let g = grouped(s);
+            assert_eq!(g.concat(), flat, "flat identity broken for {s}");
+        }
+    }
+
+    #[test]
+    fn grouped__unmarked_is_one_group() {
+        // The mark is the toggle: no `[[..]]`, no grouped read.
+        assert_eq!(McIda::from("A[1:2][1:2]").marked_group(), None);
+        assert_eq!(grouped("A[1:2][1:2]").len(), 1);
+    }
+
+    #[test]
+    fn grouped__group_count_is_the_first_expanding_segment() {
+        // The group count is the FIRST expanding segment's item count, the
+        // width the product of the rest — marked and unmarked spellings answer
+        // the same shape, the mark only opens the read (law §3.3).
+        assert_eq!(McIda::from("A[[1:2,3]]C[1:2]").marked_group(), Some((3, 2)));
+        assert_eq!(McIda::from("A[[1:2]]").marked_group(), Some((2, 1)));
     }
 }

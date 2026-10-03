@@ -617,6 +617,14 @@ impl InstantiationBuilder {
                 Box::new(Self::substitute_phrase(inner, bindings, expansion_ctx, cx)),
                 order.clone(),
             ),
+            // U385 leg E2b: the `*` prefix is not a parameter name —
+            // substitute the item, keep the wrapper.
+            McPhrase::Splice(inner) => McPhrase::Splice(Box::new(Self::substitute_phrase(
+                inner,
+                bindings,
+                expansion_ctx,
+                cx,
+            ))),
             McPhrase::Lead(_) => phrase.clone(),
             // Iter-2.3
             // Returning Endpoint::Name(Label/Bus/List) as-is would leave the
