@@ -575,6 +575,26 @@ mcc lib fetch-docs regtest@0.1
 # Search available libraries
 mcc lib search mcode
 
+# Search the registry catalog (registry-p3-protocol.md §4.1): reads
+# /search.json and filters client-side on name/description. Prints
+# `name@latest [verified|community] — description`; requires [registry] url.
+mcc lib search ams1117 --remote
+mcc lib search ldo --remote --limit 50
+
+# Mint an Ed25519 publisher key (registry-p3-protocol.md §3): hex seed file
+# (0600, refuses to overwrite); prints the [[keys]] trust.toml snippet.
+mcc lib keygen ~/.mcode/keys/reg.ed25519
+
+# Publish a pack directory into the configured registry (§4.2): packs it,
+# signs it when [registry.publish] key is set, stages the tree delta under
+# ./publish-delta/ (merged name.json + partno alias rows + dl/ artifacts +
+# regenerated search.json for a file:// tree). Same name@ver already in the
+# tree refuses (immutable law, no --force). Default is a dry run; --go
+# transports: none+file:// applies in place, rsync/scp need
+# [registry.publish] target.
+mcc lib publish power/ams1117
+mcc lib publish power/ams1117 --go
+
 # Uninstall
 mcc lib uninstall mylib
 
