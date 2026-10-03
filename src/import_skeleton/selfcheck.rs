@@ -67,7 +67,7 @@ pub fn check(files: &BTreeMap<String, String>) -> Check {
             let mgr = crate::db::cmie::tables::WORKSPACE.diagnostics.lock().unwrap();
             let stored: Vec<_> = mgr.get_diagnostics_for_file(&uri);
             let stored: Vec<(u32, crate::db::diagnostic::diagnostic::DiagnosticLevel, String)> =
-                stored.iter().map(|d| (d.code, d.level.clone(), d.msg.clone())).collect();
+                stored.iter().map(|d| (d.code, d.level, d.msg.clone())).collect();
             drop(mgr);
             for (code, level, msg) in stored {
                 match level {

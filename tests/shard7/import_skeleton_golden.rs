@@ -46,7 +46,10 @@ const FIXTURE: &str = r#"{
 }"#;
 
 /// Build the plan and normalize the volatile date line out of main.mc.
+/// The caller holds [`common::lock`]; the reset gives the in-engine selfcheck
+/// a fresh workspace so no earlier test's `main.*` defs leak into the build.
 fn build() -> mcc::import_skeleton::SkeletonPlan {
+    common::reset();
     let plan = mcc::import_skeleton::plan(
         FIXTURE,
         &mcc::import_skeleton::Opts { name: Some("demo") },
@@ -102,6 +105,7 @@ fn import_skeleton__rpc_face_matches_engine() {
     let _ = std::fs::create_dir_all(&dir);
     let path = dir.join("fixture.netlist.json");
     std::fs::write(&path, FIXTURE).expect("write fixture");
+    common::reset();
     let resp = mcc::rpc::handlers::handle_import_skeleton(Some(serde_json::json!({
         "file": path.to_string_lossy(),
         "name": "demo",
@@ -123,8 +127,12 @@ fn import_skeleton__rpc_face_matches_engine() {
 #[test]
 fn import_skeleton__net_ident_rules() {
     use mcc::import_skeleton as sk;
-    // direct engine-level expectations via a plan
+    let _g = common::lock();
+    // direct engine-level expectations via a plan (fresh workspace per build —
+    // the selfcheck build shares the global module tables with every other
+    // lock-taking test in this binary)
     let mk = |json: &str| {
+        common::reset();
         sk::plan(json, &sk::Opts { name: Some("t") }).expect("plan")
     };
     let fixture = |nets: &str, comps: &str| {

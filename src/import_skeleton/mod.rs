@@ -94,15 +94,10 @@ pub struct SkeletonPlan {
     pub report: Value,
 }
 
+#[derive(Default)]
 pub struct Opts<'a> {
     /// project name (falls back to the JSON title stem, then `skeleton`)
     pub name: Option<&'a str>,
-}
-
-impl Default for Opts<'_> {
-    fn default() -> Self {
-        Opts { name: None }
-    }
 }
 
 /// One component's classification, decided once up front.
@@ -141,7 +136,7 @@ pub fn plan(text: &str, opts: &Opts) -> Result<SkeletonPlan, String> {
     }
 
     // -- Pin ownership: designator -> the pin set that appears in a net
-    //    (the mct IR carries pins only through nets) -----------------------
+    //    (the mct IR carries pins only through nets)
     let mut comp_pins: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for n in &d.nets {
         for p in &n.pins {
@@ -152,7 +147,7 @@ pub fn plan(text: &str, opts: &Opts) -> Result<SkeletonPlan, String> {
         }
     }
 
-    // -- Instance idents legalize first; net idents avoid them ------------
+    // -- Instance idents legalize first; net idents avoid them
     let mut comps: Vec<CompPlan> = Vec::new();
     let mut inst_leg = name::Legalizer::default();
     for c in &d.components {
@@ -211,7 +206,7 @@ pub fn plan(text: &str, opts: &Opts) -> Result<SkeletonPlan, String> {
     let inst_idents: Vec<String> = comps.iter().map(|c| c.ident.clone()).collect();
 
     // -- Net anchor names = the mct display name
-    //    (power > label > explicit name > N$k+1) ---------------------------
+    //    (power > label > explicit name > N$k+1)
     let mut net_leg = name::Legalizer::default();
     net_leg.reserve_block(inst_idents);
     let display: Vec<String> = d
@@ -238,7 +233,7 @@ pub fn plan(text: &str, opts: &Opts) -> Result<SkeletonPlan, String> {
     // -- Per-net connection lines: inline parts become chain links (bridging
     //    to the opposite net's anchor), everyone else joins per participant
     //    (rendering consumes the inline decision via Option::take — exactly
-    //    once; the count snapshots first) ----------------------------------
+    //    once; the count snapshots first)
     let inline_count = comps.iter().filter(|c| c.inline.is_some()).count();
     let pin_nets = pin_nets_of(&d);
     let mut covered: BTreeSet<(String, String)> = BTreeSet::new();
@@ -311,7 +306,7 @@ pub fn plan(text: &str, opts: &Opts) -> Result<SkeletonPlan, String> {
     files.insert("bom.mc".to_string(), render::render_bom());
 
     // -- Compile self-check: deliver only at 0 errors (any generator
-    //    regression explodes here) ----------------------------------------
+    //    regression explodes here)
     let sc = selfcheck::check(&files);
     if sc.errors > 0 {
         return Err(format!(
@@ -339,7 +334,7 @@ pub fn plan(text: &str, opts: &Opts) -> Result<SkeletonPlan, String> {
     Ok(SkeletonPlan { files, report })
 }
 
-// ---------------------------------------------------------------- helpers
+// helpers
 
 /// (designator, pin) -> the nets it appears in (a chain link finds its
 /// opposite net here)

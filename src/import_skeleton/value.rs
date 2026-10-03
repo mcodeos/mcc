@@ -64,16 +64,14 @@ pub fn parse(libref: &str, comment: &str) -> Option<Inline> {
         } else if ignore(&up) {
             continue;
         } else if value.is_none() {
-            value = match class {
+            let parsed = match class {
                 "RES" => resistance(&up),
                 "CAP" => capacitance(&up),
                 _ => inductance(&up),
             };
-            if value.is_none() {
-                // first unparsable value-ish token → the whole comment is
-                // beyond high-confidence; do not guess around it
-                return None;
-            }
+            // first unparsable value-ish token → the whole comment is
+            // beyond high-confidence; do not guess around it
+            value = Some(parsed?);
         } else {
             return None;
         }
