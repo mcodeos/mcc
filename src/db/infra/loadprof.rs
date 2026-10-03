@@ -31,6 +31,15 @@ pub static NSP_NS: AtomicU64 = AtomicU64::new(0);
 pub static PASS1_NS: AtomicU64 = AtomicU64::new(0);
 /// `mcb_parse_all_modules` — the module-level sema pass (project side).
 pub static MODULES_NS: AtomicU64 = AtomicU64::new(0);
+/// `mcc_virtual_build_world` — pass2 instantiation into the CircuitWorld.
+pub static WORLD_NS: AtomicU64 = AtomicU64::new(0);
+/// Per-file `parse_pass1_modules_full` total inside the module pass.
+pub static MODULE_PARSE_NS: AtomicU64 = AtomicU64::new(0);
+/// The post-parse validation sweep at the end of the module pass.
+pub static VALIDATE_NS: AtomicU64 = AtomicU64::new(0);
+
+/// Per-file module-pass ledger: uri → parse_pass1_modules_full ns.
+static PER_MODULE: Mutex<BTreeMap<String, u64>> = Mutex::new(BTreeMap::new());
 /// Files that went through a full parse in this round.
 pub static FILES: AtomicU64 = AtomicU64::new(0);
 
@@ -46,6 +55,10 @@ pub fn reset() {
     NSP_NS.store(0, Ordering::Relaxed);
     PASS1_NS.store(0, Ordering::Relaxed);
     MODULES_NS.store(0, Ordering::Relaxed);
+    WORLD_NS.store(0, Ordering::Relaxed);
+    MODULE_PARSE_NS.store(0, Ordering::Relaxed);
+    VALIDATE_NS.store(0, Ordering::Relaxed);
+    PER_MODULE.lock().unwrap().clear();
     FILES.store(0, Ordering::Relaxed);
     PER_FILE.lock().unwrap().clear();
 }
@@ -77,6 +90,33 @@ pub fn note_pass1(uri: &str, pass1_ns: u64) {
         .entry(uri.to_string())
         .or_insert((0, 0))
         .1 += pass1_ns;
+}
+
+/// Record one file's `parse_pass1_modules_full` duration in the module ledger.
+pub fn note_module(uri: &str, ns: u64) {
+    MODULE_PARSE_NS.fetch_add(ns, Ordering::Relaxed);
+    *PER_MODULE.lock().unwrap().entry(uri.to_string()).or_insert(0) += ns;
+}
+
+/// Emit the module-pass summary on the `mcc::builder` target: the whole-pass
+/// wall time, the per-file module-parse total, and the five heaviest files.
+pub fn log_modules_summary(modules_ms: u64) {
+    let map = std::mem::take(&mut *PER_MODULE.lock().unwrap());
+    let mut files: Vec<(String, u64)> = map.into_iter().collect();
+    files.sort_by_key(|(_, ns)| std::cmp::Reverse(*ns));
+    let top: Vec<String> = files
+        .iter()
+        .take(15)
+        .map(|(uri, ns)| format!("{uri}: module parse {}ms", ns / 1_000_000))
+        .collect();
+    info!(
+        target: "mcc::builder",
+        modules_ms,
+        files_derived = files.len(),
+        module_parse_ms = MODULE_PARSE_NS.load(Ordering::Relaxed) / 1_000_000,
+        top_files = ?top,
+        "module pass summary (U392 probe)"
+    );
 }
 
 /// Emit the round summary on the `mcc::lib` target: phase totals first,

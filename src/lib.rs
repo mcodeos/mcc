@@ -331,19 +331,7 @@ pub fn mcc_load_project(entry_uri: &McURI) {
     builder::mc_code::mcb_reset_ast_visit_flag();
     let mut loaded = HashSet::new();
     builder::mcb_add_recursive(entry_uri, &mut loaded, false);
-    // U392 probe: the module sema pass is the project-side cost the
-    // per-library summaries do not cover — time and log it.
-    let modules_ms = {
-        let t = std::time::Instant::now();
-        builder::mcb_parse_all_modules();
-        t.elapsed().as_millis() as u64
-    };
-    info!(
-        target: "mcc::builder",
-        modules_ms,
-        entry = %entry_uri,
-        "project module pass done (U392 probe)"
-    );
+    builder::mcb_parse_all_modules();
 }
 
 /// Collect every `.mc` file under `root` recursively (hidden directories
@@ -847,7 +835,18 @@ pub fn mcc_virtual_build_world(
     Box<dyn Error>,
 > {
     let mut world = crate::instant::world::CircuitWorld::new(start_id);
-    let (key, synthetic) = crate::build::vinst::virtual_instantiate_world(&mut world, target, uri)?;
+    // U392 probe: pass2 instantiation is the other project-side phase the
+    // per-library summaries do not cover.
+    let (key, synthetic) = crate::db::infra::loadprof::time(
+        &crate::db::infra::loadprof::WORLD_NS,
+        || crate::build::vinst::virtual_instantiate_world(&mut world, target, uri),
+    )?;
+    info!(
+        target: "mcc::builder",
+        world_ms = crate::db::infra::loadprof::WORLD_NS.load(std::sync::atomic::Ordering::Relaxed) / 1_000_000,
+        top = %target,
+        "world build done (U392 probe)"
+    );
     Ok((world, key, synthetic))
 }
 

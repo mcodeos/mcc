@@ -7,7 +7,7 @@ use crate::db::infra::libmgr;
 use crate::db::infra::mc_code::McCode;
 use crate::McURI;
 use std::path::Path;
-use tracing::{debug, trace};
+use tracing::{debug, info, trace};
 
 use crate::db::infra::init::*;
 
@@ -42,6 +42,9 @@ use crate::db::infra::init::*;
 /// decision must be made per file at loop time, in topo order (deps first),
 /// not pre-computed.
 pub fn mcb_parse_all_modules() {
+    // U392 probe: the module sema pass is a project-side cost the per-library
+    // summaries do not cover — one wall-clock bucket for the whole pass.
+    let probe_t0 = std::time::Instant::now();
     // P2/P4 derivation seam (§0.4 of the abstract-variant-capability plan):
     // rebuild the registry's declaration-relation ledgers (`adopts` here;
     // variant materialization joins it in P4) from the live defs. Every load /
@@ -165,7 +168,12 @@ pub fn mcb_parse_all_modules() {
             // load time, so the diff falls back to conservative marking
             // there; disk re-adds captured earlier in their own parse_pass1.
             crate::db::infra::mc_code::stash_export_snapshot(&uri);
-            mcfile.parse_pass1_modules_full();
+            let mod_ns = {
+                let t = std::time::Instant::now();
+                mcfile.parse_pass1_modules_full();
+                t.elapsed().as_nanos() as u64
+            };
+            crate::db::infra::loadprof::note_module(&uri, mod_ns);
             // _guard drops here, automatically pops line_index
             re_derived.push(uri.clone());
             workspace::WORKSPACE.mcodes.insert(uri, mcfile);
@@ -186,6 +194,13 @@ pub fn mcb_parse_all_modules() {
     // and stays silent, so the journal only records real def-space changes.
     workspace::WORKSPACE.registry().checkpoint_if_changed();
 
+    // U392 probe: the whole-pass wall time lands here — the validation sweep
+    // below has an early return a fn-end probe would never see.
+    let modules_ms = probe_t0.elapsed().as_millis() as u64;
+    crate::db::infra::loadprof::MODULES_NS
+        .fetch_add(modules_ms, std::sync::atomic::Ordering::Relaxed);
+    crate::db::infra::loadprof::log_modules_summary(modules_ms);
+
     // ★ Validation: run PostParse checks after all modules parsed.
     //
     // diagnostic_log appends (no dedup), so a validator result may only be
@@ -205,6 +220,9 @@ pub fn mcb_parse_all_modules() {
         if re_derived_set.is_empty() {
             return;
         }
+        // U392 probe: validation sweep timing starts past the all-clean
+        // early return.
+        let validate_t0 = std::time::Instant::now();
         let registry = CheckRegistry::with_defaults();
         let saved_uri = crate::current_uri::try_get();
         for r in registry.run_post_parse() {
@@ -239,6 +257,17 @@ pub fn mcb_parse_all_modules() {
             Some(ref uri) => crate::current_uri::set(uri),
             None => crate::current_uri::reset(),
         }
+
+        // U392 probe: the validation sweep's own wall time, one line per
+        // round that actually re-derived something.
+        let validate_ms = validate_t0.elapsed().as_millis() as u64;
+        crate::db::infra::loadprof::VALIDATE_NS
+            .fetch_add(validate_ms, std::sync::atomic::Ordering::Relaxed);
+        info!(
+            target: "mcc::builder",
+            validate_ms,
+            "post-parse validation done (U392 probe)"
+        );
     }
 }
 
