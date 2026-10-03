@@ -13,21 +13,23 @@
 //! build their items from **one** builder ([`net_items`]), so the two faces
 //! cannot spell the connectivity two ways.
 //!
-//! Boundary ports and bus lanes arrive as ordinary member points here; a
-//! spelling of their own is a later decision, not a v1 gap. A readout, not a
+//! Boundary ports and bus lanes arrive as ordinary member points here, with
+//! the name-bearing ones additionally carried in the item's `rails` member
+//! (the "spelling of their own" v1 deferred — ruled 2026-10-03 for the
+//! roundtrip consumers). A readout, not a
 //! verdict (law C): the item count never flips an exit code.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use super::StageView;
-use crate::export::netlist::{island_nets, is_excluded, PointNaming};
+use crate::export::netlist::{is_excluded, island_nets_tagged, PointNaming};
 use crate::instant::insttab::InstTable;
 
 /// The canonical word this face publishes (CDDL `view-name`).
 pub const NETLIST_VIEW: &str = "netlist";
 
-/// CDDL `net = { name, points }` — one copper island.
+/// CDDL `net = { name, points, ? rails }` — one copper island.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NetItem {
     /// A named member's name, or the engine `_netN` spelling for copper no
@@ -35,6 +37,11 @@ pub struct NetItem {
     pub name: String,
     /// Member pin paths, ascending net id, deduplicated in encounter order.
     pub points: Vec<String>,
+    /// The name-bearing members (ports / labels / bus lanes) — the points
+    /// that *name* this copper without being pins on it. A subset of
+    /// `points`, in the same order; always present (possibly empty) so the
+    /// serialized member set stays the CDDL group verbatim.
+    pub rails: Vec<String>,
 }
 
 /// The items, in the island map's own order (the `BTreeMap` keys islands by
@@ -42,11 +49,11 @@ pub struct NetItem {
 /// bucket and the parse-error marker are not copper — the same exclusion the
 /// export face applies.
 pub fn net_items(table: &InstTable) -> Vec<Value> {
-    island_nets(table, PointNaming::Local)
+    island_nets_tagged(table, PointNaming::Local)
         .into_iter()
         .filter(|(name, _)| !is_excluded(name))
-        .map(|(name, points)| {
-            serde_json::to_value(NetItem { name, points }).unwrap_or(Value::Null)
+        .map(|(name, (points, rails))| {
+            serde_json::to_value(NetItem { name, points, rails }).unwrap_or(Value::Null)
         })
         .collect()
 }
@@ -75,7 +82,10 @@ pub fn netlist_view(top: &str, table: &InstTable) -> StageView {
 
 /// The text face, rendered from the **same** items the envelope carries:
 /// header, the counts, then one row per island — `name` and its points joined
-/// by spaces, the export face's own row shape.
+/// by spaces, the export face's own row shape. The `rails` members print
+/// inline after the pins so the row keeps carrying every member spelling the
+/// export text face writes (that face's `NAME: tok tok` rows are the
+/// `import --from netlist` reader's input and stay as they are).
 pub fn render_netlist_text(view: &StageView) -> String {
     let mut lines = vec![view.header_line()];
     let words: Vec<String> = view
@@ -90,16 +100,17 @@ pub fn render_netlist_text(view: &StageView) -> String {
     lines.push(format!("# {}", words.join("  ")));
     for it in &view.items {
         let name = it["name"].as_str().unwrap_or("-");
-        let points = it["points"]
-            .as_array()
+        let toks: Vec<String> = ["points", "rails"]
+            .iter()
+            .filter_map(|k| it[*k].as_array())
             .map(|a| {
                 a.iter()
-                    .map(|p| p.as_str().unwrap_or("-"))
+                    .map(|p| p.as_str().unwrap_or("-").to_string())
                     .collect::<Vec<_>>()
-                    .join(" ")
             })
-            .unwrap_or_default();
-        lines.push(format!("{name}: {points}"));
+            .flatten()
+            .collect();
+        lines.push(format!("{name}: {}", toks.join(" ")));
     }
     lines.join("\n")
 }

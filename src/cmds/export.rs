@@ -121,8 +121,10 @@ fn run_local(args: &ExportArgs, target: Option<&str>) -> Result<()> {
     ) {
         Ok(quad) => quad,
         Err(e) => {
-            eprintln!("{}", e);
-            return Ok(());
+            // A failed build must fail the export: the exit code is the
+            // roundtrip pregate's signal (an `Ok(())` here let a
+            // "Target module not found" through as success — 2026-10-03).
+            return Err(anyhow::anyhow!("{}", e));
         }
     };
 

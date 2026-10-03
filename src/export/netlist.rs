@@ -88,6 +88,41 @@ pub fn build_netlist(table: &InstTable, top: &str, format: u8) -> (String, Value
 /// in encounter order; the `BTreeMap` keys the islands by name so the export
 /// order is the input's alone (build-design §3.7 discipline 4).
 pub fn island_nets(table: &InstTable, naming: PointNaming) -> BTreeMap<String, Vec<String>> {
+    island_walk(table, naming)
+        .into_iter()
+        .map(|(name, pts)| (name, pts.into_iter().map(|(label, _)| label).collect()))
+        .collect()
+}
+
+/// [`island_nets`] with each point split by kind: pins (`owner.pin`) vs
+/// name-bearing points (ports / labels / bus lanes). The split is the JSON
+/// net item's `rails` member — the "spelling of their own" the CDDL v1
+/// deferred: a rail point *names* copper it is not a pin on, and a consumer
+/// lifting power names (the roundtrip power-name union) needs the difference.
+pub fn island_nets_tagged(
+    table: &InstTable,
+    naming: PointNaming,
+) -> BTreeMap<String, (Vec<String>, Vec<String>)> {
+    island_walk(table, naming)
+        .into_iter()
+        .map(|(name, pts)| {
+            let mut pins = Vec::new();
+            let mut rails = Vec::new();
+            for (label, is_pin) in pts {
+                if is_pin {
+                    pins.push(label);
+                } else {
+                    rails.push(label);
+                }
+            }
+            (name, (pins, rails))
+        })
+        .collect()
+}
+
+/// The shared island walk: same-name buckets as [`island_nets`], each point
+/// carried as `(label, is_pin)` in encounter order with the label dedup.
+fn island_walk(table: &InstTable, naming: PointNaming) -> BTreeMap<String, Vec<(String, bool)>> {
     let nets = table.get_nets();
     // Union-find over segment ids: a segment merges with the first segment of
     // each of its points (`nets_of` lists every segment the point sits on).
@@ -113,7 +148,7 @@ pub fn island_nets(table: &InstTable, naming: PointNaming) -> BTreeMap<String, V
     for n in &nets {
         islands.entry(find(&mut parent, n.id)).or_default().push(n);
     }
-    let mut out: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut out: BTreeMap<String, Vec<(String, bool)>> = BTreeMap::new();
     // Island spellings can collide: the engine numbers anonymous segments per
     // scope, so one scope's `_net1` and another scope's `_net1` are two
     // coppers, and two scopes may each label a private net `ENABLE`. Islands
@@ -152,11 +187,11 @@ pub fn island_nets(table: &InstTable, naming: PointNaming) -> BTreeMap<String, V
         let bucket = out.entry(key).or_default();
         for n in members {
             for &pt in &n.points {
-                let Some(label) = island_point_label(table, pt, naming) else {
+                let Some((label, is_pin)) = island_point_label_kind(table, pt, naming) else {
                     continue;
                 };
-                if !bucket.contains(&label) {
-                    bucket.push(label);
+                if !bucket.iter().any(|(l, _)| l == &label) {
+                    bucket.push((label, is_pin));
                 }
             }
         }
@@ -167,11 +202,16 @@ pub fn island_nets(table: &InstTable, naming: PointNaming) -> BTreeMap<String, V
 /// Label one flat point for an export island. A pin keeps `owner.pin` under
 /// local naming; a port or label keeps its own name under its owning module —
 /// the same spellings the per-scope tables printed, now boundary-complete.
-fn island_point_label(table: &InstTable, point: u32, naming: PointNaming) -> Option<String> {
+fn island_point_label_kind(
+    table: &InstTable,
+    point: u32,
+    naming: PointNaming,
+) -> Option<(String, bool)> {
     let entry = table.get_entry(point)?;
-    match naming {
-        PointNaming::Hierarchical => Some(entry.path.clone()),
-        PointNaming::Local => Some(match entry.kind {
+    let is_pin = entry.kind == InstKind::Pin;
+    let label = match naming {
+        PointNaming::Hierarchical => entry.path.clone(),
+        PointNaming::Local => match entry.kind {
             InstKind::Pin => {
                 // `main.MIC.FB_vmic.2` -> `FB_vmic.2`: the instance's local
                 // name is the segment in front of the pin's own.
@@ -196,8 +236,9 @@ fn island_point_label(table: &InstTable, point: u32, naming: PointNaming) -> Opt
                     _ => entry.path.clone(),
                 }
             }
-        }),
-    }
+        },
+    };
+    Some((label, is_pin))
 }
 
 /// Collect the flat netlist from the tree-level string net tables (Phase D —

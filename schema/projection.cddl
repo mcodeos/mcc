@@ -86,14 +86,19 @@ ratings-bound = {
 ; face as it exists: one item per copper island (the flat table's segments
 ; folded by shared point ids, U158), named by its best member, with the
 ; member pin paths in island order. Boundary ports and bus lanes arrive as
-; ordinary member points here; a spelling of their own is a later decision,
-; not a v1 gap.
+; ordinary member points here; the name-bearing ones (ports / labels / bus
+; lanes) are additionally carried in `rails` — the "spelling of their own"
+; v1 deferred, ruled 2026-10-03 for the roundtrip harness (a rail point
+; names the copper without being a pin on it; consumers lifting power names
+; need the difference).
 
 net = {
   name: tstr                ; the island's name: a named member's name, or the
                             ; engine `_netN` spelling for copper no statement
                             ; named; same-spelling islands disambiguate `#2`…
   points: [* tstr]          ; member pin paths, ascending net id, deduplicated
+  ? rails: [* tstr]         ; the name-bearing members (a subset of `points`,
+                            ; same order); present but possibly empty
 }
 
 ; ---- §2.3 core-erc: extension-tool snapshot -----------------------------

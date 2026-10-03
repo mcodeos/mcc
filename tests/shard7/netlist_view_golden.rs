@@ -119,6 +119,7 @@ fn netlist_view__item_round_trips_under_the_cddl_member_names() {
     let item = NetItem {
         name: "VDD".to_string(),
         points: vec!["r1.1".to_string()],
+        rails: vec![],
     };
     let v = serde_json::to_value(&item).expect("NetItem serializes");
     assert_eq!(v["name"], "VDD");

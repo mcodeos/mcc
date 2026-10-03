@@ -19,15 +19,17 @@
   "wired": {
     "counts": {
       "nets": 2,
-      "points": 5
+      "points": 4
     },
     "items": [
       {
         "name": "VDD",
         "points": [
-          "VDD",
           "r1.1",
           "r2.2"
+        ],
+        "rails": [
+          "VDD"
         ]
       },
       {
@@ -35,7 +37,8 @@
         "points": [
           "r1.2",
           "r2.1"
-        ]
+        ],
+        "rails": []
       }
     ],
     "key_table": null,

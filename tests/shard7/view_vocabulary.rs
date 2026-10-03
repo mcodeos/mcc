@@ -230,6 +230,7 @@ fn cddl_net_group_members_are_exactly_the_serialized_fields() {
     let item = NetItem {
         name: "VDD".to_string(),
         points: vec!["r1.1".to_string(), "r2.2".to_string()],
+        rails: vec![],
     };
     let v = serde_json::to_value(&item).expect("NetItem serializes");
     let mut keys: Vec<String> = v
