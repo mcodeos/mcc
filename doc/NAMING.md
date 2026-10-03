@@ -178,6 +178,9 @@ Protocol names use their **industry-standard acronym**:
 | `LIN` | Local Interconnect Network | ISO 17987 (all parts) |
 | `FLEXRAY` | FlexRay automotive bus | ISO 17458 (all parts) |
 | `ETHERNET` | Ethernet (10/100/1000/10G) | IEEE 802.3 |
+| `MII` | Media Independent Interface (100/10, 16-signal) | IEEE 802.3 clause 22 |
+| `RMII` | Reduced Media Independent Interface (8-signal) | RMII Consortium specification |
+| `MDIO` | Management Data Input/Output (SMI pair) | IEEE 802.3 clause 22/45 |
 | `ONEWIRE` | 1-Wire | Maxim/Dallas proprietary |
 | `MOST` | Media Oriented Systems Transport | MOST Cooperation specification |
 | `I2S` | Inter-IC Sound | NXP I²S specification |
@@ -332,6 +335,10 @@ the mcode parser:
 | TRS | Tip-Ring-Sleeve |
 | WTB | Wire-to-Board |
 | B2B | Board-to-Board |
+| ETH | Ethernet |
+| MII | Media Independent Interface |
+| RMII | Reduced Media Independent Interface |
+| MDIO | Management Data Input/Output |
 
 ---
 
