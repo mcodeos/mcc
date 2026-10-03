@@ -4,7 +4,7 @@
 > **Date**: 2026-10-03
 >
 > This document defines the naming rules for all class definitions (component, interface, enum)
-> in the MCode standard component library, for instance designators (§7), and for
+> in the MCode standard component library, for modules (§10), for instance designators (§7), and for
 > methods — wiring-macro funcs and capability recipes (§9).
 
 ---
@@ -18,6 +18,20 @@
 5. **Proper nouns, model numbers, and standard codes are kept intact** (no underscore insertion) — `XT60`, `DIN41612`, `ANDERSON`, `SPEAKON`.
 6. **Manufacturer series names use underscore** between manufacturer and series — `JST_XH`, `MOLEX_KK`.
 7. **Digits may appear as part of a name** — `TRS_35MM`, `HDR.1X10`, `SPI.3WIRE`.
+8. **The case form is the namespace discriminator** — every namespace owns
+   one form, so a glance at any name in any context tells what kind of
+   thing it is. Do not borrow another namespace's form:
+
+   | Form | Namespace | Examples |
+   |---|---|---|
+   | `SCREAMING` / `FAMILY.SUB` | classes & interfaces (identity nouns, §2–3) | `CAP.X5R`, `USB.MINIB` |
+   | `FAMILY.value` | enum values (§4) | `PKG.LQFP64` |
+   | `SCREAMING` | pin members (§6) | `VDD`, `NRST` |
+   | `SCREAMING` | modules (§10, identity assemblies) | `STM32F205_MINI` |
+   | `SCREAMING_SNAKE` | capability recipes (§9) | `CAP_DECOUPLE` |
+   | `PascalCase` | methods / funcs — behavior words (§9) | `Power`, `Setup` |
+   | `lowercase prefix + number` | instance designators (§7) | `uC`, `R1` |
+   | `@lowercase` | attribute keys (§8) | `@class`, `@pair` |
 
 ---
 
@@ -656,11 +670,27 @@ what the block *does* (`Power`, `Cap`, `Pullup`), never how it is wired
 
 ### 9.2 Violations on record (fix on touch)
 
-- `PaiIn` — `tle7368.mc:70`; misspelling of `PinIn`.
-- `STDBY` — `tle7368.mc:116`; all-caps abbreviation; should be `Standby`
-  (rule 9.1.2).
+- ~~`PaiIn` — `tle7368.mc:70`~~ **fixed 2026-10-03** (U394 sweep:
+  renamed to `Power` — the etymology was *not* a `PinIn` misspelling; the
+  b3874 comment shows it fossilized from a `Net.Pai` macro class that
+  never existed. The body is the supply-entry π-filter binding, so it
+  joins the `Power` family).
+- ~~`STDBY` — `tle7368.mc:116`~~ **fixed 2026-10-03** (U394 sweep:
+  renamed to `Standby`, rule 9.1.2).
 - ~~`route` — `witness.mc`~~ **fixed 2026-10-03** (unify batch: renamed to
   `Route`).
+
+**U394 mcpub sweep 2026-10-03** (b4529; consumer A/B byte-identical, only
+project consumer = mcs/tc275): three partno-named supply bindings join the
+`Power` family per the b3874 tle7368 precedent (partno constructor vs
+supply binding are one conflation fossil) — `SN74LVC1G175(pwr)`→`Power`
+(sn74lvc1g175) · `NSI8140(ps1,ps2)`→`Power` (nsi814x) ·
+`TC275_3E(...)`→`Power` (tc275, seven-domain bind) — plus
+`QT12LDO1()`→`LDO1` (tle7368; the name was a net-name mush, the rail-name
+convention of its sibling `LDO2` is the correct face). Same-day follow-up:
+recipe `PullTie`→`PULL` (res; the old name mushed the behavior with the
+mechanism — the capability name is the inner func's own word, call sites
+read `RES.Pull(...)` unchanged).
 
 **Unify batch 2026-10-03** (mcode + mclibs, zero-consumer renames under
 rule 9.1.1): `VoltageRegulator`→`Regulate` (DIO.ZEN) ·
@@ -681,3 +711,36 @@ termination match — name says both halves).
 `PowerIsolated`→`PowerIso` (ADC; qualifier tail to the recognized short
 form per 9.1.7). Kept at length by
 9.1.7's keep-clause: `Indicator`, `Rheostat`.
+
+---
+
+## 10. Module Naming
+
+Modules (typical-application assemblies, S4 module level) take the **class
+face, not the method face**: at a call site a module instantiation reads
+like a component instantiation (`STM32F205_MINI(pwr, 12MHz, 18pF) mini`),
+because a module is an **identity assembly** — a thing — not a behavior.
+The behavior words live in the funcs it calls (§9), never in the module
+name.
+
+### 10.1 Convention
+
+1. **Module names are `UPPER_CASE`** (rule §1.1) — `STM32F205_MINI`,
+   `TLE7368E`; `PascalCase` module names are banned (that form is methods',
+   rule §1.8).
+2. **The name rides the dominant wrapped component** — the part the typical
+   application centers on (`STM32F205RET6` → `STM32F205_MINI`,
+   `TLE7368` → `TLE7368E`). A module is introduced as "the typical
+   application of X", so X is the head noun.
+3. **A qualifier suffix states the application form** when the bare
+   component name alone would blur against the component — `_MINI`
+   (minimal system) is the standing suffix for MCU minimal systems; the `E` in
+   `TLE7368E` is the datasheet's own application-variant letter and stays
+   intact (rule §1.5).
+4. **One behavior family per module, per S4** — a module bundles one
+   typical application (minimal system, power tree, debug bank); a second
+   application shape is a second module with its own qualifier
+   (`..._PWR`), not a mode flag on the first.
+5. **Instances inside the module follow §7** — the module body is the
+   uniqueness scope (§7.3.3); the projected refdes carries the `M` module
+   segment (§7.5).
