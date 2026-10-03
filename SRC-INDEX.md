@@ -57,13 +57,13 @@ range (threshold 40KB).
 
 | Directory | Files | Size |
 |---|---|---|
-| `(root)/` | 9 | 387 KB |
+| `(root)/` | 9 | 386 KB |
 | `ast/` | 7 | 81 KB |
 | `bin/` | 2 | 37 KB |
 | `build/` | 5 | 79 KB |
 | `builder/` | 1 | 0 KB |
-| `cli/` | 9 | 153 KB |
-| `cmds/` | 29 | 560 KB |
+| `cli/` | 9 | 150 KB |
+| `cmds/` | 29 | 561 KB |
 | `db/` | 29 | 1107 KB |
 | `export/` | 7 | 185 KB |
 | `import_skeleton/` | 5 | 43 KB |
@@ -73,7 +73,7 @@ range (threshold 40KB).
 | `output/` | 7 | 107 KB |
 | `query/` | 9 | 171 KB |
 | `refdef/` | 7 | 134 KB |
-| `rpc/` | 16 | 322 KB |
+| `rpc/` | 16 | 316 KB |
 | `semantic/` | 100 | 3015 KB |
 | `stages/` | 19 | 408 KB |
 | `vector/` | 26 | 494 KB |
@@ -555,7 +555,6 @@ build/vinst.rs#L599  fn synthesize_interface_module
 buildinfo.rs#L15  const VERSION
 buildinfo.rs#L19  const BUILD
 buildinfo.rs#L22  fn number
-buildinfo.rs#L30  const RPC_PROTOCOL
 cli/config.rs#L23  static RUNTIME_TRACE
 cli/config.rs#L26  fn get_runtime_trace
 cli/config.rs#L30  static SYSTEM_LIB_LOADING
@@ -668,32 +667,30 @@ cli/datadir.rs#L84  fn logs_dir
 cli/datadir.rs#L88  fn config_dir
 cli/datadir.rs#L92  fn index_file
 cli/datadir.rs#L96  fn log_file
-cli/datadir.rs#L106  fn project_root_here
-cli/datadir.rs#L126  fn pid_file
-cli/datadir.rs#L137  const DEFAULT_MCC_YAML
-cli/datadir.rs#L141  fn ensure_dirs
-cli/datadir.rs#L169  fn rebuild_index
-cli/datadir.rs#L233  struct IndexFile
-cli/datadir.rs#L240  fn read_index_if_present
-cli/datadir.rs#L263  fn read_index
-cli/datadir.rs#L296  fn parse_name_version
-cli/datadir.rs#L312  const LIB_DIR_SKIP
-cli/datadir.rs#L319  fn project_libs_dir
-cli/datadir.rs#L329  fn normalize_version
-cli/datadir.rs#L340  struct ScannedLib
-cli/datadir.rs#L351  fn scan_lib_dir
-cli/datadir.rs#L383  mod tests
-cli/datadir.rs#L387  static ENV_LOCK
-cli/datadir.rs#L393  fn scratch_dir
-cli/datadir.rs#L398  fn cli_datadir__env_override_absolute
-cli/datadir.rs#L411  fn cli_datadir__pid_default_root_stays_global
-cli/datadir.rs#L431  fn cli_datadir__pid_follows_isolated_override_root
-cli/datadir.rs#L452  fn cli_datadir__pid_project_slot_owns_dot_mcode
-cli/datadir.rs#L488  fn cli_datadir__parse_name_version_ok
-cli/datadir.rs#L494  fn cli_datadir__parse_name_version_invalid
-cli/datadir.rs#L501  fn cli_datadir__normalize_version_two_segment_canonical
-cli/datadir.rs#L512  fn cli_datadir__scan_lib_dir_versions_and_skips
-cli/datadir.rs#L542  fn cli_datadir__sub_dirs_under_data_root
+cli/datadir.rs#L110  fn pid_file
+cli/datadir.rs#L118  const DEFAULT_MCC_YAML
+cli/datadir.rs#L122  fn ensure_dirs
+cli/datadir.rs#L150  fn rebuild_index
+cli/datadir.rs#L214  struct IndexFile
+cli/datadir.rs#L221  fn read_index_if_present
+cli/datadir.rs#L244  fn read_index
+cli/datadir.rs#L277  fn parse_name_version
+cli/datadir.rs#L293  const LIB_DIR_SKIP
+cli/datadir.rs#L300  fn project_libs_dir
+cli/datadir.rs#L310  fn normalize_version
+cli/datadir.rs#L321  struct ScannedLib
+cli/datadir.rs#L332  fn scan_lib_dir
+cli/datadir.rs#L364  mod tests
+cli/datadir.rs#L368  static ENV_LOCK
+cli/datadir.rs#L374  fn scratch_dir
+cli/datadir.rs#L379  fn cli_datadir__env_override_absolute
+cli/datadir.rs#L392  fn cli_datadir__pid_default_root_stays_global
+cli/datadir.rs#L412  fn cli_datadir__pid_follows_isolated_override_root
+cli/datadir.rs#L433  fn cli_datadir__parse_name_version_ok
+cli/datadir.rs#L439  fn cli_datadir__parse_name_version_invalid
+cli/datadir.rs#L446  fn cli_datadir__normalize_version_two_segment_canonical
+cli/datadir.rs#L457  fn cli_datadir__scan_lib_dir_versions_and_skips
+cli/datadir.rs#L487  fn cli_datadir__sub_dirs_under_data_root
 cli/loadctx.rs#L23  enum WorkspaceKind
 cli/loadctx.rs#L34  struct LoadContext
 cli/loadctx.rs#L51  impl LoadContext
@@ -744,65 +741,64 @@ cli/mod.rs#L145  fn set_globals
 cli/mod.rs#L150  fn globals
 cli/mod.rs#L159  fn strict_mode
 cli/mod.rs#L165  enum Command
-cli/mod.rs#L255  struct ParseArgs
-cli/mod.rs#L315  struct CheckArgs
-cli/mod.rs#L345  struct JoinArgs
-cli/mod.rs#L377  enum DiffView
-cli/mod.rs#L396  enum DiffMode
-cli/mod.rs#L409  struct DiffArgs
-cli/mod.rs#L430  struct TraceArgs
-cli/mod.rs#L445  enum OutputFormat
-cli/mod.rs#L456  impl OutputFormat
-cli/mod.rs#L459  fn is_jsonish
-cli/mod.rs#L464  fn id
-cli/mod.rs#L476  fn name
-cli/mod.rs#L487  fn from_name
-cli/mod.rs#L500  enum PinSortMode
-cli/mod.rs#L511  struct ShowArgs
-cli/mod.rs#L582  enum ShowScope
-cli/mod.rs#L594  enum ShowTarget
-cli/mod.rs#L747  impl ShowTarget
-cli/mod.rs#L757  fn name
-cli/mod.rs#L795  mod tests
-cli/mod.rs#L801  fn show_target_name_matches_the_clap_token
-cli/mod.rs#L812  struct ListArgs
-cli/mod.rs#L837  enum ListTarget
-cli/mod.rs#L872  struct QueryArgs
-cli/mod.rs#L914  enum SearchKind
-cli/mod.rs#L942  struct ExportArgs
-cli/mod.rs#L963  enum ExportKind
-cli/mod.rs#L981  impl ExportKind
-cli/mod.rs#L985  const ALL
-cli/mod.rs#L995  fn id
-cli/mod.rs#L1009  fn name
-cli/mod.rs#L1022  fn from_name
-cli/mod.rs#L1040  const BUILD_PRODUCTS
-cli/mod.rs#L1051  fn default_file_name
-cli/mod.rs#L1080  struct ImpactArgs
-cli/mod.rs#L1103  struct ImportArgs
-cli/mod.rs#L1151  enum ImportFormat
-cli/mod.rs#L1167  impl ImportFormat
-cli/mod.rs#L1169  fn name
-cli/mod.rs#L1180  fn export_kind
-cli/mod.rs#L1191  fn from_name
-cli/mod.rs#L1204  struct BuildArgs
-cli/mod.rs#L1238  struct LibArgs
-cli/mod.rs#L1244  enum LibAction
-cli/mod.rs#L1328  struct ProjArgs
-cli/mod.rs#L1334  enum ProjAction
-cli/mod.rs#L1345  struct StartArgs
-cli/mod.rs#L1366  struct RestartArgs
-cli/mod.rs#L1383  struct StopArgs
-cli/mod.rs#L1396  struct StatusArgs
-cli/mod.rs#L1411  struct ConfigArgs
-cli/mod.rs#L1417  enum ConfigAction
-cli/mod.rs#L1447  struct DefArgs
-cli/mod.rs#L1459  struct RefsArgs
-cli/mod.rs#L1481  struct FmtArgs
-cli/mod.rs#L1502  struct ErcArgs
-cli/mod.rs#L1510  struct ExplainArgs
-cli/mod.rs#L1520  struct RulesArgs
-cli/mod.rs#L1526  enum RulesAction
+cli/mod.rs#L251  struct ParseArgs
+cli/mod.rs#L311  struct CheckArgs
+cli/mod.rs#L341  struct JoinArgs
+cli/mod.rs#L373  enum DiffView
+cli/mod.rs#L392  enum DiffMode
+cli/mod.rs#L405  struct DiffArgs
+cli/mod.rs#L426  struct TraceArgs
+cli/mod.rs#L441  enum OutputFormat
+cli/mod.rs#L452  impl OutputFormat
+cli/mod.rs#L455  fn is_jsonish
+cli/mod.rs#L460  fn id
+cli/mod.rs#L472  fn name
+cli/mod.rs#L483  fn from_name
+cli/mod.rs#L496  enum PinSortMode
+cli/mod.rs#L507  struct ShowArgs
+cli/mod.rs#L578  enum ShowScope
+cli/mod.rs#L590  enum ShowTarget
+cli/mod.rs#L743  impl ShowTarget
+cli/mod.rs#L753  fn name
+cli/mod.rs#L791  mod tests
+cli/mod.rs#L797  fn show_target_name_matches_the_clap_token
+cli/mod.rs#L808  struct ListArgs
+cli/mod.rs#L833  enum ListTarget
+cli/mod.rs#L868  struct QueryArgs
+cli/mod.rs#L910  enum SearchKind
+cli/mod.rs#L938  struct ExportArgs
+cli/mod.rs#L959  enum ExportKind
+cli/mod.rs#L977  impl ExportKind
+cli/mod.rs#L981  const ALL
+cli/mod.rs#L991  fn id
+cli/mod.rs#L1005  fn name
+cli/mod.rs#L1018  fn from_name
+cli/mod.rs#L1036  const BUILD_PRODUCTS
+cli/mod.rs#L1047  fn default_file_name
+cli/mod.rs#L1076  struct ImpactArgs
+cli/mod.rs#L1099  struct ImportArgs
+cli/mod.rs#L1147  enum ImportFormat
+cli/mod.rs#L1163  impl ImportFormat
+cli/mod.rs#L1165  fn name
+cli/mod.rs#L1176  fn export_kind
+cli/mod.rs#L1187  fn from_name
+cli/mod.rs#L1200  struct BuildArgs
+cli/mod.rs#L1234  struct LibArgs
+cli/mod.rs#L1240  enum LibAction
+cli/mod.rs#L1324  struct ProjArgs
+cli/mod.rs#L1330  enum ProjAction
+cli/mod.rs#L1341  struct StartArgs
+cli/mod.rs#L1362  struct StopArgs
+cli/mod.rs#L1375  struct StatusArgs
+cli/mod.rs#L1390  struct ConfigArgs
+cli/mod.rs#L1396  enum ConfigAction
+cli/mod.rs#L1426  struct DefArgs
+cli/mod.rs#L1438  struct RefsArgs
+cli/mod.rs#L1460  struct FmtArgs
+cli/mod.rs#L1481  struct ErcArgs
+cli/mod.rs#L1489  struct ExplainArgs
+cli/mod.rs#L1499  struct RulesArgs
+cli/mod.rs#L1505  enum RulesAction
 cli/outlet.rs#L31  fn project_root
 cli/outlet.rs#L48  fn intermediate
 cli/outlet.rs#L54  fn ensure_parent
@@ -1072,15 +1068,16 @@ cmds/pack.rs#L71  impl std::fmt::Display for InspectReport
 cmds/pack.rs#L72  fn fmt
 cmds/pack.rs#L126  fn cmd_pack
 cmds/pack.rs#L140  fn do_pack
-cmds/pack.rs#L259  fn write_archive
-cmds/pack.rs#L272  fn artifact_info
-cmds/pack.rs#L282  fn cmd_inspect
-cmds/pack.rs#L288  fn do_inspect
-cmds/pack.rs#L319  fn install_mcl
-cmds/pack.rs#L329  fn install_mcl_at
-cmds/pack.rs#L456  fn read_archive
-cmds/pack.rs#L489  fn sha256_hex_file
-cmds/pack.rs#L496  fn hex
+cmds/pack.rs#L293  fn parse_error_rows
+cmds/pack.rs#L315  fn write_archive
+cmds/pack.rs#L328  fn artifact_info
+cmds/pack.rs#L338  fn cmd_inspect
+cmds/pack.rs#L344  fn do_inspect
+cmds/pack.rs#L375  fn install_mcl
+cmds/pack.rs#L385  fn install_mcl_at
+cmds/pack.rs#L512  fn read_archive
+cmds/pack.rs#L545  fn sha256_hex_file
+cmds/pack.rs#L552  fn hex
 cmds/parse.rs#L48  fn run
 cmds/parse.rs#L167  enum ParseTarget
 cmds/parse.rs#L526  struct Stages
@@ -1123,7 +1120,7 @@ cmds/print.rs#L416  fn print_net_summary
 cmds/print.rs#L422  fn walk
 cmds/proj.rs#L35  fn run
 cmds/proj.rs#L43  fn cmd_create
-cmds/proj.rs#L103  fn resolve_workspace_ref
+cmds/proj.rs#L95  fn resolve_workspace_ref
 cmds/query.rs#L42  enum RowStyle
 cmds/query.rs#L55  fn run
 cmds/query.rs#L59  fn run_local
@@ -1158,18 +1155,17 @@ cmds/server.rs#L60  impl ServerStatus
 cmds/server.rs#L61  fn not_running
 cmds/server.rs#L70  fn running
 cmds/server.rs#L83  fn run_start
-cmds/server.rs#L213  fn run_restart
-cmds/server.rs#L221  fn run_server_internal
-cmds/server.rs#L276  fn run_stop
-cmds/server.rs#L280  fn run_status
-cmds/server.rs#L285  fn register_all
-cmds/server.rs#L289  fn pid_file_path
-cmds/server.rs#L297  fn write_pid_file
-cmds/server.rs#L312  fn stop_server
-cmds/server.rs#L348  fn status_server
-cmds/server.rs#L400  fn is_server_running
-cmds/server.rs#L409  fn read_pid
-cmds/server.rs#L418  fn is_process_running
+cmds/server.rs#L202  fn run_server_internal
+cmds/server.rs#L249  fn run_stop
+cmds/server.rs#L253  fn run_status
+cmds/server.rs#L258  fn register_all
+cmds/server.rs#L262  fn pid_file_path
+cmds/server.rs#L270  fn write_pid_file
+cmds/server.rs#L285  fn stop_server
+cmds/server.rs#L321  fn status_server
+cmds/server.rs#L373  fn is_server_running
+cmds/server.rs#L382  fn read_pid
+cmds/server.rs#L391  fn is_process_running
 cmds/show.rs#L45  fn run
 cmds/show.rs#L49  fn run_local
 cmds/show.rs#L132  fn prepare
@@ -4386,8 +4382,8 @@ main.rs#L51  mod logging
 main.rs#L52  mod output
 main.rs#L56  fn main
 main.rs#L215  fn dispatch
-main.rs#L380  fn print_help_hint
-main.rs#L441  fn run_internal_server
+main.rs#L376  fn print_help_hint
+main.rs#L437  fn run_internal_server
 meta/mod.rs#L40  mod units
 meta/mod.rs#L41  mod read
 meta/mod.rs#L52  enum Value
@@ -5036,11 +5032,9 @@ rpc/handlers/admin.rs#L220  struct SetSystemRootParams
 rpc/handlers/admin.rs#L230  fn handle_load_project
 rpc/handlers/admin.rs#L232  struct LoadProjectParams
 rpc/handlers/aicontract.rs#L9  fn handle_check
-rpc/handlers/aicontract.rs#L91  fn handle_caps
-rpc/handlers/aicontract.rs#L93  struct ClientTriple
-rpc/handlers/aicontract.rs#L100  struct CapsParams
-rpc/handlers/aicontract.rs#L181  fn handle_explain
-rpc/handlers/aicontract.rs#L183  struct ExplainParams
+rpc/handlers/aicontract.rs#L83  fn handle_caps
+rpc/handlers/aicontract.rs#L88  fn handle_explain
+rpc/handlers/aicontract.rs#L90  struct ExplainParams
 rpc/handlers/buildcmd.rs#L9  fn handle_build_full
 rpc/handlers/buildcmd.rs#L68  fn handle_build_viz
 rpc/handlers/buildcmd.rs#L253  fn build_viz_render_opts
@@ -5228,18 +5222,18 @@ rpc/handlers/mod.rs#L2654  mod show
 rpc/handlers/mod.rs#L2671  struct MethodMeta
 rpc/handlers/mod.rs#L2677  static METHODS
 rpc/handlers/mod.rs#L3005  fn caps_json
-rpc/handlers/mod.rs#L3056  fn register_all
-rpc/handlers/mod.rs#L3155  mod tests
-rpc/handlers/mod.rs#L3164  fn cli_rpc__iotype_str_covers_every_variant
-rpc/handlers/mod.rs#L3176  fn cli_rpc__find_project_root_prefers_configured_root
-rpc/handlers/mod.rs#L3208  fn cli_rpc__find_project_root_does_not_claim_files_outside_it
-rpc/handlers/mod.rs#L3232  fn cli_rpc__find_project_root_detects_project_manifest
-rpc/handlers/mod.rs#L3256  fn cli_rpc__load_project_keeps_sibling_projects_in_separate_worlds
-rpc/handlers/mod.rs#L3320  fn cli_rpc__defs_dependents_reports_no_dependents_after_reparse
-rpc/handlers/mod.rs#L3376  fn cli_rpc__pin_id_cmp_orders_numeric_then_natural
-rpc/handlers/mod.rs#L3401  fn cli_rpc__diag_in_system_lib_classifies_by_source_domain
-rpc/handlers/mod.rs#L3445  fn cli_rpc__handle_check_scopes_to_candidate_overlay
-rpc/handlers/mod.rs#L3529  fn cli_rpc__handle_check_reuses_one_overlay_uri
+rpc/handlers/mod.rs#L3055  fn register_all
+rpc/handlers/mod.rs#L3154  mod tests
+rpc/handlers/mod.rs#L3163  fn cli_rpc__iotype_str_covers_every_variant
+rpc/handlers/mod.rs#L3175  fn cli_rpc__find_project_root_prefers_configured_root
+rpc/handlers/mod.rs#L3207  fn cli_rpc__find_project_root_does_not_claim_files_outside_it
+rpc/handlers/mod.rs#L3231  fn cli_rpc__find_project_root_detects_project_manifest
+rpc/handlers/mod.rs#L3255  fn cli_rpc__load_project_keeps_sibling_projects_in_separate_worlds
+rpc/handlers/mod.rs#L3319  fn cli_rpc__defs_dependents_reports_no_dependents_after_reparse
+rpc/handlers/mod.rs#L3375  fn cli_rpc__pin_id_cmp_orders_numeric_then_natural
+rpc/handlers/mod.rs#L3400  fn cli_rpc__diag_in_system_lib_classifies_by_source_domain
+rpc/handlers/mod.rs#L3444  fn cli_rpc__handle_check_scopes_to_candidate_overlay
+rpc/handlers/mod.rs#L3528  fn cli_rpc__handle_check_reuses_one_overlay_uri
 rpc/handlers/params.rs#L9  fn default_true
 rpc/handlers/params.rs#L14  struct LibraryShowParams
 rpc/handlers/params.rs#L19  struct LibInstallParams
@@ -5276,32 +5270,31 @@ rpc/handlers/show.rs#L204  fn handle_show_module
 rpc/handlers/show.rs#L251  fn handle_show_interface
 rpc/handlers/show.rs#L288  fn handle_show_net
 rpc/handlers/show.rs#L358  fn handle_show_all
-rpc/handlers/show.rs#L388  fn conditional_read
-rpc/handlers/show.rs#L422  fn handle_show_org_units
-rpc/handlers/show.rs#L447  fn handle_show_diagnostics
-rpc/handlers/show.rs#L480  fn handle_show_netlist
-rpc/handlers/show.rs#L511  fn handle_show_project
-rpc/handlers/show.rs#L548  fn handle_show_core_erc
-rpc/handlers/show.rs#L582  fn handle_show_expectation
-rpc/handlers/show.rs#L624  fn handle_show_file
-rpc/handlers/show.rs#L667  fn handle_show_files
-rpc/handlers/show.rs#L671  struct FileInfo
-rpc/handlers/show.rs#L710  fn handle_show_enum_list
-rpc/handlers/show.rs#L727  fn handle_show_enum
-rpc/handlers/show.rs#L756  fn handle_show_pins
-rpc/handlers/show.rs#L785  fn component_funcs_json
-rpc/handlers/show.rs#L800  fn handle_show_ports
-rpc/handlers/show.rs#L829  fn handle_show_ports_list
-rpc/handlers/show.rs#L841  fn handle_show_labels
-rpc/handlers/show.rs#L871  fn handle_show_instances
-rpc/handlers/show.rs#L956  fn handle_show_nets
-rpc/handlers/show.rs#L1023  fn handle_show_attrs
-rpc/handlers/show.rs#L1055  fn handle_show_funcs
-rpc/handlers/show.rs#L1084  fn handle_show_params
-rpc/handlers/show.rs#L1143  fn handle_show_roles
-rpc/handlers/show.rs#L1194  fn handle_show_values
-rpc/handlers/show.rs#L1219  fn handle_show_dump
-rpc/handlers/show.rs#L1246  fn handle_show_dump_all
+rpc/handlers/show.rs#L388  fn handle_show_org_units
+rpc/handlers/show.rs#L410  fn handle_show_diagnostics
+rpc/handlers/show.rs#L438  fn handle_show_netlist
+rpc/handlers/show.rs#L464  fn handle_show_project
+rpc/handlers/show.rs#L494  fn handle_show_core_erc
+rpc/handlers/show.rs#L523  fn handle_show_expectation
+rpc/handlers/show.rs#L560  fn handle_show_file
+rpc/handlers/show.rs#L603  fn handle_show_files
+rpc/handlers/show.rs#L607  struct FileInfo
+rpc/handlers/show.rs#L646  fn handle_show_enum_list
+rpc/handlers/show.rs#L663  fn handle_show_enum
+rpc/handlers/show.rs#L692  fn handle_show_pins
+rpc/handlers/show.rs#L721  fn component_funcs_json
+rpc/handlers/show.rs#L736  fn handle_show_ports
+rpc/handlers/show.rs#L765  fn handle_show_ports_list
+rpc/handlers/show.rs#L777  fn handle_show_labels
+rpc/handlers/show.rs#L807  fn handle_show_instances
+rpc/handlers/show.rs#L892  fn handle_show_nets
+rpc/handlers/show.rs#L959  fn handle_show_attrs
+rpc/handlers/show.rs#L991  fn handle_show_funcs
+rpc/handlers/show.rs#L1020  fn handle_show_params
+rpc/handlers/show.rs#L1079  fn handle_show_roles
+rpc/handlers/show.rs#L1130  fn handle_show_values
+rpc/handlers/show.rs#L1155  fn handle_show_dump
+rpc/handlers/show.rs#L1182  fn handle_show_dump_all
 rpc/mod.rs#L9  mod handlers
 rpc/mod.rs#L10  mod protocol
 rpc/mod.rs#L11  mod server
@@ -5329,22 +5322,21 @@ rpc/protocol.rs#L145  fn register
 rpc/protocol.rs#L152  fn call
 rpc/protocol.rs#L171  fn list_methods
 rpc/server.rs#L18  struct RpcServer
-rpc/server.rs#L25  struct RpcServerBuilder
-rpc/server.rs#L32  impl Default for RpcServerBuilder
-rpc/server.rs#L33  fn default
-rpc/server.rs#L38  impl RpcServerBuilder
-rpc/server.rs#L39  fn new
-rpc/server.rs#L48  fn host
-rpc/server.rs#L53  fn port
-rpc/server.rs#L63  fn on_bound
-rpc/server.rs#L68  fn register_method
-rpc/server.rs#L79  fn build
-rpc/server.rs#L89  impl RpcServer
-rpc/server.rs#L90  fn new
-rpc/server.rs#L99  fn with_registry
-rpc/server.rs#L111  fn registry
-rpc/server.rs#L115  fn start
-rpc/server.rs#L272  fn health_check
+rpc/server.rs#L24  struct RpcServerBuilder
+rpc/server.rs#L30  impl Default for RpcServerBuilder
+rpc/server.rs#L31  fn default
+rpc/server.rs#L36  impl RpcServerBuilder
+rpc/server.rs#L37  fn new
+rpc/server.rs#L45  fn host
+rpc/server.rs#L50  fn port
+rpc/server.rs#L55  fn register_method
+rpc/server.rs#L66  fn build
+rpc/server.rs#L75  impl RpcServer
+rpc/server.rs#L76  fn new
+rpc/server.rs#L84  fn with_registry
+rpc/server.rs#L95  fn registry
+rpc/server.rs#L99  fn start
+rpc/server.rs#L253  fn health_check
 rules.rs#L93  enum RuleScope
 rules.rs#L109  enum RuleDomain
 rules.rs#L138  enum RulePlane
@@ -12075,4 +12067,4 @@ viz/traits.rs#L67  fn name
 
 ---
 
-436 files, 11991 declarations.
+436 files, 11983 declarations.
