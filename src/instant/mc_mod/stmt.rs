@@ -1333,7 +1333,7 @@ impl InstantiationBuilder {
                 }
             }
             McPhrase::Transposed(inner) => {
-                // U372 leg2 (L4 面序律): only a **device** core keeps the
+                // U372 leg2 (L4 face-order law): only a **device** core keeps the
                 // M11.4 standalone-Transposed shunt bridge (L11 — the bridge
                 // passive spans the lanes). A label/pin row core is a plain
                 // operand: its row is a *directed two-terminal* — series
@@ -1375,7 +1375,7 @@ impl InstantiationBuilder {
 
     /// Is this Transposed core a **device** (bridge-passive) core?
     ///
-    /// U372 leg2 (L4 面序律): the shunt-bridge treatment is a device's — a
+    /// U372 leg2 (L4 face-order law): the shunt-bridge treatment is a device's — a
     /// component instance resolved at Pass1 (`Endpoint(Component)`) or a func
     /// call the lane pre-pass instantiated (`auto_inst_map`). Any other core
     /// (a label row, a pin row) is a plain operand: a directed two-terminal
@@ -1524,7 +1524,7 @@ impl InstantiationBuilder {
     /// the Pass2 statement boundary, on the evaluation result.
     ///
     /// A `Lead` core (`_'` / `_^`) normalizes to the bare lead: a placeholder
-    /// has no faces to swap (L20 占位律), and the kept wrapper would ride the
+    /// has no faces to swap (L20 placeholder law), and the kept wrapper would ride the
     /// bridge-passive path and incubate a `(lead)` wire element (probe
     /// `L1 - D1 - _'` → `(lead): D1.2 (lead)`, design doc §2.4 #32).
     ///
@@ -1568,7 +1568,7 @@ impl InstantiationBuilder {
                     (phrase.clone(), 0)
                 }
             }
-            // U372 leg6 (L12 括号透明律, design doc §10 edge 1): a one-element
+            // U372 leg6 (L12 bracket-transparency law, design doc §10 edge 1): a one-element
             // group is pure parenthesization — `(X)'` must normalize exactly
             // like `X'`. Before this arm the Group shell stopped the walk:
             // `(D2{A,K})'` kept a Point-shaped core under the wrapper and the
@@ -1779,7 +1779,7 @@ impl InstantiationBuilder {
             }
             McPhrase::Closure(c) => (vec![McPhrase::Closure(c.clone())], Vec::new()),
             McPhrase::FuncCall(f) => (vec![McPhrase::FuncCall(f.clone())], Vec::new()),
-            // U372 leg6 (L12 括号透明律, second half): a group wrapping a
+            // U372 leg6 (L12 bracket-transparency law, second half): a group wrapping a
             // wrapper — `(D2{A,K}')` parses as Group(Transposed(bus)) — must
             // hand the chain the same member the bare spelling produces. Run
             // the single operand through the wrapper walk and adopt the core
@@ -1885,8 +1885,11 @@ impl InstantiationBuilder {
             // U385 engine leg 2: a reorder is a face view, not a chain
             // rewrite — the operand rides as ONE member and the permutation
             // applies inside get_left_points / get_right_points when the
-            // wrapper's faces are read.
-            McPhrase::Reordered(_, _) => (vec![phrase.clone()], Vec::new()),
+            // wrapper's faces are read. U385 leg E2b: the `*` splice wrapper
+            // rides the same way — one member, no gaps.
+            McPhrase::Reordered(_, _) | McPhrase::Splice(_) => {
+                (vec![phrase.clone()], Vec::new())
+            }
             McPhrase::Endpoint(McRef::Name(McInstanceRef {
                 base: McInstance::Component(c),
             })) => {
@@ -3415,8 +3418,10 @@ impl InstantiationBuilder {
             // U385 engine leg 2: `{{order}}` is a face view over the same
             // expression — instantiate the operand in place (same pointer
             // law as the Transposed/Reversed arms above); the permutation
-            // itself rides get_left_points / get_right_points.
-            McPhrase::Reordered(inner, _) => match inner.as_ref() {
+            // itself rides get_left_points / get_right_points. U385 leg E2b:
+            // the `*` splice wrapper unwraps the same way — the item rides
+            // in place.
+            McPhrase::Reordered(inner, _) | McPhrase::Splice(inner) => match inner.as_ref() {
                 McPhrase::Series(elems, d) => {
                     self.process_series_branch_inplace(elems, *d)?;
                 }
@@ -3425,6 +3430,7 @@ impl InstantiationBuilder {
                 | McPhrase::Transposed(_)
                 | McPhrase::Reversed(_)
                 | McPhrase::Reordered(_, _)
+                | McPhrase::Splice(_)
                 | McPhrase::Lead(_)
                 | McPhrase::Member(_, _) => {
                     self.process_member_internal(inner)?;
@@ -4254,7 +4260,7 @@ impl InstantiationBuilder {
             McPhrase::Reversed(ref mut inner) => {
                 Self::assign_phrase_ids(inner, next_id);
             }
-            McPhrase::Reordered(ref mut inner, _) => {
+            McPhrase::Reordered(ref mut inner, _) | McPhrase::Splice(ref mut inner) => {
                 Self::assign_phrase_ids(inner, next_id);
             }
             McPhrase::Closure(ref mut c) => {

@@ -77,6 +77,9 @@ fn shape(p: &McPhrase) -> String {
         McPhrase::Closure(_) => "Closure".to_string(),
         McPhrase::FuncCall(f) => format!("FuncCall({})", f.func_name),
         McPhrase::Reordered(b, _) => format!("Reordered({})", shape(b)),
+        // U385 leg E2b: the splice wrapper reads through — the mark names no
+        // shape of its own, the inner item's shape is the list's shape.
+        McPhrase::Splice(b) => format!("Splice({})", shape(b)),
         McPhrase::Member(b, _) => format!("Member({})", shape(b)),
     }
 }
@@ -153,7 +156,7 @@ fn receiver(body: &str) -> String {
                     walk(e, out)
                 }
             }
-            McPhrase::Transposed(b) | McPhrase::Reversed(b) | McPhrase::Reordered(b, _) | McPhrase::Member(b, _) => walk(b, out),
+            McPhrase::Transposed(b) | McPhrase::Reversed(b) | McPhrase::Reordered(b, _) | McPhrase::Member(b, _) | McPhrase::Splice(b) => walk(b, out),
             McPhrase::Closure(c) => {
                 for e in &c.body {
                     walk(e, out)

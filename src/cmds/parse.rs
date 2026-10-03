@@ -1220,6 +1220,11 @@ fn phrase_to_tree_json(p: &McPhrase, max_depth: usize, cur: usize) -> serde_json
             ),
             "children": [phrase_to_tree_json(inner, max_depth, cur + 1)],
         }),
+        McPhrase::Splice(inner) => json!({
+            "kind": "Splice",
+            "label": "*",
+            "children": [phrase_to_tree_json(inner, max_depth, cur + 1)],
+        }),
         McPhrase::Member(inner, ep) => json!({
             "kind": "Member",
             "label": format!(".{}", ep),

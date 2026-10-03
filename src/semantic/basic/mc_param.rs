@@ -128,14 +128,10 @@ impl McParamValue {
             }
 
             // Square bracket vector: [a -> b] is parsed as MCAST_SQUARE_VEC
-            MCAST_SQUARE_VEC => {
-                Self::set_from_list(node, context)
-            }
+            MCAST_SQUARE_VEC => Self::set_from_list(node, context),
 
             // bracket-vector actual: `[a b]` parses as MCAST_OPD_SQUARE_VEC
-            MCAST_OPD_SQUARE_VEC => {
-                Self::set_from_list(node, context)
-            }
+            MCAST_OPD_SQUARE_VEC => Self::set_from_list(node, context),
 
             // Parenthesized group `(a, b)` as an actual — the same node type
             // `McPhrase::new` builds a `Group` from. Falling through to

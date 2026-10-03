@@ -152,6 +152,13 @@ pub fn print_phrase_members(phrase: &McPhrase, prefix: &str) {
             print_phrase_members(p, "");
             println!(")");
         }
+        McPhrase::Splice(p) => {
+            // U385 leg E2b: the `*` prefix rides the item as written —
+            // dump the item, no second face.
+            print!("{}(splice: ", prefix);
+            print_phrase_members(p, "");
+            println!(")");
+        }
         McPhrase::Lead(_) => {
             // §1 P5.1: a standalone operand `_` is a passthrough
             println!("{}(lead: passthrough)", prefix);

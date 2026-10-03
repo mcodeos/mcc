@@ -96,6 +96,7 @@ impl InstantiationBuilder {
                 McPhrase::Transposed(_) => "Transposed",
                 McPhrase::Reversed(_) => "Reversed",
                 McPhrase::Reordered(_, _) => "Reordered",
+                McPhrase::Splice(_) => "Splice",
                 McPhrase::Closure(_) => "Closure",
                 McPhrase::Lead(_) => "Lead",
                 McPhrase::Member(_, _) => "Member",
