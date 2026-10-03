@@ -318,6 +318,10 @@ fn dispatch(cli: Cli) -> Result<ExitCode> {
             cmds::server::run_start(&args)?;
             Ok(ExitCode::SUCCESS)
         }
+        Some(Command::Restart(args)) => {
+            cmds::server::run_restart(&args)?;
+            Ok(ExitCode::SUCCESS)
+        }
         Some(Command::Stop(args)) => {
             cmds::server::run_stop(&args)?;
             Ok(ExitCode::SUCCESS)

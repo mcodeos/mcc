@@ -369,6 +369,40 @@ pub fn handle_show_all(_params: Option<Value>) -> RpcResult {
     }))
 }
 
+// === conditional read (live-world-residency-design.md §3.3, ruling 5) ===
+
+/// The `if_version` gate shared by the six projection faces.
+///
+/// A request carrying `if_version` gets the cheap answer when **either** live
+/// token still matches — `unchanged` plus the live token pair, identity fields
+/// mirroring [`crate::stages::payload::StageViewData`] so the hit response is
+/// diffable against the full one — and the pass2 the projection needs never
+/// runs. Correctness is read-time: both tokens hash the source text on disk
+/// (`world_ver::source_pairs` reads the files on every call), so a stale cache
+/// is detected at the moment it is reused and no watcher is needed for
+/// correctness — the watcher stays a latency optimization, never a source of
+/// truth (ruling 5).
+///
+/// `Some(response)` = the caller's cache is still good, return it as-is.
+/// `None` = no `if_version`, or a miss — the full projection runs.
+fn conditional_read(params: Option<&Value>, view: &str, top: &str) -> Option<Value> {
+    let given = params?.get("if_version")?.as_str()?;
+    let world = crate::stages::world_ver::world_ver();
+    let top_token = crate::stages::top_ver::top_ver(top);
+    if Some(given) != world.as_deref() && Some(given) != top_token.as_deref() {
+        return None;
+    }
+    Some(json!({
+        "unchanged": true,
+        "schema_version": "proj.1.1",
+        "view": view,
+        "top": top,
+        "world_ver": world,
+        "top_ver": top_token,
+        "mcc_version": crate::buildinfo::VERSION,
+    }))
+}
+
 // === handle_show_org_units (CIMP §1 U120, 2026-09-19) ===
 
 /// `show.org-units`: the organization directory of the loaded workspace.
@@ -385,10 +419,13 @@ pub fn handle_show_all(_params: Option<Value>) -> RpcResult {
 /// fields are the same either way, so a caller of either face reads the same
 /// reading. It issues no id, holds nothing, and carries no cross-space
 /// correspondence — the directory, not the table the design forbids (§0.1).
-pub fn handle_show_org_units(_params: Option<Value>) -> RpcResult {
+pub fn handle_show_org_units(params: Option<Value>) -> RpcResult {
+    let top = crate::mcb_get_first_module_name().unwrap_or_default();
+    if let Some(resp) = conditional_read(params.as_ref(), crate::stages::ORG_UNITS_VIEW, &top) {
+        return Ok(resp);
+    }
     let items = crate::org_unit_items();
     let counts = crate::org_unit_counts(&items);
-    let top = crate::mcb_get_first_module_name().unwrap_or_default();
     let view =
         crate::stages::StageView::with_view(crate::stages::ORG_UNITS_VIEW, &top, items, counts);
     let payload = crate::stages::payload::StageViewData::from(&view);
@@ -407,7 +444,13 @@ pub fn handle_show_org_units(_params: Option<Value>) -> RpcResult {
 /// `diagnostics`; the CLI additionally attaches it under the `stage` key of
 /// its command envelope. A readout, never a gate: a full error count fails
 /// nothing here.
-pub fn handle_show_diagnostics(_params: Option<Value>) -> RpcResult {
+pub fn handle_show_diagnostics(params: Option<Value>) -> RpcResult {
+    let top = crate::mcb_get_first_module_name().unwrap_or_default();
+    if let Some(resp) =
+        conditional_read(params.as_ref(), crate::stages::diagview::DIAGNOSTICS_VIEW, &top)
+    {
+        return Ok(resp);
+    }
     // The entry the flat run needs: the workspace's first registered module,
     // the same fallback chain the CLI face applies to the URI it was handed.
     let entry_mod = crate::mcb_iter_modules().into_iter().next();
@@ -419,7 +462,6 @@ pub fn handle_show_diagnostics(_params: Option<Value>) -> RpcResult {
         let _ = crate::mcb_pass2_flat(&entry, 1);
     }
     let diags = crate::mcc_diagnose_all();
-    let top = crate::mcb_get_first_module_name().unwrap_or_default();
     let view = crate::stages::diagview::diagnostics_view(&top, &diags);
     let payload = crate::stages::payload::StageViewData::from(&view);
     Ok(serde_json::to_value(payload).unwrap_or(Value::Null))
@@ -435,11 +477,16 @@ pub fn handle_show_diagnostics(_params: Option<Value>) -> RpcResult {
 /// derivation. The result is the projection payload itself
 /// ([`StageViewData`]) with `view` = `netlist`; the CLI additionally attaches
 /// it under the `stage` key of its command envelope. A readout, never a gate.
-pub fn handle_show_netlist(_params: Option<Value>) -> RpcResult {
+pub fn handle_show_netlist(params: Option<Value>) -> RpcResult {
     let entry_mod = crate::mcb_iter_modules().into_iter().next();
     let Some((name, uri)) = entry_mod else {
         return Err(JsonRpcError::custom(32107, "no module loaded"));
     };
+    if let Some(resp) =
+        conditional_read(params.as_ref(), crate::stages::netlistview::NETLIST_VIEW, &name)
+    {
+        return Ok(resp);
+    }
     let entry = crate::McSpaceName {
         ident: crate::McIds::from(name.as_str()),
         uri: crate::uri_intern(&uri),
@@ -461,11 +508,18 @@ pub fn handle_show_netlist(_params: Option<Value>) -> RpcResult {
 /// islands. The result is the projection payload itself ([`StageViewData`])
 /// with `view` = `project-model`; the CLI additionally attaches it under the
 /// `stage` key of its command envelope. A readout, never a gate.
-pub fn handle_show_project(_params: Option<Value>) -> RpcResult {
+pub fn handle_show_project(params: Option<Value>) -> RpcResult {
     let entry_mod = crate::mcb_iter_modules().into_iter().next();
     let Some((name, uri)) = entry_mod else {
         return Err(JsonRpcError::custom(32107, "no module loaded"));
     };
+    if let Some(resp) = conditional_read(
+        params.as_ref(),
+        crate::stages::projmodel::PROJECT_MODEL_VIEW,
+        &name,
+    ) {
+        return Ok(resp);
+    }
     let entry = crate::McSpaceName {
         ident: crate::McIds::from(name.as_str()),
         uri: crate::uri_intern(&uri),
@@ -491,11 +545,16 @@ pub fn handle_show_project(_params: Option<Value>) -> RpcResult {
 /// ([`StageViewData`]) with `view` = `core-erc`; the CLI additionally
 /// attaches it under the `stage` key of its command envelope. A readout,
 /// never a gate.
-pub fn handle_show_core_erc(_params: Option<Value>) -> RpcResult {
+pub fn handle_show_core_erc(params: Option<Value>) -> RpcResult {
     let entry_mod = crate::mcb_iter_modules().into_iter().next();
     let Some((name, uri)) = entry_mod else {
         return Err(JsonRpcError::custom(32107, "no module loaded"));
     };
+    if let Some(resp) =
+        conditional_read(params.as_ref(), crate::stages::corercview::CORE_ERC_VIEW, &name)
+    {
+        return Ok(resp);
+    }
     let entry = crate::McSpaceName {
         ident: crate::McIds::from(name.as_str()),
         uri: crate::uri_intern(&uri),
@@ -520,11 +579,16 @@ pub fn handle_show_core_erc(_params: Option<Value>) -> RpcResult {
 /// itself ([`StageViewData`]) with `view` = `expectation`; the CLI
 /// additionally attaches it under the `stage` key of its command envelope. A
 /// readout, never a gate.
-pub fn handle_show_expectation(_params: Option<Value>) -> RpcResult {
+pub fn handle_show_expectation(params: Option<Value>) -> RpcResult {
     let entry_mod = crate::mcb_iter_modules().into_iter().next();
     let Some((name, uri)) = entry_mod else {
         return Err(JsonRpcError::custom(32107, "no module loaded"));
     };
+    if let Some(resp) =
+        conditional_read(params.as_ref(), crate::stages::expectview::EXPECTATION_VIEW, &name)
+    {
+        return Ok(resp);
+    }
     let entry = crate::McSpaceName {
         ident: crate::McIds::from(name.as_str()),
         uri: crate::uri_intern(&uri),

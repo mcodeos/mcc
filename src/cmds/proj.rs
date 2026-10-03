@@ -80,6 +80,14 @@ fn cmd_create(path: &str) -> Result<()> {
         )
     })?;
 
+    // The project daemon slot lives in <project>/.mcode (the pid file), and
+    // it is per-machine runtime state, never committable — keep it out of
+    // version control from the first commit on (ruling 1,
+    // live-world-residency-design.md §4.1).
+    let gitignore = root.join(".gitignore");
+    fs::write(&gitignore, ".mcode/\n")
+        .with_context(|| format!("can't write .gitignore: {}", gitignore.display()))?;
+
     eprintln!(
         "✓ project '{}' created at {} (entry: {})",
         name,

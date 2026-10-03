@@ -22,3 +22,9 @@ pub const BUILD: &str = env!("MCC_BUILD_NR");
 pub fn number() -> u64 {
     BUILD.parse().unwrap_or(0)
 }
+
+/// RPC handshake protocol tag, carried by the `caps` request and response
+/// (`live-world-residency-design.md` §4.3). It moves only on a breaking wire
+/// change; version and build drift ride their own fields, so a client pinned
+/// to this protocol survives both.
+pub const RPC_PROTOCOL: &str = "mcc-rpc/1";

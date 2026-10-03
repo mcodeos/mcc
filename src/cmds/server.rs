@@ -2,7 +2,7 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! `mcc server` / `mcc start` / `mcc stop` / `mcc status` — Iteration B
+//! `mcc server` / `mcc start` / `mcc restart` / `mcc stop` / `mcc status`
 //!
 //! Key changes:
 //!   - At startup, load mcode system library once (autoload)
@@ -11,7 +11,7 @@
 
 use crate::output::{self, OutputFormatExt};
 use anyhow::{Context, Result};
-use mcc::cli::{datadir, servercfg, OutputFormat, StartArgs, StatusArgs, StopArgs};
+use mcc::cli::{datadir, servercfg, OutputFormat, RestartArgs, StartArgs, StatusArgs, StopArgs};
 use mcc::rpc::{handlers, RpcServerBuilder};
 use serde::Serialize;
 use std::fmt;
@@ -104,6 +104,12 @@ pub fn run_start(args: &StartArgs) -> Result<()> {
     };
     let port = if args.port != 8080 {
         args.port
+    } else if datadir::project_root_here().is_some() {
+        // Project slot (ruling 1, live-world-residency-design.md §4.1): the
+        // daemon started inside a project binds on port 0 — the kernel picks,
+        // the PID file records the real one, and two projects never collide
+        // on a fixed port. An explicit --port still wins.
+        0
     } else {
         config_port.unwrap_or(8080)
     };
@@ -198,6 +204,19 @@ pub fn run_start(args: &StartArgs) -> Result<()> {
     Ok(())
 }
 
+/// `mcc restart` — stop the slot's daemon (if one is running) and start a
+/// fresh one with the given arguments. The convenience verb behind the
+/// handshake verdicts: version/build drift refuses connections (ruling 2,
+/// live-world-residency-design.md §4.3), the front-end owns reconnection
+/// (ruling 3), and this flips the process so the next connect sees the new
+/// build. Reuses [`run_start`] verbatim, so the same slot/port laws apply.
+pub fn run_restart(args: &RestartArgs) -> Result<()> {
+    if is_server_running()? {
+        stop_server(args.force, args.timeout)?;
+    }
+    run_start(&args.start)
+}
+
 // Internal startup function (invoked by child process)
 pub fn run_server_internal(host: &str, port: u16, libs: &[String]) -> Result<()> {
     // Skip is_server_running check (since this is internal startup)
@@ -229,13 +248,21 @@ pub fn run_server_internal(host: &str, port: u16, libs: &[String]) -> Result<()>
         mcc::mcc_log_init(&p);
     }
 
-    // 1. Register all RPC methods
-    let server = register_all(RpcServerBuilder::new().host(host).port(port)).build();
+    // 1. Register all RPC methods and arm the PID-file write on bind. The
+    // discovery record must name the port a client can actually dial, so it
+    // is written from the bound address: a project slot requests port 0 and
+    // only the listener knows which one the kernel handed out (ruling 1,
+    // live-world-residency-design.md §4.1).
+    let server = register_all(
+        RpcServerBuilder::new().host(host).port(port).on_bound(|addr| {
+            if let Err(e) = write_pid_file(&addr.ip().to_string(), addr.port()) {
+                eprintln!("Failed to write PID file: {e}");
+            }
+        }),
+    )
+    .build();
 
-    // 2. Write PID file for client discovery
-    write_pid_file(host, port)?;
-
-    // 3. Blocking run
+    // 2. Blocking run
     let result = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?

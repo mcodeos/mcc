@@ -3014,6 +3014,7 @@ pub fn caps_json() -> serde_json::Value {
 
     json!({
         "server": "mcc",
+        "protocol": crate::buildinfo::RPC_PROTOCOL,
         "version": crate::buildinfo::VERSION,
         "build": crate::buildinfo::number(),
         "schema_version": 1,

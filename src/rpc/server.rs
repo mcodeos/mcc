@@ -19,12 +19,14 @@ pub struct RpcServer {
     registry: Arc<RpcMethodRegistry>,
     host: String,
     port: u16,
+    on_bound: Option<Box<dyn Fn(SocketAddr) + Send + Sync>>,
 }
 
 pub struct RpcServerBuilder {
     host: String,
     port: u16,
     registry: RpcMethodRegistry,
+    on_bound: Option<Box<dyn Fn(SocketAddr) + Send + Sync>>,
 }
 
 impl Default for RpcServerBuilder {
@@ -39,6 +41,7 @@ impl RpcServerBuilder {
             host: "127.0.0.1".to_string(),
             port: 8080,
             registry: RpcMethodRegistry::new(),
+            on_bound: None,
         }
     }
 
@@ -49,6 +52,16 @@ impl RpcServerBuilder {
 
     pub fn port(mut self, port: u16) -> Self {
         self.port = port;
+        self
+    }
+
+    /// Register a callback invoked once the listener is bound, with the real
+    /// address. A requested port of 0 makes the kernel pick, and only the
+    /// bound address knows which — the daemon's PID file is the consumer, and
+    /// the discovery record must name the port a client can actually dial
+    /// (`live-world-residency-design.md` §4.1).
+    pub fn on_bound(mut self, f: impl Fn(SocketAddr) + Send + Sync + 'static) -> Self {
+        self.on_bound = Some(Box::new(f));
         self
     }
 
@@ -68,6 +81,7 @@ impl RpcServerBuilder {
             registry: Arc::new(self.registry),
             host: self.host,
             port: self.port,
+            on_bound: self.on_bound,
         }
     }
 }
@@ -78,6 +92,7 @@ impl RpcServer {
             registry: Arc::new(RpcMethodRegistry::new()),
             host: host.to_string(),
             port,
+            on_bound: None,
         }
     }
 
@@ -86,6 +101,7 @@ impl RpcServer {
             registry,
             host: host.to_string(),
             port,
+            on_bound: None,
         }
     }
 
@@ -243,6 +259,9 @@ impl RpcServer {
         let addr: SocketAddr = format!("{host_addr}:{port}").parse()?;
 
         let listener = tokio::net::TcpListener::bind(&addr).await?;
+        if let Some(on_bound) = self.on_bound.as_ref() {
+            on_bound(listener.local_addr()?);
+        }
 
         serve(listener, app.into_make_service()).await?;
 

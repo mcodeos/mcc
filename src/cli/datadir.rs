@@ -97,17 +97,36 @@ pub fn log_file() -> PathBuf {
     logs_dir().join("mcc.log")
 }
 
-/// Daemon PID file.
+/// The project daemon slot's root: the current directory, when it holds a
+/// `project.toml`. The manifest is the project marker, and the check is
+/// deliberately not an upward walk — front-ends spawn the daemon with the
+/// workspace root as cwd, so the manifest sits in the directory the process
+/// starts in; walking up would let a nested shell silently adopt a project
+/// it is not working on.
+pub fn project_root_here() -> Option<PathBuf> {
+    let cwd = std::env::current_dir().ok()?;
+    find_manifest_in(&cwd)?;
+    Some(cwd)
+}
+
+/// Daemon PID file — the discovery record of one daemon slot.
 ///
-/// The **default-root** daemon keeps the historical global location
-/// `~/.mcode/logs/mcc.pid` (M4 invariant), so `start`/`stop`/`status` and
-/// clients in any shell reach the single default daemon without the env var.
-/// An **explicitly isolated** `$MCC_SYSTEM_ROOT` (any non-default value)
-/// instead owns its PID file at `<root>/logs/mcc.pid` — each data root gets
-/// its own daemon slot, so a custom-root server can run side by side with the
-/// default one on a different port. Reach a custom-root daemon by running
-/// `start`/`stop`/`status`/clients under the same `MCC_SYSTEM_ROOT`.
+/// Slot law (`live-world-residency-design.md` §4.1, ruling 1: the slot key is
+/// the project root). A daemon started inside a project (cwd holds
+/// `project.toml`) owns `<project>/.mcode/mcc.pid`, so every front-end on
+/// that project — editor panel, bench, any RPC client — resolves the same
+/// singleton, and two projects never share one. With no project in scope the
+/// data-root slots apply: the **default-root** daemon keeps the historical
+/// global location `~/.mcode/logs/mcc.pid` (M4 invariant), and an
+/// **explicitly isolated** `$MCC_SYSTEM_ROOT` (any non-default value) owns
+/// `<root>/logs/mcc.pid`. Reach a slot by running
+/// `start`/`stop`/`status`/clients from the same project directory or under
+/// the same root — the spawned background child inherits both cwd and env,
+/// so the parent's running-check and the child's write always agree.
 pub fn pid_file() -> PathBuf {
+    if let Some(proj) = project_root_here() {
+        return proj.join(".mcode").join("mcc.pid");
+    }
     match env_data_root_override() {
         Some(root) if root != default_data_root() => root.join("logs").join("mcc.pid"),
         _ => default_data_root().join("logs").join("mcc.pid"),
@@ -424,6 +443,42 @@ pub mod tests {
             unique
         );
         match prev {
+            Some(v) => std::env::set_var(MCC_SYSTEM_ENV, v),
+            None => std::env::remove_var(MCC_SYSTEM_ENV),
+        }
+    }
+
+    #[test]
+    fn cli_datadir__pid_project_slot_owns_dot_mcode() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        let prev_env = std::env::var(MCC_SYSTEM_ENV).ok();
+        let prev_cwd = std::env::current_dir().unwrap();
+
+        let proj = scratch_dir("pid-proj");
+        let _ = std::fs::remove_dir_all(&proj);
+        std::fs::create_dir_all(&proj).unwrap();
+        // Resolve symlinks (macOS /var -> /private/var): current_dir hands
+        // back the resolved path, so the expectation must be resolved too.
+        let proj = proj.canonicalize().unwrap();
+        std::fs::write(proj.join(PROJECT_MANIFEST_NAME), "").unwrap();
+        let isolated = scratch_dir("pid-proj-root");
+        std::env::set_var(MCC_SYSTEM_ENV, &isolated);
+
+        // Project in scope: the slot moves into <project>/.mcode, beating
+        // even an isolated MCC_SYSTEM_ROOT — the project root is the slot
+        // key (ruling 1, live-world-residency-design.md §4.1).
+        std::env::set_current_dir(&proj).unwrap();
+        assert_eq!(pid_file(), proj.join(".mcode").join("mcc.pid"));
+
+        // A directory without the manifest holds no project slot: the
+        // data-root arms apply again.
+        let bare = scratch_dir("pid-proj-bare");
+        std::fs::create_dir_all(&bare).unwrap();
+        std::env::set_current_dir(&bare).unwrap();
+        assert_eq!(pid_file(), isolated.join("logs").join("mcc.pid"));
+
+        std::env::set_current_dir(prev_cwd).unwrap();
+        match prev_env {
             Some(v) => std::env::set_var(MCC_SYSTEM_ENV, v),
             None => std::env::remove_var(MCC_SYSTEM_ENV),
         }

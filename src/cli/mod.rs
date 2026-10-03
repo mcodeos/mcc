@@ -208,6 +208,10 @@ pub enum Command {
     /// Start service (manual.md §5.2.3)
     Start(StartArgs),
 
+    /// Restart service — stop the slot's daemon (if running) and start a new
+    /// one (live-world-residency-design.md §4.4); front-ends own reconnection
+    Restart(RestartArgs),
+
     /// Stop service (manual.md §5.2.3)
     Stop(StopArgs),
 
@@ -1354,6 +1358,23 @@ pub struct StartArgs {
     /// Run in background
     #[arg(long, short = 'b')]
     pub background: bool,
+}
+
+// restart (top-level command)
+
+#[derive(Parser, Debug)]
+pub struct RestartArgs {
+    #[command(flatten)]
+    pub start: StartArgs,
+
+    /// Force stop (passed to the stop half; skips the graceful TERM wait on a
+    /// wedged daemon)
+    #[arg(long)]
+    pub force: bool,
+
+    /// Stop wait timeout (seconds)
+    #[arg(long, default_value_t = 10)]
+    pub timeout: u64,
 }
 
 // stop (top-level command)

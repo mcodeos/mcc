@@ -28,6 +28,7 @@ mod func_diff_view;
 mod func_diff_view_golden;
 mod ghost_port_boundary;
 mod iface_chain;
+mod live_world_rpc;
 mod iface_connect_rule;
 mod iface_exclusive_peer;
 mod iface_relay;

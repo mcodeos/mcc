@@ -80,8 +80,101 @@ pub fn handle_check(params: Option<Value>) -> RpcResult {
 }
 
 // === handle_caps (Phase 8.3: auto-generated from METHOD registry) ===
-pub fn handle_caps(_params: Option<Value>) -> RpcResult {
-    Ok(super::caps_json())
+//
+// Without params this stays the plain capability sheet (the legacy face).
+// A `client` triple turns it into the handshake of
+// live-world-residency-design.md §4.3: the verdict rides alongside the sheet,
+// mismatches carry a restart hint. Same version but a different build refuses
+// (`stale_build`) — world_ver folds BUILD into the digest, so revision tokens
+// from different builds are systematically incomparable and an if_version
+// cache must never straddle them.
+pub fn handle_caps(params: Option<Value>) -> RpcResult {
+    #[derive(Deserialize, Default)]
+    struct ClientTriple {
+        protocol: Option<String>,
+        mcc_version: Option<String>,
+        build: Option<u64>,
+    }
+
+    #[derive(Deserialize, Default)]
+    struct CapsParams {
+        client: Option<ClientTriple>,
+    }
+
+    let p: CapsParams = parse_or_default(params)?;
+    let mut caps = super::caps_json();
+    let Some(client) = p.client else {
+        return Ok(caps);
+    };
+
+    // A `client` object with no field set identifies nothing — the same
+    // unverified ground as the legacy no-params call.
+    let verified = client.protocol.is_some()
+        || client.mcc_version.is_some()
+        || client.build.is_some();
+    if !verified {
+        let handshake = json!({
+            "verdict": "unverified",
+            "detail": "client sent no identifying fields",
+        });
+        if let Some(obj) = caps.as_object_mut() {
+            obj.insert("handshake".into(), handshake);
+        }
+        return Ok(caps);
+    }
+
+    let server_build = crate::buildinfo::number();
+    let (verdict, detail) =
+        if client.protocol.as_deref() != Some(crate::buildinfo::RPC_PROTOCOL) {
+            (
+                "protocol_mismatch",
+                format!(
+                    "client protocol {:?} != server {:?}",
+                    client.protocol.as_deref().unwrap_or("<none>"),
+                    crate::buildinfo::RPC_PROTOCOL
+                ),
+            )
+        } else if client.mcc_version.as_deref() != Some(crate::buildinfo::VERSION) {
+            (
+                "version_mismatch",
+                format!(
+                    "client mcc {} != server {}",
+                    client.mcc_version.as_deref().unwrap_or("<none>"),
+                    crate::buildinfo::VERSION
+                ),
+            )
+        } else if client.build != Some(server_build) {
+            (
+                "stale_build",
+                format!(
+                    "client build {} != server {}; revision tokens are build-scoped, restart the daemon",
+                    client.build.map(|b| b.to_string()).unwrap_or_else(|| "<none>".into()),
+                    server_build
+                ),
+            )
+        } else {
+            (
+                "ok",
+                "client triple matches this daemon".to_string(),
+            )
+        };
+
+    let handshake = if verdict == "ok" {
+        json!({
+            "verdict": verdict,
+            "detail": detail,
+        })
+    } else {
+        json!({
+            "verdict": verdict,
+            "detail": detail,
+            "restart_hint": "mcc restart",
+        })
+    };
+    if let Some(obj) = caps.as_object_mut() {
+        obj.insert("handshake".into(), handshake);
+    }
+    Ok(caps)
 }
 
 // === handle_explain (lines 4201-4236 in original) ===
