@@ -254,6 +254,8 @@ impl McModule {
             stmts: Vec::new(),
             stmt_spans: Vec::new(),
             funcs: McFunctions::new(),
+            lets: Vec::new(),
+            requires: Vec::new(),
             pi: McPowerDecls::new(),
             blocks: BlockPartitions::default(),
             uri: McURI::default(),

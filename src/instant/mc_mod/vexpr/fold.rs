@@ -35,9 +35,17 @@ pub struct SeriesStep {
 /// connectable, so the leg is skipped rather than reported as a row mismatch.
 pub fn fold_series(acc: &ConcreteOpd, next: &ConcreteOpd) -> SeriesStep {
     let skipped = acc.right.is_empty() || next.left.is_empty();
+    // U385 leg 2c: a grouped operand's §5.2 row count is its **group count**,
+    // not its member count (layer-expansion-law.md §3.3) — `a[[1:2]][1:2]`
+    // contributes two rows against a two-row peer although its flat face spans
+    // four members. Ungrouped operands keep the flat member count verbatim.
+    let rows = |len: usize, group: Option<(usize, usize)>| group.map(|(g, _)| g).unwrap_or(len);
     let legal = !skipped
         && matches!(
-            check_series_rows(Shape::vvec(acc.right.len()), Shape::vvec(next.left.len()),),
+            check_series_rows(
+                Shape::vvec(rows(acc.right.len(), acc.group)),
+                Shape::vvec(rows(next.left.len(), next.group)),
+            ),
             OpCheck::Legal(_)
         );
     let (left, right) = (acc.left.clone(), next.right.clone());
@@ -48,6 +56,10 @@ pub fn fold_series(acc: &ConcreteOpd, next: &ConcreteOpd) -> SeriesStep {
         right,
         body: Vec::new(),
         lane: acc.lane.or(next.lane),
+        // The result anchors right: only its right face (= `next`'s) is ever
+        // paired by a later leg, so the mark governing that later decomposition
+        // is `next`'s. `acc`'s mark was spent on this step's pairing.
+        group: next.group,
     };
     // §7.5 I4, promoted to a lock 2026-09-11: every step re-satisfies I1 and
     // conserves the identity multiset across the pair it merges. This holds for
@@ -89,6 +101,9 @@ pub fn fold_parallel(lhs: &ConcreteOpd, rhs: &ConcreteOpd) -> ConcreteOpd {
         right,
         body: Vec::new(),
         lane: lhs.lane.or(rhs.lane),
+        // The §5.1 grouped read is an open edge (layer-expansion-law.md §8):
+        // parallel operands pair flat.
+        group: None,
     }
 }
 
@@ -279,4 +294,51 @@ fn lane_slice(net: &[Ep], lane: usize, dim: usize, lanes: usize) -> Vec<Ep> {
         .map(|j| net[j * dim + lane].clone())
         .filter(|e| !e.point.is_lead_placeholder())
         .collect()
+}
+
+#[cfg(test)]
+mod group_rows_tests {
+    use super::*;
+    use crate::instant::mc_net::NetPoint;
+    use crate::semantic::common::IOType;
+
+    fn opd(left: &[&str], right: &[&str], group: Option<(usize, usize)>) -> ConcreteOpd {
+        let pts = |names: &[&str]| {
+            names
+                .iter()
+                .map(|n| NetPoint::new(n, IOType::None, None))
+                .collect()
+        };
+        let mut o = ConcreteOpd::from_sides(pts(left), pts(right));
+        o.group = group;
+        o
+    }
+
+    #[test]
+    fn series__grouped_rows_count_groups_not_members() {
+        // `a[[1:2]][1:2]` (two groups of two, four members) against a flat
+        // two-row peer: the §5.2 gate reads the group count.
+        let a = opd(&["a1", "a2"], &["a3", "a4", "a5", "a6"], Some((2, 2)));
+        let b = opd(&["b1", "b2"], &["b3", "b4"], None);
+        let step = fold_series(&a, &b);
+        assert!(step.legal, "2 groups vs 2 rows is legal");
+        // The faces stay whole — the mark never reshapes them (law §3.1).
+        assert_eq!(step.pair.0.len(), 4);
+        assert_eq!(step.result.right.len(), 2);
+        // The result anchors right: `next`'s mark governs a later leg.
+        assert_eq!(step.result.group, None);
+        let c = opd(&["c1", "c2"], &["c3", "c4"], Some((2, 2)));
+        let step = fold_series(&b, &c);
+        assert_eq!(step.result.group, Some((2, 2)));
+    }
+
+    #[test]
+    fn series__ungrouped_count_mismatch_stays_illegal() {
+        let a = opd(&["a1"], &["a2", "a3", "a4", "a5"], Some((2, 2)));
+        let b = opd(&["b1"], &["b2"], None);
+        assert!(!fold_series(&a, &b).legal, "2 groups vs 1 row refused");
+        let a = opd(&["a1"], &["a2", "a3"], None);
+        let b = opd(&["b1"], &["b2"], None);
+        assert!(!fold_series(&a, &b).legal, "flat 2 vs 1 refused");
+    }
 }
