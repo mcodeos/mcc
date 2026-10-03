@@ -8,11 +8,13 @@ use crate::{
     McIds,
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct McRole {
     pub name: McIds,
     pub attrs: McAttributes,
     pub pins: McPins,
+    /// Outside the serde face, same as `McInterface::body` (U392 leg A).
+    #[serde(skip)]
     pub body: AstNode,
 }
 

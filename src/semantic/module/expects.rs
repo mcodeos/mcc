@@ -17,13 +17,13 @@ use crate::semantic::basic::mc_expr::McExpression;
 use crate::McIds;
 
 /// The value of one `expects` clause: the rows it declares.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Ledger {
     pub rows: Vec<Row>,
 }
 
 /// One `target = <form>` row of an `expects` clause.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Row {
     pub target: String,
     pub kind: Kind,
@@ -35,7 +35,7 @@ pub struct Row {
 }
 
 /// What a row expects of its target.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum Kind {
     /// A class/role word (`u2 = LDO.ADJ`).
     Class(String),

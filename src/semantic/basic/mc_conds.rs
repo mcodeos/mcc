@@ -27,7 +27,7 @@ pub struct CondDefCtx<'a> {
 /// "FAST"` only equals `sel == "FAST"`. A judge that meets a bare word with
 /// a quoted string is a family mismatch — reported, not silently decided
 /// by text.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum CondFamily {
     /// A bare identifier, a keyword constant, or a name falling back to its
     /// own text — the identity face.
@@ -102,7 +102,7 @@ pub fn guess_family(text: &str) -> CondFamily {
 /// One member of an `in` list with its lexical family (U146 + U144
 /// residual 3): a member written in another word family than the left side
 /// never matches it.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct InMember {
     pub text: String,
     pub family: CondFamily,
@@ -117,7 +117,7 @@ pub struct McCond {
 /// Structural equality (PartialEq) lets the validator detect a condition that
 /// exactly duplicates an earlier branch of the same if/else-if chain — the
 /// later branch is dead code.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum McCondition {
     Eq {
         left: McCondOperand,
@@ -172,7 +172,7 @@ pub enum McCondition {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum McCondOperand {
     Ident(McIds),
     /// A numeric literal token (`2`, `0x01`, `100mA`) — the value engine
@@ -1075,7 +1075,7 @@ impl McConds {
 // time
 
 /// A single parsed conditional branch
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct McCondBlock {
     pub condition: McCondition,
     pub stmts: Vec<McPhrase>,
@@ -1086,7 +1086,7 @@ pub struct McCondBlock {
 }
 
 /// A parsed collection of conditional blocks (if/else if/else)
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct McFuncConds {
     pub if_blocks: Vec<McCondBlock>,
     pub else_stmts: Vec<McPhrase>,

@@ -11,7 +11,7 @@ use crate::{
     McIds,
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum KVSValue {
     Const(McConst),
     Square(Vec<McAttrVal>),
@@ -34,7 +34,7 @@ impl std::fmt::Display for KVSValue {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct McKVS {
     pub key: McIds,
     pub value: KVSValue,

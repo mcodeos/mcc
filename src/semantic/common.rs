@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use std::ops::Range;
 use std::sync::{Arc, LazyLock, Mutex};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum IOType {
     In,
     Out,
@@ -72,7 +72,7 @@ impl IOType {
 /// it every edge in cases like `t4_current` is Neutral, the optimal solution
 /// and its mirror image cost exactly the same, and only lexicographic order
 /// breaks the tie —— that is the true identity of the "mirror bug".
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize)]
 pub enum ConnDir {
     /// Left to right
     LtoR,
@@ -117,7 +117,7 @@ impl std::fmt::Display for ConnDir {
 /// from the AST every build, issues no id, and no semantic rule reads it; the
 /// consumer is the viz block-frame projection, which attributes drawn boxes to
 /// the source region that declared them.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct BlockPartition {
     /// The name as written (`pwr` in `block pwr { ... }`), or empty for the
     /// anonymous form `block { ... }` (b4440) — the frame draws untitled.
@@ -165,7 +165,7 @@ impl BlockPartition {
 /// every instance of a module carries its def's table. Spans only mean
 /// something in `uri`; a consumer must match it against its own source
 /// position's uri before any containment test.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct BlockPartitions {
     /// The file every span below is a byte range of.
     pub uri: McURI,

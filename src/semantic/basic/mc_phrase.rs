@@ -401,7 +401,7 @@ fn split_curly_on_array(ids: &McIds) -> Option<(McIds, Vec<String>)> {
 
 // McPhrase
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum McPhrase {
     /// `_` passthrough placeholder. The payload is the source byte offset of
     /// the `_` token, captured here at the AST->semantic boundary: the point

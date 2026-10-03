@@ -39,7 +39,7 @@ use self::pi::McPowerDecls;
 /// expression as the engine-readable tree, a direct literal (including a
 /// quantity `3.3V`) in the attr-literal form — so evaluation runs the same
 /// reader the spec rows run.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct LetRow {
     pub name: String,
     pub value: McAttrVal,
@@ -50,7 +50,7 @@ pub struct LetRow {
 /// rides in the same `McCondition` vocabulary the conds chain judges, and is
 /// evaluated per instance at instantiation with the U39 deferral for judges
 /// it cannot decide.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RequireRow {
     pub cond: McCondition,
     pub span: std::ops::Range<usize>,
@@ -78,7 +78,7 @@ fn parse_let_row(clause: &AstNode) -> Option<LetRow> {
 
 // McModule - Module definition
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct McModule {
     pub name: McIds,
     pub params: McParamDeclares,
@@ -2698,7 +2698,7 @@ impl McModule {
 
 // Mc2Module - Module instance wrapper
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Mc2Module {
     pub base: Arc<McModule>,
     pub name: McIds,

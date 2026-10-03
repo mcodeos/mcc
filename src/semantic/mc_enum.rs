@@ -9,14 +9,14 @@ use crate::{
     McIds, McInstance, McURI,
 };
 
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct McEnumValue {
     pub name: McIds,
     /// Byte span [start, end) of the value identifier within the source file.
     pub span: [u32; 2],
 }
 
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct McEnumDef {
     pub name: McIds,
     /// Byte span of the `enum PKG {` declaration (start of `enum` keyword

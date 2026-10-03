@@ -38,7 +38,7 @@ fn resolve_interface_binding(class_name: &McIds, from_uri: &McURI) -> Option<McC
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum McPinPort {
     NC,                           // Not Connect
     Single(String),               // single pinid
@@ -53,7 +53,7 @@ pub enum McPinPort {
     Interface(Arc<Mc2Interface>), // interface
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct McPin {
     pub iotype: IOType,
     pub id: String,
@@ -145,7 +145,7 @@ pub fn pin_kvs_where<'a>(
 /// Rides the pin iotype keyword; all three read as [`IOType::Power`] in the net
 /// model, so the direction cannot be recovered from the generic IOType and is
 /// captured here alongside the `::DC(...)` contract.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum PwrDir {
     Src,
     Snk,
@@ -167,7 +167,7 @@ impl PwrDir {
 /// One `::DC(...)` ctor argument on a power-direction pin line — positional
 /// (`3.3V`) or `key:value` (`tol:±5%`). Mirrors the domain-rail param reader
 /// (pi.rs `McRailParam`); numeric decode is deferred to pi.rs.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct PwrParam {
     pub key: Option<String>,
     pub text: String,
@@ -177,7 +177,7 @@ pub struct PwrParam {
 /// power-terminal contract with its energy direction. Captured structurally
 /// from the pin AST during [`McPins::parse`]; typed decode (nominal volts,
 /// tol) lives in pi.rs next to the domain-rail decode.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct McPwrPin {
     pub dir: PwrDir,
     /// Interface name after `::` — `DC` or an `::AC*` variant. Which of the two
@@ -204,7 +204,7 @@ pub struct McPwrPin {
 /// Display only — the group name enters no identity, no addressing, no netlist
 /// and no ERC; a pin's identity stays (component, pin id). Viz draws one box
 /// per group.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct McPinGroup {
     pub name: String,
     pub pins: Vec<String>,
@@ -216,7 +216,7 @@ pub struct McPinGroup {
 }
 
 /// McPins definition
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct McPins {
     pub pins: BTreeMap<String, McPin>, // all single pins table, <pinid, McPin> btreemap
 

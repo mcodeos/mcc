@@ -39,7 +39,7 @@ use std::ops::Range;
 use std::sync::Arc;
 
 /// A conditional pin block: a condition and its parsed pins
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CondPins {
     pub if_blocks: Vec<(McCondition, McPins)>,
     pub else_pins: Option<McPins>,
@@ -49,7 +49,7 @@ pub struct CondPins {
 }
 
 /// A conditional attribute block: a condition and its parsed attributes
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CondAttrs {
     pub if_blocks: Vec<(McCondition, McAttributes)>,
     pub else_attrs: Option<McAttributes>,
@@ -61,7 +61,7 @@ pub struct CondAttrs {
 /// The AST is freed after pass1 while the clause fires per instance, so it is
 /// kept as owned data: the message as a parsed expression, or `None` when the
 /// phrase has no expression reading — firing then falls back to fixed text.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CondError {
     pub message: Option<McExpression>,
 }
@@ -70,7 +70,7 @@ pub struct CondError {
 /// branch the instance selects fires its clauses; a clause fires as a real
 /// diagnostic and the instantiation continues (a fired error does not block
 /// instantiation).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CondErrors {
     pub if_blocks: Vec<(McCondition, Vec<CondError>)>,
     pub else_errors: Vec<CondError>,
@@ -108,7 +108,7 @@ fn collect_branch_errors(block: &AstNode) -> Vec<(AstNode, CondError)> {
     out
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct McComponent {
     pub name: McIds,
     pub params: McParamDeclares,
@@ -897,13 +897,13 @@ impl HasFindInst for McComponent {
 /// instance's own pins at instantiation (E3179). The degenerate forms (dot
 /// selection, and any single-side form) repeat the same members on both sides
 /// (the left=right subset law).
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct DeclareFace {
     pub left: Vec<String>,
     pub right: Vec<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Mc2Component {
     pub base: Arc<McComponent>,
     pub name: McIds,

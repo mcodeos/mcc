@@ -32,7 +32,7 @@ pub fn reset_r05_counter() {
 // Parameter values (actual arguments)
 
 /// Parameter value type (actual arguments passed at call time)
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum McParamValue {
     NONE(String),
     NC(String),

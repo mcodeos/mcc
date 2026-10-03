@@ -21,7 +21,7 @@ use crate::{
 /// A `bottom = [6:9]` range expands to its individual members here (ascending
 /// or descending, preserving the author's direction) so the drawer never has to
 /// interpret a colon itself.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct McLayout {
     pub left: Vec<String>,
     pub right: Vec<String>,

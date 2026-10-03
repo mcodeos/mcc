@@ -9,7 +9,7 @@ use crate::{
     McIds,
 };
 
-#[derive(PartialEq, Eq, Hash, Debug, Clone)]
+#[derive(PartialEq, Eq, Hash, Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum McUnit {
     Int,
     Hex,
@@ -85,7 +85,7 @@ impl McUnit {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct McUnitValueDeclare {
     pub name: McIds,
     pub unit: McUnit,
@@ -181,7 +181,7 @@ impl std::fmt::Display for McUnitValueDeclare {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct McUnitValue {
     value: f64,
     unit: McUnit,

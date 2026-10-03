@@ -15,13 +15,18 @@ use crate::{
     McIds, McInstance, McURI,
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct McInterface {
     pub name: McIds,
     pub params: McParamDeclares,
     pub attrs: McAttributes,
     pub pins: McPins,
     pub roles: Vec<McRole>,
+    /// The interface body AST — deliberately outside the serde face (U392
+    /// leg A, lib-parse-cache-design §1): the C pointer cannot round-trip,
+    /// so a cache-restored interface carries an empty node and its file
+    /// re-parses when a body read is actually needed (adopt/instance face).
+    #[serde(skip)]
     pub body: AstNode,
     pub uri: McURI,
     pub span: crate::ast::sem::Span, // ★ LSP: span for goto definition
@@ -300,7 +305,7 @@ use crate::errcodes;
 use crate::semantic::basic::mc_param::McParamValue;
 use crate::semantic::mc_inst::McInst;
 
-#[derive(Clone)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct Mc2Interface {
     pub base: Arc<McInterface>,
     pub name: McIds,

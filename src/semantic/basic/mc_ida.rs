@@ -6,7 +6,7 @@ use super::mc_ids::{expand_char_slice, expand_numeric_slice};
 use crate::ast::node::AstNode;
 use std::fmt;
 
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum IdaSegment {
     /// Regular identifier segment (alphanumeric)
     Id(String),
@@ -20,7 +20,7 @@ pub enum IdaSegment {
     SquareExpanded(Vec<SquareItem>),
 }
 
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum SquareItem {
     /// Single identifier or number
     Id(String),
@@ -28,7 +28,7 @@ pub enum SquareItem {
     Range(String, String),
 }
 
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct McIda {
     pub segments: Vec<IdaSegment>,
 }

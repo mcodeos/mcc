@@ -63,7 +63,7 @@ pub enum Value {
 }
 
 /// The four arithmetic operators.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Op {
     Add,
     Sub,

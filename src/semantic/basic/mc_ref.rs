@@ -10,7 +10,7 @@ use crate::semantic::mc_inst::McInstance;
 
 // McInstanceRef - instance reference
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct McInstanceRef {
     pub base: McInstance,
 }
@@ -81,7 +81,7 @@ impl fmt::Display for McInstanceRef {
 // McRef - connection reference (the **reference face**: the spelling the user
 // wrote, closed over syntax and carrying no port semantics).
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum McRef {
     /// A single reference: a bare name, an instance path, a bus, or a named
     /// list.

@@ -31,7 +31,7 @@ use crate::{errcodes, McOpd};
 pub(crate) const NC_PIN_KEY: &str = "ncpin";
 
 /// What one `@ncpin(…)` operand stands for, decoded from the AST.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) enum NcPinKind {
     /// Written pin identities, already expanded the way the language reads a
     /// group: `MIC{P,N}` → `MIC.P` / `MIC.N`, `[A,B]` → `A` / `B`. Expansion
@@ -44,7 +44,7 @@ pub(crate) enum NcPinKind {
 
 /// One operand of the marker, with the source offset it was written at (the
 /// anchor every diagnostic about that operand uses).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct NcPinSpec {
     pub kind: NcPinKind,
     pub offset: u32,

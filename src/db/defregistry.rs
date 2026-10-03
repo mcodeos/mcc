@@ -167,7 +167,7 @@ pub const DEF_KIND_ORDER: [DefKind; 5] = [
 /// dispatch, goto-def and diff can address it through the host→func edge.
 /// Registered automatically by [`insert`] for every method / module func of a
 /// component / module def.
-#[derive(Clone)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct FuncDef {
     /// [`DefId`] of the host component / module def.
     pub host: DefId,
@@ -207,7 +207,11 @@ pub enum EffFuncSource {
 
 /// Tagged definition value: one [`insert`] writes any of the definition
 /// kinds (Component / Module / Interface / Enum / Recipe / Func).
-#[derive(Clone)]
+///
+/// U392 leg A: the value tree is a pure function of source text (the cache
+/// face of lib-parse-cache-design §1), so it round-trips through serde —
+/// `Arc` payloads need the crate's `rc` feature.
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub enum DefValue {
     Component(Arc<McComponent>),
     Module(Arc<McModule>),

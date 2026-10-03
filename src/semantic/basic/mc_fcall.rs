@@ -23,7 +23,7 @@ use crate::semantic::module::Mc2Module;
 use std::sync::Arc;
 
 /// Function call
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct McFuncCall {
     /// Stable ID for auto_inst_map (replaces pointer-based key).
     /// Assigned during instantiation; 0 = unassigned. Clone-safe since Copy.
@@ -61,7 +61,7 @@ pub struct McFuncCall {
 }
 
 /// ★ P4.1: Fcall return shape resolved from McFunction.returns.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum ReturnShape {
     /// `return this` or implicit → caller shape preserved. The shape is read
     /// live from `McFuncCall.left`/`right` at use time, so substitutions and

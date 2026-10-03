@@ -10,7 +10,7 @@ use crate::semantic::basic::mc_literal::{McConst, McFloat, McInt, McString};
 use crate::semantic::basic::mc_opd::McOpd;
 use crate::semantic::basic::mc_uval::McUnitValue;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct McUnitValueAt {
     pub left: McUnitValue,
     pub right: McUnitValue,
@@ -48,7 +48,7 @@ impl std::fmt::Display for McUnitValueAt {
 }
 
 // McExpression enum
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum McExpression {
     // Constant type
     Int(McInt),

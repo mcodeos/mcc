@@ -5,7 +5,7 @@
 use std::convert::From;
 
 /// Which mouth of a call a synthetic funcall sentinel stands for.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
 pub(crate) enum IoSide {
     In,
     Out,
@@ -33,7 +33,7 @@ impl IoSide {
 /// `<error:…>` spelling is minted by [`McBus::new_error`] with one of these
 /// kinds, and consumers ask [`McBus::error_kind`] instead of sniffing the
 /// name — a new spelling cannot bypass the kind.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
 pub(crate) enum BusErrorKind {
     /// The two sides of a connect disagree on lane count.
     ShapeMismatch,
@@ -79,7 +79,7 @@ impl BusErrorKind {
 /// Both forms resolve to the same internal representation (`McBus`). Which form is
 /// used in source code is a stylistic choice; the parser normalises both to the same
 /// AST and the Display/Debug output uses `{}` notation.
-#[derive(Clone)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct McBus {
     pub(crate) name: String,
     pub(crate) member: Vec<String>,
@@ -274,7 +274,7 @@ impl From<McBus> for Vec<McBus> {
 
 // McList
 
-#[derive(Clone)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 /// A list of identifiers, e.g. `[VDD1, GND1]`.
 ///
 /// # `.` (dot) and `{}` (curly braces) equivalence

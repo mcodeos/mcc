@@ -7,18 +7,18 @@ use crate::ast::node::AstNode;
 use crate::semantic::basic::mc_uval::McUnitValue;
 use std::fmt;
 
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct McInt {
     pub value: i64,
 }
 
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct McHex {
     pub value: i64,
     pub hex_str: String,
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct McFloat {
     pub value: f64,
 }
@@ -169,7 +169,7 @@ pub(crate) fn strip_string_quotes(s: &str) -> &str {
     s
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct McString {
     pub value: String,
 }
@@ -208,7 +208,7 @@ impl From<&str> for McString {
 }
 
 /// An MCK_CONST keyword constant; the spelled word is the whole value.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct McConst(pub String);
 impl McConst {
     pub fn new(node: &AstNode) -> Option<Self> {
@@ -238,7 +238,7 @@ impl std::fmt::Debug for McConst {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum McLiteral {
     Int(McInt),
     Hex(McHex),

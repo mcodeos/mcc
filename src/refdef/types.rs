@@ -18,7 +18,7 @@ use std::collections::HashMap;
 /// structure directly — the AST already knows whether a segment is a plain
 /// identifier, a bracketed group, or a function call, so chain resolution
 /// must not re-parse brackets from raw text.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ChainSegment {
     /// A plain identifier segment (e.g., `uC`, `I2C0`, `MIC`).
     Ident(String),
@@ -125,7 +125,7 @@ impl SymbolType {
 
 // ── Compact SymbolKind for RefDefMap (replaces lapper kind strings) ──
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[repr(u8)]
 pub enum SymbolKind {
     ClassDef = 0,

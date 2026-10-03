@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use std::ops::Range;
 
 /// Parameter declaration list
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct McParamDeclares {
     declares: Vec<McParamDeclare>,
     /// Definition spans for ALL parameters (never filtered — always available for goto-def).
@@ -685,7 +685,7 @@ impl<'a> IntoIterator for &'a McParamDeclares {
 }
 
 /// Single parameter declaration
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct McParamDeclare {
     pub kind: McParamDeclareKind,
     /// Semantic type classification — set during parse (explicitly annotated)
@@ -713,7 +713,7 @@ pub struct McParamDeclare {
 }
 
 /// Enum-class parameter declaration — `diel::CAP` or `diel::CAP = X7R`.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct McEnumClassDeclare {
     /// Parameter name — `diel`
     pub name: McIds,
@@ -732,7 +732,7 @@ impl McEnumClassDeclare {
 }
 
 /// The structural form of a parameter declaration (shape, not type).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum McParamDeclareKind {
     Role {
         name: McIds,

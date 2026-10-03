@@ -53,7 +53,7 @@ use crate::semantic::component::mc_pins::{McPwrPin, PwrDir, PwrParam};
 use std::ops::Range;
 
 /// All power-intent declarations collected from one module body.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct McPowerDecls {
     pub refs: Vec<McRefDecl>,
     pub domains: Vec<McDomainDecl>,
@@ -645,7 +645,7 @@ pub struct L1RailAxisRow {
 /// Scope is the rule's step, not this projection's: a consumer resolves the
 /// name in the **owning module's** own `domains`, never up or down the instance
 /// tree.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct L1DomainPair {
     pub domain: String,
     /// The row's first member — the pair's hot net (`McRailDecl::hot`).
@@ -982,7 +982,7 @@ pub(crate) fn value_texts(attr: &McAttribute) -> Vec<String> {
 /// clause (design §3/§6 iron rule 2: an edge never merges L0 conductors; it
 /// only relates two L1 potential classes). Flatten/ERC consumption (§13
 /// landing 1) reads the endpoint names out of `attrs`.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct McNetEdge {
     pub attrs: McAttributes,
     pub span: Span,
@@ -1014,7 +1014,7 @@ impl McNetEdge {
 /// ordinary port, not a power-intent declaration). `kind` is the iotype word
 /// (`io`/`in`/`out`/`psrc`/…); `names` are the row's declared net-visible
 /// members, bus-curly expanded (`MIC{P, N}` → `["MIC.P", "MIC.N"]`).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct McPortDecl {
     pub kind: String,
     pub names: Vec<String>,
@@ -1065,7 +1065,7 @@ impl McPortDecl {
 /// [`decode_pwr_pin`]): direction keyword, written hot/ret member labels
 /// verbatim (the flat `PortInst.dc_pair` spelling — bus prefix dropped), and the
 /// `::DC` ctor params held as [`McRailParam`] text for typed decode.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct McPortPwr {
     pub dir: PwrDir,
     /// Written hot member label (`VBUS_5V`), verbatim.
@@ -1245,7 +1245,7 @@ pub struct L1Port {
 
 /// `conduit GND @role(main) @star` — a conductor-identity declaration
 /// (design §5.1/§6: the owning module's role on a bare net name).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct McRefDecl {
     pub name: String,
     pub attrs: McAttributes,
@@ -1270,7 +1270,7 @@ impl McRefDecl {
 
 /// `domain DVDD @class(digital) { rail ... }` — a domain/rail source block.
 /// The rail list is the semantic payload (each rail = one DC power pair).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct McDomainDecl {
     pub name: String,
     pub attrs: McAttributes,
@@ -1351,7 +1351,7 @@ impl McDomainDecl {
 /// One `rail [hot, ret]::iface(params)` line (the domain's power pair).
 /// `hot`/`ret` are the member net names; `iface` e.g. `DC`. Params are the
 /// iface constructor arguments (3.3V, tol:±5%, …) held as text for now.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct McRailDecl {
     pub hot: String,
     pub ret: String,
@@ -1415,7 +1415,7 @@ impl McRailDecl {
 /// One rail constructor argument. Positional (e.g. `3.3V`) has `key: None`;
 /// named (e.g. `tol:±5%`) has `key: Some("tol")`. `text` is the token-level
 /// rendering (typed decode deferred to the rail-contract step).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct McRailParam {
     pub key: Option<String>,
     pub text: String,

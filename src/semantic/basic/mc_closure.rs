@@ -10,7 +10,7 @@ use crate::ast::node::AstNode;
 use crate::semantic::mc_func::HasFindInst;
 
 /// Closure
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct McClosure {
     /// Parameter declarations
     pub params: McParamDeclares,

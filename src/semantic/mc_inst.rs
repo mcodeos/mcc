@@ -61,14 +61,14 @@ fn collect_ctor_params(inst_node: &AstNode, inst_id_node: &AstNode) -> Vec<McPar
 }
 
 /// Instance information
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct McInst {
     pub id: McIds,
     pub params: Vec<McParamValue>,
 }
 
 /// Whether a label is explicitly declared or defined inline in a net phrase.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum LabelKind {
     /// Explicitly declared in parameter list or port section.
     Explicit,
@@ -81,7 +81,7 @@ pub enum LabelKind {
 /// lookup model is built on: `MIC` resolves to the whole [`BusDef`], `MIC.P`
 /// resolves to the member span. Populated in `parse_opd`, expanded into
 /// `BusMemberDef` lapper entries by `lapper_module_ports`.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct BusDef {
     /// Bus name (e.g. "MIC").
     pub name: String,
@@ -103,7 +103,7 @@ impl BusDef {
 /// Identifier types within a module
 ///
 /// Used in symbol table to store various declared entities
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum McInstance {
     Label(String),
     List(McList),
@@ -311,7 +311,7 @@ impl McInstance {
 /// McInstances - Symbol table for instances and ports within a module
 ///
 /// Stores all identifiers within module: (IOType, McInstance) mapping
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct McInstances {
     insts: BTreeMap<String, (IOType, McInstance)>,
     /// ★ §11.2 vector groups: vector base name -> ordered member names

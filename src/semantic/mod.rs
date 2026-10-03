@@ -16,6 +16,8 @@ pub(crate) mod module;
 pub(crate) mod nc_pin;
 pub(crate) mod opcheck;
 pub mod pwrid;
+#[cfg(test)]
+mod serde_golden;
 pub(crate) mod scope;
 pub(crate) mod stmt_marker;
 pub mod validation;

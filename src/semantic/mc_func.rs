@@ -41,7 +41,7 @@ use crate::{
 ///     expression, the only two operators the connection face rejects today
 ///     (`+`/`-` keep their series/parallel readings). Evaluated per instance
 ///     at the value-face call site; never chainable, never a pin source.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub enum McFuncReturn {
     /// No explicit `return` statement.
     #[default]
@@ -82,7 +82,7 @@ impl McFuncReturn {
 /// recheck re-resolves the base against the final symbol table: a late-declared
 /// instance dismisses the candidate (`resolved_late`), a still-missing name
 /// errors with [`INSTANCE_REF_UNDECLARED`](crate::errcodes::INSTANCE_REF_UNDECLARED).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct GateCandidate {
     /// The undeclared base name (e.g. `uC` in `uC.ADC.P`).
     pub base: String,
@@ -704,7 +704,7 @@ impl<'a> HasFindInst for FuncBodyContext<'a> {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct McFunctions {
     functions: Vec<McFunction>,
 }
@@ -758,7 +758,7 @@ impl std::ops::DerefMut for McFunctions {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct McFunction {
     pub name: McIds,
     pub params: McParamDeclares,

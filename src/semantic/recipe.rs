@@ -34,7 +34,7 @@ use crate::semantic::mc_inst::{McInstance, McInstances};
 use crate::McURI;
 
 /// A recipe definition (`recipe DecoupledPower { … }`).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct McRecipe {
     pub name: McIds,
     /// File the recipe was declared in (LSP / diagnostics anchor).

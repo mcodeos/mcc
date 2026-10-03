@@ -30,7 +30,7 @@ pub(crate) fn expand_char_slice(from: char, to: char) -> Vec<char> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum IdsSegment {
     Int(Box<McInt>),
     Slice {
@@ -52,7 +52,7 @@ pub enum IdsSegment {
 
 impl IdsSegment {}
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct McIds {
     pub segments: Vec<IdsSegment>,
 }

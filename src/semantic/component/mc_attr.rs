@@ -13,7 +13,7 @@ use crate::{
 };
 use std::vec;
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub struct McAttributes {
     attributes: Vec<McAttribute>,
 }
@@ -124,7 +124,7 @@ impl<'a> IntoIterator for &'a mut McAttributes {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum McAttrVal {
     AttrLiteral(McLiteral),
     /// Variable reference (e.g. `spec = volt`). Optional span for LSP goto-def.
@@ -163,7 +163,7 @@ impl std::fmt::Display for McAttrVal {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct McAttribute {
     pub no: i32,
     pub id: McIds,

@@ -12,7 +12,7 @@ use crate::semantic::validation::ledger::{self, LedgerAction, LedgerEntry, Ledge
 use tracing::warn;
 
 /// Group
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct McGroup {
     pub opds: Vec<McPhrase>,
     pub left_match: bool,

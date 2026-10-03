@@ -10,7 +10,7 @@ use crate::semantic::common::IOType;
 use crate::semantic::component::mc_attr::{McAttrVal, McAttributes};
 use std::sync::Arc;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct DynamicPinExpr {
     pub expr: McExpression,
     pub has_param_ref: bool,
@@ -244,7 +244,7 @@ pub enum DynPinFail {
     NameExpr,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct DynamicPinLine {
     pub iotype: IOType,
     pub pin_id_expr: Option<DynamicPinExpr>,

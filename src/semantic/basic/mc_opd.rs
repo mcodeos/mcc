@@ -9,7 +9,7 @@ use crate::semantic::basic::mc_ids::IdsSegment;
 use crate::semantic::basic::mc_literal::McInt;
 use crate::McIds;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum McOpd {
     Id(McIds),
     This(McIds),

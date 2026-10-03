@@ -25,7 +25,7 @@ use crate::McIds;
 ///
 /// This is a struct (not a plain enum) so that `direction` is always available
 /// as an orthogonal modifier for Category A parameters.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct McParamType {
     pub kind: McParamTypeKind,
     /// Direction modifier — only meaningful for Category A (ports).
@@ -44,7 +44,7 @@ impl Default for McParamType {
 
 // Recursive compound unit type (for UV.PPM / UV.TEMP, UV.V * UV.A, etc.)
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum McUnitType {
     /// Leaf: a single unit like UV.VOLT, UV.TEMP
     Leaf(McUnit),
@@ -107,7 +107,7 @@ impl std::fmt::Display for McUnitType {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum McParamTypeKind {
     // ── Category A: Label / Bus / Interface (ports) ──
     // Unannotated
@@ -186,7 +186,7 @@ pub enum McParamTypeKind {
 
 // IO Direction Modifier
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum McIoTy {
     Input,
     Output,

@@ -48,6 +48,15 @@ impl AstNode {
         Self { ptr, owned: true }
     }
 
+    /// The empty node: a null, owned pointer. U392 leg A — the serde
+    /// placeholder for fields whose AST is deliberately outside the cache
+    /// face (lib-parse-cache-design §1); a restored def re-parses its file
+    /// when the body is actually needed. `mc_visit_free` loops on
+    /// `value != NULL`, so the null owned node drops as a no-op.
+    pub fn empty() -> Self {
+        Self::new(std::ptr::null_mut())
+    }
+
     pub fn iter(&self) -> AstNodeIter {
         AstNodeIter {
             current: self.get_ptr(),
@@ -783,6 +792,14 @@ impl Iterator for AstNodeIter {
         };
 
         AstNode::from_ptr(current_ptr)
+    }
+}
+
+// U392 leg A: the serde(skip) placeholder — an empty owned node drops as a
+// no-op (mc_visit_free loops on `value != NULL`).
+impl Default for AstNode {
+    fn default() -> Self {
+        AstNode::empty()
     }
 }
 
