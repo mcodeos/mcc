@@ -259,6 +259,10 @@ pub const USE_DEP_PARTNO_UNAVAILABLE: u32 = 2055;
 /// The mcode.lock no longer matches [dependencies] — run `mcc lib update`.
 pub const USE_DEP_LOCK_STALE: u32 = 2056;
 
+/// The pack metadata failed its publisher-signature verification — tamper;
+/// nothing from this registry row is trusted (registry-p3-protocol.md §3).
+pub const USE_DEP_SIGNATURE_INVALID: u32 = 2057;
+
 /// An imported symbol conflicts with an existing name.
 pub const USE_SYMBOL_CONFLICT: u32 = 2061;
 
@@ -2627,6 +2631,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(USE_DEP_CYCLE, "The dependency declarations form a cycle.", "dependency cycle: {0}"),
     entry!(USE_DEP_PARTNO_UNAVAILABLE, "The selected pack version predates the declared partno.", "partno '{0}' of '{1}' does not exist in {2} (it exists since {3}; versions carrying it: {4})"),
     entry!(USE_DEP_LOCK_STALE, "mcode.lock no longer matches [dependencies].", "mcode.lock does not cover '{0}' — run `mcc lib update` to refresh it"),
+    entry!(USE_DEP_SIGNATURE_INVALID, "The pack metadata failed its publisher-signature verification.", "metadata signature verification failed for '{0}' (key {1}) — the metadata is not what the publisher signed"),
     entry!(USE_SYMBOL_CONFLICT, "An imported symbol conflicts with an existing name.", "symbol conflict in module '{0}': {1} collides with previous use from '{2}'. Use 'as' alias to disambiguate"),
     entry!(USE_IMPORTED_NOT_FOUND, "The imported symbol was not found in the target file.", "imported symbol '{0}' not found in '{1}'"),
     // section

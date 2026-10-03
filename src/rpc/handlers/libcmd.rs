@@ -125,6 +125,9 @@ const RPC_PACK_NOT_FOUND: i32 = 32122;
 const RPC_CHECKSUM_MISMATCH: i32 = 32123;
 const RPC_PARTNO_UNAVAILABLE: i32 = 32124;
 const RPC_LOCK_STALE: i32 = 32125;
+/// P3: a keyed metadata signature failed its trust-store verification —
+/// tamper, the metadata face of the checksum wall.
+const RPC_SIGNATURE_INVALID: i32 = 32126;
 
 fn solve_rpc_code(e: &crate::SolveError) -> i32 {
     use crate::SolveError;
@@ -133,6 +136,7 @@ fn solve_rpc_code(e: &crate::SolveError) -> i32 {
         SolveError::Conflict { .. } | SolveError::Cycle { .. } => RPC_SOLVE_FAILED,
         SolveError::PartnoUnavailable { .. } => RPC_PARTNO_UNAVAILABLE,
         SolveError::Checksum { .. } => RPC_CHECKSUM_MISMATCH,
+        SolveError::Signature { .. } => RPC_SIGNATURE_INVALID,
         // Transport/parse failures — including the offline
         // "not installed and downloads are off" face.
         SolveError::Registry(_) => RPC_REGISTRY_UNREACHABLE,

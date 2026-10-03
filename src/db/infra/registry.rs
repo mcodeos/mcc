@@ -17,12 +17,15 @@ use std::path::{Path, PathBuf};
 
 // ── The source face ──
 
-/// Which registry endpoint a solve reads. P2 is local file trees only; the
-/// P3 `Http` variant joins here without a call-site change (protocol shape
-/// frozen now, §3 preamble).
+/// Which registry endpoint a solve reads. `File` is the P2 local tree; the
+/// P3 `Http` face reads the same five-endpoint shape over reqwest (§1).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RegistrySource {
     File(PathBuf),
+    /// The static-server face: `base` is the registry URL, trailing slash
+    /// stripped — every endpoint hangs off it (`/lib/…`, `/dl/…`,
+    /// `/search.json`).
+    Http { base: String },
 }
 
 /// Download tier of an artifact (§1.5: same container shape, dual products —
@@ -53,17 +56,18 @@ impl Tier {
 
 impl RegistrySource {
     /// Parse the configured registry URL. `file:///abs` maps to `/abs`; a
-    /// bare absolute path is accepted as-is. Anything else is a P3-shaped
-    /// URL refused with a names-the-scheme error (no silent fallback).
+    /// bare absolute path is accepted as-is; `http(s)://host[/…]` is the P3
+    /// face. Anything else is refused with a names-the-scheme error (no
+    /// silent fallback).
     pub fn from_url(url: &str) -> Result<Self> {
         let t = url.trim();
         if let Some(rest) = t.strip_prefix("file://") {
             return Ok(RegistrySource::File(PathBuf::from(rest)));
         }
         if t.starts_with("http://") || t.starts_with("https://") {
-            anyhow::bail!(
-                "registry.url `{t}` is an HTTP endpoint — the static-server registry (P3) is not implemented yet; use a file:// path"
-            );
+            return Ok(RegistrySource::Http {
+                base: t.trim_end_matches('/').to_string(),
+            });
         }
         let p = PathBuf::from(t);
         if p.is_absolute() {
@@ -75,10 +79,30 @@ impl RegistrySource {
         }
     }
 
+    /// The metadata-cache shard for this source (§2.2): `local/` for a file
+    /// tree, the URL authority (`host[:port]`) for an HTTP endpoint — two
+    /// registries never share a cache row.
+    pub fn cache_shard(&self) -> String {
+        match self {
+            RegistrySource::File(_) => "local".to_string(),
+            RegistrySource::Http { base } => {
+                // base is scheme://[userinfo@]host[:port][/…] (the shape is
+                // frozen at from_url) — the authority segment is the shard
+                // key. A protocol-shape parse, not a general URL parser.
+                let rest = base.split_once("://").map(|(_, r)| r).unwrap_or(base);
+                let authority = rest.split(['/', '?', '#']).next().unwrap_or(rest);
+                authority.to_string()
+            }
+        }
+    }
+
     /// `GET /lib/<name>.json` — per-name metadata: the file being there is
     /// existence (200), its absence in a reachable tree is a 404 (`None`).
-    /// An unreachable tree is an error; the metadata cache is the offline
-    /// truth the caller falls back to (`meta_json_cached`).
+    /// An unreachable tree/endpoint is an error; the metadata cache is the
+    /// offline truth the caller falls back to (`meta_json_cached`).
+    ///
+    /// Both faces verify signed rows through the trust face before the
+    /// metadata escapes (§3: verification happens once, at the read).
     pub fn meta_json(&self, name: &str) -> Result<Option<LibMeta>> {
         match self {
             RegistrySource::File(root) => {
@@ -93,22 +117,76 @@ impl RegistrySource {
                     .with_context(|| format!("failed to read registry metadata: {}", path.display()))?;
                 let meta: LibMeta = serde_json::from_str(&text)
                     .with_context(|| format!("invalid registry metadata JSON: {}", path.display()))?;
+                crate::db::infra::trust::verify_meta(&meta)?;
                 Ok(Some(meta))
+            }
+            RegistrySource::Http { base } => {
+                let url = format!("{base}/lib/{name}.json");
+                let shard = self.cache_shard();
+                let etag = cached_etag(&shard, name);
+                let fetched = match crate::db::infra::httpfetch::get(&url, etag.as_deref()) {
+                    Ok(r) => Some(r),
+                    Err(crate::db::infra::httpfetch::FetchError::NotFound) => return Ok(None),
+                    Err(e) => {
+                        return Err(anyhow::anyhow!("registry metadata fetch failed: {e}"));
+                    }
+                };
+                let Some(resp) = fetched else { unreachable!("matched above") };
+                if resp.status == 304 {
+                    // Not modified: the cache row is the truth. A cache row
+                    // missing behind a live etag is a corrupt cache — fall
+                    // through to an unconditional refetch.
+                    if let Some(meta) = cached_meta(&shard, name) {
+                        return Ok(Some(meta));
+                    }
+                    let resp = crate::db::infra::httpfetch::get(&url, None).map_err(|e| {
+                        anyhow::anyhow!("registry metadata fetch failed: {e}")
+                    })?;
+                    return self.http_meta_store(name, &shard, resp.status, resp.etag, &resp.body);
+                }
+                self.http_meta_store(name, &shard, resp.status, resp.etag, &resp.body)
             }
         }
     }
 
+    /// Parse + verify + park a 200 metadata body (the HTTP face's shared
+    /// tail). Anything outside 2xx/304 is an error naming the status.
+    fn http_meta_store(
+        &self,
+        name: &str,
+        shard: &str,
+        status: u16,
+        etag: Option<String>,
+        body: &[u8],
+    ) -> Result<Option<LibMeta>> {
+        if !(200..300).contains(&status) {
+            anyhow::bail!("registry metadata fetch failed: HTTP {status} for /lib/{name}.json");
+        }
+        let meta: LibMeta = serde_json::from_slice(body).with_context(|| {
+            format!("invalid registry metadata JSON: /lib/{name}.json (HTTP {status})")
+        })?;
+        crate::db::infra::trust::verify_meta(&meta)?;
+        cache_meta(shard, name, &meta);
+        store_etag(shard, name, etag.as_deref());
+        Ok(Some(meta))
+    }
+
     /// The metadata read with the offline fallback: a source error (not a
-    /// 404) reads the cache instead — offline, the cache is the truth. `Ok(None)` here
+    /// 404) reads the cache instead — offline, the cache is the truth. A
+    /// signature-verification failure is never a source error: serving the
+    /// stale cache for tampered metadata would be exactly the downgrade the
+    /// signature exists to prevent, so it propagates. `Ok(None)` here
     /// really means the name is unknown everywhere.
     pub fn meta_json_cached(&self, name: &str) -> Result<Option<LibMeta>> {
+        let shard = self.cache_shard();
         match self.meta_json(name) {
             Ok(Some(meta)) => {
-                cache_meta(name, &meta);
+                cache_meta(&shard, name, &meta);
                 Ok(Some(meta))
             }
             Ok(None) => Ok(None),
-            Err(e) => match cached_meta(name) {
+            Err(e) if e.downcast_ref::<SolveError>().is_some() => Err(e),
+            Err(e) => match cached_meta(&shard, name) {
                 Some(meta) => Ok(Some(meta)),
                 None => Err(e),
             },
@@ -126,11 +204,106 @@ impl RegistrySource {
                 .join(name)
                 .join(ver)
                 .join(format!("{name}-{ver}{}", tier.suffix())),
+            RegistrySource::Http { .. } => unreachable!("the HTTP face has no tree path; use fetch_artifact"),
         }
+    }
+
+    /// The artifact acquisition seam (§2.1): the file tree reads in place;
+    /// the HTTP face streams to a scratch `<dest>` through a `.part` sibling.
+    /// What comes back is the path to hash, verify and install — everything
+    /// after this seam (sha256 wall, three checks, atomic unpack) is the one
+    /// shared path both faces ride.
+    pub fn fetch_artifact(
+        &self,
+        category: &str,
+        name: &str,
+        ver: &str,
+        tier: Tier,
+        scratch_dir: &Path,
+    ) -> Result<PathBuf> {
+        match self {
+            RegistrySource::File(root) => {
+                let _ = root;
+                let path = self.artifact_path(category, name, ver, tier);
+                if !path.is_file() {
+                    anyhow::bail!(
+                        "registry artifact is missing from the tree: {}",
+                        path.display()
+                    );
+                }
+                Ok(path)
+            }
+            RegistrySource::Http { base } => {
+                let url = format!(
+                    "{base}/dl/{category}/{name}/{ver}/{name}-{ver}{}",
+                    tier.suffix()
+                );
+                let dest = scratch_dir.join(format!("{name}-{ver}{}", tier.suffix()));
+                std::fs::create_dir_all(scratch_dir).with_context(|| {
+                    format!("cannot create scratch dir {}", scratch_dir.display())
+                })?;
+                crate::db::infra::httpfetch::download(&url, &dest)
+                    .map_err(|e| anyhow::anyhow!("artifact download failed: {e}"))?;
+                Ok(dest)
+            }
+        }
+    }
+
+    /// `GET /search.json` — the static search index (§1 endpoint 5): the
+    /// whole catalog, one row per pack; filtering happens client-side (the
+    /// server stays dumb storage — no query semantics on the wire).
+    pub fn search_index(&self) -> Result<Vec<SearchEntry>> {
+        let text = match self {
+            RegistrySource::File(root) => {
+                let path = root.join("search.json");
+                if !path.is_file() {
+                    anyhow::bail!(
+                        "the registry tree carries no search.json (generate one with mcpub/mksearch.sh): {}",
+                        path.display()
+                    );
+                }
+                std::fs::read_to_string(&path)
+                    .with_context(|| format!("failed to read {}", path.display()))?
+            }
+            RegistrySource::Http { base } => {
+                let url = format!("{base}/search.json");
+                let resp = crate::db::infra::httpfetch::get(&url, None).map_err(|e| {
+                    anyhow::anyhow!("registry search index fetch failed: {e}")
+                })?;
+                if !(200..300).contains(&resp.status) {
+                    anyhow::bail!("registry search index fetch failed: HTTP {} for /search.json", resp.status);
+                }
+                String::from_utf8(resp.body)
+                    .with_context(|| "search.json is not UTF-8".to_string())?
+            }
+        };
+        let idx: SearchIndex =
+            serde_json::from_str(&text).with_context(|| "invalid search.json".to_string())?;
+        Ok(idx.packages)
     }
 }
 
 // ── Metadata (§3.1 per-lib JSON) ──
+
+/// One row of `/search.json` (§1 endpoint 5): the catalog face the static
+/// generator emits; filtering is client-side.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchEntry {
+    pub name: String,
+    #[serde(default)]
+    pub category: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    /// The highest non-yanked version, precomputed by the generator.
+    #[serde(default)]
+    pub latest: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct SearchIndex {
+    #[serde(default)]
+    packages: Vec<SearchEntry>,
+}
 
 /// One `/lib/<name>.json`. A package entry carries `versions`; a partno
 /// alias entry (emitted per variant by the registry generator) carries
@@ -146,6 +319,10 @@ pub struct LibMeta {
     /// belongs to.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub package: Option<String>,
+    /// Free-text blurb mirrored into /search.json (P3; absent in older
+    /// trees — forward-compatible by the ignore-unknown-fields law).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     #[serde(default)]
     pub versions: BTreeMap<String, VersionMeta>,
 }
@@ -171,18 +348,27 @@ pub struct VersionMeta {
     /// installed pack.toml, which the solver reads after selection).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub variants: Vec<String>,
+    /// Ed25519 metadata signature `ed25519:<base64(R‖S)>` over the entry's
+    /// canonical JSON minus these two fields (§3). Absent = community.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sig: Option<String>,
+    /// The signer's key id (first 16 hex of the public key's SHA-256).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keyid: Option<String>,
 }
 
-// ── Metadata cache (§3.2: <data_root>/cache/meta/) ──
+// ── Metadata cache (§3.2: <data_root>/cache/meta/<shard>/) ──
 
 /// The metadata cache directory (a `mcc clean --cache` candidate once a
-/// clean verb exists).
+/// clean verb exists). P3 shards it per source: `local/` for file trees,
+/// the URL authority for HTTP endpoints (§2.2 — two registries never share
+/// a row).
 pub fn meta_cache_dir() -> PathBuf {
     crate::cli::datadir::data_root().join("cache").join("meta")
 }
 
-fn cache_meta(name: &str, meta: &LibMeta) {
-    let dir = meta_cache_dir();
+fn cache_meta(shard: &str, name: &str, meta: &LibMeta) {
+    let dir = meta_cache_dir().join(shard);
     if std::fs::create_dir_all(&dir).is_err() {
         return;
     }
@@ -191,10 +377,35 @@ fn cache_meta(name: &str, meta: &LibMeta) {
     }
 }
 
-fn cached_meta(name: &str) -> Option<LibMeta> {
-    let path = meta_cache_dir().join(format!("{name}.json"));
+fn cached_meta(shard: &str, name: &str) -> Option<LibMeta> {
+    let path = meta_cache_dir().join(shard).join(format!("{name}.json"));
     let text = std::fs::read_to_string(path).ok()?;
     serde_json::from_str(&text).ok()
+}
+
+/// The ETag sidecar (§2.2): one line beside the cache row. No sidecar =
+/// the next read is an unconditional fetch.
+fn cached_etag(shard: &str, name: &str) -> Option<String> {
+    let path = meta_cache_dir()
+        .join(shard)
+        .join(format!("{name}.json.etag"));
+    std::fs::read_to_string(path).ok().map(|t| t.trim().to_string()).filter(|t| !t.is_empty())
+}
+
+fn store_etag(shard: &str, name: &str, etag: Option<&str>) {
+    let dir = meta_cache_dir().join(shard);
+    if std::fs::create_dir_all(&dir).is_err() {
+        return;
+    }
+    let path = dir.join(format!("{name}.json.etag"));
+    match etag {
+        Some(e) => {
+            let _ = std::fs::write(&path, e);
+        }
+        None => {
+            let _ = std::fs::remove_file(&path);
+        }
+    }
 }
 
 // ── mcode.lock (§4.3) ──
@@ -353,6 +564,9 @@ pub enum SolveError {
         want: String,
         got: String,
     },
+    /// A keyed metadata signature failed verification against its trust-store
+    /// key — tamper, the metadata face of the checksum wall (§3).
+    Signature { name: String, ver: String, keyid: String },
 }
 
 impl std::fmt::Display for SolveError {
@@ -379,6 +593,12 @@ impl std::fmt::Display for SolveError {
                 write!(
                     f,
                     "checksum mismatch for `{name}@{ver}`: metadata {want}, downloaded {got} — nothing was installed"
+                )
+            }
+            SolveError::Signature { name, ver, keyid } => {
+                write!(
+                    f,
+                    "signature verification failed for `{name}@{ver}` (key {keyid}) — the metadata is not what the publisher signed; nothing was trusted"
                 )
             }
         }
@@ -690,6 +910,17 @@ fn sha_matches(want: &str, got: &str) -> bool {
     w.to_ascii_lowercase() == g.to_ascii_lowercase()
 }
 
+/// The typed-error lift (D15): a failure that already *is* a [`SolveError`]
+/// (the trust face's tamper verdict) keeps its arm — anyhow's downcast does
+/// the typing, never a string match. Everything else is the generic
+/// Registry face.
+fn solve_err(e: anyhow::Error) -> SolveError {
+    match e.downcast::<SolveError>() {
+        Ok(se) => se,
+        Err(e) => SolveError::Registry(e.to_string()),
+    }
+}
+
 impl DiskSource<'_> {
     fn installed_dir(&self, name: &str, ver: &str, local: bool) -> Option<(PathBuf, SolveOrigin)> {
         let dir = format!("{name}@{ver}");
@@ -724,7 +955,7 @@ impl DiskSource<'_> {
         let meta = self
             .src
             .meta_json_cached(name)
-            .map_err(|e| SolveError::Registry(e.to_string()))?
+            .map_err(solve_err)?
             .ok_or_else(|| SolveError::Unresolved {
                 name: name.to_string(),
                 req: format!("={ver}"),
@@ -738,7 +969,10 @@ impl DiskSource<'_> {
                 "registry metadata for `{name}@{ver}` carries no thin_checksum — cannot verify the download"
             ))
         })?;
-        let path = self.src.artifact_path(&meta.category, name, ver, Tier::Thin);
+        let path = self
+            .src
+            .fetch_artifact(&meta.category, name, ver, Tier::Thin, &std::env::temp_dir())
+            .map_err(solve_err)?;
         let got = crate::sha256_hex_file(&path)
             .map_err(|e| SolveError::Registry(format!("failed to read {}: {e}", path.display())))?;
         if !sha_matches(want, &got) {
@@ -805,9 +1039,7 @@ impl DiskSource<'_> {
 
 impl SolveSource for DiskSource<'_> {
     fn meta(&self, name: &str) -> Result<Option<LibMeta>, SolveError> {
-        self.src
-            .meta_json_cached(name)
-            .map_err(|e| SolveError::Registry(e.to_string()))
+        self.src.meta_json_cached(name).map_err(solve_err)
     }
 
     fn local_hit(&self, name: &str, ver: &str, local: bool) -> Option<SolveOrigin> {
@@ -891,9 +1123,10 @@ mod tests {
     }
 
     #[test]
-    fn cli_registry__from_url_maps_file_shapes() {
-        // file:///abs → /abs; a bare absolute path is itself; relative and
-        // HTTP shapes are refused by name, never guessed into a path.
+    fn cli_registry__from_url_maps_file_and_http_shapes() {
+        // file:///abs → /abs; a bare absolute path is itself; relative is
+        // refused by name, never guessed into a path; http(s) keeps the
+        // authority as the P3 cache shard (trailing slash stripped).
         assert_eq!(
             RegistrySource::from_url("file:///tmp/reg").unwrap(),
             RegistrySource::File(PathBuf::from("/tmp/reg"))
@@ -903,7 +1136,10 @@ mod tests {
             RegistrySource::File(PathBuf::from("/tmp/reg"))
         );
         assert!(RegistrySource::from_url("relative/dir").is_err());
-        assert!(RegistrySource::from_url("https://reg.example.com").is_err());
+        assert_eq!(
+            RegistrySource::from_url("https://reg.example.com/").unwrap(),
+            RegistrySource::Http { base: "https://reg.example.com".into() }
+        );
     }
 
     #[test]
@@ -996,7 +1232,10 @@ mod tests {
         .unwrap();
         let src = RegistrySource::File(root.clone());
         assert!(src.meta_json_cached("acme").unwrap().is_some());
-        assert!(cached_meta("acme").is_some(), "the fetch warmed the cache");
+        assert!(
+            cached_meta("local", "acme").is_some(),
+            "the fetch warmed the local-shard cache row"
+        );
 
         // With the tree gone, the cache answers — offline, the cache is the truth.
         let _ = std::fs::remove_dir_all(&root);
@@ -1040,7 +1279,7 @@ mod tests {
             }
             self.metas.insert(
                 name.to_string(),
-                LibMeta { name: name.to_string(), category: "power".into(), package: None, versions },
+                LibMeta { name: name.to_string(), category: "power".into(), package: None, description: None, versions },
             );
             self
         }
@@ -1263,6 +1502,7 @@ mod tests {
                 name: "ams1117-3.3".into(),
                 category: "power".into(),
                 package: Some("ams1117".into()),
+                description: None,
                 versions,
             },
         );

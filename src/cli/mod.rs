@@ -1327,10 +1327,40 @@ pub enum LibAction {
         name: String,
     },
 
-    /// Search installed libraries
+    /// Search installed libraries — or, with --remote, the configured
+    /// registry's static index (registry-p3-protocol.md §4.1)
     Search {
         /// Search keyword (library name or description)
         pattern: String,
+        /// Query the registry (`/search.json`, client-side filter) instead
+        /// of the installed libraries
+        #[arg(long)]
+        remote: bool,
+        /// Remote search result cap
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
+    },
+
+    /// Generate an Ed25519 publishing key pair (registry-p3-protocol.md §3):
+    /// writes the hex seed to <path> (0600) and prints the public key, the
+    /// keyid, and the trust.toml snippet consumers install.
+    Keygen {
+        /// Where the signing-key seed lands (e.g. ~/.mcode/keys/reg.ed25519)
+        path: String,
+    },
+
+    /// Publish a pack into the configured registry (registry-p3-protocol.md
+    /// §4.2): pack (directory argument), sign (when [registry.publish] key
+    /// is set), stage the tree delta under ./publish-delta/, and — with
+    /// --go — transport it (or apply it in place for a file:// registry).
+    /// Immutable law: a version already in the tree refuses.
+    Publish {
+        /// Pack directory (carrying pack.toml), or a full+thin .mcl pair
+        source: String,
+
+        /// Transport/apply the staged delta (default: stage and list only)
+        #[arg(long)]
+        go: bool,
     },
 
     /// Uninstall installed library from disk

@@ -143,12 +143,16 @@ pub use db::infra::packinst::{
     install_mcl, install_mcl_at, install_mcl_at_scope, read_archive, sha256_hex_file, ZSTD_MAGIC,
 };
 
-// ── Package registry (registry-design.md; P2 local closure) ──
+// ── Package registry (registry-design.md; P2 local closure, P3 HTTP face) ──
 pub use db::infra::registry::{
     ensure_deps_gitignore, first_stale_key, lock_with_mcode_rev, solve, solve_and_install,
-    DiskSource, LibMeta, LockEntry, LockFile, RegistrySource, SolveDecl, SolveError, SolveOrigin,
-    SolvedPack, Tier, VersionMeta,
+    DiskSource, LibMeta, LockEntry, LockFile, RegistrySource, SearchEntry, SolveDecl, SolveError,
+    SolveOrigin, SolvedPack, Tier, VersionMeta,
 };
+// ── Publisher signature face (registry-p3-protocol.md §3) ──
+pub use db::infra::trust::{classify, keygen, sign_version, trust_keys};
+// (version_key already re-exported above from builder — the remote-search
+// `latest` face orders with it.)
 
 // ── Instant / Net ──
 pub use db::defmember::DefMemberId;

@@ -76,6 +76,9 @@ flate2 = "1.0"
 zstd = "0.13"
 sha2 = "0.10"
 base64 = "0.22"
+# P3 签名面（registry-p3-protocol.md §3）：Ed25519 元数据签名；keygen 用 OsRng。
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+rand = "0.8"
 sysinfo = "0.32"
 reqwest = { version = "0.12", features = ["json", "blocking"] }
 bytes = "1.0"

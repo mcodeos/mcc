@@ -274,16 +274,26 @@ pub fn run(action: &LibAction, format: OutputFormat) -> Result<()> {
             Some(c) => call_and_emit(c, "lib.info", serde_json::json!({ "name": name }), format),
             None => cmd_show(name, format),
         },
-        LibAction::Search { pattern } => match &client {
-            Some(c) => {
-                let mut params = serde_json::json!({ "pattern": pattern });
-                if let Some(root) = client_project_root() {
-                    params["project_root"] = serde_json::json!(root.to_string_lossy());
-                }
-                call_and_emit(c, "lib.search", params, format)
+        LibAction::Search { pattern, remote, limit } => {
+            if *remote {
+                // The registry face runs in-process always: the daemon serves
+                // this cwd's installs, not a remote catalog (the install/U90
+                // precedent — local machine state must be the caller's own).
+                return cmd_search_remote(pattern, *limit);
             }
-            None => cmd_search(pattern, format),
-        },
+            match &client {
+                Some(c) => {
+                    let mut params = serde_json::json!({ "pattern": pattern });
+                    if let Some(root) = client_project_root() {
+                        params["project_root"] = serde_json::json!(root.to_string_lossy());
+                    }
+                    call_and_emit(c, "lib.search", params, format)
+                }
+                None => cmd_search(pattern, format),
+            }
+        }
+        LibAction::Keygen { path } => cmd_keygen(path),
+        LibAction::Publish { source, go } => crate::cmds::publish::cmd_publish(source, *go),
         LibAction::Uninstall { name, force, global } => {
             // Project-tier copy resolved client-side (cwd owner); mcode and
             // --global always target the data root.
@@ -310,7 +320,7 @@ pub fn run(action: &LibAction, format: OutputFormat) -> Result<()> {
 }
 
 /// The client-side project root for the project-aware lib faces.
-fn client_project_root() -> Option<PathBuf> {
+pub(crate) fn client_project_root() -> Option<PathBuf> {
     std::env::current_dir()
         .ok()
         .and_then(|cwd| Manifest::nearest_root(&cwd))
@@ -889,6 +899,81 @@ impl fmt::Display for LibSearchReport {
 fn cmd_search(pattern: &str, format: OutputFormat) -> Result<()> {
     let report = do_search(pattern);
     output::emit(&report, format, None)
+}
+
+/// `mcc lib search --remote` (registry-p3-protocol.md §4.1): read the
+/// registry's `/search.json`, filter client-side on name/description
+/// substring, classify each hit through its metadata signature (verified /
+/// community / unclassified when the metadata is unreachable). In-process by
+/// law — the daemon has no business with the network.
+fn cmd_search_remote(pattern: &str, limit: usize) -> Result<()> {
+    use mcc::RegistrySource;
+    let project_root = client_project_root();
+    let url = mcc::cli::config::get_registry_url(project_root.as_deref()).ok_or_else(|| {
+        anyhow::anyhow!(
+            "lib search --remote: no registry configured — set [registry] url in mcc.yaml \
+             or [config.registry] url in project.toml"
+        )
+    })?;
+    let src = RegistrySource::from_url(&url).map_err(|e| anyhow::anyhow!("lib search: {e}"))?;
+    let index = src.search_index().map_err(|e| anyhow::anyhow!("lib search: {e}"))?;
+    let needle = pattern.to_lowercase();
+    let hits: Vec<&mcc::SearchEntry> = index
+        .iter()
+        .filter(|e| {
+            e.name.to_lowercase().contains(&needle)
+                || e.description
+                    .as_deref()
+                    .is_some_and(|d| d.to_lowercase().contains(&needle))
+        })
+        .take(limit)
+        .collect();
+
+    if hits.is_empty() {
+        eprintln!("no registry matches for '{pattern}'");
+        return Ok(());
+    }
+    let keys = mcc::trust_keys().unwrap_or_default();
+    for e in &hits {
+        let trust = e
+            .latest
+            .as_deref()
+            .and_then(|_| src.meta_json_cached(&e.name).ok().flatten())
+            .map(|m| {
+                mcc::classify(&m, &m.versions.keys().last().cloned().unwrap_or_default(), &keys)
+                    .label()
+                    .to_string()
+            })
+            .unwrap_or_else(|| "unclassified".to_string());
+        match (&e.latest, &e.description) {
+            (Some(v), Some(d)) => eprintln!("{}@{} [{}] — {}", e.name, v, trust, d),
+            (Some(v), None) => eprintln!("{}@{} [{}]", e.name, v, trust),
+            (None, d) => eprintln!(
+                "{} [{}]{}",
+                e.name,
+                trust,
+                d.as_deref().map(|d| format!(" — {d}")).unwrap_or_default()
+            ),
+        }
+    }
+    Ok(())
+}
+
+/// `mcc lib keygen` (registry-p3-protocol.md §3): mint an Ed25519 signing key
+/// (create-new — an existing seed refuses), print the keyid and the
+/// trust.toml snippet the consumers paste.
+fn cmd_keygen(path: &str) -> Result<()> {
+    let (pubkey, keyid) =
+        mcc::keygen(std::path::Path::new(path))
+            .map_err(|e| anyhow::anyhow!("lib keygen: {e}"))?;
+    eprintln!("✓ signing key written to {path}");
+    eprintln!("  keyid: {keyid}");
+    eprintln!();
+    eprintln!("  # consumers add to ~/.mcode/config/trust.toml:");
+    eprintln!("  [[keys]]");
+    eprintln!("  keyid = \"{keyid}\"");
+    eprintln!("  public = \"{pubkey}\"");
+    Ok(())
 }
 
 /// Pure search: filter installed libs by name/path substring.

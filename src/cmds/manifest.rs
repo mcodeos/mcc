@@ -215,6 +215,11 @@ pub(crate) fn solve_error_msg(e: &mcc::SolveError) -> String {
                 ])
             )
         }
+        SolveError::Signature { name, keyid, .. } => format!(
+            "E{}: {}",
+            mcc::errcodes::USE_DEP_SIGNATURE_INVALID,
+            mcc::errcodes::format_msg(mcc::errcodes::USE_DEP_SIGNATURE_INVALID, &[name, keyid])
+        ),
         SolveError::Conflict { .. }
         | SolveError::Checksum { .. }
         | SolveError::Registry(_) => e.to_string(),

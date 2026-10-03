@@ -21,6 +21,7 @@ pub mod list;
 pub mod manifest;
 pub mod nets;
 pub mod pack;
+pub mod publish;
 pub mod parse;
 pub mod print;
 pub mod proj;

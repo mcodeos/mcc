@@ -136,6 +136,34 @@ pub struct MccConfig {
 pub struct RegistryConfig {
     #[serde(default)]
     pub url: Option<String>,
+    /// The publisher-side face (`mcc lib publish`, registry-p3-protocol.md
+    /// §4.2). Read from the global `mcc.yaml` only — publishing is a
+    /// maintainer act, never a per-project setting.
+    #[serde(default)]
+    pub publish: Option<PublishConfig>,
+}
+
+/// `mcc lib publish` knobs: the signing key, and how the staged tree delta
+/// reaches the server. Absent `key` = publish stages community rows (no
+/// signature); `transport = "none"` (the default) = stage only, list what
+/// would be written.
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+pub struct PublishConfig {
+    /// Publisher signing key: a hex-seed file (0600, `mcc lib keygen`).
+    #[serde(default)]
+    pub key: Option<String>,
+    /// `rsync` | `scp` | `none` — how `--go` moves `publish-delta/` into
+    /// place. `none` on a `file://` registry applies the delta in place.
+    #[serde(default)]
+    pub transport: Option<String>,
+    /// Transport target (`host:/srv/reg`); required for rsync/scp.
+    #[serde(default)]
+    pub target: Option<String>,
+    /// Name of the env var carrying the publish token. Phase two only (the
+    /// PUT /api/v1/publish endpoint reads it) — reserved so the §4.3 config
+    /// shape is stable; nothing reads it yet.
+    #[serde(default)]
+    pub token_env: Option<String>,
 }
 
 /// Diagnostic rendering configuration.
@@ -559,6 +587,7 @@ pub fn merge_configs(global: &MccConfig, local: Option<&MccConfig>) -> MccConfig
 
             let registry = RegistryConfig {
                 url: local.registry.url.clone().or(global.registry.url.clone()),
+                publish: local.registry.publish.clone().or(global.registry.publish.clone()),
             };
 
             let diag = DiagConfig {
