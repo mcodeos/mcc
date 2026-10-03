@@ -4,6 +4,7 @@
 
 pub mod build;
 pub mod check;
+pub mod clean;
 pub mod common;
 pub mod config;
 pub mod def;
@@ -31,3 +32,5 @@ pub mod rules;
 pub mod server;
 pub mod show;
 pub mod trace;
+pub mod trust;
+pub mod yank;

@@ -106,6 +106,7 @@ fn main() -> ExitCode {
         Some(Command::Status(_)) => false,
         Some(Command::Config(_)) => false,
         Some(Command::Proj(_)) => false,
+        Some(Command::Clean(_)) => false,
         Some(Command::Explain(_)) => false,
         Some(Command::Rules(_)) => false,
         Some(Command::Caps { .. }) => false,
@@ -201,7 +202,7 @@ fn main() -> ExitCode {
     // commands control their own lib loading and are left untouched.
     let need_mcc_init = match &cli.command {
         Some(Command::Start(_)) | Some(Command::Stop(_)) | Some(Command::Status(_)) => false,
-        Some(Command::Config(_)) | Some(Command::Proj(_)) => false,
+        Some(Command::Config(_)) | Some(Command::Proj(_)) | Some(Command::Clean(_)) => false,
         Some(Command::Rules(_)) => false,
         Some(Command::Show(_)) | Some(Command::List(_)) | Some(Command::Query(_)) => false,
         Some(Command::Export(_)) => false,
@@ -337,6 +338,10 @@ fn dispatch(cli: Cli) -> Result<ExitCode> {
         }
         Some(Command::Proj(args)) => {
             cmds::proj::run(&args.action)?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Some(Command::Clean(args)) => {
+            cmds::clean::run(args.cache)?;
             Ok(ExitCode::SUCCESS)
         }
         Some(Command::Start(args)) => {

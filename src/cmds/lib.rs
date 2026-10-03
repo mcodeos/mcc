@@ -294,6 +294,11 @@ pub fn run(action: &LibAction, format: OutputFormat) -> Result<()> {
         }
         LibAction::Keygen { path } => cmd_keygen(path),
         LibAction::Publish { source, go } => crate::cmds::publish::cmd_publish(source, *go),
+        // yank/trust are in-process always: yank edits this machine's
+        // configured tree face and trust merges this machine's store —
+        // neither is daemon state (the install/U90 precedent).
+        LibAction::Yank { name, version } => crate::cmds::yank::cmd_yank(name, version),
+        LibAction::Trust { action } => crate::cmds::trust::run(action),
         LibAction::Uninstall { name, force, global } => {
             // Project-tier copy resolved client-side (cwd owner); mcode and
             // --global always target the data root.
@@ -935,16 +940,20 @@ fn cmd_search_remote(pattern: &str, limit: usize) -> Result<()> {
     }
     let keys = mcc::trust_keys().unwrap_or_default();
     for e in &hits {
-        let trust = e
-            .latest
-            .as_deref()
-            .and_then(|_| src.meta_json_cached(&e.name).ok().flatten())
-            .map(|m| {
-                mcc::classify(&m, &m.versions.keys().last().cloned().unwrap_or_default(), &keys)
-                    .label()
-                    .to_string()
-            })
-            .unwrap_or_else(|| "unclassified".to_string());
+        let read = src.meta_json_cached(&e.name);
+        let trust = match read {
+            // A failed metadata read is never silent: tamper or an outage
+            // behind the row is a fact about the hit, said out loud.
+            Err(err) => {
+                eprintln!("  {} metadata read failed — {err}", e.name);
+                "unclassified".to_string()
+            }
+            Ok(None) => "unclassified".to_string(),
+            Ok(Some(m)) => {
+                let ver = m.versions.keys().last().cloned().unwrap_or_default();
+                mcc::classify(&m, &ver, &keys).label().to_string()
+            }
+        };
         match (&e.latest, &e.description) {
             (Some(v), Some(d)) => eprintln!("{}@{} [{}] — {}", e.name, v, trust, d),
             (Some(v), None) => eprintln!("{}@{} [{}]", e.name, v, trust),

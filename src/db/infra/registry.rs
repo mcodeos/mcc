@@ -359,10 +359,9 @@ pub struct VersionMeta {
 
 // ── Metadata cache (§3.2: <data_root>/cache/meta/<shard>/) ──
 
-/// The metadata cache directory (a `mcc clean --cache` candidate once a
-/// clean verb exists). P3 shards it per source: `local/` for file trees,
-/// the URL authority for HTTP endpoints (§2.2 — two registries never share
-/// a row).
+/// The metadata cache directory (what `mcc clean --cache` clears; §4.6).
+/// P3 shards it per source: `local/` for file trees, the URL authority for
+/// HTTP endpoints (§2.2 — two registries never share a row).
 pub fn meta_cache_dir() -> PathBuf {
     crate::cli::datadir::data_root().join("cache").join("meta")
 }
@@ -381,6 +380,17 @@ fn cached_meta(shard: &str, name: &str) -> Option<LibMeta> {
     let path = meta_cache_dir().join(shard).join(format!("{name}.json"));
     let text = std::fs::read_to_string(path).ok()?;
     serde_json::from_str(&text).ok()
+}
+
+/// The tree-mutation face's cache step (`lib yank`): rewrite the touched
+/// rows' cache entries so the offline fallback stays the truth (§4.6: the
+/// File arm reads the live tree online — the cache row is the offline
+/// answer only). Refresh, never delete: a deleted row would make the next
+/// offline solve report the name unknown instead of serving it.
+pub fn refresh_cached_meta(shard: &str, metas: &[LibMeta]) {
+    for meta in metas {
+        cache_meta(shard, &meta.name, meta);
+    }
 }
 
 /// The ETag sidecar (§2.2): one line beside the cache row. No sidecar =

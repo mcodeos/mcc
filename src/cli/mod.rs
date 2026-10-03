@@ -17,7 +17,7 @@ pub mod outlet;
 pub mod packfile;
 pub mod rpcclient;
 pub mod servercfg;
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 
 /// MCC — MCode Compiler command line tool
 #[derive(Parser, Debug)]
@@ -220,6 +220,9 @@ pub enum Command {
 
     /// Configuration management (get / set / list / reset)
     Config(ConfigArgs),
+
+    /// Cache sweeping (registry-design.md §4.6; --cache only this batch)
+    Clean(CleanArgs),
 
     /// Explain error codes
     Explain(ExplainArgs),
@@ -1377,6 +1380,39 @@ pub enum LibAction {
         #[arg(long)]
         global: bool,
     },
+
+    /// Mark a version yanked in the configured file:// registry tree
+    /// (registry-design.md §7④): metadata-only — artifacts stay (a lock
+    /// holding the version keeps installing it), fresh solves skip it,
+    /// search `latest` drops it. Signed rows are re-signed through
+    /// [registry.publish] key; a signed tree without a usable key refuses
+    /// before anything is written.
+    Yank {
+        /// Package name
+        name: String,
+
+        /// Version to mark (canonicalized to two segments)
+        version: String,
+    },
+
+    /// Trust-store operations (registry-design.md §7⑦b)
+    Trust {
+        #[command(subcommand)]
+        action: TrustAction,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum TrustAction {
+    /// Pull the registry's key table (`<base>/trust.json`) and merge the
+    /// rows whose signature verifies against an already-trusted key (a
+    /// factory anchor or a row accepted earlier in the same file — old key
+    /// signs new key). Every row gets a status line; any refusal fails.
+    Update {
+        /// Registry base URL override (default: the configured [registry] url)
+        #[arg(long)]
+        registry: Option<String>,
+    },
 }
 
 // proj
@@ -1468,6 +1504,17 @@ pub struct StatusArgs {
 pub struct ConfigArgs {
     #[command(subcommand)]
     pub action: ConfigAction,
+}
+
+// clean (cache sweeping)
+
+#[derive(Args, Debug)]
+pub struct CleanArgs {
+    /// Clear the registry metadata cache (<data_root>/cache/meta/, §4.6).
+    /// cache/libparse (the U392 library parse cache) and installed packs are
+    /// deliberately untouched.
+    #[arg(long)]
+    pub cache: bool,
 }
 
 #[derive(Subcommand, Debug)]

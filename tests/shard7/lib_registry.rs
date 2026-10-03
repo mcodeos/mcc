@@ -55,11 +55,15 @@ component DEPTEST()
 "#;
 
 fn pack_manifest(name: &str, entry: &str, deps: &[(&str, &str)]) -> String {
+    pack_manifest_at(name, entry, "0.1.0", deps)
+}
+
+fn pack_manifest_at(name: &str, entry: &str, version: &str, deps: &[(&str, &str)]) -> String {
     let mut s = format!(
         r#"[package]
 format = "1"
 name = "{name}"
-version = "0.1.0"
+version = "{version}"
 category = "power"
 entry = "{entry}"
 
@@ -135,7 +139,21 @@ impl Fixture {
     /// Pack `src` and register it in the tree under its canonical two-segment
     /// version, with the given metadata variants (partno strings) and deps.
     fn register(&self, src: &Path, name: &str, variants: &[&str], deps: &[(&str, &str)]) {
-        let out = self.base.join(format!("pack-out-{name}"));
+        self.register_at(src, name, "0.1", "0.1.0", variants, deps);
+    }
+
+    /// `src_ver` is the pack.toml version the artifacts were built from (the
+    /// .mcl names carry it); `ver` is the metadata row the tree registers.
+    fn register_at(
+        &self,
+        src: &Path,
+        name: &str,
+        ver: &str,
+        src_ver: &str,
+        variants: &[&str],
+        deps: &[(&str, &str)],
+    ) {
+        let out = self.base.join(format!("pack-out-{name}-{ver}"));
         std::fs::create_dir_all(&out).unwrap();
         let (_, stderr, ok) = run_mcc_in(
             &self.base,
@@ -144,13 +162,13 @@ impl Fixture {
         );
         assert!(ok, "packing {name} failed: {stderr}");
 
-        let dir = self.reg.join("dl").join("power").join(name).join("0.1");
+        let dir = self.reg.join("dl").join("power").join(name).join(ver);
         std::fs::create_dir_all(&dir).unwrap();
         let mut thin_sum = String::new();
         let mut full_sum = String::new();
         for (src_name, dst_name, sum) in [
-            (format!("{name}-0.1.0.thin.mcl"), format!("{name}-0.1.thin.mcl"), &mut thin_sum),
-            (format!("{name}-0.1.0.mcl"), format!("{name}-0.1.mcl"), &mut full_sum),
+            (format!("{name}-{src_ver}.thin.mcl"), format!("{name}-{ver}.thin.mcl"), &mut thin_sum),
+            (format!("{name}-{src_ver}.mcl"), format!("{name}-{ver}.mcl"), &mut full_sum),
         ] {
             std::fs::copy(out.join(&src_name), dir.join(&dst_name)).unwrap();
             *sum = format!("sha256:{}", sha256_hex_file(&dir.join(&dst_name)));
@@ -160,15 +178,25 @@ impl Fixture {
             .iter()
             .map(|(d, r)| format!("\"{d}\": \"{r}\""))
             .collect();
-        let meta = format!(
-            "{{\"name\": \"{name}\", \"category\": \"power\", \"versions\": {{\"0.1\": \
-             {{\"checksum\": \"{full_sum}\", \"thin_checksum\": \"{thin_sum}\", \"size\": 1, \
-             \"deps\": {{{}}}, \"variants\": [{}]}}}}}}",
-            deps_json.join(", "),
-            variants_json.join(", "),
-        );
+        // Merge into any existing row (a registry row accumulates versions;
+        // a second registration must never drop the first).
+        let meta_path = self.reg.join("lib").join(format!("{name}.json"));
+        let mut meta: serde_json::Value = std::fs::read_to_string(&meta_path)
+            .ok()
+            .and_then(|t| serde_json::from_str(&t).ok())
+            .unwrap_or_else(|| {
+                serde_json::json!({"name": name, "category": "power", "versions": {}})
+            });
+        let entry = serde_json::json!({
+            "checksum": full_sum,
+            "thin_checksum": thin_sum,
+            "size": 1,
+            "deps": serde_json::from_str::<serde_json::Value>(&format!("{{{}}}", deps_json.join(", "))).unwrap(),
+            "variants": serde_json::from_str::<serde_json::Value>(&format!("[{}]", variants_json.join(", "))).unwrap(),
+        });
+        meta["versions"][ver] = entry;
         std::fs::create_dir_all(self.reg.join("lib")).unwrap();
-        std::fs::write(self.reg.join("lib").join(format!("{name}.json")), meta).unwrap();
+        std::fs::write(&meta_path, serde_json::to_string(&meta).unwrap()).unwrap();
     }
 }
 
@@ -761,4 +789,276 @@ fn http__truncated_artifact_fails_the_checksum_with_no_half_install() {
         "the artifact came over the wire: {:?}",
         srv.log_lines()
     );
+
+// yank: the mark-not-delete withdrawal face (registry-design.md §7④/§5)
+
+/// Register a second version (0.2) of the regtest pack in the tree.
+fn register_second_version(f: &Fixture) {
+    let pack = f.base.join("pack-regtest-02");
+    std::fs::create_dir_all(&pack).unwrap();
+    std::fs::write(pack.join("regtest.mc"), ENTRY).unwrap();
+    std::fs::write(
+        pack.join("pack.toml"),
+        format!(
+            "{}{}",
+            pack_manifest_at("regtest", "regtest.mc", "0.2.0", &[]),
+            variant_section()
+        ),
+    )
+    .unwrap();
+    f.register_at(&pack, "regtest", "0.2", "0.2.0", &["REGTEST-3.3"], &[]);
+}
+
+/// The partno alias row for the regtest pack (both versions carry the
+/// partno, mirroring what publish's alias pass writes).
+fn write_alias_row(f: &Fixture) {
+    let package: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(f.reg.join("lib/regtest.json")).unwrap())
+            .unwrap();
+    let mut alias = package.clone();
+    alias["name"] = serde_json::json!("REGTEST-3.3");
+    alias["package"] = serde_json::json!("regtest");
+    std::fs::write(
+        f.reg.join("lib/REGTEST-3.3.json"),
+        serde_json::to_string(&alias).unwrap(),
+    )
+    .unwrap();
+}
+
+#[test]
+fn yank__marks_rows_regen_search_and_fresh_solve_skips() {
+    let f = fixture("yank-skip", "regtest = \"*\"");
+    register_second_version(&f);
+    write_alias_row(&f);
+
+    let (_, stderr, ok) = in_proj(&f, &["lib", "yank", "regtest", "0.2"]);
+    assert!(ok, "yank failed: {stderr}");
+
+    // Package row + alias row both carry the mark; 0.1 untouched.
+    for row in ["regtest", "REGTEST-3.3"] {
+        let meta: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(f.reg.join("lib").join(format!("{row}.json"))).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(meta["versions"]["0.2"]["yanked"], serde_json::json!(true), "{row} 0.2 marked");
+        assert_ne!(
+            meta["versions"]["0.1"]["yanked"], serde_json::json!(true),
+            "{row} 0.1 untouched"
+        );
+    }
+    // search.json regenerated; latest drops the yanked version.
+    let idx: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(f.reg.join("search.json")).unwrap(),
+    )
+    .unwrap();
+    let row = idx["packages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["name"] == "regtest")
+        .expect("catalog row present");
+    assert_eq!(row["latest"], serde_json::json!("0.1"), "latest drops the yanked 0.2");
+    // Artifacts untouched (mark-not-delete).
+    assert!(f.reg.join("dl/power/regtest/0.2/regtest-0.2.thin.mcl").is_file());
+
+    // A fresh solve skips 0.2: install lands 0.1.
+    let p2 = f.base.join("proj2");
+    std::fs::create_dir_all(p2.join("src")).unwrap();
+    std::fs::write(p2.join("src/main.mc"), "module main()\n{\n}\n").unwrap();
+    std::fs::write(p2.join("project.toml"), f.manifest_for("regtest = \"*\"")).unwrap();
+    let (_, stderr, ok) = run_mcc_in(&p2, &f.root, &["lib", "install", "regtest@*", "--here"]);
+    assert!(ok, "fresh install failed: {stderr}");
+    assert!(p2.join("deps/regtest@0.1").is_dir(), "fresh solve picks the non-yanked 0.1: {stderr}");
+    assert!(!p2.join("deps/regtest@0.2").exists(), "the yanked version is never freshly selected");
+}
+
+#[test]
+fn yank__locked_yanked_still_installs() {
+    let f = fixture("yank-lock", "regtest = \"*\"");
+    register_second_version(&f);
+    // The lock takes the then-highest 0.2; then 0.2 is yanked.
+    let (_, stderr, ok) = in_proj(&f, &["build", "-f", "json"]);
+    assert!(ok, "first build failed: {stderr}");
+    let lock_before = std::fs::read_to_string(f.proj.join("mcode.lock")).unwrap();
+    assert!(lock_before.contains("0.2"), "the lock pinned 0.2: {lock_before}");
+
+    let (_, stderr, ok) = in_proj(&f, &["lib", "yank", "regtest", "0.2"]);
+    assert!(ok, "yank failed: {stderr}");
+
+    // A lock holding the yanked version keeps building with it: the lock
+    // hit is local-first and never re-consults the yank mark — withdrawal
+    // never invalidates an installed pin (reproducibility first).
+    let (_, stderr, ok) = in_proj(&f, &["build", "-f", "json"]);
+    assert!(ok, "locked rebuild with a yanked pin failed: {stderr}");
+    assert!(
+        f.root.join("regtest@0.2").is_dir(),
+        "the locked yanked version stays installed: {stderr}"
+    );
+    let lock_after = std::fs::read_to_string(f.proj.join("mcode.lock")).unwrap();
+    assert_eq!(lock_before, lock_after, "build never rewrites the lock");
+}
+
+#[test]
+fn yank__refuses_unknown_name_or_version() {
+    let f = fixture("yank-refuse", "");
+    let (_, stderr, ok) = in_proj(&f, &["lib", "yank", "nosuch", "0.1"]);
+    assert!(!ok, "an unknown name refuses");
+    assert!(stderr.contains("not in the registry tree"), "names the miss: {stderr}");
+
+    let (_, stderr, ok) = in_proj(&f, &["lib", "yank", "regtest", "9.9"]);
+    assert!(!ok, "an unknown version refuses");
+    assert!(stderr.contains("not in the tree"), "names the known set: {stderr}");
+
+    // Idempotence: a second yank of the same version is a no-op, not an error.
+    let (_, stderr, ok) = in_proj(&f, &["lib", "yank", "regtest", "0.1"]);
+    assert!(ok, "first yank failed: {stderr}");
+    let (_, stderr, ok) = in_proj(&f, &["lib", "yank", "regtest", "0.1"]);
+    assert!(ok, "second yank must be idempotent: {stderr}");
+    assert!(stderr.contains("already yanked"), "says so: {stderr}");
+}
+
+/// A signed tree (publish signed 0.1 through [registry.publish] key): yank
+/// without a usable key refuses BEFORE writing — a stale signature would
+/// turn the row into tamper for every consumer.
+#[test]
+fn yank__signed_tree_without_a_key_refuses_before_writing() {
+    let (f, _keyid, _public) = signed_fixture("yank-nosig", false);
+    let before = std::fs::read_to_string(f.reg.join("lib/regtest.json")).unwrap();
+    let search_before = std::fs::read_to_string(f.reg.join("search.json")).unwrap();
+
+    let (_, stderr, ok) = in_proj(&f, &["lib", "yank", "regtest", "0.1"]);
+    assert!(!ok, "a signed tree without a key refuses");
+    assert!(
+        stderr.contains("stale signature") || stderr.contains("carries a signature"),
+        "names the law: {stderr}"
+    );
+    let after = std::fs::read_to_string(f.reg.join("lib/regtest.json")).unwrap();
+    assert_eq!(before, after, "nothing was written");
+    // No partial write face ran: the catalog is byte-identical too.
+    assert_eq!(
+        search_before,
+        std::fs::read_to_string(f.reg.join("search.json")).unwrap(),
+        "search.json untouched"
+    );
+}
+
+/// The same signed tree, key configured: yank re-signs, and a consumer with
+/// the publisher's key in its trust store verifies the rewritten row.
+#[test]
+fn yank__signed_tree_resigns_and_consumers_verify() {
+    let (f, keyid, public) = signed_fixture("yank-resign", true);
+    let meta_before: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(f.reg.join("lib/regtest.json")).unwrap())
+            .unwrap();
+    assert!(meta_before["versions"]["0.1"]["sig"].is_string(), "publish signed the row");
+
+    let (_, stderr, ok) = in_proj(&f, &["lib", "yank", "regtest", "0.1"]);
+    assert!(ok, "yank with the key configured failed: {stderr}");
+    assert!(stderr.contains("re-signed"), "reports the re-sign: {stderr}");
+
+    let meta: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(f.reg.join("lib/regtest.json")).unwrap())
+            .unwrap();
+    assert_eq!(meta["versions"]["0.1"]["yanked"], serde_json::json!(true));
+    let sig = meta["versions"]["0.1"]["sig"].as_str().unwrap();
+    assert_ne!(
+        sig,
+        meta_before["versions"]["0.1"]["sig"].as_str().unwrap(),
+        "the signature covers the flipped yanked bit"
+    );
+
+    // A consumer trusting the publisher key verifies the rewritten row end
+    // to end: the remote-search read runs verify_meta, and the classification
+    // comes from the trusted key — a broken re-sign would hard-error here.
+    std::fs::create_dir_all(f.root.join("config")).unwrap();
+    std::fs::write(
+        f.root.join("config/trust.toml"),
+        format!("[[keys]]\nkeyid = \"{keyid}\"\npublic = \"{public}\"\n"),
+    )
+    .unwrap();
+    let (_, stderr, ok) = in_proj(&f, &["lib", "search", "--remote", "regtest"]);
+    assert!(ok, "the re-signed row fails the trusted read: {stderr}");
+    assert!(stderr.contains("[verified]"), "the re-signed row classifies verified: {stderr}");
+}
+
+/// A fixture whose tree row was written by a real signed publish: keygen →
+/// [registry.publish] key in the global config → `lib publish --go`. The
+/// publish always signs; `with_key_config` decides whether the key STAYS
+/// configured for the yank that follows (false simulates the key-less
+/// maintainer facing an already-signed tree).
+fn signed_fixture(tag: &str, with_key_config: bool) -> (Fixture, String, String) {
+    let f = fixture(tag, "");
+    // Drop the unsigned hand-written row; publish writes the signed one.
+    std::fs::remove_file(f.reg.join("lib/regtest.json")).unwrap();
+
+    let seed = f.base.join("reg.ed25519");
+    let (_, stderr, ok) = run_mcc_in(&f.base, &f.root, &["lib", "keygen", seed.to_str().unwrap()]);
+    assert!(ok, "keygen failed: {stderr}");
+    let keyid = stderr
+        .split("keyid: ")
+        .nth(1)
+        .and_then(|s| s.split_whitespace().next())
+        .expect("keygen prints the keyid")
+        .to_string();
+    let public = stderr
+        .split("public = \"")
+        .nth(1)
+        .and_then(|s| s.split('"').next())
+        .expect("keygen prints the public key")
+        .to_string();
+
+    let signed_cfg = format!(
+        "registry:\n  url: \"file://{}\"\n  publish:\n    key: \"{}\"\n    transport: \"none\"\n",
+        f.reg.display(),
+        seed.display()
+    );
+    std::fs::create_dir_all(f.root.join("config")).unwrap();
+    std::fs::write(f.root.join("config/mcc.yaml"), &signed_cfg).unwrap();
+
+    let (_, stderr, ok) = run_mcc_in(
+        &f.base,
+        &f.root,
+        &["lib", "publish", f.base.join("pack-regtest").to_str().unwrap(), "--go"],
+    );
+    assert!(ok, "signed publish failed: {stderr}");
+
+    if !with_key_config {
+        // The maintainer lost the key (or a colleague's checkout): the
+        // registry is still configured, the publisher key is not.
+        let url_only = format!("registry:\n  url: \"file://{}\"\n", f.reg.display());
+        std::fs::write(f.root.join("config/mcc.yaml"), url_only).unwrap();
+    }
+    (f, keyid, public)
+}
+
+// clean --cache: the registry metadata cache sweep (registry-design.md §4.6)
+
+#[test]
+fn clean__cache_clears_only_the_registry_meta_cache() {
+    let f = fixture("clean", "regtest = \"*\"");
+    let (_, stderr, ok) = in_proj(&f, &["build", "-f", "json"]);
+    assert!(ok, "build failed: {stderr}");
+    let cache_meta = f.root.join("cache/meta");
+    assert!(cache_meta.is_dir(), "the solve parked a cache row");
+    std::fs::create_dir_all(f.root.join("cache/libparse")).unwrap();
+    std::fs::write(f.root.join("cache/libparse/marker"), "x").unwrap();
+
+    let (_, stderr, ok) = run_mcc_in(&f.proj, &f.root, &["clean", "--cache"]);
+    assert!(ok, "clean --cache failed: {stderr}");
+    assert!(!cache_meta.exists(), "the metadata cache is gone");
+    assert_eq!(
+        std::fs::read_to_string(f.root.join("cache/libparse/marker")).unwrap(),
+        "x",
+        "the U392 libparse cache is out of clean's scope"
+    );
+    assert!(f.root.join("regtest@0.1").is_dir(), "installed packs are untouched");
+
+    // A solve refetches and reparks the cache row; the tree is the truth.
+    let (_, stderr, ok) = in_proj(&f, &["lib", "install", "regtest@*", "--here"]);
+    assert!(ok, "post-clean solve failed: {stderr}");
+    assert!(cache_meta.is_dir(), "the cache reparks");
+
+    let (_, stderr, ok) = run_mcc_in(&f.proj, &f.root, &["clean"]);
+    assert!(!ok, "the bare form is a pending face, not a silent no-op");
+    assert!(stderr.contains("--cache"), "names what exists: {stderr}");
 }

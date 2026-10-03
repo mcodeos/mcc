@@ -25,11 +25,8 @@ use mcc::{LibMeta, RegistrySource, SearchEntry, Tier, VersionMeta};
 
 /// What publish staged (the report the CLI prints).
 struct Delta {
-    name: String,
-    version: String,
     files: Vec<PathBuf>,
     root: PathBuf,
-    signed: bool,
 }
 
 pub fn cmd_publish(source: &str, go: bool) -> Result<()> {
@@ -90,7 +87,7 @@ pub fn cmd_publish(source: &str, go: bool) -> Result<()> {
     let description = pack.package.description.clone();
 
     // ── 3. sign (when the key is configured) ──
-    let key_path = global_publish()?.and_then(|p| p.key).map(PathBuf::from);
+    let key_path = global_publish("lib publish")?.and_then(|p| p.key).map(PathBuf::from);
     let mut vmeta = vmeta;
     let mut signed = false;
     if let Some(key) = &key_path {
@@ -176,12 +173,11 @@ pub fn cmd_publish(source: &str, go: bool) -> Result<()> {
     // file face. An HTTP registry gets the note (the generator runs at the
     // target after transport, mcpub/mksearch.sh).
     if let RegistrySource::File(root) = &src {
-        if let Some(idx) = regenerate_search(root, &delta_root)? {
-            files.push(idx);
-        }
+        let idx = regenerate_search(root, Some(&delta_root))?;
+        files.push(idx);
     }
 
-    let delta = Delta { name: name.clone(), version: version.clone(), files, root: delta_root.clone(), signed };
+    let delta = Delta { files, root: delta_root.clone() };
 
     // ── 6. list, then transport on --go ──
     eprintln!("✓ staged {name}@{version}{} ({} file(s) under {})", if signed { ", signed" } else { ", community (no key configured)" }, delta.files.len(), delta_root.display());
@@ -189,7 +185,7 @@ pub fn cmd_publish(source: &str, go: bool) -> Result<()> {
         eprintln!("  {}", f.display());
     }
     if !go {
-        eprintln!("= dry run: nothing moved. Re-run with --go to apply ([registry.publish] transport = {}).", global_publish()?.and_then(|p| p.transport).unwrap_or_else(|| "none".into()));
+        eprintln!("= dry run: nothing moved. Re-run with --go to apply ([registry.publish] transport = {}).", global_publish("lib publish")?.and_then(|p| p.transport).unwrap_or_else(|| "none".into()));
         return Ok(());
     }
     transport(&src, &delta)
@@ -200,16 +196,17 @@ pub fn cmd_publish(source: &str, go: bool) -> Result<()> {
 /// The publisher config (global mcc.yaml only — publishing is a maintainer
 /// act, never a per-project setting). A config that fails to parse is an
 /// error, never a silent "no key configured" — an unsigned publish must be
-/// a choice, not a config typo.
-fn global_publish() -> Result<Option<mcc::cli::config::PublishConfig>> {
+/// a choice, not a config typo. `lib yank` shares the section (the same key
+/// re-signs the yanked row), hence the verb parameter for the error prefix.
+pub(crate) fn global_publish(verb: &str) -> Result<Option<mcc::cli::config::PublishConfig>> {
     match mcc::cli::config::load_global_config() {
         Ok(c) => Ok(c.registry.publish),
-        Err(e) => Err(anyhow::anyhow!("lib publish: {e:#}")),
+        Err(e) => Err(anyhow::anyhow!("{verb}: {e:#}")),
     }
 }
 
 /// x.y.z → x.y (the repo's canonical two-segment law; shorter passes).
-fn canon_version(v: &str) -> String {
+pub(crate) fn canon_version(v: &str) -> String {
     let segs: Vec<&str> = v.split('.').collect();
     if segs.len() > 2 {
         segs[..2].join(".")
@@ -244,9 +241,11 @@ fn stage_meta(delta_root: &Path, meta: &LibMeta) -> Result<PathBuf> {
 }
 
 /// Regenerate `<tree>/search.json` from the live tree plus the delta rows
-/// (the file-face advantage: the whole catalog is readable). Returns the
-/// staged path.
-fn regenerate_search(tree: &Path, delta_root: &Path) -> Result<Option<PathBuf>> {
+/// (the file-face advantage: the whole catalog is readable). With a delta
+/// root the index is staged there (publish's tree delta); with `None` it is
+/// written straight into the tree (yank mutates in place). Returns the path
+/// written.
+pub(crate) fn regenerate_search(tree: &Path, delta_root: Option<&Path>) -> Result<PathBuf> {
     let lib_dir = tree.join("lib");
     let mut rows: Vec<SearchEntry> = Vec::new();
     let mut collect = |dir: &Path| -> Result<()> {
@@ -285,13 +284,18 @@ fn regenerate_search(tree: &Path, delta_root: &Path) -> Result<Option<PathBuf>> 
     // Delta rows first: dedup keeps the first of each run, and the staged
     // row (this publish's versions included) must win over the tree's stale
     // pre-publish row.
-    collect(&delta_root.join("lib"))?;
+    if let Some(delta) = delta_root {
+        collect(&delta.join("lib"))?;
+    }
     collect(&lib_dir)?;
     rows.sort_by(|a, b| a.name.cmp(&b.name));
     rows.dedup_by(|a, b| a.name == b.name);
-    let to = delta_root.join("search.json");
-    std::fs::write(&to, serde_json::to_string(&serde_json::json!({ "packages": rows }))?);
-    Ok(Some(to))
+    let to = delta_root
+        .map(|d| d.join("search.json"))
+        .unwrap_or_else(|| tree.join("search.json"));
+    let body = serde_json::to_string(&serde_json::json!({ "packages": rows }))?;
+    std::fs::write(&to, body).with_context(|| format!("cannot write {}", to.display()))?;
+    Ok(to)
 }
 
 /// Apply/ship the staged delta (§4.2 step 4): in place for a `file://`
@@ -299,7 +303,7 @@ fn regenerate_search(tree: &Path, delta_root: &Path) -> Result<Option<PathBuf>> 
 /// HTTP registry stops at the staged listing (the generator runs at the
 /// target).
 fn transport(src: &RegistrySource, delta: &Delta) -> Result<()> {
-    let cfg = global_publish()?.unwrap_or_default();
+    let cfg = global_publish("lib publish")?.unwrap_or_default();
     let mode = cfg.transport.as_deref().unwrap_or("none");
     match (src, mode) {
         (RegistrySource::File(root), "none") => {

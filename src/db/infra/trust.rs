@@ -20,50 +20,130 @@
 
 use anyhow::{Context, Result};
 use ed25519_dalek::{Signer, SigningKey, Verifier, VerifyingKey};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::Path;
 
 use crate::db::infra::registry::LibMeta;
 
 /// The trust store (§3): authenticated-publisher public keys, user-extensible.
-/// Distribution defaults to riding the mcc release (§6⑥ suggestion ruling);
-/// entries here take precedence.
+/// Distribution is the §7⑦b dual channel: the factory anchors below ride the
+/// mcc release, and `lib trust update` merges verified rows from the
+/// registry's `/trust.json` into this store. Entries here take precedence
+/// over a factory anchor on a keyid collision.
 pub fn trust_store_path() -> std::path::PathBuf {
     crate::cli::datadir::config_dir().join("trust.toml")
 }
 
-#[derive(Deserialize, Default)]
+#[derive(Deserialize, Serialize, Default)]
 struct TrustFile {
     #[serde(default)]
-    keys: Vec<TrustEntry>,
+    keys: Vec<TrustRow>,
 }
 
-#[derive(Deserialize)]
-struct TrustEntry {
-    keyid: String,
+/// One trust row — the store (`trust.toml [[keys]]`) and the wire
+/// (`/trust.json`) share the shape. `sig`/`signer` are the ⑦b auxiliary
+/// channel's provenance: `sig` = `ed25519:<base64>` over the row's canonical
+/// JSON minus `sig`, made by the `signer` keyid (old key signs new key).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrustRow {
+    pub keyid: String,
     /// 64 hex chars — the raw Ed25519 public key.
-    public: String,
-    #[serde(default)]
-    #[allow(dead_code)]
-    issuer: String,
-    #[serde(default)]
-    #[allow(dead_code)]
-    expires: String,
+    pub public: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub issuer: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sig: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signer: Option<String>,
 }
 
-/// The trust store read: keyid → verifying key. An absent store is the
-/// everything-community state, not an error.
-pub fn trust_keys() -> Result<BTreeMap<String, VerifyingKey>> {
-    let path = trust_store_path();
-    let text = match std::fs::read_to_string(&path) {
-        Ok(t) => t,
-        Err(_) => return Ok(BTreeMap::new()),
+/// A factory trust anchor: a key baked into mcc (the primary distribution
+/// channel — it updates with a release, never over the network). The table
+/// starts empty: no production publisher keys exist yet; the shape is here so
+/// the first anchor is a one-line table entry, not a code change.
+pub struct TrustAnchor {
+    pub keyid: &'static str,
+    /// 64 hex chars — the raw Ed25519 public key.
+    pub public: &'static str,
+}
+
+/// The `/trust.json` wire shape (§7⑦b auxiliary channel): the key table the
+/// registry publishes, rows signed per [`TrustRow`].
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct TrustTable {
+    #[serde(default)]
+    pub keys: Vec<TrustRow>,
+}
+
+/// Fetch a registry's trust table (the `lib trust update` read face): a
+/// `file://` tree reads `<tree>/trust.json`; an HTTP source GETs
+/// `<base>/trust.json`. A missing file/404 is an error naming the endpoint —
+/// a registry that publishes no table is a trust-relevant fact, not a quiet
+/// empty merge.
+pub fn fetch_trust_table(
+    src: &crate::db::infra::registry::RegistrySource,
+) -> Result<TrustTable> {
+    use crate::db::infra::registry::RegistrySource;
+    let text = match src {
+        RegistrySource::File(root) => {
+            let path = root.join("trust.json");
+            if !path.is_file() {
+                anyhow::bail!("the tree carries no trust.json: {}", path.display());
+            }
+            std::fs::read_to_string(&path)
+                .with_context(|| format!("failed to read {}", path.display()))?
+        }
+        RegistrySource::Http { base } => {
+            let resp = match crate::db::infra::httpfetch::get(&format!("{base}/trust.json"), None)
+            {
+                Ok(r) => r,
+                Err(crate::db::infra::httpfetch::FetchError::NotFound) => {
+                    anyhow::bail!("the registry publishes no /trust.json ({base})")
+                }
+                Err(e) => anyhow::bail!("trust table fetch failed: {e}"),
+            };
+            if !(200..300).contains(&resp.status) {
+                anyhow::bail!("trust table fetch failed: HTTP {} for /trust.json", resp.status);
+            }
+            String::from_utf8(resp.body).context("trust.json is not UTF-8")?
+        }
     };
-    let file: TrustFile =
-        toml::from_str(&text).with_context(|| format!("invalid trust store: {}", path.display()))?;
+    serde_json::from_str(&text).with_context(|| "invalid trust.json (expected {\"keys\": […]})".to_string())
+}
+
+/// The factory-anchor table (§7⑦b primary channel). Malformed entries are a
+/// build-time review failure, not a runtime downgrade — the lookup refuses
+/// them loudly.
+pub const FACTORY_ANCHORS: &[TrustAnchor] = &[];
+
+fn anchor_keys() -> Result<BTreeMap<String, VerifyingKey>> {
     let mut map = BTreeMap::new();
-    for entry in file.keys {
+    for a in FACTORY_ANCHORS {
+        let raw = decode_hex(a.public).map_err(|e| {
+            anyhow::anyhow!("factory trust anchor `{}`: bad public key hex: {e}", a.keyid)
+        })?;
+        let bytes: [u8; 32] = raw.try_into().map_err(|_| {
+            anyhow::anyhow!("factory trust anchor `{}`: public key must be 32 bytes", a.keyid)
+        })?;
+        let key = VerifyingKey::from_bytes(&bytes)
+            .map_err(|e| anyhow::anyhow!("factory trust anchor `{}`: {e}", a.keyid))?;
+        map.insert(a.keyid.to_ascii_lowercase(), key);
+    }
+    Ok(map)
+}
+
+/// The trust read: keyid → verifying key, factory anchors merged under the
+/// user store (a stored row wins its keyid). An absent store with no anchors
+/// is the everything-community state, not an error.
+pub fn trust_keys() -> Result<BTreeMap<String, VerifyingKey>> {
+    let mut map = anchor_keys()?;
+    let Some(rows) = trust_store_rows()? else {
+        return Ok(map);
+    };
+    for entry in rows {
         let raw = decode_hex(&entry.public)
             .with_context(|| format!("trust store entry `{}`: bad public key hex", entry.keyid))?;
         let bytes: [u8; 32] = raw
@@ -74,6 +154,81 @@ pub fn trust_keys() -> Result<BTreeMap<String, VerifyingKey>> {
         map.insert(entry.keyid.to_ascii_lowercase(), key);
     }
     Ok(map)
+}
+
+/// The store's own rows (no factory anchors). `None` = no store file.
+pub fn trust_store_rows() -> Result<Option<Vec<TrustRow>>> {
+    let path = trust_store_path();
+    let text = match std::fs::read_to_string(&path) {
+        Ok(t) => t,
+        Err(_) => return Ok(None),
+    };
+    let file: TrustFile =
+        toml::from_str(&text).with_context(|| format!("invalid trust store: {}", path.display()))?;
+    Ok(Some(file.keys))
+}
+
+/// Merge rows into the store: unseen keyids are appended, known keyids keep
+/// the stored row (the user's explicit entry outranks the wire). Atomic
+/// tmp+rename inside the config dir; the toml round-trip drops hand-written
+/// comments (the store is machine-managed once a merge has landed).
+/// Returns how many rows landed.
+pub fn trust_store_merge(rows: &[TrustRow]) -> Result<usize> {
+    if rows.is_empty() {
+        return Ok(0);
+    }
+    let existing = trust_store_rows()?.unwrap_or_default();
+    let mut all = existing;
+    let mut landed = 0;
+    for row in rows {
+        // Keyids are hex digests: compare in the canonical lowercase form
+        // (keyid_of emits lowercase; the wire may carry either case).
+        let kid = row.keyid.to_ascii_lowercase();
+        if all.iter().any(|r| r.keyid.to_ascii_lowercase() == kid) {
+            continue;
+        }
+        all.push(row.clone());
+        landed += 1;
+    }
+    if landed == 0 {
+        return Ok(0);
+    }
+    let body = toml::to_string_pretty(&TrustFile { keys: all })
+        .context("trust store does not serialize")?;
+    let path = trust_store_path();
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).with_context(|| format!("cannot create {}", dir.display()))?;
+    }
+    let tmp = path.with_extension("toml.part");
+    std::fs::write(&tmp, &body).with_context(|| format!("cannot write {}", tmp.display()))?;
+    std::fs::rename(&tmp, &path).with_context(|| format!("cannot move {}", path.display()))?;
+    Ok(landed)
+}
+
+/// One trust row's verification (⑦b auxiliary channel): rebuild the
+/// canonical bytes minus `sig`, check against the signer's key. Failure is a
+/// refused row, never a silent skip.
+pub fn verify_trust_row(row: &TrustRow, key: &VerifyingKey) -> Result<()> {
+    use base64::Engine;
+    let mut value = serde_json::to_value(row).context("trust row does not serialize")?;
+    if let serde_json::Value::Object(map) = &mut value {
+        map.remove("sig");
+    }
+    let msg = canonical_json(&value);
+    let sig = row.sig.as_deref().ok_or_else(|| anyhow::anyhow!("row carries no signature"))?;
+    let raw = base64::engine::general_purpose::STANDARD
+        .decode(sig.strip_prefix("ed25519:").unwrap_or(sig))
+        .with_context(|| format!("row `{}`: signature is not base64", row.keyid))?;
+    let signature = ed25519_dalek::Signature::from_slice(&raw)
+        .map_err(|e| anyhow::anyhow!("row `{}`: malformed signature: {e}", row.keyid))?;
+    key.verify(msg.as_bytes(), &signature).map_err(|_| {
+        anyhow::anyhow!(
+            "row `{}`: signature verification FAILED for signer key {} — refused",
+            row.keyid,
+            row.signer.as_deref().unwrap_or("?")
+        )
+    })?;
+    Ok(())
 }
 
 /// Generate a publishing key pair: the hex seed goes to `path` (0600 — the
