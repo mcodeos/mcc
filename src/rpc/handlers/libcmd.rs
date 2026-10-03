@@ -119,9 +119,16 @@ pub fn handle_lib_search(params: Option<Value>) -> RpcResult {
         for lib in crate::cli::datadir::scan_lib_dir(root) {
             let path = lib.path.to_string_lossy().to_string();
             if lib.name.to_lowercase().contains(&pat) || path.to_lowercase().contains(&pat) {
+                // One-line device description, quoted from the pack face.
+                let description = std::fs::read_to_string(lib.path.join("pack.toml"))
+                    .ok()
+                    .and_then(|t| toml::from_str::<crate::cli::packfile::PackToml>(&t).ok())
+                    .and_then(|p| p.package.description)
+                    .filter(|d| !d.is_empty());
                 results.push(json!({
                     "name": lib.name, "version": lib.version,
                     "path": path, "origin": origin,
+                    "description": description,
                 }));
             }
         }

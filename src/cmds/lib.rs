@@ -24,7 +24,7 @@
 
 use crate::output;
 use anyhow::{Context, Result};
-use mcc::cli::{datadir, manifest::Manifest, LibAction, OutputFormat};
+use mcc::cli::{datadir, manifest::Manifest, packfile, LibAction, OutputFormat};
 use serde::Serialize;
 use serde_json::Value;
 use std::fmt;
@@ -53,6 +53,19 @@ pub struct InstalledLib {
     /// Where this copy lives: `"project"` (`<root>/libs`) or `"global"`
     /// (the data root).
     pub origin: String,
+    /// One-line device description, quoted from the pack's own `pack.toml`
+    /// (`description` — the authority face lives with the library, never in
+    /// project.toml). Absent for legacy installs not yet repacked.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+/// The pack's one-line `description`, read from an installed copy's
+/// pack.toml. Missing file/field is normal (legacy copies) → None.
+fn pack_description(lib_dir: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(lib_dir.join("pack.toml")).ok()?;
+    let pack: packfile::PackToml = toml::from_str(&text).ok()?;
+    pack.package.description.filter(|d| !d.is_empty())
 }
 
 impl fmt::Display for LibListReport {
@@ -76,6 +89,10 @@ impl fmt::Display for LibListReport {
                     lib.origin,
                     lib.path
                 )?;
+                // One-line device note, quoted from the pack face.
+                if let Some(d) = &lib.description {
+                    writeln!(f, "  {:20} {:6} {:8} {}", "", "", "", d)?;
+                }
             }
         }
         // Same name in both tiers: resolution picks the project copy — say so.
@@ -320,20 +337,24 @@ fn scan_installed_merged() -> Vec<InstalledLib> {
     let mut result = Vec::new();
     if let Some(root) = client_project_root() {
         for lib in datadir::scan_lib_dir(&datadir::project_libs_dir(&root)) {
+            let description = pack_description(&lib.path);
             result.push(InstalledLib {
                 name: lib.name,
                 version: lib.version,
                 path: lib.path.to_string_lossy().to_string(),
                 origin: "project".into(),
+                description,
             });
         }
     }
     for lib in datadir::scan_lib_dir(&datadir::data_root()) {
+        let description = pack_description(&lib.path);
         result.push(InstalledLib {
             name: lib.name,
             version: lib.version,
             path: lib.path.to_string_lossy().to_string(),
             origin: "global".into(),
+            description,
         });
     }
     result
